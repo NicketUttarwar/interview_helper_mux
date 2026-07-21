@@ -48,6 +48,33 @@ def transcript_quality_for_ctx(ctx: RunContext) -> dict[str, Any]:
     return out
 
 
+def compact_transcript_for_boundaries(transcript: dict[str, Any]) -> dict[str, Any]:
+    """Strip heavy STT fields (segment tokens, logprobs) before boundary LLM calls."""
+    words_in = transcript.get("words") or []
+    words: list[dict[str, Any]] = []
+    for row in words_in:
+        if not isinstance(row, dict) or not row.get("text"):
+            continue
+        words.append(
+            {
+                "text": row.get("text"),
+                "start_ms": row.get("start_ms"),
+                "end_ms": row.get("end_ms"),
+                "speaker_id": row.get("speaker_id"),
+            }
+        )
+    text = str(transcript.get("text") or "").strip()
+    if not text and words:
+        text = " ".join(str(w.get("text", "")) for w in words)
+    duration_ms = int(words[-1].get("end_ms") or 0) if words else 0
+    return {
+        "text": text,
+        "word_count": len(words),
+        "duration_ms": duration_ms,
+        "words": words,
+    }
+
+
 def attach_disfluency_context(payload: dict[str, Any], ctx: RunContext) -> dict[str, Any]:
     _ = ctx
     return payload

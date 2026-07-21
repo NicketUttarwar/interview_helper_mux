@@ -1,13 +1,10 @@
 import type { OperatorPhase, PipelineSubTab, RunData, StageInfo } from "../types";
 import {
   findPendingFocusStage,
-  getHandoffPathsLocal,
-  handoffBetweenStagesEnabled,
 } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
-import { parseFileCountFromMessage } from "./pendingAction";
 import { resolvePrecleanOffer } from "./preclean";
 import { isStageHidden } from "./stageVisibility";
 export type WorkflowStepStatus = "done" | "active" | "upcoming" | "attention";
@@ -92,50 +89,6 @@ function gateItem(
     primaryLabel: checkpointPrimaryLabel(stage.id, "gate", { clipCount, pickupCount }),
     phase: stagePhase(stage),
     subTab: subTabForStage(stage.id, "gate"),
-  };
-}
-
-function writeApprovalItem(run: RunData, stageId: string, message?: string): AttentionItem {
-  const stage = run.stages.find((s) => s.id === stageId);
-  const fileCount = parseFileCountFromMessage(message);
-  return {
-    kind: "write_approval",
-    priority: 2,
-    stageId,
-    stageTitle: stage?.title || stageId.replace(/_/g, " "),
-    title: fileCount
-      ? `Save all ${fileCount} files before continuing`
-      : "Save all files before continuing",
-    message:
-      message ||
-      `${stage?.title || "This step"} produced outputs that need your approval before writing to disk.`,
-    primaryLabel: checkpointPrimaryLabel(stageId, "write_approval", { fileCount }),
-    phase: stage ? stagePhase(stage) : (run.journey?.phase ?? "prepare"),
-    subTab: "files",
-    fileCount,
-  };
-}
-
-function handoffItem(run: RunData, stage: StageInfo): AttentionItem {
-  const paths = getHandoffPathsLocal(stage, run.log_tail);
-  const pathHint =
-    paths.length > 0
-      ? `Check: ${paths
-          .slice(0, 2)
-          .map((p) => p.split("/").pop())
-          .join(", ")}${paths.length > 2 ? "…" : ""}`
-      : "Check the generated content above, then acknowledge to continue.";
-  return {
-    kind: "handoff",
-    priority: 4,
-    stageId: stage.id,
-    stageTitle: stage.title,
-    title: `${stage.title} finished — review AI outputs`,
-    message: pathHint,
-    primaryLabel: checkpointPrimaryLabel(stage.id, "handoff"),
-    phase: stagePhase(stage),
-    subTab: "files",
-    handoffPaths: paths,
   };
 }
 

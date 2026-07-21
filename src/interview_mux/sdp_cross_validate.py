@@ -191,6 +191,13 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
             errors.append(
                 f"stinger cue rate {stinger_cues / minutes:.2f}/min > stinger_max_per_minute {stinger_cap}"
             )
+    from interview_mux.creative_delivery import (
+        validate_creative_density,
+        validate_cue_segment_anchors,
+    )
+
+    errors.extend(validate_cue_segment_anchors(cues, selection_ids))
+    errors.extend(validate_creative_density(ctx, sdp))
     return errors
 
 

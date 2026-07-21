@@ -69,7 +69,7 @@ describe("resolveOperatorAction", () => {
     expect(a.substepId).not.toBe("write_approval:ingest");
   });
 
-  it("awaiting_write_approval maps to needs_you", () => {
+  it("does not map awaiting_write_approval to needs_you in v2", () => {
     const run = baseRun({
       stages: [
         stage("ingest", "awaiting_write_approval", "Ingest"),
@@ -84,11 +84,9 @@ describe("resolveOperatorAction", () => {
       },
     });
     const a = resolveOperatorAction(run);
-    expect(a.mode).toBe("needs_you");
-    expect(a.substepId).toBe("write_approval:ingest");
+    expect(a.mode).toBe("idle");
+    expect(a.substepId).toBeNull();
     expect(a.modalAutoOpen).toBe(false);
-    expect(a.primaryKind).toBe("open_modal");
-    expect(a.headline).toMatch(/Review Ingest/);
   });
 
   it("stage_reuse maps to needs_you", () => {
@@ -314,7 +312,7 @@ describe("resolveOperatorAction gate branches", () => {
     expect(a.blockingReason).toBe("handoff_review");
   });
 
-  it("write_approval via blocking.reason", () => {
+  it("write_approval via blocking.reason maps to blocked substep", () => {
     const run = baseRun({
       stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
       journey: {
@@ -335,7 +333,7 @@ describe("resolveOperatorAction gate branches", () => {
     });
     const a = resolveOperatorAction(run);
     expect(a.mode).toBe("needs_you");
-    expect(a.substepId).toBe("write_approval:ingest");
+    expect(a.substepId).toBe("blocked:ingest");
   });
 
   it("idle next runnable stage", () => {
@@ -446,7 +444,7 @@ describe("resolveOperatorActionForStage extended", () => {
     expect(a.mode).toBe("locked");
   });
 
-  it("write approval on specific stage", () => {
+  it("awaiting_write_approval stage shows idle run prompt in v2", () => {
     const run = baseRun({
       stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
       job: {
@@ -456,8 +454,8 @@ describe("resolveOperatorActionForStage extended", () => {
       },
     });
     const a = resolveOperatorActionForStage(run, "ingest", {});
-    expect(a.mode).toBe("needs_you");
-    expect(a.subline).toMatch(/2 staged/);
+    expect(a.mode).toBe("idle");
+    expect(a.primaryKind).toBe("run_stage");
   });
 
   it("reuse on transcribe stage", () => {
@@ -544,7 +542,7 @@ describe("copy templates", () => {
     });
   });
 
-  it("ingest write approval headline", () => {
+  it("ingest awaiting_write_approval shows up-next idle headline in v2", () => {
     const run = baseRun({
       stages: [stage("ingest", "awaiting_write_approval", "Ingest")],
       job: {
@@ -554,8 +552,8 @@ describe("copy templates", () => {
       },
     });
     const a = resolveOperatorAction(run);
-    expect(a.headline).toMatch(/Review Ingest outputs before saving/);
-    expect(a.subline).toMatch(/2 staged/);
+    expect(a.headline).toMatch(/Up next: Step 1 — Ingest/);
+    expect(a.subline).toMatch(/Run the next step when you are ready/);
   });
 
   it("transcribe reuse subline includes candidate count", () => {
@@ -592,7 +590,7 @@ describe("copy templates", () => {
     expect(focusStageIdFromAction(run)).toBe("transcript_review");
   });
 
-  it("handoff blocking uses handoff substepId", () => {
+  it("handoff blocking uses blocked substepId in v2", () => {
     const run = baseRun({
       stages: [stage("topic_coverage_audit", "done", "Coverage")],
       journey: {
@@ -607,7 +605,7 @@ describe("copy templates", () => {
       } as RunData["journey"],
     });
     const a = resolveOperatorAction(run);
-    expect(a.substepId).toBe("handoff:topic_coverage_audit");
+    expect(a.substepId).toBe("blocked:topic_coverage_audit");
   });
 
   it("idle run stage shows Run label", () => {

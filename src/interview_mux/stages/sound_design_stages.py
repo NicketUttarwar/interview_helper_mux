@@ -162,6 +162,18 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                 merged["podcast"] = merged["flow1"]
             sdp["flow_plans"] = {k: v for k, v in merged.items() if k != "flow2" or v}
 
+        _normalize_sound_design_assets(sdp)
+        _normalize_chapter_stinger_reuse(sdp)
+        from interview_mux.creative_delivery import hydrate_flow_cue_segments
+
+        actions = hydrate_flow_cue_segments(c, sdp)
+        if actions:
+            c.log(
+                f"Hydrated {len(actions)} SDP cue segment anchor(s)",
+                level="info",
+                stage="sound_design_plan",
+                detail={"actions": actions[:12]},
+            )
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
         write_validated_artifact(
@@ -178,10 +190,45 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         )
 
 
+def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
+    """Clamp SDP asset durations to role bands before prompt craft / generation."""
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+    from interview_mux.mmaudio_runner import clamp_duration_seconds
+
+    sdp = _load_sound_design_plan(ctx)
+    assets = sdp.get("assets") or []
+    changed = False
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        dur = asset.get("duration_seconds")
+        if dur is None:
+            continue
+        role = str(asset.get("role") or "")
+        band = ROLE_DURATION_BANDS.get(role)
+        if band:
+            clamped = max(float(band[0]), min(float(band[1]), float(dur)))
+        else:
+            clamped = clamp_duration_seconds(float(dur), role=role, ctx=ctx)
+        if clamped != float(dur):
+            asset["duration_seconds"] = clamped
+            changed = True
+    if changed:
+        ctx.write_json(_SOUND_DESIGN_PLAN_REL, sdp, skip_handoff=True)
+        ctx.log(
+            "Repaired sound_design_plan asset durations to role bands",
+            level="info",
+            stage="sfx_prompt_craft",
+        )
+    return changed
+
+
 def run_sfx_prompt_craft(ctx: RunContext) -> None:
     if not _sound_design_enabled():
         _mark_skipped(ctx, "sfx_prompt_craft")
         return
+
+    _repair_sdp_asset_durations(ctx)
 
     def build_input(c: RunContext) -> dict:
         sdp = _load_sound_design_plan(c)
@@ -399,6 +446,43 @@ def _attach_palette_provenance(ctx: RunContext, palettes: list[dict]) -> list[di
         out.append(merged)
     return out
 
+def _normalize_chapter_stinger_reuse(sdp: dict) -> None:
+    flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    flow1 = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+    cues = flow1.get("cues") if isinstance(flow1.get("cues"), list) else []
+    chapter_cues = [
+        c
+        for c in cues
+        if isinstance(c, dict) and str(c.get("placement") or "") in {"after_segment", "before_segment"}
+    ]
+    if len(chapter_cues) <= 1:
+        return
+    first_aid = str(chapter_cues[0].get("asset_id") or "")
+    if not first_aid:
+        return
+    for cue in chapter_cues[1:]:
+        cue["asset_id"] = first_aid
+
+
+def _normalize_sound_design_assets(sdp: dict) -> None:
+    palettes = sdp.get("palettes") if isinstance(sdp.get("palettes"), list) else []
+    default_palette = ""
+    for row in palettes:
+        if isinstance(row, dict) and row.get("palette_id"):
+            default_palette = str(row["palette_id"])
+            break
+    if not default_palette:
+        default_palette = "palette_default"
+    assets = sdp.get("assets")
+    if not isinstance(assets, list):
+        return
+    for item in assets:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("palette_id"):
+            item["palette_id"] = default_palette
+
+
 def _validate_sound_design_plan(plan: dict) -> None:
     errors = _sdp_schema_errors(plan)
     if not errors:
@@ -449,7 +533,20 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
         merged = {**row, "asset_id": aid}
         plan_duration = assets_by_id[aid].get("duration_seconds")
         if plan_duration is not None:
-            merged["duration_seconds"] = float(plan_duration)
+            from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+            from interview_mux.mmaudio_runner import clamp_duration_seconds
+
+            role = str(assets_by_id[aid].get("role") or merged.get("role") or "")
+            band = ROLE_DURATION_BANDS.get(role)
+            if band:
+                merged["duration_seconds"] = max(
+                    float(band[0]), min(float(band[1]), float(plan_duration))
+                )
+            else:
+                merged["duration_seconds"] = clamp_duration_seconds(
+                    float(plan_duration),
+                    role=role,
+                )
         by_id[aid] = merged
 
     missing = sorted(set(assets_by_id) - set(by_id))

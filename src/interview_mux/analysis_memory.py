@@ -942,6 +942,10 @@ def hydrate_analysis_state_for_profile_gate(ctx: RunContext) -> bool:
             if not _nested_get(state, "narrative.thesis"):
                 state["narrative"]["thesis"] = brief["thesis"]
                 changed = True
+        if isinstance(brief, dict) and not (state.get("themes") or []) and (brief.get("topics") or []):
+            for topic in brief.get("topics") or []:
+                _upsert_theme(state, topic, source="content_brief_hydrate")
+            changed = True
 
     if changed:
         save_analysis_state(ctx, state, stage="profile_hydrate")

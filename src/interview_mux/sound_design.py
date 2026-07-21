@@ -215,6 +215,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
 
     assembly = ctx.path("master", "assembly.wav")
     with logged_step("mix/export_assembly", ctx=ctx, stage="mix"):
+        assembly.parent.mkdir(parents=True, exist_ok=True)
         mixed.export(str(assembly), format="wav")
         ctx.log(
             f"mix: assembly.wav ready ({len(mixed)} ms, VO + beds + stingers)",
@@ -355,6 +356,7 @@ def mix_flow2(ctx: RunContext) -> Path:
 
     assembly = ctx.path("flow_2_highlights", "assembly.wav")
     with logged_step("mix_flow2/export_assembly", ctx=ctx, stage="mix_flow2"):
+        assembly.parent.mkdir(parents=True, exist_ok=True)
         mix.export(str(assembly), format="wav")
         ctx.log(
             f"mix_flow2: assembly.wav ready (shared transition asset + cold open when planned)",
@@ -499,6 +501,12 @@ def flow1_overlays_from_sdp(
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
         level_db = float(cue.get("level_db", -24.0))
+        from interview_mux.creative_delivery import audibility_level_db
+
+        if placement == "under_segment":
+            level_db = audibility_level_db(role="bed", default=level_db)
+        else:
+            level_db = audibility_level_db(role="stinger", default=level_db)
         from interview_mux.tbiy_mix import apply_pan_position, tbiy_duck_db, tbiy_level_adjustment_db
 
         level_db += tbiy_level_adjustment_db(ctx, cue, asset)
@@ -1056,6 +1064,11 @@ def count_overlay_roles(overlays: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float:
+    from interview_mux.creative_delivery import audibility_level_db, creative_delivery_required
+
+    default_level_db = audibility_level_db(role="bed", default=default_level_db)
+    if creative_delivery_required():
+        return default_level_db
     profile = load_profile(ctx)
     if not isinstance(profile, dict):
         return default_level_db

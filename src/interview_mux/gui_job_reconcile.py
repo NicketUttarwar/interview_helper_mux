@@ -120,6 +120,28 @@ def _mark_stalled(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
 
 def reconcile_stale_write_approval_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     """Clear awaiting_write_approval when staged files were already flushed or discarded."""
+    from interview_mux.v2.config import v2_auto_commit
+
+    if v2_auto_commit() and (
+        str(job.get("status")) == "awaiting_write_approval" or job.get("awaiting_write_approval")
+    ):
+        out = dict(job)
+        stage_id = str(job.get("pending_write_stage") or job.get("stage") or "")
+        out["status"] = "complete"
+        out["message"] = (
+            f"{stage_id.replace('_', ' ')} complete — outputs auto-committed."
+            if stage_id
+            else "Outputs auto-committed — continue to the next stage."
+        )
+        if stage_id:
+            out["stage"] = stage_id
+        out.pop("current_stage", None)
+        out.pop("pending_write_stage", None)
+        out.pop("pending_write_paths", None)
+        out.pop("awaiting_write_approval", None)
+        out.pop("error", None)
+        return out
+
     if str(job.get("status")) != "awaiting_write_approval":
         return job
     from interview_mux.write_staging import list_pending_paths

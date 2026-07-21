@@ -51,6 +51,11 @@ def _duration_band_for_role(role: str | None, *, ctx: RunContext | None = None) 
         band = by_role_cfg.get(key)
         if isinstance(band, list) and len(band) == 2:
             return float(band[0]), float(band[1])
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+
+    band = ROLE_DURATION_BANDS.get(key)
+    if band:
+        return float(band[0]), float(band[1])
     return None
 
 
@@ -61,16 +66,16 @@ def clamp_duration_seconds(
     ctx: RunContext | None = None,
 ) -> float:
     cfg = mmaudio_cfg()
-    min_s = float(cfg.get("min_duration_sec", 3.0))
-    max_s = float(cfg.get("max_duration_sec", 8.0))
+    global_min = float(cfg.get("min_duration_sec", 3.0))
+    global_max = float(cfg.get("max_duration_sec", 8.0))
     duration = float(duration_seconds)
     band = _duration_band_for_role(role, ctx=ctx)
     if band:
-        min_s = max(min_s, float(band[0]))
-        max_s = min(max_s, float(band[1]))
-        if max_s < min_s:
-            max_s = min_s
-    return max(min_s, min(max_s, duration))
+        role_min, role_max = float(band[0]), float(band[1])
+        if role_max < role_min:
+            role_max = role_min
+        return max(role_min, min(role_max, duration))
+    return max(global_min, min(global_max, duration))
 
 
 def apply_prompt_influence_to_text(text: str, prompt_influence: float | None) -> str:

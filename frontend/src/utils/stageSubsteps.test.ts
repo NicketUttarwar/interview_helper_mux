@@ -26,7 +26,7 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("stageSubsteps", () => {
-  it("includes write approval from attention when ingest awaits review", () => {
+  it("omits write approval substep when ingest awaits review (v2 auto-commit)", () => {
     const ingest = stage({
       id: "ingest",
       title: "Ingest",
@@ -50,8 +50,7 @@ describe("stageSubsteps", () => {
     });
     const subs = buildStageSubsteps(ingest, run);
     const writeSub = subs.find((s) => s.kind === "write_approval");
-    expect(writeSub).toBeDefined();
-    expect(writeSub?.status).toBe("todo");
+    expect(writeSub).toBeUndefined();
   });
 
   it("marks running substep when job is active on stage", () => {
@@ -121,7 +120,7 @@ describe("stageSubsteps", () => {
     expect(writeSubs.length).toBeLessThanOrEqual(2);
   });
 
-  it("findActiveSubstep returns first todo or running", () => {
+  it("findActiveSubstep returns null when only write approval would block (v2)", () => {
     const ingest = stage({
       id: "ingest",
       title: "Ingest",
@@ -137,7 +136,7 @@ describe("stageSubsteps", () => {
       },
     });
     const active = findActiveSubstep(run);
-    expect(active?.stageId).toBe("ingest");
+    expect(active).toBeNull();
   });
 
   it("shouldShowRunningConnector between stages when job running", () => {
@@ -180,7 +179,7 @@ describe("stageSubsteps", () => {
     expect(blockedSub?.status).toBe("todo");
   });
 
-  it("shows Saving… on write_approval when actionBusy", () => {
+  it("does not show Saving… on write_approval when disabled (v2)", () => {
     const ingest = stage({
       id: "ingest",
       title: "Ingest",
@@ -197,8 +196,7 @@ describe("stageSubsteps", () => {
     });
     const subs = buildStageSubsteps(ingest, run, { actionBusy: true });
     const writeSub = subs.find((s) => s.kind === "write_approval");
-    expect(writeSub?.status).toBe("running");
-    expect(writeSub?.label).toContain("Saving");
+    expect(writeSub).toBeUndefined();
   });
 
   it("guidanceItemToSubstep maps checkpoint kind", () => {
@@ -251,7 +249,7 @@ describe("stageSubsteps", () => {
     }
   });
 
-  it("findActiveSubstep aligns with resolver substepId for write approval", () => {
+  it("findActiveSubstep does not align with write approval in v2", () => {
     const ingest = stage({
       id: "ingest",
       title: "Ingest",
@@ -268,8 +266,7 @@ describe("stageSubsteps", () => {
     });
     const action = resolveOperatorAction(run);
     const active = findActiveSubstep(run, { jobRunning: false });
-    expect(action.substepId).toBe("write_approval:ingest");
-    expect(active?.kind).toBe("write_approval");
-    expect(active?.id).toBe(`write_approval:${ingest.id}`);
+    expect(action.substepId).toBeNull();
+    expect(active).toBeNull();
   });
 });

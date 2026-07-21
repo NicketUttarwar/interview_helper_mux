@@ -34,7 +34,7 @@ def resolve_stt_model_id(cfg: dict[str, Any] | None = None) -> str:
     if override:
         return override
     sel = load_speech_selection() or {}
-    return str(sel.get("stt_model_id") or "mlx-community/whisper-large-v3-turbo-asr-fp16")
+    return str(sel.get("stt_model_id") or "mlx-community/whisper-large-v3-turbo")
 
 
 def resolve_diarization_mode(cfg: dict[str, Any] | None = None) -> str:

@@ -19,7 +19,7 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("deriveLiveStatusCopy", () => {
-  it("uses resolver subline when write approval is pending", () => {
+  it("uses idle resolver subline when write approval is disabled (v2)", () => {
     const run = minimalRun({
       job: {
         status: "awaiting_write_approval",
@@ -36,7 +36,7 @@ describe("deriveLiveStatusCopy", () => {
       apiGrants: {},
       cmd: { kind: "blocked", statusLine: "Blocked", primaryLabel: null, onPrimary: null },
     });
-    expect(copy.subline).toContain("save");
+    expect(copy.subline).toMatch(/Run the next step when you are ready/);
     expect(copy.activityKind).toBe("blocked");
   });
 

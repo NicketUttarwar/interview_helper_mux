@@ -61,7 +61,7 @@ describe("pipelineAutopilot", () => {
     expect(canAutoRunStage("transcript_review")).toBe(false);
   });
 
-  it("blocks auto-continue while handoff review is pending", () => {
+  it("does not block auto-continue when handoffs disabled (v2)", () => {
     const run = runStub({
       stages: [
         {
@@ -74,8 +74,8 @@ describe("pipelineAutopilot", () => {
         { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
       ],
     });
-    expect(shouldAutoNavigateFromStage(run, "speaker_roles", null)).toBe(false);
-    expect(shouldAutoContinueFromStage(run, "speaker_roles", null)).toBe(false);
+    expect(shouldAutoNavigateFromStage(run, "speaker_roles", null)).toBe(true);
+    expect(shouldAutoContinueFromStage(run, "speaker_roles", null)).toBe(true);
   });
 
   it("auto-navigates but does not auto-run when next stage has stage_reuse blocking", () => {

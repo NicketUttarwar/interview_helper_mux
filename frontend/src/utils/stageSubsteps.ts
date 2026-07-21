@@ -9,7 +9,6 @@ import type {
   SubstepKind,
 } from "../types";
 import { listAttentionItems, type AttentionItem } from "./attentionQueue";
-import { getHandoffPathsLocal } from "./checkpoint";
 import { flattenGuidanceItems } from "./stageGuidance";
 import { isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
 import { isWriteApprovalSaving } from "./jobStatus";
@@ -26,16 +25,9 @@ const USER_ACTION_KINDS = new Set<SubstepKind>([
   "checkpoint",
 ]);
 
-function stageAwaitingWriteApproval(run: RunData | null, stageId: string): boolean {
-  if (!run) return false;
-  const stage = run.stages.find((s) => s.id === stageId);
-  return (
-    stage?.status === "awaiting_write_approval" ||
-    Boolean(
-      run.job?.awaiting_write_approval &&
-        (run.job.pending_write_stage === stageId || run.job.stage === stageId),
-    )
-  );
+function stageAwaitingWriteApproval(_run: RunData | null, _stageId: string): boolean {
+  // v2 auto-commits artifacts — write-approval pauses removed from operator UI.
+  return false;
 }
 
 export interface BuildSubstepsOpts {
@@ -343,10 +335,9 @@ export function buildStageSubsteps(
   return substeps;
 }
 
-function hasUnackedHandoff(stage: StageInfo, run: RunData): boolean {
-  if (stage.status !== "done") return false;
-  const paths = getHandoffPathsLocal(stage, run.log_tail);
-  return paths.length > 0 && !run.handoff_ack?.[stage.id];
+function hasUnackedHandoff(_stage: StageInfo, _run: RunData): boolean {
+  // v2 disables mid-stage AI output handoffs.
+  return false;
 }
 
 export function buildStageProgress(

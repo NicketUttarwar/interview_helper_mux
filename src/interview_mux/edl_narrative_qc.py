@@ -263,8 +263,12 @@ def _validate_gap_placements(
     }
     missing_vo = set((edl.get("warnings") or {}).get("missing_vo_files") or [])
 
+    from interview_mux.gates import vo_gap_line_effectively_optional
+
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or line.get("delivery") != "record":
+            continue
+        if vo_gap_line_effectively_optional(ctx, line):
             continue
         line_id = _as_id(line.get("line_id"))
         target = _as_id(line.get("targets_segment_id"))

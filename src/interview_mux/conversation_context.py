@@ -506,9 +506,9 @@ def attach_conversation_context(
     stage_id: str | None = None,
 ) -> dict[str, Any]:
     """Inject conversation slices appropriate for the target stage."""
-    from interview_mux.custom_run_handoff import active_pipeline_stage
+    from interview_mux.write_staging import active_stage
 
-    sid = stage_id or active_pipeline_stage.get() or ""
+    sid = stage_id or active_stage() or ""
     if not ctx.artifact_exists("understanding/speakers.json"):
         return payload
 

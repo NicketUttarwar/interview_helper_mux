@@ -31,7 +31,7 @@ def test_validate_pre_mix_missing_assets(tmp_path, monkeypatch):
 def test_validate_post_sound_plan_flow2_over_cap(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_sdp_mix_cap")
-    assets = [_sample_asset(f"bed_{i}") for i in range(7)]
+    assets = [_sample_asset(f"bed_{i}") for i in range(9)]
     ctx.write_json(
         "understanding/sound_design_plan.json",
         sound_design_plan_with(assets=assets),

@@ -1,6 +1,5 @@
 import type { StageInfo, StageStep } from "../../types";
 import { GateActions } from "../gates/GateActions";
-import { PrecleanOfferCard } from "../gates/PrecleanOfferCard";
 import { TranscriptDockViewer } from "./TranscriptDockViewer";
 import { NlePanel } from "./NlePanel";
 import { AcousticProfilePanel } from "../gates/AcousticProfilePanel";
@@ -113,9 +112,15 @@ export function StageStepBody({ step, stage }: Props) {
       );
 
     case "preclean":
-      return precleanOffer ? (
-        <PrecleanOfferCard stage={stage} offer={precleanOffer} />
-      ) : null;
+      return (
+        <p className="hint sm">
+          {precleanOffer
+            ? precleanOffer.scope === "g1_vo_pickup"
+              ? "Optional pickup cleaning — use the buttons below to run or skip."
+              : "Optional source cleaning — use the buttons below to run or skip before ingest."
+            : "Pre-clean step complete or not applicable."}
+        </p>
+      );
 
     case "gate":
       return <GateActions stage={stage} />;

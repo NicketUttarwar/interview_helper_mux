@@ -39,6 +39,23 @@ def normalize_aws_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[
     }, speakers
 
 
+def _infer_turn_speakers(words: list[dict[str, Any]], *, gap_ms: int = 700) -> None:
+    """When STT returns one speaker, alternate spk_0/spk_1 on interview-style pauses."""
+    if len(words) < 2:
+        return
+    ids = {w.get("speaker_id") for w in words if w.get("speaker_id")}
+    if len(ids) != 1:
+        return
+    current = "spk_0"
+    words[0]["speaker_id"] = current
+    for i in range(1, len(words)):
+        prev = words[i - 1]
+        gap = int(words[i].get("start_ms") or 0) - int(prev.get("end_ms") or prev.get("start_ms") or 0)
+        if gap >= gap_ms:
+            current = "spk_1" if current == "spk_0" else "spk_0"
+        words[i]["speaker_id"] = current
+
+
 def normalize_local_stt(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Normalize mlx-audio STT tool JSON into transcript/full + speakers contract."""
     words = list(raw.get("words") or [])
@@ -52,6 +69,13 @@ def normalize_local_stt(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         for w in words:
             if not w.get("speaker_id"):
                 w["speaker_id"] = "spk_0"
+    _infer_turn_speakers(words)
+    speaker_ids = sorted({w.get("speaker_id") for w in words if w.get("speaker_id")})
+    if not speaker_ids:
+        speaker_ids = ["spk_0"]
+    for w in words:
+        if not w.get("speaker_id"):
+            w["speaker_id"] = speaker_ids[0]
     speakers = {
         "speakers": [{"id": sid, "role": "unknown"} for sid in speaker_ids if sid],
     }

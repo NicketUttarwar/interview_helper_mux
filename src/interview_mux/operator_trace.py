@@ -20,9 +20,9 @@ def resolve_ctx(ctx: RunContext | None = None) -> RunContext | None:
 def resolve_stage(stage: str | None = None) -> str:
     if stage:
         return stage
-    from interview_mux.custom_run_handoff import active_pipeline_stage
+    from interview_mux.write_staging import active_stage
 
-    return active_pipeline_stage.get() or "pipeline"
+    return active_stage() or "pipeline"
 
 
 def log_step(

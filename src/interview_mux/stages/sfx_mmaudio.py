@@ -128,6 +128,29 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                     "placeholder": True,
                 }
                 continue
+            except Exception as exc:
+                from interview_mux.first_try import allow_placeholder_mix, first_try_mode_enabled
+                from interview_mux.operator_subprocess import LocalCommandError
+
+                if not (
+                    first_try_mode_enabled()
+                    and allow_placeholder_mix()
+                    and isinstance(exc, (LocalCommandError, RuntimeError))
+                ):
+                    raise
+                ctx.log(
+                    f"MMAudio soft-fail (first_try) for {asset_id}: {exc}",
+                    level="warning",
+                    stage=stage,
+                    detail={"asset_id": asset_id, "event": "sfx_soft_fail"},
+                )
+                generation_meta[asset_id] = {
+                    "generation_status": "placeholder",
+                    "plan_hash": plan_hash,
+                    "error": str(exc)[:300],
+                    "placeholder": True,
+                }
+                continue
             _trim_wav_to_duration(out_file, params["duration_seconds"])
             meta["generation_status"] = "pass"
             meta["plan_hash"] = plan_hash

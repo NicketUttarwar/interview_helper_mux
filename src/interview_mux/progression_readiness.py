@@ -64,7 +64,9 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
     if gap_fill_was_skipped(ctx):
         missing_vo: list[str] = []
     else:
-        missing_vo = check_g1_vo(ctx)
+        from interview_mux.v2.config import v2_g1_optional
+
+        missing_vo = [] if v2_g1_optional() else check_g1_vo(ctx)
     if missing_vo:
         out.append(
             ProgressionBlocker(

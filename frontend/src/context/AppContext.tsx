@@ -1007,22 +1007,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 }
               } else if (polled.status === "needs_clarification") {
                 void autoContinuePipelineRef.current(polled.stage ?? null);
-              }
-              if (
-                polled.status === "awaiting_write_approval" ||
-                polled.awaiting_write_approval
-              ) {
-                showToast("Review staged outputs before continuing.", "info");
-                const sid = polled.pending_write_stage || polled.stage;
-                if (sid) {
-                  void selectStage(sid);
-                  expandStage(sid);
-                }
-                userDismissedActionRef.current = false;
-                lastAutoOpenKeyRef.current = null;
-                if (activeTabRef.current === "pipeline") {
-                  setActionModalOpen(true);
-                }
               } else if (
                 polled.status !== "gate" &&
                 polled.status !== "needs_operator"
@@ -1128,12 +1112,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await refreshRun();
           return false;
         }
-        if (res.awaiting_write_approval && res.pending_write_stage) {
-          await selectStage(res.pending_write_stage);
-          expandStage(res.pending_write_stage);
-          await refreshRun();
-          return false;
-        }
         await refreshRun();
         return false;
       }
@@ -1165,7 +1143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return false;
       }
       if (actionBusyRef.current) {
-        showToast("Checkpoint save in progress — watch Activity (Live).", "warning");
+        showToast("Another action is in progress — watch Activity (Live).", "warning");
         return false;
       }
       const { stageId, kind, body } = opts;
@@ -1189,14 +1167,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const job = run?.job;
       if (
         job &&
-        (job.status === "gate" ||
-          job.status === "needs_clarification" ||
-          job.awaiting_write_approval) &&
+        (job.status === "gate" || job.status === "needs_clarification") &&
         job.stage &&
         job.stage !== stageId
       ) {
-        showToast("Finish the open gate or review step before starting another stage.", "warning");
-        await selectStage(job.pending_write_stage || job.stage);
+        showToast("Finish the open gate before starting another stage.", "warning");
+        await selectStage(job.stage);
         return false;
       }
       const label =
@@ -1903,6 +1879,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       appendClientLog(msg, "warning");
     }
   }, [selectedStageId, runId, refreshRun, confirm, appendClientLog]);
+
+  const completeTranscriptReview = useCallback(
+    async (acceptUnreviewed = false) => {
+      if (!runId) return;
+      await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush"]);
+      await api(`/api/runs/${runId}/transcript-review/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
+      });
+      showToast("Transcript review complete");
+      await refreshRun();
+      await advanceFromCheckpoint();
+    },
+    [runId, showToast, refreshRun, advanceFromCheckpoint],
+  );
 
   const loadTranscriptReview = useCallback(async () => {
     if (!runId) return null;

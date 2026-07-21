@@ -78,6 +78,8 @@ def _gap_lines_for_segment(
         return []
     out: list[dict] = []
     for line in gap_report.get("interviewer_lines") or []:
+        if line.get("skipped_optional"):
+            continue
         if line.get("targets_segment_id") != segment_id:
             continue
         if line.get("placement", "before") != placement:
@@ -123,6 +125,8 @@ def build_flow1_edl(
 
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
+            if line.get("skipped_optional"):
+                continue
             if line.get("delivery") != "record":
                 continue
             target = line.get("targets_segment_id", "")
@@ -302,7 +306,16 @@ def run_edl(ctx: RunContext) -> None:
         )
     if warnings.get("missing_vo_files"):
         missing = sorted(set(warnings["missing_vo_files"]))
-        raise RuntimeError(f"edl: gap VO lines missing WAV: {missing}")
+        skipped_ids: set[str] = set()
+        if gap_report:
+            for line in gap_report.get("interviewer_lines") or []:
+                if not isinstance(line, dict) or not line.get("skipped_optional"):
+                    continue
+                skipped_ids.add(str(line.get("line_id") or ""))
+                skipped_ids.add(str(line.get("targets_segment_id") or ""))
+        missing = [mid for mid in missing if mid not in skipped_ids]
+        if missing:
+            raise RuntimeError(f"edl: gap VO lines missing WAV: {missing}")
     if warnings.get("gap_targets_not_in_selection"):
         ctx.log(
             f"EDL: gap targets not in selection order: "

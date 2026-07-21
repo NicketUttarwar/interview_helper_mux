@@ -101,6 +101,13 @@ export function isV2Enabled(config: { v2?: { enabled?: boolean } } | null | unde
   return config?.v2?.enabled !== false;
 }
 
+/** v2 auto-commits stage outputs — write-approval pauses are disabled. */
+export function v2AutoCommitArtifacts(
+  config?: { v2?: { auto_commit_artifacts?: boolean } } | null,
+): boolean {
+  return config?.v2?.auto_commit_artifacts !== false;
+}
+
 export function phaseForStage(stageId: string): V2Phase | undefined {
   return V2_PHASES.find(
     (p) => p.stages.includes(stageId) || p.gate === stageId,

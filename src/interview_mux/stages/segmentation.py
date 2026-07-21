@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from interview_mux.stage_input_helpers import attach_disfluency_context
+from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
 from interview_mux.stage_input_helpers import transcript_quality_for_ctx
 from interview_mux.analysis_memory import load_analysis_state
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
@@ -19,8 +20,9 @@ from interview_mux.stages.analysis_stage import run_analysis_llm_stage
 
 def run_boundaries(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
+        transcript = compact_transcript_for_boundaries(c.read_json("transcript/full.json"))
         payload = {
-            "transcript": c.read_json("transcript/full.json"),
+            "transcript": transcript,
             "speakers": c.read_json("understanding/speakers.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }

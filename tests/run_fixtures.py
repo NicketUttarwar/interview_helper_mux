@@ -23,7 +23,6 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.web.server",
     "interview_mux.gui_session",
     "interview_mux.write_staging",
-    "interview_mux.custom_run_handoff",
     "interview_mux.llm_call_record",
     "interview_mux.llm_calls_gui",
     "interview_mux.journey_orchestrator",

@@ -16,6 +16,15 @@ from interview_mux.run_context import RunContext
 
 GapRule = Callable[[dict[str, Any] | None], list[str]]
 
+_BINARY_ARTIFACT_SUFFIXES = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
+
+
+def _binary_artifact_status(ctx: RunContext, rel_path: str) -> str:
+    from interview_mux.write_staging import resolve_read_path
+
+    path = resolve_read_path(ctx, rel_path)
+    return "complete" if path.is_file() and path.stat().st_size > 1024 else "partial"
+
 @dataclass(frozen=True)
 class Gap:
     path: str
@@ -264,11 +273,13 @@ def artifact_status_for_stage(
     """pending | partial | complete — semantic gaps scoped to the consuming stage."""
     if not ctx.artifact_exists(rel_path):
         return "pending"
-    if rel_path.endswith(".txt"):
+    if rel_path.endswith(".txt") or rel_path.endswith(_BINARY_ARTIFACT_SUFFIXES):
         from interview_mux.write_staging import resolve_read_path
 
-        p = resolve_read_path(ctx, rel_path)
-        return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+        if rel_path.endswith(".txt"):
+            p = resolve_read_path(ctx, rel_path)
+            return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+        return _binary_artifact_status(ctx, rel_path)
     raw = ctx.read_json(rel_path)
     data = raw if isinstance(raw, dict) else None
     from interview_mux.llm_output_resilience import artifact_resilience_partial
@@ -288,11 +299,13 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
     """pending | partial | complete"""
     if not ctx.artifact_exists(rel_path):
         return "pending"
-    if rel_path.endswith(".txt"):
+    if rel_path.endswith(".txt") or rel_path.endswith(_BINARY_ARTIFACT_SUFFIXES):
         from interview_mux.write_staging import resolve_read_path
 
-        p = resolve_read_path(ctx, rel_path)
-        return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+        if rel_path.endswith(".txt"):
+            p = resolve_read_path(ctx, rel_path)
+            return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+        return _binary_artifact_status(ctx, rel_path)
     raw = ctx.read_json(rel_path)
     data = raw if isinstance(raw, dict) else None
     from interview_mux.llm_output_resilience import artifact_resilience_partial

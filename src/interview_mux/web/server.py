@@ -1356,6 +1356,7 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             body = body or {}
             line_ids = body.get("line_ids")
+            force = bool(body.get("force"))
             from interview_mux.delivery_brief import rebuild_delivery_brief
 
             def _line_severity(line: dict[str, Any]) -> str:
@@ -1380,10 +1381,9 @@ def create_app() -> FastAPI:
                 lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
                 if wanted is not None and lid not in wanted:
                     continue
-                if line.get("blocking") is True or _line_severity(line) in {"high", "critical"}:
+                if not force and (_line_requires_vo(line) and (line.get("blocking") is True or _line_severity(line) in {"high", "critical"})):
                     if wanted is None:
                         continue
-                    # Explicit id list can skip medium/low only — never high/critical without override
                     if _line_requires_vo(line):
                         continue
                 line["skipped_optional"] = True
@@ -1392,6 +1392,11 @@ def create_app() -> FastAPI:
                     line["severity"] = "medium"
                 skipped.append(lid)
             ctx.write_json("understanding/gap_report.json", report)
+
+            def _mark_g1_skipped(meta: dict[str, Any]) -> None:
+                meta["g1_vo_skipped_optional"] = True
+
+            ctx.mutate_run_meta(_mark_g1_skipped)
             rebuild_delivery_brief(ctx, reason="g1_skip_optional")
             ctx.log(
                 f"G1 skip-optional: marked {len(skipped)} line(s)",

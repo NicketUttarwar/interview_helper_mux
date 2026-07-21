@@ -9,7 +9,6 @@ from interview_mux.artifact_completeness import (
     analysis_profile_ready_for_review,
     artifact_ready_for_review,
 )
-from interview_mux.custom_run_handoff import pending_handoff_stage
 from interview_mux.gates import (
     check_g1_vo,
     check_profile_gate_pending,
@@ -80,20 +79,19 @@ def test_profile_gate_pending_requires_populated_profile(tmp_path, monkeypatch) 
 
     assert check_profile_gate_pending(ctx)
 
-def test_empty_speakers_json_does_not_trigger_handoff(tmp_path, monkeypatch) -> None:
+def test_empty_speakers_json_no_handoff_pause_v2(tmp_path, monkeypatch) -> None:
+    """v2: handoffs removed — empty speakers never pauses for handoff."""
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext(create=True)
     ctx.path("understanding/speakers.json").parent.mkdir(parents=True, exist_ok=True)
     ctx.path("understanding/speakers.json").write_text("{}", encoding="utf-8")
     ctx.mark_done("speaker_roles")
-    assert pending_handoff_stage(ctx) is None
+    assert not artifact_ready_for_review("understanding/speakers.json", ctx)
 
-def test_complete_speakers_triggers_handoff(tmp_path, monkeypatch) -> None:
+def test_complete_speakers_ready_for_review_v2(tmp_path, monkeypatch) -> None:
+    """v2: complete speakers artifact is review-ready without handoff pause."""
     patch_executions_root(monkeypatch, tmp_path)
-    monkeypatch.setattr("interview_mux.full_autopilot.full_autopilot_enabled", lambda cfg=None: False)
-    monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = RunContext(create=True)
     ctx.write_json("understanding/speakers.json", COMPLETE_SPEAKERS, stage_key="speaker_roles")
     ctx.mark_done("speaker_roles")
-    assert pending_handoff_stage(ctx) == "speaker_roles"
     assert artifact_ready_for_review("understanding/speakers.json", ctx)

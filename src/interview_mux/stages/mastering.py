@@ -77,24 +77,12 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
                 f"duration_s={bus.duration_seconds:.2f}"
             ),
         )
-
-        measured = _ffmpeg_loudnorm_probe(assembly, target=target, true_peak=true_peak)
-        measured["input_i"] = f"{bus.integrated_lufs:.2f}"
-        measured["target_offset"] = loudnorm_offset(target, bus.integrated_lufs)
-
-        loudnorm_filter = (
-            f"loudnorm=I={target}:TP={true_peak}:LRA=11:"
-            f"measured_I={measured['input_i']}:"
-            f"measured_LRA={measured['input_lra']}:"
-            f"measured_TP={measured['input_tp']}:"
-            f"measured_thresh={measured['input_thresh']}:"
-            f"offset={measured['target_offset']}:"
-            "linear=true:print_format=summary"
-        )
+        loudnorm_filter = f"loudnorm=I={target}:TP={true_peak}:LRA=11:print_format=summary"
 
     with logged_step(f"{stage}/loudnorm_render", ctx=ctx, stage=stage):
         from interview_mux.operator_subprocess import run_command
 
+        master.parent.mkdir(parents=True, exist_ok=True)
         run_command(
             [
                 "ffmpeg",
@@ -105,6 +93,12 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
                 str(assembly),
                 "-af",
                 loudnorm_filter,
+                "-ar",
+                "48000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
                 str(master),
             ],
             ctx=ctx,

@@ -35,6 +35,11 @@ def write_approval_enabled() -> bool:
     return not v2_auto_commit()
 
 
+def active_stage() -> str | None:
+    """Stage id currently executing (write staging context)."""
+    return _active_stage.get()
+
+
 def enter_stage_staging(stage_id: str) -> None:
     _active_stage.set(stage_id)
 

@@ -112,6 +112,80 @@ def require_disfluency_review_clear(ctx: RunContext) -> None:
     return
 
 
+def g1_vo_was_skipped_optional(ctx: RunContext) -> bool:
+    """True when the operator skipped optional G1 VO pickup for this run."""
+    if ctx.artifact_exists("run_meta.json"):
+        meta = ctx.read_json("run_meta.json")
+        if isinstance(meta, dict) and meta.get("g1_vo_skipped_optional"):
+            return True
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return False
+    report = ctx.read_json("understanding/gap_report.json")
+    for line in report.get("interviewer_lines") or []:
+        if isinstance(line, dict) and line.get("skipped_optional"):
+            return True
+    return False
+
+
+def _gap_line_has_vo_file(ctx: RunContext, line: dict) -> bool:
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+    if resolve_vo_pickup_path(ctx, line) is not None:
+        return True
+    pickup = ctx.final_path("vo_pickup")
+    lid = str(line.get("line_id") or "")
+    seg = str(line.get("targets_segment_id") or "")
+    return any((pickup / name).is_file() for name in (f"{lid}.wav", f"{seg}.wav") if name)
+
+
+def vo_gap_line_effectively_optional(ctx: RunContext, line: dict) -> bool:
+    """True when a gap VO line should not block downstream narrative QC."""
+    if line.get("skipped_optional"):
+        return True
+    from interview_mux.v2.config import v2_g1_optional
+
+    if not v2_g1_optional():
+        return False
+    delivery = str(line.get("delivery") or "").lower()
+    if delivery not in {"record", "synthesize"}:
+        return False
+    if _gap_line_has_vo_file(ctx, line):
+        return False
+    return g1_vo_was_skipped_optional(ctx)
+
+
+def audit_issue_covers_optional_vo_gap(ctx: RunContext, issue: dict) -> bool:
+    """True when an edl_narrative_audit blocking issue is about skipped/unrecorded VO."""
+    from interview_mux.v2.config import v2_g1_optional
+
+    if not v2_g1_optional():
+        return False
+    text = str(
+        issue.get("issue") or issue.get("summary") or issue.get("reason") or ""
+    ).lower()
+    vo_markers = ("vo", "gap", "missing_question", "pickup", "recorded vo", "vo_ingest")
+    if not any(marker in text for marker in vo_markers):
+        return False
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return g1_vo_was_skipped_optional(ctx)
+    report = ctx.read_json("understanding/gap_report.json")
+    lines = [row for row in (report.get("interviewer_lines") or []) if isinstance(row, dict)]
+    for line in lines:
+        if not vo_gap_line_effectively_optional(ctx, line):
+            continue
+        line_id = str(line.get("line_id") or "")
+        segment_id = str(line.get("targets_segment_id") or "")
+        if (line_id and line_id.lower() in text) or (segment_id and segment_id.lower() in text):
+            return True
+    record_lines = [
+        row
+        for row in lines
+        if str(row.get("delivery") or "").lower() in {"record", "synthesize"}
+    ]
+    optional_lines = [row for row in record_lines if vo_gap_line_effectively_optional(ctx, row)]
+    return bool(record_lines) and len(optional_lines) == len(record_lines)
+
+
 def check_g1_vo(ctx: RunContext) -> list[str]:
     """Return missing line_ids for blocking delivery=record VO (first_try severity filter)."""
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped

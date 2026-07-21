@@ -299,6 +299,33 @@ def repair_manifest_segments(
     return out, applied
 
 
+def _speaker_at_ms(ctx: Any, start_ms: int) -> str | None:
+    if not ctx.artifact_exists("transcript/full.json"):
+        return None
+    try:
+        words = ctx.read_json("transcript/full.json").get("words") or []
+    except Exception:
+        return None
+    best: str | None = None
+    for word in words:
+        if not isinstance(word, dict):
+            continue
+        spk = word.get("speaker_id")
+        if not spk:
+            continue
+        w_start = word.get("start_ms")
+        w_end = word.get("end_ms")
+        if w_start is None:
+            continue
+        if int(w_start) <= start_ms and (w_end is None or int(w_end) >= start_ms):
+            return str(spk)
+        if int(w_start) >= start_ms and best is None:
+            return str(spk)
+        if int(w_start) <= start_ms:
+            best = str(spk)
+    return best
+
+
 def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     from interview_mux.boundary_collate import normalize_boundary_timeline
 
@@ -323,9 +350,21 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         if not isinstance(row, dict):
             continue
         normalized = dict(row)
-        if not normalized.get("speaker_id") and default_spk:
-            normalized["speaker_id"] = default_spk
-            applied.append({"action": "default_value", "path": "speaker_id", "value": default_spk})
+        if not normalized.get("speaker_id"):
+            inferred = None
+            if normalized.get("start_ms") is not None:
+                inferred = _speaker_at_ms(ctx, int(normalized["start_ms"]))
+            spk = inferred or default_spk
+            if spk:
+                normalized["speaker_id"] = spk
+                applied.append(
+                    {
+                        "action": "default_value",
+                        "path": "speaker_id",
+                        "value": spk,
+                        "segment_id": normalized.get("segment_id"),
+                    }
+                )
         hydrated.append(normalized)
 
     normalized_rows, timeline_actions = normalize_boundary_timeline(hydrated)
@@ -598,6 +637,28 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     applied: list[dict[str, Any]] = []
     manifest_ids, _ = _manifest_ids_and_tags(ctx)
     lines = out.get("interviewer_lines")
+    if isinstance(lines, list):
+        cleaned: list[dict[str, Any]] = []
+        for row in lines:
+            if not isinstance(row, dict):
+                continue
+            fixed = dict(row)
+            for key in (
+                "act_context",
+                "trim_hint_ms",
+                "skipped_optional",
+                "blocking",
+                "severity",
+                "suggested_tone",
+                "rationale",
+                "voice_speaker_id",
+            ):
+                if fixed.get(key) is None:
+                    fixed.pop(key, None)
+                    applied.append({"action": "drop_null", "path": key})
+            cleaned.append(fixed)
+        lines = cleaned
+        out["interviewer_lines"] = cleaned
     if isinstance(lines, list) and manifest_ids:
         kept = []
         for row in lines:
@@ -612,6 +673,28 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 applied.append({"action": "default_value", "path": "line_id"})
             kept.append(row)
         out["interviewer_lines"] = kept
+    from interview_mux.gates import g1_vo_was_skipped_optional, vo_gap_line_effectively_optional
+    from interview_mux.v2.config import v2_g1_optional
+
+    if v2_g1_optional() and g1_vo_was_skipped_optional(ctx):
+        lines = out.get("interviewer_lines")
+        if isinstance(lines, list):
+            for row in lines:
+                if not isinstance(row, dict):
+                    continue
+                delivery = str(row.get("delivery") or "").lower()
+                if delivery not in {"record", "synthesize"}:
+                    continue
+                if vo_gap_line_effectively_optional(ctx, row):
+                    if not row.get("skipped_optional"):
+                        row["skipped_optional"] = True
+                        row["blocking"] = False
+                        applied.append(
+                            {
+                                "action": "mark_skipped_optional",
+                                "line_id": row.get("line_id"),
+                            }
+                        )
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -933,6 +1016,42 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
                 continue
             kept.append(row)
         out["issues"] = kept
+    from interview_mux.gates import audit_issue_covers_optional_vo_gap
+    from interview_mux.v2.config import v2_g1_optional
+
+    blocking = out.get("blocking_issues")
+    if isinstance(blocking, list) and v2_g1_optional():
+        kept_blocking: list[dict[str, Any]] = []
+        demoted: list[dict[str, Any]] = []
+        for row in blocking:
+            if isinstance(row, dict) and audit_issue_covers_optional_vo_gap(ctx, row):
+                demoted.append(row)
+                continue
+            if isinstance(row, dict):
+                kept_blocking.append(row)
+        if demoted:
+            warnings = [
+                dict(row)
+                for row in (out.get("warnings") or [])
+                if isinstance(row, dict)
+            ]
+            for row in demoted:
+                warning = dict(row)
+                warning.setdefault(
+                    "issue",
+                    warning.get("issue") or "VO gap skipped (G1 optional)",
+                )
+                warnings.append(warning)
+            out["warnings"] = warnings
+            out["blocking_issues"] = kept_blocking
+            applied.append(
+                {"action": "demote_optional_vo_blocking", "count": len(demoted)}
+            )
+    if out.get("blocking_issues"):
+        out["verdict"] = "fail"
+    elif str(out.get("verdict") or "").lower() == "fail":
+        out["verdict"] = "warn" if out.get("warnings") else "pass"
+        applied.append({"action": "upgrade_verdict", "value": out["verdict"]})
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied

@@ -68,11 +68,9 @@ def _preserve_cross_order_upstream_artifact(
             continue
         if not ctx.is_done(producer):
             continue
-        producer_order = _order_containing(producer)
-        if producer_order is None:
-            continue
-        if tuple(producer_order) != from_order:
-            return True
+        # Upstream stage still valid — keep its committed artifact when only
+        # downstream stages are invalidated (same order or cross-order).
+        return True
     return False
 
 

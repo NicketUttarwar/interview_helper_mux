@@ -45,11 +45,11 @@ describe("resolveStageWorkbenchProgress", () => {
     expect(steps.map((x) => x.id)).toEqual(["review_fillers", "complete_g05"]);
   });
 
-  it("returns review gate spec for disfluency action_required", () => {
+  it("returns no review gate spec for removed disfluency_review stage", () => {
     const s = stage();
     const run = { run_id: "exec_test", stages: [s] } as RunData;
     const progress = resolveStageWorkbenchProgress(run, s, false, null);
-    expect(progress?.reviewGateSpec?.kind).toBe("disfluency_review");
+    expect(progress?.reviewGateSpec).toBeNull();
   });
 
   it("prioritizes artifact clarification before write approval when ITR blocks", () => {

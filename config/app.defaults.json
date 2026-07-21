@@ -96,10 +96,10 @@
     },
     "completeness_gate": {
       "enabled": true,
-      "mode": "warn",
+      "mode": "block",
       "hard_fail_missing_blocking_vo": false,
       "hard_fail_empty_speech": true,
-      "soft_fail_sfx_placeholder": true
+      "soft_fail_sfx_placeholder": false
     },
     "intelligibility_qc": {
       "enabled": false,
@@ -121,36 +121,61 @@
   "sound_design": {
     "enabled": true,
     "allow_diegetic_ambient": false,
-    "post_listen_gate_mode": "warn",
+    "post_listen_gate_mode": "block_mix",
     "max_palettes": 3,
-    "max_assets": 6,
-    "max_assets_flow1": 6,
+    "max_assets": 8,
+    "max_assets_flow1": 8,
     "use_adaptive_caps": true,
     "placement_qa_enabled": true,
-    "block_mix_on_mmaudio_qa_fail": false,
+    "block_mix_on_mmaudio_qa_fail": true,
     "one_regen_on_fail": true,
-    "first_try_allow_placeholder_mix": true
+    "first_try_allow_placeholder_mix": false
   },
   "_comment_soundscape": "Closed-loop soundscape policy (BUILD-SS-01\u202606)",
   "soundscape": {
     "enabled": true,
     "strict_slots": true,
-    "fail_closed": false,
-    "fail_closed_default": false,
+    "fail_closed": true,
+    "fail_closed_default": true,
+    "min_density": {
+      "min_assets": 3,
+      "min_beds": 1,
+      "min_stingers": 3,
+      "min_foley": 1,
+      "min_bed_coverage_ratio": 0.08,
+      "min_audible_bed_level_db": -22,
+      "min_audible_stinger_level_db": -18
+    },
     "remediation": {
       "max_remux_cycles": 1,
       "max_regen_per_asset": 1
     }
   },
+  "_comment_creative_delivery": "Every run must include audible SFX/music and editorial shaping",
+  "creative_delivery": {
+    "required": true,
+    "trim_target": "ideal",
+    "min_trim_segments": 1,
+    "min_excluded_ratio": 0.05
+  },
+  "first_try": {
+    "enabled": true,
+    "allow_placeholder_mix": false
+  },
   "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict \u2014 production values applied in gap-closure GC-F3",
   "production_style": "documentary_interview",
   "production_profiles": {
     "documentary_interview": {
-      "punctuators_enabled": false,
-      "max_assets_flow1": 6,
-      "max_punctuators": 0,
-      "max_beds": 1,
-      "max_foley": 1
+      "punctuators_enabled": true,
+      "max_assets_flow1": 8,
+      "max_punctuators": 4,
+      "max_beds": 3,
+      "max_foley": 2,
+      "mix_overrides": {
+        "bed_under_dialogue_db": -20,
+        "foley_under_dialogue_db": -20,
+        "punctuator_peak_db": -12
+      }
     },
     "tbiy_narrative": {
       "punctuators_enabled": true,
@@ -594,7 +619,7 @@
         "mmaudio_sfx",
         "mix"
       ],
-      "block_mix_without_sfx_when_enabled": false
+      "block_mix_without_sfx_when_enabled": true
     },
     "llm_resilience": {
       "progression_mode": "strict",

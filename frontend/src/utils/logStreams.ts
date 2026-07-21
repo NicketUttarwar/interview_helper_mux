@@ -1,5 +1,4 @@
 import type { JobState, LogEntry, RunData } from "../types";
-import { findHandoffStage } from "./checkpoint";
 import { isJobActivelyRunning } from "./jobStatus";
 import { stageTitleById } from "./logDisplay";
 
@@ -54,22 +53,18 @@ export function resolveFocusStageId(
 ): string | null {
   if (!run) return null;
   const job = run.job;
-  if (
-    job?.status === "awaiting_write_approval" ||
-    job?.awaiting_write_approval
-  ) {
-    return job.pending_write_stage || job.stage || selectedStageId || null;
-  }
   if (job?.needs_stage_reuse && job.stage) {
     return job.stage || selectedStageId || null;
   }
-  const handoff = findHandoffStage(run);
-  if (handoff) return handoff.id;
   if (job?.status === "gate" || job?.status === "needs_operator") {
     return job.stage || selectedStageId || null;
   }
   const actionStage = run.stages.find((s) => s.status === "action_required");
   if (actionStage) return actionStage.id;
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (blocking?.blocked && blocking.stage_id) {
+    return blocking.stage_id;
+  }
   return selectedStageId || null;
 }
 

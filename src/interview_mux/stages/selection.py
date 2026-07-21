@@ -81,9 +81,11 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 artifacts, nle, segments_by_id=by_id
             )
             _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
+        from interview_mux.creative_delivery import enforce_creative_selection_edit
         from interview_mux.selection_auto_pack import auto_pack_selection_to_brief
 
         artifacts = auto_pack_selection_to_brief(c, artifacts, stage="full_master_ranking")
+        artifacts = enforce_creative_selection_edit(c, artifacts, stage="full_master_ranking")
         write_validated_artifact(
             c,
             "master/selection.json",

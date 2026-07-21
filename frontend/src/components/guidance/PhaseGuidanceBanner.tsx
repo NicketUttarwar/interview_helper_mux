@@ -47,9 +47,6 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
             </span>
           ) : null}
         </h3>
-        {flowNote && phase === "create" ? (
-          <p className="hint sm">Showing {String(flowNote).replace("flow", "Flow ")} stages</p>
-        ) : null}
       </div>
       {goal ? <p className="hint phase-guidance-goal">{goal}</p> : null}
       {blocking?.blocked && blocking.message ? (
@@ -101,11 +98,10 @@ export function StartPhaseGuidance() {
   return (
     <section className="phase-guidance-banner panel-inset" aria-label="Start guidance">
       <h3 className="phase-guidance-title">Start</h3>
-      <p className="hint phase-guidance-goal">Pick source audio and optionally set your output type.</p>
+      <p className="hint phase-guidance-goal">Pick one interview WAV from ASSETS/ and click Start.</p>
       <ol className="hint sm start-phase-steps">
-        <li>Select a WAV from ASSETS/input</li>
-        <li>Optionally choose planned output (Flow 1, 2, or 3)</li>
-        <li>Click New execution</li>
+            <li>Select a WAV from ASSETS/</li>
+            <li>Click Start on your chosen file</li>
       </ol>
     </section>
   );

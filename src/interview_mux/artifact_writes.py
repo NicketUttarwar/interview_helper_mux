@@ -41,6 +41,10 @@ def _prepare_segment_artifact(
 
         boundaries = out.get("boundaries") or []
         if isinstance(boundaries, list):
+            from interview_mux.artifact_repairs import repair_boundaries
+
+            out, _repair_actions = repair_boundaries(ctx, out)
+            boundaries = out.get("boundaries") or []
             repaired_rows, _actions = normalize_boundary_rows(
                 [row for row in boundaries if isinstance(row, dict)]
             )

@@ -44,7 +44,7 @@ describe("findPendingFocusStage", () => {
     expect(findPendingFocusStage(run)).toBe("transcribe");
   });
 
-  it("aligns with resolver.stageId for write approval", () => {
+  it("does not focus write approval in v2 (auto_commit_artifacts)", () => {
     const run = minimalRun({
       stages: [
         {
@@ -62,9 +62,9 @@ describe("findPendingFocusStage", () => {
     });
     const focus = findPendingFocusStage(run);
     const action = resolveOperatorAction(run);
-    expect(focus).toBe("ingest");
-    expect(action.stageId).toBe("ingest");
-    expect(action.mode).toBe("needs_you");
+    expect(focus).toBeNull();
+    expect(action.stageId).toBeNull();
+    expect(action.mode).toBe("idle");
   });
 
   it("prefers transcript review gate before later pending automated stages", () => {
@@ -135,7 +135,7 @@ describe("findPendingFocusStage", () => {
     expect(findPendingFocusStage(run)).toBe("interview_spine_build");
   });
 
-  it("prefers unacked handoff when first_try is off and handoffs enabled", () => {
+  it("focuses stage_reuse blocker when handoffs disabled (v2)", () => {
     const run = minimalRun({
       stages: [
         {
@@ -167,7 +167,8 @@ describe("findPendingFocusStage", () => {
         },
       },
     });
-    expect(findPendingFocusStage(run)).toBe("source_acoustic_profile");
+    expect(findHandoffStage(run)).toBeNull();
+    expect(findPendingFocusStage(run)).toBe("interview_spine_build");
   });
 
   it("focuses transcript review when job gate is on STT review prep", () => {

@@ -24,7 +24,7 @@ describe("requiredAttentionKey", () => {
     expect(requiredAttentionKey(baseRun())).toBe("");
   });
 
-  it("includes write approval gates", () => {
+  it("ignores write approval gates in v2 (auto_commit_artifacts)", () => {
     const run = baseRun({
       stages: [stage("ingest", "awaiting_write_approval")],
       job: {
@@ -33,7 +33,8 @@ describe("requiredAttentionKey", () => {
         pending_write_stage: "ingest",
       },
     });
-    expect(requiredAttentionKey(run)).toContain("write_approval:ingest");
+    expect(requiredAttentionKey(run)).not.toContain("write_approval:ingest");
+    expect(requiredAttentionKey(run)).toBe("");
   });
 
   it("includes checkpoint gates", () => {

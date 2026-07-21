@@ -241,8 +241,28 @@ __marimo__/
 #   ASSETS/local_llm/models/, hf_cache/, selection.json, venv/
 #   ASSETS/local_deepfilter/DeepFilterNet/, venv/, install.json
 #   ASSETS/local_mmaudio/MMAudio/, venv/, install.json
+#   ASSETS/local_speech/models/, venv/, selection.json
 # Anchored to repo root — unanchored ASSETS/ matched web/static/assets/ on case-insensitive FS.
 /ASSETS/
 /ASSETS/*
 !/ASSETS/.gitkeep
 /ASSETS/_pytest/
+
+# ML model weights (download via bootstrap — never commit).
+# Canonical paths live under /ASSETS/ (above). These catch manual HF/MMAudio drops at repo root.
+/weights/
+/ext_weights/
+/models/
+/hf_cache/
+.cache/huggingface/
+
+# Weight/checkpoint extensions (safety net outside /ASSETS/ and ignored venvs).
+*.safetensors
+*.gguf
+*.pth
+*.pt
+*.ckpt
+*.onnx
+# HuggingFace legacy PyTorch shards (avoid bare *.bin — too broad for npm .bin stubs).
+pytorch_model*.bin
+model*.safetensors.index.json

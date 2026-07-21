@@ -67,7 +67,7 @@ describe("stageNavStatus", () => {
     expect(stageNavStatus(numbered[0], run, null, null)).toBe("done");
   });
 
-  it("focusStageId matches resolver stageId for write approval", () => {
+  it("does not focus write approval in v2 (auto_commit_artifacts)", () => {
     const ingest = stage({ id: "ingest", title: "Ingest", status: "awaiting_write_approval" });
     const run = minimalRun({
       stages: [ingest],
@@ -79,7 +79,8 @@ describe("stageNavStatus", () => {
     });
     const nav = resolvePipelineNav(run, { selectedStageId: "ingest", jobRunning: false });
     const action = resolveOperatorAction(run, { selectedStageId: "ingest", jobRunning: false });
-    expect(nav.focusStageId).toBe("ingest");
-    expect(action.stageId).toBe("ingest");
+    expect(nav.focusStageId).toBeNull();
+    expect(action.stageId).toBeNull();
+    expect(action.mode).toBe("idle");
   });
 });

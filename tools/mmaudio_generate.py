@@ -101,17 +101,18 @@ def _native_generate(
     seq_cfg.duration = duration
     net.update_seq_lengths(seq_cfg.latent_seq_len, seq_cfg.clip_seq_len, seq_cfg.sync_seq_len)
 
-    audios = generate(
-        clip_frames,
-        sync_frames,
-        [prompt],
-        negative_text=[negative_prompt],
-        feature_utils=feature_utils,
-        net=net,
-        fm=fm,
-        rng=rng,
-        cfg_strength=cfg_strength,
-    )
+    with torch.no_grad():
+        audios = generate(
+            clip_frames,
+            sync_frames,
+            [prompt],
+            negative_text=[negative_prompt],
+            feature_utils=feature_utils,
+            net=net,
+            fm=fm,
+            rng=rng,
+            cfg_strength=cfg_strength,
+        )
     audio = audios.float().cpu()[0]
 
     tmp_flac = output_wav.with_suffix(".mmaudio.flac")

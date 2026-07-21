@@ -97,16 +97,16 @@ def speech_tier_for_ram(ram_gb: float) -> SpeechTier:
         )
     if ram_gb <= 18:
         return SpeechTier(
-            stt_model_id="mlx-community/VibeVoice-ASR-bf16",
-            diarization_mode="integrated",
-            diarization_model_id=None,
+            stt_model_id="mlx-community/whisper-large-v3-turbo",
+            diarization_mode="sortformer",
+            diarization_model_id="mlx-community/diar_sortformer_4spk-v1-fp32",
             s2s_model_id="mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
             capabilities=("stt", "diarization", "synthesize", "convert", "tone", "context"),
         )
     return SpeechTier(
-        stt_model_id="mlx-community/VibeVoice-ASR-bf16",
-        diarization_mode="integrated",
-        diarization_model_id=None,
+        stt_model_id="mlx-community/whisper-large-v3-turbo",
+        diarization_mode="sortformer",
+        diarization_model_id="mlx-community/diar_sortformer_4spk-v1-fp32",
         s2s_model_id="mlx-community/csm-1b",
         capabilities=("stt", "diarization", "synthesize", "convert", "tone", "context"),
     )

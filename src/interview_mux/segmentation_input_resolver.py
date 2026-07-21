@@ -202,8 +202,9 @@ def build_classification_payload(ctx: RunContext) -> dict[str, Any]:
         build_obligation,
         classification_context_cfg,
     )
-    from interview_mux.stage_input_helpers import transcript_quality_for_ctx
     from interview_mux.stage_input_helpers import attach_disfluency_context
+    from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
+    from interview_mux.stage_input_helpers import transcript_quality_for_ctx
     from interview_mux.interview_spine.compact import attach_spine_to_payload
     from interview_mux.conversation_context import attach_conversation_context
     from interview_mux.source_topology import attach_adaptation_to_payload
@@ -216,12 +217,12 @@ def build_classification_payload(ctx: RunContext) -> dict[str, Any]:
     if contract_errors:
         raise ValueError("; ".join(contract_errors[:4]))
 
+    transcript = bundle.transcript if isinstance(bundle.transcript, dict) else {}
     payload: dict[str, Any] = {
         "boundaries": bundle.boundaries,
-        "transcript": bundle.transcript,
+        "transcript": compact_transcript_for_boundaries(transcript),
         "speakers": bundle.speakers,
         "content_brief": bundle.content_brief,
-        "_segmentation_source_paths": bundle.source_paths,
     }
     quality = transcript_quality_for_ctx(ctx)
     if quality:

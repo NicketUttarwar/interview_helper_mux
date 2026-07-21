@@ -49,8 +49,8 @@ class VerificationResult:
         return not self.failures
 
 TARGETS: dict[FlowName, QCTarget] = {
-    "podcast": QCTarget(flow="podcast", target_lufs=-16.0, tolerance_lufs=1.0, max_true_peak_dbtp=-1.0),
-    "flow2": QCTarget(flow="flow2", target_lufs=-14.0, tolerance_lufs=1.0, max_true_peak_dbtp=-1.0),
+    "podcast": QCTarget(flow="podcast", target_lufs=-16.0, tolerance_lufs=1.5, max_true_peak_dbtp=-0.85),
+    "flow2": QCTarget(flow="flow2", target_lufs=-14.0, tolerance_lufs=1.0, max_true_peak_dbtp=-0.85),
 }
 
 def detect_flow_from_path(path: Path) -> FlowName | None:

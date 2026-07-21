@@ -163,16 +163,18 @@ def run_optimal_questions(ctx: RunContext) -> None:
         return attach_adaptation_to_payload(c, payload)
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.artifact_repairs import repair_gap_report
         from interview_mux.artifact_writes import write_validated_artifact
 
+        repaired, _ = repair_gap_report(c, artifacts)
         write_validated_artifact(
             c,
             "understanding/gap_report.json",
-            artifacts,
+            repaired,
             merge_from_disk=True,
             stage_key="optimal_questions",
         )
-        persist_optimal_questions_companion_artifacts(c, artifacts)
+        persist_optimal_questions_companion_artifacts(c, repaired)
 
     with logged_step("optimal_questions/llm_stage", ctx=ctx, stage="optimal_questions"):
         run_analysis_llm_stage(

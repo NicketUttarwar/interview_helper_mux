@@ -289,12 +289,19 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     sonic_mix = sonic.get("mix_policy") if isinstance(sonic.get("mix_policy"), dict) else {}
 
     underscore = _norm_underscore(str(sonic_mix.get("underscore_policy") or sap_mix.get("underscore_policy") or "normal"))
-    if str(sap.get("source_music_risk") or "low") == "high":
+    from interview_mux.creative_delivery import (
+        apply_creative_mix_contract,
+        apply_creative_sfx_density,
+        creative_delivery_required,
+        min_density_cfg,
+    )
+
+    if str(sap.get("source_music_risk") or "low") == "high" and not creative_delivery_required():
         underscore = "skip"
+    dens = _density_from_sources(brief=brief, sonic=sonic, underscore=underscore)
+    dens = apply_creative_sfx_density(dens)
     pacing = sap.get("pacing") if isinstance(sap.get("pacing"), dict) else {}
     pace = _norm_pace(str(pacing.get("pace_class") or "conversational"))
-
-    dens = _density_from_sources(brief=brief, sonic=sonic, underscore=underscore)
 
     duck = float(sap_mix.get("duck_under_speech_db") or 16.0)
     if pace in {"brisk", "dense"}:
@@ -325,6 +332,12 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         "tempo_feel_bpm": sap_mix.get("tempo_feel_bpm"),
         "underscore_policy": underscore if underscore != "sparse_or_skip" else "sparse",
     }
+    mix = apply_creative_mix_contract(mix)
+    if creative_delivery_required():
+        min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.08)
+        coverage = max(coverage, min_cov)
+        mix["max_bed_coverage_ratio"] = coverage
+        underscore = str(mix.get("underscore_policy") or underscore)
     standards = _standards_for_pace(pace, underscore)
     standards["max_bed_coverage_ratio"] = coverage
 
@@ -411,7 +424,9 @@ def resolve_mix_contract(ctx: RunContext) -> dict[str, Any]:
         if mc.get("rhythmic_presence_default") is not None:
             out["rhythmic_presence_default"] = mc["rhythmic_presence_default"]
         out["tempo_feel_bpm"] = mc.get("tempo_feel_bpm")
-        return out
+        from interview_mux.creative_delivery import apply_creative_mix_contract
+
+        return apply_creative_mix_contract(out)
     base = sap_mix_contract(ctx)
     # Expand with SAP raw fields when available
     sap = load_profile(ctx) or {}
@@ -422,7 +437,9 @@ def resolve_mix_contract(ctx: RunContext) -> dict[str, Any]:
         base["midrange_policy"] = raw["midrange_policy"]
     if raw.get("max_bed_coverage_ratio") is not None:
         base["max_bed_coverage_ratio"] = raw["max_bed_coverage_ratio"]
-    return base
+    from interview_mux.creative_delivery import apply_creative_mix_contract
+
+    return apply_creative_mix_contract(base)
 
 
 def compact_for_volley(policy: dict[str, Any] | None) -> dict[str, Any]:

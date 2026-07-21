@@ -20,6 +20,7 @@ from interview_mux.mmaudio_runner import (
 def test_clamp_duration_seconds():
     assert clamp_duration_seconds(1.0) >= 3.0
     assert clamp_duration_seconds(20.0) <= 8.0
+    assert clamp_duration_seconds(3.2, role="chapter_stinger") == 2.5
 
 
 def test_resolve_cfg_strength_explicit_wins():

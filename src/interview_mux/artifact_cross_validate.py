@@ -714,13 +714,25 @@ def _validate_post_transitions_split(ctx: RunContext) -> tuple[list[str], list[s
 
 def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
     verdict = _edl_audit_verdict(ctx)
-    if verdict == "fail":
-        doc = ctx.read_json("master/edl_narrative_audit.json")
-        issues = doc.get("blocking_issues") or [] if isinstance(doc, dict) else []
-        if issues and isinstance(issues[0], dict):
-            return [str(issues[0].get("issue", "edl narrative audit fail"))]
-        return ["edl_narrative_audit verdict is fail"]
-    return []
+    if verdict != "fail":
+        return []
+    from interview_mux.gates import audit_issue_covers_optional_vo_gap
+    from interview_mux.v2.config import v2_g1_optional
+
+    doc = ctx.read_json("master/edl_narrative_audit.json")
+    issues = doc.get("blocking_issues") or [] if isinstance(doc, dict) else []
+    if (
+        v2_g1_optional()
+        and issues
+        and all(
+            isinstance(item, dict) and audit_issue_covers_optional_vo_gap(ctx, item)
+            for item in issues
+        )
+    ):
+        return []
+    if issues and isinstance(issues[0], dict):
+        return [str(issues[0].get("issue", "edl narrative audit fail"))]
+    return ["edl_narrative_audit verdict is fail"]
 
 
 def _validate_post_interview_spine(ctx: RunContext) -> list[str]:

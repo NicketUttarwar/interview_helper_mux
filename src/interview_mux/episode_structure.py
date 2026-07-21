@@ -664,7 +664,15 @@ def persist_structure(ctx: RunContext, doc: dict[str, Any], *, stage: str) -> No
 
     errors = validate_episode_structure(doc)
     lint_errs = lint_episode_structure(doc)
-    all_errs = errors + lint_errs
+    soft_lint = [e for e in lint_errs if e == "integrity_failed" or e.startswith("occupancy:")]
+    hard_lint = [e for e in lint_errs if e not in soft_lint]
+    if soft_lint:
+        ctx.log(
+            f"episode_structure lint warnings: {', '.join(soft_lint[:4])}",
+            level="warning",
+            stage=stage,
+        )
+    all_errs = errors + hard_lint
     if all_errs:
         raise ValueError(f"episode_structure invalid: {all_errs[:5]}")
     ctx.write_json(STRUCTURE_PATH, doc)

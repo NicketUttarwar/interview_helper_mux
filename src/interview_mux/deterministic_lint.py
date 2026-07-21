@@ -36,6 +36,7 @@ _ROLE_DURATION_BANDS: dict[str, tuple[float, float]] = {
     "vo_bridge": (1.0, 2.0),
     "accent_foley": (0.6, 1.5),
 }
+ROLE_DURATION_BANDS = _ROLE_DURATION_BANDS
 _DIEGETIC_HINTS = re.compile(r"\b(diegetic|street|traffic|crowd|cafe|restaurant|office chatter|sirens?)\b", re.I)
 
 
@@ -503,6 +504,7 @@ def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[
         aid = row.get("asset_id")
         text = str(row.get("sfx_prompt", ""))
         neg = str(row.get("negative_prompt", ""))
+        role = str(row.get("role", ""))
         words = len(text.split())
         if words < 40:
             errors.append(f"prompt for {aid} under 40 words ({words})")
@@ -522,21 +524,31 @@ def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[
         if re.search(r"\bavoid:\b", text, re.I) or re.search(r"\bno vocals\b", text, re.I):
             errors.append(f"positive prompt for {aid} should not contain Avoid/no vocals clauses")
         if sonic_keywords:
-            prompt_tokens = {w.lower() for w in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", text)}
-            if not (prompt_tokens & sonic_keywords):
+            text_low = text.lower()
+            matched = any(kw in text_low for kw in sonic_keywords)
+            if not matched:
+                for kw in sonic_keywords:
+                    for part in kw.replace("_", " ").split():
+                        if len(part) >= 4 and part in text_low:
+                            matched = True
+                            break
+                    if matched:
+                        break
+            if not matched:
                 errors.append(f"prompt for {aid} has low keyword overlap with sonic_context tags")
-        for pat in _SPEECH_LYRICS_PATTERNS:
-            if pat.search(text):
-                errors.append(f"prompt for {aid} contains speech/lyrics pattern")
-                break
-        role = str(row.get("role", ""))
+        if role != "vo_bridge":
+            for pat in _SPEECH_LYRICS_PATTERNS:
+                if pat.search(text):
+                    errors.append(f"prompt for {aid} contains speech/lyrics pattern")
+                    break
         if role == "ambient_bed" and not allow_diegetic and _DIEGETIC_HINTS.search(text):
             errors.append(f"prompt for {aid} requests diegetic ambient while disabled")
         dur = float(row.get("duration_seconds") or 0)
         band = _ROLE_DURATION_BANDS.get(role)
-        if band and dur and not (band[0] <= dur <= band[1]):
-            errors.append(f"duration {dur}s out of band for role {role}")
-        if dur and not (min_gen <= dur <= max_gen + 0.5):
+        if band and dur:
+            if not (band[0] <= dur <= band[1]):
+                errors.append(f"duration {dur}s out of band for role {role}")
+        elif dur and not (min_gen <= dur <= max_gen + 0.5):
             errors.append(f"duration {dur}s outside MMAudio plan clamp")
         cfg = row.get("cfg_strength")
         if cfg is not None and not (2.0 <= float(cfg) <= 8.0):

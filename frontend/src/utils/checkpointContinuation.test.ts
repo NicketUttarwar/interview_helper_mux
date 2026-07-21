@@ -82,7 +82,7 @@ describe("patchRunAfterWriteApproval", () => {
 });
 
 describe("advancePipeline", () => {
-  it("focuses write approval step on stage tab when writes pending", async () => {
+  it("focuses next runnable stage when writes pending (v2 auto-commit)", async () => {
     const setActiveStepId = vi.fn();
     const setPipelineSubTab = vi.fn();
     const selectStage = vi.fn().mockResolvedValue(undefined);
@@ -103,9 +103,8 @@ describe("advancePipeline", () => {
       navigateToNextBlocker: vi.fn(),
     });
     expect(started).toBe(false);
-    expect(selectStage).toHaveBeenCalledWith("audio_preclean", { stepId: "write_approval" });
-    expect(setPipelineSubTab).toHaveBeenCalledWith("stage");
-    expect(setActiveStepId).toHaveBeenCalledWith("write_approval");
+    expect(selectStage).toHaveBeenCalledWith("audio_preclean", { stepId: "run" });
+    expect(setActiveStepId).not.toHaveBeenCalledWith("write_approval");
   });
 
   it("focuses next runnable stage after write approval cleared without auto-run", async () => {
@@ -142,7 +141,7 @@ describe("advancePipeline", () => {
     );
   });
 
-  it("waits for handoff acknowledgment before running next stage", async () => {
+  it("auto-runs next stage when handoffs disabled (v2)", async () => {
     const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const selectStage = vi.fn().mockResolvedValue(undefined);
@@ -180,10 +179,10 @@ describe("advancePipeline", () => {
       config: { journey_ui: { auto_advance_pipeline: true } },
       acknowledgeHandoff,
     });
-    expect(started).toBe(false);
+    expect(started).toBe(true);
     expect(acknowledgeHandoff).not.toHaveBeenCalled();
-    expect(executeJob).not.toHaveBeenCalled();
-    expect(selectStage).toHaveBeenCalledWith("speaker_roles", { stepId: "handoff" });
+    expect(executeJob).toHaveBeenCalled();
+    expect(selectStage).toHaveBeenCalledWith("content_context", { stepId: "run" });
   });
 
   it("auto-runs next stage when autopilot enabled", async () => {
@@ -449,7 +448,7 @@ describe("tryAutoContinuePipeline", () => {
     expect(executeJob).not.toHaveBeenCalled();
   });
 
-  it("waits for handoff acknowledgment before auto-continuing", async () => {
+  it("auto-continues when handoffs disabled (v2)", async () => {
     const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
@@ -491,9 +490,9 @@ describe("tryAutoContinuePipeline", () => {
       acknowledgeHandoff,
       config: { journey_ui: { auto_advance_pipeline: true } },
     });
-    expect(started).toBe(false);
+    expect(started).toBe(true);
     expect(acknowledgeHandoff).not.toHaveBeenCalled();
-    expect(executeJob).not.toHaveBeenCalled();
+    expect(executeJob).toHaveBeenCalled();
   });
 });
 
@@ -511,7 +510,7 @@ describe("reconcileBusyRun", () => {
       context: "save",
     });
     expect(result.jobRunning).toBe(false);
-    expect(result.writeApprovalCleared).toBe(true);
+    expect(result.writeApprovalCleared).toBe(false);
   });
 
   it("starts poll when server job is running", async () => {
@@ -535,7 +534,7 @@ describe("reconcileBusyRun", () => {
 });
 
 describe("tryAutopilotCheckpointResolution", () => {
-  it("calls fixAllAndContinueStage when needs_clarification", async () => {
+  it("is disabled in v2 (operator checkpoints require manual action)", async () => {
     const fixAllAndContinueStage = vi.fn().mockResolvedValue(true);
     const run = runStub({
       stages: [
@@ -569,8 +568,8 @@ describe("tryAutopilotCheckpointResolution", () => {
       config: { journey_ui: { auto_advance_pipeline: true, full_autopilot: false } },
       fixAllAndContinueStage,
     });
-    expect(ok).toBe(true);
-    expect(fixAllAndContinueStage).toHaveBeenCalledWith("boundary_detection");
+    expect(ok).toBe(false);
+    expect(fixAllAndContinueStage).not.toHaveBeenCalled();
   });
 });
 

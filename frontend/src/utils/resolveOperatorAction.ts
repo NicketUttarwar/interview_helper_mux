@@ -255,8 +255,7 @@ function runStageBlocked(run: RunData, stageId: string): StageInfo | null {
   const job = run.job;
   if (
     job?.status === "gate" ||
-    job?.status === "needs_clarification" ||
-    job?.awaiting_write_approval
+    job?.status === "needs_clarification"
   ) {
     const gateStage = job.pending_write_stage || job.stage;
     if (gateStage && gateStage !== stageId) {

@@ -263,6 +263,7 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
     if not assets:
         errors.append("SDP assets[] empty before prompt craft")
     from interview_mux.config import merged_config
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
 
     mcfg = merged_config().get("mmaudio") or {}
     min_s = float(mcfg.get("min_duration_sec", 3.0))
@@ -276,7 +277,14 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
         dur = asset.get("duration_seconds")
         if dur is not None:
             d = float(dur)
-            if d < min_s - 0.5 or d > max_s + 0.5:
+            band = ROLE_DURATION_BANDS.get(role)
+            if band:
+                if d < float(band[0]) - 0.1 or d > float(band[1]) + 0.1:
+                    errors.append(
+                        f"SDP asset {asset.get('asset_id')} duration {d}s outside role band "
+                        f"{band[0]}-{band[1]}s"
+                    )
+            elif d < min_s - 0.5 or d > max_s + 0.5:
                 errors.append(
                     f"SDP asset {asset.get('asset_id')} duration {d}s outside MMAudio plan band"
                 )

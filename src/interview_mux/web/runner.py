@@ -252,13 +252,17 @@ class JobRunner:
             pass
         return False
 
-    def _prepare_for_operator_action(self, run_id: str) -> None:
+    def _read_gui_job(self, run_id: str) -> dict[str, Any]:
         if not RunContext.exists(run_id):
             return {}
         try:
-            return RunContext(run_id, create=False).read_json("gui_job.json")
+            ctx = RunContext(run_id, create=False)
+            if ctx.artifact_exists("gui_job.json"):
+                job = ctx.read_json("gui_job.json")
+                return job if isinstance(job, dict) else {}
         except OSError:
-            return {}
+            pass
+        return {}
 
     def _is_operator_pause_job(self, job: dict[str, Any]) -> bool:
         status = job.get("status")

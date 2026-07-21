@@ -24,7 +24,7 @@ describe("attentionQueue", () => {
     expect(items.some((i) => i.kind === "write_approval")).toBe(false);
   });
 
-  it("includes write_approval when job idle and awaiting", () => {
+  it("omits write_approval when job idle and awaiting (v2 auto-commit)", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [stage("ingest", "awaiting_write_approval")],
@@ -36,6 +36,6 @@ describe("attentionQueue", () => {
       },
     };
     const items = listAttentionItems(run);
-    expect(items.some((i) => i.kind === "write_approval")).toBe(true);
+    expect(items.some((i) => i.kind === "write_approval")).toBe(false);
   });
 });

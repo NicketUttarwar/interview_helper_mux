@@ -642,11 +642,12 @@ def _make_chunk(
     confs = [w["confidence"] for w in span_words if w.get("confidence") is not None]
     confidence = round(sum(confs) / len(confs), 4) if confs else 0.0
     text = " ".join(w["text"] for w in span_words if w.get("text"))
+    sid = speaker_id or (span_words[0].get("speaker_id") if span_words else None) or "spk_0"
     return {
         "chunk_id": f"tr_{seq:04d}",
         "start_ms": start_ms,
         "end_ms": end_ms,
-        "speaker_id": speaker_id,
+        "speaker_id": sid,
         "text": text,
         "word_count": len(span_words),
         "confidence": confidence,

@@ -50,11 +50,27 @@ def _segments_to_words(segments: list[Any]) -> list[dict[str, Any]]:
     return words
 
 
-def _transcribe_vibevoice(audio: Path, model_id: str) -> dict[str, Any]:
-    from mlx_audio.stt.utils import load
+def _fallback_whisper_model(model_id: str) -> str:
+    """Pick a mlx-audio STT model known to work with the installed stack."""
+    if "whisper" in model_id.lower():
+        if model_id.endswith("-asr-fp16"):
+            return "mlx-community/whisper-large-v3-turbo"
+        return model_id
+    return "mlx-community/whisper-large-v3-turbo"
 
-    model = load(model_id)
-    result = model.generate(audio=str(audio), max_tokens=8192, temperature=0.0)
+
+def _transcribe_vibevoice(audio: Path, model_id: str) -> dict[str, Any]:
+    try:
+        from mlx_audio.stt.utils import load_model
+    except ImportError as exc:
+        raise RuntimeError(f"mlx_audio missing: {exc}") from exc
+
+    try:
+        model = load_model(model_id)
+    except Exception:
+        return _transcribe_whisper(audio, _fallback_whisper_model(model_id))
+
+    result = model.generate(str(audio), max_tokens=8192, temperature=0.0)
     text = str(getattr(result, "text", "") or "").strip()
     segments = getattr(result, "segments", None) or []
     if not segments and text.startswith("["):
@@ -83,25 +99,63 @@ def _transcribe_vibevoice(audio: Path, model_id: str) -> dict[str, Any]:
     return {"text": text, "words": words, "segments": norm_segments}
 
 
-def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
-    from mlx_audio.stt.generate import generate_transcription
-
-    result = generate_transcription(model=model_id, audio=str(audio))
-    text = str(getattr(result, "text", result) or "").strip()
+def _words_from_whisper_segments(segments: list[Any]) -> list[dict[str, Any]]:
     words: list[dict[str, Any]] = []
-    for item in getattr(result, "words", None) or []:
-        if isinstance(item, dict):
-            start = float(item.get("start", item.get("start_time", 0)))
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        for item in seg.get("words") or []:
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("word") or item.get("text") or "").strip()
+            if not token:
+                continue
+            start = float(item.get("start", item.get("start_time", seg.get("start", 0))))
             end = float(item.get("end", item.get("end_time", start)))
             words.append(
                 {
-                    "text": str(item.get("word") or item.get("text") or ""),
+                    "text": token,
                     "start_ms": int(start * 1000),
                     "end_ms": int(end * 1000),
                     "speaker_id": "spk_0",
-                    "confidence": item.get("confidence"),
+                    "confidence": item.get("probability", item.get("confidence")),
                 }
             )
+    return words
+
+
+def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
+    import contextlib
+    import io
+
+    from mlx_audio.stt.generate import generate_transcription
+
+    model_id = _fallback_whisper_model(model_id)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        result = generate_transcription(
+            model=model_id,
+            audio_path=str(audio),
+            verbose=False,
+            word_timestamps=True,
+        )
+    text = str(getattr(result, "text", result) or "").strip()
+    segments = list(getattr(result, "segments", None) or [])
+    words = _words_from_whisper_segments(segments)
+    if not words:
+        for item in getattr(result, "words", None) or []:
+            if isinstance(item, dict):
+                start = float(item.get("start", item.get("start_time", 0)))
+                end = float(item.get("end", item.get("end_time", start)))
+                words.append(
+                    {
+                        "text": str(item.get("word") or item.get("text") or ""),
+                        "start_ms": int(start * 1000),
+                        "end_ms": int(end * 1000),
+                        "speaker_id": "spk_0",
+                        "confidence": item.get("confidence"),
+                    }
+                )
     if not words and text:
         words = [
             {
@@ -113,7 +167,7 @@ def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
             }
             for tok in text.split()
         ]
-    return {"text": text, "words": words, "segments": []}
+    return {"text": text, "words": words}
 
 
 def transcribe(audio: Path, model_id: str, *, diarization_mode: str) -> dict[str, Any]:

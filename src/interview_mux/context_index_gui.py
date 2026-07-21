@@ -92,26 +92,5 @@ def save_full_context_index(ctx: RunContext, doc: dict[str, Any]) -> dict[str, A
 
 
 def _maybe_invalidate_downstream_acks(ctx: RunContext, entry: dict[str, Any]) -> None:
-    if entry.get("kind") != "stage_conclusion":
-        return
-    src = entry.get("source") or {}
-    stage_key = src.get("stage_key")
-    if not stage_key or stage_key in ("operator", "operator_gui"):
-        return
-    try:
-        from interview_mux.custom_run_handoff import _pipeline_stage_order
-
-        order = _pipeline_stage_order()
-        if stage_key not in order:
-            return
-        start = order.index(stage_key)
-
-        def _patch(meta: dict[str, Any]) -> None:
-            ack = dict(meta.get("handoff_ack") or {})
-            for sid in order[start:]:
-                ack.pop(sid, None)
-            meta["handoff_ack"] = ack
-
-        ctx.mutate_run_meta(_patch)
-    except Exception:
-        pass
+    """v2: handoff acks removed — no downstream invalidation."""
+    return

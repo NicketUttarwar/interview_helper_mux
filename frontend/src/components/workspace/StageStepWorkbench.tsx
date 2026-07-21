@@ -148,11 +148,7 @@ export function StageStepWorkbench() {
   };
 
   const reviewDetailStepId =
-    selectedStage.id === "transcript_review"
-      ? "review_transcript"
-      : selectedStage.id === "disfluency_review"
-        ? "review_fillers"
-        : undefined;
+    selectedStage.id === "transcript_review" ? "review_transcript" : undefined;
 
   return (
     <div className={`panel stage-step-workbench${showDoneShell ? " stage-step-workbench--done" : ""}`}>

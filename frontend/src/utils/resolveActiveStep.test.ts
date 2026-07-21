@@ -18,9 +18,9 @@ function stage(
 
 describe("substepIdToStepId", () => {
   it("maps known substep prefixes", () => {
-    expect(substepIdToStepId("write_approval:ingest")).toBe("write_approval");
+    expect(substepIdToStepId("write_approval:ingest")).toBe("ingest");
     expect(substepIdToStepId("stage_reuse:ingest")).toBe("reuse");
-    expect(substepIdToStepId("handoff:speaker_roles")).toBe("handoff");
+    expect(substepIdToStepId("handoff:speaker_roles")).toBe("speaker_roles");
     expect(substepIdToStepId("run:transcribe")).toBe("run");
   });
 });
@@ -36,7 +36,7 @@ describe("journeySubstepForStage", () => {
 });
 
 describe("resolveFocusStepId", () => {
-  it("focuses write_approval when stage awaits save", () => {
+  it("focuses run step when write approval disabled (v2)", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [
@@ -52,7 +52,7 @@ describe("resolveFocusStepId", () => {
         pending_write_paths: ["ingest/normalized.wav"],
       },
     };
-    expect(resolveFocusStepId(run, "ingest")).toBe("write_approval");
+    expect(resolveFocusStepId(run, "ingest")).toBe("run");
   });
 
   it("focuses reuse when stage_reuse is blocking", () => {
@@ -148,14 +148,14 @@ describe("resolveFocusStepId", () => {
 });
 
 describe("shouldAdvanceStaleStep", () => {
-  it("advances when current step is done", () => {
+  it("does not advance when all workbench steps are done (v2 auto-commit)", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [
         stage("audio_preclean", "awaiting_write_approval", [
           { id: "review_offer", status: "done", kind: "preclean", number: 1, label: "Offer", review: [] },
           { id: "wait_run", status: "done", kind: "run", number: 2, label: "Wait", review: [] },
-          { id: "write_approval", status: "todo", kind: "write_approval", number: 3, label: "Save", review: [] },
+          { id: "write_approval", status: "done", kind: "write_approval", number: 3, label: "Save", review: [] },
         ]),
       ],
       job: {
@@ -164,7 +164,7 @@ describe("shouldAdvanceStaleStep", () => {
         pending_write_paths: ["preclean/isolated.wav"],
       },
     };
-    expect(shouldAdvanceStaleStep(run, "audio_preclean", "review_offer")).toBe("write_approval");
+    expect(shouldAdvanceStaleStep(run, "audio_preclean", "review_offer")).toBeNull();
   });
 
   it("does not advance when operator is reviewing a completed step", () => {
@@ -174,7 +174,7 @@ describe("shouldAdvanceStaleStep", () => {
         stage("audio_preclean", "awaiting_write_approval", [
           { id: "review_offer", status: "done", kind: "preclean", number: 1, label: "Offer", review: [] },
           { id: "wait_run", status: "done", kind: "run", number: 2, label: "Wait", review: [] },
-          { id: "write_approval", status: "todo", kind: "write_approval", number: 3, label: "Save", review: [] },
+          { id: "write_approval", status: "done", kind: "write_approval", number: 3, label: "Save", review: [] },
         ]),
       ],
       job: {

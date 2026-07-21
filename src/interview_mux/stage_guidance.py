@@ -211,23 +211,35 @@ def _latest_stage_attempt(ctx: RunContext, stage_id: str) -> dict[str, Any] | No
         return None
 
 
+def _v2_llm_attempt_cap() -> int:
+    from interview_mux.v2.config import v2_cfg
+
+    return max(1, int(v2_cfg().get("llm_max_attempts", 2)))
+
+
+def _v2_primary_billable_count(ctx: RunContext, stage_id: str) -> int:
+    """Count persisted LLM attempt records for a stage (v2 replaces attempt_budget.py)."""
+    base = ctx.path("understanding", "stage_runs", stage_id)
+    if not base.is_dir():
+        return 0
+    return len(list(base.glob("attempt_*.json")))
+
+
 def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
     """Actionable bullets for budget exhaustion, lint failures, and placement QA."""
     from interview_mux.analysis_memory import load_analysis_state
-    from interview_mux.attempt_budget import max_primary_attempts, primary_attempt_count, primary_billable_count
-    from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS
     from interview_mux.deterministic_lint import lint_remediation_hints
     from interview_mux.llm_preflight import run_preflight
 
     items: list[dict[str, Any]] = []
     if stage_id in LLM_HANDOFF_STAGES:
-        cap = max_primary_attempts(ctx=ctx)
-        billable = primary_billable_count(ctx, stage_id)
+        cap = _v2_llm_attempt_cap()
+        billable = _v2_primary_billable_count(ctx, stage_id)
         if billable >= cap:
             items.append(
                 _guidance_item(
                     "llm_budget",
-                    f"Primary attempt budget exhausted ({billable}/{cap}) — discard staged outputs and re-run",
+                    f"LLM attempt limit reached ({billable}/{cap}) — review errors and re-run this stage",
                     "todo",
                     category="stage_health",
                     kind="run",
@@ -265,36 +277,6 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     "done",
                 )
             )
-    from interview_mux.artifact_issue_triage import blocking_issues_remaining, list_stage_issues, triage_enabled
-
-    if triage_enabled():
-        open_count = blocking_issues_remaining(ctx, stage_id)
-        if open_count:
-            sample = list_stage_issues(ctx, stage_id)
-            hint = ""
-            if sample and isinstance(sample[0], dict):
-                msg = str(sample[0].get("message") or "")
-                if "not in manifest" in msg.lower():
-                    hint = " — check boundary_detection / segment_classification"
-                elif "thesis" in msg.lower():
-                    hint = " — re-run content_context"
-            items.append(
-                _guidance_item(
-                    "artifact_clarification",
-                    f"{open_count} validation issue(s) (layer: itr) need clarification before save{hint}",
-                    "todo",
-                    category="stage_health",
-                )
-            )
-        for it in list_stage_issues(ctx, stage_id):
-            if it.get("status") == "auto_fixed":
-                items.append(
-                    _guidance_item(
-                        "itr_auto_fixed",
-                        f"Auto-fixed: {str(it.get('message', ''))[:100]}",
-                        "done",
-                    )
-                )
     if stage_id == "content_context":
         pf_errors = run_preflight("content_context", ctx)
         if any(
@@ -329,6 +311,8 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                     category="stage_health",
                 )
             )
+    from interview_mux.artifact_cross_validate import STAGE_CHECKPOINTS
+
     checkpoint = STAGE_CHECKPOINTS.get(stage_id)
     if checkpoint and stage_id in LLM_HANDOFF_STAGES:
         items.append(

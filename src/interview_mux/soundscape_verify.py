@@ -97,6 +97,8 @@ def _min_bed_level_db(ctx: RunContext) -> float | None:
 
 
 def evaluate_soundscape(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.creative_delivery import creative_delivery_required, min_density_cfg
+
     policy = load_policy(ctx)
     contract = resolve_mix_contract(ctx)
     standards = (policy or {}).get("standards") if isinstance(policy, dict) else {}
@@ -124,6 +126,18 @@ def evaluate_soundscape(ctx: RunContext) -> dict[str, Any]:
     underscore = str(contract.get("underscore_policy") or "normal")
     if underscore in {"skip", "sparse_or_skip"} and counts["beds"] > 0:
         failures.append(f"beds={counts['beds']} while underscore={underscore}")
+
+    if creative_delivery_required():
+        mins = min_density_cfg()
+        min_beds = int(mins.get("min_beds") or 1)
+        min_stingers = int(mins.get("min_stingers") or 3)
+        min_cov = float(mins.get("min_bed_coverage_ratio") or 0.08)
+        if counts["beds"] < min_beds:
+            failures.append(f"active_beds {counts['beds']} < min {min_beds}")
+        if counts["stingers"] < min_stingers:
+            failures.append(f"active_stingers {counts['stingers']} < min {min_stingers}")
+        if coverage + 0.001 < min_cov:
+            failures.append(f"bed_coverage {coverage:.2f} < min {min_cov:.2f}")
 
     verdict = "pass" if not failures else "fail"
     return {

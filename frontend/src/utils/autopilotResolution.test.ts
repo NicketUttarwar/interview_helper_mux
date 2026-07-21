@@ -5,7 +5,6 @@ import {
   canAttemptAutopilotFixAll,
   clearAutopilotCheckpointAttempts,
   recordAutopilotFixAllAttempt,
-  recordAutopilotWriteApprovalAttempt,
   resolveAutopilotCheckpoint,
   autopilotHidesReviewGate,
 } from "./autopilotResolution";
@@ -112,7 +111,7 @@ describe("autopilotResolution", () => {
     });
   });
 
-  it("does not auto fix_all when full_autopilot is enabled", () => {
+  it("resolves fix_all regardless of full_autopilot flag (v2)", () => {
     const run = runStub({
       job: {
         status: "needs_clarification",
@@ -129,16 +128,10 @@ describe("autopilotResolution", () => {
         },
       },
     });
-    expect(resolveAutopilotCheckpoint(run, { journey_ui: { full_autopilot: true } })).toBeNull();
-  });
-
-  it("limits write-approval attempts per stage", () => {
-    const checkpoint = { kind: "write_approval" as const, stageId: "boundary_detection" };
-    expect(canAttemptAutopilotCheckpoint("exec_test", checkpoint)).toBe(true);
-    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
-    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
-    recordAutopilotWriteApprovalAttempt("exec_test", "boundary_detection");
-    expect(canAttemptAutopilotCheckpoint("exec_test", checkpoint)).toBe(false);
+    expect(resolveAutopilotCheckpoint(run, { journey_ui: { full_autopilot: true } })).toEqual({
+      kind: "fix_all",
+      stageId: "boundary_detection",
+    });
   });
 
   it("limits fix-all attempts per stage", () => {
