@@ -477,6 +477,15 @@ Timeline authority + boundary/classification hardening — `segment_timeline_sta
 | `enforce_field_parity` | `true` | Assert manifest/boundary field parity at collate, hydrate, paired save |
 | `drop_orphan_manifest_rows` | `true` | Drop manifest rows not in `segment_contract` on hydrate |
 | `boundary_proactive_decompose_pace_classes` | `["calm","brisk"]` | Pace classes eligible for proactive boundary decompose |
+| `default_granularity` | `"fine"` | Global segmentation granularity (`fine` \| `standard` \| `coarse`) |
+| `max_segment_duration_ms` | `null` | Force-split spans longer than this (operator-tuned; unset = no cap) |
+| `min_segment_duration_ms` | `4000` | Floor to prevent word-level slivers |
+| `split_backchannels` | `true` | Deterministic split of brief interviewer turns during answers |
+| `backchannel_max_words` | `8` | Max words for a splittable backchannel turn |
+| `prefer_topic_splits` | `true` | Prefer `topic_shift` over pause-only splits in enrich pass |
+| `boundary_merge_threshold_ms` | `200` | Micro-boundary merge floor in fine mode (via `boundary_collate_cfg`) |
+| `micro_segment_lint_max` | `400` | Base boundary-count lint ceiling (scales with duration on long interviews) |
+| `min_bed_segment_ms_fine` | `6000` | Minimum segment duration for ambient bed slots in fine mode |
 
 ## `analysis.duration_policy`
 

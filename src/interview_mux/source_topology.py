@@ -181,15 +181,10 @@ def classify_topology(stats: list[dict[str, Any]], speakers_doc: dict[str, Any])
 
 
 def _segmentation_policy(topology_class: str) -> dict[str, Any]:
-    policies = {
-        "monologue_heavy": {"granularity": "coarse", "allow_micro_segments": False, "resegment_pass": False},
-        "multi_idea_sparse_host": {"granularity": "fine", "allow_micro_segments": True, "resegment_pass": True},
-        "panel_multi_guest": {"granularity": "standard", "allow_micro_segments": False, "resegment_pass": False},
-        "co_host_frame": {"granularity": "standard", "allow_micro_segments": False, "resegment_pass": False},
-        "one_on_one_balanced": {"granularity": "standard", "allow_micro_segments": False, "resegment_pass": False},
-        "one_on_one_asymmetric": {"granularity": "standard", "allow_micro_segments": False, "resegment_pass": False},
-    }
-    return dict(policies.get(topology_class, policies["one_on_one_asymmetric"]))
+    from interview_mux.segment_timeline_standard import resolved_segmentation_policy
+
+    _ = topology_class
+    return resolved_segmentation_policy()
 
 
 def _ranking_weights(topology_class: str) -> dict[str, float]:

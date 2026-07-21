@@ -65,6 +65,10 @@ STAGE_REVIEW: dict[str, list[str]] = {
         "Topics have segment_ids",
         "Topic relationships are present",
     ],
+    "boundary_topic_resplit": [
+        "Overloaded segments split at topic boundaries",
+        "Timeline remains monotonic after resplit",
+    ],
     "sonic_context_build": ["Scenario posture looks plausible for this interview"],
     "sound_design_palettes": ["Palettes are grounded to segment_ids"],
     "missing_framing": [

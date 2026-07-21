@@ -31,4 +31,9 @@
 **ok_with_light_bridge** — `seg_018` shifts topic but prior sentence in same segment gives enough context.
 - `self_explanatory: true`, `gap_type: ok_with_light_bridge`, `severity: low`
 
-**Do not** mark every answer as missing_question when the interviewer setup exists in an adjacent segment.
+**Good — Q + reaction + answer (no missing_question)**
+
+- `seg_010` interviewer_question → `seg_011` interviewer_reaction ("yeah") → `seg_012` interviewee_answer referencing the question.
+- Score `seg_012` as `self_explanatory: true` or `ok_with_light_bridge` — look through `seg_011` to find `seg_010`.
+
+**Do not** mark every answer as missing_question when the interviewer setup exists in an adjacent segment (including across `interviewer_reaction` segments).

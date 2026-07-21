@@ -109,7 +109,7 @@ Place this stage artifact inside the required envelope as `artifacts`. Preserve 
 When `disfluency_catalog` is present in stage input:
 
 - Segments with `confirmed_events` where `include_in_restore: true` may splice filler micro-clips into assembly — **no** `chapter_stinger` or `accent_foley` cue anchored on those micro-segments or their immediate pause tails.
-- Do not place stingers on `interviewer_reaction` segments or sub-second backchannels.
+- Fine-grain segmentation: `after_segment` stingers and `vo_bridge` cues **may** anchor on `interviewer_reaction` boundaries when they separate answer blocks — use for VO bridges between movable segments.
 - If disfluency restore abuts VO pickup, stagger cue: VO bridge first, stinger ≥500 ms later on chapter boundary only.
 
 ### VO timing (gap_report)

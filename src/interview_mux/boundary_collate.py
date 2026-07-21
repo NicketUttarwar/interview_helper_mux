@@ -11,11 +11,15 @@ from interview_mux.segment_timeline import sort_segments_by_start_ms
 def boundary_collate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     analysis = (cfg or merged_config()).get("analysis") or {}
     itr = analysis.get("artifact_issue_triage") or {}
+    seg = analysis.get("segmentation") or {}
+    merge_default = int(seg.get("boundary_merge_threshold_ms") or itr.get("boundary_merge_threshold_ms") or 500)
     return {
         "snap_tolerance_ms": int(itr.get("boundary_snap_tolerance_ms") or 500),
-        "merge_threshold_ms": int(itr.get("boundary_merge_threshold_ms") or 500),
+        "merge_threshold_ms": merge_default,
         "coarse_partition_min_children": int(itr.get("boundary_coarse_partition_min_children") or 2),
         "coarse_coverage_ratio": float(itr.get("boundary_coarse_coverage_ratio") or 0.85),
+        "min_segment_duration_ms": int(seg.get("min_segment_duration_ms") or 4000),
+        "granularity": str(seg.get("default_granularity") or "fine"),
     }
 
 
@@ -223,6 +227,8 @@ def _merge_micro_boundaries(
     rows: list[dict[str, Any]],
     *,
     merge_threshold_ms: int,
+    min_segment_duration_ms: int = 4000,
+    granularity: str = "fine",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     applied: list[dict[str, Any]] = []
     if not rows:
@@ -230,6 +236,9 @@ def _merge_micro_boundaries(
     merged: list[dict[str, Any]] = [dict(rows[0])]
     for row in rows[1:]:
         span = _row_span(row)
+        if granularity == "fine" and span >= min_segment_duration_ms:
+            merged.append(dict(row))
+            continue
         if span < merge_threshold_ms and merged:
             prev = merged[-1]
             prev["end_ms"] = max(int(prev.get("end_ms", 0)), int(row.get("end_ms", 0)))
@@ -482,6 +491,8 @@ def normalize_boundary_timeline(
     merge_threshold = int(settings["merge_threshold_ms"])
     min_children = int(settings["coarse_partition_min_children"])
     coverage_ratio = float(settings["coarse_coverage_ratio"])
+    min_seg_ms = int(settings.get("min_segment_duration_ms") or 4000)
+    granularity = str(settings.get("granularity") or "fine")
 
     valid = [
         dict(row)
@@ -518,7 +529,12 @@ def normalize_boundary_timeline(
     snapped, snap_actions = _snap_monotonic_timeline(filtered, snap_tolerance_ms=snap_tol)
     applied.extend(snap_actions)
 
-    merged, merge_actions = _merge_micro_boundaries(snapped, merge_threshold_ms=merge_threshold)
+    merged, merge_actions = _merge_micro_boundaries(
+        snapped,
+        merge_threshold_ms=merge_threshold,
+        min_segment_duration_ms=min_seg_ms,
+        granularity=granularity,
+    )
     applied.extend(merge_actions)
 
     return _renumber_segment_ids(merged), applied

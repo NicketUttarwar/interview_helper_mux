@@ -287,9 +287,16 @@ def _lint_boundary_detection(artifacts: dict[str, Any], ctx: RunContext) -> list
         return errors
     duration_ms = _transcript_duration_ms(ctx)
     from interview_mux.interview_duration_policy import boundary_micro_segment_min_ms
+    from interview_mux.segment_timeline_standard import segmentation_cfg
 
-    if duration_ms > boundary_micro_segment_min_ms() and len(boundaries) > 200:
-        errors.append("micro-segment explosion (>200 boundaries on long interview)")
+    seg_cfg = segmentation_cfg()
+    lint_max = int(seg_cfg.get("micro_segment_lint_max") or 400)
+    if duration_ms > boundary_micro_segment_min_ms():
+        scaled_max = max(lint_max, int(duration_ms / 60_000) * lint_max // 2)
+        if len(boundaries) > scaled_max:
+            errors.append(f"micro-segment explosion (>{scaled_max} boundaries on long interview)")
+    elif len(boundaries) > lint_max * 4:
+        errors.append(f"micro-segment explosion (>{lint_max * 4} boundaries)")
     from interview_mux.interview_spine.config import spine_enabled
     from interview_mux.segment_timeline import validate_boundary_rows, segment_timeline_cfg
 

@@ -1196,6 +1196,7 @@ class JobRunner:
             "source_acoustic_profile",
             "content_context",
             "content_brief_reanchor",
+            "boundary_topic_resplit",
             "segment_classification",
             "sound_design_palettes",
             "sonic_context_build",

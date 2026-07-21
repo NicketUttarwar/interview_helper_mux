@@ -39,6 +39,7 @@ PHASES: list[dict[str, Any]] = [
             "boundary_detection",
             "segment_classification",
             "content_brief_reanchor",
+            "boundary_topic_resplit",
             "sonic_context_build",
             "sound_design_palettes",
             "delivery_brief_build",

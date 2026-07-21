@@ -367,7 +367,21 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 )
         hydrated.append(normalized)
 
-    normalized_rows, timeline_actions = normalize_boundary_timeline(hydrated)
+    transcript = ctx.read_json("transcript/full.json") if ctx.artifact_exists("transcript/full.json") else None
+    content_brief = ctx.read_json("understanding/content_brief.json") if ctx.artifact_exists("understanding/content_brief.json") else None
+    manifest = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else None
+    from interview_mux.boundary_enrich import enrich_boundary_rows
+
+    enriched, enrich_actions = enrich_boundary_rows(
+        hydrated,
+        transcript=transcript if isinstance(transcript, dict) else None,
+        speakers_doc=speakers_doc if isinstance(speakers_doc, dict) else None,
+        content_brief=content_brief if isinstance(content_brief, dict) else None,
+        manifest=manifest if isinstance(manifest, dict) else None,
+    )
+    applied.extend(enrich_actions)
+
+    normalized_rows, timeline_actions = normalize_boundary_timeline(enriched)
     applied.extend(timeline_actions)
     out["boundaries"] = normalized_rows
     for entry in applied:
@@ -1067,7 +1081,7 @@ def apply_repairs_for_stage(
     rel = rel_path or STAGE_ARTIFACT_DISK_PATHS.get(stage_key) or ""
     if rel.endswith("manifest.json") or stage_key == "segment_classification":
         return repair_manifest_segments(ctx, artifacts)
-    if rel.endswith("boundaries.json") or stage_key == "boundary_detection":
+    if rel.endswith("boundaries.json") or stage_key in ("boundary_detection", "boundary_topic_resplit"):
         return repair_boundaries(ctx, artifacts)
     if rel.endswith("speakers.json") or stage_key == "speaker_roles":
         return repair_speakers(ctx, artifacts)

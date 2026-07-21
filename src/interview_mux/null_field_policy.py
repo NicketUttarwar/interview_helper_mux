@@ -20,6 +20,7 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
         {"thesis", "topics", "topics[].name", "topics[].summary", "topics[].segment_ids"}
     ),
     "boundary_detection": frozenset({"boundaries"}),
+    "boundary_topic_resplit": frozenset({"boundaries"}),
     "segment_classification": frozenset({"segments", "segments[].segment_id", "segments[].type"}),
     "missing_framing": frozenset({"evaluations"}),
     "optimal_questions": frozenset({"gaps"}),
@@ -77,6 +78,7 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
         }
     ),
     "boundary_detection": frozenset({"warnings", "notes"}),
+    "boundary_topic_resplit": frozenset({"warnings", "notes"}),
     "segment_classification": frozenset({"segments[].topic_tags", "segments[].notes"}),
     "missing_framing": frozenset({"evaluations[].notes"}),
     "optimal_questions": frozenset({"gaps[].notes"}),

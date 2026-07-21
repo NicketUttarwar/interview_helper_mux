@@ -49,6 +49,7 @@ def _warn_only_lint(ctx: RunContext, stage_key: str, envelope: dict[str, Any]) -
 
         checkpoint = {
             "content_brief_reanchor": "post_reanchor",
+            "boundary_topic_resplit": "post_boundary_detection",
             "boundary_detection": "post_boundary_detection",
             "segment_classification": "post_segmentation",
         }.get(stage_key)

@@ -168,6 +168,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "mux_flow1": ("master/assembly.wav",),
     "sonic_context_build": ("understanding/sonic_context.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
+    "boundary_topic_resplit": ("segments/boundaries.json",),
 }
 
 

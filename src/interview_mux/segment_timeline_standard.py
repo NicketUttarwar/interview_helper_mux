@@ -25,8 +25,43 @@ def segmentation_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "drop_orphan_manifest_rows": True,
         "enforce_canonical_segment_id_format": True,
         "boundary_proactive_decompose_pace_classes": ["calm", "brisk"],
+        "default_granularity": "fine",
+        "max_segment_duration_ms": None,
+        "min_segment_duration_ms": 4000,
+        "split_backchannels": True,
+        "backchannel_max_words": 8,
+        "prefer_topic_splits": True,
+        "boundary_merge_threshold_ms": 200,
+        "micro_segment_lint_max": 400,
+        "min_bed_segment_ms_fine": 6000,
     }
     return {**defaults, **raw}
+
+
+def segmentation_granularity(cfg: dict[str, Any] | None = None) -> str:
+    return str(segmentation_cfg(cfg).get("default_granularity") or "fine")
+
+
+def is_fine_granularity(cfg: dict[str, Any] | None = None) -> bool:
+    return segmentation_granularity(cfg) == "fine"
+
+
+def resolved_segmentation_policy(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Merge config defaults into flow_adaptation-style segmentation_policy."""
+    sc = segmentation_cfg(cfg)
+    granularity = str(sc.get("default_granularity") or "fine")
+    fine = granularity == "fine"
+    return {
+        "granularity": granularity,
+        "allow_micro_segments": fine or granularity == "standard",
+        "resegment_pass": fine,
+        "max_segment_duration_ms": sc.get("max_segment_duration_ms"),
+        "min_segment_duration_ms": int(sc.get("min_segment_duration_ms") or 4000),
+        "split_backchannels": bool(sc.get("split_backchannels", True)),
+        "backchannel_max_words": int(sc.get("backchannel_max_words") or 8),
+        "prefer_topic_splits": bool(sc.get("prefer_topic_splits", True)),
+        "boundary_merge_threshold_ms": int(sc.get("boundary_merge_threshold_ms") or 200),
+    }
 
 
 def normalize_boundary_rows(

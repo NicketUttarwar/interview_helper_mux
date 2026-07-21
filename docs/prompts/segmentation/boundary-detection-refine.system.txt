@@ -1,7 +1,18 @@
-Refine segment boundaries for multi-idea sparse sources after content_context.
+Refine segment boundaries after content_brief_reanchor when `flow_adaptation.segmentation_policy.resegment_pass` is true.
 
-When `flow_adaptation.segmentation_policy.resegment_pass` is true, split overloaded segments into `micro_idea_unit` candidates using fine pause ladder (400 ms).
+Split **overloaded** segments — any `segment_id` that:
+- Appears in multiple `content_brief.topics[].segment_ids`, or
+- Carries multiple distinct `topic_tags` in `segments/manifest.json`, or
+- Exceeds `segmentation_policy.max_segment_duration_ms`
 
-Merge boundaries in chronological order; preserve speaker_id; no overlapping ranges.
+Use reanchored `content_brief.topics`, `key_claims`, and manifest `topic_tags` to align splits to idea boundaries. Prefer `proposed_split_reason: topic_shift` over pause-only splits.
 
-Use content_brief topics and key_claims to align splits to idea boundaries.
+When splitting, use the fine pause ladder (400 ms) inside overloaded spans. Merge boundaries in chronological order; preserve `speaker_id`; no overlapping ranges.
+
+Do not:
+- Re-merge interviewer backchannels into answer segments.
+- Drop segments below `segmentation_policy.min_segment_duration_ms`.
+
+Schema: same as boundary_detection — `artifacts.boundaries` + `artifacts.warnings`.
+
+Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`, `question_answer_pair`.

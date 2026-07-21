@@ -69,6 +69,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),
         "segment_classification": lambda: segmentation.run_classification(ctx),
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
+        "boundary_topic_resplit": lambda: segmentation.run_boundary_topic_resplit(ctx),
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
         "missing_framing": lambda: _run_missing_framing_stage(ctx),

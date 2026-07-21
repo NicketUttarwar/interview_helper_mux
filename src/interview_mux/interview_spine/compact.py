@@ -59,19 +59,28 @@ def rank_boundary_events(
     pace_class: str = "conversational",
     oversplit: bool = False,
     cap: int | None = None,
+    fine_granularity: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Spread-ranked selection of boundary events for volley (not head-biased)."""
+    from interview_mux.segment_timeline_standard import is_fine_granularity
+
     effective_cap = cap if cap is not None else BOUNDARY_VOLLEY_MAX_SPINE_EVENTS
     if len(events) <= effective_cap:
         return list(events)
     spread_cap = volley_spine_event_cap(len(events))
     effective_cap = min(effective_cap, spread_cap) if spread_cap > 0 else effective_cap
-    prefer_long = pace_class in ("calm", "dense") or oversplit
+    fine = is_fine_granularity() if fine_granularity is None else fine_granularity
+    prefer_long = (pace_class in ("calm", "dense") or oversplit) and not fine
 
     def _score(ev: dict[str, Any]) -> float:
         tier = int(ev.get("threshold_ms") or ev.get("pause_ms") or 0)
         score = float(ev.get("confidence") or 0.5)
-        if prefer_long:
+        if fine:
+            if tier <= 400:
+                score += 1.5
+            elif tier >= 700:
+                score += 0.5
+        elif prefer_long:
             if tier >= 1200:
                 score += 2.0
             elif tier >= 700:

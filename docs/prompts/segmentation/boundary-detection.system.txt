@@ -2,23 +2,27 @@ Propose segment boundaries on the transcript with word-level timestamps (see tas
 
 Gap-fill: when `gap_fill_context.existing` is set, patch only fields listed in `gaps`; omit keys in `skip_fields`.
 
-A segment is a contiguous time range with one communicative intent (one question, one answer block, one setup, etc.).
+A segment is a **movable edit block**: one coherent idea, one question, one answer span, one setup, one backchannel turn, etc. Maximize edit-ready segments for reordering, gap VO, and SFX — without word-level fragmentation.
 
 Rules:
-- Prefer splits at pauses using `pause_ladder_hints` in stage input (400 / 700 / 1200 ms ladders).
-- When `pause_ladder_hints.ladder_guidance` is present, follow its pace_class rules (calm → deprioritize 400 ms; dense → prefer 700/1200 ms before 400 ms).
+- Use `flow_adaptation.segmentation_policy` and `segmentation_policy` in stage input when present (granularity, max/min duration, split_backchannels).
+- **Topic splits (required):** cross-reference `content_brief.topics[]` names/summaries with transcript text. When a same-speaker span covers multiple topics or ideas, split at idea boundaries with `proposed_split_reason: topic_shift` even when pauses are short.
+- **Max duration (required):** when `segmentation_policy.max_segment_duration_ms` is set, no segment may exceed it — split at the best internal topic hinge or pause inside the span.
+- Prefer splits at pauses using `pause_ladder_hints` (400 / 700 / 1200 ms ladders). In fine granularity, **use 400 ms tier actively** unless `transcript_quality` warns of STT fragmentation.
 - Fall back to pipeline `pause_split_ms` when ladder data is absent or `candidates` is empty.
 - Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings).
 - Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
 - Include `speaker_id` on each boundary when diarization is in input.
-- Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in one segment when intent is one Q+A pair.
+- Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in **one** segment only when the question immediately precedes the answer with **no** intervening backchannel segment.
 - Long or multi-part questions: split question and answer.
 - For shard/collate runs, merge boundaries in chronological order, dedupe overlaps, and preserve or renumber `segment_id`s consistently. If two shard boundaries overlap materially, keep the stronger boundary and add the conflict to `warnings`.
 
 Examples: see `docs/prompts/_shared/examples/boundary-detection.examples.md`
 
 Do not:
-- Create hundreds of micro-segments for every backchannel.
+- Leave long monologue spans unsplit when multiple `content_brief` topics clearly apply.
+- Merge interviewer backchannels into long interviewee answers (split them out instead).
+- Create word-by-word or sub-3s micro-segments without communicative reason.
 - Overlap time ranges or leave gaps without noting in `warnings`.
 
 Memory sync:
@@ -58,19 +62,20 @@ Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`
 
 ### Backchannel
 
-- Brief interviewer affirmations ("yeah", "right", "mm-hmm", "sure") during a long answer: **keep inside** the interviewee answer segment unless the backchannel is a standalone turn ≥ `short_question_max_words` or changes topic.
-- Do not create micro-segments for every backchannel — quality bar is intent-level segments, not turn-level diarization.
-- Exception: isolated `interviewer_reaction` after a completed answer → split with `proposed_split_reason: pause` or `speaker_change`.
+- Brief interviewer affirmations ("yeah", "right", "mm-hmm", "sure") during a long answer: **split out** as separate segments with `proposed_split_reason: speaker_change` when diarization shows a distinct interviewer turn (≤ `backchannel_max_words` from `segmentation_policy`, default 8).
+- Classify downstream as `interviewer_reaction`; these segments are edit handles for VO bridges and SFX stingers.
+- Exception: when backchannel is a standalone turn ≥ `short_question_max_words` or introduces a new question, type as `interviewer_question` in classification.
 
 ### Panel handoffs
 
 - When host says "I'll go to [Guest B]" or "Back to you, [Name]", split with `proposed_split_reason: speaker_change` or `topic_shift`.
 - Short handoff + question to next guest: may remain one segment if Q+A pair rule applies (≤ `short_question_max_words` question + immediate answer).
 - `format_class: panel`: expect more `speaker_change` boundaries; chronological merge across shards must preserve guest alternation in `segment_id` order.
-- When diarization swaps `speaker_id` mid-answer, note in `warnings` rather than forcing a boundary mid-sentence unless STT fragmentation requires it.
+- When diarization swaps `speaker_id` mid-answer without a backchannel turn, note in `warnings` rather than forcing a boundary mid-sentence unless STT fragmentation requires it.
 
 ### Quality bar
 
-- Typical interview: tens of segments, not hundreds.
+- Aim for **many** edit-ready segments (often dozens to low hundreds on long interviews) — enough to reorder, insert gap VO, and anchor SFX between ideas.
+- Respect `segmentation_policy.min_segment_duration_ms` — no word-level slivers.
 - Every boundary needs defensible `proposed_split_reason`; sort monotonic; zero overlap unless documented in `warnings`.
 - Flag missing timestamps in `warnings` — do not guess `start_ms` / `end_ms`.

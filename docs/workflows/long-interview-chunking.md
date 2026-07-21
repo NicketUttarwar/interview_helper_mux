@@ -22,8 +22,8 @@ This document is the **policy** for operators and implementers: what to expect, 
 | `max_transcript_shards` | Max shard calls per transcript or segment batch | Tail of long interviews still blind |
 | `proactive_decompose_chars` | Auto shard/collate threshold for `content_context` | Very long interviews hit single-pass truncation |
 | `segment_text_max_chars` | Per-segment text in compact lists | Gap pass blind to long answers |
-| `max_segments_in_context` | Max segments passed into some stages | Tail segments never scored in that call |
-| `max_segments_in_gap_pass` | Gap evaluation window | Far-end gaps skipped in one pass |
+| `max_segments_in_context` | Max segments passed into some stages (default **200** for fine granularity) | Tail segments never scored in that call |
+| `max_segments_in_gap_pass` | Gap evaluation window (default **100**) | Far-end gaps skipped in one pass |
 | `max_gap_evaluations` | Rows in missing-framing batch | Some segments not evaluated until re-run |
 | `max_stage_data_chars` | Total JSON payload to model | Envelope truncated / validation odd |
 | `interviewer_sample_lines` | Lines fed into transitions stage | Weaker bridge tone match |

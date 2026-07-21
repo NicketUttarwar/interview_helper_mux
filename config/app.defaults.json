@@ -476,8 +476,8 @@
       "content_brief_reanchor_min_coverage_ratio": 0.55,
       "proactive_decompose_chars": 72000,
       "segment_text_max_chars": 400,
-      "max_segments_in_context": 100,
-      "max_segments_in_gap_pass": 50,
+      "max_segments_in_context": 200,
+      "max_segments_in_gap_pass": 100,
       "max_gap_evaluations": 50,
       "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8,
@@ -516,7 +516,7 @@
       "prefer_index_over_legacy_summaries": false
     },
     "prompt_thresholds": {
-      "pause_split_ms": 700,
+      "pause_split_ms": 400,
       "short_question_max_words": 12,
       "interviewer_question_max_words": 15,
       "interviewer_setup_max_words": 20,
@@ -733,7 +733,16 @@
       "boundary_proactive_decompose_pace_classes": [
         "calm",
         "brisk"
-      ]
+      ],
+      "default_granularity": "fine",
+      "max_segment_duration_ms": null,
+      "min_segment_duration_ms": 4000,
+      "split_backchannels": true,
+      "backchannel_max_words": 8,
+      "prefer_topic_splits": true,
+      "boundary_merge_threshold_ms": 200,
+      "micro_segment_lint_max": 400,
+      "min_bed_segment_ms_fine": 6000
     }
   },
   "structure": {

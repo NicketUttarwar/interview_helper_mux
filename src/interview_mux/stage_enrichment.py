@@ -97,19 +97,29 @@ def pause_ladder_hints_from_words(
     }
 
 
-def thin_pause_ladder_hints(hints: PauseLadderHints, pace_class: str) -> PauseLadderHints:
+def thin_pause_ladder_hints(
+    hints: PauseLadderHints,
+    pace_class: str,
+    *,
+    ctx: RunContext | None = None,
+) -> PauseLadderHints:
     """Cap split_times_ms for LLM input while preserving full counts for observability."""
+    from interview_mux.segment_timeline_standard import is_fine_granularity
+
     out: PauseLadderHints = dict(hints)
     candidates = list(hints.get("candidates") or [])
     out["pre_thin_candidates"] = candidates
+    fine = is_fine_granularity()
     oversplit = any(
         int(c.get("threshold_ms") or 0) == PAUSE_LADDER_MS[0]
         and int(c.get("count") or 0) > 50
         for c in candidates
         if isinstance(c, dict)
     )
-    if oversplit or pace_class == "calm":
+    if not fine and (oversplit or pace_class == "calm"):
         out["preferred_tiers"] = [700, 1200]
+    elif fine:
+        out["preferred_tiers"] = list(PAUSE_LADDER_MS)
     thinned: list[PauseLadderCandidate] = []
     for c in candidates:
         if not isinstance(c, dict):

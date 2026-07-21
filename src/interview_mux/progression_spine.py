@@ -13,6 +13,7 @@ P0_ANALYSIS_SPINE: tuple[str, ...] = (
     "boundary_detection",
     "segment_classification",
     "content_brief_reanchor",
+    "boundary_topic_resplit",
 )
 
 # Flow 1 LLM spine — artifact-complete before audio spend.

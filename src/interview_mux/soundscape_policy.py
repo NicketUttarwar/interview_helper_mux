@@ -28,7 +28,17 @@ _PUNCTUATOR_ROLES = frozenset(
 _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_whoosh"})
 
 _MIN_BED_SEGMENT_MS = 12_000
+_MIN_BED_SEGMENT_MS_FINE = 6_000
 _DEFAULT_BED_LEVEL = -28.0
+
+
+def _min_bed_segment_ms(cfg: dict[str, Any] | None = None) -> int:
+    from interview_mux.segment_timeline_standard import is_fine_granularity, segmentation_cfg
+
+    sc = segmentation_cfg(cfg)
+    if is_fine_granularity(cfg):
+        return int(sc.get("min_bed_segment_ms_fine") or _MIN_BED_SEGMENT_MS_FINE)
+    return _MIN_BED_SEGMENT_MS
 
 
 def soundscape_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -202,6 +212,7 @@ def score_cue_slots(
         raw = ctx.read_json("segments/manifest.json")
         manifest = raw if isinstance(raw, dict) else {}
     segments = [s for s in (manifest.get("segments") or []) if isinstance(s, dict)]
+    min_bed_ms = _min_bed_segment_ms()
 
     narrative = {}
     if ctx.artifact_exists("master/narrative_plan.json"):
@@ -237,7 +248,7 @@ def score_cue_slots(
         start = int(seg.get("start_ms") or 0)
         end = int(seg.get("end_ms") or 0)
         dur = max(0, end - start)
-        if allow_beds and beds_budget > 0 and dur >= _MIN_BED_SEGMENT_MS and sid not in overlap_high:
+        if allow_beds and beds_budget > 0 and dur >= min_bed_ms and sid not in overlap_high:
             theme_bonus = 0.25 if sid in theme_segs else 0.0
             priority = min(1.0, 0.45 + theme_bonus + min(0.2, dur / 120_000))
             if pace == "dense":
@@ -253,7 +264,7 @@ def score_cue_slots(
                         "max_level_db": bed_level,
                         "reason": "duration_ok"
                         + ("+theme_match" if sid in theme_segs else "")
-                        + ("+pause_ok" if dur >= _MIN_BED_SEGMENT_MS else ""),
+                        + ("+pause_ok" if dur >= min_bed_ms else ""),
                     }
                 )
                 beds_budget -= 1

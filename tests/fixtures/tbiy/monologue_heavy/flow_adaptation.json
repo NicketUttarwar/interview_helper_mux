@@ -2,7 +2,7 @@
   "topology_class": "monologue_heavy",
   "production_style": "tbiy_narrative",
   "pickup_eligible_speaker_id": "spk_1",
-  "summary_plain": "Coarse narrative arc; beds over punctuators; soft five-act hints.",
+  "summary_plain": "Fine-grain narrative arc; beds over punctuators; topic-aligned segment splits.",
   "ranking_weights": {
     "narrative_arc_fit": 0.40,
     "claim_impact": 0.30,
@@ -10,9 +10,15 @@
     "topic_coherence": 0.20
   },
   "segmentation_policy": {
-    "granularity": "coarse",
-    "allow_micro_segments": false,
-    "resegment_pass": false
+    "granularity": "fine",
+    "allow_micro_segments": true,
+    "resegment_pass": true,
+    "max_segment_duration_ms": null,
+    "min_segment_duration_ms": 4000,
+    "split_backchannels": true,
+    "backchannel_max_words": 8,
+    "prefer_topic_splits": true,
+    "boundary_merge_threshold_ms": 200
   },
   "sfx_density": {
     "max_punctuators": 2,

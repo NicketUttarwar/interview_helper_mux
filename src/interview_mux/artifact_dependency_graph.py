@@ -49,6 +49,14 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "topic_coverage_audit",
     ),
     "content_brief_reanchor": (
+        "boundary_topic_resplit",
+        "sonic_context_build",
+        "sound_design_palettes",
+        "missing_framing",
+        "optimal_questions",
+    ),
+    "boundary_topic_resplit": (
+        "segment_classification",
         "sonic_context_build",
         "sound_design_palettes",
         "missing_framing",

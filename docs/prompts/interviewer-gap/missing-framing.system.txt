@@ -15,6 +15,7 @@ Gap types (primary only; optional `secondary_gap_type` if needed):
 
 Rules:
 - Focus on `interviewee_answer` segments first (or per-guest when `gap_sensitivity.segment_focus` is `interviewee_answer_per_guest`).
+- When scoring `missing_question` on an answer, look **up to 2 segments back** through `interviewer_reaction` segments for a preceding `interviewer_question` — reactions are transparent, not framing gaps.
 - When `gap_sensitivity` is in stage input, treat its `severity_hints`, `priority_gap_types`, and `deemphasize_gap_types` as **authoritative** — do not re-derive gap policy from format alone.
 - When `profile_style.format_class` is `panel`, allow `missing_callback` across guests and do not expect every guest intro to repeat full show context.
 - When `profile_style.format_class` is `one_on_one`, use a stricter self-explanatory bar — fewer `ok_with_light_bridge` allowances.
