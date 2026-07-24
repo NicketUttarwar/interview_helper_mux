@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringPlan",
+  "type": "object",
+  "required": [
+    "version",
+    "cold_open",
+    "decisions",
+    "bespoke_rationale",
+    "invariants",
+    "generated_at"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "cold_open": {
+      "type": "object",
+      "required": ["kind", "rationale", "evidence_refs", "confidence"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["none", "segment_hook", "vo_clone_open", "vo_plus_segment"]
+        },
+        "segment_id": { "type": ["string", "null"] },
+        "vo_line_id": { "type": ["string", "null"] },
+        "vo_voice_speaker_id": { "type": ["string", "null"] },
+        "sfx": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "cue_ref": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        },
+        "reprise_later": { "type": "boolean" },
+        "rationale": { "type": "string" },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "clarifying_questions": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "additionalProperties": true
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "decision", "rationale", "evidence_refs", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "owner_module": { "type": "string" },
+          "decision": { "type": "object", "additionalProperties": true },
+          "rationale": { "type": "string" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": true
+      }
+    },
+    "ordered_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "excluded_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "bespoke_rationale": { "type": "string" },
+    "invariants": {
+      "type": "object",
+      "required": ["pickup_voice_only", "never_invent_guest_evidence"],
+      "properties": {
+        "pickup_voice_only": { "type": "boolean", "const": true },
+        "never_invent_guest_evidence": { "type": "boolean", "const": true },
+        "pickup_eligible_speaker_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "agenda_ref": { "type": "string" },
+    "cross_critique_ref": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

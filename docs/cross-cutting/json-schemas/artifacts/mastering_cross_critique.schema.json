@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringCrossCritique",
+  "description": "L4 output: multi-critic panel merged by the flagship arbiter (mastering/shape/cross_critique.json).",
+  "type": "object",
+  "required": ["version", "ranked_survivors", "arbiter_rationale", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "mode": { "type": "string", "enum": ["off", "advisory", "authoritative"] },
+    "rubric_ref": { "type": ["string", "null"] },
+    "critic_reports": {
+      "type": "array",
+      "description": "Raw panel output; inline copies or refs to per-critic artifacts.",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "critics_run": { "type": "array", "items": { "type": "string" } },
+    "ranked_survivors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/survivor" }
+    },
+    "killed": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/killed_candidate" }
+    },
+    "deepen_directives": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deepen_directive" }
+    },
+    "disagreements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "detail"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "detail": { "type": "string" },
+          "resolution": { "type": "string", "enum": ["kept_both", "deepen", "arbiter_call"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "arbiter_rationale": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "survivor": {
+      "type": "object",
+      "required": ["candidate_id", "rank", "dimension_scores"],
+      "properties": {
+        "candidate_id": { "type": "string" },
+        "rank": { "type": "integer", "minimum": 1 },
+        "dimension_scores": {
+          "type": "object",
+          "description": "Merged per-dimension vector consumed by Pareto selection.",
+          "minProperties": 1,
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "aggregate_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "strengths": { "type": "array", "items": { "type": "string" } },
+        "weaknesses": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "programmatic_risk": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "killed_candidate": {
+      "type": "object",
+      "required": ["candidate_id", "reason"],
+      "properties": {
+        "candidate_id": { "type": "string" },
+        "reason": { "type": "string" },
+        "killed_by": { "type": "string" },
+        "hard_fail": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "deepen_directive": {
+      "type": "object",
+      "required": ["candidate_id", "directive"],
+      "properties": {
+        "candidate_id": { "type": "string" },
+        "directive": { "type": "string" },
+        "target_level": { "type": "string", "enum": ["L2", "L3", "L4"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

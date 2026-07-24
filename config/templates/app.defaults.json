@@ -293,5 +293,23 @@
     "hook_reel_enabled": true,
     "require_payoff": false,
     "require_outro": false
+  },
+  "_comment_mastering": "Mastering Process + quality hardening — full defaults in config/app.defaults.json",
+  "mastering": {
+    "prompt_edit": { "allow_global_promotion": false, "require_operator_approval": true },
+    "research": { "routing": { "mode": "advisory", "default_disposition": "required", "max_deep_fields": 12 } },
+    "quality_hardening": {
+      "enabled": true,
+      "context": { "mode": "advisory", "default_max_tokens": 24000 },
+      "diversity": { "mode": "advisory", "min_pairwise_distance": 0.35 },
+      "feasibility": { "mode": "advisory" },
+      "semantic_integrity": { "mode": "advisory" },
+      "voice_clone": { "mode": "advisory" },
+      "rubric": { "mode": "advisory" },
+      "auditions": { "mode": "advisory", "max_auditions": 3 },
+      "critics": { "mode": "advisory" },
+      "pareto": { "mode": "advisory" },
+      "polish": { "mode": "advisory", "max_remux_rounds": 2 }
+    }
   }
 }

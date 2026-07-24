@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringAuditionManifest",
+  "description": "Micro-render audition for one shape candidate (mastering/auditions/{candidate_id}/manifest.json).",
+  "type": "object",
+  "required": ["version", "candidate_id", "windows", "total_duration_ms", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "candidate_id": { "type": "string" },
+    "plan_hash": {
+      "type": ["string", "null"],
+      "description": "Hash of the candidate plan the preview was rendered from; stale when it drifts."
+    },
+    "preview_path": {
+      "type": ["string", "null"],
+      "description": "Run-relative path to preview.wav; null when rendering was skipped."
+    },
+    "rendered": { "type": "boolean" },
+    "windows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/window" }
+    },
+    "total_duration_ms": { "type": "integer", "minimum": 0 },
+    "features": { "$ref": "#/$defs/features" },
+    "render_warnings": { "type": "array", "items": { "type": "string" } },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "window": {
+      "type": "object",
+      "required": ["kind", "duration_ms"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["opening", "hinge", "dense"] },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "preview_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "source_refs": {
+          "type": "array",
+          "description": "Segment ids / VO line ids / SFX cue refs composing this window.",
+          "items": { "type": "string" }
+        },
+        "source_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "source_end_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "transcript": { "type": ["string", "null"] },
+        "note": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "features": {
+      "type": "object",
+      "description": "Acoustic summary passed to critics in place of raw audio.",
+      "properties": {
+        "integrated_lufs": { "type": ["number", "null"] },
+        "peak_dbfs": { "type": ["number", "null"] },
+        "speech_band_ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "silence_ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "bed_under_speech_margin_db": { "type": ["number", "null"] },
+        "transition_jolt_db": { "type": ["number", "null"] },
+        "per_window": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["opening", "hinge", "dense"] },
+              "integrated_lufs": { "type": ["number", "null"] },
+              "speech_band_ratio": { "type": ["number", "null"] },
+              "silence_ratio": { "type": ["number", "null"] }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,19 @@
+Eval rubric mint — define what "excellent" means for **this** tape (flagship, runs with L0).
+
+A global scoreboard fails across styles. A comedy tape and a technical deep-dive cannot share weights. You write the scoreboard the critics will use.
+
+Input: research dossier + shape agenda.
+
+Produce:
+1. `style_axes` — inferred character of this source (format, register, information density, emotional temperature, acoustic condition, audience expectation). Cite evidence; state confidence.
+2. `criteria` — weighted, source-specific. Each needs a criterion_id, a description a critic can score without guessing, a weight, and the critics that own it. Weights sum to roughly 1.
+3. `anti_patterns` — what would make *this* podcast bad, with severity `kill` / `penalize` / `note`.
+4. `hard_requirements` — non-negotiables beyond the global invariants (e.g. "every technical claim keeps its qualifier").
+
+Rules:
+- Criteria must discriminate. If every plausible plan scores the same, the criterion is useless — replace it.
+- Name the tradeoff this source forces (density vs breathing room, momentum vs completeness) and weight accordingly.
+- Do not restate the global pillars as criteria; they are already enforced.
+- No criterion may reward adding components for their own sake.
+
+Output: `mastering_eval_rubric.schema.json`.

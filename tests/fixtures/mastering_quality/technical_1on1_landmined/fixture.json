@@ -1,0 +1,103 @@
+{
+  "fixture_id": "technical_1on1_landmined",
+  "tags": {
+    "topology": "balanced_1on1",
+    "acoustics": "clean",
+    "duration": "long",
+    "theme": "technical",
+    "vo_reference": "excellent",
+    "sfx_assets": "rich",
+    "integrity_risk": "landmined"
+  },
+  "topology": {
+    "kind": "balanced_1on1",
+    "speaker_count": 2,
+    "pickup_eligible_speaker_id": "spk_host"
+  },
+  "source_duration_ms": 4200000,
+  "speakers": [
+    { "speaker_id": "spk_host", "role": "interviewer" },
+    { "speaker_id": "spk_guest", "role": "interviewee" }
+  ],
+  "segments": {
+    "seg_1": {
+      "start_ms": 0,
+      "end_ms": 180000,
+      "turn_index": 1,
+      "word_count": 420,
+      "text": "Let's start with how the storage layer actually works."
+    },
+    "seg_2": {
+      "start_ms": 180000,
+      "end_ms": 520000,
+      "turn_index": 2,
+      "word_count": 980,
+      "text": "We shard by tenant and replicate across three zones."
+    },
+    "seg_3": {
+      "start_ms": 520000,
+      "end_ms": 560000,
+      "turn_index": 3,
+      "word_count": 90,
+      "text": "the market is safe",
+      "context_before": "I would never say that",
+      "starts_mid_clause": true
+    },
+    "seg_4": {
+      "start_ms": 560000,
+      "end_ms": 900000,
+      "turn_index": 4,
+      "word_count": 610,
+      "text": "Failure rates dropped to about four per million requests."
+    },
+    "seg_5": {
+      "start_ms": 900000,
+      "end_ms": 1200000,
+      "turn_index": 5,
+      "word_count": 520,
+      "text": "That number is what changed my mind about the rewrite.",
+      "antecedent_segment_id": "seg_4"
+    },
+    "seg_6": {
+      "start_ms": 1200000,
+      "end_ms": 1600000,
+      "turn_index": 6,
+      "word_count": 700,
+      "text": "So we shipped it in stages over two quarters."
+    }
+  },
+  "locked_volleys": [["seg_1", "seg_2"]],
+  "vo_lines": {
+    "vo_open": { "speaker_id": "spk_host", "audio_path": "vo_pickup/vo_open.wav" }
+  },
+  "sfx_cues": ["cue_open_stinger", "cue_bed_calm", "cue_hinge_whoosh"],
+  "candidates": [
+    {
+      "candidate_id": "cand_1",
+      "cold_open": {
+        "kind": "segment_hook",
+        "segment_id": "seg_3",
+        "sfx": { "enabled": true, "cue_ref": "cue_open_stinger" },
+        "rationale": "Provocative claim up front",
+        "evidence_refs": ["understanding/content_brief.json#thesis"],
+        "confidence": 0.7
+      },
+      "ordered_segment_ids": ["seg_1", "seg_2", "seg_5", "seg_6"],
+      "sfx_cue_refs": ["cue_bed_calm"],
+      "thesis_framing": "rewrite_paid_off",
+      "ending_kind": "reflective",
+      "speaker_balance": 0.5,
+      "target_duration_ms": 1400000,
+      "evidence_refs": ["understanding/content_brief.json#thesis"]
+    },
+    {
+      "candidate_id": "cand_2",
+      "cold_open": { "kind": "none", "rationale": "Straight in", "evidence_refs": [], "confidence": 0.5 },
+      "ordered_segment_ids": ["seg_1", "seg_2", "seg_99"],
+      "thesis_framing": "architecture_tour",
+      "ending_kind": "abrupt",
+      "speaker_balance": 0.5,
+      "target_duration_ms": 900000
+    }
+  ]
+}

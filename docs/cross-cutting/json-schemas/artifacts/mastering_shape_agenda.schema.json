@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringShapeAgenda",
+  "type": "object",
+  "required": ["version", "steps", "budgets", "north_star_pillars", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "levels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["run", "skip", "deepen"]
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "goal"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "goal": { "type": "string" },
+          "capability_module": { "type": "string" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "acceptance_seeds": { "type": "array", "items": { "type": "string" } },
+          "system_prompt_draft": { "type": "string" },
+          "tier_hint": {
+            "type": "string",
+            "enum": ["economy", "standard", "flagship"]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "anti_patterns": { "type": "array", "items": { "type": "string" } },
+    "north_star_pillars": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "budgets": {
+      "type": "object",
+      "required": ["max_steps", "max_prompt_edits", "max_flagship_calls"],
+      "properties": {
+        "max_steps": { "type": "integer", "minimum": 1 },
+        "max_prompt_edits": { "type": "integer", "minimum": 0 },
+        "max_flagship_calls": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

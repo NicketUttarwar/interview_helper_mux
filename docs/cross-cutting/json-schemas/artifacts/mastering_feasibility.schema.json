@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringFeasibility",
+  "description": "Deterministic buildability gate for shape candidates (mastering/shape/feasibility.json).",
+  "type": "object",
+  "required": ["version", "candidates", "eligible_candidate_ids", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "mode": { "type": "string", "enum": ["off", "advisory", "authoritative"] },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate_feasibility" }
+    },
+    "eligible_candidate_ids": {
+      "type": "array",
+      "description": "Allow-list for auditions, L4, and synthesize.",
+      "items": { "type": "string" }
+    },
+    "no_eligible_candidates": { "type": "boolean" },
+    "fallback_applied": { "type": ["string", "null"] },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "candidate_feasibility": {
+      "type": "object",
+      "required": ["candidate_id", "verdict", "checks"],
+      "properties": {
+        "candidate_id": { "type": "string" },
+        "verdict": { "type": "string", "enum": ["pass", "pass_with_warnings", "fail"] },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/check_result" } },
+        "blocking_reasons": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "check_result": {
+      "type": "object",
+      "required": ["check_id", "severity", "passed"],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "enum": [
+            "segment_exists",
+            "segment_bounds",
+            "vo_line_exists",
+            "vo_audio_or_synth",
+            "sfx_cue_exists",
+            "pickup_voice_authorized",
+            "speaker_volley_integrity",
+            "duration_fits",
+            "timeline_collision",
+            "edl_representable",
+            "cold_open_source",
+            "duplicate_segment",
+            "asset_duration_slack",
+            "thin_evidence"
+          ]
+        },
+        "severity": { "type": "string", "enum": ["blocking", "warn"] },
+        "passed": { "type": "boolean" },
+        "detail": { "type": "string" },
+        "refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

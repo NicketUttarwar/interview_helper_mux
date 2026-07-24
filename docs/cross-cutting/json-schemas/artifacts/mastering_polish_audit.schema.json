@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringPolishAudit",
+  "type": "object",
+  "required": ["version", "verdict", "scores", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "soft_pass", "fail", "remux_suggested"]
+    },
+    "audio_grounded": {
+      "type": "boolean",
+      "description": "True when the audit scored a rendered preview/mix rather than plan text alone."
+    },
+    "audited_audio_ref": { "type": ["string", "null"] },
+    "rubric_ref": { "type": ["string", "null"] },
+    "scores": {
+      "type": "object",
+      "properties": {
+        "listenability": { "type": "number" },
+        "density": { "type": "number" },
+        "cold_open_strength": { "type": "number" },
+        "ensemble_coherence": { "type": "number" },
+        "non_repetition": { "type": "number" },
+        "information_clarity": { "type": "number" },
+        "speech_masking": { "type": "number" },
+        "transition_jolt": { "type": "number" },
+        "dead_air": { "type": "number" },
+        "sfx_repetition": { "type": "number" },
+        "listener_fatigue": { "type": "number" },
+        "cold_open_payoff": { "type": "number" },
+        "plan_adherence": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "audio_features": {
+      "type": "object",
+      "description": "Measured features the audit reasoned over.",
+      "properties": {
+        "integrated_lufs": { "type": ["number", "null"] },
+        "peak_dbfs": { "type": ["number", "null"] },
+        "speech_band_ratio": { "type": ["number", "null"] },
+        "silence_ratio": { "type": ["number", "null"] },
+        "bed_under_speech_margin_db": { "type": ["number", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Localized issues with timecodes so remux can target them.",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "remux_cues": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "remux_directives": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/remux_directive" }
+    },
+    "remux_round": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "0 for the first audit; increments per bounded remux pass."
+    },
+    "max_remux_rounds": { "type": ["integer", "null"], "minimum": 0 },
+    "remux_exhausted": { "type": "boolean" },
+    "residual_issues": { "type": "array", "items": { "type": "string" } },
+    "corrective_prompt_ref": { "type": ["string", "null"] },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["dimension", "detail"],
+      "properties": {
+        "dimension": {
+          "type": "string",
+          "enum": [
+            "speech_masking",
+            "transition_jolt",
+            "dead_air",
+            "sfx_repetition",
+            "listener_fatigue",
+            "cold_open_payoff",
+            "plan_adherence"
+          ]
+        },
+        "detail": { "type": "string" },
+        "severity": { "type": "string", "enum": ["critical", "major", "minor"] },
+        "start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "end_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "remux_directive": {
+      "type": "object",
+      "required": ["action", "detail"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Bounded actions only; structural changes require a new Shape pass.",
+          "enum": [
+            "adjust_level",
+            "adjust_duck",
+            "remove_cue",
+            "replace_cue",
+            "adjust_fade",
+            "trim_silence",
+            "extend_silence",
+            "adjust_crossfade"
+          ]
+        },
+        "detail": { "type": "string" },
+        "target_ref": { "type": ["string", "null"] },
+        "start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "end_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "delta_db": { "type": ["number", "null"] },
+        "delta_ms": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

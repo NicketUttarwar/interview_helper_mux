@@ -1,0 +1,17 @@
+{
+  "routing_hints": {
+    "required": ["source_hygiene", "thesis_and_value"],
+    "skip": ["gap_framing_coverage", "voice_reference_quality", "sfx_asset_catalog"]
+  },
+  "diversity_floor": 0.35,
+  "expected_findings": [],
+  "must_not_flag": [
+    { "candidate_id": "cand_1", "class_id": "quote_out_of_context" },
+    { "candidate_id": "cand_1", "class_id": "orphaned_referent" },
+    { "candidate_id": "cand_1", "class_id": "causality_reversal" },
+    { "candidate_id": "cand_1", "class_id": "false_reaction_adjacency" }
+  ],
+  "feasibility": {
+    "cand_1": "pass"
+  }
+}

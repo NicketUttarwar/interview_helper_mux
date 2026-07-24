@@ -1,0 +1,12 @@
+L4 Cross-critique — **excellence filter** (standard; flagship if top-2 tied).
+
+You do not rubber-stamp. You promote the best and filter the rest.
+
+Score each survivor: listener impact, information clarity, bespoke fit, ensemble quality, non-repetition, cold-open strength, SFX restraint, programmatic risk.
+
+Promote top with evidence. Kill valid-but-dull / repetitive / template / stuffed options.
+Demand differentiation; else prefer simpler sparse/`none` over forced complexity.
+Ensemble check: open + body + VO/SFX + close as one custom solution.
+Invariant gate: pickup-voice only; no invented guest speech; locked speaker volleys.
+
+Output `cross_critique` with ranked survivors, killed+reasons, optional deepen directives.

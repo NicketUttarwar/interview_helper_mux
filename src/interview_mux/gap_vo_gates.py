@@ -185,6 +185,7 @@ def require_gap_path_clear(ctx: RunContext) -> None:
         raise SystemExit(
             "Gap delivery gate: choose Chatterbox clone or record-as-interviewer before gap framing."
         )
+    require_clone_consent_clear(ctx)
 
 
 def mark_voice_reference_approved(ctx: RunContext, speaker_id: str) -> None:
@@ -209,13 +210,46 @@ def mark_voice_reference_approved(ctx: RunContext, speaker_id: str) -> None:
     ctx.mutate_run_meta(patch)
 
 
+def clone_consent_required(ctx: RunContext) -> bool:
+    """Chatterbox delivery synthesizes the pickup voice, so it needs clone consent."""
+    if not gap_framing_enabled(ctx):
+        return False
+    return resolve_gap_vo_delivery(ctx) == "chatterbox"
+
+
+def check_clone_consent_pending(ctx: RunContext) -> bool:
+    from interview_mux.mastering_voice_clone import consent_active, load_consent
+
+    if not clone_consent_required(ctx):
+        return False
+    if not voice_reference_approved(ctx):
+        return False
+    return not consent_active(load_consent(ctx))
+
+
+def require_clone_consent_clear(ctx: RunContext) -> None:
+    from interview_mux.mastering_hardening_config import gate_blocks
+
+    if not gate_blocks("voice_clone"):
+        return
+    if check_clone_consent_pending(ctx):
+        raise SystemExit(
+            "Voice clone gate: record clone consent and usage scope in the GUI before "
+            "synthesizing pickup VO — docs/cross-cutting/mastering-voice-clone-policy.md"
+        )
+
+
 def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.mastering_voice_clone import consent_payload
     from interview_mux.synthesis_fallback import (
         chatterbox_runtime_available,
         synthesis_fallback_notice,
     )
 
     return {
+        **consent_payload(ctx),
+        "clone_consent_required": clone_consent_required(ctx),
+        "clone_consent_pending": check_clone_consent_pending(ctx),
         "gap_framing_enabled": gap_framing_enabled(ctx),
         "gap_framing_decision_pending": check_gap_framing_decision_pending(ctx),
         "gap_vo_delivery": resolve_gap_vo_delivery(ctx) if gap_framing_enabled(ctx) else None,

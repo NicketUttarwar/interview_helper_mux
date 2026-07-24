@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringMintedPromptEnvelope",
+  "type": "object",
+  "required": ["version", "step_or_field_id", "prompt_version", "system", "acceptance_seeds"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "step_or_field_id": { "type": "string" },
+    "prompt_version": { "type": "integer", "minimum": 1 },
+    "system": { "type": "string", "minLength": 1 },
+    "acceptance_seeds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "north_star_pillars_embedded": { "type": "boolean" },
+    "tier_hint": {
+      "type": "string",
+      "enum": ["economy", "standard", "flagship"]
+    },
+    "output_schema_ref": { "type": "string" }
+  },
+  "additionalProperties": true
+}

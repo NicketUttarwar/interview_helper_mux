@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringResearchRouting",
+  "description": "Per-run routing decisions for the 38 research fields (mastering/research/routing.json).",
+  "type": "object",
+  "required": ["version", "fields", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "mode": { "type": "string", "enum": ["off", "advisory", "authoritative"] },
+    "source_signature": {
+      "type": "object",
+      "description": "Signals the routing was derived from.",
+      "properties": {
+        "topology": { "type": ["string", "null"] },
+        "readiness_band": { "type": ["string", "null"] },
+        "duration_s": { "type": ["number", "null"] },
+        "speaker_count": { "type": ["integer", "null"] },
+        "skipped_flows": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "fields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/field_route" }
+    },
+    "wave_budgets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/wave_budget" }
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "field_route": {
+      "type": "object",
+      "required": ["field_id", "wave", "disposition", "reason"],
+      "properties": {
+        "field_id": { "type": "string" },
+        "wave": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "disposition": {
+          "type": "string",
+          "enum": ["required", "thin", "skip", "deepen", "revisit_after_preview"]
+        },
+        "reason": { "type": "string" },
+        "signals": { "type": "array", "items": { "type": "string" } },
+        "token_budget": { "type": ["integer", "null"], "minimum": 0 },
+        "model_tier": { "type": "string", "enum": ["economy", "standard", "flagship"] }
+      },
+      "additionalProperties": true
+    },
+    "wave_budget": {
+      "type": "object",
+      "required": ["wave"],
+      "properties": {
+        "wave": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "max_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "max_seconds": { "type": ["number", "null"], "minimum": 0 },
+        "max_fields": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

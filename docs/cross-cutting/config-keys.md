@@ -46,10 +46,11 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `target_lufs` | Preferred alias for podcast master LUFS (falls back to `flow1_target_lufs`) | Wrong loudness |
 | `gui_job` | Background job stall thresholds (`stall_threshold_sec`, `subprocess_stall_threshold_sec`) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
-| `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel | When `enabled`, blocks SFX until post-preview VO re-recorded |
-| `production_profiles` | `production_profile.py`, TBiy profile selection + `tbiy_narrative.conformance` thresholds / `adaptation_defaults` | Wrong profile → incorrect gate, lint, and graduated TBIY moves |
-| `production_style` | Sound design + mix defaults for production posture | Style mismatch vs operator intent |
-| `source_topology` | `source_topology.py`, topology-driven flow adaptation + TBIY conformance seed | Missing topology breaks TBiy pickup speaker rules |
+| `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel (→ Mastering Realization preview gate) | When `enabled`, blocks SFX until post-preview VO re-recorded |
+| `production_profiles` | `production_profile.py`, legacy TBIY/documentary profile (hints under Mastering Process) | Wrong profile → incorrect gate/lint until cutover |
+| `production_style` | Sound design + mix defaults; Mastering Process treats as *hint* only | Style mismatch vs operator intent |
+| `source_topology` | `source_topology.py`, topology + pickup speaker; feeds research Wave 2 | Missing topology breaks pickup speaker rules |
+| `mastering` | Mastering Process + quality-hardening gates — see [`mastering.*`](#mastering) below | Gates skipped or blocking at the wrong time |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
 | `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
@@ -714,7 +715,64 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `question_budget_max` | `6` | clamp record gaps | Too many VO pickups or none |
 | `enforce_duration` | `false` | ranking cross-validate | When `true`, soft duration band becomes hard fail |
 
-TBIY runs additionally refresh `flow_adaptation.tbiy_conformance` during `delivery_brief_build` and may copy `five_act_mode` / `moat_mode` / `vo_bridge_priority` onto the brief.
+TBIY runs (legacy) additionally refresh `flow_adaptation.tbiy_conformance` during `delivery_brief_build` and may copy `five_act_mode` / `moat_mode` / `vo_bridge_priority` onto the brief. Strategy authority is now the [Mastering Process](./mastering-process.md); conformance is descriptive pending cutover ([mastering-integration-backlog.md](./mastering-integration-backlog.md)).
+
+---
+
+## `mastering`
+
+Canon: [mastering-process.md](./mastering-process.md) · Hardening: [mastering-quality-hardening.md](./mastering-quality-hardening.md).
+
+### Gate modes
+
+Every `*.mode` key takes `off` | `advisory` | `authoritative`.
+
+| Mode | Behavior |
+|------|----------|
+| `off` | Gate never runs; no artifact written |
+| `advisory` | Gate runs and writes its artifact, but never blocks (**default everywhere**) |
+| `authoritative` | Hard failures block the run |
+
+Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering-eval-corpus.md) shows no regressions.
+
+### Keys
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `mastering.prompt_edit.allow_global_promotion` | `false` | Shape Engine prompt edit loop | When `true`, a run-local prompt edit can become a global seed and silently degrade other source types |
+| `mastering.prompt_edit.require_operator_approval` | `true` | Promotion gate | When `false`, corpus pass alone promotes a prompt |
+| `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
+| `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
+| `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |
+| `mastering.quality_hardening.enabled` | `true` | Master switch for all gates below | `false` disables the whole layer regardless of per-gate modes |
+| `mastering.quality_hardening.context.mode` | `advisory` | `mastering_context_compiler` | `authoritative` enforces token budgets on every consumer |
+| `mastering.quality_hardening.context.default_max_tokens` | `24000` | Evidence packet budget | Too small truncates decisive evidence; too large overflows models |
+| `mastering.quality_hardening.context.truncation_policy` | `drop_lowest_salience` | Packet overflow handling (`drop_lowest_salience` / `summarize` / `pointer_only`) | Wrong policy drops the wrong evidence |
+| `mastering.quality_hardening.context.inline_max_chars` | `4000` | Materialize-vs-pointer threshold | Large values inline whole artifacts |
+| `mastering.quality_hardening.diversity.mode` | `advisory` | `mastering_diversity` | `authoritative` forces remint of near-clone candidates |
+| `mastering.quality_hardening.diversity.min_pairwise_distance` | `0.35` | Diversity threshold (0–1) | Too high causes endless reminting; too low permits clones |
+| `mastering.quality_hardening.diversity.max_remint_rounds` | `1` | Remint budget | Unbounded reminting burns the agenda budget |
+| `mastering.quality_hardening.feasibility.mode` | `advisory` | `mastering_feasibility` | `authoritative` blocks unbuildable candidates before auditions/synthesize |
+| `mastering.quality_hardening.feasibility.duration_slack_pct` | `0.15` | `duration_fits` tolerance | Too tight rejects workable plans |
+| `mastering.quality_hardening.semantic_integrity.mode` | `advisory` | `mastering_semantic_integrity` | `authoritative` blocks critical fabrication findings |
+| `mastering.quality_hardening.semantic_integrity.adjacency_max_turns` | `3` | `false_reaction_adjacency` window | Too wide misses fabricated reactions |
+| `mastering.quality_hardening.semantic_integrity.llm_confirm` | `true` | LLM confirm pass over deterministic flags | `false` keeps deterministic flags unconfirmed (more false positives) |
+| `mastering.quality_hardening.voice_clone.mode` | `advisory` | Clone consent gate | `authoritative` hard-fails `vo_clone_*` without consent. **Never** relaxes the guest-clone ban |
+| `mastering.quality_hardening.voice_clone.default_scopes` | `[]` | Scopes granted without explicit operator choice | Non-empty grants clone use the operator never approved |
+| `mastering.quality_hardening.voice_clone.require_disclosure` | `false` | Forces a non-`none` disclosure | `true` blocks runs that chose no disclosure |
+| `mastering.quality_hardening.rubric.mode` | `advisory` | L0 per-run `eval_rubric.json` | `authoritative` requires a rubric before critics run |
+| `mastering.quality_hardening.auditions.mode` | `advisory` | Micro-render audition loop | `authoritative` requires rendered auditions before L4 |
+| `mastering.quality_hardening.auditions.max_auditions` | `3` | Candidates rendered | Higher costs render time per run |
+| `mastering.quality_hardening.auditions.window_ms` | `{opening: 20000, hinge: 20000, dense: 30000}` | Audition window lengths | Windows too short lose listener context |
+| `mastering.quality_hardening.auditions.total_max_ms` | `90000` | Hard ceiling per audition | Above this, auditions stop being cheap |
+| `mastering.quality_hardening.critics.mode` | `advisory` | L4 panel | `authoritative` requires the full panel before Pareto |
+| `mastering.quality_hardening.critics.enabled_critics` | all six | Which critics run | Dropping `integrity` removes the only hard-fail critic |
+| `mastering.quality_hardening.critics.max_deepen_rounds` | `1` | Arbiter deepen directives | Unbounded deepening burns flagship budget |
+| `mastering.quality_hardening.pareto.mode` | `advisory` | `mastering_pareto` | `authoritative` restricts synthesize to frontier survivors |
+| `mastering.quality_hardening.pareto.min_frontier_size` | `1` | Frontier floor | `0` can starve synthesize of inputs |
+| `mastering.quality_hardening.polish.mode` | `advisory` | Closed-loop polish | `authoritative` blocks `master_finalize` on a failing audit |
+| `mastering.quality_hardening.polish.audio_grounded` | `true` | Audit scores rendered audio, not plan text | `false` reverts to the weaker text-only audit |
+| `mastering.quality_hardening.polish.max_remux_rounds` | `2` | Bounded remux budget | `0` disables repair; high values loop on marginal issues |
 
 ---
 

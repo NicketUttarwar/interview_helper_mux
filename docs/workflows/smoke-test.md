@@ -85,7 +85,7 @@ Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
 If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_ingest`.
 
-**Gap framing path (optional):** After `missing_framing`, choose Yes/No in GUI. Yes → confirm pickup speaker → approve voice reference → choose Chatterbox or record → `gap_framing_compose` → G1 synthesize/record. Chatterbox verify in `./scripts/verify_local_models.sh` is **WARN** when venv missing (mlx-audio fallback). Audit: `vo_pickup/synthesis_report.json`.
+**Gap framing path (optional):** After `missing_framing`, choose Yes/No in GUI. Yes → confirm pickup speaker → approve voice reference → **grant clone consent with scopes** (cold open / bridges / outro) if Chatterbox is chosen → choose Chatterbox or record → `gap_framing_compose` → G1 synthesize/record. Chatterbox verify in `./scripts/verify_local_models.sh` is **WARN** when venv missing (mlx-audio fallback). Audit: `vo_pickup/synthesis_report.json`. Consent audit: `mastering/voice_clone_audit.json`.
 
 **Optional at G1:** If pickup recordings are noisy, accept VO-scoped pre-clean offer (BUILD-072) before continuing.
 
@@ -145,6 +145,24 @@ After Flow 1 reaches polish with sound design enabled:
 6. `mix` → `master_finalize`; listen master under speech.
 
 See [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
+
+## Mastering quality hardening (advisory)
+
+Canon: [mastering-quality-hardening.md](../cross-cutting/mastering-quality-hardening.md). Gates ship `advisory` (fail-open) under `mastering.quality_hardening.*`.
+
+When the Shape Engine / Realization runtime is wired:
+
+1. Confirm `mastering/research/routing.json` exists after research (or is absent when `mode=off`).
+2. Confirm L0 emits `mastering/shape/eval_rubric.json` beside the agenda.
+3. After L2: `diversity_report.json` — near-clones reminted or flagged.
+4. Before L4: `feasibility.json` allow-list and `semantic_integrity.json` clean of critical findings.
+5. Auditions: `mastering/auditions/{candidate_id}/manifest.json` for up to `max_auditions` survivors (render optional in advisory mode).
+6. L4: `cross_critique.json` with ≥6 critic reports + arbiter; survivors feed `pareto.json`.
+7. Clone path: granting `vo_clone_*` without consent fails feasibility / voice gate; guest clone always rejected.
+8. After mix: `polish_audit.json` is `audio_grounded` with bounded `remux_directives` (max rounds from config).
+9. Prompt edits stay run-local (`prompt_promotions.json` records blockers) unless `allow_global_promotion` + corpus + approval.
+
+CI coverage (no network): `pytest tests/test_mastering_quality_*.py`.
 
 ## Pass criteria
 

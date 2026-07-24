@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringPromptEditLog",
+  "type": "object",
+  "required": ["version", "edits"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "edits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "from_version", "to_version", "reason", "at"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "from_version": { "type": "integer" },
+          "to_version": { "type": "integer" },
+          "reason": { "type": "string" },
+          "diff_summary": { "type": "string" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

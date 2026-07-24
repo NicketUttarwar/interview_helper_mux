@@ -1,6 +1,8 @@
 # Episode architecture spine (speaker-volley centered)
 
-Listener shape (sparse — components are candidates, not a mandatory checklist):
+Listener shape components are **candidates**, not a mandatory checklist. Authoritative construction strategy: [Mastering Process](./mastering-process.md) (research lane → Shape Composition Engine → realization). Cold open / outro / chapter layouts are **dynamically decided** per podcast — see [mastering-construction-decisions.md](./mastering-construction-decisions.md).
+
+Illustrative candidate spine (not enforced):
 
 ```
 Cold open (hook) → Host preface → Speaker volley(s) → Transition at boundary → more volleys → optional payoff/outro
@@ -11,6 +13,6 @@ Cold open (hook) → Host preface → Speaker volley(s) → Transition at bounda
 
 **Parallel:** every LLM stage builds an [LLM volley](./volley-glossary.md) (message packet) separately; never confuse the two.
 
-**Dynamic brain:** topology → TBIY conformance → delivery brief (`speaker_volley_density`) → episode structure (`speaker_volleys[]`).
+**Dynamic brain (target):** research dossier → Shape Engine `mastering_plan` → delivery/EDL/mix. Legacy path (until cutover): topology → TBIY conformance hints → delivery brief → episode structure (`speaker_volleys[]`).
 
-See [stage-volley-matrix.md](./stage-volley-matrix.md) · [episode-structure-catalog.md](./episode-structure-catalog.md) · [mix-house-chain.md](./mix-house-chain.md).
+See [mastering-shape-engine.md](./mastering-shape-engine.md) · [stage-volley-matrix.md](./stage-volley-matrix.md) · [episode-structure-catalog.md](./episode-structure-catalog.md) · [mix-house-chain.md](./mix-house-chain.md).

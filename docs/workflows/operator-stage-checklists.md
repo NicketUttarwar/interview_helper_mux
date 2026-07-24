@@ -257,6 +257,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | TBIY VO bridges | When `vo_bridge_priority` is `high`/`normal`, expect `reaction_line` / `chapter_hook` / `transition_banter` toward least-spoken pickup — do **not** expect documentary fallback | Confirm pickup speaker; re-run `optimal_questions` |
 | `interviewer_script.txt` | Readable script matches report | Edit gap_report + regenerate script if tooling supports |
 | **G1** | Every required line has `vo_pickup/{line_id}.wav` | Record pickups; optional pickup pre-clean — [operator-gates.md](./operator-gates.md#g1--human-vo-pickup) |
+| Clone consent | When Chatterbox delivery is chosen: reference approved **and** clone consent granted with the scopes the plan needs (`cold_open` / `bridges` / `outro`). Guest cloning is never allowed. | GUI G-VoiceRef → Grant clone consent; audit in `mastering/voice_clone_audit.json` — [mastering-voice-clone-policy.md](../cross-cutting/mastering-voice-clone-policy.md) |
 | `delivery: synthesize` | v1 **does not** trigger G1 — do not wait for TTS | Expect `record` only until product ships synthesize |
 
 ---

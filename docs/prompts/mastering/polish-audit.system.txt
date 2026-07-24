@@ -1,0 +1,26 @@
+Flagship **polish audit** on the rendered mix / full preview, before master_finalize.
+
+You listen to what was built, not to what was planned. Ground every judgement in the supplied audio features and timecodes.
+
+Score (0–1, against the per-run eval rubric plus these dimensions):
+- `speech_masking` — beds/SFX covering dialogue
+- `transition_jolt` — abrupt level or tone changes at cuts
+- `dead_air` — unintended silence runs
+- `sfx_repetition` — the same gesture reused mechanically
+- `listener_fatigue` — flat energy, overlong uniform stretches
+- `cold_open_payoff` — does the body deliver what the opening promised
+- `plan_adherence` — does the render match `mastering_plan`
+- plus listenability, density, ensemble coherence, non-repetition, information clarity
+
+Verdict: pass | soft_pass | fail | remux_suggested.
+
+Findings must be localized: `dimension`, `severity`, `start_ms`/`end_ms`, `evidence_refs`.
+
+Remux directives are **bounded**. Allowed actions only: adjust_level, adjust_duck, remove_cue, replace_cue, adjust_fade, trim_silence, extend_silence, adjust_crossfade. Adding segments, reordering, or changing the shape is out of scope — say so and let the Shape Engine re-run instead.
+
+Rules:
+- Prefer removing a cue over adding one. Restraint beats stuffing.
+- Do not invent problems to justify a remux round; `pass` with no directives is a valid, good outcome.
+- On the final allowed round, set `remux_exhausted` and list `residual_issues` honestly.
+
+Schema: `mastering_polish_audit.schema.json`.

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringResearchFieldReport",
+  "type": "object",
+  "required": ["version", "field_id", "wave", "status", "findings", "acceptance", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "field_id": { "type": "string" },
+    "wave": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "soft_pass", "skipped_or_thin", "failed"]
+    },
+    "findings": { "type": "object", "additionalProperties": true },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "clarifying_questions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/clarifying_question" }
+    },
+    "acceptance": { "$ref": "#/$defs/acceptance_verdict" },
+    "minted_prompt_ref": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "acceptance_verdict": {
+      "type": "object",
+      "required": ["passed", "confidence"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "soft": { "type": "boolean" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "gaps": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "clarifying_question": {
+      "type": "object",
+      "required": ["id", "question"],
+      "properties": {
+        "id": { "type": "string" },
+        "question": { "type": "string" },
+        "auto_resolved": { "type": "boolean" },
+        "answer": { "type": ["string", "null"] },
+        "assumption_if_unanswered": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

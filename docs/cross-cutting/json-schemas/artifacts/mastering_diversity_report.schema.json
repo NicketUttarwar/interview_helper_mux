@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringDiversityReport",
+  "description": "Pairwise candidate distance after L2 (mastering/shape/diversity_report.json).",
+  "type": "object",
+  "required": ["version", "threshold", "candidate_ids", "pairs", "verdict", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "mode": { "type": "string", "enum": ["off", "advisory", "authoritative"] },
+    "threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Minimum acceptable pairwise distance."
+    },
+    "candidate_ids": { "type": "array", "items": { "type": "string" } },
+    "axes": {
+      "type": "array",
+      "description": "Axis weights used to compute distance.",
+      "items": { "$ref": "#/$defs/axis_weight" }
+    },
+    "pairs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pair_distance" }
+    },
+    "verdict": { "type": "string", "enum": ["pass", "remint_required"] },
+    "remint_candidate_ids": {
+      "type": "array",
+      "description": "Candidates that must be regenerated because they are near-clones.",
+      "items": { "type": "string" }
+    },
+    "remint_directives": { "type": "array", "items": { "type": "string" } },
+    "min_distance": { "type": "number", "minimum": 0, "maximum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "axis_weight": {
+      "type": "object",
+      "required": ["axis", "weight"],
+      "properties": {
+        "axis": {
+          "type": "string",
+          "enum": [
+            "segment_order",
+            "cold_open_kind",
+            "duration_band",
+            "thesis_framing",
+            "vo_sfx_density",
+            "ending_kind",
+            "speaker_balance"
+          ]
+        },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "pair_distance": {
+      "type": "object",
+      "required": ["a", "b", "distance"],
+      "properties": {
+        "a": { "type": "string" },
+        "b": { "type": "string" },
+        "distance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "per_axis": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "too_similar": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

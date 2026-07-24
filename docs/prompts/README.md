@@ -13,6 +13,7 @@ User messages include **analysis memory** (`analysis_state_summary`, `open_inves
 ```
 prompts/
 ├── README.md
+├── mastering/                          ← Mastering Process contracts (mint/edit/shape/synthesize)
 ├── _shared/
 │   ├── analysis-preamble.system.txt    ← envelope + memory + gap-fill rules (all LLM stages)
 │   ├── arbiter.system.txt            ← economy-tier quality gate (spec; see llm-arbiter-contract.md)

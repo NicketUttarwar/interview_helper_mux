@@ -1,6 +1,8 @@
-# TBIY Flow 1 Production Profile
+# TBIY Flow 1 Production Profile (historical)
 
-Wondery-style **compass** for Flow 1 full podcast masters — not a rigid template.
+> **Superseded as strategy authority by the [Mastering Process](./mastering-process.md).** TBIY was the original Wondery-style inspiration; the product has evolved past enforcing five-act / moat / dual-voice. Retained discipline: pickup-eligible VO only, never invent guest evidence, speech-wins ducking. Migration: [mastering-integration-backlog.md](./mastering-integration-backlog.md).
+
+Wondery-style **compass** (legacy) for Flow 1 full podcast masters — not a rigid template. Prefer Mastering Process Shape Engine for new work.
 
 ## Production styles
 

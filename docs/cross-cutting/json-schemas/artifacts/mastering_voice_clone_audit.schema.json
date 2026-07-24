@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringVoiceCloneAudit",
+  "description": "Provenance for every synthetic or operator-recorded utterance in the master (mastering/voice_clone_audit.json).",
+  "type": "object",
+  "required": ["version", "consent", "utterances", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "mode": { "type": "string", "enum": ["off", "advisory", "authoritative"] },
+    "consent": { "$ref": "#/$defs/consent_record" },
+    "utterances": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/utterance" }
+    },
+    "violations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/violation" }
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "consent_record": {
+      "type": "object",
+      "required": ["granted"],
+      "properties": {
+        "speaker_id": { "type": ["string", "null"] },
+        "granted": { "type": "boolean" },
+        "granted_by": { "type": ["string", "null"] },
+        "granted_at": { "type": ["string", "null"], "format": "date-time" },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["cold_open", "bridges", "outro"] }
+        },
+        "reference_path": { "type": ["string", "null"] },
+        "reference_approved": { "type": "boolean" },
+        "disclosure": { "type": "string", "enum": ["none", "show_notes", "in_audio"] },
+        "revoked_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "utterance": {
+      "type": "object",
+      "required": ["line_id", "speaker_id", "origin", "scope"],
+      "properties": {
+        "line_id": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "origin": {
+          "type": "string",
+          "enum": ["synthesized_clone", "operator_recorded", "source_audio"]
+        },
+        "scope": { "type": "string", "enum": ["cold_open", "bridges", "outro"] },
+        "text": { "type": ["string", "null"] },
+        "authored_by_artifact": { "type": ["string", "null"] },
+        "synthesis_path": {
+          "type": ["string", "null"],
+          "enum": ["chatterbox", "speech_to_speech", "recorded", "fallback", null]
+        },
+        "audio_path": { "type": ["string", "null"] },
+        "consent_hash": { "type": ["string", "null"] },
+        "recorded_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "violation": {
+      "type": "object",
+      "required": ["code", "detail"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "guest_clone_attempted",
+            "consent_missing",
+            "consent_revoked",
+            "scope_not_granted",
+            "reference_not_approved",
+            "speaker_not_pickup_eligible",
+            "speaker_unidentified"
+          ]
+        },
+        "detail": { "type": "string" },
+        "line_id": { "type": ["string", "null"] },
+        "speaker_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

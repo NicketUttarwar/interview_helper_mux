@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringEvalRubric",
+  "description": "Per-run, style-specific scoring rubric emitted by L0 (mastering/shape/eval_rubric.json).",
+  "type": "object",
+  "required": ["version", "style_axes", "criteria", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "style_axes": {
+      "type": "array",
+      "description": "Inferred character of this source; drives criterion weighting.",
+      "items": { "$ref": "#/$defs/style_axis" }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/criterion" }
+    },
+    "anti_patterns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/anti_pattern" }
+    },
+    "hard_requirements": {
+      "type": "array",
+      "description": "Non-negotiables for this source (beyond global invariants).",
+      "items": { "type": "string" }
+    },
+    "rationale": { "type": "string" },
+    "evidence_refs": { "type": "array", "items": { "type": "string" } },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "style_axis": {
+      "type": "object",
+      "required": ["axis", "value"],
+      "properties": {
+        "axis": { "type": "string" },
+        "value": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "criterion": {
+      "type": "object",
+      "required": ["criterion_id", "description", "weight"],
+      "properties": {
+        "criterion_id": { "type": "string" },
+        "description": { "type": "string" },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "higher_is_better": { "type": "boolean", "default": true },
+        "owning_critics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "narrative_editor",
+              "engagement_listener",
+              "audio_intelligibility",
+              "integrity",
+              "pacing_repetition",
+              "style_fit"
+            ]
+          }
+        },
+        "pass_threshold": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "anti_pattern": {
+      "type": "object",
+      "required": ["id", "description"],
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": { "type": "string", "enum": ["kill", "penalize", "note"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

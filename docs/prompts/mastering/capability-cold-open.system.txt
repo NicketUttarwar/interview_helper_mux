@@ -1,0 +1,9 @@
+Capability module: **cold_open_hook** (standard).
+
+Dynamically choose exactly one kind: `none` | `segment_hook` | `vo_clone_open` | `vo_plus_segment`.
+SFX is an independent `{enabled, cue_ref?}` switch on non-none kinds.
+
+Cite Wave-3 salience, Wave-2 pickup/volleys, Wave-5 synthesis feasibility, Wave-6 cues, Wave-8 intelligibility.
+VO clone only on pickup-eligible (least-spoken) voice — never guest.
+Pick the *most compelling* option or `none` if hooks feel forced.
+Output decision record for `mastering_plan.cold_open`.

@@ -46,3 +46,21 @@ Every analysis, delivery, and gate stage declares how it relates to **speaker vo
 | `verify_master` | Loudness of final enjoyable master | — |
 
 Flow 2 / Flow 3 stages: **permanently excluded** from this matrix’s product path.
+
+## Mastering quality-hardening gates
+
+Advisory by default; each writes an artifact and only blocks when its mode is `authoritative`. Canon: [mastering-quality-hardening.md](./mastering-quality-hardening.md).
+
+| Gate | Speaker-volley relevance | LLM volley |
+|------|--------------------------|------------|
+| `research_routing` | Decides how deeply volley/topology fields are analysed | LLM volley (economy, OH-01) |
+| `evidence_packets` | Bounds what each consumer sees per volley | Deterministic |
+| `eval_rubric` | Weights that judge volley pacing for this source | LLM volley (flagship, OH-02) |
+| `diversity` | Forces candidates to differ in volley ordering, not just labels | Deterministic |
+| `feasibility` | Hard check that locked volleys stay intact | Deterministic |
+| `semantic_integrity` | Blocks reorders that fabricate cross-volley meaning | Deterministic + LLM volley (OH-03) |
+| `auditions` | Renders 30–90 s of real volley audio per candidate | Deterministic render |
+| `critics` | Six critics score volley arc, audio, pacing, integrity | LLM volley ×6 (OH-C1…C6) |
+| `arbiter` | Merges the panel; enforces integrity kills | LLM volley (flagship, OH-A1) |
+| `pareto` | Keeps frontier survivors instead of one score | Deterministic |
+| `polish` | Audio-grounded audit + bounded remux before finalize | LLM volley (flagship, OH-P1) |

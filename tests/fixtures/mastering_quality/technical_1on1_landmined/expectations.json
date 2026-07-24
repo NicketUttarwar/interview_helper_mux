@@ -1,0 +1,19 @@
+{
+  "routing_hints": {
+    "required": ["source_topology", "speaker_volleys", "thesis_and_value"],
+    "skip": ["preclean_outcome", "nle_operator_edits"]
+  },
+  "diversity_floor": 0.35,
+  "expected_findings": [
+    { "candidate_id": "cand_1", "class_id": "quote_out_of_context", "segment_id": "seg_3" },
+    { "candidate_id": "cand_1", "class_id": "orphaned_referent", "segment_id": "seg_5" }
+  ],
+  "must_not_flag": [
+    { "candidate_id": "cand_1", "class_id": "causality_reversal" },
+    { "candidate_id": "cand_1", "class_id": "reprise_implies_repeat" }
+  ],
+  "feasibility": {
+    "cand_1": "pass",
+    "cand_2": "fail"
+  }
+}

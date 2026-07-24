@@ -203,3 +203,24 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 | MERGE | Former flow2 quotability → `full_master_ranking` via enrichment flags |
 | DEFER | Show notes export after master (not a parallel flow) |
 | DEPRECATED | Flow 2 montage, Flow 3 parallel pipeline, G2 picker, legacy mux/sfx_brief as default |
+
+---
+
+## Mastering quality hardening
+
+Reliability gates layered on the Mastering Process. All ship `advisory` (fail-open) and are flipped to `authoritative` one at a time. Canon: [mastering-quality-hardening.md](./mastering-quality-hardening.md).
+
+| Gate | Artifact | Preserves |
+|------|----------|-----------|
+| research routing | `mastering/research/routing.json` | Analysis depth where this source needs it |
+| evidence packets | `mastering/evidence_packets/*.json` | Provenance + token discipline per consumer |
+| eval rubric | `mastering/shape/eval_rubric.json` | Style-appropriate definition of quality |
+| diversity | `mastering/shape/diversity_report.json` | Genuinely different candidates, not renamed clones |
+| feasibility | `mastering/shape/feasibility.json` | Buildable plans; locked speaker-volley integrity |
+| semantic integrity | `mastering/shape/semantic_integrity.json` | No fabricated meaning from real clips |
+| voice clone | `mastering/voice_clone_audit.json` | Consent + scope; guest cloning impossible |
+| auditions | `mastering/auditions/*/manifest.json` | Judgement on rendered audio, not plan text |
+| multi-critic L4 | `mastering/shape/cross_critique.json` | Independent lanes; integrity may hard-fail |
+| Pareto | `mastering/shape/pareto.json` | Strong-somewhere beats mediocre-everywhere |
+| closed-loop polish | `mastering/polish_audit.json` | Masking, jolts, dead air fixed before finalize |
+| prompt promotion | `mastering/prompt_promotions.json` | Run-local edits cannot silently become global |

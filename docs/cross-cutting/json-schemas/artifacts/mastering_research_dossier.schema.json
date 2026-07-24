@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringResearchDossier",
+  "type": "object",
+  "required": ["version", "field_reports", "salience_map", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "field_reports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field_id", "wave", "status", "path"],
+        "properties": {
+          "field_id": { "type": "string" },
+          "wave": { "type": "integer" },
+          "status": { "type": "string" },
+          "path": { "type": "string" },
+          "summary": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "salience_map": { "type": "object", "additionalProperties": true },
+    "open_assumptions": { "type": "array", "items": { "type": "string" } },
+    "unresolved_clarifying_questions": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

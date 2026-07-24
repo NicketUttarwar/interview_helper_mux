@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
+import { VoiceCloneConsent } from "./VoiceCloneConsent";
 
 interface VoiceSegment {
   start_ms?: number;
@@ -81,6 +82,7 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
     return (
       <section className="voice-reference-panel panel-inset" data-testid="voice-reference-panel">
         <p className="hint sm">✓ Interviewer voice reference approved for synthesis.</p>
+        <VoiceCloneConsent />
       </section>
     );
   }

@@ -1,0 +1,57 @@
+{
+  "fixture_id": "memoir_monologue_noisy",
+  "tags": {
+    "topology": "monologue",
+    "acoustics": "noisy",
+    "duration": "short",
+    "theme": "emotional",
+    "vo_reference": "none",
+    "sfx_assets": "sparse",
+    "integrity_risk": "clean"
+  },
+  "topology": {
+    "kind": "monologue",
+    "speaker_count": 1,
+    "pickup_eligible_speaker_id": null
+  },
+  "source_duration_ms": 900000,
+  "speakers": [{ "speaker_id": "spk_guest", "role": "interviewee" }],
+  "segments": {
+    "seg_1": {
+      "start_ms": 0,
+      "end_ms": 240000,
+      "turn_index": 1,
+      "word_count": 400,
+      "text": "I grew up two streets from the harbour."
+    },
+    "seg_2": {
+      "start_ms": 240000,
+      "end_ms": 520000,
+      "turn_index": 2,
+      "word_count": 460,
+      "text": "My mother worked the night shift for eleven years."
+    },
+    "seg_3": {
+      "start_ms": 520000,
+      "end_ms": 780000,
+      "turn_index": 3,
+      "word_count": 380,
+      "text": "I did not understand what that cost her until much later."
+    }
+  },
+  "locked_volleys": [],
+  "vo_lines": {},
+  "sfx_cues": ["cue_bed_soft"],
+  "candidates": [
+    {
+      "candidate_id": "cand_1",
+      "cold_open": { "kind": "none", "rationale": "Let the voice arrive plainly", "evidence_refs": ["mastering/research/thesis.json"], "confidence": 0.8 },
+      "ordered_segment_ids": ["seg_1", "seg_2", "seg_3"],
+      "thesis_framing": "cost_understood_late",
+      "ending_kind": "reflective",
+      "speaker_balance": 1.0,
+      "target_duration_ms": 780000,
+      "evidence_refs": ["mastering/research/thesis.json"]
+    }
+  ]
+}

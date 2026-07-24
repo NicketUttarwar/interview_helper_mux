@@ -1,0 +1,62 @@
+{
+  "fixture_id": "historical_sparse_host_landmined",
+  "tags": {
+    "topology": "sparse_host",
+    "acoustics": "clean",
+    "duration": "long",
+    "theme": "historical",
+    "vo_reference": "excellent",
+    "sfx_assets": "sparse",
+    "integrity_risk": "landmined"
+  },
+  "topology": {
+    "kind": "sparse_host",
+    "speaker_count": 2,
+    "pickup_eligible_speaker_id": "spk_host"
+  },
+  "source_duration_ms": 4800000,
+  "speakers": [
+    { "speaker_id": "spk_host", "role": "interviewer" },
+    { "speaker_id": "spk_guest", "role": "interviewee" }
+  ],
+  "segments": {
+    "seg_a": { "start_ms": 0, "end_ms": 400000, "turn_index": 1, "word_count": 700, "text": "The archive opened to the public in 1974." },
+    "seg_b": { "start_ms": 400000, "end_ms": 900000, "turn_index": 3, "word_count": 820, "text": "We moved the collection because the funding dried up." },
+    "seg_c": { "start_ms": 900000, "end_ms": 1400000, "turn_index": 9, "word_count": 910, "text": "The new building was finished in the spring." },
+    "seg_d": { "start_ms": 1400000, "end_ms": 1800000, "turn_index": 11, "word_count": 640, "text": "Researchers came back within a year." }
+  },
+  "locked_volleys": [],
+  "vo_lines": {
+    "vo_clone_open": { "speaker_id": "spk_host", "audio_path": null }
+  },
+  "sfx_cues": ["cue_bed_archive"],
+  "candidates": [
+    {
+      "candidate_id": "cand_1",
+      "cold_open": { "kind": "none", "rationale": "Chronological entry", "evidence_refs": ["mastering/research/spine.json"], "confidence": 0.66 },
+      "ordered_segment_ids": ["seg_a", "seg_c", "seg_b", "seg_d"],
+      "thesis_framing": "archive_survived",
+      "ending_kind": "resolution",
+      "speaker_balance": 0.15,
+      "target_duration_ms": 1800000,
+      "evidence_refs": ["mastering/research/spine.json"]
+    },
+    {
+      "candidate_id": "cand_2",
+      "cold_open": {
+        "kind": "vo_clone_open",
+        "vo_line_id": "vo_clone_open",
+        "vo_voice_speaker_id": "spk_host",
+        "rationale": "Narrated framing for a sparse host",
+        "evidence_refs": ["mastering/research/spine.json"],
+        "confidence": 0.6
+      },
+      "ordered_segment_ids": ["seg_a", "seg_b", "seg_c", "seg_d"],
+      "thesis_framing": "funding_forced_the_move",
+      "ending_kind": "reflective",
+      "speaker_balance": 0.15,
+      "target_duration_ms": 1800000,
+      "evidence_refs": ["mastering/research/spine.json"]
+    }
+  ]
+}

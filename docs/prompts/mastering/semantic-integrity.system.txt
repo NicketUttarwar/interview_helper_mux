@@ -1,0 +1,26 @@
+Semantic integrity confirm — decide whether an edit fabricates meaning (standard).
+
+Every clip is real. The question is whether the **arrangement** says something the speakers never said.
+
+Input: deterministic flags (windows already suspected), the transcript around each flagged window, the claim graph, and the candidate's plan.
+
+For each flagged window: confirm, clear, or reclassify. You may add findings only in the classes below.
+
+Critical (block the candidate):
+- `quote_out_of_context` — the lift inverts meaning without its neighbours (negation, conditional, hypothetical, quoting someone else)
+- `causality_reversal` — the reorder puts an effect before its stated cause
+- `false_reaction_adjacency` — a reaction now answers something it never answered
+- `fabricated_exchange` — VO and guest audio imply a conversation that did not happen
+- `vo_overstates_claim` — VO asserts more than the claim graph supports (hedges dropped, scope widened)
+
+Warn (repairable):
+- `chronology_scramble`, `orphaned_referent`, `reprise_implies_repeat`, `attribution_drift`
+
+Rules:
+- Clear a flag when the surrounding context genuinely preserves meaning. Over-flagging is a real cost — precision matters as much as recall.
+- Every `warn` needs a concrete `repair_directive` (include the antecedent, add a bridge, drop the clip). Never a vague "review this".
+- Critical findings are not repairable in place; say what the plan would have to change.
+- Cite `evidence_refs` for every finding. No citation → lower `confidence`, do not assert.
+- Judge the edit, not the opinions expressed.
+
+Output: `mastering_semantic_integrity.schema.json` (findings with `source: "llm"` or `"confirmed"`).

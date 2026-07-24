@@ -1,0 +1,45 @@
+{
+  "fixture_id": "comedy_guest_heavy_landmined",
+  "tags": {
+    "topology": "guest_heavy",
+    "acoustics": "noisy",
+    "duration": "short",
+    "theme": "comedy",
+    "vo_reference": "none",
+    "sfx_assets": "sparse",
+    "integrity_risk": "landmined"
+  },
+  "topology": {
+    "kind": "guest_heavy",
+    "speaker_count": 2,
+    "pickup_eligible_speaker_id": "spk_host"
+  },
+  "source_duration_ms": 1100000,
+  "speakers": [
+    { "speaker_id": "spk_host", "role": "interviewer" },
+    { "speaker_id": "spk_guest", "role": "interviewee" }
+  ],
+  "segments": {
+    "seg_1": { "start_ms": 0, "end_ms": 120000, "turn_index": 1, "word_count": 210, "text": "So the tour bus caught fire." },
+    "seg_2": { "start_ms": 120000, "end_ms": 260000, "turn_index": 2, "word_count": 260, "text": "We lost every costume except the chicken suit." },
+    "seg_3": { "start_ms": 260000, "end_ms": 420000, "turn_index": 3, "word_count": 300, "text": "My accountant has still not forgiven me." },
+    "seg_laugh": { "start_ms": 900000, "end_ms": 916000, "turn_index": 12, "word_count": 4, "text": "Oh that is unbelievable." },
+    "seg_5": { "start_ms": 420000, "end_ms": 640000, "turn_index": 4, "word_count": 340, "text": "We played the next night anyway." }
+  },
+  "reaction_segment_ids": ["seg_laugh"],
+  "locked_volleys": [],
+  "vo_lines": {},
+  "sfx_cues": ["cue_bed_club"],
+  "candidates": [
+    {
+      "candidate_id": "cand_1",
+      "cold_open": { "kind": "none", "rationale": "The first line is already the hook", "evidence_refs": ["mastering/research/salience.json"], "confidence": 0.72 },
+      "ordered_segment_ids": ["seg_1", "seg_2", "seg_laugh", "seg_3", "seg_5"],
+      "thesis_framing": "disaster_tour",
+      "ending_kind": "punchline",
+      "speaker_balance": 0.2,
+      "target_duration_ms": 700000,
+      "evidence_refs": ["mastering/research/salience.json"]
+    }
+  ]
+}

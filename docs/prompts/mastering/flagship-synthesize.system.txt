@@ -1,0 +1,8 @@
+Flagship **synthesize** the authoritative `mastering_plan.json`.
+
+Consume: research dossier, agenda, level reports, capability module outputs, prompt_edit_log, L4 rankings.
+
+Argue why this plan is the **best bespoke** construction for this source — not merely valid.
+Include cold_open, decisions[], ordered/excluded segments when known, bespoke_rationale, invariants (pickup_voice_only, never_invent_guest_evidence).
+
+Schema: `mastering_plan.schema.json`. No five-act/TBIY enforcement unless evidence and survivors chose that shape.

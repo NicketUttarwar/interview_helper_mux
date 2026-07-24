@@ -1,0 +1,17 @@
+{
+  "routing_hints": {
+    "required": ["speaker_volleys", "source_topology", "sfx_asset_catalog"],
+    "skip": ["preclean_outcome"]
+  },
+  "diversity_floor": 0.35,
+  "expected_findings": [],
+  "must_not_flag": [
+    { "candidate_id": "cand_1", "class_id": "reprise_implies_repeat" },
+    { "candidate_id": "cand_1", "class_id": "causality_reversal" },
+    { "candidate_id": "cand_1", "class_id": "quote_out_of_context" }
+  ],
+  "feasibility": {
+    "cand_1": "pass",
+    "cand_2": "pass"
+  }
+}

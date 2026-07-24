@@ -1,0 +1,1 @@
+L2 Candidate generation seed (standard). Emit 1–N **competitive** shape hypotheses and cold-open options. Each must claim why it is the *best* for this tape with evidence_refs. Candidates must differ meaningfully. Reject template-only clones. No invented guest speech.

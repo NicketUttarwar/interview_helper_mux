@@ -2603,6 +2603,55 @@ def create_app() -> FastAPI:
             refresh_journey_meta(ctx)
             return {"ok": True, **voice_reference_payload(ctx)}
 
+    @app.get("/api/runs/{run_id}/voice-clone-consent")
+    def get_voice_clone_consent(run_id: str) -> dict[str, Any]:
+        from interview_mux.mastering_voice_clone import consent_payload
+
+        return consent_payload(_ctx(run_id))
+
+    @app.post("/api/runs/{run_id}/voice-clone-consent")
+    def post_voice_clone_consent(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Grant clone consent with explicit scopes. Guest cloning is always rejected."""
+        with _guarded_run(run_id):
+            from interview_mux.mastering_voice_clone import (
+                CloneNotAuthorized,
+                consent_payload,
+                grant_consent,
+            )
+            from interview_mux.source_topology import pickup_eligible_speaker_id
+
+            ctx = _ctx(run_id)
+            speaker_id = str(body.get("speaker_id") or "") or pickup_eligible_speaker_id(ctx)
+            if not speaker_id:
+                raise HTTPException(400, "No pickup-eligible speaker")
+            scopes = [str(s) for s in (body.get("scopes") or [])]
+            if not scopes:
+                raise HTTPException(400, "At least one clone scope is required")
+            try:
+                grant_consent(
+                    ctx,
+                    speaker_id=speaker_id,
+                    scopes=scopes,
+                    granted_by=str(body.get("granted_by") or "operator"),
+                    disclosure=str(body.get("disclosure") or "none"),
+                )
+            except CloneNotAuthorized as exc:
+                raise HTTPException(403, exc.detail) from exc
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            refresh_journey_meta(ctx)
+            return {"ok": True, **consent_payload(ctx)}
+
+    @app.delete("/api/runs/{run_id}/voice-clone-consent")
+    def delete_voice_clone_consent(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.mastering_voice_clone import consent_payload, revoke_consent
+
+            ctx = _ctx(run_id)
+            revoke_consent(ctx)
+            refresh_journey_meta(ctx)
+            return {"ok": True, **consent_payload(ctx)}
+
     @app.post("/api/runs/{run_id}/g1/synthesize-all")
     def g1_synthesize_all(run_id: str) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -3065,6 +3114,27 @@ def build_journey_snapshot(
         "active_substep_id": None,
         "active_substep_label": None,
         "execute_hint": None,
+        "mastering_hardening": _hardening_snapshot(ctx),
+    }
+
+
+def _hardening_snapshot(ctx: RunContext) -> dict[str, Any]:
+    """Advisory view of the Mastering hardening gates — never blocks the journey."""
+    from interview_mux.mastering_hardening_config import gate_mode
+    from interview_mux.mastering_shape_gates import hardening_artifact_status
+
+    try:
+        artifacts = hardening_artifact_status(ctx)
+    except (OSError, ValueError):
+        return {"available": False, "artifacts": {}, "modes": {}}
+    gates = (
+        "context", "diversity", "feasibility", "semantic_integrity",
+        "voice_clone", "rubric", "auditions", "critics", "pareto", "polish",
+    )
+    return {
+        "available": any(artifacts.values()),
+        "artifacts": artifacts,
+        "modes": {g: gate_mode(g) for g in gates},
     }
 
 

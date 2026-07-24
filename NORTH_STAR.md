@@ -2,12 +2,16 @@
 
 > **Turn a long-form interview recording into a listener-ready mastered podcast (`master/master.wav`) the operator trusts.**
 
+## Master construction strategy
+
+Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-process.md)** — research lane → Shape Composition Engine → realization — producing a **bespoke** `mastering_plan` per podcast (no fixed five-act/TBIY template). TBIY is historical inspiration only ([tbiy-production-profile.md](docs/cross-cutting/tbiy-production-profile.md)).
+
 ## Success criteria
 
 | Criterion | Verification |
 |-----------|----------------|
 | Master loudness | `-16 LUFS` integrated, true peak within bounds — `python tools/verify_master.py <path>/master/master.wav` |
-| Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix |
+| Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix — bound to Mastering Process plan when present |
 | Operator friction | Hard stops only for **G0 transcript fix**; **G1 gap VO** is optional; preclean is an optional offer |
 
 ## Operator stops (only these)

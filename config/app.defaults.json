@@ -805,6 +805,82 @@
     "require_payoff": false,
     "require_outro": false
   },
+  "_comment_mastering": "Unified Mastering Process \u2014 docs/cross-cutting/mastering-process.md. quality_hardening gates ship advisory (fail-open) and flip to authoritative one at a time.",
+  "mastering": {
+    "prompt_edit": {
+      "allow_global_promotion": false,
+      "require_operator_approval": true
+    },
+    "research": {
+      "routing": {
+        "mode": "advisory",
+        "default_disposition": "required",
+        "max_deep_fields": 12
+      }
+    },
+    "quality_hardening": {
+      "enabled": true,
+      "context": {
+        "mode": "advisory",
+        "default_max_tokens": 24000,
+        "truncation_policy": "drop_lowest_salience",
+        "inline_max_chars": 4000
+      },
+      "diversity": {
+        "mode": "advisory",
+        "min_pairwise_distance": 0.35,
+        "max_remint_rounds": 1
+      },
+      "feasibility": {
+        "mode": "advisory",
+        "duration_slack_pct": 0.15
+      },
+      "semantic_integrity": {
+        "mode": "advisory",
+        "adjacency_max_turns": 3,
+        "llm_confirm": true
+      },
+      "voice_clone": {
+        "mode": "advisory",
+        "default_scopes": [],
+        "require_disclosure": false
+      },
+      "rubric": {
+        "mode": "advisory"
+      },
+      "auditions": {
+        "mode": "advisory",
+        "max_auditions": 3,
+        "window_ms": {
+          "opening": 20000,
+          "hinge": 20000,
+          "dense": 30000
+        },
+        "total_max_ms": 90000
+      },
+      "critics": {
+        "mode": "advisory",
+        "enabled_critics": [
+          "narrative_editor",
+          "engagement_listener",
+          "audio_intelligibility",
+          "integrity",
+          "pacing_repetition",
+          "style_fit"
+        ],
+        "max_deepen_rounds": 1
+      },
+      "pareto": {
+        "mode": "advisory",
+        "min_frontier_size": 1
+      },
+      "polish": {
+        "mode": "advisory",
+        "audio_grounded": true,
+        "max_remux_rounds": 2
+      }
+    }
+  },
   "_comment_v2": "Greenfield simplified master podcast app \u2014 see NORTH_STAR.md",
   "v2": {
     "enabled": true,

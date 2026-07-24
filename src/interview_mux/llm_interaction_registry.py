@@ -374,6 +374,25 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         model_tier="mid",
     )
 
+    for cid, meta in _OH_META.items():
+        entrypoint, prompt, schema, tier, goal, interaction = meta
+        reg[cid] = _entry(
+            id=cid,
+            provider="openai",
+            interaction=interaction,
+            stage_key="mastering",
+            task_kind="primary",
+            trigger="Mastering quality-hardening gate (mode != off)",
+            entrypoint=entrypoint,
+            prompt_rel=prompt,
+            volley_profile="full",
+            response_schema=schema,
+            verify="validate_envelope + artifact schema",
+            on_verify_fail="volley_retry",
+            goal=goal,
+            model_tier=tier,
+        )
+
     for sk in STAGE_ARTIFACT_SCHEMAS:
         cid = f"OM-MG-{STAGE_PRIMARY_IDS.get(sk, sk)[:2]}"
         reg[cid] = _entry(
@@ -394,6 +413,99 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         )
 
     return reg
+
+# Mastering quality-hardening interactions (docs/cross-cutting/mastering-quality-hardening.md).
+# id -> (entrypoint, prompt_rel, response_schema, model_tier, goal, interaction)
+_OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
+    "OH-01": (
+        "mastering_research_router.route_fields",
+        "mastering/research-router.system.txt",
+        "mastering_research_routing.schema.json",
+        "economy",
+        "Route the 38 research fields for this source",
+        "research_router",
+    ),
+    "OH-02": (
+        "mastering_shape_gates.emit_eval_rubric",
+        "mastering/eval-rubric-mint.system.txt",
+        "mastering_eval_rubric.schema.json",
+        "flagship",
+        "Per-run style rubric every critic scores against",
+        "eval_rubric_mint",
+    ),
+    "OH-03": (
+        "mastering_semantic_integrity.merge_llm_findings",
+        "mastering/semantic-integrity.system.txt",
+        "mastering_semantic_integrity.schema.json",
+        "standard",
+        "Confirm or clear deterministic fabrication flags",
+        "semantic_integrity_confirm",
+    ),
+    "OH-C1": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/narrative-editor.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — arc, clarity, information conveyance",
+        "critic_narrative_editor",
+    ),
+    "OH-C2": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/engagement-listener.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — hook strength, momentum, fatigue",
+        "critic_engagement_listener",
+    ),
+    "OH-C3": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/audio-intelligibility.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — masking, ducking, loudness swings",
+        "critic_audio_intelligibility",
+    ),
+    "OH-C4": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/integrity.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — fabrication; the only hard-fail critic",
+        "critic_integrity",
+    ),
+    "OH-C5": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/pacing-repetition.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — density, dead air, repeated gestures",
+        "critic_pacing_repetition",
+    ),
+    "OH-C6": (
+        "mastering_critics.build_critic_packets",
+        "mastering/critics/style-fit.system.txt",
+        "mastering_critic_report.schema.json",
+        "standard",
+        "L4 critic — fit against the per-run rubric",
+        "critic_style_fit",
+    ),
+    "OH-A1": (
+        "mastering_critics.merge_panel",
+        "mastering/critics/l4-arbiter.system.txt",
+        "mastering_cross_critique.schema.json",
+        "flagship",
+        "Merge the critic panel; enforce integrity kills",
+        "l4_arbiter",
+    ),
+    "OH-P1": (
+        "mastering_polish_loop.build_audit_request",
+        "mastering/polish-audit.system.txt",
+        "mastering_polish_audit.schema.json",
+        "flagship",
+        "Audio-grounded polish audit + bounded remux directives",
+        "polish_audit_audio",
+    ),
+}
 
 _OA_GOALS: dict[str, str] = {
     "speaker_roles": "Map diarization IDs → interviewer/interviewee",
@@ -490,6 +602,7 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "llm_arbiter",
             "llm_specialists",
             "llm_runner",
+            "llm_simple",
             "local_capability_router",
         ),
         "generate_local_chat": (
