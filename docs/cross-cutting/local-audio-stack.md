@@ -2,7 +2,7 @@
 
 Interview MUX runs **noise reduction** and **SFX generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend.
 
-**Planned:** speech-to-speech gap VO (synthesis, voice conversion, prosody/tone) — [speech-to-speech-vo.md](./speech-to-speech-vo.md) (R&D; not in bootstrap yet).
+**Planned:** deeper ML speech-to-speech voice conversion — [speech-to-speech-vo.md](./speech-to-speech-vo.md). DSP timbre match for operator gap VO is shipped.
 
 ## Components
 

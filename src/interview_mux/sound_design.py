@@ -130,6 +130,25 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     prev_speech_seg_id = ""
 
     with logged_step("mix/build_base_timeline", ctx=ctx, stage="mix"):
+        from interview_mux.speaker_level_match import (
+            apply_speaker_gain,
+            build_speaker_gains,
+            gain_db_for_speaker,
+            speaker_id_for_segment,
+            speaker_level_match_cfg,
+        )
+
+        speaker_gains = build_speaker_gains(ctx, source)
+        if speaker_level_match_cfg().get("enabled") and speaker_gains:
+            nonzero = {sid: g for sid, g in speaker_gains.items() if abs(g) >= 0.05}
+            if nonzero:
+                ctx.log(
+                    f"mix: per-speaker level match applied to {len(nonzero)} speakers",
+                    level="info",
+                    stage="mix",
+                    detail=nonzero,
+                )
+
         for clip in edl.get("clips") or []:
             ctype = str(clip.get("type") or "")
             if ctype == "speech":
@@ -137,6 +156,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
                 audio = source[max(0, start) : max(start, end)]
                 seg_id = str(clip.get("segment_id") or "")
+                spk = speaker_id_for_segment(ctx, seg_id) if seg_id else None
+                audio = apply_speaker_gain(audio, gain_db_for_speaker(speaker_gains, spk))
                 if seg_id:
                     t0 = int(clip.get("timeline_start_ms", len(base)))
                     _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
@@ -194,6 +215,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             segment_timing=segment_timing,
             timeline_ms=len(base),
             contract=contract,
+            speech_stem=base,
         )
         mixed = base
         for cue in overlays:
@@ -392,6 +414,7 @@ def build_flow1_overlays(
     timeline_ms: int,
     contract: dict[str, Any] | None = None,
     excluded_windows: list[tuple[int, int]] | None = None,
+    speech_stem: AudioSegment | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     contract = contract or mix_contract(ctx)
     overlays = flow1_overlays_from_sdp(
@@ -399,6 +422,7 @@ def build_flow1_overlays(
         segment_timing=segment_timing,
         contract=contract,
         excluded_windows=excluded_windows or [],
+        speech_stem=speech_stem,
     )
     stats = count_overlay_roles(overlays)
     if overlays:
@@ -452,6 +476,7 @@ def flow1_overlays_from_sdp(
     segment_timing: dict[str, tuple[int, int]],
     contract: dict[str, Any] | None = None,
     excluded_windows: list[tuple[int, int]] | None = None,
+    speech_stem: AudioSegment | None = None,
 ) -> list[dict[str, Any]]:
     contract = contract or mix_contract(ctx)
     excluded = excluded_windows or []
@@ -545,7 +570,18 @@ def flow1_overlays_from_sdp(
             fade_out = int(cue.get("crossfade_ms") or 150)
             bed = loop_to_duration(base, dur)
             bed = apply_pan_position(bed, cue.get("pan_position"))
-            bed = bed.apply_gain(level_db - duck_db).fade_in(fade_in).fade_out(fade_out)
+            speech_window = None
+            if speech_stem is not None and len(speech_stem) > 0:
+                speech_window = speech_stem[max(0, start_ms) : max(start_ms, end_ms)]
+            from interview_mux.sidechain_duck import duck_bed_with_sidechain
+
+            bed = duck_bed_with_sidechain(
+                bed,
+                speech_window,
+                level_db=level_db,
+                duck_db=duck_db,
+            )
+            bed = bed.fade_in(fade_in).fade_out(fade_out)
             out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
             continue
 

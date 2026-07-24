@@ -44,6 +44,9 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `target_lufs` | Preferred alias for podcast master LUFS (falls back to `flow1_target_lufs`) | Wrong loudness |
+| `master` | Final safety limiter before loudness normalization | Disabled or unsafe settings reduce peak protection |
+| `creative_delivery` | Selection trim requirements and exclusion floors | Selection can over-trim or retain low-value material |
+| `local_chatterbox` | Local Chatterbox VO runtime, model, timeout, fail-open | Gap VO synthesis unavailable or stalls |
 | `gui_job` | Background job stall thresholds (`stall_threshold_sec`, `subprocess_stall_threshold_sec`) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel (→ Mastering Realization preview gate) | When `enabled`, blocks SFX until post-preview VO re-recorded |
@@ -96,6 +99,8 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **true**) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **true**) |
+| `analysis.gap_vo.timbre_match.enabled` | `timbre_match`, G1 `/match` endpoint | Enables deterministic spectral/loudness matching of an operator take; never synthesizes replacement words |
+| `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Optional duration QC + mlx retry when `auto_fallback_on_qc_fail` |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
@@ -139,6 +144,15 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 **Secrets override (not in JSON):** `INPUT_AUDIO_PATH` in `secrets.env` replaces `input_audio_path` for **CLI/automation only**. Not required for GUI: operators pick WAVs under `ASSETS/` — see [assets-and-executions.md](./assets-and-executions.md).
 
 **Optional secrets (fallback):** `OPENAI_MODEL` used when a stage key is missing from tier resolution.
+
+### `master` — final safety and loudness chain
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `master.safety_limiter_enabled` | `true` | `stages/mastering.py` | Disables the pre-loudnorm peak safety stage |
+| `master.safety_limiter_limit_db` | `-1.0` | FFmpeg `alimiter` | Too low over-compresses; above 0 is rejected |
+| `master.safety_limiter_attack_ms` | `5` | FFmpeg `alimiter` | Outside FFmpeg's 0.1–80 ms range is rejected |
+| `master.safety_limiter_release_ms` | `50` | FFmpeg `alimiter` | Outside FFmpeg's 1–8000 ms range is rejected |
 
 ---
 
@@ -864,6 +878,11 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.word_boundary_cuts` | `sound_design.py` EDL/highlight slices | When `true`, nudge slice ends to transcript word boundaries |
 | `mix.word_boundary_margin_ms` / `mix.word_boundary_max_shift_ms` | `audio_timeline.snap_cut_to_word_boundary` | Too small → mid-word cuts remain; too large → clips drift from EDL |
 | `mix.normalize_vo_pickup` | `gaps.ingest_vo_pickup` | When `true`, writes loudnorm copies under `vo_pickup/normalized/` |
+| `mix.per_speaker_level_match.enabled` | `speaker_level_match`, `sound_design.mix` | Matches dialogue speakers to the run median before assembly (default `true`) |
+| `mix.per_speaker_level_match.max_gain_db` | `speaker_level_match` | Caps per-speaker correction at ±6 dB by default |
+| `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
+| `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
+| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls attenuation response and envelope resolution |
 | `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
 | `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
 | `mix.require_preclean_acknowledgment` | *(deprecated — unused)* | Formerly gated mix/master stages on mid-pipeline pre-clean ack; v1 offers only `before_ingest` and `g1_vo_pickup` (non-blocking) |
@@ -876,6 +895,9 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `audio_preclean.provider` | `deepfilternet` | `preclean/provider.json`, lineage | Wrong provider label in artifacts |
 | `audio_preclean.chunk_max_bytes` | `52428800` | `audio_preclean.py` chunking before DeepFilterNet | Oversized sources chunked more/less than expected |
 | `audio_preclean.local_fallback_enabled` | `true` | `stages/audio_preclean.py` | When `true` (default), DeepFilterNet failure falls back to ffmpeg `afftdn` denoise (`provider: ffmpeg_local`) |
+| `audio_preclean.ffmpeg_highpass_hz` | `80` | `ffmpeg_denoise.py` | Rumble cutoff for the deterministic local fallback |
+| `audio_preclean.ffmpeg_lowpass_hz` | `12000` | `ffmpeg_denoise.py` | High-frequency cutoff for the deterministic local fallback |
+| `audio_preclean.ffmpeg_afftdn_nr` | `12` | FFmpeg `afftdn` | Noise-reduction depth; values outside FFmpeg's 0.01–97 dB range are rejected |
 
 See [local-audio-stack.md](./local-audio-stack.md) · [audio_preclean README](../pipeline/audio_preclean/README.md).
 

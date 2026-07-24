@@ -1,10 +1,10 @@
 # Speech-to-speech (S2S) for gap VO
 
-**Status:** R&D / product spec — not shipped. Complements [local-audio-stack.md](./local-audio-stack.md) (DeepFilterNet + MMAudio).
+**Status:** Partial ship. **DSP timbre match** for operator-recorded gap VO is shipped (`analysis.gap_vo.timbre_match` → `vo_pickup/matched/`). Full ML voice conversion remains R&D. Complements [local-audio-stack.md](./local-audio-stack.md) (DeepFilterNet + MMAudio).
 
 **North star:** [NORTH_STAR.md](../../NORTH_STAR.md) — one interview → listener-ready `master/master.wav`.
 
-This document describes four speech-to-speech use cases that improve **gap VO** (G1) quality and operator experience without adding mandatory gates. v2 keeps G1 optional; S2S makes filling gaps **low-friction and sonically trustworthy**.
+This document describes speech-to-speech use cases that improve **gap VO** (G1) quality and operator experience without adding mandatory gates. v2 keeps G1 optional; S2S makes filling gaps **low-friction and sonically trustworthy**.
 
 ---
 
@@ -16,11 +16,13 @@ The delivery chain already handles mix mechanics well: crossfades, ducking, meas
 
 | Modality | Input → output | In repo today |
 |----------|----------------|---------------|
-| STT | audio → text | AWS CLI `transcribe` |
-| TTS | text → new voice | Not shipped |
-| **S2S / voice conversion** | audio + reference → transformed audio | Not present |
-| **S2S + text conditioning** | text + reference voice → speech in that voice | Natural fit for gap VO |
+| STT | audio → text | AWS CLI `transcribe` / local speech |
+| TTS / clone synthesis | text + reference → new VO | Chatterbox + mlx-audio fail-open |
+| **DSP timbre match** | operator take + reference → matched take | **Shipped** — `timbre_match.match_vo_take` → `vo_pickup/matched/` |
+| **S2S / ML voice conversion** | audio + reference → identity-transformed audio | Not present (R&D) |
 | Text-to-audio (SFX) | text → non-speech sound | MMAudio |
+
+Pickup resolution precedence: **matched → synthesized → clean → normalized → raw**.
 
 S2S is functionally superior to plain TTS for podcast masters because listeners judge **identity and pacing continuity**, not transcript accuracy alone.
 
@@ -169,7 +171,7 @@ flowchart LR
 - Optional quality offer after upload (same consent pattern as pickup preclean).
 - Higher G1 completion rate without new mandatory gates.
 
-**Artifact precedence (proposed):** `vo_pickup/matched/` → `vo_pickup/clean/` → `vo_pickup/normalized/` → raw — extend `resolve_vo_pickup_path()` in assembly.
+**Artifact precedence (shipped):** `vo_pickup/matched/` → `vo_pickup/synthesized/` → `vo_pickup/clean/` → `vo_pickup/normalized/` → raw — `resolve_vo_pickup_path()` in assembly.
 
 **Complementarity with case 1**
 

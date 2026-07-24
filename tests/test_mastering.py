@@ -109,14 +109,12 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
 
     assert output == run_dir / "master/master.wav"
     assert ctx.done == ["master_finalize"]
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert calls[0][0] == "ffmpeg"
-    assert "print_format=json" in calls[0][calls[0].index("-af") + 1]
-    second_filter = calls[1][calls[1].index("-af") + 1]
-    assert "linear=true" in second_filter
-    assert "measured_I=-18.50" in second_filter
-    assert "offset=2.50" in second_filter
-    assert "TP=-1.0" in second_filter
+    master_filter = calls[0][calls[0].index("-af") + 1]
+    assert master_filter.startswith("alimiter=limit=0.891251:attack=5:release=50,loudnorm=")
+    assert "I=-16.0" in master_filter
+    assert "TP=-0.85" in master_filter
     assert any("Assembly bus measured -18.50 LUFS" in msg for msg, _ in ctx.logs)
 
 
@@ -152,3 +150,13 @@ def test_extract_loudnorm_json_requires_expected_keys() -> None:
         assert "missing input_lra, input_thresh, target_offset" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError for incomplete loudnorm fields.")
+
+
+def test_master_filter_chain_can_disable_limiter() -> None:
+    chain = mastering._master_filter_chain(
+        {"master": {"safety_limiter_enabled": False}},
+        target_lufs=-16.0,
+        true_peak_dbtp=-0.85,
+    )
+    assert chain.startswith("loudnorm=")
+    assert "alimiter" not in chain

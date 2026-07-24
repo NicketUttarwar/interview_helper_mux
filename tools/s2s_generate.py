@@ -6,7 +6,6 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -31,39 +30,79 @@ def _tone_prefix(tone: str | None) -> str:
     return hints.get(tone, "")
 
 
+def build_tts_argv(
+    *,
+    model_id: str,
+    text: str,
+    ref_audio: Path,
+    file_prefix: str,
+) -> list[str]:
+    """Argv for mlx-audio 0.2.10 `python -m mlx_audio.tts.generate`.
+
+    Uses ``--file_prefix`` (writes under cwd). Does not pass invalid
+    ``--output`` / ``--context`` flags from older scaffolding.
+    """
+    return [
+        sys.executable,
+        "-m",
+        "mlx_audio.tts.generate",
+        "--model",
+        model_id,
+        "--text",
+        text,
+        "--ref_audio",
+        str(ref_audio),
+        "--file_prefix",
+        file_prefix,
+        "--join_audio",
+        "--audio_format",
+        "wav",
+    ]
+
+
+def discover_generated_wav(work_dir: Path, file_prefix: str) -> Path | None:
+    """Find wav written by mlx-audio for a given file_prefix under work_dir."""
+    joined = work_dir / f"{file_prefix}.wav"
+    if joined.is_file():
+        return joined
+    numbered = sorted(work_dir.glob(f"{file_prefix}_*.wav"))
+    if numbered:
+        return numbered[0]
+    loose = sorted(work_dir.glob(f"{file_prefix}*.wav"))
+    return loose[0] if loose else None
+
+
 def _run_tts(
     *,
     model_id: str,
     text: str,
     ref_audio: Path,
     out_wav: Path,
-    context_audio: Path | None = None,
 ) -> None:
     out_wav.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        out_dir = Path(tmp)
-        cmd = [
-            sys.executable,
-            "-m",
-            "mlx_audio.tts.generate",
-            "--model",
-            model_id,
-            "--text",
-            text,
-            "--ref_audio",
-            str(ref_audio),
-            "--output",
-            str(out_dir),
-        ]
-        if context_audio and context_audio.is_file():
-            cmd.extend(["--context", str(context_audio)])
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "tts failed")[:500])
-        generated = sorted(out_dir.glob("*.wav"))
-        if not generated:
-            raise RuntimeError("tts produced no wav output")
-        generated[0].replace(out_wav)
+    work_dir = out_wav.parent
+    # Prefix only (no path) — mlx-audio writes relative to cwd.
+    file_prefix = out_wav.stem
+    cmd = build_tts_argv(
+        model_id=model_id,
+        text=text,
+        ref_audio=ref_audio,
+        file_prefix=file_prefix,
+    )
+    proc = subprocess.run(
+        cmd,
+        cwd=str(work_dir),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "tts failed")[:500])
+    generated = discover_generated_wav(work_dir, file_prefix)
+    if generated is None:
+        raise RuntimeError("tts produced no wav output")
+    if generated.resolve() != out_wav.resolve():
+        generated.replace(out_wav)
 
 
 def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -72,8 +111,6 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
     text = str(payload.get("text") or "").strip()
     ref = Path(str(payload.get("ref_audio") or ""))
     out_wav = Path(str(payload.get("out_wav") or payload.get("output") or ""))
-    context = payload.get("context_audio")
-    context_path = Path(str(context)) if context else None
     tone = payload.get("tone")
 
     if not model_id:
@@ -84,20 +121,19 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("out_wav required")
     if mode in ("synthesize", "tone") and not text:
         raise ValueError("text required for synthesize/tone")
+    if mode == "convert":
+        # Convert/timbre-match is DSP at the orchestration layer — never invent TTS here.
+        raise ValueError(
+            "convert mode is not supported in s2s_generate; use DSP timbre_match for matched/"
+        )
 
     spoken = _tone_prefix(tone) + text if mode == "tone" else text
-    if mode == "convert":
-        source = Path(str(payload.get("source_audio") or ""))
-        if not source.is_file():
-            raise ValueError(f"source_audio missing for convert: {source}")
-        spoken = text or "Voice conversion reference take."
-
+    # context_audio is intentionally ignored (mlx-audio 0.2.10 has no --context).
     _run_tts(
         model_id=model_id,
         text=spoken,
         ref_audio=ref,
         out_wav=out_wav,
-        context_audio=context_path,
     )
     return {
         "ok": True,

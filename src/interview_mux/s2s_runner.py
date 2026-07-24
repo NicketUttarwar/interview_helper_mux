@@ -112,6 +112,14 @@ def synthesize_line(
     dest_dir: Path | None = None,
 ) -> Path:
     """Generate VO WAV via Chatterbox (gap default) or mlx-audio S2S subprocess."""
+    if mode == "convert":
+        # Never TTS into matched/ — DSP preserves the operator take.
+        from interview_mux.timbre_match import match_vo_take
+
+        if source_audio is None or not Path(source_audio).is_file():
+            raise FileNotFoundError("source_audio required for DSP timbre match (convert)")
+        return match_vo_take(ctx, line, Path(source_audio))
+
     chatterbox_fallback = False
     if mode == "synthesize":
         from interview_mux.chatterbox_runner import should_use_chatterbox

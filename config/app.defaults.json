@@ -7,6 +7,12 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
+  "master": {
+    "safety_limiter_enabled": true,
+    "safety_limiter_limit_db": -1.0,
+    "safety_limiter_attack_ms": 5,
+    "safety_limiter_release_ms": 50
+  },
   "_comment_autopilot": "Default off. Never auto-completes G0; stops on speaker_volley integrity failure.",
   "autopilot_enabled": false,
   "operator": {
@@ -90,6 +96,17 @@
     "word_boundary_margin_ms": 50,
     "word_boundary_max_shift_ms": 400,
     "normalize_vo_pickup": true,
+    "per_speaker_level_match": {
+      "enabled": true,
+      "max_gain_db": 6,
+      "min_speech_sec": 5
+    },
+    "sidechain_duck": {
+      "enabled": true,
+      "attack_ms": 20,
+      "release_ms": 200,
+      "hop_ms": 10
+    },
     "tbiy_narrative": {
       "punctuator_pause_min_ms": 400,
       "bed_duck_db": 6,
@@ -115,6 +132,9 @@
   "audio_preclean": {
     "provider": "deepfilternet",
     "local_fallback_enabled": true,
+    "ffmpeg_highpass_hz": 80,
+    "ffmpeg_lowpass_hz": 12000,
+    "ffmpeg_afftdn_nr": 12,
     "chunk_max_bytes": 52428800
   },
   "_comment_gui_job": "Background job polling and stall detection while a stage worker holds the run lock",
@@ -631,6 +651,10 @@
       "fail_open": true,
       "auto_fallback_on_qc_fail": false,
       "fallback_to_manual_on_failure": true,
+      "timbre_match": {
+        "enabled": true,
+        "max_eq_db": 6
+      },
       "post_synthesis_qc": {
         "enabled": false,
         "duration_tolerance_ratio": 0.5

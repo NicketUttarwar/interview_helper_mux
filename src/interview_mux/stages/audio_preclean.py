@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from interview_mux.deepfilter_runner import enhance_wav, enhance_wav_batch
+from interview_mux.deepfilter_runner import DeepFilterUnavailable, enhance_wav, enhance_wav_batch
 from interview_mux.operator_subprocess import JobProgressReporter
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
@@ -118,7 +118,6 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         ctx.mark_done("audio_preclean")
         return out_path
 
-    provider_name = "deepfilternet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if source.stat().st_size > _chunk_max_bytes():
         ctx.log(
@@ -128,7 +127,9 @@ def run_audio_preclean(ctx: RunContext) -> Path | None:
         )
     progress = JobProgressReporter(ctx, stage="audio_preclean", phase="deepfilter")
     with logged_step("audio_preclean/deepfilter_enhance", ctx=ctx, stage="audio_preclean"):
-        _enhance_source_to_output(ctx=ctx, source=source, output=out_path, progress=progress)
+        provider_name = _enhance_source_to_output(
+            ctx=ctx, source=source, output=out_path, progress=progress
+        )
     with logged_step("audio_preclean/write_lineage", ctx=ctx, stage="audio_preclean"):
         _write_provider(ctx, scope, provider=provider_name)
         _write_full_source_lineage(
@@ -192,6 +193,7 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
     clean_dir = pickup / "clean"
     clean_dir.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
+    providers: set[str] = set()
     progress = JobProgressReporter(
         ctx,
         stage="audio_preclean",
@@ -213,18 +215,21 @@ def _run_vo_pickup_preclean(ctx: RunContext) -> None:
                 force=True,
                 log=True,
             )
-            _enhance_source_to_output(ctx=ctx, source=source, output=dest, progress=None)
+            provider = _enhance_source_to_output(
+                ctx=ctx, source=source, output=dest, progress=None
+            )
+            providers.add(provider)
             entries.append(
                 {
                     "source_path": str(source),
                     "source_sha256": _sha256(source),
                     "output_path": f"vo_pickup/clean/{source.name}",
                     "output_sha256": _sha256(dest),
-                    "provider": "deepfilternet",
+                    "provider": provider,
                 }
             )
 
-    vo_provider = "deepfilternet"
+    vo_provider = next(iter(providers)) if len(providers) == 1 else "mixed"
     with logged_step("audio_preclean/vo_pickup_lineage", ctx=ctx, stage="audio_preclean"):
         _write_provider(ctx, "vo_pickup", provider=vo_provider)
         _write_vo_pickup_lineage(ctx, entries, provider=vo_provider)
@@ -288,7 +293,7 @@ def _can_skip_full_source(
     return (
         lineage.get("scope") == scope
         and lineage.get("source_sha256") == source_sha
-        and lineage.get("provider") == "deepfilternet"
+        and lineage.get("provider") in {"deepfilternet", "ffmpeg_local", "mixed"}
     )
 
 
@@ -301,7 +306,7 @@ def _can_skip_vo_pickup(*, lineage_path: Path, sources: list[Path]) -> bool:
         return False
     if lineage.get("scope") != "vo_pickup":
         return False
-    if lineage.get("provider") != "deepfilternet":
+    if lineage.get("provider") not in {"deepfilternet", "ffmpeg_local", "mixed"}:
         return False
     files = lineage.get("files")
     if not isinstance(files, list):
@@ -334,6 +339,49 @@ def _preclean_work_dir(ctx: RunContext) -> Path:
 
 
 def _enhance_source_to_output(
+    *,
+    ctx: RunContext,
+    source: Path,
+    output: Path,
+    progress: JobProgressReporter | None = None,
+) -> str:
+    """Enhance with DeepFilterNet, falling back to deterministic local FFmpeg."""
+    try:
+        _enhance_source_with_deepfilter(
+            ctx=ctx,
+            source=source,
+            output=output,
+            progress=progress,
+        )
+        return "deepfilternet"
+    except DeepFilterUnavailable as exc:
+        from interview_mux.config import merged_config
+
+        cfg = merged_config().get("audio_preclean") or {}
+        if not bool(cfg.get("local_fallback_enabled", True)):
+            raise
+        ctx.log(
+            f"DeepFilterNet unavailable; using ffmpeg_local denoise: {exc}",
+            level="warning",
+            stage="audio_preclean",
+            detail={"provider": "ffmpeg_local", "fallback_reason": str(exc)},
+        )
+        if progress is not None:
+            progress.set_phase("ffmpeg_local", "Enhancing audio with local FFmpeg…", log=True)
+        from interview_mux.ffmpeg_denoise import denoise_wav
+
+        denoise_wav(
+            source,
+            output,
+            highpass_hz=int(cfg.get("ffmpeg_highpass_hz", 80)),
+            lowpass_hz=int(cfg.get("ffmpeg_lowpass_hz", 12_000)),
+            noise_reduction_db=float(cfg.get("ffmpeg_afftdn_nr", 12.0)),
+            ctx=ctx,
+        )
+        return "ffmpeg_local"
+
+
+def _enhance_source_with_deepfilter(
     *,
     ctx: RunContext,
     source: Path,

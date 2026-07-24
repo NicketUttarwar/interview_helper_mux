@@ -70,9 +70,17 @@ def gap_vo_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "min_reference_sec": 3.0,
         "auto_fallback_on_qc_fail": False,
         "fallback_to_manual_on_failure": True,
+        "timbre_match": {
+            "enabled": True,
+            "max_eq_db": 6.0,
+        },
     }
     if isinstance(raw, dict):
-        return {**defaults, **raw}
+        merged = {**defaults, **raw}
+        tm = raw.get("timbre_match")
+        if isinstance(tm, dict):
+            merged["timbre_match"] = {**defaults["timbre_match"], **tm}
+        return merged
     return defaults
 
 

@@ -2280,6 +2280,9 @@ def create_app() -> FastAPI:
     @app.post("/api/runs/{run_id}/vo/{line_id}/match")
     async def vo_match_line(run_id: str, line_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
         with _guarded_run(run_id):
+            from interview_mux.file_store import write_bytes as fs_write_bytes
+            from interview_mux.timbre_match import match_vo_take
+
             ctx = _ctx(run_id)
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 raise HTTPException(404, "gap_report.json not found")
@@ -2299,18 +2302,36 @@ def create_app() -> FastAPI:
             raw = pickup / f"{line_id}_upload.wav"
             content = await file.read()
             fs_write_bytes(raw, content)
-            from interview_mux import s2s_runner
-
             try:
-                out = s2s_runner.synthesize_line(ctx, line, mode="convert", source_audio=raw)
+                # DSP spectral + loudness match — never TTS/S2S convert into matched/.
+                out = match_vo_take(ctx, line, raw)
             except Exception as exc:
-                raise HTTPException(503, str(exc)) from exc
+                ctx.log(
+                    f"VO timbre-match failed (upload retained): {exc}",
+                    level="warning",
+                    stage="g1_vo_pickup",
+                    action_id="gui.g1.vo.match",
+                    detail={
+                        "line_id": line_id,
+                        "upload": raw.relative_to(ctx.run_dir).as_posix(),
+                        "error": str(exc)[:500],
+                    },
+                )
+                raise HTTPException(
+                    503,
+                    {
+                        "ok": False,
+                        "error": str(exc)[:500],
+                        "upload_path": raw.relative_to(ctx.run_dir).as_posix(),
+                        "g1_missing": check_g1_vo(ctx),
+                    },
+                ) from exc
             ctx.log(
-                f"VO voice-match saved: {out.relative_to(ctx.run_dir).as_posix()}",
+                f"VO timbre-match saved: {out.relative_to(ctx.run_dir).as_posix()}",
                 level="success",
                 stage="g1_vo_pickup",
                 action_id="gui.g1.vo.match",
-                detail={"line_id": line_id},
+                detail={"line_id": line_id, "provider": "dsp_firequalizer"},
             )
             return {
                 "ok": True,

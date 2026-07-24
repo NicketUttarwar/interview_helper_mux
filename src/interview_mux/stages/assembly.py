@@ -40,7 +40,7 @@ def _wav_duration_ms(path: Path) -> int:
 
 
 def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
-    """Resolve pickup WAV for a gap line (matched/synthesized/clean preferred)."""
+    """Resolve pickup WAV: matched → synthesized → clean → normalized → raw."""
     pickup = ctx.final_path("vo_pickup")
     matched = pickup / "matched"
     synthesized = pickup / "synthesized"
@@ -49,7 +49,7 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
     lid = line.get("line_id", "")
     seg = line.get("targets_segment_id", "")
     bases: list[Path] = []
-    for candidate in (matched, synthesized, normalized, clean, pickup):
+    for candidate in (matched, synthesized, clean, normalized, pickup):
         if candidate.is_dir():
             bases.append(candidate)
     if not bases:

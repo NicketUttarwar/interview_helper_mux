@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import math
 from pathlib import Path
 
 from interview_mux.config import merged_config
 from interview_mux.master_qc import TARGETS, FlowName
-from interview_mux.mastering_bus import loudnorm_offset, measure_assembly_bus, target_lufs_for_flow
+from interview_mux.mastering_bus import measure_assembly_bus, target_lufs_for_flow
 from interview_mux.operator_quality import record_qc_summary
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
@@ -77,7 +77,11 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
                 f"duration_s={bus.duration_seconds:.2f}"
             ),
         )
-        loudnorm_filter = f"loudnorm=I={target}:TP={true_peak}:LRA=11:print_format=summary"
+        loudnorm_filter = _master_filter_chain(
+            cfg,
+            target_lufs=target,
+            true_peak_dbtp=true_peak,
+        )
 
     with logged_step(f"{stage}/loudnorm_render", ctx=ctx, stage=stage):
         from interview_mux.operator_subprocess import run_command
@@ -114,6 +118,40 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
         detail=str(master),
     )
     return master
+
+
+def _master_filter_chain(
+    cfg: dict,
+    *,
+    target_lufs: float,
+    true_peak_dbtp: float,
+) -> str:
+    """Build limiter-before-loudnorm chain with validated FFmpeg parameters."""
+    loudnorm = (
+        f"loudnorm=I={target_lufs}:TP={true_peak_dbtp}:"
+        "LRA=11:print_format=summary"
+    )
+    master_cfg = cfg.get("master") if isinstance(cfg.get("master"), dict) else {}
+    if not bool(master_cfg.get("safety_limiter_enabled", True)):
+        return loudnorm
+
+    limit_db = float(master_cfg.get("safety_limiter_limit_db", -1.0))
+    attack_ms = float(master_cfg.get("safety_limiter_attack_ms", 5.0))
+    release_ms = float(master_cfg.get("safety_limiter_release_ms", 50.0))
+    if not -12.0 <= limit_db <= 0.0:
+        raise ValueError("master.safety_limiter_limit_db must be between -12 and 0 dBFS")
+    if not 0.1 <= attack_ms <= 80.0:
+        raise ValueError("master.safety_limiter_attack_ms must be between 0.1 and 80 ms")
+    if not 1.0 <= release_ms <= 8000.0:
+        raise ValueError("master.safety_limiter_release_ms must be between 1 and 8000 ms")
+
+    linear_limit = math.pow(10.0, limit_db / 20.0)
+    limiter = (
+        f"alimiter=limit={linear_limit:.6f}:"
+        f"attack={attack_ms:g}:release={release_ms:g}"
+    )
+    return f"{limiter},{loudnorm}"
+
 
 def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -> dict[str, str]:
     from interview_mux.operator_subprocess import run_command

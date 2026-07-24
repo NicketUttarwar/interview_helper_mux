@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from interview_mux.deepfilter_runner import DeepFilterUnavailable
 from interview_mux.run_context import RunContext
 from interview_mux.stages import audio_preclean
 
@@ -143,7 +144,7 @@ def test_audio_preclean_chunk_path_for_oversized_wav(tmp_path, monkeypatch) -> N
     assert (ctx.run_dir / "_preclean_work").is_dir()
 
 
-def test_audio_preclean_raises_when_deepfilter_fails(tmp_path, monkeypatch) -> None:
+def test_audio_preclean_falls_back_when_deepfilter_unavailable(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = RunContext("run_ff_fail", create=True)
     src = tmp_path / "input.wav"
@@ -154,7 +155,46 @@ def test_audio_preclean_raises_when_deepfilter_fails(tmp_path, monkeypatch) -> N
     meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
     ctx.write_json("run_meta.json", meta)
 
-    monkeypatch.setattr(audio_preclean, "enhance_wav", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("dfn down")))
+    monkeypatch.setattr(
+        audio_preclean,
+        "enhance_wav",
+        lambda *a, **k: (_ for _ in ()).throw(DeepFilterUnavailable("dfn down")),
+    )
+    monkeypatch.setattr(
+        "interview_mux.ffmpeg_denoise.denoise_wav",
+        lambda source, output, **kwargs: output.write_bytes(source.read_bytes()),
+    )
 
-    with pytest.raises(RuntimeError, match="dfn down"):
+    out = audio_preclean.run_audio_preclean(ctx)
+
+    assert out is not None and out.is_file()
+    assert ctx.read_json("preclean/provider.json")["provider"] == "ffmpeg_local"
+    assert ctx.read_json("preclean/lineage.json")["provider"] == "ffmpeg_local"
+
+
+def test_audio_preclean_raises_when_fallback_disabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_ff_disabled", create=True)
+    src = tmp_path / "input.wav"
+    _write_wav(src)
+    ctx.init_run_meta(str(src))
+    meta = ctx.read_json("run_meta.json")
+    meta["audio_preclean"] = {"enabled": True, "scope": "full_source"}
+    ctx.write_json("run_meta.json", meta)
+    monkeypatch.setattr(
+        audio_preclean,
+        "enhance_wav",
+        lambda *a, **k: (_ for _ in ()).throw(DeepFilterUnavailable("dfn down")),
+    )
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "audio_preclean": {
+                "local_fallback_enabled": False,
+                "chunk_max_bytes": 52_428_800,
+            }
+        },
+    )
+
+    with pytest.raises(DeepFilterUnavailable, match="dfn down"):
         audio_preclean.run_audio_preclean(ctx)
