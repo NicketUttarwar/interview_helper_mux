@@ -2,6 +2,7 @@ import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 interface Props {
   compact?: boolean;
@@ -50,8 +51,7 @@ export function PreviewListenPromo({ compact }: Props) {
           </p>
         ) : null}
       </div>
-      <audio
-        controls
+      <ArtifactAudio
         src={playUrl}
         className={`preview-listen-audio${compact ? " preview-listen-audio--compact" : ""}`}
       />

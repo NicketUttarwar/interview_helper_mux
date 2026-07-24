@@ -9,6 +9,7 @@ import {
   type TranscriptCorrectionStats,
   type TranscriptDockHandle,
 } from "../workspace/TranscriptDockViewer";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
 import { formatApiError } from "../../utils/safeApi";
 import {
@@ -47,7 +48,6 @@ export function TranscriptReviewPanel() {
   );
   const [draftRevision, setDraftRevision] = useState(0);
   const indexRef = useRef(0);
-  const clipAudioRef = useRef<HTMLAudioElement>(null);
   const dockRef = useRef<TranscriptDockHandle>(null);
   const chunkDraftsRef = useRef<Map<string, string>>(new Map());
   const chunkDirtyRef = useRef<Set<string>>(new Set());
@@ -132,12 +132,6 @@ export function TranscriptReviewPanel() {
 
   const clipUrl = run && chunk ? chunkClipUrl(run.run_id, chunk) : "";
   const playbackRange = chunk ? chunkPlaybackRange(chunk) : null;
-
-  useEffect(() => {
-    const el = clipAudioRef.current;
-    if (!el || !clipUrl) return;
-    el.load();
-  }, [clipUrl, chunk?.chunk_id]);
 
   const playClipInDock = () => {
     if (!playbackRange) return;
@@ -231,13 +225,11 @@ export function TranscriptReviewPanel() {
         </div>
         <div className="tr-review-playback">
           {showNativeClipPlayer ? (
-            <audio
+            <ArtifactAudio
               key={chunk.chunk_id}
-              ref={clipAudioRef}
-              controls
-              className="audio-player tr-chunk-audio tr-chunk-audio--compact"
+              reloadKey={chunk.chunk_id}
+              className="tr-chunk-audio tr-chunk-audio--compact"
               src={clipUrl}
-              preload="metadata"
               onError={() => setClipLoadError(true)}
             />
           ) : clipUnavailable ? (

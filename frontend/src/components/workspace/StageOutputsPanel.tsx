@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { escapeHtml } from "../../utils";
 import type { StageInfo } from "../../types";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 type ArtifactRowStatus = "pending" | "partial" | "complete" | "staged" | "n_a" | "skipped";
 
@@ -215,10 +216,10 @@ export function StageOutputsPanel({ stage }: { stage: StageInfo }) {
             </div>
           ))}
           {activeAudio ? (
-            <audio
-              controls
-              className="audio-player stage-inline-player"
+            <ArtifactAudio
+              className="stage-inline-player"
               src={playUrl(activeAudio)}
+              reloadKey={activeAudio}
             />
           ) : null}
         </div>

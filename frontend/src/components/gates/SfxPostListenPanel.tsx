@@ -8,6 +8,7 @@ import {
 import { useApp } from "../../context/AppContext";
 import type { MmaudioQaRow } from "../../types";
 import { escapeHtml, formatTs } from "../../utils";
+import { loadAndPlay, registerExclusiveAudio } from "../../utils/audioPlayback";
 import {
   collectSfxGeneratedAssets,
   latestSfxListenByAsset,
@@ -75,6 +76,12 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
   const [listenMode, setListenMode] = useState<"solo" | "under_speech">("solo");
   const [underSpeechSupported, setUnderSpeechSupported] = useState<boolean | null>(null);
   const [mmaudioQa, setMmaudioQa] = useState<MmaudioQaRow[]>([]);
+
+  useEffect(() => {
+    const el = inlineRef.current;
+    if (!el) return;
+    return registerExclusiveAudio(el);
+  }, []);
 
   const assets = useMemo(
     () =>
@@ -193,20 +200,16 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
       listenMode === "under_speech" && underSpeechSupported !== false
         ? underSpeechUrl
         : soloUrl;
-    target.src = preferredUrl;
-    target.currentTime = 0;
     try {
-      await target.play();
+      await loadAndPlay(target, preferredUrl);
       if (preferredUrl === underSpeechUrl) setUnderSpeechSupported(true);
     } catch {
       if (preferredUrl === underSpeechUrl) {
         setUnderSpeechSupported(false);
         setListenMode("solo");
         showToast("Speech-under preview unavailable; falling back to solo listen.");
-        target.src = soloUrl;
-        target.currentTime = 0;
         try {
-          await target.play();
+          await loadAndPlay(target, soloUrl);
           return;
         } catch {
           /* fall through to shared failure toast */

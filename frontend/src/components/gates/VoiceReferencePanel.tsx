@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 import { VoiceCloneConsent } from "./VoiceCloneConsent";
 
 interface VoiceSegment {
@@ -126,7 +127,9 @@ export function VoiceReferencePanel({ stage }: { stage: StageInfo }) {
                 />
                 <span className="muted sm">{seg.quote || `Candidate ${i + 1}`}</span>
               </label>
-              {clipUrl ? <audio controls preload="none" className="audio-player" src={clipUrl} /> : null}
+              {clipUrl ? (
+                <ArtifactAudio preload="none" src={clipUrl} />
+              ) : null}
             </li>
           );
         })}

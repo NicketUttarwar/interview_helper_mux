@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import type { StageInfo } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 interface PickupSpeakerRow {
   speaker_id: string;
@@ -210,10 +211,8 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
                   : ""}
               </p>
               {clipUrl ? (
-                <audio
-                  controls
+                <ArtifactAudio
                   preload="none"
-                  className="audio-player"
                   src={clipUrl}
                   onError={() =>
                     showToast(
@@ -221,9 +220,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
                       "error",
                     )
                   }
-                >
-                  Your browser does not support audio playback.
-                </audio>
+                />
               ) : (
                 <p className="hint sm">No sample clip available for this speaker.</p>
               )}

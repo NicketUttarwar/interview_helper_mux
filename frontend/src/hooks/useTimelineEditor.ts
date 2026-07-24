@@ -26,6 +26,7 @@ import {
   type ReviewFilter,
   type TimelineFilters,
 } from "../utils/nleHelpers";
+import { togglePlayPause } from "../utils/audioPlayback";
 
 export type DirtyReason = "structural" | "trim" | null;
 
@@ -430,9 +431,10 @@ export function useTimelineEditor() {
   const togglePlay = useCallback(() => {
     const player = playerRef.current;
     if (!player) return;
-    if (player.paused) void player.play();
-    else player.pause();
-  }, []);
+    void togglePlayPause(player).catch(() => {
+      showToast("Could not play timeline audio — check source or assembly preview.", "error");
+    });
+  }, [showToast]);
 
   const lowConfSpans = useMemo(
     () => lowConfidenceSpans(words, lowThreshold),

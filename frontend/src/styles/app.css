@@ -6877,11 +6877,29 @@ button.pipeline-substep-row:hover {
 }
 
 .gate-panel--done {
-  opacity: 0.75;
+  opacity: 0.85;
 }
 
+/* Completed gates must remain reviewable — listen / play / pause.
+   Do not use pointer-events: none here (that blocked all stage audio). */
 .gate-panel-done-shell {
+  position: relative;
+}
+
+.gate-panel-done-shell .step-done-banner {
+  position: relative;
+  inset: auto;
+  min-height: 2.5rem;
+  margin-bottom: 0.75rem;
+  background: transparent;
   pointer-events: none;
+  z-index: 0;
+}
+
+.stage-inline-audio {
+  width: 100%;
+  margin: 0.5rem 0;
+  display: block;
 }
 
 .handoff-panel--done,

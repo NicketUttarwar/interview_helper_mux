@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "../../../context/AppContext";
 import { useTimelineEditor } from "../../../hooks/useTimelineEditor";
 import { formatMs } from "../../../utils";
+import { registerExclusiveAudio } from "../../../utils/audioPlayback";
 import { parseSegmentIdFromQcMessage } from "../../../utils/nleHelpers";
 import { ApplyEditsPanel } from "./ApplyEditsPanel";
 import { AssemblyTimeline } from "./AssemblyTimeline";
@@ -104,6 +105,12 @@ export function TimelineWorkspace() {
     chapterAnchors,
     putNle,
   } = editor;
+
+  useEffect(() => {
+    const el = playerRef.current;
+    if (!el) return;
+    return registerExclusiveAudio(el);
+  }, [playerRef, activeAudioPath]);
 
   const widthPx = Math.max(800, activeDurationMs / 50) * zoom;
   const viewportWidthPx = 800;

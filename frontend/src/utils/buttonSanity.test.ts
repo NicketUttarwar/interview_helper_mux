@@ -299,8 +299,19 @@ describe("buttonSanity — holistic feedback hooks", () => {
   it("stage listen panels use dedicated inline audio refs", () => {
     const stageAudio = readFileSync(join(ROOT, "components/gates/StageAudioActions.tsx"), "utf8");
     expect(stageAudio).not.toContain('querySelector(".audio-player")');
+    expect(stageAudio).toContain("loadAndPlay");
     const sfxListen = readFileSync(join(ROOT, "components/gates/SfxPostListenPanel.tsx"), "utf8");
     expect(sfxListen).not.toContain('querySelector(".audio-player")');
+    expect(sfxListen).toContain("loadAndPlay");
+  });
+
+  it("completed gate shell keeps audio interactive", () => {
+    const css = readFileSync(join(ROOT, "styles/app.css"), "utf8");
+    const match = css.match(/\.gate-panel-done-shell\s*\{[^}]*\}/);
+    expect(match?.[0] ?? "").not.toContain("pointer-events: none");
+    const shell = readFileSync(join(ROOT, "components/pipeline/GatePanelShell.tsx"), "utf8");
+    expect(shell).toContain("gate-panel-done-shell");
+    expect(shell).toContain("StepDoneBanner");
   });
 
   it("secondary panels use async feedback patterns", () => {

@@ -1,11 +1,19 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { StageInfo } from "../../types";
 import { useApp } from "../../context/AppContext";
+import { loadAndPlay, registerExclusiveAudio } from "../../utils/audioPlayback";
 
 export function StageAudioActions({ stage }: { stage: StageInfo }) {
   const { runId, showToast } = useApp();
   const inlineRef = useRef<HTMLAudioElement | null>(null);
   const outputs = stage.audio_outputs_present || [];
+
+  useEffect(() => {
+    const el = inlineRef.current;
+    if (!el) return;
+    return registerExclusiveAudio(el);
+  }, []);
+
   if (!outputs.length || !runId) return null;
 
   const playPath = async (path: string) => {
@@ -15,10 +23,8 @@ export function StageAudioActions({ stage }: { stage: StageInfo }) {
       showToast("Could not play audio — no player available.");
       return;
     }
-    target.src = url;
-    target.currentTime = 0;
     try {
-      await target.play();
+      await loadAndPlay(target, url);
     } catch {
       showToast("Could not play audio — check Logs or open the Files tab.");
     }

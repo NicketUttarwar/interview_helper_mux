@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 interface ImpactBlock {
   framing_line_ids?: string[];
@@ -74,7 +75,7 @@ export function ImpactBlockPreview() {
                     </p>
                     <p>{line?.text || "(not synthesized yet)"}</p>
                     {audioUrl ? (
-                      <audio controls preload="none" className="audio-player" src={audioUrl} />
+                      <ArtifactAudio preload="none" src={audioUrl} />
                     ) : (
                       <p className="hint sm">VO pending at G1</p>
                     )}

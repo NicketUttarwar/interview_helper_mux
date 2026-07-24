@@ -4,6 +4,7 @@ import { useApp } from "../../../context/AppContext";
 import { formatMs, nleHasOperatorEdits } from "../../../utils";
 import { computeNleDiff } from "../../../utils/nleDiff";
 import type { NleState, TimelineSegment, VoLine } from "../../../types";
+import { ArtifactAudio } from "../../shared/ArtifactAudio";
 
 type ApplyMode = "trim_only" | "structural" | "full_refresh";
 
@@ -177,13 +178,13 @@ export function ApplyEditsPanel({
         {priorPreviewUrl ? (
           <div>
             <p className="muted">Before</p>
-            <audio controls className="audio-player assembly-preview-player" src={priorPreviewUrl} />
+            <ArtifactAudio className="assembly-preview-player" src={priorPreviewUrl} />
           </div>
         ) : null}
         {previewAudioPath ? (
           <div>
             <p className="muted">After</p>
-            <audio controls className="audio-player assembly-preview-player" src={previewAudioPath} />
+            <ArtifactAudio className="assembly-preview-player" src={previewAudioPath} />
           </div>
         ) : null}
       </div>

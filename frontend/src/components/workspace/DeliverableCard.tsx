@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useJourney } from "../../hooks/useJourney";
 import { usePreviewListenGate } from "../../hooks/usePreviewListenGate";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 export function DeliverableCard() {
   const { run, runId, refreshRun, config, setActiveTab, setPipelineSubTab, setActivityLogTab, setLogFilterPreset, showToast } =
@@ -65,7 +66,7 @@ export function DeliverableCard() {
       {previewPath && phase !== "ship" && !previewPromoActive ? (
         <div className="deliverable-row">
           <span>Listen to assembly preview before sound spend</span>
-          <audio controls src={playUrl(previewPath)} />
+          <ArtifactAudio src={playUrl(previewPath)} />
           <button
             type="button"
             className="btn ghost sm"
@@ -89,7 +90,7 @@ export function DeliverableCard() {
         <div className="deliverable-row">
           <span>Master</span>
           <code className="deliverable-path">{masterPath}</code>
-          <audio controls src={playUrl(masterPath)} />
+          <ArtifactAudio src={playUrl(masterPath)} />
           {deliverable.qc_passed === false ? (
             <>
               <span className="deliverable-warn">QC check failed — see activity log</span>

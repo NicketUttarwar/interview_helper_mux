@@ -4,6 +4,7 @@ import {
   resolveFinalOutputAbsolutePath,
   resolveFinalOutputRelativePath,
 } from "../../utils/pipelineAutopilot";
+import { ArtifactAudio } from "../shared/ArtifactAudio";
 
 function isAudioOutputPath(path: string): boolean {
   return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(path);
@@ -58,8 +59,7 @@ export function PipelineCompletePanel() {
           {showAudio && relPath ? (
             <div className="pipeline-complete-audio-row">
               <span className="pipeline-complete-audio-label">Listen</span>
-              <audio
-                controls
+              <ArtifactAudio
                 src={playUrl(relPath)}
                 className="pipeline-complete-audio"
                 data-testid="pipeline-complete-audio"

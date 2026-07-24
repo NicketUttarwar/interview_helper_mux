@@ -19,6 +19,10 @@ import type { TranscriptState, TranscriptWord } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { registerStepPrimaryPrep } from "../../utils/stepPrimaryPrep";
 import {
+  registerExclusiveAudio,
+  togglePlayPause,
+} from "../../utils/audioPlayback";
+import {
   addCorrectionStats,
   emptyCorrectionStats,
   formatCorrectionSummary,
@@ -256,7 +260,10 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     [onLocalWordsChange],
   );
 
-  const seekTo = useCallback((ms: number) => {
+  const seekTo = useCallback((ms: number, opts?: { keepClipBound?: boolean }) => {
+    if (!opts?.keepClipBound) {
+      clipBoundEndRef.current = null;
+    }
     setPlayheadMs(ms);
     if (playerRef.current) playerRef.current.currentTime = ms / 1000;
   }, []);
@@ -264,7 +271,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
   const playClipRange = useCallback(
     (startMs: number, endMs: number) => {
       clipBoundEndRef.current = endMs;
-      seekTo(startMs);
+      seekTo(startMs, { keepClipBound: true });
       const player = playerRef.current;
       if (!player || !audioUrl) {
         showToast(
@@ -323,11 +330,18 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
     }
   }, [activeIndex, followPlayback, editingIndex]);
 
+  useEffect(() => {
+    const el = playerRef.current;
+    if (!el) return;
+    return registerExclusiveAudio(el);
+  }, [audioUrl]);
+
   const togglePlay = () => {
     const player = playerRef.current;
     if (!player) return;
-    if (player.paused) void player.play();
-    else player.pause();
+    void togglePlayPause(player).catch(() => {
+      showToast("Could not play audio — open Files or re-run ingest.", "error");
+    });
   };
 
   const fuzzyMatches = useMemo(() => {
@@ -656,7 +670,7 @@ export const TranscriptDockViewer = forwardRef<TranscriptDockHandle, Props>(
         onPlay={() => setPlaying(true)}
         onPause={() => {
           setPlaying(false);
-          clipBoundEndRef.current = null;
+          // Keep clipBoundEndRef so pause/resume mid-clip still stops at the bound.
         }}
         onEnded={() => {
           setPlaying(false);
