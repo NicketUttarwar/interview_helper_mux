@@ -73,7 +73,8 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
         "missing_framing": lambda: _run_missing_framing_stage(ctx),
-        "optimal_questions": lambda: _run_optimal_questions_stage(ctx),
+        "gap_framing_compose": lambda: _run_gap_framing_compose_stage(ctx),
+        "optimal_questions": lambda: _run_gap_framing_compose_stage(ctx),
         "delivery_brief_build": lambda: __import__(
             "interview_mux.delivery_brief", fromlist=["run_delivery_brief_build"]
         ).run_delivery_brief_build(ctx),
@@ -110,14 +111,34 @@ def _guard_stage_reuse(ctx: RunContext, stage: str) -> bool:
     return resolve_before_stage_run(ctx, stage) == "skipped"
 
 
+def _gap_path_skipped(ctx: RunContext) -> bool:
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    from interview_mux.gap_vo_gates import gap_framing_enabled
+
+    return gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx)
+
+
 def _run_missing_framing_stage(ctx: RunContext) -> None:
     from interview_mux.gap_fill_eligibility import (
         assess_gap_fill_eligibility,
         gap_fill_auto_skip_enabled,
-        gap_fill_was_skipped,
+    )
+    from interview_mux.gap_vo_gates import (
+        gap_framing_enabled,
+        require_gap_framing_decision_clear,
+        require_gap_path_clear,
     )
 
-    if gap_fill_was_skipped(ctx):
+    require_gap_framing_decision_clear(ctx)
+    if not gap_framing_enabled(ctx):
+        gaps.ensure_gap_fill_skipped(
+            ctx,
+            reason="gap_framing_disabled_by_operator",
+            signals={"skip_signal": "gap_framing_no"},
+        )
+        return
+    require_gap_path_clear(ctx)
+    if _gap_path_skipped(ctx):
         return
     decision = assess_gap_fill_eligibility(ctx)
     if not decision.eligible and gap_fill_auto_skip_enabled():
@@ -126,12 +147,14 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
     gaps.run_missing_framing(ctx)
 
 
-def _run_optimal_questions_stage(ctx: RunContext) -> None:
-    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-
-    if gap_fill_was_skipped(ctx):
+def _run_gap_framing_compose_stage(ctx: RunContext) -> None:
+    if _gap_path_skipped(ctx):
         return
-    gaps.run_optimal_questions(ctx)
+    gaps.run_gap_framing_compose(ctx)
+
+
+def _run_optimal_questions_stage(ctx: RunContext) -> None:
+    _run_gap_framing_compose_stage(ctx)
 
 
 def shared_analysis_chain_complete(ctx: RunContext) -> bool:
@@ -149,10 +172,10 @@ def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> 
     if not shared_analysis_chain_complete(ctx):
         if not strict:
             return False
-    if not gap_fill_was_skipped(ctx) and not ctx.is_done("optimal_questions"):
+    if not _gap_path_skipped(ctx) and not gaps.gap_compose_stage_done(ctx):
         return False
     missing = check_g1_vo(ctx)
-    if missing and not gap_fill_was_skipped(ctx):
+    if missing and not _gap_path_skipped(ctx):
         if v2_g1_optional():
             ctx.log(
                 f"Analysis complete — G1 optional: {len(missing)} VO line(s) not recorded (continue or record in GUI).",
@@ -178,7 +201,7 @@ def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> 
         "Shared analysis complete — delivery stages unlocked.",
         level="success",
         stage="episode_structure_compose",
-        detail={"gap_fill_skipped": gap_fill_was_skipped(ctx)},
+        detail={"gap_fill_skipped": _gap_path_skipped(ctx)},
     )
     return True
 
@@ -211,14 +234,18 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
 
             maybe_auto_complete_transcript_review(ctx)
             require_transcript_review_clear(ctx)
-        if stage in ("missing_framing", "optimal_questions"):
-            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+        if stage in ("missing_framing", "gap_framing_compose", "optimal_questions"):
+            from interview_mux.gap_vo_gates import (
+                gap_framing_enabled,
+                require_gap_framing_decision_clear,
+            )
             from interview_mux.source_topology import (
                 maybe_auto_confirm_pickup_speaker,
                 require_pickup_speaker_clear,
             )
 
-            if not gap_fill_was_skipped(ctx):
+            require_gap_framing_decision_clear(ctx)
+            if gap_framing_enabled(ctx):
                 maybe_auto_confirm_pickup_speaker(ctx)
                 require_pickup_speaker_clear(ctx)
         fns = _analysis_stage_fns(ctx)
@@ -231,7 +258,7 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
             )
             ctx.log(msg, level="warning", stage="transcript_review")
             raise SystemExit(msg)
-        if stage == "optimal_questions":
+        if stage in ("gap_framing_compose", "optimal_questions"):
             _finalize_analysis_completion(ctx)
         return
 

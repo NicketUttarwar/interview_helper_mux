@@ -17,6 +17,7 @@ CRITICAL_LLM_STAGES = frozenset(
         "segment_classification",
         "content_brief_reanchor",
         "missing_framing",
+        "gap_framing_compose",
         "optimal_questions",
     }
 )
@@ -55,7 +56,8 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "sound_design_palettes": "boundary_topic_resplit",
     "missing_framing": "boundary_topic_resplit",
     "optimal_questions": "missing_framing",
-    "delivery_brief_build": "optimal_questions",
+    "gap_framing_compose": "missing_framing",
+    "delivery_brief_build": "gap_framing_compose",
     "topic_coverage_audit": "delivery_brief_build",
     "narrative_arc_plan": "topic_coverage_audit",
     "full_master_ranking": "narrative_arc_plan",

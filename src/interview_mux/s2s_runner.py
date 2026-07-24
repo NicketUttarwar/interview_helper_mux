@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config
+from interview_mux.gap_framing import gap_vo_cfg
 from interview_mux.local_model_selection import load_speech_selection
 from interview_mux.local_runtime import LocalRuntimeUnavailable, run_runtime_json
 from interview_mux.run_context import RunContext
@@ -110,8 +111,55 @@ def synthesize_line(
     source_audio: Path | None = None,
     dest_dir: Path | None = None,
 ) -> Path:
-    """Generate VO WAV via mlx-audio TTS/S2S subprocess."""
+    """Generate VO WAV via Chatterbox (gap default) or mlx-audio S2S subprocess."""
+    chatterbox_fallback = False
+    if mode == "synthesize":
+        from interview_mux.chatterbox_runner import should_use_chatterbox
+
+        if should_use_chatterbox(ctx):
+            from interview_mux import chatterbox_runner
+
+            try:
+                out = chatterbox_runner.synthesize_line(ctx, line, dest_dir=dest_dir)
+                from interview_mux.vo_synthesis_audit import qc_failed
+
+                entries = ctx.read_json("vo_pickup/synthesis_report.json") if ctx.artifact_exists("vo_pickup/synthesis_report.json") else {}
+                last = (entries.get("entries") or [])[-1] if isinstance(entries, dict) and entries.get("entries") else {}
+                if isinstance(last, dict) and qc_failed(last):
+                    ctx.log(
+                        f"Chatterbox QC fail → mlx-audio retry for {line.get('line_id')}",
+                        level="warning",
+                        stage="vo_synthesize",
+                    )
+                    chatterbox_fallback = True
+                else:
+                    return out
+            except Exception as exc:
+                block = gap_vo_cfg()
+                if block.get("fail_open", True) and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
+                    ctx.log(
+                        f"Chatterbox fail-open → mlx-audio: {exc}",
+                        level="warning",
+                        stage="vo_synthesize",
+                    )
+                    chatterbox_fallback = True
+                elif mode == "synthesize":
+                    from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
+
+                    maybe_fallback_after_synthesis_failure(ctx, line, exc, stage="vo_synthesize")
+                else:
+                    raise
+
     if not s2s_enabled():
+        if mode == "synthesize":
+            from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
+
+            maybe_fallback_after_synthesis_failure(
+                ctx,
+                line,
+                LocalRuntimeUnavailable("local_speech S2S disabled in config"),
+                stage="vo_synthesize",
+            )
         raise LocalRuntimeUnavailable("local_speech S2S disabled in config")
 
     line_id = str(line.get("line_id") or line.get("targets_segment_id") or "line")
@@ -151,10 +199,33 @@ def synthesize_line(
         stage="vo_synthesize",
     )
     if not result.get("ok"):
-        raise LocalRuntimeUnavailable(str(result.get("error") or "S2S failed"))
+        err = LocalRuntimeUnavailable(str(result.get("error") or "S2S failed"))
+        if mode == "synthesize":
+            from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
+
+            maybe_fallback_after_synthesis_failure(ctx, line, err, stage="vo_synthesize")
+        raise err
     if not out_wav.is_file():
-        raise LocalRuntimeUnavailable(f"S2S missing output: {out_wav}")
+        err = LocalRuntimeUnavailable(f"S2S missing output: {out_wav}")
+        if mode == "synthesize":
+            from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
+
+            maybe_fallback_after_synthesis_failure(ctx, line, err, stage="vo_synthesize")
+        raise err
     _append_qa_sidecar(ctx, line_id, mode=mode, out_wav=out_wav, payload=payload)
+    if mode == "synthesize":
+        from interview_mux.vo_synthesis_audit import record_synthesis
+
+        record_synthesis(
+            ctx,
+            line,
+            backend="mlx_audio",
+            out_wav=out_wav,
+            ref_audio=str(ref),
+            fallback_from="chatterbox" if chatterbox_fallback else None,
+            fallback_reason="chatterbox_fail_open_or_qc" if chatterbox_fallback else None,
+            model_id=str(payload.get("model_id") or ""),
+        )
     return out_wav
 
 

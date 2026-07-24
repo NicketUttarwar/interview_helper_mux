@@ -14,7 +14,7 @@ Each row has a `policy_role`:
 
 Columns: `surface_id` · `kind` · `action_id(s)` · `policy_role` · `reads_brief` · `writes_brief` · `cross_validate` · `notes`
 
-See also: [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_action_catalog.json](./operator_action_catalog.json), [gui-surface-map.md](../workflows/gui-surface-map.md).
+See also: [reliability-charter.md](./reliability-charter.md), [single-flow-rename-map.md](./single-flow-rename-map.md), [operator_action_catalog.json](./operator_action_catalog.json), [gui-surface-map.md](../workflows/gui-surface-map.md).
 
 ---
 

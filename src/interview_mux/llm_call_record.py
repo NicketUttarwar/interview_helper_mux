@@ -1,8 +1,9 @@
 """
 Structured storage for every OpenAI Chat Completions call (and future local LLM calls).
 
-Records are written under understanding/llm_calls/ for copy-paste review and volley reconstruction.
-Spec: docs/cross-cutting/llm-call-record-framework.md
+Records are written under understanding/llm_calls/ for copy-paste review and
+LLM volley (message-packet) reconstruction — not speaker-volley timeline edits.
+Spec: docs/cross-cutting/llm-call-record-framework.md · docs/cross-cutting/volley-glossary.md
 """
 
 from __future__ import annotations

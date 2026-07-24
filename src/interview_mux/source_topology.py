@@ -331,8 +331,11 @@ def pickup_speaker_confirmed(ctx: RunContext) -> bool:
 def check_pickup_speaker_pending(ctx: RunContext) -> bool:
     """True when topology exists but operator has not confirmed gap pickup speaker."""
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    from interview_mux.gap_vo_gates import check_gap_framing_decision_pending, gap_framing_enabled
 
-    if gap_fill_was_skipped(ctx):
+    if gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx):
+        return False
+    if check_gap_framing_decision_pending(ctx):
         return False
     if pickup_speaker_confirmed(ctx):
         return False

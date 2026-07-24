@@ -51,10 +51,11 @@ PHASES: list[dict[str, Any]] = [
     {
         "id": "fill_gaps",
         "label": "Fill gaps",
-        "description": "Optional: record pickup VO or skip and continue without gap lines.",
-        "stages": ["missing_framing", "optimal_questions"],
+        "description": "Optional: interviewer framing VO (summaries, prefaces, questions) or skip.",
+        "stages": ["missing_framing", "gap_framing_compose"],
         "gate": "g1_vo_pickup",
         "optional": True,
+        "label_detail": "Optional gap framing (questions, summaries, prefaces)",
     },
     {
         "id": "plan_rank",

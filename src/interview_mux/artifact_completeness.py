@@ -342,8 +342,9 @@ def artifact_ready_for_review(rel_path: str, ctx: RunContext) -> bool:
 def analysis_profile_ready_for_review(ctx: RunContext) -> bool:
     """True after understanding analysis populated the interview profile."""
     from interview_mux.llm_flow_hardening import ANALYSIS_READY_ARTIFACT_PATHS, flow_hardening_enabled
+    from interview_mux.stages import gaps
 
-    if not ctx.is_done("optimal_questions"):
+    if not gaps.gap_compose_stage_done(ctx):
         return False
     if flow_hardening_enabled():
         for rel in ANALYSIS_READY_ARTIFACT_PATHS:

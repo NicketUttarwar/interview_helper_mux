@@ -81,10 +81,23 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `mix.completeness_gate.hard_fail_missing_blocking_vo` | `mix_completeness` | Hard-fail missing blocking VO (default true). |
 | `mix.completeness_gate.hard_fail_empty_speech` | `mix_completeness` | Hard-fail empty speech (default true). |
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
+| `autopilot_enabled` / `operator.autopilot_enabled` | Soft gate auto-continue (never G0); default **false**. Stops on speaker-volley integrity failure. See [volley-glossary.md](./volley-glossary.md) | Accidental unattended progression |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
+| `edl_narrative_qc.require_synthesized_vo` | `edl_narrative_qc._validate_gap_placements` | When `true`, requires synthesized gap lines to have WAV on vo_pickup clips (default `false`) |
+| `edl_narrative_qc.require_framing_before_impact` | `edl_narrative_qc._validate_framing_before_impact` | When `true`, each impact block primary segment must have preceding framing VO in EDL order |
+| `analysis.gap_framing.interviewer_question_max_words` | `gap_framing`, compose/ranking prompts | Max words for `framing_question` lines (default **60**) |
+| `analysis.gap_framing.max_exclusion_ratio` | `framing_coverage_guard` | Cap on framing-driven exclusions vs manifest size (default **0.15**) |
+| `analysis.gap_framing.never_exclude_primary_impact` | `framing_coverage_guard` | Block excluding sole primary impact segment (default **true**) |
+| `analysis.gap_framing.require_topic_survival` | `framing_coverage_guard` | Block exclusions that zero out a brief topic (default **true**) |
+| `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
+| `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **true**) |
+| `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **true**) |
+| `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Optional duration QC + mlx retry when `auto_fallback_on_qc_fail` |
+| `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
+| `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
 | `show_notes_qc.strict` | `REMOVED_publishing_flow3`, `gates.check_show_notes_qc` | When `true` (shipped default), blocks persisting invalid show description; when `false`, warn only |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |

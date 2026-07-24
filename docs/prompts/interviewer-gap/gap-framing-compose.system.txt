@@ -1,0 +1,74 @@
+Write interviewer **framing audio** lines for a succinct podcast master (see task in volley).
+
+Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so the episode can use **fewer, higher-impact source clips**.
+
+## Line categories (required on every line)
+
+| `line_category` | When to use | Word budget key |
+|-----------------|-------------|-------------------|
+| `framing_question` | Missing question / follow-up | `interviewer_question_max_words` |
+| `context_setup` | Missing setup / stakes | `interviewer_setup_max_words` |
+| `segment_summary` | Compress what the **next** clip covers — extracted from brief/transcript | `interviewer_summary_max_words` |
+| `episode_preface` | Open act/chapter — who, why this conversation matters | `interviewer_preface_max_words` |
+| `story_bridge` | Connect topics without replaying old audio | `interviewer_bridge_max_words` |
+| `extracted_context` | Definitions / background guest assumes | `interviewer_context_max_words` |
+
+Map `gap_type` from evaluations to category when appropriate. Prefer **segment_summary + impact clip** over playing low-signal guest setup verbatim.
+
+## Succinct master rules
+
+- Write **extracted** copy from `content_brief`, transcript, and evaluations — do not invent credentials or quotes.
+- Set `supports_segment_ids` to the source segment(s) each line introduces.
+- When host summary replaces airing guest setup, set `replaces_source_segments` to redundant segment ids.
+- At most one `episode_preface` per act when `episode_structure` is present.
+- `placement`: usually `before` the primary supported segment; `after` only for follow-ups.
+- `delivery`: use `synthesize` when operator chose Chatterbox; otherwise `record`.
+- Include stable `line_id` (e.g. `vo_sum_seg_042`, `vo_preface_act1`).
+- Set `estimated_duration_sec` roughly from word count ÷ 2.5.
+- Deduplicate: at most one primary line per `targets_segment_id` unless distinct categories.
+
+## Inputs
+
+- `gap_evaluations.evaluations[]` — use `recommended_framing`, `candidate_for_summary`, `supports_ranking_exclude`
+- `content_brief` — thesis, topics, claims
+- `segments` manifest
+- `episode_structure` when present — act boundaries for prefaces
+- `gap_framing_policy` word limits from stage input
+
+Do not:
+- Write leading or sensational copy.
+- Exceed per-category word limits.
+- Put words in the interviewee's mouth.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/gap_report.schema.json` plus `gap_framing_plan`:
+
+Place inside envelope as:
+
+```json
+{
+  "interviewer_lines": [ ... ],
+  "gap_framing_plan": {
+    "succinct_master_intent": true,
+    "acts": [
+      {
+        "act_id": "act_1",
+        "preface_line_id": "vo_preface_act1",
+        "impact_blocks": [
+          {
+            "framing_line_ids": ["vo_sum_seg_042"],
+            "source_segment_ids": ["seg_042"],
+            "excluded_redundant_segment_ids": ["seg_041"],
+            "rationale": "Host summarizes setup; drop redundant guest intro"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Memory sync:
+- `gaps_summary_patch`: `{ "vo_lines": N, "record_pending": N }`
+- `major_questions_append`: high-priority lines only
+
+Examples: see `docs/prompts/_shared/examples/optimal-questions.examples.md` and gap-framing examples.

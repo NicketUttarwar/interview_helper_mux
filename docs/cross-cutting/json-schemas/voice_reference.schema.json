@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VoiceReferenceManifest",
+  "type": "object",
+  "required": ["speaker_id", "approved", "wav"],
+  "properties": {
+    "speaker_id": { "type": "string" },
+    "approved": { "type": "boolean" },
+    "approved_at": { "type": "string" },
+    "wav": { "type": "string" },
+    "ref_text": { "type": "string" },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start_ms", "end_ms"],
+        "properties": {
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "quote": { "type": "string" },
+          "score": { "type": "number" },
+          "selected": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

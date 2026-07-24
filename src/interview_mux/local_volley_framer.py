@@ -1,4 +1,8 @@
-"""v2 local volley framer (LX-01): prep user/assistant turns before OpenAI — fail-open."""
+"""v2 local LLM volley framer (LX-01): prep user/assistant turns before OpenAI — fail-open.
+
+LLM volley = message-packet construction (system/user/assistant turns), not speaker
+conversation units. See docs/cross-cutting/volley-glossary.md.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ class LocalFramingResult:
     escalate: bool = True
     confidence: float = 0.0
     reason: str = ""
+    # Turns prepended into the LLM volley (message packet), not speaker-volley timeline.
     volley_turns: list[dict[str, str]] = field(default_factory=list)
     used_local: bool = False
     fallback: str | None = None

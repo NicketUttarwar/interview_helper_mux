@@ -587,12 +587,21 @@ def _gap_report_vo_lines(ctx: RunContext) -> list[str]:
 
 
 def transition_gap_overlap_errors(transitions: list[Any], ctx: RunContext) -> list[str]:
-    """Soft cross-validate: transition text duplicates gap_report VO."""
+    """Soft cross-validate: transition text duplicates gap_report VO or framing bridges."""
     errors: list[str] = []
     gap_lines = _gap_report_vo_lines(ctx)
+    gap_report = ctx.read_json("understanding/gap_report.json") if ctx.artifact_exists("understanding/gap_report.json") else None
+    from interview_mux.gap_framing import transition_redundant_with_framing
+
     for tr in transitions:
         if not isinstance(tr, dict):
             continue
+        after = str(tr.get("after_segment_id") or "")
+        before = str(tr.get("before_segment_id") or "")
+        if transition_redundant_with_framing(gap_report, after, before):
+            errors.append(
+                f"transition {after}->{before} redundant with framing VO (segment_summary/story_bridge)"
+            )
         low = str(tr.get("text", "")).lower()
         for gl in gap_lines:
             if gl and len(gl) > 10 and gl in low:
@@ -625,6 +634,9 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
     excluded = artifacts.get("excluded_segment_ids") or []
     if excluded and not artifacts.get("exclude_rationales"):
         errors.append("excluded segments without exclude_rationales")
+    from interview_mux.framing_coverage_guard import validate_framing_ranking
+
+    errors.extend(validate_framing_ranking(ctx, artifacts))
     return errors
 
 
@@ -672,6 +684,9 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
                 if not voice:
                     errors.append(f"pickup line {ln.get('line_id')} missing voice_speaker_id")
                     break
+    from interview_mux.gap_framing import validate_line_word_limits
+
+    errors.extend(validate_line_word_limits(lines))
     return errors
 
 
@@ -992,6 +1007,7 @@ _LINTERS: dict[str, Any] = {
     "full_master_ranking": _lint_full_master_ranking,
     "highlight_selection": _lint_highlight_selection,
     "optimal_questions": _lint_optimal_questions,
+    "gap_framing_compose": _lint_optimal_questions,
     "topic_coverage_audit": _lint_topic_coverage_audit,
     "narrative_arc_plan": _lint_narrative_arc_plan,
     "edl_narrative_audit": _lint_edl_narrative_audit,

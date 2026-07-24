@@ -26,6 +26,9 @@ bash "$ROOT/scripts/lib/bootstrap_local_runtimes.sh"
 echo "=== 4/5 Local speech (MLX STT + diarization + S2S) ==="
 bash "$ROOT/scripts/lib/bootstrap_local_speech.sh"
 
+# Chatterbox gap VO clone (fail-open to mlx-audio when missing)
+bash "$ROOT/scripts/lib/bootstrap_local_chatterbox.sh" || true
+
 echo "=== 5/5 Local LLM (MLX volley framer, Apple Silicon) ==="
 bash "$ROOT/scripts/lib/bootstrap_local_llm.sh"
 

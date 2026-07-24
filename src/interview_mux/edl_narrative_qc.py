@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 
 
@@ -240,6 +241,122 @@ def _validate_transitions(
             )
 
 
+def _edl_narrative_qc_cfg() -> dict[str, Any]:
+    raw = merged_config().get("edl_narrative_qc") or {}
+    defaults = {
+        "strict": True,
+        "require_synthesized_vo": False,
+        "require_framing_before_impact": True,
+    }
+    if isinstance(raw, dict):
+        return {**defaults, **raw}
+    return defaults
+
+
+def _vo_pickup_index(edl: dict[str, Any]) -> dict[tuple[str, str, str], dict[str, Any]]:
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    out: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for clip in clips:
+        if clip.get("type") != "vo_pickup":
+            continue
+        key = (
+            _as_id(clip.get("line_id")),
+            _as_id(clip.get("targets_segment_id")),
+            _as_id(clip.get("placement") or "before"),
+        )
+        out[key] = clip
+    return out
+
+
+def _clip_timeline_index(edl: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    return sorted(
+        ((int(c.get("timeline_start_ms") or 0), c) for c in clips),
+        key=lambda row: row[0],
+    )
+
+
+def _validate_framing_before_impact(
+    ctx: RunContext,
+    edl: dict[str, Any],
+    speech: list[str],
+    errors: list[str],
+) -> None:
+    cfg = _edl_narrative_qc_cfg()
+    if not cfg.get("require_framing_before_impact", True):
+        return
+    from interview_mux.gap_framing import load_gap_framing_plan
+
+    plan = load_gap_framing_plan(ctx)
+    if not plan:
+        return
+    timeline = _clip_timeline_index(edl)
+    speech_positions = {sid: idx for idx, sid in enumerate(speech)}
+    vo_by_line = {
+        _as_id(c.get("line_id")): int(c.get("timeline_start_ms") or 0)
+        for _, c in timeline
+        if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
+    }
+
+    for act in plan.get("acts") or []:
+        if not isinstance(act, dict):
+            continue
+        for block in act.get("impact_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            primaries = [str(s) for s in (block.get("source_segment_ids") or []) if s]
+            if not primaries:
+                continue
+            primary = primaries[0]
+            if primary not in speech_positions:
+                continue
+            framing_ids = [_as_id(lid) for lid in (block.get("framing_line_ids") or []) if lid]
+            if not framing_ids:
+                continue
+            speech_ms = next(
+                (int(c.get("timeline_start_ms") or 0) for _, c in timeline if c.get("type") == "speech" and _as_id(c.get("segment_id")) == primary),
+                None,
+            )
+            if speech_ms is None:
+                continue
+            preceding = [vo_by_line[lid] for lid in framing_ids if lid in vo_by_line and vo_by_line[lid] < speech_ms]
+            if not preceding:
+                errors.append(
+                    f'master/edl.json: impact segment "{primary}" lacks preceding framing VO '
+                    f"({', '.join(framing_ids[:3])}). Re-run edl or gap_framing_compose."
+                )
+
+
+def _validate_framing_succinct_exclusions(
+    ctx: RunContext,
+    selection: dict[str, Any],
+    speech: list[str],
+    errors: list[str],
+) -> None:
+    from interview_mux.gap_framing import ranking_exclude_segment_ids
+
+    covered = ranking_exclude_segment_ids(ctx)
+    if not covered:
+        return
+    speech_set = set(speech)
+    notes = str(selection.get("notes") or "").lower()
+    for sid in covered:
+        if sid not in speech_set:
+            continue
+        excluded_ok = False
+        for row in selection.get("excluded_segment_ids") or []:
+            if isinstance(row, dict) and str(row.get("segment_id")) == sid:
+                reason = str(row.get("reason") or "")
+                if reason == "covered_by_framing_vo" or "duplicate" in reason:
+                    excluded_ok = True
+                break
+        if not excluded_ok and "duplicate" not in notes:
+            errors.append(
+                f'master/edl.json: framing-covered segment "{sid}" appears as speech without '
+                "covered_by_framing_vo exclusion. Re-run full_master_ranking."
+            )
+
+
 def _validate_gap_placements(
     ctx: RunContext,
     edl: dict[str, Any],
@@ -256,6 +373,7 @@ def _validate_gap_placements(
         for c in clips
         if c.get("type") == "vo_pickup"
     }
+    vo_clips = _vo_pickup_index(edl)
     placement_keys = {
         (_as_id(p.get("line_id")), _as_id(p.get("targets_segment_id")), _as_id(p.get("placement")))
         for p in edl.get("gap_placements") or []
@@ -265,8 +383,14 @@ def _validate_gap_placements(
 
     from interview_mux.gates import vo_gap_line_effectively_optional
 
+    qc_cfg = _edl_narrative_qc_cfg()
+    require_synth = bool(qc_cfg.get("require_synthesized_vo", False))
+
     for line in report.get("interviewer_lines") or []:
-        if not isinstance(line, dict) or line.get("delivery") != "record":
+        if not isinstance(line, dict):
+            continue
+        delivery = str(line.get("delivery") or "").lower()
+        if delivery not in ("record", "synthesize"):
             continue
         if vo_gap_line_effectively_optional(ctx, line):
             continue
@@ -278,11 +402,22 @@ def _validate_gap_placements(
         key = (line_id, target, placement)
         if key not in vo_keys:
             warning_ok = line_id in missing_vo or target in missing_vo
+            if delivery == "synthesize" and not require_synth:
+                warning_ok = True
             if not warning_ok:
                 errors.append(
                     f'master/edl.json: gap line "{line_id}" targeting "{target}" '
                     "has no vo_pickup clip and no missing_vo_files warning. Re-run vo_ingest "
                     "or edl."
+                )
+        elif delivery == "synthesize" and require_synth:
+            clip = vo_clips.get(key) or {}
+            src = _as_id(clip.get("source_path"))
+            dur = int(clip.get("duration_ms") or 0)
+            if not src or dur <= 0:
+                errors.append(
+                    f'master/edl.json: synthesized gap line "{line_id}" missing WAV on clip. '
+                    "Synthesize at G1 or re-run edl."
                 )
         if key not in placement_keys:
             errors.append(
@@ -358,5 +493,28 @@ def validate_flow1_edl_narrative(
     _validate_ordering_constraints(narrative_plan, speech, errors)
     _validate_transitions(transitions, edl, speech, errors)
     _validate_gap_placements(ctx, edl, speech, errors)
+    _validate_framing_before_impact(ctx, edl, speech, errors)
+    _validate_framing_succinct_exclusions(ctx, selection, speech, errors)
+    _validate_speaker_volley_integrity(ctx, speech, errors)
     _validate_audit_artifact(ctx, errors)
     return errors
+
+
+def _validate_speaker_volley_integrity(ctx: Any, speech: list[str], errors: list[str]) -> None:
+    """Ensure locked speaker volleys are not split in the EDL speech order."""
+    try:
+        from interview_mux.episode_structure import load_episode_structure
+        from interview_mux.speaker_volley import check_speaker_volley_integrity
+
+        doc = load_episode_structure(ctx)
+        if not isinstance(doc, dict):
+            return
+        volleys = doc.get("speaker_volleys")
+        if not isinstance(volleys, list) or not volleys:
+            return
+        ok, flags = check_speaker_volley_integrity(list(speech), volleys)
+        if not ok:
+            for f in flags[:8]:
+                errors.append(f"speaker_volley_integrity:{f}")
+    except Exception:
+        return

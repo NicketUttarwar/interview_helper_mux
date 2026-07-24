@@ -192,3 +192,41 @@ def test_check_edl_narrative_qc_strict_raises(monkeypatch) -> None:
     edl["clips"] = [c for c in edl["clips"] if c.get("segment_id") != "seg_c"]
     with pytest.raises(SystemExit, match="edl_narrative_qc strict"):
         check_edl_narrative_qc(ctx, stage="edl", edl=edl)
+
+
+def test_validate_synthesize_gap_with_missing_vo_warning() -> None:
+    ctx = RunContext("run_edl_synth_warn", create=True)
+    _write_story_artifacts(ctx)
+    report = ctx.read_json("understanding/gap_report.json")
+    report["interviewer_lines"][0]["delivery"] = "synthesize"
+    ctx.write_json("understanding/gap_report.json", report)
+    edl = _good_edl()
+    edl["warnings"]["missing_vo_files"] = ["line_001"]
+    assert validate_flow1_edl_narrative(ctx, edl) == []
+
+
+def test_validate_framing_before_impact_missing_vo() -> None:
+    ctx = RunContext("run_edl_framing_impact", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "succinct_master_intent": True,
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {
+                            "framing_line_ids": ["line_001"],
+                            "source_segment_ids": ["seg_b"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("preceding framing VO" in e for e in errors)
+

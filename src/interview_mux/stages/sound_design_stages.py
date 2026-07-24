@@ -128,6 +128,11 @@ def run_sound_design_plan(ctx: RunContext) -> None:
             "gap_report": c.read_json("understanding/gap_report.json"),
             "segments": c.read_json("segments/manifest.json"),
         }
+        from interview_mux.gap_framing import framing_vo_for_sound_design
+
+        framing_vo = framing_vo_for_sound_design(c)
+        if framing_vo:
+            payload["framing_vo_lines"] = framing_vo
         profile = load_profile(c)
         if profile:
             payload["source_acoustic_profile"] = acoustic_compact_for_volley(profile)

@@ -23,6 +23,7 @@ type EpisodeStructureSummary = {
   slot_plan?: { component_id?: string; gate?: string }[];
   omit_high_profile?: string[];
   hook_reel?: { segment_id?: string | null; repeat_allowed?: boolean };
+  speaker_volleys?: { speaker_volley_id?: string }[];
   integrity_ok?: boolean;
 };
 
@@ -118,6 +119,9 @@ export function SonicContextPanel() {
             : ""}
           {episodeStructure.hook_reel?.repeat_allowed
             ? `, hook reel ${episodeStructure.hook_reel.segment_id || "on"}`
+            : ""}
+          {episodeStructure.speaker_volleys?.length
+            ? `, speaker volleys ${episodeStructure.speaker_volleys.length}`
             : ""}
           {episodeStructure.integrity_ok === false ? ", integrity warn" : ""}
         </p>

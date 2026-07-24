@@ -6,6 +6,8 @@
   "executions_root": "ASSETS/executions",
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
+  "autopilot_enabled": false,
+  "operator": { "autopilot_enabled": false },
   "flow2_target_lufs": -14.0,
   "show_description_min_words": 150,
   "show_description_max_words": 250,
@@ -253,7 +255,7 @@
     "prompt_thresholds": {
       "pause_split_ms": 700,
       "short_question_max_words": 12,
-      "interviewer_question_max_words": 15,
+      "interviewer_question_max_words": 60,
       "interviewer_setup_max_words": 20,
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,

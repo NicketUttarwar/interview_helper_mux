@@ -314,8 +314,11 @@ def _order_segments(segs: list[dict[str, Any]], hook_id: str | None) -> list[str
     ids = [str(s["segment_id"]) for s in segs]
     if not ids:
         return []
-    # Soft orient: keep relative order; move hook to front of order list only as teaser
-    # (occupancy still unique in body — hook reel marked separately)
+    # Cold open: place hook speech at timeline front when STD_cold_open_slot bound a hook_reel id.
+    # Remaining body keeps relative order (hook removed from later slot to avoid double occupancy
+    # unless hook_reel.repeat_allowed documents intentional replay outside segment_order).
+    if hook_id and hook_id in ids:
+        return [hook_id] + [sid for sid in ids if sid != hook_id]
     return ids
 
 
@@ -554,6 +557,9 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
                     s["repeat_allowed"] = True
             rationale.append(f"hook_reel:{hook_id}")
 
+    from interview_mux.speaker_volley import check_speaker_volley_integrity, detect_speaker_volleys
+
+    speaker_volleys = detect_speaker_volleys(segs)
     segment_order = _order_segments(segs, hook_id)
     # Body binds unique segments; ensure order unique
     seen: set[str] = set()
@@ -566,12 +572,22 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
     segment_order = unique_order
 
     ok, flags = check_integrity(segs, segment_order)
+    volley_ok, volley_flags = check_speaker_volley_integrity(segment_order, speaker_volleys)
+    if not volley_ok:
+        flags = list(flags) + volley_flags
+        ok = False
     if not ok:
-        # Prefer repair: restore original timeline order
+        # Prefer repair: restore original timeline order (keeps speaker volleys contiguous)
         segment_order = [str(s["segment_id"]) for s in segs]
         ok2, flags2 = check_integrity(segs, segment_order)
-        ok, flags = ok2, (flags + [f"repaired:{f}" for f in flags2] if not ok2 else flags + ["repaired_to_manifest_order"])
+        vok2, vflags2 = check_speaker_volley_integrity(segment_order, speaker_volleys)
+        merged = flags2 + vflags2
+        ok, flags = (ok2 and vok2), (
+            flags + [f"repaired:{f}" for f in merged] if not (ok2 and vok2) else flags + ["repaired_to_manifest_order"]
+        )
         rationale.append("integrity_repair:manifest_order")
+    if speaker_volleys:
+        rationale.append(f"speaker_volleys:{len(speaker_volleys)}")
 
     # Occupancy: body bindings + order (hook reel may appear in cold open + body once each)
     occ_violations = check_occupancy(segment_order, slot_plan, hook_id=hook_id, repeat_allowed=repeat_allowed)
@@ -594,6 +610,7 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
         "slot_plan": slot_plan,
         "segment_order": segment_order,
         "hook_reel": {"segment_id": hook_id, "repeat_allowed": bool(repeat_allowed and hook_id)},
+        "speaker_volleys": speaker_volleys,
         "omit_reasons": omit_reasons,
         "rationale": rationale[:40],
         "integrity": {"ok": ok, "flags": flags},
@@ -616,8 +633,11 @@ def load_episode_structure(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact episode structure for an LLM volley (message packet). See volley-glossary.md."""
     if not doc:
         return None
+    from interview_mux.speaker_volley import compact_speaker_volleys_for_llm_volley
+
     return {
         "axes": doc.get("axes") or {},
         "slot_plan": [
@@ -634,6 +654,9 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
         ][:24],
         "segment_order": list(doc.get("segment_order") or [])[:60],
         "hook_reel": doc.get("hook_reel") or {},
+        "speaker_volleys": compact_speaker_volleys_for_llm_volley(
+            list(doc.get("speaker_volleys") or []) if isinstance(doc.get("speaker_volleys"), list) else []
+        )[:40],
         "omit_high_profile": [
             o.get("component_id")
             for o in (doc.get("omit_reasons") or [])
@@ -643,6 +666,10 @@ def compact_for_volley(doc: dict[str, Any] | None) -> dict[str, Any] | None:
         ],
         "integrity_ok": bool((doc.get("integrity") or {}).get("ok", True)),
     }
+
+
+# Glossary alias: this compact feeds an LLM volley, not a speaker-volley timeline edit.
+compact_for_llm_volley = compact_for_volley
 
 
 def attach_episode_structure_to_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:

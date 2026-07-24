@@ -146,6 +146,10 @@ def build_flow1_edl(
             rel: str | None = None
             dur = 0
             if vo_path is None or not vo_path.is_file():
+                delivery = str(line.get("delivery") or "").lower()
+                if delivery == "synthesize":
+                    missing_vo.append(line.get("line_id") or sid)
+                    continue
                 missing_vo.append(line.get("line_id") or sid)
             else:
                 rel = vo_relpath(vo_path) if vo_relpath else vo_path.as_posix()
@@ -190,6 +194,10 @@ def build_flow1_edl(
             rel = None
             dur = 0
             if vo_path is None or not vo_path.is_file():
+                delivery = str(line.get("delivery") or "").lower()
+                if delivery == "synthesize":
+                    missing_vo.append(line.get("line_id") or sid)
+                    continue
                 missing_vo.append(line.get("line_id") or sid)
             else:
                 rel = vo_relpath(vo_path) if vo_relpath else vo_path.as_posix()

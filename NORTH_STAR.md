@@ -19,12 +19,22 @@
 
 ## Non-goals (v2)
 
-- Flow 2 highlights, Flow 3 show-description pipeline, G2 flow picker
-- Autopilot, ITR, Stage Decision Wizard
-- Local MLX tier, volley, investigation queue, holistic fabrication
+- Flow 2 highlights, Flow 3 show-description pipeline, G2 flow picker (**permanent**)
+- Autopilot, ITR, Stage Decision Wizard (default off; see plan Track B if enabled)
+- Local MLX tier as product gate; **LLM-arbiter / investigation-queue UI** (default off) — not the same as **speaker volley** (conversation units in the podcast). See [docs/cross-cutting/volley-glossary.md](docs/cross-cutting/volley-glossary.md)
+- Holistic fabrication
 - Disfluency G0.5, analysis profile gate
 - Per-stage write approval, handoff acks between stages
-- Debug / Volley / Story GUI tabs
+- Debug / Story GUI tabs as required journey stops
+
+## Volley lexicon (required reading)
+
+| Term | Meaning |
+|------|---------|
+| **Speaker volley** | Conversation between speakers preserved in the final podcast timeline |
+| **LLM volley** | System/user/assistant message packet for one stage LLM call |
+
+Bare “volley” is ambiguous — always qualify.
 
 ## Pipeline shape
 

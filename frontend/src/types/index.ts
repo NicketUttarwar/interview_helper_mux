@@ -413,6 +413,14 @@ export interface RunData {
   g1_5_preview_pickup_clear?: boolean;
   pickup_speaker_pending?: boolean;
   gap_fill_mode?: "active" | "skipped" | "pending";
+  gap_framing_enabled?: boolean;
+  gap_framing_decision_pending?: boolean;
+  gap_vo_delivery?: "chatterbox" | "record" | null;
+  gap_delivery_pending?: boolean;
+  voice_reference_pending?: boolean;
+  voice_reference_approved?: boolean;
+  chatterbox_runtime_available?: boolean;
+  synthesis_fallback_notice?: string | null;
   gap_fill_skip_reason?: string | null;
   flow_adaptation?: FlowAdaptation | null;
   nle_dirty?: boolean;
@@ -515,6 +523,8 @@ export interface VoLine {
   act_context?: number;
   post_preview?: boolean;
   post_preview_satisfied?: boolean;
+  delivery?: string;
+  line_category?: string;
   recorded_file?: string | null;
 }
 

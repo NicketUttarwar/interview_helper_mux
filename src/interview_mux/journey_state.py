@@ -49,6 +49,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "boundary_topic_resplit": "understand",
     "sound_design_palettes": "understand",
     "missing_framing": "understand",
+    "gap_framing_compose": "understand",
     "optimal_questions": "understand",
     "analysis_profile": "understand",
     "g1_vo_pickup": "complete",
@@ -213,15 +214,16 @@ def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None =
     if not ctx.artifact_exists("analysis_complete.json"):
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
         from interview_mux.pipeline import shared_analysis_chain_complete
+        from interview_mux.stages import gaps
 
         if gap_fill_was_skipped(ctx) and shared_analysis_chain_complete(ctx):
             if not ms.get("profile_verified"):
                 return "understand"
         else:
             if not ms.get("profile_verified"):
-                if ctx.is_done("content_context") or ctx.is_done("optimal_questions"):
+                if ctx.is_done("content_context") or gaps.gap_compose_stage_done(ctx):
                     return "understand"
-            if not ctx.is_done("optimal_questions"):
+            if not gaps.gap_compose_stage_done(ctx):
                 return "understand"
     if not ms.get("g1_complete"):
         return "complete"

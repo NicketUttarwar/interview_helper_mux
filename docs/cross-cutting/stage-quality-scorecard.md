@@ -43,7 +43,8 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 |-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
 | `missing_framing` | P1 | shipped | shipped | shipped | `post_gaps` | shipped | full | shipped | shipped |
 | `optimal_questions` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
-| `topic_coverage_audit` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `gap_framing_compose` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
+| `topic_coverage_audit` | P1 | shipped | shipped | shipped | `post_ranking` | shipped | full | shipped | shipped |
 | `narrative_arc_plan` | P1 | shipped | shipped | shipped | — | shipped | full | shipped | shipped |
 | `full_master_ranking` | P1 | shipped | shipped | shipped | `post_ranking` | shipped | full | shipped | shipped |
 | `edl_narrative_audit` | P1 | shipped | shipped | shipped | `post_edl_audit` | shipped | full | shipped | shipped |

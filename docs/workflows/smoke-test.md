@@ -85,6 +85,8 @@ Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
 If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_ingest`.
 
+**Gap framing path (optional):** After `missing_framing`, choose Yes/No in GUI. Yes → confirm pickup speaker → approve voice reference → choose Chatterbox or record → `gap_framing_compose` → G1 synthesize/record. Chatterbox verify in `./scripts/verify_local_models.sh` is **WARN** when venv missing (mlx-audio fallback). Audit: `vo_pickup/synthesis_report.json`.
+
 **Optional at G1:** If pickup recordings are noisy, accept VO-scoped pre-clean offer (BUILD-072) before continuing.
 
 ## Flow 1

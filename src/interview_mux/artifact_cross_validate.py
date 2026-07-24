@@ -606,7 +606,7 @@ def _validate_post_optimal_questions(ctx: RunContext) -> list[str]:
     from interview_mux.config import merged_config
 
     thresholds = (merged_config().get("analysis") or {}).get("prompt_thresholds") or {}
-    q_max = int(thresholds.get("interviewer_question_max_words", 15))
+    q_max = int(thresholds.get("interviewer_question_max_words", 60))
     setup_max = int(thresholds.get("interviewer_setup_max_words", 20))
     for i, row in enumerate(lines):
         if not isinstance(row, dict):

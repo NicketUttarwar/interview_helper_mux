@@ -9,6 +9,7 @@ Rules:
 - When `style.format_class` is `panel`, prefer shorter bridges — do not re-introduce every guest by full title.
 - Avoid "In this next segment" clichés unless necessary.
 - Do not duplicate `gap_report` VO lines — complement them.
+- Omit transitions between segment pairs already bridged by `segment_summary` or `story_bridge` framing VO (post-process may dedupe).
 - Return `transitions: []` when adjacent segments already flow naturally.
 
 Do not:

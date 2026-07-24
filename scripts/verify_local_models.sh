@@ -85,6 +85,26 @@ else
   _report WARN "local_speech S2S" "verify failed — G1 synthesize unavailable until fixed"
 fi
 
+CB_PY="$ROOT/ASSETS/local_chatterbox/venv/bin/python"
+if [[ ! -x "$CB_PY" ]]; then
+  if [[ "$IS_ARM64" == true ]]; then
+    _report WARN "local_chatterbox" "venv missing — Chatterbox clone unavailable; mlx-audio fallback"
+  else
+    _report WARN "local_chatterbox" "skipped (Apple Silicon only)"
+  fi
+elif "$CB_PY" -c "import chatterbox, torch, torchaudio" >/dev/null 2>&1; then
+  _report OK "local_chatterbox" "venv + chatterbox import"
+  if [[ -x "$CB_PY" ]] && [[ -f "$ROOT/tools/chatterbox_generate.py" ]]; then
+    if "$CB_PY" "$ROOT/tools/chatterbox_generate.py" --help >/dev/null 2>&1; then
+      _report OK "local_chatterbox CLI" "chatterbox_generate.py reachable"
+    else
+      _report WARN "local_chatterbox CLI" "generate script unavailable — golden one-liner skipped"
+    fi
+  fi
+else
+  _report WARN "local_chatterbox" "verify failed — G1 Chatterbox unavailable; mlx-audio fallback"
+fi
+
 LLM_PY="$ROOT/ASSETS/local_llm/venv/bin/python"
 if [[ ! -x "$LLM_PY" ]]; then
   if [[ "${STRICT_LOCAL_LLM:-0}" == "1" && "$IS_ARM64" == true ]]; then
@@ -102,7 +122,7 @@ else
   fi
 fi
 
-for entry in "deepfilter:local_deepfilter" "mmaudio:local_mmaudio" "speech:local_speech" "mlx:local_llm"; do
+for entry in "deepfilter:local_deepfilter" "mmaudio:local_mmaudio" "speech:local_speech" "chatterbox:local_chatterbox" "mlx:local_llm"; do
   stack="${entry%%:*}"
   dir="${entry##*:}"
   manifest="$ROOT/ASSETS/${dir}/install.json"

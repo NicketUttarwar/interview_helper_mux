@@ -23,6 +23,7 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
     "boundary_topic_resplit": frozenset({"boundaries"}),
     "segment_classification": frozenset({"segments", "segments[].segment_id", "segments[].type"}),
     "missing_framing": frozenset({"evaluations"}),
+    "gap_framing_compose": frozenset({"gaps"}),
     "optimal_questions": frozenset({"gaps"}),
     "topic_coverage_audit": frozenset({"coverage_score"}),
     "narrative_arc_plan": frozenset({"chapters"}),

@@ -23,6 +23,7 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "content_brief_reanchor": "OA-05",
     "sound_design_palettes": "OA-06",
     "missing_framing": "OA-07",
+    "gap_framing_compose": "OA-08",
     "optimal_questions": "OA-08",
     "topic_coverage_audit": "OF-01",
     "narrative_arc_plan": "OF-02",
@@ -102,7 +103,8 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         "content_brief_reanchor": ("understanding.run_content_brief_reanchor", "understanding/content-brief-reanchor.system.txt", "full/shard/collate", "standard"),
         "sound_design_palettes": ("sound_design_stages.run_sound_design_palettes", "sound_design/theme-palettes.system.txt", "full", "standard"),
         "missing_framing": ("gaps.run_missing_framing", "interviewer-gap/missing-framing.system.txt", "full/shard/collate", "standard"),
-        "optimal_questions": ("gaps.run_optimal_questions", "interviewer-gap/optimal-questions.system.txt", "full", "standard"),
+        "gap_framing_compose": ("gaps.run_gap_framing_compose", "interviewer-gap/gap-framing-compose.system.txt", "full", "standard"),
+        "optimal_questions": ("gaps.run_gap_framing_compose", "interviewer-gap/gap-framing-compose.system.txt", "full", "standard"),
     }
     for sk, (ep, prompt, volley, tier) in _OA_META.items():
         cid = STAGE_PRIMARY_IDS[sk]
@@ -402,6 +404,7 @@ _OA_GOALS: dict[str, str] = {
     "content_brief_reanchor": "Anchor topics to segment_ids",
     "sound_design_palettes": "Palettes + sonic identity",
     "missing_framing": "Per-segment gap eval",
+    "gap_framing_compose": "Framing script (questions, summaries, prefaces)",
     "optimal_questions": "VO lines for record gaps",
 }
 

@@ -101,7 +101,7 @@ def ensure_gap_fill_skipped(
     sync_gaps_to_state(ctx, eval_doc)
     update_completion_from_analysis(ctx)
 
-    for stage_id in ("missing_framing", "optimal_questions"):
+    for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         if not ctx.is_done(stage_id):
             ctx.mark_done(stage_id, force=True)
 
@@ -150,7 +150,61 @@ def run_missing_framing(ctx: RunContext) -> None:
         )
 
 
+def run_gap_framing_compose(ctx: RunContext) -> None:
+    """Compose full gap framing script (questions, summaries, prefaces, bridges)."""
+
+    def build_input(c: RunContext) -> dict:
+        from interview_mux.gap_framing import gap_framing_cfg
+
+        payload = {
+            "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
+            "segments": c.read_json("segments/manifest.json"),
+            "content_brief": c.read_json("understanding/content_brief.json"),
+            "gap_framing_policy": gap_framing_cfg(),
+        }
+        if c.artifact_exists("understanding/delivery_brief.json"):
+            payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
+        if c.artifact_exists("understanding/episode_structure.json"):
+            payload["episode_structure"] = c.read_json("understanding/episode_structure.json")
+        vf = compact_value_features_summary(c)
+        if vf:
+            payload["value_features_summary"] = vf
+        return attach_adaptation_to_payload(c, payload)
+
+    def persist(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.artifact_repairs import repair_gap_report
+        from interview_mux.artifact_writes import write_validated_artifact
+        from interview_mux.gap_framing import persist_gap_framing_companion_artifacts
+
+        plan = artifacts.pop("gap_framing_plan", None)
+        repaired, _ = repair_gap_report(c, artifacts)
+        persist_gap_framing_companion_artifacts(c, repaired)
+        if isinstance(plan, dict):
+            c.write_json("understanding/gap_framing_plan.json", plan)
+        write_validated_artifact(
+            c,
+            "understanding/gap_report.json",
+            repaired,
+            merge_from_disk=True,
+            stage_key="gap_framing_compose",
+        )
+
+    with logged_step("gap_framing_compose/llm_stage", ctx=ctx, stage="gap_framing_compose"):
+        run_analysis_llm_stage(
+            ctx,
+            "gap_framing_compose",
+            prompt_variant("interviewer-gap/gap-framing-compose.system.txt", ctx),
+            build_input,
+            persist,
+        )
+
+
 def run_optimal_questions(ctx: RunContext) -> None:
+    """Legacy alias — delegates to gap_framing_compose."""
+    run_gap_framing_compose(ctx)
+
+
+def run_optimal_questions_legacy(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         payload = {
             "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
@@ -184,6 +238,10 @@ def run_optimal_questions(ctx: RunContext) -> None:
             build_input,
             persist,
         )
+
+
+def gap_compose_stage_done(ctx: RunContext) -> bool:
+    return ctx.is_done("gap_framing_compose") or ctx.is_done("optimal_questions")
 
 
 def persist_optimal_questions_companion_artifacts(ctx: RunContext, artifacts: dict) -> None:

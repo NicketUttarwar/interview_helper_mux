@@ -41,7 +41,7 @@ def _prompt_thresholds_block() -> str:
         "## Pipeline thresholds (authoritative)\n"
         f"- Pause-based split: ≥ {th.get('pause_split_ms', 700)} ms between words\n"
         f"- Short interviewer question (keep with answer): ≤ {th.get('short_question_max_words', 12)} words\n"
-        f"- VO question max words: {th.get('interviewer_question_max_words', 15)}\n"
+        f"- VO question max words: {th.get('interviewer_question_max_words', 60)}\n"
         f"- VO setup max words: {th.get('interviewer_setup_max_words', 20)}\n"
         f"- Highlight setup VO max: {th.get('highlight_setup_max_sec', 8)} seconds\n"
         f"- Max narrative chapters: {th.get('max_chapters', 8)}\n"

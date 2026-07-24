@@ -1,6 +1,6 @@
 # LLM call record framework
 
-**Status: shipped (runtime)** — every OpenAI Chat Completions call made through `run_prompt_envelope` is stored with a **stable label**, full request/response, and **volley** fields for copy-paste and reconstruction.
+**Status: shipped (runtime)** — every OpenAI Chat Completions call made through `run_prompt_envelope` is stored with a **stable label**, full request/response, and **LLM volley** (message-packet) fields for copy-paste and reconstruction. See [volley-glossary.md](./volley-glossary.md) — this is not speaker volley (podcast conversation).
 
 **Related:** [artifact-layout.md](./artifact-layout.md) · [context-padding.md](./context-padding.md) · [llm-orchestration.md](./llm-orchestration.md) · [local-llm-tier.md](./local-llm-tier.md) (future `provider: local_mlx`)
 
@@ -40,7 +40,7 @@ understanding/llm_calls/
 | `*.json` | Canonical record ([llm_call_record.schema.json](./json-schemas/llm_call_record.schema.json)) |
 | `*.md` | Human-readable transcript (when `analysis.llm_call_records.write_markdown_sidecar` is true) |
 
-**GUI:** Pipeline workspace → sub-tab **LLM calls** — browse, expand/collapse, edit volley turns, save back to disk.
+**GUI:** Pipeline workspace → sub-tab **LLM calls** — browse, expand/collapse, edit LLM volley turns, save back to disk.
 
 **CLI export:** `tools/export_llm_calls.py` for markdown/jsonl bundles.
 
@@ -96,7 +96,7 @@ Each file contains:
 | `request.messages` | Exact Chat Completions payload (system + user/assistant) |
 | `response.raw_content` | Model text before parsing |
 | `response.parsed_envelope` | Normalized analysis envelope when applicable |
-| `volley.system_prompt` | System text split out for volley-only rebuild |
+| `volley.system_prompt` | System text split out for LLM-volley-only rebuild |
 | `volley.turns` | `user` / `assistant` only — inject into `build_message_volley` |
 | `links.attempt_artifact` | Related `understanding/stage_runs/.../attempt_*.json` |
 | `links.relative_path` | Path from run root |
@@ -104,7 +104,7 @@ Each file contains:
 
 When a primary call is accepted, matching `volley_entries` may reference this record via `source.llm_call_path` and `source.call_id`. GUI: Pipeline → **Volley** → **Open LLM call** deep-links to **Debug** tab.
 
-## Volley reconstruction
+## LLM volley reconstruction
 
 ### From one record
 
@@ -156,7 +156,7 @@ See [config-keys.md](./config-keys.md).
 | Call site | Recorded |
 |-----------|----------|
 | `run_prompt_envelope` (all `task_kind`) | Yes, when `ctx` present |
-| Primary retries (volley extend) | Each retry = new sequence number |
+| Primary retries (LLM volley extend) | Each retry = new sequence number |
 | Arbiter | Yes (`record_stage_key` = parent stage) |
 | Shard / collate | Yes |
 | Specialists | Yes |

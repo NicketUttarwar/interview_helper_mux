@@ -8,6 +8,11 @@ import { VoPickupPanel } from "./VoPickupPanel";
 import { PreviewPickupPanel } from "./PreviewPickupPanel";
 import { ConversationStudioPanel } from "./ConversationStudioPanel";
 import { PickupSpeakerPanel } from "./PickupSpeakerPanel";
+import { GapFramingGatePanel } from "./GapFramingGatePanel";
+import { GapFramingScriptPanel } from "./GapFramingScriptPanel";
+import { ImpactBlockPreview } from "./ImpactBlockPreview";
+import { VoiceReferencePanel } from "./VoiceReferencePanel";
+import { GapDeliveryPanel } from "./GapDeliveryPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
 import { InterviewSpinePanel } from "../workspace/InterviewSpinePanel";
@@ -80,22 +85,28 @@ export function GateActions({ stage }: Props) {
           <StageAudioActions stage={stage} />
 
           {stage.id === "missing_framing" && stage.status === "action_required" ? (
-            <PickupSpeakerPanel stage={stage} />
+            <>
+              <GapFramingGatePanel stage={stage} />
+              <PickupSpeakerPanel stage={stage} />
+              <VoiceReferencePanel stage={stage} />
+              <GapDeliveryPanel stage={stage} />
+            </>
           ) : null}
 
-          {stage.id === "optimal_questions" && stage.status === "done" ? (
-            <ConversationStudioPanel />
-          ) : null}
-
-          {stage.id === "g1_vo_pickup" && stage.status === "done" ? (
-            <p className="hint">
-              All pickup lines recorded. Optional: clean new VO files before ingest, or continue
-              to delivery.
-            </p>
+          {(stage.id === "gap_framing_compose" || stage.id === "optimal_questions") &&
+          stage.status === "done" ? (
+            <>
+              <GapFramingScriptPanel stage={stage} />
+              <ConversationStudioPanel />
+            </>
           ) : null}
 
           {stage.id === "g1_vo_pickup" && stage.status === "action_required" ? (
-            <VoPickupPanel voLines={timeline?.vo_lines || []} />
+            <>
+              <GapFramingScriptPanel stage={stage} />
+              <ImpactBlockPreview />
+              <VoPickupPanel voLines={timeline?.vo_lines || []} />
+            </>
           ) : null}
 
           {stage.id === "g1_5_preview_pickup" && stage.status === "action_required" ? (

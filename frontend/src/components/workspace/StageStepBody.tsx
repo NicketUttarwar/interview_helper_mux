@@ -5,6 +5,8 @@ import { NlePanel } from "./NlePanel";
 import { AcousticProfilePanel } from "../gates/AcousticProfilePanel";
 import { InterviewSpinePanel } from "./InterviewSpinePanel";
 import { SonicContextPanel } from "../gates/SonicContextPanel";
+import { SpeakerVolleyTimelinePanel } from "../gates/SpeakerVolleyTimelinePanel";
+import { LlmVolleyReviewPanel } from "../gates/LlmVolleyReviewPanel";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
 import { PreviewListenPromo } from "../guidance/PreviewListenPromo";
 import { SfxPostListenPanel } from "../gates/SfxPostListenPanel";
@@ -15,6 +17,11 @@ import { TranscriptReviewPanel } from "../gates/TranscriptReviewPanel";
 import { VoPickupPanel } from "../gates/VoPickupPanel";
 import { PreviewPickupPanel } from "../gates/PreviewPickupPanel";
 import { SfxPromptReviewPanel } from "../gates/SfxPromptReviewPanel";
+import { GapFramingGatePanel } from "../gates/GapFramingGatePanel";
+import { GapFramingScriptPanel } from "../gates/GapFramingScriptPanel";
+import { ImpactBlockPreview } from "../gates/ImpactBlockPreview";
+import { VoiceReferencePanel } from "../gates/VoiceReferencePanel";
+import { GapDeliveryPanel } from "../gates/GapDeliveryPanel";
 import { PickupSpeakerPanel } from "../gates/PickupSpeakerPanel";
 import { useApp } from "../../context/AppContext";
 import { resolvePrecleanOffer } from "../../utils/preclean";
@@ -161,19 +168,44 @@ export function StageStepBody({ step, stage }: Props) {
     case "interview_spine":
       return <InterviewSpinePanel />;
     case "sonic_context":
-      return <SonicContextPanel />;
+      return (
+        <>
+          <SonicContextPanel />
+          <SpeakerVolleyTimelinePanel />
+        </>
+      );
     case "coherence_risks":
       return <CoherenceRisksPanel />;
     case "timeline":
-      return <NlePanel />;
+      return (
+        <>
+          <NlePanel />
+          <SpeakerVolleyTimelinePanel />
+        </>
+      );
     case "post_listen":
       return <SfxPostListenPanel stage={stage} />;
     case "placement_qa":
       return <PlacementAdjustmentsPanel stage={stage} />;
     case "deliverable":
-      return <DeliverableCard />;
+      return (
+        <>
+          <DeliverableCard />
+          <LlmVolleyReviewPanel />
+        </>
+      );
     case "transcript_review":
       return <TranscriptReviewPanel />;
+    case "gap_framing_script":
+      return <GapFramingScriptPanel stage={stage} />;
+    case "impact_preview":
+      return <ImpactBlockPreview />;
+    case "gap_framing":
+      return <GapFramingGatePanel stage={stage} />;
+    case "voice_reference":
+      return <VoiceReferencePanel stage={stage} />;
+    case "gap_delivery":
+      return <GapDeliveryPanel stage={stage} />;
     case "pickup_speaker":
       return <PickupSpeakerPanel stage={stage} />;
     case "vo_pickup":

@@ -1,6 +1,6 @@
 Order interview segments into a narrative sequence for a full-length podcast master — Flow 1 (see task in volley).
 
-Input includes `coverage_audit`, `narrative_plan`, `gap_report`, and segment manifest.
+- Input includes `coverage_audit`, `narrative_plan`, `gap_report`, `gap_framing_plan` (when present), `framing_covered_segment_ids`, and segment manifest.
 
 Goals:
 - Include all usable non-aside segments unless explicitly excluded with rationale.
@@ -9,6 +9,7 @@ Goals:
 - Cover every topic from `coverage_audit`; do not leave brief topics unrepresented without exclude rationale.
 - Preserve clarity: setup before payoff, definitions before jargon-heavy answers.
 - Schedule `gap_report.interviewer_lines` implicitly (segments with VO stay in order; do not drop fixable answers).
+- **Succinct master:** when `gap_framing_plan` or `framing_covered_segment_ids` is present, exclude source segments whose context is covered by approved framing VO (`reason`: `covered_by_framing_vo`). Never exclude the sole segment representing a brief topic — every topic must survive via source clip or framing VO. Never exclude the primary impact segment a framing block supports unless a higher-signal duplicate exists.
 - Trim asides only when they do not humanize the interviewee or support the thesis.
 - For shard/collate runs, merge chapter or batch rankings into one `ordered_segment_ids` list, dedupe segment IDs, preserve `narrative_plan.ordering_constraints`, and keep excluded entries as objects with reasons.
 

@@ -198,6 +198,13 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
         "chapter_budget": {"min": ch_min, "ideal": ch_ideal, "max": ch_max},
         "selection_mode": "coverage_first",
         "sfx_density": dens,
+        # Soft hint: prefer intact speaker volleys (conversation units) over max isolated clips.
+        # See docs/cross-cutting/volley-glossary.md — not an LLM message-packet setting.
+        "speaker_volley_density": {
+            "prefer_intact": True,
+            "min_volleys": 0,
+            "soft": True,
+        },
         "ranking_weights": dict(weights) if weights else {},
         "rationale": rationale,
         "operator_overrides": {},
@@ -335,6 +342,7 @@ def estimated_selection_duration_sec(ctx: RunContext) -> float | None:
 
 
 def compact_delivery_brief_for_volley(brief: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact delivery brief for an LLM volley (message packet). See volley-glossary.md."""
     if not isinstance(brief, dict):
         return None
     out: dict[str, Any] = {
@@ -343,6 +351,7 @@ def compact_delivery_brief_for_volley(brief: dict[str, Any] | None) -> dict[str,
         "chapter_budget": brief.get("chapter_budget"),
         "selection_mode": brief.get("selection_mode"),
         "sfx_density": brief.get("sfx_density"),
+        "speaker_volley_density": brief.get("speaker_volley_density"),
         "ranking_weights": brief.get("ranking_weights"),
     }
     if brief.get("five_act_mode"):
@@ -354,6 +363,9 @@ def compact_delivery_brief_for_volley(brief: dict[str, Any] | None) -> dict[str,
     if isinstance(brief.get("tbiy_conformance"), dict):
         out["tbiy_conformance"] = brief["tbiy_conformance"]
     return out
+
+
+compact_delivery_brief_for_llm_volley = compact_delivery_brief_for_volley
 
 
 def attach_delivery_brief_to_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:

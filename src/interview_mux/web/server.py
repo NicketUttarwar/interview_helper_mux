@@ -645,6 +645,10 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
+        from interview_mux.gap_vo_gates import gap_gate_payload
+
+        gap_gates = gap_gate_payload(ctx)
+
         return {
             "run_id": run_id,
             "meta": meta,
@@ -682,6 +686,7 @@ def create_app() -> FastAPI:
             "pickup_speaker_pending": pickup_speaker_pending,
             "gap_fill_mode": gap_mode,
             "gap_fill_skip_reason": gap_skip_reason,
+            **gap_gates,
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "job": job,
             "journey": journey,
@@ -1392,6 +1397,10 @@ def create_app() -> FastAPI:
                     line["severity"] = "medium"
                 skipped.append(lid)
             ctx.write_json("understanding/gap_report.json", report)
+            from interview_mux.vo_synthesis_audit import record_skipped_vo
+
+            for lid in skipped:
+                record_skipped_vo(ctx, lid, reason="g1_skip_optional")
 
             def _mark_g1_skipped(meta: dict[str, Any]) -> None:
                 meta["g1_vo_skipped_optional"] = True
@@ -2201,6 +2210,9 @@ def create_app() -> FastAPI:
                 stage="g1_vo_pickup",
                 detail={"kind": "gate", "line_id": line_id, "pickup_eligible_speaker_id": eligible},
             )
+            from interview_mux.vo_synthesis_audit import record_recorded_vo
+
+            record_recorded_vo(ctx, line_id, out_wav=dest, backend="upload")
             return {"ok": True, "path": f"vo_pickup/{dest.name}", "g1_missing": check_g1_vo(ctx)}
 
     @app.post("/api/runs/{run_id}/vo/{line_id}/synthesize")
@@ -2221,9 +2233,26 @@ def create_app() -> FastAPI:
             if not line:
                 raise HTTPException(404, f"Unknown line_id: {line_id}")
             from interview_mux import s2s_runner
+            from interview_mux.synthesis_fallback import SynthesisFallbackToManual
 
             try:
                 out = s2s_runner.synthesize_line(ctx, line, mode="synthesize")
+            except SynthesisFallbackToManual as fb:
+                refresh_journey_meta(ctx)
+                ctx.log(
+                    fb.notice,
+                    level="warning",
+                    stage="g1_vo_pickup",
+                    action_id="gui.g1.vo.synthesize",
+                    detail={"line_id": line_id, "fallback": "record"},
+                )
+                return {
+                    "ok": False,
+                    "fallback": "record",
+                    "notice": fb.notice,
+                    "line_id": line_id,
+                    "g1_missing": check_g1_vo(ctx),
+                }
             except Exception as exc:
                 block = (merged_config().get("local_speech") or {})
                 if block.get("fail_open", True):
@@ -2476,6 +2505,144 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, str(exc)) from exc
             return {"ok": True, **pickup_speaker_payload(ctx)}
 
+    @app.get("/api/runs/{run_id}/gap-framing")
+    def get_gap_framing_gate(run_id: str) -> dict[str, Any]:
+        from interview_mux.gap_vo_gates import gap_gate_payload
+
+        ctx = _ctx(run_id)
+        return gap_gate_payload(ctx)
+
+    @app.get("/api/runs/{run_id}/gap-framing/script")
+    def get_gap_framing_script(run_id: str) -> dict[str, Any]:
+        from interview_mux.gap_framing import load_gap_framing_plan
+        from interview_mux.gap_report_api import list_lines
+
+        ctx = _ctx(run_id)
+        return {
+            "lines": list_lines(ctx),
+            "plan": load_gap_framing_plan(ctx),
+        }
+
+    @app.post("/api/runs/{run_id}/gap-framing/enable")
+    def enable_gap_framing(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_vo_gates import gap_gate_payload, set_gap_framing_enabled
+
+            ctx = _ctx(run_id)
+            enabled = bool(body.get("enabled"))
+            set_gap_framing_enabled(ctx, enabled)
+            if not enabled:
+                runner.clear_operator_pause(
+                    ctx,
+                    "missing_framing",
+                    message="Gap framing disabled — continuing with source segments only.",
+                    level="info",
+                )
+                runner.clear_operator_pause(
+                    ctx,
+                    "gap_framing_compose",
+                    message="Gap framing compose skipped.",
+                    level="info",
+                )
+            refresh_journey_meta(ctx)
+            return {"ok": True, **gap_gate_payload(ctx)}
+
+    @app.post("/api/runs/{run_id}/gap-framing/delivery")
+    def set_gap_framing_delivery(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.gap_vo_gates import gap_gate_payload, set_gap_vo_delivery
+            from interview_mux.synthesis_fallback import ensure_chatterbox_or_manual
+
+            ctx = _ctx(run_id)
+            try:
+                set_gap_vo_delivery(ctx, str(body.get("delivery") or ""))
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            fallback = ensure_chatterbox_or_manual(ctx, stage="gap_delivery")
+            refresh_journey_meta(ctx)
+            payload = {"ok": True, **gap_gate_payload(ctx)}
+            if fallback:
+                payload["synthesis_fallback"] = fallback
+            return payload
+
+    @app.get("/api/runs/{run_id}/voice-reference")
+    def get_voice_reference(run_id: str) -> dict[str, Any]:
+        from interview_mux.voice_reference import voice_reference_payload
+
+        ctx = _ctx(run_id)
+        return voice_reference_payload(ctx)
+
+    @app.patch("/api/runs/{run_id}/voice-reference/select")
+    def patch_voice_reference_select(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import pickup_eligible_speaker_id
+            from interview_mux.voice_reference import update_selected_segments, voice_reference_payload
+
+            ctx = _ctx(run_id)
+            speaker_id = pickup_eligible_speaker_id(ctx)
+            if not speaker_id:
+                raise HTTPException(400, "No pickup-eligible speaker")
+            indices = body.get("selected_indices") or []
+            update_selected_segments(ctx, speaker_id, [int(i) for i in indices])
+            return {"ok": True, **voice_reference_payload(ctx)}
+
+    @app.post("/api/runs/{run_id}/voice-reference/approve")
+    def approve_voice_reference_endpoint(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.source_topology import pickup_eligible_speaker_id
+            from interview_mux.voice_reference import approve_voice_reference, voice_reference_payload
+
+            ctx = _ctx(run_id)
+            speaker_id = pickup_eligible_speaker_id(ctx)
+            if not speaker_id:
+                raise HTTPException(400, "No pickup-eligible speaker")
+            try:
+                approve_voice_reference(ctx, speaker_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            refresh_journey_meta(ctx)
+            return {"ok": True, **voice_reference_payload(ctx)}
+
+    @app.post("/api/runs/{run_id}/g1/synthesize-all")
+    def g1_synthesize_all(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            if not ctx.artifact_exists("understanding/gap_report.json"):
+                raise HTTPException(404, "gap_report.json not found")
+            report = ctx.read_json("understanding/gap_report.json")
+            from interview_mux import s2s_runner
+            from interview_mux.synthesis_fallback import SynthesisFallbackToManual
+
+            synthesized: list[str] = []
+            errors: list[str] = []
+            fallbacks: list[dict[str, Any]] = []
+            for line in report.get("interviewer_lines") or []:
+                if not isinstance(line, dict):
+                    continue
+                if str(line.get("delivery") or "").lower() != "synthesize":
+                    continue
+                if line.get("skipped_optional"):
+                    continue
+                lid = str(line.get("line_id") or "")
+                try:
+                    s2s_runner.synthesize_line(ctx, line, mode="synthesize")
+                    synthesized.append(lid)
+                except SynthesisFallbackToManual as fb:
+                    fallbacks.append({"line_id": lid, "notice": fb.notice})
+                except Exception as exc:
+                    errors.append(f"{lid}: {exc}")
+            refresh_journey_meta(ctx)
+            notice = fallbacks[-1]["notice"] if fallbacks else None
+            return {
+                "ok": not errors,
+                "synthesized": synthesized,
+                "errors": errors,
+                "fallbacks": fallbacks,
+                "fallback": "record" if fallbacks else None,
+                "notice": notice,
+                "g1_missing": check_g1_vo(ctx),
+            }
+
     @app.post("/api/runs/{run_id}/gap-fill/skip")
     def skip_gap_fill_endpoint(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -2507,11 +2674,18 @@ def create_app() -> FastAPI:
                 message="Gap-fill skipped — no interviewer script required.",
                 level="info",
             )
+            runner.clear_operator_pause(
+                ctx,
+                "gap_framing_compose",
+                message="Gap framing compose skipped.",
+                level="info",
+            )
             refresh_journey_meta(ctx)
             return {
                 "ok": True,
                 "gap_fill_mode": "skipped",
                 "missing_framing_done": ctx.is_done("missing_framing"),
+                "gap_framing_compose_done": ctx.is_done("gap_framing_compose"),
                 "optimal_questions_done": ctx.is_done("optimal_questions"),
             }
 

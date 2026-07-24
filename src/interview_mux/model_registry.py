@@ -24,6 +24,7 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
     "segment_classification": "standard",
     "sound_design_palettes": "economy",
     "missing_framing": "flagship",
+    "gap_framing_compose": "flagship",
     "optimal_questions": "flagship",
     "topic_coverage_audit": "flagship",
     "narrative_arc_plan": "flagship",

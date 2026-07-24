@@ -7,6 +7,11 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
+  "_comment_autopilot": "Default off. Never auto-completes G0; stops on speaker_volley integrity failure.",
+  "autopilot_enabled": false,
+  "operator": {
+    "autopilot_enabled": false
+  },
   "_comment_models": "OpenAI tier routing per stage",
   "models": {
     "tiers": {
@@ -230,7 +235,9 @@
     "strict": true
   },
   "edl_narrative_qc": {
-    "strict": true
+    "strict": true,
+    "require_synthesized_vo": false,
+    "require_framing_before_impact": true
   },
   "nle_edits": {
     "strict": true
@@ -300,7 +307,18 @@
     "mlx": {
       "venv_dir": "ASSETS/local_llm/venv",
       "enabled": true
+    },
+    "chatterbox": {
+      "venv_dir": "ASSETS/local_chatterbox/venv",
+      "enabled": true
     }
+  },
+  "_comment_local_chatterbox": "ResembleAI Chatterbox zero-shot clone for gap framing VO",
+  "local_chatterbox": {
+    "enabled": true,
+    "model_id": "ResembleAI/chatterbox",
+    "timeout_sec": 600,
+    "fail_open": true
   },
   "_comment_local_speech": "Local mlx-audio STT + S2S (Apple Silicon); replaces AWS Transcribe",
   "local_speech": {
@@ -518,7 +536,7 @@
     "prompt_thresholds": {
       "pause_split_ms": 400,
       "short_question_max_words": 12,
-      "interviewer_question_max_words": 15,
+      "interviewer_question_max_words": 60,
       "interviewer_setup_max_words": 20,
       "highlight_setup_max_sec": 8,
       "max_chapters": 8,
@@ -580,9 +598,43 @@
     },
     "gap_fill": {
       "enabled": true,
+      "default_framing_enabled": false,
+      "require_explicit_opt_in": true,
+      "succinct_master_default": true,
       "auto_skip_when_ineligible": true,
       "frame_confidence_min": 0.65,
       "hide_gui_stages_when_skipped": true
+    },
+    "gap_framing": {
+      "interviewer_question_max_words": 60,
+      "interviewer_setup_max_words": 20,
+      "interviewer_summary_max_words": 80,
+      "interviewer_preface_max_words": 110,
+      "interviewer_bridge_max_words": 50,
+      "interviewer_context_max_words": 70,
+      "max_preface_lines_per_act": 1,
+      "allow_replace_source_segments": true,
+      "max_exclusion_ratio": 0.15,
+      "never_exclude_primary_impact": true,
+      "require_topic_survival": true,
+      "require_framing_before_impact": true,
+      "words_per_second_estimate": 2.5
+    },
+    "gap_vo": {
+      "default_delivery": "chatterbox",
+      "allowed_delivery": ["chatterbox", "record"],
+      "synthesis_backend": "chatterbox",
+      "fallback_backend": "mlx_audio",
+      "max_reference_candidates": 5,
+      "target_reference_sec": 10.0,
+      "min_reference_sec": 3.0,
+      "fail_open": true,
+      "auto_fallback_on_qc_fail": false,
+      "fallback_to_manual_on_failure": true,
+      "post_synthesis_qc": {
+        "enabled": false,
+        "duration_tolerance_ratio": 0.5
+      }
     },
     "g1": {
       "blocking_severities": [

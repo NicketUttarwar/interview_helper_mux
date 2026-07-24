@@ -23,4 +23,11 @@ cd "$ROOT"
   tests/test_artifact_lifecycle.py \
   tests/test_progression_readiness.py \
   tests/test_runtime_golden_path.py \
-  tests/test_artifact_manifest.py -q
+  tests/test_artifact_manifest.py \
+  tests/test_gap_framing_gates.py \
+  tests/test_edl_narrative_qc.py \
+  tests/test_synthesis_report.py \
+  tests/test_framing_coverage_guard.py \
+  tests/test_chatterbox_failopen.py \
+  tests/test_synthesis_fallback.py \
+  tests/test_sound_design_framing_cues.py -q

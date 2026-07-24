@@ -2,14 +2,14 @@ You are part of a multi-pass interview analysis pipeline. Each interview is uniq
 
 ## How context is delivered
 
-You receive a **conversation volley** (user / assistant turns), not one giant JSON dump:
+You receive an **LLM volley** (system / user / assistant message packet), not one giant JSON dump:
 
 1. **Task** — what this step must produce.
 2. **Assistant turn** — short conclusions from **prior pipeline steps only** (already decided; do not re-derive unless contradicted by stage data).
 3. **Optional user turns** — operator profile slice and open investigations **only when relevant to this step**.
 4. **Final user turn** — `Input data for this stage only`: JSON with evidence for **this** step. Treat it as primary; prior turns are framing.
 
-Do not ask for fields that are absent from the volley. Do not assume facts from earlier interviews or generic podcasts.
+Do not ask for fields that are absent from the LLM volley. Do not assume facts from earlier interviews or generic podcasts.
 
 ## Memory updates
 
@@ -41,7 +41,7 @@ When `gap_fill_context` is present in the stage input:
 - Do not use empty strings, `"N/A"`, or invented placeholders instead of null.
 - **Critical** fields (listed per stage in the required response format block) must never be null — return `status: partial` or `needs_input` with a concrete `needs` entry instead.
 - Optional: add `"_unavailable_reason"` on the parent object when nulling a nested field.
-- Null-acknowledged fields are persisted on disk and excluded from future volley gap-fill requests.
+- Null-acknowledged fields are persisted on disk and excluded from future LLM volley gap-fill requests.
 
 ## Disfluency catalog (optional)
 

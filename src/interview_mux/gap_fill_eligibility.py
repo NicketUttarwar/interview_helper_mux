@@ -11,7 +11,7 @@ from interview_mux.conversation_context import load_conversation_context, role_i
 from interview_mux.run_context import RunContext
 
 GAP_FILL_SKIP_REL = "understanding/gap_fill_skip.json"
-GAP_FILL_GUI_STAGE_IDS = frozenset({"missing_framing", "optimal_questions", "g1_vo_pickup"})
+GAP_FILL_GUI_STAGE_IDS = frozenset({"missing_framing", "gap_framing_compose", "optimal_questions", "g1_vo_pickup"})
 
 _SKIP_TOPOLOGY_CLASSES = frozenset(
     {"one_on_one_balanced", "monologue_heavy", "multi_idea_sparse_host"}
@@ -85,7 +85,7 @@ def clear_gap_fill_skip(ctx: RunContext, *, reason: str = "upstream_invalidation
     skip_path = ctx.final_path(*GAP_FILL_SKIP_REL.split("/"))
     if skip_path.is_file():
         skip_path.unlink(missing_ok=True)
-    for stage_id in ("missing_framing", "optimal_questions"):
+    for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         marker = ctx.final_path(".stage_done", stage_id)
         if marker.is_file():
             marker.unlink(missing_ok=True)
@@ -358,7 +358,7 @@ def operator_skip_gap_fill(
     adapt["operator_overrides"] = overrides
     ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
 
-    for stage_id in ("missing_framing", "optimal_questions"):
+    for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         if has_pending_writes(ctx, stage_id):
             discard_stage_writes(ctx, stage_id)
 

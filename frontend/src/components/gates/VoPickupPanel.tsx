@@ -35,6 +35,10 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   );
   const v2 = isV2Enabled(config);
 
+  const synthNotice =
+    (run as { synthesis_fallback_notice?: string | null })?.synthesis_fallback_notice ||
+    null;
+
   const skipAllOptional = async () => {
     if (!runId) return;
     await api(`/api/runs/${runId}/g1/skip-optional`, {
@@ -94,13 +98,44 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     }
   };
 
+  const synthesizeAll = async () => {
+    if (!runId) return;
+    setSynthLine("__all__");
+    try {
+      const res = await api<{
+        notice?: string;
+        fallback?: string;
+        synthesized?: string[];
+      }>(`/api/runs/${runId}/g1/synthesize-all`, { method: "POST" });
+      if (res.fallback === "record" && res.notice) {
+        showToast(res.notice, "info");
+        appendClientLog(res.notice, "warning", "g1_vo_pickup");
+      } else {
+        showToast("Batch synthesis complete.");
+      }
+      await refreshRun();
+    } catch {
+      showToast("Batch synthesis partially failed — record or upload instead.");
+    } finally {
+      setSynthLine(null);
+    }
+  };
+
   const synthesizeLine = async (lineId: string) => {
     if (!runId) return;
     setSynthLine(lineId);
     appendClientLog(`Synthesizing VO for ${lineId}…`, "action", "g1_vo_pickup", "gui.g1.vo.synthesize");
     try {
-      await api(`/api/runs/${runId}/vo/${lineId}/synthesize`, { method: "POST" });
-      showToast(`Synthesized VO for ${lineId}.`);
+      const res = await api<{ ok?: boolean; fallback?: string; notice?: string }>(
+        `/api/runs/${runId}/vo/${lineId}/synthesize`,
+        { method: "POST" },
+      );
+      if (res.fallback === "record" && res.notice) {
+        showToast(res.notice, "info");
+        appendClientLog(res.notice, "warning", "g1_vo_pickup");
+      } else {
+        showToast(`Synthesized VO for ${lineId}.`);
+      }
       await refreshRun();
     } catch {
       showToast("Synthesis unavailable — record or upload instead.");
@@ -160,6 +195,11 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
 
   return (
     <>
+      {synthNotice ? (
+        <p className="hint sm callout warning" data-testid="synthesis-fallback-notice">
+          {synthNotice}
+        </p>
+      ) : null}
       <p className="gate-progress-subheader hint sm">
         {activeLines.length
           ? `${recorded}/${activeLines.length} pickup line(s) ready`
@@ -170,6 +210,20 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
         {pickupVoice ? ` (${pickupVoice})` : ""}. Saved to{" "}
         <code>ASSETS/executions/…/vo_pickup/</code>
       </p>
+      {activeLines.some((l) => l.delivery === "synthesize") ? (
+        <p className="hint">
+          <button
+            type="button"
+            className="btn sm"
+            data-testid="g1-synthesize-all"
+            data-action-id="gui.g1.vo.synthesize_all"
+            disabled={jobRunning || actionBusy || synthLine !== null}
+            onClick={() => void synthesizeAll()}
+          >
+            Synthesize all (Chatterbox)
+          </button>
+        </p>
+      ) : null}
       {(run?.g1_missing || []).length === 0 && activeLines.some((l) => !l.recorded_file) ? (
         <p className="hint">
           <button
@@ -192,10 +246,31 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           </button>
         </p>
       ) : null}
-      {activeLines.map((line) => (
+      {activeLines.map((line) => {
+        const cat = line.line_category || line.gap_type || "";
+        const catLabel =
+          cat === "episode_preface"
+            ? "Preface"
+            : cat === "segment_summary"
+              ? "Summary"
+              : cat === "story_bridge"
+                ? "Bridge"
+                : cat === "framing_question"
+                  ? "Question"
+                  : cat === "context_setup"
+                    ? "Setup"
+                    : cat === "extracted_context"
+                      ? "Context"
+                      : "";
+        return (
         <div key={line.line_id} className="vo-card">
           <h4>
             {line.line_id} → {line.targets_segment_id}
+            {catLabel ? (
+              <span className="badge sm" style={{ marginLeft: "0.5rem" }}>
+                {catLabel}
+              </span>
+            ) : null}
           </h4>
           <p>{line.text}</p>
           <p className="muted">
@@ -301,7 +376,8 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
             ) : null}
           </div>
         </div>
-      ))}
+        );
+      })}
       {v2 ? (
         <div className="g1-v2-actions">
           <button

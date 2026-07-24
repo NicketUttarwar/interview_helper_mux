@@ -45,7 +45,20 @@ def run_vo_synthesize(ctx: RunContext) -> None:
                     stage="vo_synthesize",
                     detail={"line_id": line.get("line_id"), "path": str(out)},
                 )
-            except LocalRuntimeUnavailable as exc:
+            except Exception as exc:
+                from interview_mux.synthesis_fallback import SynthesisFallbackToManual
+
+                if isinstance(exc, SynthesisFallbackToManual):
+                    skipped += 1
+                    continue
+                if fail_open and isinstance(exc, LocalRuntimeUnavailable):
+                    ctx.log(
+                        f"S2S fail-open skip {line.get('line_id')}: {exc}",
+                        level="warning",
+                        stage="vo_synthesize",
+                    )
+                    skipped += 1
+                    continue
                 if fail_open:
                     ctx.log(
                         f"S2S fail-open skip {line.get('line_id')}: {exc}",

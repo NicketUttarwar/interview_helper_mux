@@ -24,6 +24,13 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — pinned deps, CVE gate
 - [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — DeepFilterNet + MMAudio + CLAP
 - [cross-cutting/speech-to-speech-vo.md](./cross-cutting/speech-to-speech-vo.md) — S2S gap VO (R&D): synthesis, VC, prosody, tone
+- [cross-cutting/chatterbox-interviewer-vo.md](./cross-cutting/chatterbox-interviewer-vo.md) — Chatterbox zero-shot gap VO + degradation ladder
+- [cross-cutting/reliability-charter.md](./cross-cutting/reliability-charter.md) — holistic guardrails, QC tiers, config index
+- [cross-cutting/volley-glossary.md](./cross-cutting/volley-glossary.md) — **speaker volley** vs **LLM volley**
+- [cross-cutting/volley-inventory.md](./cross-cutting/volley-inventory.md) — repo sweep classes + new modules
+- [cross-cutting/stage-volley-matrix.md](./cross-cutting/stage-volley-matrix.md) — every stage ↔ volley relation
+- [cross-cutting/episode-architecture-spine.md](./cross-cutting/episode-architecture-spine.md) — cold open → speaker volleys → master
+- [cross-cutting/mix-house-chain.md](./cross-cutting/mix-house-chain.md) — mix order policy
 - [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) — `app.defaults.json`
 - [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md)
 - [cross-cutting/artifact-generation-and-validation.md](./cross-cutting/artifact-generation-and-validation.md)

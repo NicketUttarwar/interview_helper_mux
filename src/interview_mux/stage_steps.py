@@ -72,8 +72,16 @@ STAGE_REVIEW: dict[str, list[str]] = {
     "sonic_context_build": ["Scenario posture looks plausible for this interview"],
     "sound_design_palettes": ["Palettes are grounded to segment_ids"],
     "missing_framing": [
+        "Gap framing decision recorded",
         "Gap pickup speaker confirmed",
+        "Voice reference approved",
+        "Gap VO delivery chosen",
         "Gap evaluations have plausible gap_type values",
+    ],
+    "gap_framing_compose": [
+        "gap_report.json is complete",
+        "gap_framing_plan.json maps impact blocks",
+        "Interviewer script is readable",
     ],
     "optimal_questions": [
         "gap_report.json is complete",
@@ -908,7 +916,33 @@ def build_stage_steps(
         return _preclean_steps(ctx, status)
 
     if stage_id == "missing_framing" and status == "action_required":
+        from interview_mux.gap_vo_gates import (
+            check_gap_delivery_pending,
+            check_gap_framing_decision_pending,
+            check_voice_reference_pending,
+            gap_framing_enabled,
+        )
         from interview_mux.source_topology import check_pickup_speaker_pending
+
+        steps: list[dict[str, Any]] = []
+        if check_gap_framing_decision_pending(ctx):
+            return [
+                _step(
+                    "gap_framing_decide",
+                    1,
+                        "Add interviewer gap framing?",
+                        instruction=(
+                            "Choose whether to add interviewer framing audio (questions, summaries, "
+                            "prefaces, story bridges) for a clearer, shorter episode. Default: No."
+                        ),
+                        kind="gate",
+                        status="todo",
+                        embed="gap_framing",
+                ),
+            ]
+
+        if not gap_framing_enabled(ctx):
+            return []
 
         if check_pickup_speaker_pending(ctx):
             return [
@@ -929,16 +963,38 @@ def build_stage_steps(
                     "pickup_speaker_confirm",
                     2,
                     "Confirm gap pickup speaker",
-                    instruction=(
-                        "Select who will record new gap-fill lines and confirm — or skip gap "
-                        "speaker sections to use the source audio as-is (no new VO, no gap "
-                        "analysis)."
-                    ),
+                    instruction="Select who will record or synthesize gap framing lines and confirm.",
                     primary_button="Confirm gap pickup speaker",
                     kind="gate",
                     status="todo",
                     embed="pickup_speaker",
-                    next_hint="Next: Gap evaluation (missing framing)",
+                    next_hint="Next: Voice reference approval",
+                ),
+            ]
+
+        if check_voice_reference_pending(ctx):
+            return [
+                _step(
+                    "voice_reference_review",
+                    1,
+                    "Approve voice reference",
+                    instruction="Review interviewer clip candidates and approve the collated reference WAV.",
+                    kind="gate",
+                    status="todo",
+                    embed="voice_reference",
+                ),
+            ]
+
+        if check_gap_delivery_pending(ctx):
+            return [
+                _step(
+                    "gap_delivery_choose",
+                    1,
+                    "Choose gap VO delivery",
+                    instruction="Default: Chatterbox clone from approved reference. Alternate: record at G1.",
+                    kind="gate",
+                    status="todo",
+                    embed="gap_delivery",
                 ),
             ]
 

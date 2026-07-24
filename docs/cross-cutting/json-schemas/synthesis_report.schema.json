@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VO synthesis report",
+  "type": "object",
+  "required": ["entries"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["line_id", "backend"],
+        "properties": {
+          "line_id": { "type": "string" },
+          "backend": {
+            "enum": ["chatterbox", "mlx_audio", "record", "upload", "skipped"]
+          },
+          "fallback_from": { "type": "string" },
+          "fallback_reason": { "type": "string" },
+          "ref_audio": { "type": "string" },
+          "out_wav": { "type": "string" },
+          "duration_ms": { "type": "number" },
+          "estimated_duration_sec": { "type": "number" },
+          "qc_pass": { "type": "boolean" },
+          "qc_notes": { "type": "string" },
+          "model_id": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

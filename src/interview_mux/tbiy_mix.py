@@ -1,4 +1,9 @@
-"""TBIY spatial mix helpers — stereo pan simulation and profile dB tiers."""
+"""TBIY spatial mix helpers — stereo pan simulation and profile dB tiers.
+
+Ducking is speech-wins under an active *speaker volley* (conversation in the
+podcast timeline), not LLM volley (message packets). See
+docs/cross-cutting/volley-glossary.md and docs/cross-cutting/mix-house-chain.md.
+"""
 
 from __future__ import annotations
 
@@ -49,7 +54,23 @@ def tbiy_level_adjustment_db(ctx: Any, cue: dict[str, Any], asset: dict[str, Any
 
 
 def tbiy_duck_db(ctx: Any, cue: dict[str, Any], default: float) -> float:
+    """Duck depth for beds under speech during a speaker volley (TBIY profile)."""
     if not is_tbiy(ctx):
         return default
     rules = mix_rules(ctx)
     return max(6.0, float(cue.get("duck_under_speech_db", rules.get("bed_duck_db", default))))
+
+
+def annotate_cue_speaker_volley(
+    cue: dict[str, Any],
+    speaker_volley_id: str | None,
+    *,
+    hinge: bool = False,
+) -> dict[str, Any]:
+    """Attach speaker-volley relation metadata to an SDP/mix cue (Track B binding)."""
+    out = dict(cue)
+    if speaker_volley_id:
+        out["speaker_volley_id"] = speaker_volley_id
+    if hinge:
+        out["speaker_volley_hinge"] = True
+    return out

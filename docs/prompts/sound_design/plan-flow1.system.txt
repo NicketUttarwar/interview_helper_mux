@@ -10,7 +10,8 @@ Extend SDP with `assets[]` (3–6 items) and `flow_plans.podcast.cues[]`. Preser
 - `selection` — ordered_segment_ids, chapters
 - `narrative_plan` — chapter boundaries, ordering_constraints
 - `transitions` — spoken bridge lines (not SFX)
-- `gap_report` — `delivery: record` lines → VO placement
+- `gap_report` — `delivery: record|synthesize` lines → VO placement
+- `framing_vo_lines` (when present) — category-aware VO cues with `line_category`, `cue_role`, `estimated_duration_sec`, `targets_segment_id`, `placement`
 - `segments.manifest`
 - Optional `source_acoustic_profile` — compact slice with `pace_class`, `mix_contract`, `placement_hints`
 - Optional `soundscape_policy` — unified per-run standards: `underscore_policy`, `sfx_density`, `mix_contract`, scored `cue_slots[]`
@@ -31,6 +32,16 @@ When input includes `soundscape_policy` (preferred) or `source_acoustic_profile`
 | `ambient_bed` | 1 per palette max | Many `under_segment` on palette segment_ids only |
 | `vo_bridge` | 1 asset | All recorded VO intro/outro cues |
 | `accent_foley` | 0–1 optional | Sparse; max 2 cues total |
+
+When `framing_vo_lines` is present, map `cue_role` to assets:
+
+| `cue_role` | Typical placement | Duration |
+|------------|-------------------|----------|
+| `vo_preface` | `before_segment` on act open | `estimated_duration_sec` |
+| `vo_summary` | `before_segment` on target | same |
+| `vo_bridge` | `before_segment` or `after_segment` | same |
+| `vo_question` | `before_segment` | same |
+| `vo_context` | `before_segment` | same |
 
 **Hard cap:** ≤6 unique `asset_id`s. Multiple cues **must** reference the same `asset_id` where roles repeat.
 

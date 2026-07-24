@@ -43,6 +43,25 @@
               "high"
             ],
             "type": "string"
+          },
+          "recommended_framing": {
+            "enum": [
+              "question",
+              "summary",
+              "preface",
+              "bridge",
+              "none"
+            ],
+            "type": "string"
+          },
+          "candidate_for_summary": {
+            "type": "boolean"
+          },
+          "supports_ranking_exclude": {
+            "type": "boolean"
+          },
+          "duplicate_claim_cluster": {
+            "type": "string"
           }
         }
       }

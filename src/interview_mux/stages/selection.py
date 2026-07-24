@@ -66,12 +66,13 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.delivery_brief import attach_delivery_brief_to_payload
         from interview_mux.episode_structure import attach_episode_structure_to_payload
 
-        return attach_disfluency_context(
-            attach_episode_structure_to_payload(
-                c, attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload))
-            ),
-            c,
+        payload = attach_episode_structure_to_payload(
+            c, attach_delivery_brief_to_payload(c, attach_adaptation_to_payload(c, payload))
         )
+        from interview_mux.gap_framing import attach_framing_to_ranking_payload
+
+        payload = attach_framing_to_ranking_payload(c, payload)
+        return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         nle = load_nle(c)
@@ -86,6 +87,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
         artifacts = auto_pack_selection_to_brief(c, artifacts, stage="full_master_ranking")
         artifacts = enforce_creative_selection_edit(c, artifacts, stage="full_master_ranking")
+        from interview_mux.framing_coverage_guard import enforce_framing_ranking
+
+        artifacts = enforce_framing_ranking(c, artifacts)
         write_validated_artifact(
             c,
             "master/selection.json",
@@ -125,13 +129,24 @@ def run_transitions(ctx: RunContext) -> None:
 
     persist = make_stage_persist("master/transitions.json", "transitions")
 
+    def persist_with_framing_dedupe(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.gap_framing import dedupe_transitions_for_framing
+
+        gap_report = (
+            c.read_json("understanding/gap_report.json")
+            if c.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        artifacts = dedupe_transitions_for_framing(gap_report, artifacts)
+        persist(c, artifacts)
+
     with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):
         run_flow_llm_stage(
             ctx,
             "transitions",
             prompt_variant("assembly/transitions.system.txt", ctx),
             build_input,
-            persist,
+            persist_with_framing_dedupe,
         )
 
 

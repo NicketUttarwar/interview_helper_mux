@@ -71,12 +71,47 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
         out.append(
             ProgressionBlocker(
                 layer="gate",
-                id="g1_vo_pickup",
+                id="g1_missing",
                 message=f"G1 VO pickup missing for line(s): {', '.join(missing_vo[:6])}.",
                 path="vo_pickup/",
                 stage_id="g1_vo_pickup",
             )
         )
+    from interview_mux.gap_vo_gates import (
+        check_gap_delivery_pending,
+        check_gap_framing_decision_pending,
+        check_voice_reference_pending,
+        gap_framing_enabled,
+    )
+
+    if gap_framing_enabled(ctx):
+        if check_gap_framing_decision_pending(ctx):
+            out.append(
+                ProgressionBlocker(
+                    layer="gate",
+                    id="gap_framing_decision_pending",
+                    message="Gap framing decision pending — choose Yes or No in the GUI.",
+                    stage_id="gap_framing_gate",
+                )
+            )
+        if check_voice_reference_pending(ctx):
+            out.append(
+                ProgressionBlocker(
+                    layer="gate",
+                    id="voice_reference_pending",
+                    message="Voice reference pending — approve interviewer clips for Chatterbox.",
+                    stage_id="voice_reference",
+                )
+            )
+        if check_gap_delivery_pending(ctx):
+            out.append(
+                ProgressionBlocker(
+                    layer="gate",
+                    id="gap_delivery_pending",
+                    message="Gap delivery choice pending — select Chatterbox or record path.",
+                    stage_id="gap_delivery",
+                )
+            )
     if ctx.artifact_exists("understanding/analysis_state.json"):
         state = ctx.read_json("understanding/analysis_state.json")
         meta = state.get("meta") if isinstance(state, dict) else {}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GapFramingPlan",
+  "type": "object",
+  "required": ["succinct_master_intent", "acts"],
+  "properties": {
+    "succinct_master_intent": { "type": "boolean" },
+    "acts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["act_id", "impact_blocks"],
+        "properties": {
+          "act_id": { "type": "string" },
+          "preface_line_id": { "type": ["string", "null"] },
+          "impact_blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["framing_line_ids", "source_segment_ids"],
+              "properties": {
+                "framing_line_ids": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "source_segment_ids": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "excluded_redundant_segment_ids": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "rationale": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -481,7 +481,11 @@ def compact_for_volley(policy: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
-    """Re-score cue slots using ranking selection; persist updated policy."""
+    """Re-score cue slots using ranking selection; persist updated policy.
+
+    Annotates cue slots with speaker_volley_id / hinge metadata when episode
+    structure has speaker_volleys (conversation units — see volley-glossary.md).
+    """
     policy = load_policy(ctx)
     if not policy:
         policy = build_policy(ctx, refresh_slots=True)
@@ -494,8 +498,37 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
             mix_contract=dict(policy.get("mix_contract") or {}),
         )
         policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
+    policy = _annotate_slots_with_speaker_volleys(ctx, policy)
     ctx.write_json(POLICY_PATH, policy)
     return policy
+
+
+def _annotate_slots_with_speaker_volleys(ctx: RunContext, policy: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from interview_mux.episode_structure import load_episode_structure
+        from interview_mux.speaker_volley_sfx import bind_cues_to_speaker_volleys, speaker_volleys_from_structure
+
+        doc = load_episode_structure(ctx)
+        volleys = speaker_volleys_from_structure(doc)
+        if not volleys:
+            return policy
+        out = dict(policy)
+        slots = [s for s in (out.get("cue_slots") or []) if isinstance(s, dict)]
+        out["cue_slots"] = bind_cues_to_speaker_volleys(slots, volleys)
+        dens = dict(out.get("sfx_density") or {})
+        # Soft honor of delivery_brief.speaker_volley_density when present
+        try:
+            from interview_mux.delivery_brief import load_delivery_brief
+
+            brief = load_delivery_brief(ctx)
+            if isinstance(brief, dict) and isinstance(brief.get("speaker_volley_density"), dict):
+                dens["speaker_volley_density"] = brief["speaker_volley_density"]
+                out["sfx_density"] = dens
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return policy
 
 
 def save_operator_overrides(ctx: RunContext, overrides: dict[str, Any]) -> dict[str, Any]:

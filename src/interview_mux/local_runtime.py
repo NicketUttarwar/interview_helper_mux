@@ -13,7 +13,7 @@ from interview_mux.operator_trace import log_api_call, resolve_ctx, resolve_stag
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech"})
+RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech", "chatterbox"})
 
 _RUNTIME_ALIASES = {"llm": "mlx"}
 
@@ -62,6 +62,7 @@ def resolve_venv_dir(runtime_id: str) -> Path:
             "mlx": "ASSETS/local_llm/venv",
             "llm": "ASSETS/local_llm/venv",
             "speech": "ASSETS/local_speech/venv",
+            "chatterbox": "ASSETS/local_chatterbox/venv",
         }
         rel = defaults.get(rid, f"ASSETS/local_{rid}/venv")
     path = Path(str(rel))
@@ -98,6 +99,9 @@ def _default_timeout(runtime_id: str) -> int:
     if rid == "speech":
         block = cfg.get("local_speech") or {}
         return int(block.get("stt_timeout_sec", 3600))
+    if rid == "chatterbox":
+        block = cfg.get("local_chatterbox") or {}
+        return int(block.get("timeout_sec", 600))
     return 600
 
 
