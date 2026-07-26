@@ -1,15 +1,14 @@
 # LLM output normalization
 
-Canonical recovery order for every LLM gateway (`run_prompt_envelope`, `generate_local_chat`, stage routing finalize, resilience persist):
+Canonical recovery order for every LLM gateway (`run_prompt_envelope`, `generate_local_chat`, resilience persist):
 
 0. **Truncation scan** — `truncation_policy.scan_llm_input` at both gateways; tier.tier bump or block before accept. See [truncation-integrity.md](truncation-integrity.md).
 1. **Parse** — `normalize_envelope` / JSON extract
 2. **Normalize** — `llm_output_normalizer.normalize_llm_response` (omit → fabricate → block per field)
 3. **Verify** — `verify_llm_response` on post-normalized payload
-4. **Volley retry** — schema errors in prompt (`llm_stage_routing`)
-5. **Fabricate batch** — mid-tier / deterministic benign defaults (`llm_fabricate`); evidentiary paths defer to **holistic fabrication** when enabled
-6. **Holistic fabrication** — context-aware repair using stage inputs + volley (`holistic_fabrication.py`) — see [holistic-fabrication.md](./holistic-fabrication.md)
-7. **Block** — critical null → investigation / operator gate
+4. **Retry** — schema errors fed back into the prompt; max 2 attempts total (`llm_simple.py`)
+5. **Fabricate batch** — mid-tier / deterministic benign defaults (`llm_fabricate`)
+6. **Block** — critical null → hard stop (holistic fabrication was removed; v2 is fail-closed)
 8. **Resilience** — `apply_resilience_and_persist`
 9. **Acceptance** — `stage_acceptance`, `complete_llm_stage_or_halt`
 10. **Persist** — artifact write + `mark_done` (only when artifact complete)
@@ -21,7 +20,7 @@ See `field_necessity_registry.py`, `normalization_decision.py`, and `null_field_
 - **nullable / commentary** (`notes`, …) → **omit** (strip key, record `_meta.null_acknowledged`)
 - **fabricatable** (low-risk placeholders) → deterministic or mid-tier fabricate
 - **unknown optional** (permissive default) → **fabricate** benign default, not block
-- **critical / NEVER_FABRICATE** (`thesis`, `role`, `segment_ids`, …) → block → `volley_retry` or `micro_gap_fill` (operator last)
+- **critical / NEVER_FABRICATE** (`thesis`, `role`, `segment_ids`, …) → block → one retry, then hard stop for the operator
 
 ### Decision tree (`normalization_decision.py`)
 
@@ -29,7 +28,7 @@ See `field_necessity_registry.py`, `normalization_decision.py`, and `null_field_
 |----------------|----------------------|
 | OMIT | Strip key, `_meta.null_acknowledged`, continue |
 | FABRICATE | `llm_fabricate` benign default, continue |
-| BLOCK (evidentiary) | `volley_retry` or `micro_gap_fill` — operator gate only after retries |
+| BLOCK (evidentiary) | Retry once, then hard stop — micro gap fill was removed |
 
 Config: `analysis.llm_null_policy.permissive_mode`, `auto_fabricate_unknown_optional`.
 

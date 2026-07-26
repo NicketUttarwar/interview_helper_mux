@@ -77,10 +77,8 @@ def invalidate_volley_entry(ctx: RunContext, entry_id: str) -> dict[str, Any]:
 
 
 def rebuild_context_index(ctx: RunContext) -> dict[str, Any]:
-    from interview_mux.backfill_volley_index import backfill_volley_index
-
-    stats = backfill_volley_index(ctx, dry_run=False)
-    return get_context_index_summary(ctx) | {"rebuild_stats": stats}
+    """v2: volley backfill removed — the index is now append-only from live stage runs."""
+    return get_context_index_summary(ctx) | {"rebuild_stats": {}}
 
 
 def save_full_context_index(ctx: RunContext, doc: dict[str, Any]) -> dict[str, Any]:

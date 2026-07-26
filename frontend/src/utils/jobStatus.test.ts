@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunData } from "../types";
+import { makeStage } from "../test/runFixtures";
 import {
   isWriteApprovalSaveInProgress,
   isWriteApprovalSaving,
@@ -26,7 +27,13 @@ describe("isJobActivelyRunning", () => {
 describe("deprecated write approval helpers", () => {
   it("always report no write-approval save in v2", () => {
     const r = run({
-      stages: [{ id: "ingest", title: "Ingest", status: "awaiting_write_approval", phase: "prepare" }],
+      stages: [
+        makeStage("ingest", {
+          title: "Ingest",
+          status: "awaiting_write_approval",
+          phase: "prepare",
+        }),
+      ],
       job: {
         status: "running",
         mode: "write_approval",

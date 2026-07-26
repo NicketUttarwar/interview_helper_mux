@@ -22,7 +22,6 @@ cd frontend && npm test -- --run src/utils/operatorActionTrace.test.ts src/utils
 | M4 | stage_reuse | Transcribe with prior run | accept/decline → never stuck without CTA |
 | M5 | handoff | Any LLM stage with handoff paths | ack → next stage runs or next gate focused |
 | M6 | G0 transcript | Complete review | modal closes; pipeline advances |
-| M7 | G0.5 disfluency | Complete review | same |
 | M8 | G1 VO pickup | Record all lines | continue → G2 or next |
 | M9 | G2 flow select | Pick flow | modal closes; flow stages unlock |
 | M10 | analysis profile | Verify profile | advance to flow |

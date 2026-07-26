@@ -6,7 +6,7 @@ Prompts are organized by **pipeline stage**. Each `.system.txt` file is a stage 
 
 User messages include **analysis memory** (`analysis_state_summary`, `open_investigations`) plus `stage_input`. When an on-disk artifact already exists, `stage_input` also includes **`gap_fill_context`** (gaps to fill, skip_fields, existing snapshot) — [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md). See [analysis-memory.md](../cross-cutting/analysis-memory.md) and [analysis-stage-matrix.md](./analysis-stage-matrix.md).
 
-**Smart routing (spec):** After each primary call, an economy-tier **arbiter** ([arbiter.system.txt](./_shared/arbiter.system.txt), [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md)) judges the envelope before memory merge. Shard/collate volleys use tighter profiles — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Routing:** v2 has no arbiter or shard/collate routing. Every stage goes through `llm_simple.py`: one structured call, one retry on schema failure, then hard stop. The `arbiter.system.txt` prompt and rubrics under `_shared/arbiter-rubrics/` are heritage — see [../v2/drop-manifest.md](../v2/drop-manifest.md).
 
 ## Tree
 
@@ -16,8 +16,7 @@ prompts/
 ├── mastering/                          ← Mastering Process contracts (mint/edit/shape/synthesize)
 ├── _shared/
 │   ├── analysis-preamble.system.txt    ← envelope + memory + gap-fill rules (all LLM stages)
-│   ├── arbiter.system.txt            ← economy-tier quality gate (spec; see llm-arbiter-contract.md)
-│   ├── llm-arbiter-contract.md         ← arbiter JSON verdict schema
+│   ├── arbiter.system.txt            ← heritage; arbiter routing removed in v2
 │   └── examples/                       ← good vs bad pattern packs (*.examples.md)
 ├── understanding/
 │   ├── content-context.system.txt
@@ -44,7 +43,6 @@ prompts/
     ├── README.md
     ├── theme-palettes.system.txt
     ├── plan-flow1.system.txt
-    ├── plan-flow2.system.txt
     ├── sfx-prompt-craft.system.txt
     └── guardrails-and-edge-cases.md
 ```
@@ -80,7 +78,7 @@ Runtime compact injection is intentionally narrower than this reference list: by
 
 ### Analysis phase (`run_analysis.py`)
 
-Orchestrator: inner retries per stage + investigation queue drain. Target: + arbiter per primary call — [analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md), [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+Linear stage order, max 2 attempts per stage. Canonical order: [`src/interview_mux/v2/config.py`](../../src/interview_mux/v2/config.py).
 
 1. `understanding/speaker-roles` *(after `source_acoustic_profile` in pipeline)*
 2. `understanding/content-context` — pass 1 semantic brief
@@ -105,7 +103,7 @@ Flow stages use the same envelope; read memory but single pass (no inner loop).
 
 **Flow 3:** `publishing/podcast-show-description` → `REMOVED_export_show_description`
 
-Legacy v1 brief stages (`podcast-sfx-brief`, `sfx-brief`) and `mux_flow*` remain for single-stage rerun only. Default path: [sound-design.md](../cross-cutting/sound-design.md) · [stage-registry.md](../build-out/stage-registry.md).
+Legacy v1 brief stages (`podcast-sfx-brief`, `sfx-brief`) and `mux_flow*` remain for single-stage rerun only. Default path: [sound-design.md](../cross-cutting/sound-design.md) · [stage-contracts/00-INDEX.md](../cross-cutting/stage-contracts/00-INDEX.md).
 
 ## Conventions
 

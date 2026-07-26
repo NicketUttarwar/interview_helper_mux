@@ -63,7 +63,9 @@ export function VoiceCloneConsent() {
   const grant = async () => {
     if (!runId || busy || !scopes.length) return;
     setBusy(true);
-    traceAction("gui.voice_clone.grant", "Granting voice clone consent", { scopes });
+    traceAction("gui.voice_clone.grant", "Granting voice clone consent", {
+      meta: { scopes },
+    });
     try {
       await api(`/api/runs/${runId}/voice-clone-consent`, {
         method: "POST",

@@ -22,9 +22,10 @@ def test_gate_focus_maps_g0_to_transcript_review():
     assert gate_focus_stage(msg, job_stage="transcript_review_build") == "transcript_review"
 
 
-def test_gate_focus_maps_g05_to_disfluency_review():
+def test_gate_focus_ignores_removed_disfluency_g05():
+    """G0.5 was cut — disfluency messages no longer remap to a review gate."""
     msg = "Disfluency review required. Confirm or reject filler events in the GUI."
-    assert gate_focus_stage(msg, job_stage="disfluency_extract") == "disfluency_review"
+    assert gate_focus_stage(msg, job_stage="disfluency_extract") == "disfluency_extract"
 
 
 def test_gate_focus_keeps_job_stage_when_no_upstream():

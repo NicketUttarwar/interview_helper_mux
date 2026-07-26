@@ -266,9 +266,9 @@ describe("resolveOperatorAction error mode", () => {
 
 describe("resolveOperatorAction gate branches", () => {
   const gateCases = [
-    ["disfluency_review", "Disfluency review"],
+    ["transcript_review", "Transcript review"],
     ["g1_vo_pickup", "G1 VO pickup"],
-    ["analysis_profile", "Analysis profile"],
+    ["missing_framing", "Missing framing"],
   ] as const;
 
   it.each(gateCases)("action_required %s maps to needs_you", (stageId, title) => {
@@ -295,7 +295,7 @@ describe("resolveOperatorAction gate branches", () => {
         stage("topic_coverage_audit", "done", "Topic coverage"),
       ],
       journey: {
-        phase: "analyze",
+        phase: "understand",
         milestones: {},
         next_action: "x",
         blocking: {
@@ -499,8 +499,8 @@ describe("copy templates", () => {
   it.each([
     ["ingest", "Normalizing audio…", /Running Ingest/],
     ["ingest", "Hashing source files", /Running Ingest/],
-    ["transcribe", "Uploading to AWS S3", /Running Transcribe/],
-    ["transcribe", "Waiting for AWS Transcribe", /Running Transcribe/],
+    ["transcribe", "Loading local MLX model", /Running Transcribe/],
+    ["transcribe", "Waiting for local STT", /Running Transcribe/],
   ] as const)("running %s — %s", (stageId, message, pattern) => {
     const run = baseRun({
       stages: [stage(stageId, "pending", stageId === "ingest" ? "Ingest" : "Transcribe")],
@@ -520,11 +520,11 @@ describe("copy templates", () => {
 
   it("prefers intra-stage step progress over batch stage index", () => {
     const run = baseRun({
-      stages: [stage("disfluency_extract", "pending", "Disfluency extract")],
+      stages: [stage("missing_framing", "pending", "Missing framing")],
       job: {
         status: "running",
-        stage: "disfluency_extract",
-        current_stage: "disfluency_extract",
+        stage: "missing_framing",
+        current_stage: "missing_framing",
         message: "Checking gap 45/389 for voice activity…",
         stage_index: 1,
         stage_total: 1,
@@ -573,13 +573,13 @@ describe("copy templates", () => {
     expect(a.subline).toMatch(/2 prior runs/);
   });
 
-  it("analysis_profile gate headline", () => {
+  it("gate stage without a special headline falls back to the stage title", () => {
     const run = baseRun({
-      stages: [stage("analysis_profile", "action_required", "Analysis profile")],
-      job: { status: "gate", stage: "analysis_profile" },
+      stages: [stage("source_acoustic_profile", "action_required", "Source acoustic profile")],
+      job: { status: "gate", stage: "source_acoustic_profile" },
     });
     const a = resolveOperatorAction(run);
-    expect(a.headline).toMatch(/profile/i);
+    expect(a.headline).toBe("Source acoustic profile needs your input");
   });
 
   it("focusStageIdFromAction matches gate focus", () => {
@@ -594,7 +594,7 @@ describe("copy templates", () => {
     const run = baseRun({
       stages: [stage("topic_coverage_audit", "done", "Coverage")],
       journey: {
-        phase: "analyze",
+        phase: "understand",
         milestones: {},
         next_action: "x",
         blocking: {
@@ -635,11 +635,18 @@ describe("copy templates", () => {
       stages: [
         {
           ...stage("boundary_detection", "incomplete", "Boundaries"),
-          outputs_view: [{ path: "segments/boundaries.json", phase: "missing", status: "pending" }],
+          outputs_view: [
+            {
+              path: "segments/boundaries.json",
+              label: "Boundaries",
+              kind: "artifact",
+              phase: "missing",
+              status: "pending",
+            },
+          ],
         },
         stage("segment_classification", "locked", "Classification"),
       ],
-      selected_stage_id: "boundary_detection",
     });
     const a = resolveOperatorActionForStage(run, "boundary_detection", {});
     expect(a.mode).toBe("error");
@@ -657,7 +664,6 @@ describe("copy templates", () => {
           incomplete_reason: "understanding/gap_report.json is pending",
         },
       ],
-      selected_stage_id: "g1_5_preview_pickup",
     });
     const a = resolveOperatorActionForStage(run, "g1_5_preview_pickup", {});
     expect(a.mode).toBe("locked");
@@ -676,7 +682,6 @@ describe("copy templates", () => {
           artifacts_lifecycle: { "understanding/gap_report.json": "n_a" },
         },
       ],
-      selected_stage_id: "g1_5_preview_pickup",
     });
     const a = resolveOperatorActionForStage(run, "g1_5_preview_pickup", {});
     expect(a.mode).toBe("done");

@@ -1,41 +1,35 @@
 import { describe, expect, it } from "vitest";
 import type { RunData, StageInfo } from "../types";
+import { makeGuidance, makeStage, makeStep } from "../test/runFixtures";
 import {
   findActionableWorkbenchSteps,
   resolveStageWorkbenchProgress,
 } from "./resolveStageWorkbenchProgress";
 
 function stage(overrides: Partial<StageInfo> = {}): StageInfo {
-  return {
-    id: "disfluency_review",
+  return makeStage("disfluency_review", {
     title: "Disfluency review",
     status: "action_required",
     phase: "gate",
-    guidance: {
+    guidance: makeGuidance({
       steps: [
-        {
-          id: "review_fillers",
+        makeStep("review_fillers", {
           number: 1,
           label: "Review filler clips",
-          status: "todo",
           kind: "gate",
           primary_button: "Confirm all & continue",
-          review: [],
-        },
-        {
-          id: "complete_g05",
+        }),
+        makeStep("complete_g05", {
           number: 3,
           label: "Sign-off",
-          status: "todo",
           kind: "gate",
           primary_button: "Continue pipeline",
           secondary_button: "Confirm all & continue",
-          review: [],
-        },
+        }),
       ],
-    },
+    }),
     ...overrides,
-  } as StageInfo;
+  });
 }
 
 describe("resolveStageWorkbenchProgress", () => {
@@ -45,11 +39,14 @@ describe("resolveStageWorkbenchProgress", () => {
     expect(steps.map((x) => x.id)).toEqual(["review_fillers", "complete_g05"]);
   });
 
-  it("returns no review gate spec for removed disfluency_review stage", () => {
+  it("returns no review gate spec or attention for removed disfluency_review stage", () => {
     const s = stage();
     const run = { run_id: "exec_test", stages: [s] } as RunData;
     const progress = resolveStageWorkbenchProgress(run, s, false, null);
     expect(progress?.reviewGateSpec).toBeNull();
+    // No attention item is enqueued for the removed stage, so the banner falls
+    // back to the substep's own button rather than a gate checkpoint label.
+    expect(progress?.attentionLabel).toBe("Confirm all & continue");
   });
 
   it("prioritizes artifact clarification before write approval when ITR blocks", () => {
@@ -57,28 +54,22 @@ describe("resolveStageWorkbenchProgress", () => {
       id: "boundary_detection",
       title: "Segment boundaries",
       status: "awaiting_write_approval",
-      guidance: {
+      guidance: makeGuidance({
         steps: [
-          {
-            id: "artifact_clarification",
+          makeStep("artifact_clarification", {
             number: 1,
             label: "Resolve artifact issues",
-            status: "todo",
             kind: "artifact_clarification",
             primary_button: "Fix issues",
-            review: [],
-          },
-          {
-            id: "write_approval",
+          }),
+          makeStep("write_approval", {
             number: 2,
             label: "Review staged files",
-            status: "todo",
             kind: "write_approval",
             primary_button: "Save",
-            review: [],
-          },
+          }),
         ],
-      },
+      }),
     });
     const run = {
       run_id: "exec_test",

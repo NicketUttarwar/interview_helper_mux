@@ -34,7 +34,6 @@ export function TranscriptReviewPanel() {
   const {
     run,
     refreshRun,
-    showToast,
     appendClientLog,
     loadTranscriptReview,
     transcriptReview,

@@ -48,11 +48,14 @@
     "reads": [
       "segments/manifest.json",
       "understanding/content_brief.json",
+      "understanding/delivery_brief.json",
+      "understanding/episode_structure.json",
       "understanding/gap_evaluations.json",
       "understanding/gap_report.json"
     ],
     "writes": [
-      "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n"
+      "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n",
+      "understanding/gap_framing_plan.json"
     ]
   },
   "ingest": {
@@ -80,12 +83,17 @@
   },
   "segmentation": {
     "reads": [
+      "segments/boundaries.json",
+      "segments/manifest.json",
       "transcript/full.json",
       "understanding/content_brief.json",
+      "understanding/flow_adaptation.json",
       "understanding/source_acoustic_profile.json",
       "understanding/speakers.json"
     ],
-    "writes": []
+    "writes": [
+      "segments/boundaries.json"
+    ]
   },
   "selection": {
     "reads": [
@@ -136,7 +144,7 @@
     ],
     "writes": []
   },
-  "transcribe_aws": {
+  "transcribe_local": {
     "reads": [],
     "writes": [
       "transcript/full.json",

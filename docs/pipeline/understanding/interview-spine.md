@@ -8,7 +8,7 @@
 
 After G0 transcript review clears and **`source_acoustic_profile`** completes. Pipeline order:
 
-`… → disfluency_extract → source_acoustic_profile → interview_spine_build → speaker_roles → …`
+`… → transcript_review_build → source_acoustic_profile → interview_spine_build → speaker_roles → …`
 
 Blocked in `G0_LOCKED_ANALYSIS_STAGES` until review queue is complete (same as SAP).
 
@@ -32,7 +32,7 @@ Blocked in `G0_LOCKED_ANALYSIS_STAGES` until review queue is complete (same as S
 
 1. Run analysis through **Source acoustic profile** (or full analyze).
 2. Confirm **Interview comprehension spine** stage completes in pipeline.
-3. Open **Story Board** → spine summary, or pipeline gate **Recompute spine** after ingest/transcript edits.
+3. Open the spine summary on stage detail, or use **Recompute spine** after ingest/transcript edits.
 4. Optional: query moments via API **POST** `/api/runs/{id}/interview-spine/query` with `{ "query": "…", "top_k": 5 }`.
 
 ## Recompute

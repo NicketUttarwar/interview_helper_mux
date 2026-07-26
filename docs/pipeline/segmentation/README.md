@@ -65,9 +65,3 @@ Gap-fill and schema validation: [artifact-generation-and-validation.md](../../cr
 ## Module
 
 `src/interview_mux/stages/segmentation.py` · `src/interview_mux/boundary_enrich.py`
-
----
-
-## Build-out
-
-BUILD-024 · [README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md)

@@ -1,6 +1,6 @@
 # Transcript review (operator STT QC)
 
-Human checkpoint immediately after AWS Transcribe. Operators listen to **pre-cut clips** ranked by **communicative salience** (idea-break risk), correct text, then sign off before content understanding runs. Confidence-only ordering is available as a config fallback for A/B (`transcript_review.sort_mode: confidence`).
+Human checkpoint immediately after local MLX STT. Operators listen to **pre-cut clips** ranked by **communicative salience** (idea-break risk), correct text, then sign off before content understanding runs. Confidence-only ordering is available as a config fallback for A/B (`transcript_review.sort_mode: confidence`).
 
 ## Pipeline position
 
@@ -13,14 +13,14 @@ flowchart LR
 
 | Step | Stage id | Automated? |
 |------|----------|------------|
-| AWS Transcribe | `transcribe` | Yes |
+| Local MLX STT | `transcribe` | Yes |
 | Build ranked queue + clips | `transcript_review_build` | Yes |
 | Operator corrections | `transcript_review` (gate) | No |
 | Downstream analysis | `speaker_roles` … | Yes (blocked until gate clears) |
 
 ## Confidence ranking
 
-Each pronunciation item from AWS Transcribe includes `alternatives[0].confidence` (0–1). The prep stage:
+Each pronunciation item from the STT export includes `alternatives[0].confidence` (0–1). The prep stage:
 
 1. Groups words into review **chunks** (speaker diarization segments, split on pauses ≥700ms or max 30s).
 2. Computes chunk confidence = **mean word confidence**.
@@ -141,7 +141,7 @@ This is separate from the offer at **G1** to clean only new `vo_pickup/` recordi
 
 - [operator-gates.md](../../workflows/operator-gates.md) — G0 definition
 - [gui-surface-map.md](../../workflows/gui-surface-map.md) — transcript review API rows + GUI components
-- [operator-flow-audit.md](../../workflows/operator-flow-audit.md) — G0 panel branching
+- [gui-click-flow-matrix.md](../../workflows/gui-click-flow-matrix.md) — G0 panel branching
 - [stt-and-diarization.md](./stt-and-diarization.md) — upstream STT options
 - [audio_preclean/README.md](../audio_preclean/README.md) — when offers appear
 - [artifact-layout.md](../../cross-cutting/artifact-layout.md) — paths

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
-from interview_mux.journey_orchestrator import _blocking
 from interview_mux.progression_spine import first_incomplete_p0_stage
 from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config
 
@@ -34,7 +31,7 @@ def test_first_incomplete_p0_stage_missing_boundaries(tmp_path, monkeypatch):
     assert first_incomplete_p0_stage(ctx) == "boundary_detection"
 
 
-def test_blocking_upstream_incomplete_when_pending_past_p0_hole(tmp_path, monkeypatch):
+def test_p0_hole_detected_when_later_stages_marked_done(tmp_path, monkeypatch):
     from interview_mux.pipeline import ANALYSIS_ORDER
 
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
@@ -69,7 +66,3 @@ def test_blocking_upstream_incomplete_when_pending_past_p0_hole(tmp_path, monkey
         skip_handoff=True,
     )
     assert first_incomplete_p0_stage(ctx) == "boundary_detection"
-    snap = _blocking(ctx, job={"status": "complete"}, milestones={"g0_complete": True})
-    assert snap["blocked"] is True
-    assert snap["reason"] == "upstream_incomplete"
-    assert snap["stage_id"] == "boundary_detection"

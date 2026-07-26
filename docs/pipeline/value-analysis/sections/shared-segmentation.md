@@ -39,7 +39,7 @@ LLM boundary and classification prompts; logic-tree pause heuristics (~700ms) as
 
 ## 7. Spike winner (fixture sprint)
 
-**Promoted (Partial → Promoted, Wave B 2026-06):** H-SEG-02 neural VAD pause ladder — shared constants in `interview_spine/constants.py`, SAP `pace_class` volley guidance, observability (`pause_ladder_oversplit_risk`). See [04-WAVE-B-audio-structure.md](../../build-out/june182026build/04-WAVE-B-audio-structure.md). Fixture: `tests/fixtures/value_analysis/spike_shared_segmentation.json`. Metric: [value-metrics-library §1.1 — Listener Likert](../value-metrics-library.md#11-listener-likert-1-5) (boundary truth).
+**Promoted (Partial → Promoted, Wave B 2026-06):** H-SEG-02 neural VAD pause ladder — shared constants in `interview_spine/constants.py`, SAP `pace_class` volley guidance, observability (`pause_ladder_oversplit_risk`). Fixture: `tests/fixtures/value_analysis/spike_shared_segmentation.json`. Metric: [value-metrics-library §1.1 — Listener Likert](../value-metrics-library.md#11-listener-likert-1-5) (boundary truth).
 
 ## Related
 

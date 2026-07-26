@@ -117,7 +117,6 @@ Install on macOS (example): `brew install ffmpeg awscli` — then confirm versio
 | Service | Anchored surface | Client in repo |
 |---------|------------------|----------------|
 | **OpenAI** | Chat Completions; model IDs in [model-routing.md](./model-routing.md#model-tier-registry) | `openai` SDK → `llm_runner.py` |
-| **AWS Transcribe** | Batch jobs via `aws transcribe` CLI; S3 via `aws s3` | `transcribe_aws.py` |
 
 Local MMAudio and DeepFilterNet run as subprocesses in isolated venvs — see [local-audio-stack.md](./local-audio-stack.md). No ElevenLabs HTTP surface.
 
@@ -129,7 +128,7 @@ When a spike adds a library, add a row here **and** a dedicated optional extra i
 
 | Library | Suggested pin (spike) | Lever (see [tools-not-in-repo-landscape.md](../pipeline/value-analysis/tools-not-in-repo-landscape.md)) |
 |---------|----------------------|--------------------------------------------------------------------------------------------------------|
-| `faster-whisper` | `1.1.1` in [`requirements-spike.lock`](../../requirements-spike.lock) | STT catalog / disfluency_extract |
+| `faster-whisper` | `1.1.1` in [`requirements-spike.lock`](../../requirements-spike.lock) | STT catalog (spike only) |
 | `mlx-lm` / `mlx` | pinned in `requirements-spike.lock` (Darwin) | Local LLM volley framing |
 | `huggingface_hub` | `0.26.5` in `requirements-spike.lock` | Model download scripts |
 | `whisperx` | pin at spike time | Alignment |

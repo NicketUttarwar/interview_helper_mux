@@ -30,7 +30,6 @@ Canonical rules so workflow chips, sidebar, middle-panel outputs, and operator-a
 | Stage | When N/A |
 |-------|----------|
 | `g1_5_preview_pickup` | Not TBIY, or `g1_5_preview_pickup` disabled |
-| `disfluency_review` / `disfluency_extract` | Disfluency disabled |
 | `audio_preclean` | Operator dismissed / skip stamp |
 
 Without `n_a`, T1 would downgrade `done` → `incomplete` (e.g. pending `gap_report.json`) and auto-navigation would jump to a distant **Failed** panel with nothing to do.
@@ -73,5 +72,3 @@ Run `python tools/ui_truth_smoke.py` against executions to audit.
 | F2 | Checkpoint completion must use `advanceFromCheckpoint`, not direct `runNextStage` after gates |
 | F3 | Job `complete` must toast operator with `journey.next_action` or stage hint |
 | F4 | `actionBusy` must reflect in sidebar substeps for write approval, profile verify, handoff |
-
-See [gui-flow-hardening.md](./gui-flow-hardening.md).

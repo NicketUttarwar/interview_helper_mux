@@ -223,6 +223,7 @@ def build_classification_payload(ctx: RunContext) -> dict[str, Any]:
         "transcript": compact_transcript_for_boundaries(transcript),
         "speakers": bundle.speakers,
         "content_brief": bundle.content_brief,
+        "_segmentation_source_paths": bundle.source_paths,
     }
     quality = transcript_quality_for_ctx(ctx)
     if quality:
@@ -251,9 +252,12 @@ def segmentation_review_report(ctx: RunContext) -> dict[str, Any]:
     contract = read_segment_contract(boundaries) or {}
     manifest = None
     if has_pending_writes(ctx, "segment_classification"):
-        from interview_mux.artifact_issue_triage import _read_stage_artifact
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+        from interview_mux.write_staging import read_pending_json
 
-        _rel, manifest = _read_stage_artifact(ctx, "segment_classification", staged=True)
+        rel = STAGE_ARTIFACT_DISK_PATHS.get("segment_classification")
+        if rel:
+            manifest = read_pending_json(ctx, "segment_classification", rel)
 
     parity_errors: list[str] = []
     if isinstance(manifest, dict):

@@ -34,7 +34,7 @@ Fixture: `tests/fixtures/value_analysis/spike_shared_ingest_transcribe.json`
 | Rank | Candidate | Score | Outcome | Mechanism | Moonshot | Section fit |
 |------|-----------|-------|---------|-------------|----------|-------------|
 | 1 | NISQA-class quality trajectories over time (H-ING-03) | 3.738 | 3.778 | 3.75 | 3.333 | 4.0 |
-| 2 | AWS Transcribe CLI + ingest normalize (current path) | 3.729 | 3.556 | 4.25 | 3.333 | 4.0 |
+| 2 | AWS Transcribe CLI + ingest normalize (spike-era baseline; since replaced by local MLX STT) | 3.729 | 3.556 | 4.25 | 3.333 | 4.0 |
 | 3 | No external tool; prompt-only editorial pattern | 3.4 | 3.222 | 4.0 | 2.667 | 4.0 |
 
 Stable on listener-first and idea-first. **Promote** H-ING-03 quality trajectories for trust-dip flagging. **Park** current AWS path (strong MEC-D, narrow LEX lift). **Kill** prompt-only for ingest (no time-aligned language signal).

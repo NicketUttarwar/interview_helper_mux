@@ -12,6 +12,11 @@ def test_lint_rejects_generic_thesis_empty(tmp_path, monkeypatch):
 
 def test_lint_plan_flow1_asset_cap(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, {"sound_design": {"max_assets": 6, "max_assets_flow1": 6}})
+    monkeypatch.setattr(
+        "interview_mux.deterministic_lint.merged_config",
+        lambda: {"sound_design": {"max_assets": 6, "max_assets_flow1": 6}},
+    )
     ctx = isolated_run_ctx(tmp_path, "lint_plan")
     ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]})
     assets = [{"asset_id": f"a{i}", "role": "chapter_stinger"} for i in range(8)]

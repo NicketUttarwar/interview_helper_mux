@@ -532,7 +532,6 @@
     "adaptation_loop": {
       "max_decompose_per_stage_cycle": 1,
       "max_per_segment_shard_calls": 24,
-      "max_micro_gap_fill_calls": 2,
       "max_same_adaptation_signature": 1,
       "halt_on_upstream_timeline_lint": false
     },
@@ -727,17 +726,6 @@
       "auto_fabricate_unknown_optional": true,
       "block_only_evidentiary_critical": true
     },
-    "holistic_fabrication": {
-      "enabled": true,
-      "llm_enabled": true,
-      "deterministic_first": true,
-      "model_tier": "economy",
-      "max_calls_per_stage_attempt": 2,
-      "max_calls_per_run": 24,
-      "override_arbiter_on_clear": true,
-      "allow_upstream_patches": true,
-      "stages": "*"
-    },
     "artifact_issue_triage": {
       "enabled": true,
       "auto_repair_minor": true,
@@ -786,15 +774,6 @@
       "post_commit_validate": true,
       "read_stale_guard": true,
       "reuse_validate": true
-    },
-    "remediation_orchestrator": {
-      "enabled": true,
-      "max_micro_gap_fill_per_stage": 2,
-      "max_upstream_reruns": 2
-    },
-    "downstream_probe": {
-      "enabled": true,
-      "blocking_tier": "progression"
     },
     "segmentation": {
       "reject_invalid_shards": true,

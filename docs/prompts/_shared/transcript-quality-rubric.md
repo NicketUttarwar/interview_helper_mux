@@ -1,10 +1,9 @@
 # Transcript quality rubric
 
-How upstream STT quality flows into LLM stages. Operators fix text at **G0**; fillers are cataloged at **G0.5**. Downstream prompts must treat both signals as first-class constraints — not optional warnings.
+How upstream STT quality flows into LLM stages. Operators fix text at **G0**. Downstream prompts must treat the G0 quality signal as a first-class constraint — not an optional warning. (The G0.5 disfluency catalog was removed in v2.)
 
-**Code:** `transcript_quality_for_ctx()` in `src/interview_mux/context_volley.py`  
+**Code:** `transcript_quality_for_ctx()` in `src/interview_mux/stage_input_helpers.py`  
 **G0 spec:** [transcript-review.md](../../pipeline/transcription/transcript-review.md)  
-**G0.5 spec:** [disfluency-extract.md](../../pipeline/transcription/disfluency-extract.md)
 
 ---
 
@@ -78,60 +77,15 @@ Preflight enforces G0 before `speaker_roles` and `content_context` (`llm_preflig
 
 ---
 
-## G0.5 — disfluency catalog
-
-`disfluency_extract` writes `transcript/disfluencies.json`. After operator **disfluency_review**, confirmed events are summarized as `disfluency_catalog` in analysis volley (see [analysis-preamble.system.txt](./analysis-preamble.system.txt)).
-
-### Shape (stage input)
-
-```json
-{
-  "disfluency_catalog": {
-    "confirmed_count": 42,
-    "by_segment": {
-      "seg_008": { "um": 3, "uh": 1 },
-      "seg_015": { "like": 2 }
-    },
-    "restore_policy": "flow1_optional"
-  }
-}
-```
-
-### Rubric — catalog usage by stage
-
-| Stage | Use catalog | Rule |
-|-------|-------------|------|
-| `content_context` | Optional | Do not treat fillers as semantic content; ignore in thesis/claims |
-| `boundary_detection` | Yes | Pauses with only fillers may merge with adjacent speech |
-| `segment_classification` | Yes | High filler density ≠ `low_value`; tag `disfluency_heavy` if helpful |
-| `missing_framing` | No | Fillers don't create comprehension gaps |
-| `sound_design_palettes` | Yes | Dense filler segments → sparser beds (SAP density hint) |
-| `full_master_ranking` | Optional | Don't penalize authentic speech disfluency unless operator requests polish |
-| `mix` / restore | Yes | [disfluency-restore.md](../../pipeline/assembly_and_mux/disfluency-restore.md) splices confirmed fillers post-ranking |
-
-### Good pattern — boundary merge
-
-Two segments separated by 400 ms gap containing only `um` + breath → single boundary at outer edges; rationale cites `disfluency_catalog.by_segment`.
-
-### Bad pattern — filler as claim
-
-`key_claims[].text: "Um, we raised Series B"` — filler must not become claim text.
-
-### Bad pattern — false precision
-
-Inventing `disfluency_catalog` counts not present in stage input.
-
----
-
 ## Combined quality score (informal)
 
 Stages may reason about an informal **transcript trust band**:
 
-| Band | G0 flagged % | G0.5 density | Guidance |
-|------|--------------|--------------|----------|
-| **A** | <5% duration flagged | Low | Normal confidence |
-| **B** | 5–15% flagged | Medium | Downgrade isolated claims |
-| **C** | >15% flagged or G0 skipped items | High | Prefer `needs` / investigations over bold artifacts |
+| Band | G0 flagged % | Guidance |
+|------|--------------|----------|
+| **A** | <5% duration flagged | Normal confidence |
+| **B** | 5–15% flagged | Downgrade isolated claims |
+| **C** | >15% flagged or G0 skipped items | Prefer `needs` / investigations over bold artifacts |
 
 No single numeric field is emitted today; bands are derived from `transcript_quality` + operator sign-off metadata.
 

@@ -31,6 +31,7 @@ def _itr_config() -> dict:
             "artifact_issue_triage": {"enabled": True},
             "flow_hardening": {"enabled": True},
         },
+        "creative_delivery": {"required": False},
     }
 
 

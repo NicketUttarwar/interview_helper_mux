@@ -17,10 +17,7 @@ Per-stage notes (if needed): [sections/](./sections/).
 
 ## Tooling (feature-flagged)
 
-Deterministic extract + spike CLIs — **not** registered as separate stages in [`pipeline.py`](../../src/interview_mux/pipeline.py). Shipped defaults in `config/app.defaults.json` have the master switch and auto-extract **on**; see [config-keys.md](../../cross-cutting/config-keys.md).
-
-**Execution guide:** [g15-and-value-analysis-execution.md](../../build-out/g15-and-value-analysis-execution.md) (Track B commands, file checklist).
-
+Deterministic extract + spike CLIs — **not** registered as separate stages in [`pipeline.py`](../../../src/interview_mux/pipeline.py). Shipped defaults in `config/app.defaults.json` have the master switch and auto-extract **on**; see [config-keys.md](../../cross-cutting/config-keys.md).
 | Flag | Default | Effect |
 |------|---------|--------|
 | `value_analysis.enabled` | `true` | Master switch; when `false`, CLIs exit 0 with a message |
@@ -53,6 +50,6 @@ Record spike outcomes in [spike-results-and-winners.md](./spike-results-and-winn
 
 ---
 
-## Build-out
+## Status
 
-Auto-extract and enrichment signals are on the default analysis path when flags are on. Moonshot spikes (SSL, CLAP, etc.) remain optional R&D: [steps-forward.md](../../build-out/steps-forward.md) · [future-proofing.md](../../roadmap/future-proofing.md).
+Auto-extract and enrichment signals are on the default analysis path when flags are on. Moonshot spikes (SSL, CLAP, etc.) remain optional R&D — see [future-proofing.md](../../roadmap/future-proofing.md).

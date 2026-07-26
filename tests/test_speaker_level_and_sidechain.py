@@ -127,8 +127,9 @@ def test_mix_applies_speaker_gains_not_vo(tmp_path: Path, monkeypatch) -> None:
         {
             **base_cfg,
             "mix": mix_cfg,
-            "soundscape": {**(base_cfg.get("soundscape") or {}), "enabled": False},
+            "soundscape": {**(base_cfg.get("soundscape") or {}), "enabled": False, "fail_closed": False},
             "sound_design": {**(base_cfg.get("sound_design") or {}), "enabled": False},
+            "creative_delivery": {**(base_cfg.get("creative_delivery") or {}), "required": False},
         },
     )
     ctx = RunContext("run_mix_spk", create=True)

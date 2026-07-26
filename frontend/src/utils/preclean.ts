@@ -74,7 +74,7 @@ export function isOptionalStageSkipped(
   return false;
 }
 
-export function getOptionalSkipLabel(stage: StageInfo): string {
+export function getOptionalSkipLabel(_stage: StageInfo): string {
   return "Skip optional step";
 }
 

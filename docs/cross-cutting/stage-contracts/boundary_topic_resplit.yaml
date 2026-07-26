@@ -1,0 +1,42 @@
+stage_id: boundary_topic_resplit
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: segments/boundaries.json
+  schema: boundaries_artifact.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/content_brief.json
+    producer: content_brief_reanchor
+  soft: []
+sufficiency:
+- path: boundaries
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+propagation:
+  invalidates_stages:
+  - segment_classification
+  - sonic_context_build
+  - sound_design_palettes
+  - missing_framing
+  - optimal_questions
+consumers:
+- boundary_detection
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- boundaries
+nullable_fields:
+- notes
+- warnings

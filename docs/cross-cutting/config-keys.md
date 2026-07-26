@@ -56,36 +56,35 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `mastering` | Mastering Process + quality-hardening gates — see [`mastering.*`](#mastering) below | Gates skipped or blocking at the wrong time |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
-| `journey_ui.enabled` | GUI phase sidebar, Story Board, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
-| `journey_ui.intent_at_start` | Start tab flow cards, `POST /api/runs` `REMOVED_flow_intent` | Early planning before G2 |
+| `journey_ui.enabled` | GUI phase sidebar, journey snapshot | When `false`, flat stage list (legacy UI); meta still written |
 | `journey_ui.phase_sidebar` | `PipelineStepList` phase grouping | When `false`, flat numbered step list |
-| `journey_ui.story_board` | `StoryBoardPanel` tab | When `false`, hides story-board tool tab |
+| `journey_ui.story_board` | — | **Inert.** Story Board tab removed; key ignored |
 
 Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and the operator checkpoint modal. The legacy **Audio quality** drawer and `GET …/audio-quality` endpoint were removed.
-| `journey_ui.express_flow1` | Express Flow 1 CTAs in journey kernel | When `false`, hides express shortcuts |
+| `journey_ui.express_flow1` | Express delivery CTAs in journey kernel | When `false`, hides express shortcuts |
 | `journey_ui.journey_log_filter` | Logs tab journey-scoped filter | When `false`, standard log filters only |
 | `journey_ui.require_preview_listen` | Polish CTA gating after `assembly_preview` | When `true`, requires `POST …/milestones/preview-listened` before polish execute |
-| `journey_ui.require_handoff_between_stages` | `custom_run_handoff`, pipeline batch runs, GUI execute | When `true` (default), pauses after each stage that writes custom-run descriptive JSON until `handoff-ack`; set `false` for unattended multi-stage runs |
+| `journey_ui.require_handoff_between_stages` | — | **Inert.** Handoff acks removed (`custom_run_handoff.py` deleted); key ignored |
 | `journey_ui.enable_stage_reuse_offers` | `stage_execution_reuse`, pipeline, GUI | When `true` (default), blocks execute until reuse decision when candidates exist; when `false`, UI still lists offers but does not block (CLI: `--no-reuse-offers`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
 | `journey_ui.stage_reuse_lookback_executions` | `stage_execution_reuse`, session lineage | How many prior executions (by `execution_number`, newest first) to scan for hash-matched reuse offers (default `5`) — [stage-execution-reuse.md](../workflows/stage-execution-reuse.md) |
-| `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline, GUI | When `true` (default), stage outputs land in `.pending_writes/<stage_id>/` until operator approves in WriteApprovalPanel (`POST …/pending-writes/{stage}/approve`); when `false`, writes go directly to final paths. Reuse copies respect the same staging when enabled. |
-| `journey_ui.auto_advance_pipeline` | GUI autopilot continuation | When `false` (shipped default), after save/checkpoint the GUI **focuses** the next runnable stage and shows *Ready for … — use Run when you want to start*; operator runs each stage explicitly. Set `true` for unattended auto-run between stages. |
-| `journey_ui.full_autopilot` | `stage_finalize`, GUI stage steps, ITR gates | When `true` (default), in-run `finalize_stage_outputs()` replaces operator Fix all; **Stage Decision Wizard** for unresolved choices; `needs_clarification` not surfaced. Set `false` for legacy Fix all + artifact clarification UI. See [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md). |
-| `journey_ui.first_try_mode` | `first_try`, gates, write staging, GUI autopilot | Cold-start friction collapse (default **true**). See [first-try-reliability.md](../workflows/first-try-reliability.md). |
-| `journey_ui.defer_write_approval_until` | `write_staging`, journey `_blocking` | `phase_end` (default under first_try): keep `.pending_writes/` without mid-phase pause; batch Save at phase end. `off` restores per-stage pause. |
+| `journey_ui.require_write_approval_per_stage` | `write_staging`, pipeline | Still read by `write_staging.py`, but v2 sets `v2.auto_commit_artifacts: true` and the `WriteApprovalPanel` / `pending-writes` API were removed — leave at the v2 default so writes go straight to final paths |
+| `journey_ui.auto_advance_pipeline` | GUI stage continuation | When `false` (shipped default), after save/checkpoint the GUI **focuses** the next runnable stage and shows *Ready for … — use Run when you want to start*; operator runs each stage explicitly. Set `true` for unattended auto-run between stages. |
+| `journey_ui.full_autopilot` | — | **Inert.** Autopilot and the Stage Decision Wizard were removed; no code reads this key |
+| `journey_ui.first_try_mode` | `first_try.py`, gates, write staging | Cold-start friction collapse (default **true**). Kept in v2. |
+| `journey_ui.defer_write_approval_until` | `write_staging`, journey `_blocking` | `phase_end` (default under first_try): keep `.pending_writes/` without mid-phase pause. Only meaningful if write staging is re-enabled; v2 auto-commits. |
 | `journey_ui.segmentation_unified_review` | `write_staging`, `first_try`, GUI `SegmentationReviewPanel` | When `true` (default), `boundary_detection` stages without write-approval pause; `segment_classification` offers paired review/save for boundaries + manifest. |
 | `journey_ui.preclean_auto_dismiss_when_green` | `source_readiness` | When true, auto-dismiss preclean offer on green readiness (never auto-accept). |
 | `journey_ui.batch_save_phases` | batch Save API/GUI | Default `["analysis","delivery"]`. |
 | `transcript_review.auto_complete_when_clean` | `transcript_review` | Auto-complete G0 when zero `needs_review` chunks. |
 | `transcript_review.low_confidence_threshold` | `transcript_review` | Chunks below this confidence get `needs_review` (default `0.85`). |
 | `analysis.g1.blocking_severities` | `gates.check_g1_vo` | Severities that require VO WAV (default `high`,`critical`). |
-| `analysis.first_try.artifact_issue_triage.*` | ITR / attempt budget | Optional first_try overrides (extra attempt, lower confidence). |
+| `analysis.first_try.artifact_issue_triage.*` | `first_try.py`, `artifact_root_cause.py` | Optional first_try triage overrides (extra attempt, lower confidence). |
 | `sound_design.one_regen_on_fail` | `sfx_mmaudio` | One regen before placeholder under first_try. |
 | `sound_design.first_try_allow_placeholder_mix` | mix / mmaudio | Allow silent SFX placeholders instead of hard-fail. |
 | `mix.completeness_gate.hard_fail_missing_blocking_vo` | `mix_completeness` | Hard-fail missing blocking VO (default true). |
 | `mix.completeness_gate.hard_fail_empty_speech` | `mix_completeness` | Hard-fail empty speech (default true). |
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
-| `autopilot_enabled` / `operator.autopilot_enabled` | Soft gate auto-continue (never G0); default **false**. Stops on speaker-volley integrity failure. See [volley-glossary.md](./volley-glossary.md) | Accidental unattended progression |
+| `autopilot_enabled` / `operator.autopilot_enabled` | — | **Inert.** Autopilot removed; no code reads these keys |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
@@ -104,7 +103,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Optional duration QC + mlx retry when `auto_fallback_on_qc_fail` |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
-| `show_notes_qc.strict` | `REMOVED_publishing_flow3`, `gates.check_show_notes_qc` | When `true` (shipped default), blocks persisting invalid show description; when `false`, warn only |
+| `show_notes_qc.strict` | `gates.check_show_notes_qc` | **Inert.** Flow 3 publishing was removed, so no stage produces a show description and the gate is never called |
 | `value_analysis.enabled` | `tools/run_value_spike.py`, `tools/extract_value_features.py`, gap volleys | Master switch for deterministic value features + investigation triggers (production default `true`) |
 | `value_analysis.spike_scoring` | `run_value_spike.py` | Spike scorecard aggregation when master enabled |
 | `value_analysis.transcript_features` | `extract_value_features.py --profile transcript` | Transcript-derived metrics artifact |
@@ -184,7 +183,7 @@ Tier guidance: [llm-stage-model-matrix.md](./llm-stage-model-matrix.md). API ID 
 | `OPENAI_TIER_FLAGSHIP` | Override flagship tier API ID |
 | `OPENAI_MODEL` | Fallback when stage missing (unchanged) |
 
-`task_kind` (`primary`, `arbiter`, `shard`, `collate`) is **not** a config key — resolved in code per [llm-orchestration.md](./llm-orchestration.md).
+`task_kind` (`primary`, `arbiter`, `shard`, `collate`) is **not** a config key — it is resolved in code.
 
 ---
 
@@ -207,7 +206,7 @@ Artifact: `understanding/episode_structure.json`. Stage: `episode_structure_comp
 
 ## `local_llm`
 
-On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md). Shipped in `config/app.defaults.json` (`enabled: true` by default on macOS).
+On-device MLX framing before OpenAI. Shipped in `config/app.defaults.json` (`enabled: true` by default on macOS).
 
 | Key | Default | If wrong |
 |-----|---------|----------|
@@ -234,7 +233,7 @@ On-device MLX framing before OpenAI — [local-llm-tier.md](./local-llm-tier.md)
 | `local_llm.fail_open` | `true` | Framer verify errors proceed OpenAI-only when `true` |
 | `local_llm.request_timeout_sec` | `120` | Local framer subprocess timeout |
 
-Capability calibration writes `ASSETS/local_llm/capability_manifest.json` via `scripts/calibrate_local_llm.py` (bootstrap after model select). See [local-llm-tier.md](./local-llm-tier.md).
+Capability calibration writes `ASSETS/local_llm/capability_manifest.json` via `scripts/calibrate_local_llm.py` (bootstrap after model select).
 
 **Operator path (recommended):** do **not** set a local model in `secrets.env`. Run `./scripts/bootstrap_venv.sh` once — llmfit writes `ASSETS/local_llm/selection.json`, downloads weights (reused when present), then `calibrate_local_llm.py` writes `capability_manifest.json`. Launch with `./scripts/run.sh` thereafter.
 
@@ -250,29 +249,9 @@ Setup: [SETUP.md](../../SETUP.md) § Local LLM.
 
 ---
 
-## `disfluency_extract` / `disfluency_restore`
+## `disfluency_extract` / `disfluency_restore` — removed
 
-Local VAD + optional faster-whisper filler detection after G0 — [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md), [disfluency-restore.md](../pipeline/assembly_and_mux/disfluency-restore.md).
-
-| Key | Default | If wrong |
-|-----|---------|----------|
-| `disfluency_extract.enabled` | `true` | Stage no-ops; gate auto-complete |
-| `disfluency_extract.whisper_model` | `base` | Slow or inaccurate gap ASR |
-| `disfluency_extract.compute_type` | `int8` | faster-whisper compute type |
-| `disfluency_extract.gap_min_ms` / `gap_max_ms` | `80` / `2500` | Inter-word gap window for candidate events |
-| `disfluency_extract.pad_ms` | `80` | Clip padding around gap audio |
-| `disfluency_extract.min_event_ms` | `60` | Drop shorter detected events |
-| `disfluency_extract.max_events` | `2000` | Cap catalog size per run |
-| `disfluency_extract.vad_energy_dbfs` | `-42.0` | Energy VAD threshold for gap clips |
-| `disfluency_extract.weights_dir` | `ASSETS/local_stt/models` | Whisper pass skipped if weights missing |
-| `disfluency_restore.enabled` | `true` | EDL stays monolithic speech |
-| `disfluency_restore.max_inter_segment_gap_ms` | `1200` | Max gap between speech slices when restoring |
-| `disfluency_restore.crossfade_ms` | `30` | Crossfade when splicing filler clips in mix |
-| `disfluency_restore.min_speech_slice_ms` | `200` | Minimum speech slice after split |
-| `disfluency_restore.dedupe_overlap_ms` | `40` | Overlap dedupe between adjacent restore events |
-| `run_meta.disfluency_restore.enabled` | — | Per-run override via `PATCH …/disfluency-restore` |
-
-Setup: `python scripts/download_local_stt.py --model base` (optional; lexicon pass works without Whisper).
+The G0.5 disfluency gate is gone: `stages/disfluency.py`, the `disfluency_extract` / `disfluency_review` stages, `DisfluencyReviewPanel`, and the `/disfluency-review` API routes were all deleted. Any `disfluency_*` keys left in a local `app.defaults.json` are inert. See [../v2/drop-manifest.md](../v2/drop-manifest.md).
 
 ---
 
@@ -289,26 +268,27 @@ Semantic completeness gates on committed LLM artifacts — `sufficiency_engine.p
 | Key | Default | If wrong |
 |-----|---------|----------|
 | `analysis.sufficiency.enabled` | `true` | Sufficiency badges hidden; downstream may proceed on thin artifacts |
-| `analysis.sufficiency.default_blocking_tier` | `progression` | Wrong tier → blocks autopilot / progression at wrong severity |
+| `analysis.sufficiency.default_blocking_tier` | `progression` | Wrong tier → blocks stage progression at wrong severity |
 | `analysis.sufficiency.per_stage_overrides` | `{}` | Per-stage tier overrides ignored |
 
 ---
 
-## `analysis.remediation_orchestrator`
+## `analysis.remediation_orchestrator` — removed
 
-Micro-gap fill and upstream rerun orchestration when sufficiency or ITR findings block progression.
+Micro-gap fill and upstream rerun orchestration. `micro_gap_fill.py` and the remediation orchestrator were deleted; a blocked stage hard-stops instead. The namespace no longer ships in [`config/app.defaults.json`](../../config/app.defaults.json), and the matching `OM-MG-*` rows are gone from the [LLM interaction catalog](./llm-interaction-catalog.md). It stays optional in [app_config.schema.json](./json-schemas/app_config.schema.json) so pre-v2 operator config files still validate.
 
-| Key | Default | If wrong |
-|-----|---------|----------|
-| `analysis.remediation_orchestrator.enabled` | `true` | Auto-remediation disabled |
-| `analysis.remediation_orchestrator.max_micro_gap_fill_per_stage` | `2` | Too many LLM micro-fill attempts per stage |
-| `analysis.remediation_orchestrator.max_upstream_reruns` | `2` | Unbounded upstream reruns |
+| Removed key | Old default |
+|-------------|-------------|
+| `analysis.remediation_orchestrator.enabled` | `true` |
+| `analysis.remediation_orchestrator.max_micro_gap_fill_per_stage` | `2` |
+| `analysis.remediation_orchestrator.max_upstream_reruns` | `2` |
+| `analysis.adaptation_loop.max_micro_gap_fill_calls` | `2` |
 
 ---
 
 ## `analysis.gap_fill`
 
-Binary eligibility gate for missing_framing / optimal_questions / G1 VO — `gap_fill_eligibility.py`, `stages/gaps.py`.
+Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO — `gap_fill_eligibility.py`, `stages/gaps.py`.
 
 | Key | Default | If wrong |
 |-----|---------|----------|
@@ -344,14 +324,14 @@ Stage contract verification on CI and optional runtime checks.
 
 ---
 
-## `analysis.downstream_probe`
+## `analysis.downstream_probe` — removed
 
-Probe downstream consumers when upstream artifacts change.
+Probed downstream consumers when upstream artifacts changed. `downstream_probe.py` and `downstream_requirements.py` were deleted in v2; downstream impact is covered by artifact lifecycle staleness (`analysis.artifact_lifecycle.read_stale_guard`) instead. The namespace no longer ships in [`config/app.defaults.json`](../../config/app.defaults.json). It stays optional in [app_config.schema.json](./json-schemas/app_config.schema.json) so pre-v2 operator config files still validate.
 
-| Key | Default | If wrong |
-|-----|---------|----------|
-| `analysis.downstream_probe.enabled` | `true` | Downstream impact not surfaced |
-| `analysis.downstream_probe.blocking_tier` | `progression` | Wrong blocking severity for probe findings |
+| Removed key | Old default |
+|-------------|-------------|
+| `analysis.downstream_probe.enabled` | `true` |
+| `analysis.downstream_probe.blocking_tier` | `progression` |
 
 ---
 
@@ -391,27 +371,15 @@ Export: `python tools/export_llm_calls.py --run-id <exec_*>`.
 
 ---
 
-## `analysis.max_iterations_per_stage`
+## `analysis.max_iterations_per_stage` / `max_volley_retries` / `max_queue_drains_per_stage` — inert
 
-Orchestrator inner loop per LLM stage. **Too low:** exits before fixing validation errors. **Too high:** extra cost on stuck stages.
-
----
-
-## `analysis.max_volley_retries`
-
-Within-attempt volley retries when the model returns fixable validation errors (`llm_stage_routing.py`, `analysis_memory.py`). Default **2** in `app.defaults.json`. **Too low:** gives up before self-correction. **Too high:** cost thrash on stuck volleys.
-
----
-
-## `analysis.max_queue_drains_per_stage`
-
-Drains `investigation_queue` suggestions per stage. **Too low:** unresolved investigations pile up. **Too high:** thrash / cost.
+These configured the pre-v2 orchestrator loop, volley retries, and investigation-queue drains. `analysis_orchestrator.py`, `llm_stage_routing.py`, and `attempt_budget.py` were deleted; `llm_simple.py` now hard-caps every stage at **2** attempts with no queue drain. The keys are ignored.
 
 ---
 
 ## `analysis.context.*`
 
-Consumed by `context_volley` shaping. Defaults in `config/app.defaults.json` (shipped: `transcript_full_chars` 72000, `max_stage_data_chars` 64000, `max_segments_in_context` 100). See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
+Consumed by `stage_input_helpers` context shaping. Defaults in `config/app.defaults.json` (shipped: `transcript_full_chars` 72000, `max_stage_data_chars` 64000, `max_segments_in_context` 100). See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
 
 | Key | If wrong |
 |-----|----------|
@@ -446,7 +414,7 @@ See [truncation-integrity.md](truncation-integrity.md).
 
 ## `analysis.context_index.*`
 
-Volley Q&A memory — [context-padding.md](./context-padding.md), `context_resolver.py`.
+Volley Q&A memory — `context_resolver.py`.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -461,7 +429,7 @@ Rollout: ship with `prefer_index_over_legacy_summaries: false` (dual-write); ena
 
 ## `analysis.flow_hardening`
 
-Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening). Implemented in `llm_flow_hardening.py`, `llm_preflight.py`, `artifact_cross_validate.py`.
+Fail-closed LLM stage progression. Implemented in `llm_flow_hardening.py`, `llm_preflight.py`, `artifact_cross_validate.py`.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -469,25 +437,20 @@ Fail-closed LLM stage progression — [LLM-ANALYSIS-ARCHITECTURE.md §18](../../
 | `strict_critical_stages` | `true` | `SystemExit` on critical LLM stage failure |
 | `preflight_enabled` | `true` | Deterministic checks before OpenAI |
 | `cross_validate_enabled` | `true` | Cross-artifact checks at segmentation boundaries |
-| `halt_on_schema_errors_with_accept` | `true` | Arbiter accept + schema errors → blocked |
 | `investigation_dedupe` | `true` | Dedupe open investigations by kind+stage+target |
-| `shard_min_success_ratio` | `0.75` | Min fraction of successful shards before collate |
 | `inner_retry_require_delta` | `true` | Stop inner retries when volley/errors unchanged |
-| `max_primary_attempts_per_stage` | `8` | Floor when transcript duration unknown; with duration, `analysis.duration_policy` scales the cap (base 6 + 1 per 30m above 15m, max 16) — `attempt_budget.py` |
-| `max_arbiter_rejects_per_stage` | `3` | Cap non-accept arbiter verdicts before hard stop |
 | `stuck_signature_threshold` | `2` | Identical attempt signatures in a row → stage treated as stuck |
-| `max_investigation_reruns_per_kind` | `2` | Cap investigation-driven reruns per investigation kind (`attempt_budget.py`) |
 | `block_partial_segment_classification` | `true` | Block partial persist when segment classification obligation lints fail |
 | `block_partial_on_quality_fail` | `true` | Critical LLM stages never stage write-approvable partials after lint/schema/truncation/accept failure — audit sidecar only |
 | `spend_block_stages` | see defaults | Stages that require complete upstream SDP/craft before API spend |
-| `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix_flow*` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
+| `block_mix_without_sfx_when_enabled` | `true` | When `true`, block `mix` if SFX assets missing; set `false` for dry-mix debugging without generated WAVs |
 | `clarification_before_halt` | `true` | Run ITR and set `needs_clarification` instead of hard halt when artifacts are repairable |
 
 When `enabled`, `pipeline.py` calls `maybe_require_upstream_llm_progress` before each LLM stage so upstream `.stage_done` and producer artifacts must be complete.
 
-**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx`, `REMOVED_mmaudio_flow2`, `mix`, `REMOVED_mix_flow2`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
+**Spend block:** `spend_block_stages` lists stage ids checked by `llm_flow_hardening.require_spend_prerequisites()` — default `sfx_prompt_craft`, `mmaudio_sfx`, `mix`. If upstream `sound_design_plan.json` or craft artifacts are incomplete, the stage is blocked with no MMAudio generation. Override list only for dev; production should keep defaults.
 
-**Loop policy:** See [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) and `attempt_budget.py`.
+**Loop policy:** Every LLM stage gets at most **2** attempts in `llm_simple.py`, then hard-stops. The pre-v2 attempt-budget, shard/collate, and arbiter-verdict keys (`max_primary_attempts_per_stage`, `max_arbiter_rejects_per_stage`, `shard_min_success_ratio`, `max_investigation_reruns_per_kind`, `halt_on_schema_errors_with_accept`) are inert.
 
 ## `analysis.segmentation`
 
@@ -554,7 +517,7 @@ Partial persist and sanitize when primary output fails lint/schema — `llm_outp
 
 ## `analysis.artifact_issue_triage`
 
-Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artifact-issue-triage.md). Implemented in `artifact_issue_triage.py`, `artifact_auto_resolve.py`, `artifact_repairs.py`, `issue_severity_rules.py`.
+Artifact Issue Triage & Remediation (ITR). Implemented in `artifact_issue_triage.py`, `artifact_auto_resolve.py`, `artifact_repairs.py`, `issue_severity_rules.py`.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -586,11 +549,9 @@ Artifact Issue Triage & Remediation (ITR) — [artifact-issue-triage.md](./artif
 | `min_segments_after_auto_resolve` | `1` | Block destructive fix-all that empties manifest |
 | `max_segments_deleted_per_fix_all` | `0.10` | Max fraction of segments deletable in one Fix all pass |
 | `auto_resolve_max_issues_per_pass` | `50` | Cap issues processed per Fix all invocation |
-| `in_run_auto_resolve` | `true` | When `journey_ui.full_autopilot`, run auto-resolve inside `finalize_stage_outputs()` after each LLM stage |
+| `in_run_auto_resolve` | `true` | Run auto-resolve inside stage finalize after each LLM stage |
 | `risk_based_force_advance` | `true` | Classify open issues via `issue_risk_assessment.py` (delete vs repair vs pass) |
-| `auto_resolve_in_run_mode` | `autopilot` | Mode passed to in-run auto-resolve (`autopilot` or `manual`) |
-
-When `journey_ui.full_autopilot` is **true** (default), Fix all keys apply to legacy mode and debug endpoints only — see [full-autopilot-operator-model.md](../workflows/full-autopilot-operator-model.md).
+| `auto_resolve_in_run_mode` | `autopilot` | Mode string passed to in-run auto-resolve (`autopilot` or `manual`). Names a resolve strategy only — the autopilot journey runner was removed. |
 
 ---
 
@@ -607,21 +568,21 @@ Explicit JSON `null` for unavailable optional fields — `null_field_policy.py`.
 
 ---
 
-## `analysis.holistic_fabrication`
+## `analysis.holistic_fabrication` — removed
 
-Global LLM-backed fallback for blocked stages — `holistic_fabrication.py`. Spec: [holistic-fabrication.md](./holistic-fabrication.md).
+Global LLM-backed fallback for blocked stages. `holistic_fabrication.py` was deleted and v2 is fail-closed: a blocked stage hard-stops. The namespace no longer ships in [`config/app.defaults.json`](../../config/app.defaults.json). Per-field fabrication survives under [`analysis.llm_null_policy`](#analysisllm_null_policy) (`fabricate_*`, catalog id `OM-F01`).
 
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `enabled` | `true` | Master switch for holistic repair before persist / ITR bridge |
-| `llm_enabled` | `true` | Run economy-tier LLM when deterministic repair insufficient |
-| `deterministic_first` | `true` | Code-first repairs (orphan mapping, claim synthesis) before API |
-| `model_tier` | `economy` | Model tier for fabrication LLM calls |
-| `max_calls_per_stage_attempt` | `2` | Cap LLM fabrication calls per stage attempt |
-| `max_calls_per_run` | `24` | Cap LLM fabrication calls per run |
-| `override_arbiter_on_clear` | `true` | Allow persist when holistic repair clears lint |
-| `allow_upstream_patches` | `true` | Patch input artifacts (e.g. `content_brief.json`) |
-| `stages` | `"*"` | Stage allowlist; `"*"` = all LLM stages |
+| Removed key | Old default |
+|-------------|-------------|
+| `enabled` | `true` |
+| `llm_enabled` | `true` |
+| `deterministic_first` | `true` |
+| `model_tier` | `economy` |
+| `max_calls_per_stage_attempt` | `2` |
+| `max_calls_per_run` | `24` |
+| `override_arbiter_on_clear` | `true` |
+| `allow_upstream_patches` | `true` |
+| `stages` | `"*"` |
 
 ---
 
@@ -659,8 +620,8 @@ Optional compact keys in shaped `stage_input` (when artifacts exist):
 |-----|--------|--------|
 | `pause_ladder_hints` | `boundary_detection` | Transcript word gaps |
 | `emphasis_regions` | `topic_coverage_audit`, `narrative_arc_plan` | `source_acoustic_profile` + segments |
-| `quotability_signals` | `REMOVED_highlight_selection` | RMS peaks + text heuristics |
-| `value_features_summary` | Flow + boundary stages | `understanding/value_features.json` (opt-in extract) |
+| `quotability_signals` | — | **Inert.** Consumed only by the removed `highlight_selection` (Flow 2) stage |
+| `value_features_summary` | Delivery + boundary stages | `understanding/value_features.json` (opt-in extract) |
 | `comprehension_risks` | `missing_framing` | Specialist pass output (when enabled) |
 
 ---
@@ -799,13 +760,11 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 | `pause_split_ms` | Too small → fragment boundaries; too large → merges distinct ideas |
 | `short_question_max_words` | Mis-splits Q+A pairs in boundary prompt |
 | `interviewer_question_max_words` / `interviewer_setup_max_words` | VO lines too long for product spec |
-| `highlight_setup_max_sec` | Flow 2 clip + VO timing invalid vs schema |
+| `highlight_setup_max_sec` | **Inert** — Flow 2 removed |
 | `max_chapters` | Narrative plan violates cap → validation / model confusion |
-| `max_highlight_clips` | Selection over cap (should match product ≤5) |
-| `content_context_topic_anchor_min_duration_ms` | `900000` (15m) | Medium+ interviews require topic evidence anchors in `content_context` lint |
-| `show_description_min_words` / `show_description_max_words` | Flow 3 JSON schema band (150–250) | Blurb too short/long for hosts |
-| `show_description_target_words` | Editorial target (~200) in `app.defaults.json` | Copy drifts from product spec |
-| `models.REMOVED_podcast_show_description` | OpenAI model for Flow 3 blurb (flagship tier) | Weak or generic show copy |
+| `max_highlight_clips` | **Inert** — Flow 2 removed |
+| `content_context_topic_anchor_min_duration_ms` | Medium+ interviews require topic evidence anchors in `content_context` lint (default `900000`, 15m) |
+| `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | **Inert** — Flow 3 publishing removed; no stage writes `show_notes/show_description.json` |
 
 ---
 
@@ -828,7 +787,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_DEFAULT_REGION` / `AWS_REGION` | Transcribe / S3 wrong region |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
-| `CURSOR_API_KEY` | Required for [CURSOR_EXECUTE](../../CURSOR_EXECUTE/README.md) agent runs — set in `config/secrets/secrets.env` or env; also used by [june182026build/run.sh](../../docs/build-out/june182026build/run.sh) |
+| `CURSOR_API_KEY` | Cursor SDK agent runs (`config.cursor_api_key()`) — set in `config/secrets/secrets.env` or env |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
 
@@ -1009,9 +968,8 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/dr
 ## Related
 
 - [model-routing.md](./model-routing.md) — tier registry and v1 mapping
-- [llm-orchestration.md](./llm-orchestration.md) — arbiter, shard/collate (spec)
 - [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) — per-stage tiers
 - [prompts/README.md](../prompts/README.md) — prompt conventions
 - `src/interview_mux/config.py` — merge rules
 - `config/templates/secrets.env.example` — secret key names
-- [../config/README.md](../config/README.md) — resolution order
+- [config/README.md](../../config/README.md) — resolution order

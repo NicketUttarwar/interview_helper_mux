@@ -10,7 +10,7 @@ OpenAI Chat Completions models per pipeline stage. **Prose in this repo uses tie
 
 - [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) — per-stage severity, tier, decompose rules
 - [config-keys.md](./config-keys.md) — config shape (runtime + secrets)
-- [llm-orchestration-implementation-handoff.md](./llm-orchestration-implementation-handoff.md)
+- [llm-call-record-framework.md](./llm-call-record-framework.md) — call records and audit trail
 
 ---
 

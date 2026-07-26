@@ -82,7 +82,7 @@ Eight sequential waves, **38 fields** covering every stage, gate, and major GUI 
 | 4 | Segments, brief budgets, episode packs, NLE, ranking, EDL |
 | 5 | Gap framing, VO synthesis, framing coverage |
 | 6 | Sonic / palettes / soundscape / SDP / MMAudio / mix tiers / profile hints |
-| 7 | Journey gates, Story Board, Conversation Studio, reuse, LLM audit |
+| 7 | Journey gates, Conversation Studio, reuse, LLM audit |
 | 8 | Lint, EDL QC, completeness, master verify, local runtimes, model tiers |
 
 Rollup: `mastering/research_dossier.json` — **no** final structure yet.

@@ -4,7 +4,7 @@
 
 **Living scorecard:** [stage-quality-scorecard.md](./stage-quality-scorecard.md)
 
-**Architecture:** [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §18 Flow hardening, §19 Guidance program, §20 Loop policy
+**Architecture:** [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) (per-stage routing) · [`analysis.flow_hardening`](./config-keys.md#analysisflow_hardening) (flow hardening keys)
 
 ---
 
@@ -16,7 +16,7 @@
 | **P1** | `missing_framing`, `optimal_questions`, `topic_coverage_audit`, `narrative_arc_plan`, `full_master_ranking`, `edl_narrative_audit` | Listener comprehension |
 | **P2** | `sound_design_palettes`, `sound_design_plan/2`, `sfx_prompt_craft`, `mmaudio_sfx_flow*`, `mix_flow*` | API spend + master quality |
 | **P3** | `transitions`, `REMOVED_highlight_selection`, `REMOVED_podcast_show_description` | Polish; operator-recoverable |
-| **P4** | G0, `source_acoustic_profile`, `disfluency_extract`, `sound_design_vo_finalize`, `assembly_preview` | Upstream non-LLM gates |
+| **P4** | G0, `source_acoustic_profile`, `sound_design_vo_finalize`, `assembly_preview` | Upstream non-LLM gates |
 
 ---
 
@@ -34,10 +34,10 @@
 | Arbiter rubric | `arbiter-rubrics/*.json` | Editorial accept/reject |
 | Arbiter | `llm_arbiter.py` | Economy-tier routing |
 | Cross-validate | `artifact_cross_validate.py`, `sdp_cross_validate.py` | ID-set consistency |
-| Attempt budget | `attempt_budget.py` | Loop circuit-breaker |
+| Attempt cap (2) | `llm_simple.py` | Loop circuit-breaker |
 | Flow hardening | `llm_flow_hardening.py` | Critical vs soft stages |
 | Local volley framer | `local_volley_framer.py` | On-device volley framing before OpenAI (`prepare_volley_for_llm`) |
-| Artifact issue triage | `artifact_issue_triage.py`, [artifact-issue-triage.md](./artifact-issue-triage.md) | Auto-repair minor issues; operator clarification for ambiguities |
+| Artifact issue triage | `artifact_issue_triage.py`, [`analysis.artifact_issue_triage`](./config-keys.md#analysisartifact_issue_triage) | Auto-repair minor issues; operator clarification for ambiguities |
 | Required response format | `required_response_format.py`, `envelope_min_example.py` | Dual-inject typed envelope/artifact skeleton + null rules (system + final volley turn) |
 | Null field policy | `null_field_policy.py` | JSON `null` acknowledgment, volley exclusion, critical-field hard stops |
 | Normalization decision tree | `normalization_decision.py`, `llm_output_normalizer.py` | Permissive omit → fabricate → volley/gap-fill automation |
@@ -67,7 +67,7 @@ For each stage row in [stage-quality-scorecard.md](./stage-quality-scorecard.md)
 | PR | Workstreams |
 |----|-------------|
 | PR1 | Program index, scorecard, scenario atlas, preamble |
-| PR2 | Loop prevention (`attempt_budget.py`) |
+| PR2 | Loop prevention (2-attempt cap in `llm_simple.py`) |
 | PR3 | P0 deep prompts + arbiter rubrics + lint |
 | PR4 | P1 narrative stages |
 | PR5 | P2 sound cross-validate + spend gates |
@@ -79,7 +79,7 @@ For each stage row in [stage-quality-scorecard.md](./stage-quality-scorecard.md)
 
 ## Ticket index (GUIDE-001–080)
 
-Grouped in [ticket-specs.md](../build-out/ticket-specs.md) under **Wave — LLM guidance**.
+Grouped under **Wave — LLM guidance** in the pre-v2 build-out tickets (removed in the v2 cleanup).
 
 | Range | Workstream |
 |-------|------------|

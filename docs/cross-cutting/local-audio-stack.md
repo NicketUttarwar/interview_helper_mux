@@ -1,6 +1,6 @@
 # Local audio stack (DeepFilterNet + MMAudio)
 
-Interview MUX runs **noise reduction** and **SFX generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend.
+Interview MUX runs **noise reduction** and **SFX generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend. STT and diarization are likewise local (MLX, `ASSETS/local_speech/venv`) — AWS Transcribe was removed.
 
 **Planned:** deeper ML speech-to-speech voice conversion — [speech-to-speech-vo.md](./speech-to-speech-vo.md). DSP timbre match for operator gap VO is shipped.
 
@@ -9,7 +9,7 @@ Interview MUX runs **noise reduction** and **SFX generation** locally via isolat
 | Stack | Upstream | Purpose | Venv |
 |-------|----------|---------|------|
 | DeepFilterNet | [rikorose/deepfilternet](https://github.com/rikorose/deepfilternet) | Optional `audio_preclean` noise reduction | `ASSETS/local_deepfilter/venv` |
-| MMAudio | [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio) | `mmaudio_sfx` / `REMOVED_mmaudio_flow2` text-to-audio | `ASSETS/local_mmaudio/venv` |
+| MMAudio | [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio) | `mmaudio_sfx` text-to-audio | `ASSETS/local_mmaudio/venv` |
 
 Weights for MMAudio are downloaded by the upstream package on first generation (HF; CC-BY-NC 4.0).
 
@@ -58,9 +58,9 @@ Runs that completed under old stage ids (`mmaudio_sfx_flow*`) are **not** auto-m
 |-------|--------|-------------|
 | `sound_design_palettes` | coherence, palettes | plan stages |
 | `sound_design_plan/2` | `assets[]`, cues, optional `generation_notes` | `sfx_prompt_craft` |
-| `sfx_prompt_craft` | `sound_design/sfx_prompts.json` (positive + negative + optional CFG) | `mmaudio_sfx_flow*` |
-| `sfx_prompt_refine` | merged prompt rows for failed assets (optional) | regen via `mmaudio_sfx_flow*` |
-| `mmaudio_sfx_flow*` | WAVs + `mmaudio_qa.json` | mix via `placement_adjustments` |
+| `sfx_prompt_craft` | `sound_design/sfx_prompts.json` (positive + negative + optional CFG) | `mmaudio_sfx` |
+| `sfx_prompt_refine` | merged prompt rows for failed assets (optional) | regen via `mmaudio_sfx` |
+| `mmaudio_sfx` | WAVs + `mmaudio_qa.json` | mix via `placement_adjustments` |
 
 Tuning: [mmaudio-prompt-tuning.md](./mmaudio-prompt-tuning.md) · Regression: [sfx-prompt-regression.md](../prompts/_shared/examples/sfx-prompt-regression.md).
 
@@ -87,4 +87,4 @@ Re-run `./scripts/bootstrap_venv.sh` (or pip install the MMAudio requirements fi
 | MMAudio demo fails | Confirm `ASSETS/local_mmaudio/MMAudio/demo.py` exists after clone |
 | Preclean falls back to `ffmpeg_local` | DeepFilter stack unavailable; check `preclean/provider.json` |
 
-See also [SETUP.md](../SETUP.md) § Local audio stack.
+See also [SETUP.md](../../SETUP.md) § Local audio stack.

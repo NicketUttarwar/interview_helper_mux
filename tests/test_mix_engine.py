@@ -10,6 +10,7 @@ from interview_mux.stages.assembly import build_flow1_edl, run_mix
 from run_fixtures import (
     minimal_manifest,
     minimal_manifest_segment,
+    patch_mix_test_config,
     sound_design_plan_with,
 )
 
@@ -26,6 +27,7 @@ def _write_wav(path: Path, seg: AudioSegment) -> None:
 
 def test_mix_overlays_stinger_above_speech(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
     ctx = RunContext("run_mix_001", create=True)
 
     speech = _tone(440, 2000, gain_db=-6.0)
@@ -91,6 +93,7 @@ def test_mix_overlays_stinger_above_speech(tmp_path: Path, monkeypatch) -> None:
 
 def test_mix_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
     ctx = RunContext("run_mix_002", create=True)
 
     speech = _tone(300, 1500, gain_db=-3.0)
@@ -150,6 +153,7 @@ def test_mix_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
 
 def test_run_mux_marks_mux_flow1_alias(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
     ctx = RunContext("run_mix_004", create=True)
     _write_wav(ctx.path("ingest", "normalized.wav"), _tone(440, 500))
     ctx.write_json(

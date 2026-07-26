@@ -73,7 +73,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `journey.active_substep_id` | string \| null | Server-driven focus substep (`write_approval`, `running`, `gate:{stage}`, `blocked:{stage}`, …) — mirrors GUI `findActiveSubstep` |
+| `journey.active_substep_id` | string \| null | Server-driven focus substep (`running`, `gate:{stage}`, `blocked:{stage}`, …) — mirrors GUI `findActiveSubstep` |
 | `journey.active_substep_label` | string \| null | Human label for the active substep (headline / sidebar hint) |
 | `journey.phase_progress` | object | Per-phase `{done, total}` counts |
 | `journey.phase_guidance` | object | Phase goals and actionable items |
@@ -85,9 +85,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `assets_root`, `executions_root`, `data_root`, `web_port`, `repo_root` | Paths for GUI bootstrap |
 | `api_consent_persist` | From `web.api_consent_persist` (default `true`) |
 | `value_analysis_enabled` | Master `value_analysis.enabled` |
-| `disfluency_extract_enabled` | `disfluency_extract.enabled` |
-| `disfluency_restore_enabled` | `disfluency_restore.enabled` |
-| `journey_ui` | Full `journey_ui` object from merged config (phase sidebar, story board, write approval, etc.) |
+| `journey_ui` | Full `journey_ui` object from merged config (phase sidebar and related flags) |
 | `llm_routing_stage_ids` | Sorted stage ids with LLM routing debug summaries (`web/stages.py` → `LLM_ROUTING_STAGE_IDS`) |
 
 ---
@@ -96,13 +94,13 @@ Partial updates merge into the existing active session (unset fields are preserv
 
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
-| `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log`, `handoff_ack` map | **404** |
-| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `handoff_ack`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, `REMOVED_selected_flow`, … | **404** |
+| `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log` | **404** |
+| `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, … | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** (`message`, `level`, `stage`, optional `action_id`) | `ok`, `entry` | **404** |
 | `GET` | `/api/runs/{run_id}/action-trace` | `tail` (int, default 50) | — | `entries[]` — structured action trace rows | **404** |
 | `POST` | `/api/runs/{run_id}/action-trace/dump-last` | — | — | `ok`, `text`, `entries_used`; also appends dump to `gui_log.jsonl` | **404** |
-| `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage routing summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `shard_count`, `primary_attempt_count`, `budget_remaining_primary`, `stuck_count`, `deterministic_lint_errors[]`) from `understanding/stage_runs/` | **404** |
+| `GET` | `/api/runs/{run_id}/llm-routing` | — | — | `attempts[]` — per-stage attempt summaries (`stage`, `task_kind`, `attempt`, `verdict`, `model_tier`, `deterministic_lint_errors[]`) from `understanding/stage_runs/`. Debug read-out only; there is no routing layer to configure. | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |
 | `PUT` | `/api/runs/{run_id}/llm-calls/record` | — | **LlmCallRecordUpdateBody** `{path, volley?, raw_response?}` | `ok`, `record` | **404**, **400** |
@@ -125,24 +123,16 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `POST` | `/api/runs/{run_id}/fill-artifact-gaps` | — | **FillArtifactGapsBody** `{path, api_consents?}` | Same ack shape as `execute` — background `mode: stage` for producing stage | **400** unknown path, **409** job running, **404** |
 | `POST` | `/api/runs/{run_id}/extract-value-features` | — | — | `{ok, profiles_written[]}` when `value_analysis.enabled` | **400** if disabled, **404** |
 | `PUT` | `/api/runs/{run_id}/artifact/text` | — | **ArtifactTextBody** `{path, text, invalidate_from?}` | `ok`, `path` | **400** if path not in stage editable/artifacts or is `.json`, **404** |
-| `POST` | `/api/runs/{run_id}/handoff-ack` | — | **HandoffAckBody** `{stage_id}` | `ok`, `handoff_ack` (updates `run_meta.handoff_ack`) | **404**, **409** `hypothesis_confirmation_required` when `speaker_roles` has unconfirmed `conversation_hypotheses` |
 | `POST` | `/api/runs/{run_id}/speaker-roles/confirm-hypothesis` | — | `{hypothesis_id}` | `ok`, `speakers` (applies hypothesis, re-enriches `gap_sensitivity`, syncs `analysis_state`, invalidates downstream from `source_topology_build`) | **400**, **409** `run_busy` |
-| `POST` | `/api/runs/{run_id}/flow` | — | **FlowBody** | `ok`, `REMOVED_selected_flow` | **404** |
 | `POST` | `/api/runs/{run_id}/preclean-offer` | — | **PrecleanOfferBody** | `ok`, `changed`, `audio_preclean` | **400** invalid checkpoint/scope, **404** |
 | `GET` | `/api/runs/{run_id}/stages/{stage_id}/reuse-offers` | — | — | `eligible`, `blocking`, `candidates[]` (hash fields, `paths[]`, `same_source_audio`), `pending_decision`, `current_source_audio_hash_short` | **404** unknown stage |
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/reuse` | — | **StageReuseBody** `{action, source_run_id?}` | `ok`, `stage_reuse`, `copied[]` on accept | **400** ineligible source, **404** |
-| `GET` | `/api/runs/{run_id}/pending-writes` | — | — | `stages[]` with `{stage_id, paths[]}` | **404** |
-| `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}` | — | — | `{stage_id, paths[]}` | **404** if none staged |
-| `GET` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | `path` (required) | — | JSON object, or `{text}` for `.md`/`.txt` | **404** |
-| `PUT` | `/api/runs/{run_id}/pending-writes/{stage_id}/content` | — | **PendingWriteContentBody** `{path, data? \| text?}` | `ok`, `path` | **400** |
-| `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/approve` | — | — | `ok`, `flushed[]`, `stage_id` — copies staging → final paths, marks stage done | **404** if none staged |
 | `GET` | `/api/runs/{run_id}/segmentation-review` | — | — | Parity report: `source_paths`, `contract`, `parity_errors`, `cross_validate_errors`, `pending_paths`, `ready` | — |
-| `POST` | `/api/runs/{run_id}/approve-segmentation-writes` | — | — | Paired flush: `boundary_detection` then `segment_classification` with parity + cross-validate gates | **404** / **409** |
-| `POST` | `/api/runs/{run_id}/pending-writes/approve-batch` | — | optional `{phases?: string[], stage_ids?: string[]}` | `ok`, `approved{}`, `errors{}` — batch Save for first-try phase end | **409** run_busy |
 | `POST` | `/api/runs/{run_id}/g1/skip-optional` | — | optional `{line_ids?: string[]}` | `ok`, `skipped[]`, `g1_missing[]` — mark non-blocking VO optional | **404** |
-| `POST` | `/api/runs/{run_id}/pending-writes/{stage_id}/discard` | — | — | `ok`, `stage_id` — clears staging, invalidates from stage | **404** |
 
-**GUI after approve/discard/gate complete:** The React client calls `advanceFromCheckpoint()` (refresh run → auto-execute next stage or focus blocker). See [gui-flow-hardening.md](./gui-flow-hardening.md).
+**Removed:** the `pending-writes/*` write-approval routes and `POST …/handoff-ack`. Artifacts auto-commit (`v2.auto_commit_artifacts: true`) and there are no inter-stage handoff acks.
+
+**GUI after a gate completes:** The React client calls `advanceFromCheckpoint()` (refresh run → auto-execute next stage or focus blocker).
 | `GET` | `/api/runs/{run_id}/sfx-prompts` | — | — | `path`, `prompts[]`, `review`, `review_required`, `can_generate`, `listen_results[]`, `generated_assets[]` (`asset_id`, `path` under `sound_design/assets/`) | **404** missing prompts artifact |
 | `PUT` | `/api/runs/{run_id}/sfx-prompts` | — | **ArtifactBody** (`path` must be `sound_design/sfx_prompts.json`) | `ok`, `path`, `review` (approval reset on edit) | **400** invalid path/payload, **404** |
 | `POST` | `/api/runs/{run_id}/sfx-prompts/approve` | — | **SfxPromptApproveBody** | `ok`, `review`, `asset_ids`; logs `sfx_prompts_approved` | **404** missing prompts artifact |
@@ -157,12 +147,8 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/transcript-review` | — | — | See **Transcript review response** below | **404** |
 | `PUT` | `/api/runs/{run_id}/transcript-review/{chunk_id}` | — | **TranscriptChunkBody** | From `save_chunk_correction` | **404** no queue |
 | `POST` | `/api/runs/{run_id}/transcript-review/complete` | — | **TranscriptReviewCompleteBody** | `ok`, `transcript_review_clear` | **400** queue not ready or pending chunks |
-| `GET` | `/api/runs/{run_id}/disfluency-review` | — | — | Events, stats, `pending_count`, `review_complete` | **404** |
-| `PUT` | `/api/runs/{run_id}/disfluency-review/{event_id}` | — | **DisfluencyEventBody** (`review_status`, optional `text`, `include_in_restore`) | `ok`, `stats` | **404** unknown event |
-| `POST` | `/api/runs/{run_id}/disfluency-review/complete` | — | — | `ok`, `disfluency_review_clear` | **400** pending events |
-| `PATCH` | `/api/runs/{run_id}/disfluency-restore` | — | **DisfluencyRestoreBody** (`enabled`) | `ok`, `disfluency_restore_enabled` | **404** |
-| `GET` | `/api/runs/{run_id}/story-board` | — | — | `analysis_state`, `investigation_queue`, `content_brief`, `narrative_plan` (nullable), `source_acoustic_profile` (nullable), `value_features` (nullable), `operator_verified` | **404** |
-| `PATCH` | `/api/runs/{run_id}/investigation-queue/{item_id}` | — | **InvestigationPatchBody** `{status}` | `ok`, `investigation_queue` — updates `understanding/investigation_queue.json` | **404** item/queue, **400** invalid queue |
+| `GET` | `/api/runs/{run_id}/story-board` | — | — | **Legacy, no GUI consumer.** `analysis_state`, `investigation_queue`, `content_brief`, `narrative_plan` (nullable), `source_acoustic_profile` (nullable), `value_features` (nullable), `operator_verified` | **404** |
+| `PATCH` | `/api/runs/{run_id}/investigation-queue/{item_id}` | — | **InvestigationPatchBody** `{status}` | **Legacy, no GUI consumer.** `ok`, `investigation_queue` — updates `understanding/investigation_queue.json` | **404** item/queue, **400** invalid queue |
 
 | `GET` | `/api/session/lineage` | — | — | Immediate-previous run + per-stage reuse eligibility | — |
 | `GET` | `/api/runs/{run_id}/workspace` | — | — | Working directory summary | — |
@@ -170,9 +156,9 @@ Partial updates merge into the existing active session (unset fields are preserv
 
 **Removed:** `GET /api/runs/{run_id}/audio-quality` (404 — use journey snapshot + `PrecleanOfferCard`).
 | `POST` | `/api/runs/{run_id}/milestones/preview-listened` | — | — | `ok`, `journey` — sets `preview_listened_at` when `journey_ui.require_preview_listen` gates polish CTAs | **404** |
-| `GET` | `/api/runs/{run_id}/analysis-profile` | — | — | `analysis_state`, `investigation_queue`, `editable_paths`, `operator_verified`, `completion` | **404** |
-| `PUT` | `/api/runs/{run_id}/analysis-profile` | — | **AnalysisProfileBody** | `ok`, `operator_verified`, `completion` | **404** |
-| `POST` | `/api/runs/{run_id}/analysis-profile/verify` | — | — | `ok`, `operator_verified: true` | **404** |
+| `GET` | `/api/runs/{run_id}/analysis-profile` | — | — | **Legacy, no GUI consumer and no longer a gate.** `analysis_state`, `investigation_queue`, `editable_paths`, `operator_verified`, `completion` | **404** |
+| `PUT` | `/api/runs/{run_id}/analysis-profile` | — | **AnalysisProfileBody** | **Legacy.** `ok`, `operator_verified`, `completion` | **404** |
+| `POST` | `/api/runs/{run_id}/analysis-profile/verify` | — | — | **Legacy.** `ok`, `operator_verified: true` — does not block any stage | **404** |
 | `POST` | `/api/runs/{run_id}/vo/{line_id}` | — | **multipart** field `file` (WAV) | `ok`, `path`, `g1_missing` | **404** |
 | `POST` | `/api/runs/{run_id}/reset` | — | **ResetBody** | `ok: true` | **400** missing both fields, **404** audio |
 | `GET` | `/api/runs/{run_id}/audio` | `path` (required); optional `pending=1`, `pending_stage=<stage_id>` | — | Binary file (final path, or staged copy when pending query set) | **404**, **400** |
@@ -183,45 +169,25 @@ Partial updates merge into the existing active session (unset fields are preserv
 
 | Field | Type | Notes |
 |-------|------|--------|
-| `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`flow1`** \| **`flow1_until_preview`** \| **`flow1_polish`** \| **`flow2`** \| **`flow3`** \| **`nle_apply`** |
+| `mode` | string | **`stage`** \| **`analysis`** \| **`analysis_until_g0`** \| **`delivery`** \| **`delivery_until_preview`** \| **`delivery_polish`** \| **`nle_apply`** (Flow 2 / Flow 3 modes removed) |
 | `nle_full_refresh` | bool | Optional for **`nle_apply`** — also run `transitions` and `edl_narrative_audit` before EDL rebuild (legacy; prefer `nle_apply_mode: full_refresh`) |
 | `nle_apply_mode` | string | Optional for **`nle_apply`**: `trim_only` (EDL + preview only), `structural` (default — ranking when structural edits), `full_refresh` (structural + transitions + EDL narrative audit) |
 | `stage` | string \| null | For `mode=stage`: stage id to run. Special: `transcript_review` triggers sign-off helper (see code). |
-| `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `flow*`, passed as pipeline `from_stage`. |
-| `until_stage` | string \| null | For batch modes (`analysis`, `flow1`, `flow2`, `flow3`, `flow1_until_preview`, `flow1_polish`): stop after this stage id (inclusive). Journey hints may set this (e.g. `transcript_review_build` for analysis-until-G0). |
-| `api_consents` | object \| null | Map `openai` \| `aws` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`) |
+| `from_stage` | string \| null | If set and differs from `stage` for single-stage runs, **invalidates** from `from_stage` first. For `analysis` / `delivery*`, passed as pipeline `from_stage`. |
+| `until_stage` | string \| null | For batch modes (`analysis`, `delivery`, `delivery_until_preview`, `delivery_polish`): stop after this stage id (inclusive). Journey hints may set this (e.g. `transcript_review_build` for analysis-until-G0). |
+| `api_consents` | object \| null | Map `openai` → `true` when operator granted session access (merged with `ASSETS/.gui/api_consent.json`). OpenAI is the only remote provider. |
 
-**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `awaiting_write_approval`, `interrupted`, `idle`. Additional job fields: `current_stage`, `stage_index`, `stage_total`, `stages_planned` (batch progress), `phase`, `step_index`, `step_total` (intra-stage checkpoint progress for long local stages), `needs_stage_reuse`, `reuse_candidates[]`, `awaiting_write_approval`, `pending_write_stage`. On **`GET /api/runs/{run_id}`**, when `job.status === "error"`, the response includes `job.last_error` with `message`, `stage`, and optional `traceback_excerpt`.
+**Implementation:** `runner.start` returns immediately; poll **`GET …/job`** and **`GET …/log`**. Job `status` values include `running`, `running_with_warnings`, `complete`, `error`, `gate`, `needs_operator`, `interrupted`, `idle`. Additional job fields: `current_stage`, `stage_index`, `stage_total`, `stages_planned` (batch progress), `phase`, `step_index`, `step_total` (intra-stage checkpoint progress for long local stages), `needs_stage_reuse`, `reuse_candidates[]`. On **`GET /api/runs/{run_id}`**, when `job.status === "error"`, the response includes `job.last_error` with `message`, `stage`, and optional `traceback_excerpt`.
 
-Stage `status` in **`GET /api/runs/{run_id}`** may be `awaiting_write_approval` when `.pending_writes/<stage_id>/` has unapproved files.
-
-Mutating endpoints (artifact PUT, pending-write PUT, handoff-ack, NLE, VO upload, etc.) return **HTTP 409** `{"error": "run_busy"}` when `RunDirectoryLock` or the in-process job lock is held.
+Mutating endpoints (artifact PUT, NLE, VO upload, etc.) return **HTTP 409** `{"error": "run_busy"}` when `RunDirectoryLock` or the in-process job lock is held.
 
 **Global exception handler:** Unhandled exceptions and **HTTP 5xx** on routes under `/api/runs/{run_id}/…` append one line to that run’s `gui_log.jsonl` (`stage: api`, `level: error`, message `API {status}: …`, `detail` with path/method/error_class/traceback). Client **4xx** (404 run, 400 validation, 409 busy) are not logged. Handler registered in `create_app()` (`server.py`).
 
-When `journey_ui.require_write_approval_per_stage` is `true`, stage outputs land in `.pending_writes/<stage_id>/` until `POST …/approve`. Reuse copies use the same staging path when approval is enabled.
+**Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files. This is a log field naming the artifacts a stage produced — not an operator handoff ack.
 
-**Log handoff:** On stage completion, `gui_log.jsonl` may include `detail` JSON with `handoff: [paths…]` and optional `audit_path` for LLM `stage_runs` audit files.
+**MMAudio sound-design stage (`mmaudio_sfx`):** local MMAudio text-to-audio per asset per unique SDP `asset_id` (variant `large_44k_v2` default, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav`. `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
 
-**MMAudio sound-design stages (`mmaudio_sfx` / `REMOVED_mmaudio_flow2`):** local MMAudio text-to-audio per asset per unique SDP `asset_id` (variant `large_44k_v2` default, `force_instrumental`: true by default); canonical WAVs at `sound_design/assets/{asset_id}.wav` (mirrored under `flow_*_*/sfx/`). `music_length_ms` is derived from plan `duration_seconds` (not operator-edited craft rows); outputs shorter than 3 s are trimmed after generation. Listen via **`GET …/audio?path=sound_design/assets/{asset_id}.wav`**.
-
-**Mix stages (`mix` / `REMOVED_mix_flow2`):** canonical pipeline ids after BUILD-066 (VO + SFX assembly). Legacy ids `mux_flow1` / `mux_flow2` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in default `DELIVERY_ORDER` / `REMOVED_FLOW2_ORDER`.
-
-### `FlowBody`
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `flow` | string | **`flow1`** \| **`flow2`** \| **`flow3`** (`FlowBody` pattern in `server.py`) |
-
-### `PendingWriteContentBody`
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `path` | string | Relative path under run (same as final artifact path) |
-| `data` | any | Full JSON document (for `.json` paths) |
-| `text` | string | Plain text (for `.md`, `.txt`) |
-
-Exactly one of `data` or `text` required.
+**Mix stage (`mix`):** canonical pipeline id (VO + SFX assembly). Legacy id `mux_flow1` still accepted for `mode: stage` single runs. v1 `podcast_sfx_brief` / `sfx_brief` are not in `DELIVERY_ORDER`. There is no flow selector — Flow 2 / Flow 3 orders were removed.
 
 ### `StageReuseBody`
 

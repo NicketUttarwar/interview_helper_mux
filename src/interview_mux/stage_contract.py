@@ -35,7 +35,7 @@ class SufficiencyRule:
     min_length: int | None = None
     min_count: int | None = None
     when: dict[str, Any] = field(default_factory=dict)
-    remediation: str = "micro_gap_fill"
+    remediation: str = "volley_retry"
 
 @dataclass
 class StageContract:
@@ -74,7 +74,7 @@ def _parse_contract(stage_id: str, raw: dict[str, Any]) -> StageContract:
             min_length=s.get("min_length"),
             min_count=s.get("min_count"),
             when=dict(s.get("when") or {}),
-            remediation=str(s.get("remediation") or "micro_gap_fill"),
+            remediation=str(s.get("remediation") or "volley_retry"),
         )
         for s in suff_raw
         if isinstance(s, dict)

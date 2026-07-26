@@ -16,7 +16,7 @@ Branches after operator gate G2.
 
 **Before extended Flow 1:** Operator should verify interview profile (`meta.operator_verified`) — see [operator-gates.md](../../workflows/operator-gates.md).
 
-**After ranking:** `assembly_preview.wav` for listen-before-SFX — see [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+**After ranking:** `assembly_preview.wav` for listen-before-SFX — see [stage-contracts/00-INDEX.md](../../cross-cutting/stage-contracts/00-INDEX.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
 **Narrative QC:** `python tools/validate_narrative.py --run-id <exec_id>` — topic coverage + non-empty chapters (`interview_mux/narrative_qc.py`). Pipeline warns before `full_master_ranking` / `edl`; `narrative_qc.strict: true` blocks.
 
@@ -59,9 +59,3 @@ See [publishing/README.md](../publishing/README.md).
 - `selection.py`
 - `REMOVED_selection_flow2.py`
 - `REMOVED_publishing_flow3.py`
-
----
-
-## Build-out
-
-BUILD-029–031, BUILD-040, BUILD-045 · [README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md)

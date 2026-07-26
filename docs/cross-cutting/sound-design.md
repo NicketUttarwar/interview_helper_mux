@@ -2,15 +2,13 @@
 
 **Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
 
-**Build tickets:** [Wave 5 — done](../build-out/README.md#wave-5--coherent-sound-design-done)
-
 **Prompt-stage guardrails:** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md)
 
 **Local audio stack:** [local-audio-stack.md](./local-audio-stack.md) — DeepFilterNet preclean + MMAudio SFX (local venvs).
 
 **Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, local MMAudio subprocess, `openai` for craft stages).
 
-**Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [plan-flow2](../prompts/sound_design/plan-flow2.system.txt), [sfx-prompt-craft](../prompts/sound_design/sfx-prompt-craft.system.txt), [sfx-prompt-refine](../prompts/sound_design/sfx-prompt-refine.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
+**Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [sfx-prompt-craft](../prompts/sound_design/sfx-prompt-craft.system.txt), [sfx-prompt-refine](../prompts/sound_design/sfx-prompt-refine.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
 
 **Per-interview acoustic baseline (shipped, BUILD-082):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
 
@@ -189,7 +187,6 @@ flowchart TB
 |-------|------------------------------|-------------|
 | `sound_design_palettes` | flagship | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
 | `sound_design_plan` | flagship | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
-| `REMOVED_sdp_flow2` | flagship | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
 | `sfx_prompt_craft` | flagship | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
 | `sfx_prompt_refine` | flagship | [sfx-prompt-refine.system.txt](../prompts/sound_design/sfx-prompt-refine.system.txt) |
 

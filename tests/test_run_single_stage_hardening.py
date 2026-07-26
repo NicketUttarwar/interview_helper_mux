@@ -22,10 +22,6 @@ def test_run_single_stage_calls_upstream_check(tmp_path, monkeypatch):
         _fake_upstream,
     )
     monkeypatch.setattr(
-        "interview_mux.analysis_orchestrator.drain_investigation_queue",
-        lambda *a, **k: None,
-    )
-    monkeypatch.setattr(
         "interview_mux.artifact_cross_validate.maybe_cross_validate_after_stage",
         lambda *a, **k: None,
     )
@@ -40,10 +36,6 @@ def test_run_single_stage_calls_upstream_check(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "interview_mux.stages.understanding.run_content_context",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "interview_mux.write_staging.run_wrapped_stage",
-        lambda c, s, fn: fn(),
     )
 
     run_single_stage(ctx, "content_context")

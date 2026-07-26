@@ -18,7 +18,7 @@ function phaseStatus(
   }
   const statuses = stageIds.map((id) => run.stages.find((s) => s.id === id)?.status ?? "pending");
   if (statuses.every((s) => s === "done")) return "done";
-  if (statuses.some((s) => s === "running" || s === "action_required" || s === "error")) {
+  if (statuses.some((s) => s === "action_required" || s === "awaiting_write_approval")) {
     return "active";
   }
   const nav = resolvePipelineNav(run, { selectedStageId: null, jobRunning: false, apiGrants: {} });

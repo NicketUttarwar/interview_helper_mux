@@ -47,7 +47,7 @@ Manifest carries: window list (kind, source refs, start/end ms), total duration,
 
 Reuse existing analysis rather than new DSP where possible:
 
-- Source acoustic profile patterns ([`source_acoustic_profile.py`](../../src/interview_mux/source_acoustic_profile.py))
+- Source acoustic profile patterns ([`acoustic_profile.py`](../../src/interview_mux/acoustic_profile.py))
 - Intelligibility ceiling / speech-band checks ([`master_qc.py`](../../src/interview_mux/master_qc.py))
 - MMAudio / CLAP semantic QA patterns ([`mmaudio_asset_qa.py`](../../src/interview_mux/mmaudio_asset_qa.py))
 

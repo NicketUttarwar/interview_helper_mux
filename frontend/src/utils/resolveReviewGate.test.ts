@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { resolveReviewGateSpec } from "./resolveReviewGate";
-import type { RunData } from "../types";
+import type { RunData, StageInfo, StageStep } from "../types";
+import { makeGuidance, makeStage } from "../test/runFixtures";
 
-function stage(
-  id: string,
-  status: RunData["stages"][0]["status"],
-  steps?: RunData["stages"][0]["guidance"] extends { steps?: infer S } ? S : never,
-) {
-  return { id, title: id, status, phase: "prepare" as const, guidance: { steps } };
+function stage(id: string, status: StageInfo["status"], steps?: StageStep[]): StageInfo {
+  return makeStage(id, { status, phase: "prepare", guidance: makeGuidance({ steps }) });
 }
 
 describe("resolveReviewGateSpec", () => {

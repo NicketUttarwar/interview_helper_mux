@@ -7,7 +7,7 @@ from interview_mux.mastering_auditions import (
     plan_hash,
     select_audition_candidates,
 )
-from tests.mastering_quality_corpus import candidates, load_fixture
+from mastering_quality_corpus import candidates, load_fixture
 
 
 def test_audition_manifest_covers_opening_hinge_and_dense():

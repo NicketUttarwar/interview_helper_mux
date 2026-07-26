@@ -31,12 +31,11 @@ import type {
 import { formatApiError } from "../utils/safeApi";
 import { isJobActivelyRunning } from "../utils/jobStatus";
 import { isOperatorGateStartResponse } from "../utils/jobStartResponse";
-import { countRequiredAttention, stageNeedsAttention } from "../utils/attentionQueue";
+import { countRequiredAttention } from "../utils/attentionQueue";
 import { maybePingForRequiredAttention } from "../utils/attentionPing";
 import { resolveOperatorAction } from "../utils/resolveOperatorAction";
 import {
   actionSummaryText,
-  findPendingFocusStage,
   resolveOperatorFocusStageId,
 } from "../utils/checkpoint";
 import { ALL_API_CONSENTS, mapGateToStage } from "../utils";
@@ -52,7 +51,6 @@ import { runStepPrimaryPrep, runStepPrimaryPreps } from "../utils/stepPrimaryPre
 import { describeExecuteBody } from "../utils/operatorActionLog";
 import { guardBusy } from "../utils/guardBusy";
 import { jobCompletionHint } from "../utils/jobCompletionHints";
-import { executeBodyForStage } from "../utils/operatorActionHandlers";
 import { scrollToStageStep } from "../utils/activateStageStep";
 import { resolveVirtualPipelineFocus } from "../utils/virtualPipelineFocus";
 import {
@@ -64,10 +62,7 @@ import {
   type AdvancePipelineOpts,
   type ExecuteJobSource,
 } from "../utils/checkpointContinuation";
-import {
-  canAutoRunStage,
-  isPipelineAutopilotEnabled,
-} from "../utils/pipelineAutopilot";
+import { isPipelineAutopilotEnabled } from "../utils/pipelineAutopilot";
 import { resolveAutopilotCheckpoint } from "../utils/autopilotResolution";
 import {
   focusNextRunnableStageWorkbench,
@@ -85,12 +80,9 @@ import {
   shouldOpenTranscriptReuseEdit,
   syncTranscriptReuseEditConsumed,
 } from "../utils/transcriptReuseEditGate";
-import {
-  clampPipelineSubTab,
-  pipelineSubTabAvailability,
-} from "../utils/pipelineSubTabAvailability";
+import { clampPipelineSubTab } from "../utils/pipelineSubTabAvailability";
 import { navigatePipelineSubTab as navigatePipelineSubTabUtil } from "../utils/navigatePipelineSubTab";
-import { setRunState, bumpLocalVersion } from "./runStateStore";
+import { setRunState } from "./runStateStore";
 import { JobProvider } from "./providers/JobProvider";
 import { RunProvider } from "./providers/RunProvider";
 import { SessionProvider } from "./providers/SessionProvider";
@@ -303,7 +295,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const sessionUiRevisionRef = useRef(0);
   const userDismissedActionRef = useRef(false);
   const lastAutoOpenKeyRef = useRef<string | null>(null);
-  const lastDismissedFocusKeyRef = useRef<string | null>(null);
   const userPinnedStageIdRef = useRef<string | null>(null);
   const runRefreshTickRef = useRef(0);
 

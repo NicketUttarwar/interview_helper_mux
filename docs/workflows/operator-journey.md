@@ -19,9 +19,12 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 
 ## Removed from v2
 
-- G0.5 disfluency review, analysis profile gate, G2 flow picker
+Deleted from the codebase — not disabled, not behind a flag. Full list: [docs/v2/drop-manifest.md](../v2/drop-manifest.md).
+
+- G0.5 disfluency review, analysis profile gate, G2 flow picker (Flow 2 / Flow 3)
 - Autopilot / Decision Wizard, per-stage write approval, handoffs
 - Story / Debug / Volley / Profile / Files pipeline sub-tabs (Stage + Timeline only)
+- AWS Transcribe — STT is local MLX only
 
 ## CLI path
 

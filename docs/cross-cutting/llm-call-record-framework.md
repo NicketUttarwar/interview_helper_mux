@@ -2,7 +2,7 @@
 
 **Status: shipped (runtime)** — every OpenAI Chat Completions call made through `run_prompt_envelope` is stored with a **stable label**, full request/response, and **LLM volley** (message-packet) fields for copy-paste and reconstruction. See [volley-glossary.md](./volley-glossary.md) — this is not speaker volley (podcast conversation).
 
-**Related:** [artifact-layout.md](./artifact-layout.md) · [context-padding.md](./context-padding.md) · [llm-orchestration.md](./llm-orchestration.md) · [local-llm-tier.md](./local-llm-tier.md) (future `provider: local_mlx`)
+**Related:** [artifact-layout.md](./artifact-layout.md) · [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) · [`local_llm` config](./config-keys.md#local_llm) (future `provider: local_mlx`)
 
 ---
 
@@ -113,7 +113,7 @@ from pathlib import Path
 from interview_mux.llm_call_record import load_call_record, messages_to_volley_only, messages_to_openai_format
 
 rec = load_call_record(Path("ASSETS/executions/exec_001.../understanding/llm_calls/speaker_roles/attempt_001/01_primary.json"))
-volley_only = messages_to_volley_only(rec)       # user/assistant for context_volley
+volley_only = messages_to_volley_only(rec)       # user/assistant message packet only
 full_messages = messages_to_openai_format(rec) # includes system
 ```
 
@@ -189,4 +189,4 @@ python tools/export_llm_calls.py --run-id exec_001_... --label-contains arbiter 
 
 ## Future: local LLM
 
-When [local-llm-tier.md](./local-llm-tier.md) ships, local calls use the same schema with `provider: local_mlx` and `importance: low|medium` so OpenAI and on-device calls share one index.
+When the [local MLX tier](./config-keys.md#local_llm) records its own calls, they use the same schema with `provider: local_mlx` and `importance: low|medium` so OpenAI and on-device calls share one index.

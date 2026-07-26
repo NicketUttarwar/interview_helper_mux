@@ -7,7 +7,10 @@ import {
   togglePlayPause,
 } from "./audioPlayback";
 
-function mockAudio(overrides: Partial<HTMLAudioElement> = {}): HTMLAudioElement {
+/** Tests drive `paused` directly; the real DOM property is read-only. */
+type MockAudio = Omit<HTMLAudioElement, "paused"> & { paused: boolean };
+
+function mockAudio(overrides: Partial<MockAudio> = {}): MockAudio {
   const listeners = new Map<string, Set<EventListener>>();
   const el = {
     paused: true,
@@ -15,11 +18,11 @@ function mockAudio(overrides: Partial<HTMLAudioElement> = {}): HTMLAudioElement 
     currentSrc: "",
     currentTime: 0,
     readyState: 4,
-    play: vi.fn(async function (this: HTMLAudioElement) {
+    play: vi.fn(async function (this: MockAudio) {
       this.paused = false;
       listeners.get("play")?.forEach((fn) => fn(new Event("play")));
     }),
-    pause: vi.fn(function (this: HTMLAudioElement) {
+    pause: vi.fn(function (this: MockAudio) {
       this.paused = true;
     }),
     load: vi.fn(),
@@ -31,7 +34,7 @@ function mockAudio(overrides: Partial<HTMLAudioElement> = {}): HTMLAudioElement 
       listeners.get(type)?.delete(fn);
     }),
     ...overrides,
-  } as unknown as HTMLAudioElement;
+  } as unknown as MockAudio;
   return el;
 }
 

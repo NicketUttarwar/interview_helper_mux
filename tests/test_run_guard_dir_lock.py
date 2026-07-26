@@ -14,6 +14,7 @@ from interview_mux.write_staging import (
     exit_stage_staging,
     list_pending_paths,
 )
+from run_fixtures import patch_write_approval_enabled
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -34,6 +35,7 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
         "interview_mux.write_staging.merged_config",
         lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
     )
+    patch_write_approval_enabled(monkeypatch, enabled=True)
     rid = "exec_guard_20260101T000000Z"
     ctx = RunContext(rid, create=True)
     ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)
@@ -82,7 +84,6 @@ def test_large_wav_flush_under_run_guard(tmp_path: Path, monkeypatch: pytest.Mon
 
     with runner.run_guard(ctx.run_id):
         paths = list_pending_paths(ctx, "audio_preclean")
-        runner.mark_write_approval_saving(ctx, "audio_preclean", paths)
         from interview_mux.write_staging import approve_stage_writes
 
         flushed = approve_stage_writes(ctx, "audio_preclean")

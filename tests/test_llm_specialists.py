@@ -161,10 +161,6 @@ def test_run_specialist_injects_example_pack(tmp_path, monkeypatch):
         "interview_mux.llm_specialists.run_prompt_envelope",
         fake_run_prompt_envelope,
     )
-    monkeypatch.setattr(
-        "interview_mux.llm_specialists.prepare_volley_for_llm",
-        lambda *_a, **_k: ([{"role": "user", "content": "{}"}], None),
-    )
     run_specialist(ctx, "comprehension_risk_blind", "missing_framing", {"segments": {}})
     assert "Compact examples" in captured.get("system", "") or "Examples" in captured.get("system", "")
 
@@ -215,13 +211,13 @@ def test_apply_segment_topic_patches_invalidates_downstream_with_hardening(tmp_p
         stage_key="segment_classification",
     )
     ctx.mark_done("missing_framing")
-    ctx.mark_done("optimal_questions")
+    ctx.mark_done("gap_framing_compose")
     from run_fixtures import populated_analysis_state
 
     state = populated_analysis_state(ctx.run_id)
     state.setdefault("meta", {})["stage_summaries"] = {
         "missing_framing": {"status": "complete"},
-        "optimal_questions": {"status": "complete"},
+        "gap_framing_compose": {"status": "complete"},
     }
     ctx.write_json("understanding/analysis_state.json", state)
     applied = apply_segment_topic_patches(
@@ -230,7 +226,7 @@ def test_apply_segment_topic_patches_invalidates_downstream_with_hardening(tmp_p
     )
     assert applied == 1
     assert not ctx.is_done("missing_framing")
-    assert not ctx.is_done("optimal_questions")
+    assert not ctx.is_done("gap_framing_compose")
     summaries = (ctx.read_json("understanding/analysis_state.json").get("meta") or {}).get("stage_summaries") or {}
     assert "missing_framing" not in summaries
-    assert "optimal_questions" not in summaries
+    assert "gap_framing_compose" not in summaries

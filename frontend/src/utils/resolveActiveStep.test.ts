@@ -6,14 +6,19 @@ import {
   shouldAdvanceStaleStep,
   substepIdToStepId,
 } from "./resolveActiveStep";
-import type { RunData } from "../types";
+import type { RunData, StageInfo, StageStep } from "../types";
+import { makeGuidance, makeJourney, makeStage, makeStep } from "../test/runFixtures";
 
 function stage(
   id: string,
-  status: RunData["stages"][0]["status"],
-  steps: RunData["stages"][0]["guidance"] extends { steps?: infer S } ? S : never,
-) {
-  return { id, title: id, status, phase: "prepare" as const, guidance: { steps } };
+  status: StageInfo["status"],
+  steps: Array<Partial<StageStep> & { id: string }>,
+): StageInfo {
+  return makeStage(id, {
+    status,
+    phase: "prepare",
+    guidance: makeGuidance({ steps: steps.map((s) => makeStep(s.id, s)) }),
+  });
 }
 
 describe("substepIdToStepId", () => {
@@ -84,14 +89,14 @@ describe("resolveFocusStepId", () => {
             primary_button: "Complete transcript review",
           },
         ]),
-        stage("disfluency_review", "action_required", [
-          { id: "review_fillers", status: "todo", kind: "gate", number: 1, label: "Review", review: [] },
-          { id: "complete_g05", status: "todo", kind: "gate", number: 3, label: "Complete", review: [] },
+        stage("g1_vo_pickup", "action_required", [
+          { id: "record_pickups", status: "todo", kind: "gate", number: 1, label: "Record", review: [] },
+          { id: "complete_g1", status: "todo", kind: "gate", number: 3, label: "Complete", review: [] },
         ]),
       ],
     };
     expect(resolveFocusStepId(run, "transcript_review")).toBe("review_transcript");
-    expect(resolveFocusStepId(run, "disfluency_review")).toBe("review_fillers");
+    expect(resolveFocusStepId(run, "g1_vo_pickup")).toBe("record_pickups");
   });
 
   it("does not apply another stage's journey substep when browsing", () => {
@@ -122,7 +127,7 @@ describe("resolveFocusStepId", () => {
           },
         ]),
       ],
-      journey: { active_substep_id: "write_approval:transcribe" },
+      journey: makeJourney({ active_substep_id: "write_approval:transcribe" }),
       job: {
         status: "awaiting_write_approval",
         pending_write_stage: "transcribe",

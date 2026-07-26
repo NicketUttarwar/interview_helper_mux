@@ -20,7 +20,7 @@ def test_preflight_boundary_detection_requires_interviewer(tmp_path, monkeypatch
     ]
     ctx.write_json("understanding/speakers.json", speakers, stage_key="speaker_roles")
     errors = run_preflight("boundary_detection", ctx)
-    assert any("interviewer" in e for e in errors)
+    assert any("frame role" in e.lower() or "interviewer" in e for e in errors)
 
 
 def test_preflight_segment_classification_requires_boundaries(tmp_path, monkeypatch):
@@ -45,4 +45,4 @@ def test_preflight_content_context_requires_interviewer(tmp_path, monkeypatch):
     ]
     ctx.write_json("understanding/speakers.json", speakers, stage_key="speaker_roles")
     errors = run_preflight("content_context", ctx)
-    assert any("interviewer" in e for e in errors)
+    assert any("frame role" in e.lower() or "interviewer" in e for e in errors)

@@ -622,20 +622,10 @@ def _read_stage_artifact(ctx: Any, stage_key: str, *, staged: bool = True) -> tu
     return None, None
 
 def get_stage_issues_summary(ctx: Any, stage_key: str) -> dict[str, Any]:
-    from interview_mux.lint_repair_bridge import lint_errors_structurally_repairable
-
     caps = stage_capabilities(stage_key)
     open_blocking = blocking_issues_remaining(ctx, stage_key)
     preview = build_resolution_preview(ctx, stage_key) if triage_enabled() else []
     bridge_eligible = False
-    if triage_enabled() and stage_key in ("boundary_detection", "segment_classification"):
-        _rel, artifact = _read_stage_artifact(ctx, stage_key, staged=True)
-        if artifact:
-            from interview_mux.deterministic_lint import _LINTERS
-
-            lint_fn = _LINTERS.get(stage_key)
-            lint_errors = list(lint_fn(artifact, ctx) or []) if lint_fn else []
-            bridge_eligible = bool(lint_errors) and lint_errors_structurally_repairable(lint_errors)
     return {
         "tier": caps.get("tier", "manual"),
         "step_label": caps.get("step_label", "Review issues"),
@@ -1012,24 +1002,6 @@ def auto_resolve_stage(
     triage_result = run_triage_pipeline(ctx, stage_key, staged=True)
     if triage_result.errors:
         result.warnings.extend(triage_result.errors[:3])
-
-    from interview_mux.stage_acceptance import stage_acceptance_ok
-
-    if False:
-        acc = stage_acceptance_ok(ctx, stage_key, staged=True, include_downstream=False)
-        if not acc.ok:
-            rem = remediate(
-                ctx,
-                stage_key,
-                RemediationTrigger.ACCEPTANCE_FAIL,
-                acc.sufficiency_errors,
-            )
-            if rem.warnings:
-                result.warnings.extend(rem.warnings[:3])
-            if rem.strategy == "micro_gap_fill" and rem.artifact:
-                _rel, _ = _read_stage_artifact(ctx, stage_key, staged=True)
-                if _rel:
-                    _write_stage_artifact(ctx, stage_key, _rel, rem.artifact)
 
     stale_closed = _close_stale_segment_issues(ctx, stage_key)
     if stale_closed > 0:

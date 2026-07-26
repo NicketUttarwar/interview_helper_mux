@@ -5,10 +5,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_server_ctx
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config, patch_server_ctx
 
 
 def test_sfx_prompts_get_put_approve(tmp_path, monkeypatch) -> None:
+    patch_merged_config(monkeypatch, {"g1_5_require_prompt_approval": True})
     ctx = isolated_run_ctx(tmp_path, "run_g15")
     init_run_meta_for_test(ctx)
     ctx.write_json(
@@ -76,6 +77,10 @@ def test_sfx_listen_result_appends_meta_and_logs(tmp_path, monkeypatch) -> None:
     ctx = isolated_run_ctx(tmp_path, "run_g15_listen")
     init_run_meta_for_test(ctx)
     patch_server_ctx(monkeypatch, ctx)
+    monkeypatch.setattr(
+        "interview_mux.stages.sfx_mmaudio.maybe_auto_refine",
+        lambda *_a, **_k: [],
+    )
     client = TestClient(create_app())
 
     res = client.post(

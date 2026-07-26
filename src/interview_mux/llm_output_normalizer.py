@@ -276,7 +276,7 @@ def normalize_llm_response(
     Permissive decision tree (automation-first):
     1. OMIT nullable / commentary nulls → acknowledge, continue
     2. FABRICATE low-risk optional fields → benign defaults, continue
-    3. BLOCK only evidentiary/critical → record downstream (volley_retry / micro_gap_fill)
+    3. BLOCK only evidentiary/critical → record downstream (volley_retry / full_stage_rerun)
     """
     cfg = null_policy_cfg()
     if task_kind == "arbiter":

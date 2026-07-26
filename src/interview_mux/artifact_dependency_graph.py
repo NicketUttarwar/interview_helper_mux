@@ -68,15 +68,6 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
     "full_master_ranking": ("transitions", "sound_design_plan", "edl"),
     "transitions": ("sound_design_plan", "edl"),
     "sound_design_plan": ("sfx_prompt_craft", "edl"),
-    "sound_design_plan_flow2": ("sfx_prompt_craft",),
-    "highlight_selection": ("sound_design_plan_flow2",),
-    "analysis_profile": (
-        "content_context",
-        "narrative_arc_plan",
-        "full_master_ranking",
-        "topic_coverage_audit",
-        "sound_design_plan",
-    ),
     "g1_vo_pickup": (
         "sound_design_vo_finalize",
         "edl",

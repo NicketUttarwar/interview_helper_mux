@@ -3309,6 +3309,16 @@ def _build_stage_list(
 ) -> list[dict[str, Any]]:
     stages = all_stages_for_run(None)
     from interview_mux.stage_completion import reconcile_stage_done_marker
+    from interview_mux.write_staging import (
+        gate_blocked_stage,
+        stages_with_pending_writes,
+        write_approval_enabled,
+    )
+
+    pending_write_stages = (
+        set(stages_with_pending_writes(ctx)) if write_approval_enabled() else set()
+    )
+    gate_stage = gate_blocked_stage(ctx) if pending_write_stages else None
 
     for s in stages:
         reconcile_stage_done_marker(ctx, s["id"])
@@ -3395,6 +3405,11 @@ def _build_stage_list(
                 s["status"] = "pending"
         else:
             s["status"] = "done" if ctx.is_done(sid) else "pending"
+        if sid in pending_write_stages:
+            if gate_stage == sid:
+                s["status"] = "action_required"
+            else:
+                s["status"] = "awaiting_write_approval"
         info = STAGE_BY_ID.get(sid)
         if info:
             from interview_mux.artifact_completeness import artifact_status_for_stage

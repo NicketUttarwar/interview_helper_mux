@@ -16,11 +16,10 @@ def test_guidance_shows_budget_exhaustion(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     ctx = isolated_run_ctx(tmp_path, "guidance_budget")
-    ctx.write_json(
-        "understanding/analysis_orchestration.json",
-        {"primary_attempt_counts": {"missing_framing": 2}},
-        skip_handoff=True,
-    )
+    base = ctx.path("understanding", "stage_runs", "missing_framing")
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "attempt_001.json").write_text("{}", encoding="utf-8")
+    (base / "attempt_002.json").write_text("{}", encoding="utf-8")
     guidance = build_stage_guidance(ctx, "missing_framing", status="pending")
     ids = [p["id"] for p in guidance["prerequisites"]]
     assert "llm_budget" in ids

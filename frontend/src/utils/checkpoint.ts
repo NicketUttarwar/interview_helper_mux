@@ -4,7 +4,7 @@ import { parseLogDetail } from "./index";
 import { resolveJobStatusContext, reuseStatusLine } from "./operatorStatus";
 import { countRequiredAttention, topAttentionItem } from "./attentionQueue";
 import { findNextRunnableStage } from "./preclean";
-import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
+import { firstUpstreamBlocker } from "./stageOutputs";
 import { isStageHidden } from "./stageVisibility";
 import { gateFocusStageId } from "./gateFocus";
 

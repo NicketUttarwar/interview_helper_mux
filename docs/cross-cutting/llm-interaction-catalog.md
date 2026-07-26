@@ -64,14 +64,12 @@ Post-hook: OF-01 → OS-03.
 
 | ID | task_kind | When | Goal |
 |----|-----------|------|------|
-| OM-01 | `primary` | Every stage attempt | Produce stage artifacts |
-| OM-02 | `arbiter` | After primary parse | accept / uptier / decompose / investigate |
-| OM-03 | `shard` | Decompose or proactive shard | Partial artifact batch |
-| OM-04 | `collate` | After ≥1 shard | Merge shard envelopes |
-| OM-05 | `collate` + volley retry | Collate lint fail | Second collate attempt |
+| OM-01 | `primary` | Every stage attempt (`llm_simple.run_llm_stage_simple`) | Produce stage artifacts |
+| OM-F01 | `fabricate` | `llm_output_normalizer` finds fabricatable null paths | Benign values for low-risk null fields |
 
-Schema: composed `analysis_envelope` + stage artifact (`docs/cross-cutting/json-schemas/artifacts/`).  
-Arbiter: `arbiter_verdict.schema.json`.
+Schema: composed `analysis_envelope` + stage artifact (`docs/cross-cutting/json-schemas/artifacts/`).
+
+**Dropped in v2:** OM-02 (`arbiter`), OM-03 (`shard`), OM-04 / OM-05 (`collate`) and the `OM-MG-*` micro-gap-fill family. `llm_arbiter.py`, `llm_subtasks.py`, `llm_shard_plans.py`, `micro_gap_fill.py` and the remediation orchestrator were deleted — a stage runs one full volley and hard-stops on failure.
 
 ---
 
@@ -85,19 +83,29 @@ Arbiter: `arbiter_verdict.schema.json`.
 
 ---
 
-## Local MLX (LX) + economy planner
+## Local MLX (LX)
 
 | ID | interaction | When | Schema |
 |----|-------------|------|--------|
 | LX-01 | `local_framer` | Quality allowlist / framing path | `local_framer_response.schema.json` |
 | LX-01a–d | `local_{primary,shard,collate,specialist}` | Per task_kind | same |
-| LX-02 | `itr_clarification` | Blocking ITR on allowlisted stages + `local_llm_for_important` | `itr_clarification_options.schema.json` |
-| LX-03 | `local_digest_compress` | Manifest + large/truncated digest | `local_digest_compressor.schema.json` |
-| LX-04 | `local_escalate_advisory` | Manifest (advisory only) | `local_escalate_advisory.schema.json` |
-| LX-05 | `local_shard_prep` | Manifest + fanout ≥ K | `local_shard_packet_prep.schema.json` |
-| OM-LX-P | `local_capability_planner` | ≤1 economy OpenAI plan when fanout ≥ K | envelope + planner artifacts |
 
-Capability router: `local_capability_router.py`. ITR fail-open on verify (`local_llm.structured_outputs.fail_open_on_verify`).
+Only entrypoint: `local_volley_framer.prepare_volley_for_llm` (fail-open).
+
+**Dropped in v2:** LX-02 / LX-02a (`itr_clarification`), LX-03 (`local_digest_compress`), LX-04 (`local_escalate_advisory`), LX-05 (`local_shard_prep`) and OM-LX-P (`local_capability_planner`). `local_capability_router.py`, `local_capability_manifest.py` and `artifact_clarification_llm.py` were deleted.
+
+---
+
+## Mastering quality hardening (OH)
+
+| ID | interaction | Entrypoint |
+|----|-------------|------------|
+| OH-02 | `eval_rubric_mint` | `mastering_shape_gates.emit_eval_rubric` |
+| OH-03 | `semantic_integrity_confirm` | `mastering_semantic_integrity.merge_llm_findings` |
+| OH-C1–C6 | L4 critic panel | `mastering_critics.build_critic_packets` |
+| OH-A1 | `l4_arbiter` | `mastering_critics.merge_panel` |
+
+Gate status: [mastering-quality-hardening.md](./mastering-quality-hardening.md). **Dropped in v2:** OH-01 (`research_router`) and OH-P1 (`polish_audit_audio`).
 
 ---
 
@@ -107,9 +115,8 @@ Capability router: `local_capability_router.py`. ITR fail-open on verify (`local
 |-----------|--------|
 | Coherence report | `coherence/analyze.py` |
 | MMAudio | `sfx_mmaudio` |
-| AWS Transcribe | `transcribe_aws` |
+| Local MLX STT | `transcribe_local` |
 | Interview spine build | `interview_spine_stage` |
-| Disfluency extract | `disfluency` |
 
 ---
 

@@ -4,7 +4,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Coverage rule:** Any **new pipeline stage, gate, GUI panel, or quality offer** should add or extend a subsection here (Pass / If fail table or edge-case bullets). If it is not in this file, operators lack a single checklist source — update in the same PR as the feature.
 
-**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` and **StepActionHeader** (mode + headline + primary). Checkpoint work is **modal-first** — see [ux-operator-model.md](./ux-operator-model.md). Sidebar substeps are navigation-only (`data-testid="substep-{id}"`). **Feedback contract** (toasts, spinners, `guardBusy`, `advanceFromCheckpoint`): [gui-flow-hardening.md](./gui-flow-hardening.md). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
+**Live GUI:** Operator checklists are rendered in-app via `stages[].guidance` and **StepActionHeader** (mode + headline + primary). Checkpoint work is **modal-first** — see [ux-operator-model.md](./ux-operator-model.md). Sidebar substeps are navigation-only (`data-testid="substep-{id}"`). **Feedback contract** (toasts, spinners, `guardBusy`, `advanceFromCheckpoint`): [ui-truth-invariants.md](./ui-truth-invariants.md). This markdown file remains the engineering source; `src/interview_mux/stage_guidance.py` must stay in sync.
 
 ### UX smoke scripts (Pipeline simplification)
 
@@ -25,19 +25,17 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 1. Job `complete` → toast **Step finished — {next_action}**; activity log switches to Live.
 2. Job `gate` / `needs_operator` → toast **Paused for your review**; modal auto-opens on Pipeline tab.
-3. Story Board loads with skeleton (not static placeholder); **Lock story** saves then verifies (PUT before verify POST).
-4. Profile verify from Story / Profile / gate modal — same `completeAnalysisProfile` path; sidebar shows **Verifying profile…** on `analysis_profile` substep while busy.
 5. Resolve investigations — per-item spinner + toast; open count drops in sidebar when `refreshRun` completes.
 6. Coherence / spine / SAP recompute buttons show spinner + start toast.
 
-**Gates — G0 / G0.5 / G1 / G2**
+**Gates — G0 / G1**
 
 1. Each gate: StepActionHeader shows **Needs you**; modal shows single gate panel (no guidance embed).
 2. Complete gate in modal; modal closes via `closeActionModalAfterSuccess`; `advanceFromCheckpoint` advances without duplicate navigation toasts.
 
-**E2E selectors:** prefer `step-action-primary` → modal panel buttons → sidebar substeps ([02-GUI-JOURNEY.md](../../CURSOR_EXECUTE/flow1-gui-e2e/02-GUI-JOURNEY.md)).
+**E2E selectors:** prefer `step-action-primary` → modal panel buttons → sidebar substeps.
 
-**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G0.5 disfluency lock · G1/G2 gates · write approval (`.pending_writes`) · stage reuse (`needs_stage_reuse`) · LLM upstream progress · investigation queue · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_delivery`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL/show-description stages.
+**`stage_guidance.py` parity (GUI bullets):** G0 transcript lock · G1 gate · stage reuse (`needs_stage_reuse`) · LLM upstream progress · cross-artifact checkpoint names (`post_segmentation`, `post_reanchor`, `post_gaps`, `pre_delivery`) · placement QA on mix stages · post-listen QA on MMAudio SFX stages · QC card reminder on ranking/EDL stages.
 
 **GUI ↔ disk mapping:** [gui-surface-map.md](./gui-surface-map.md) (panels, APIs, artifacts).
 
@@ -45,9 +43,9 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 
 **Long interviews / caps:** [long-interview-chunking.md](./long-interview-chunking.md).
 
-**LLM smart routing (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md) · per-stage tiers: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
+**LLM smart routing:** per-stage tiers in [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
-**Flow hardening (preflight):** [LLM-ANALYSIS-ARCHITECTURE.md §18](../../LLM-ANALYSIS-ARCHITECTURE.md#18-flow-hardening) — deterministic prerequisites before flagship OpenAI calls.
+**Flow hardening (preflight):** [`analysis.flow_hardening`](../cross-cutting/config-keys.md#analysisflow_hardening) — deterministic prerequisites before flagship OpenAI calls.
 
 **Cross-artifact checkpoints (after stage run):** `post_segmentation` (segment_classification) · `post_reanchor` (content_brief_reanchor) · `post_gaps` (missing_framing) · `post_optimal_questions` · `post_delivery_brief` · `post_narrative` · `post_ranking` · `post_sound_plan` · `pre_delivery` (analysis complete). GUI shows checkpoint name in stage guidance when hardening is enabled.
 
@@ -118,7 +116,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Iteration cap | `analysis_orchestration.json` not stuck maxing every stage | Widen input or simplify profile; check OpenAI errors in logs |
 | Arbiter verdict | `arbiter_result.verdict` is `accept` before merge | `retry_uptier` / `reject` → read rubric in `docs/prompts/_shared/arbiter-rubrics/<stage>.json` |
 | Deterministic lint | `deterministic_lint_errors` empty in latest `attempt_*.json` | Fix listed keys (schema, caps, ID grounding) before re-run — [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) |
-| Attempt budget | `attempt_budget_exhausted` absent; `attempt_signature` not repeating | Raise limits in `analysis.flow_hardening` only after fixing root cause — [LLM-ANALYSIS-ARCHITECTURE.md §20](../../LLM-ANALYSIS-ARCHITECTURE.md#20-loop-policy) |
+| Attempt cap | `attempt_signature` not repeating across the 2 allowed attempts | No budget to raise — fix the root cause and re-run `--from-stage <stage>` |
 | Stuck signature | Same `attempt_signature` &lt; `stuck_signature_threshold` | Investigation enqueued; do not infinite uptier — check `gui_log.jsonl` |
 
 **Program index:** [llm-guidance-program.md](../cross-cutting/llm-guidance-program.md) · **Export audit:** `python tools/export_llm_calls.py --run-id <exec_id> --format markdown` includes stage-run lint/arbiter appendix.
@@ -150,11 +148,11 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `speaker_roles` | `transcript/full.json` populated; G0 complete | Finish transcript review |
 | `content_context` | Transcript length ≥ ~80 chars; G0 complete | Extend transcript or complete G0 |
 | `boundary_detection` | `speakers.json` with ≥1 `interviewer`; `pause_ladder_hints` + SAP `pace_class` in volley | Re-run `speaker_roles` or edit speakers; `--from-stage boundary_detection` after G0 timestamp fix |
-| `interview_spine_build` | `understanding/interview_spine.json` when enabled; CLAP optional (`retrieval.enabled: false` fail-open) | `--from-stage interview_spine_build` or Story Board **Recompute spine**; complete G0 + SAP first |
-| `source_topology_build` (TBIY) | `source_topology.json` + `flow_adaptation.json`; when `production_style=tbiy_narrative`, Story Board shows conformance score / acts / moat / VO-bridge modes | Confirm topology + pickup speaker; see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md) |
+| `interview_spine_build` | `understanding/interview_spine.json` when enabled; CLAP optional (`retrieval.enabled: false` fail-open) | `--from-stage interview_spine_build` or **Recompute spine**; complete G0 + SAP first |
+| `source_topology_build` (TBIY) | `source_topology.json` + `flow_adaptation.json`; when `production_style=tbiy_narrative`, the stage panel shows conformance score / acts / moat / VO-bridge modes | Confirm topology + pickup speaker; see [tbiy-production-profile.md](../cross-cutting/tbiy-production-profile.md) |
 | `segment_classification` | `boundaries.json` non-empty | Re-run `boundary_detection` |
 | `content_brief_reanchor` | Brief thesis+topics; `manifest.json` exists | Complete segmentation + `content_context` |
-| Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review Story Board panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
+| Coherence (30m+) | `understanding/coherence_report.json` when duration ≥ 30m; review the coherence panel | `POST …/recompute-coherence` or `--from-stage content_brief_reanchor` |
 | `value_features.json` | Trust-dip flags optional; `quality_trajectory_flags` when WAV present | `extract_value_features.py` or auto-extract after `content_context` |
 | `missing_framing` | Pre-stage `comprehension_risk_blind` fail-open; risks in volley when present | Re-run `--from-stage missing_framing` |
 | `optimal_questions` | `gap_evaluations.json` exists | Re-run `missing_framing` |
@@ -170,7 +168,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| Transcript in volley | Within `analysis.context` caps — see [context-padding.md](../cross-cutting/context-padding.md) | Truncate risk: verify themes still grounded; target shard/collate per [llm-orchestration.md](../cross-cutting/llm-orchestration.md) (not v1) |
+| Transcript in volley | Within [`analysis.context`](../cross-cutting/config-keys.md#analysiscontext) caps | Truncate risk: verify themes still grounded; target shard/collate on eligible stages |
 | `max_segments_in_context` | Ranking/coverage not blind to tail segments | Re-segment or run Flow stages with manifest subset if tooling supports |
 
 ---
@@ -194,8 +192,6 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | Dock word edits | `words[].corrected: true` after inline edits; `operator/transcript_corrected.json` updates (`source: dock_edit`) | Re-edit in dock; check `PATCH …/transcript/words` in network log |
 | Fuzzy bulk replace | Repeated mishearings updated in one action; toast “Updated N words” when N &gt; 1 | Lower match strictness; confirm **Also replace similar matches** — [transcript-review.md](../pipeline/transcription/transcript-review.md#fuzzy-find-and-replace-similar-words) |
 | **G0** | `.stage_done/transcript_review` after sign-off | Complete GUI review or CLI sign-off — [transcript-review.md](../pipeline/transcription/transcript-review.md) |
-| **G0.5** | `.stage_done/disfluency_review` after sign-off | Confirm/reject filler clips — [disfluency-extract.md](../pipeline/transcription/disfluency-extract.md) |
-| `disfluency_extract` | `transcript/disfluencies.json` + clips | Optional; skipped when disabled in config |
 | Corrections applied | Spot-check: edited chunk text appears in `full.json` after complete | Re-complete review |
 | Partial review | “Accept remaining” used deliberately; know uncorrected chunks remain | Spot-listen high-error regions later |
 
@@ -227,7 +223,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 |-------|------|--------|
 | `understanding/analysis_state.json` | `meta.operator_verified: true`; `style.tone`, `style.tone_class`, `style.format_class` populated | GUI **Interview profile** → **Mark verified** — [artifact-layout](../cross-cutting/artifact-layout.md#shared-analysis-wave-2) |
 | Before `topic_coverage_audit` | `.stage_done/topic_coverage_audit` absent and profile verified, or re-run from a later Flow 1 stage | Pipeline blocks with `ctx.log` at `level=action`; check `gui_log.jsonl` — [operator-gates.md](./operator-gates.md#profile-gate--flow-1-extended-build-081) |
-| Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | **Story** or **Profile** sub-tabs, or profile-lock CTAs on `topic_coverage_audit` — [operator-flow-audit.md](./operator-flow-audit.md) |
+| Flow 1 stage list (GUI) | Extended Flow 1 stages unlocked after verify | **Story** or **Profile** sub-tabs, or profile-lock CTAs on `topic_coverage_audit` — [gui-click-flow-matrix.md](./gui-click-flow-matrix.md) |
 
 ---
 
@@ -298,7 +294,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | `edl_narrative_audit` | `master/edl_narrative_audit.json`; local LLM framed the volley and flagship review has no blocking issues | Re-run `full_master_ranking`, `transitions`, or `edl_narrative_audit` based on recommendations |
 | `edl` | `master/edl.json`; `vo_pickup` clips with `placement` + `timeline_start_ms`; `gap_placements` matches `gap_report`; NLE exclude/split/reorder/trim in clip bounds when `nle_edits.json` present; `edl_narrative_qc` card passes | `--from-stage edl`; fix `vo_pickup/` filenames or run `python tools/validate_narrative.py --run-id <exec_id> --include-edl` — [artifact-layout](../cross-cutting/artifact-layout.md) |
 | `assembly_preview` | `master/assembly_preview.wav` listened; speech + VO (+ restored fillers when `disfluency_restore` enabled) | `--from-stage assembly_preview`; fix EDL / `vo_pickup/` before MMAudio SFX generation |
-| `mix` | `master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
+| `mix` | `master/assembly.wav` includes speech + VO + SDP beds/stingers; `master.wav` audible mix | `--from-stage mix`; verify SDP `assets[]`, `sound_design/assets/*.wav`, EDL — [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-contracts](../cross-cutting/stage-contracts/00-INDEX.md) |
 | `podcast_sfx_brief` | v1 legacy only (not in default `DELIVERY_ORDER`); optional single-stage rerun | `--from-stage podcast_sfx_brief` if bypassing SDP path |
 | Ordering deadlocks | No `ordering_constraints` cycle; each id in manifest | Edit `narrative_plan.json` or re-run narrative stage |
 
@@ -395,7 +391,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [MMAudio pre-generation](#mmaudio-sfx--preclean) |
 | Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [local-audio-stack.md](../cross-cutting/local-audio-stack.md) · `sound_design/placement_adjustments.json` |
-| Mix path | `mix` / `REMOVED_mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix` or `REMOVED_mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-registry](../build-out/stage-registry.md) |
+| Mix path | `mix` / `REMOVED_mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix` or `REMOVED_mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-contracts](../cross-cutting/stage-contracts/00-INDEX.md) |
 
 ---
 

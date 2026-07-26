@@ -11,6 +11,7 @@ from interview_mux.write_staging import (
     enter_stage_staging,
     exit_stage_staging,
 )
+from run_fixtures import patch_write_approval_enabled
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -42,6 +43,7 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     )
     monkeypatch.setattr("interview_mux.first_try.first_try_mode_enabled", lambda cfg=None: False)
     monkeypatch.setattr("interview_mux.first_try.write_approval_deferred", lambda cfg=None: False)
+    patch_write_approval_enabled(monkeypatch, enabled=True)
     rid = "exec_001_20260101T000000Z"
     ctx = RunContext(rid, create=True)
     ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)

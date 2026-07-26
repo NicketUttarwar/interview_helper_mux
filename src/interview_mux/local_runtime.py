@@ -82,6 +82,16 @@ def resolve_venv_python(runtime_id: str) -> Path:
     return py
 
 
+def runtime_python(runtime_id: str) -> Path:
+    """Alias kept for callers that predate ``resolve_venv_python``."""
+    return resolve_venv_python(runtime_id)
+
+
+def runtime_python(runtime_id: str) -> Path:
+    """Alias for resolve_venv_python (used by synthesis_fallback)."""
+    return resolve_venv_python(runtime_id)
+
+
 def _default_timeout(runtime_id: str) -> int:
     from interview_mux.config import merged_config
 

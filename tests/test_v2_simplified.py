@@ -19,13 +19,13 @@ from interview_mux.write_staging import write_approval_enabled
 
 def test_v2_analysis_order_excludes_disfluency():
     assert "disfluency_extract" not in ANALYSIS_ORDER_V2
-    assert len(ANALYSIS_ORDER_V2) == 19
+    assert len(ANALYSIS_ORDER_V2) == 20
     assert len(DELIVERY_ORDER_V2) == 13
-    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 32
+    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 33
 
 
 def test_v2_llm_stage_count():
-    assert len(ALL_LLM_STAGES_V2) == 15
+    assert len(ALL_LLM_STAGES_V2) == 16
 
 
 def test_v2_enabled_by_default(monkeypatch):

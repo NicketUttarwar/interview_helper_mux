@@ -3,7 +3,7 @@
 Per-stage editorial rubrics for the economy-tier LLM arbiter (`_arbiter`). Each JSON file names one `stage_key` from `STAGE_ARTIFACT_SCHEMAS` in `src/interview_mux/prompt_validation.py`.
 
 **Loader:** `src/interview_mux/arbiter_expectations.py` → `docs/prompts/_shared/arbiter-rubrics/<stage_key>.json`  
-**Contract:** [llm-arbiter-contract.md](./llm-arbiter-contract.md) · [arbiter.system.txt](./arbiter.system.txt)  
+**Heritage:** arbiter routing was removed in v2 — these rubrics now only supply `deterministic_lint_keys` to `deterministic_lint.py`. See [../../v2/drop-manifest.md](../../v2/drop-manifest.md).  
 **Format spec:** [arbiter-rubrics/README.md](./arbiter-rubrics/README.md)
 
 The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept`, `retry_uptier`, `decompose`, `enqueue_investigation`.
@@ -38,8 +38,7 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 | Stage | Rubric file | Severity | Decompose |
 |-------|-------------|----------|-----------|
 | `sound_design_palettes` | [sound_design_palettes.json](./arbiter-rubrics/sound_design_palettes.json) | low | no |
-| `sound_design_plan` | [sound_design_plan.json](./arbiter-rubrics/sound_design_plan.json) | high | no |
-| `REMOVED_sdp_flow2` | [REMOVED_sdp_flow2.json](./arbiter-rubrics/REMOVED_sdp_flow2.json) | high | no |
+| `sound_design_plan` | [sound_design_plan_flow1.json](./arbiter-rubrics/sound_design_plan_flow1.json) | high | no |
 | `sfx_prompt_craft` | [sfx_prompt_craft.json](./arbiter-rubrics/sfx_prompt_craft.json) | low | no |
 | `podcast_sfx_brief` | [podcast_sfx_brief.json](./arbiter-rubrics/podcast_sfx_brief.json) | low | no |
 | `sfx_brief` | [sfx_brief.json](./arbiter-rubrics/sfx_brief.json) | low | no |
@@ -49,8 +48,6 @@ The arbiter **routes only** — it does not rewrite artifacts. Verdicts: `accept
 | Stage | Rubric file | Severity | Decompose |
 |-------|-------------|----------|-----------|
 | `transitions` | [transitions.json](./arbiter-rubrics/transitions.json) | low | no |
-| `REMOVED_highlight_selection` | [REMOVED_highlight_selection.json](./arbiter-rubrics/REMOVED_highlight_selection.json) | high | yes |
-| `REMOVED_podcast_show_description` | [REMOVED_podcast_show_description.json](./arbiter-rubrics/REMOVED_podcast_show_description.json) | high | no |
 
 ---
 
@@ -100,7 +97,7 @@ Non-LLM stages, meta, and specialists do not have rubric files:
 
 - `_arbiter` (uses compact contract, not a producer rubric)
 - `comprehension_risk_blind`, `theme_coverage_pass`, `emphasis_coverage_pass` (specialist passes)
-- `transcript_review`, `disfluency_extract`, `source_acoustic_profile`, `mix_flow*`, `mmaudio_sfx_flow*`
+- `transcript_review`, `source_acoustic_profile`, `mix`, `mmaudio_sfx`
 
 ---
 
@@ -111,4 +108,4 @@ Non-LLM stages, meta, and specialists do not have rubric files:
 3. Register lint handler in `deterministic_lint.py` if needed.
 4. Update [stage-quality-scorecard.md](../../cross-cutting/stage-quality-scorecard.md).
 
-**Related:** [LLM-ANALYSIS-ARCHITECTURE.md](../../LLM-ANALYSIS-ARCHITECTURE.md) §11 · [llm-guidance-program.md](../../cross-cutting/llm-guidance-program.md)
+**Related:** [llm-guidance-program.md](../../cross-cutting/llm-guidance-program.md)

@@ -4,7 +4,6 @@ import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { invokeOperatorActionPrimary, executeBodyForStage } from "../utils/operatorActionHandlers";
 import {
-  WORKFLOW_STEPS,
   currentWorkflowStep,
   stageIdForStep,
   stepNeedsCheckpoint,

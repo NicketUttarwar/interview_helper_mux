@@ -298,46 +298,6 @@ def test_transcript_review_build_reads_prior_stage_artifacts(
     assert ctx.artifact_exists("transcript/review_queue.json")
 
 
-def test_disfluency_extract_reads_prior_stage_artifacts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """disfluency_extract must read approved transcript/audio, not its own staging root."""
-    from interview_mux.stages.disfluency import run_disfluency_extract
-
-    ctx = _ctx(tmp_path, monkeypatch)
-    wav = ctx.final_path("ingest", "normalized.wav")
-    wav.parent.mkdir(parents=True, exist_ok=True)
-    wav.write_bytes(b"RIFF" + b"\0" * 64)
-    ctx.write_json(
-        "transcript/full.json",
-        {
-            "text": "hello",
-            "words": [
-                {
-                    "text": "hello",
-                    "start_ms": 0,
-                    "end_ms": 500,
-                    "speaker_id": "spk_0",
-                    "confidence": 0.5,
-                }
-            ],
-            "segments": [],
-        },
-        skip_handoff=True,
-    )
-    monkeypatch.setattr(
-        "interview_mux.disfluency.config.disfluency_enabled",
-        lambda: True,
-    )
-    enter_stage_staging("disfluency_extract")
-    try:
-        assert not ctx.path("transcript", "full.json").is_file()
-        run_disfluency_extract(ctx)
-    finally:
-        exit_stage_staging()
-    assert ctx.artifact_exists("transcript/disfluencies.json")
-
-
 def test_source_acoustic_profile_reads_prior_stage_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -391,20 +351,6 @@ def test_discard_removes_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     exit_stage_staging()
     discard_stage_writes(ctx, "ingest")
     assert not list_pending_paths(ctx, "ingest")
-
-
-def test_discard_resets_attempt_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from interview_mux.attempt_budget import primary_attempt_count, record_primary_attempt
-
-    ctx = _ctx(tmp_path, monkeypatch)
-    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
-    enter_stage_staging("content_context")
-    record_primary_attempt(ctx, "content_context")
-    record_primary_attempt(ctx, "content_context")
-    exit_stage_staging()
-    assert primary_attempt_count(ctx, "content_context") == 2
-    discard_stage_writes(ctx, "content_context")
-    assert primary_attempt_count(ctx, "content_context") == 0
 
 
 def test_gate_blocks_write_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

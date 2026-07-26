@@ -1,4 +1,4 @@
-import type { RunData, StageInfo } from "../types";
+import type { JourneyUiConfig, RunData, StageInfo } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 import { autopilotHidesReviewGate } from "./autopilotResolution";
 
@@ -24,7 +24,7 @@ export function resolveReviewGateSpec(
   run: RunData | null,
   stage: StageInfo | null,
   showDoneShell: boolean,
-  config?: { journey_ui?: { auto_advance_pipeline?: boolean } } | null,
+  config?: JourneyUiConfig | null,
 ): ReviewGateSpec | null {
   if (!run || !stage || showDoneShell) return null;
 

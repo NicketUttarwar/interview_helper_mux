@@ -73,16 +73,13 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript/speakers.json` | transcription (AWS diarization) |
 | `transcript/review_queue.json` | transcript_review_build |
 | `transcript/review_clips/*.wav` | transcript_review_build |
-| `transcript/disfluencies.json` | disfluency_extract |
-| `transcript/disfluency_clips/*.wav` | disfluency_extract |
-| `transcript/disfluency_review.json` | disfluency_review (gate) |
 | `master/disfluency_restore_plan.json` | edl |
 | `transcript/corrections.json` | transcript_review (operator) ([transcript_corrections.schema.json](./json-schemas/transcript_corrections.schema.json)) |
 | `operator/manifest.json` | Index of operator-authored snapshots (GUI edits, settings) |
 | `operator/transcript_corrected.json` | Independent operator-corrected transcript per execution; refreshed on each dock word edit (`source: dock_edit`) and chunk save / G0 complete |
 | `operator/transcript_corrected.txt` | Plain-text export of corrected transcript (same refresh cadence) |
 | `operator/transcript_corrections.json` | Copy of chunk corrections at save time |
-| `operator/analysis_profile.json` | Interview profile as edited by operator |
+| `operator/analysis_profile.json` | Legacy interview profile; the profile gate was removed |
 | `operator/nle_edits.json` | Timeline / NLE operator edits |
 | `operator/acoustic_profile_overrides.json` | Pacing / mix overrides |
 | `operator/flow_selection.json` | G2 flow choice |
@@ -93,7 +90,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `operator/investigation_queue.json` | Investigation status edits |
 | `operator/artifacts/*.json` | Mirrors of other GUI-edited artifacts |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
-| `understanding/context_index.json` | Volley memory index v2 (`stage_plans`, `volley_entries`, `padding_rules`, `artifacts_registry`) — [context-padding.md](./context-padding.md) |
+| `understanding/context_index.json` | Volley memory index v2 (`stage_plans`, `volley_entries`, `padding_rules`, `artifacts_registry`) — [`analysis.context_index.*`](./config-keys.md#analysiscontext_index) |
 | `understanding/stage_runs/<stage>/attempt_*.json` | LLM envelope audit trail |
 | `understanding/llm_calls/index.jsonl` | Index of every OpenAI call (label, path) — [llm-call-record-framework.md](./llm-call-record-framework.md) |
 | `understanding/llm_calls/<stage>/attempt_NNN/<seq>_<task_kind>.json` | Full request/response + volley per API call |

@@ -20,13 +20,13 @@ def test_session_api_consent_includes_auto_grants(tmp_path, monkeypatch) -> None
     body = res.json()
     assert "openai" in {p["id"] for p in body["providers"]}
     assert body["grants"].get("openai") is True
-    assert body["grants"].get("aws") is True
+    assert "aws" not in body["grants"]
 
 
 def test_all_provider_grants_auto_true() -> None:
     grants = all_provider_grants()
     assert grants.get("openai") is True
-    assert grants.get("aws") is True
+    assert "aws" not in grants
 
 
 def test_execute_not_blocked_by_consent(tmp_path, monkeypatch) -> None:
@@ -38,7 +38,7 @@ def test_execute_not_blocked_by_consent(tmp_path, monkeypatch) -> None:
     client = TestClient(create_app())
     res = client.post(
         f"/api/runs/{ctx.run_id}/execute",
-        json={"mode": "stage", "stage": "transcribe", "api_consents": {}},
+        json={"mode": "stage", "stage": "speaker_roles", "api_consents": {}},
     )
     assert res.status_code == 200
     payload = res.json()

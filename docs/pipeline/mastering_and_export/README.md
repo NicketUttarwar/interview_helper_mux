@@ -37,9 +37,3 @@ If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclea
 `src/interview_mux/mastering_bus.py` — pyloudnorm assembly-bus measurement (BUILD-071)
 
 `src/interview_mux/stages/mastering.py` — assembly measure + ffmpeg true-peak limiter (BUILD-071); QA via BUILD-070
-
----
-
-## Build-out
-
-BUILD-036, BUILD-044, BUILD-050, BUILD-070–071 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

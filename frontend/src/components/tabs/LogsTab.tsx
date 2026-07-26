@@ -7,7 +7,6 @@ import {
   stageTitleById,
 } from "../../utils/logDisplay";
 import { parseLogDetail } from "../../utils";
-import { buildStageProgress } from "../../utils/stageSubsteps";
 import { firstTodoStepId } from "../../utils/resolveActiveStep";
 import type { JourneyLogKind, LogEntry, LogLevel } from "../../types";
 
@@ -37,8 +36,6 @@ export function LogsTab() {
     config,
     logFilterPreset,
     setLogFilterPreset,
-    activateSubstep,
-    apiGrants,
     jobRunning,
     setActiveTab,
     selectStage,

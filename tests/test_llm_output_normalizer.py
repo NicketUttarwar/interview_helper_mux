@@ -1,4 +1,4 @@
-"""Tests for normalization decision tree and permissive field classification."""
+"""Tests for LLM output normalization and permissive field classification."""
 
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ from interview_mux.field_necessity_registry import (
     parse_verification_error_path,
 )
 from interview_mux.llm_output_normalizer import normalize_llm_response
-from interview_mux.normalization_decision import (
-    DownstreamAction,
-    resolve_normalization_decision,
-)
 from interview_mux.null_field_policy import find_null_fields
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "llm_envelopes"
@@ -41,22 +37,6 @@ def test_classify_unknown_optional_permissive_fabricates():
         classify_field_path("content_context", "unknown_optional_field", permissive=True)
         == FieldAction.FABRICATE
     )
-
-
-def test_decision_tree_omit_for_notes():
-    d = resolve_normalization_decision("speaker_roles", "notes")
-    assert d.action == FieldAction.OMIT
-    assert d.downstream == DownstreamAction.OMIT_AND_ACKNOWLEDGE
-
-
-def test_decision_tree_block_critical_null_suggests_gap_fill():
-    d = resolve_normalization_decision(
-        "content_context",
-        "thesis",
-        error_kind="critical_null",
-    )
-    assert d.action == FieldAction.BLOCK
-    assert d.downstream == DownstreamAction.MICRO_GAP_FILL
 
 
 def test_normalize_speaker_roles_notes_null():

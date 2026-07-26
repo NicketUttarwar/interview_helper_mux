@@ -1,6 +1,6 @@
 # GUI click-flow matrix (middle panel + Activity)
 
-Synced with `pipelineSubTabAvailability.test.ts` and E2E rows in [flow1-gui-e2e/02-GUI-JOURNEY.md](../../CURSOR_EXECUTE/flow1-gui-e2e/02-GUI-JOURNEY.md).
+Synced with `pipelineSubTabAvailability.test.ts`.
 
 ## Pipeline tool row
 
@@ -14,7 +14,7 @@ Synced with `pipelineSubTabAvailability.test.ts` and E2E rows in [flow1-gui-e2e/
 
 Navigation API: `navigatePipelineSubTab` in `AppContext` (guarded); locked clicks call `showToast(reason)`.
 
-**Flow hardening:** [gui-flow-hardening.md](./gui-flow-hardening.md) — full feedback contract for all panels and job terminals.
+**Flow hardening:** [ui-truth-invariants.md](./ui-truth-invariants.md) — feedback contract for all panels and job terminals.
 
 ## Activity stream policy
 

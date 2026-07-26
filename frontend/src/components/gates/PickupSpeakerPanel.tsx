@@ -79,7 +79,7 @@ export function PickupSpeakerPanel({ stage }: { stage: StageInfo }) {
     setBusy(true);
     traceAction("gui.adaptation.pickup_speaker", "Confirming gap pickup speaker", {
       stage: stage.id,
-      speaker_id: selected,
+      meta: { speaker_id: selected },
     });
     try {
       await api(`/api/runs/${runId}/pickup-speaker/confirm`, {

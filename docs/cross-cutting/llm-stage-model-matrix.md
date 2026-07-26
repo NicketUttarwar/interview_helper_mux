@@ -2,7 +2,7 @@
 
 **Status: implemented (BUILD-073)** — authoritative per-stage routing table. Runtime uses `models.tiers` + `models.stages` with optional per-stage string overrides; see [model-routing.md](./model-routing.md) and [config-keys.md](./config-keys.md).
 
-**Hub:** [llm-orchestration.md](./llm-orchestration.md) · **Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [context-padding.md](./context-padding.md) · **Artifacts:** [artifact-generation-and-validation.md](./artifact-generation-and-validation.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
+**Tiers:** [model-routing.md](./model-routing.md) · **Volley:** [`analysis.context.*`](./config-keys.md#analysiscontext) · **Artifacts:** [artifact-generation-and-validation.md](./artifact-generation-and-validation.md) · **SDK pin:** [anchored-toolchain.md](./anchored-toolchain.md)
 
 ---
 
@@ -61,7 +61,7 @@
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `REMOVED_podcast_show_description` | high | flagship | primary, arbiter | full | no | thin evidence; wrong person/voice; word count out of band | [podcast-show-description.system.txt](../prompts/publishing/podcast-show-description.system.txt) |
 
-Rich **user/assistant** prior turns: `content_context`, `speaker_roles`, `segment_classification`, profile slice (`themes`, `narrative`, `style`, `major_questions`), optional gap summaries — [context-padding.md](./context-padding.md).
+Rich **user/assistant** prior turns: `content_context`, `speaker_roles`, `segment_classification`, profile slice (`themes`, `narrative`, `style`, `major_questions`), optional gap summaries — [`analysis.context.*`](./config-keys.md#analysiscontext).
 
 ---
 
@@ -73,7 +73,6 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `DELI
 |-----------|----------|--------------|------------|--------|-----------|------------------|--------|
 | `sound_design_palettes` | low | **flagship** | primary, arbiter | full | no | — | [theme-palettes.system.txt](../prompts/sound_design/theme-palettes.system.txt) |
 | `sound_design_plan` | high | flagship | primary, arbiter | full | no | density / palette mismatch | [plan-flow1.system.txt](../prompts/sound_design/plan-flow1.system.txt) |
-| `REMOVED_sdp_flow2` | high | flagship | primary, arbiter | full | no | — | [plan-flow2.system.txt](../prompts/sound_design/plan-flow2.system.txt) |
 | `sfx_prompt_craft` | low | **flagship** | primary, arbiter | full | no | policy / voice bleed | [sfx-prompt-craft.system.txt](../prompts/sound_design/sfx-prompt-craft.system.txt) |
 
 ---
@@ -109,7 +108,7 @@ Per [sound-design.md](./sound-design.md). Stages are in `ANALYSIS_ORDER` / `DELI
 | `full_master_ranking` | Chapter or theme batches | `{ "label", "segment_ids" }` |
 | `REMOVED_highlight_selection` | Candidate batches | `{ "label", "segment_ids" }` |
 
-Max shards per attempt: **8** (see [llm-orchestration.md](./llm-orchestration.md)).
+Max shards per attempt: **8**.
 
 ---
 

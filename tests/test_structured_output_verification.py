@@ -46,8 +46,8 @@ def test_verify_local_framer_accepts_valid():
         "volley_turns": [{"role": "assistant", "content": "summary"}],
     }
     result = verify_llm_response("LX-01", parsed)
-    assert result.ok
-    assert result.schema_name == "local_framer"
+    assert not result.ok
+    assert any("v2" in e.lower() for e in result.errors)
 
 
 def test_resolve_lx_interaction_maps_caps_to_schemas():
@@ -76,8 +76,8 @@ def test_verify_lx03_digest_compress_accepts_fixture():
         stage_key="content_context",
         task_kind="local_digest_compress",
     )
-    assert result.ok
-    assert result.schema_name == "local_digest_compress"
+    assert not result.ok
+    assert any("v2" in e.lower() for e in result.errors)
 
 
 def test_verify_lx04_escalate_advisory_accepts_fixture():
@@ -88,8 +88,8 @@ def test_verify_lx04_escalate_advisory_accepts_fixture():
         stage_key="content_context",
         task_kind="local_escalate_advisory",
     )
-    assert result.ok
-    assert result.schema_name == "local_escalate_advisory"
+    assert not result.ok
+    assert any("v2" in e.lower() for e in result.errors)
 
 
 def test_verify_lx05_shard_prep_accepts_fixture():
@@ -100,16 +100,16 @@ def test_verify_lx05_shard_prep_accepts_fixture():
         stage_key="content_context",
         task_kind="local_shard_prep",
     )
-    assert result.ok
-    assert result.schema_name == "local_shard_prep"
+    assert not result.ok
+    assert any("v2" in e.lower() for e in result.errors)
 
 
 def test_verify_lx04_payload_rejected_as_framer():
-    """Guard: advisory JSON must not pass when mis-routed to LX-01 framer schema."""
+    """Guard: local MLX verification is disabled in v2 (mis-routed payloads also fail)."""
     parsed = _load_fixture("escalate_advisory_ok.json")
     result = verify_llm_response("LX-01", parsed)
     assert not result.ok
-    assert any("escalate" in e or "volley_turns" in e for e in result.errors)
+    assert result.errors
 
 
 def test_verify_speaker_roles_envelope():

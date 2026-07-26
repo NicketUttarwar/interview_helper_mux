@@ -9,7 +9,13 @@ from interview_mux import master_qc
 from interview_mux.run_context import RunContext
 from interview_mux.sound_design import mix
 from interview_mux.stages.assembly import build_flow1_edl
-from run_fixtures import init_run_meta_for_test, minimal_manifest, minimal_manifest_segment, sound_design_plan_with
+from run_fixtures import (
+    init_run_meta_for_test,
+    minimal_manifest,
+    minimal_manifest_segment,
+    patch_mix_test_config,
+    sound_design_plan_with,
+)
 
 
 def _tone(freq: int, duration_ms: int, gain_db: float = 0.0) -> AudioSegment:
@@ -101,6 +107,7 @@ def test_analyze_mix_intelligibility_passes_when_bed_is_heavily_ducked() -> None
 
 def test_mix_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
     monkeypatch.setattr(
         master_qc,
         "intelligibility_qc_config",
@@ -147,6 +154,7 @@ def test_mix_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypatch) ->
 
 def test_mix_intelligibility_qc_skipped_when_disabled(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
     monkeypatch.setattr(master_qc, "intelligibility_qc_config", lambda: {"enabled": False})
     ctx = RunContext("run_intelligibility_skip", create=True)
     init_run_meta_for_test(ctx)

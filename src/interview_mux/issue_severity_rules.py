@@ -307,7 +307,7 @@ def classify_sufficiency_finding(
         artifact_path=artifact_path,
         json_path=str(getattr(finding, "path", "")),
         source="sufficiency",
-        repair_strategy=str(getattr(finding, "remediation", "micro_gap_fill")),
+        repair_strategy=str(getattr(finding, "remediation", "volley_retry")),
         evidence={"blocking_tier": tier},
     )
     return issue

@@ -170,6 +170,8 @@ def reconcile_stale_write_approval_job(ctx: RunContext, job: dict[str, Any]) -> 
 
 def reconcile_llm_gate_if_cleared(ctx: RunContext, stage_id: str) -> dict[str, Any] | None:
     """Clear stale LLM gate when the blocked stage is now complete."""
+    from interview_mux.write_staging import read_gui_job
+
     job = read_gui_job(ctx)
     if not job or str(job.get("status")) != "gate":
         return None
@@ -211,13 +213,6 @@ def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[st
         if check_transcript_review_pending(ctx):
             return job
         return _resume_after_operator_gate(ctx, job, stage_id=stage, message="Transcript review complete — continue pipeline.")
-
-    if focus == "disfluency_review":
-        from interview_mux.gates import check_disfluency_review_pending
-
-        if check_disfluency_review_pending(ctx):
-            return job
-        return _resume_after_operator_gate(ctx, job, stage_id=stage, message="Disfluency review complete — continue pipeline.")
 
     if stage == "transcript_review_build" and "transcript review required" in low:
         from interview_mux.stages.transcript_review import check_transcript_review_pending

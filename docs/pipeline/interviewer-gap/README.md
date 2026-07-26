@@ -58,9 +58,3 @@ Gap placements (`before` / `after` segment) and `vo_pickup` paths appear in Flow
 ## Module
 
 `src/interview_mux/stages/gaps.py`
-
----
-
-## Build-out
-
-BUILD-025–027 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

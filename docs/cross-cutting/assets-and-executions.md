@@ -2,7 +2,7 @@
 
 **Canonical model** for how operators supply interview audio and how every run’s state is stored, discovered, and resumed. GUI-first; CLI and automation use the same tree.
 
-**Related:** [artifact-layout.md](./artifact-layout.md) (per-run file tree) · [gui-surface-map.md](../workflows/gui-surface-map.md) · [api-reference.md](../workflows/api-reference.md) · [full-application-flow.md](../build-out/full-application-flow.md)
+**Related:** [artifact-layout.md](./artifact-layout.md) (per-run file tree) · [gui-surface-map.md](../workflows/gui-surface-map.md) · [api-reference.md](../workflows/api-reference.md) · [operator-journey.md](../workflows/operator-journey.md)
 
 ---
 

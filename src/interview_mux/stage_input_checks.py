@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from interview_mux.gates import (
-    check_disfluency_review_pending,
     check_g1_vo,
     check_transcript_review_pending,
     get_selected_flow,
@@ -14,8 +13,8 @@ from interview_mux.gates import (
 from interview_mux.llm_preflight import run_preflight
 from interview_mux.run_context import RunContext
 from interview_mux.write_staging import (
-    all_pending_stages,
     has_pending_writes,
+    stages_with_pending_writes,
     staging_approval_hint,
 )
 
@@ -90,8 +89,44 @@ def require_stage_inputs(ctx: RunContext, stage_id: str) -> None:
 
 
 def _pending_write_approval_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
-    _ = (ctx, stage_id)
-    return []
+    """Block only when write approval must pause execute for this stage.
+
+    Under first-try ``defer_write_approval_until=phase_end``, other stages may
+    keep staged files without blocking subsequent stages. Re-running a stage
+    that still has its own pending writes remains blocked.
+    """
+    from interview_mux.first_try import write_approval_deferred
+    from interview_mux.write_staging import write_approval_enabled
+
+    if not write_approval_enabled():
+        return []
+
+    if write_approval_deferred():
+        if not has_pending_writes(ctx, stage_id):
+            return []
+        return [
+            StageInputIssue(
+                f"Write approval pending for stage '{stage_id}'",
+                f"Open the write review modal for '{stage_id}' and choose Save & continue or Discard & re-run.",
+                kind="write_approval",
+                related_stage=stage_id,
+            )
+        ]
+
+    from interview_mux.write_staging import stages_with_pending_writes
+
+    pending = stages_with_pending_writes(ctx)
+    if not pending:
+        return []
+    sid = pending[0]
+    return [
+        StageInputIssue(
+            f"Write approval pending for stage '{sid}'",
+            f"Open the write review modal for '{sid}' and choose Save & continue or Discard & re-run.",
+            kind="write_approval",
+            related_stage=sid,
+        )
+    ]
 
 
 def _require_artifact(
@@ -156,19 +191,8 @@ def _g0_issues(ctx: RunContext) -> list[StageInputIssue]:
     ]
 
 
-def _g0_5_issues(ctx: RunContext) -> list[StageInputIssue]:
-    if not check_disfluency_review_pending(ctx):
-        return []
-    return [
-        StageInputIssue(
-            "Disfluency review (G0.5) is incomplete",
-            "Confirm or reject filler events in the Disfluency review panel, then complete review.",
-        )
-    ]
-
-
 def _analysis_gate_issues(ctx: RunContext) -> list[StageInputIssue]:
-    return _g0_issues(ctx) + _g0_5_issues(ctx)
+    return _g0_issues(ctx)
 
 
 def _check_source_acoustic_profile(ctx: RunContext) -> list[StageInputIssue]:

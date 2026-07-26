@@ -5,7 +5,7 @@
 **Related:**
 
 - [model-routing.md](./model-routing.md) — tier registry (`flagship` = `o3` by default)
-- [llm-orchestration.md](./llm-orchestration.md) — primary → schema → arbiter → persist gating
+- [llm-call-record-framework.md](./llm-call-record-framework.md) — call → schema → persist gating and audit records
 - [json-schema-coverage.md](./json-schema-coverage.md) — which paths have validators
 - [analysis-memory.md](./analysis-memory.md) — profile merge and operator verification
 - [artifact-layout.md](./artifact-layout.md) — on-disk paths per stage
@@ -20,9 +20,9 @@
 2. **Incremental fill** — when a file already exists but is incomplete, the model receives `gap_fill_context` and returns **patches only** for missing fields; satisfied keys are listed in `skip_fields`.
 3. **Validate before write** — no artifact is persisted unless it passes the on-disk JSON Schema registered in `ARTIFACT_WRITE_VALIDATORS`.
 4. **Operator review** — GUI shows `pending` / `partial` / `complete` per artifact; Open / edit / save with client-side Zod + server-side jsonschema.
-5. **Handoff between stages** — each write to a **custom-run** descriptive path (see `CUSTOM_RUN_ARTIFACT_PATHS` in `src/interview_mux/custom_run_handoff.py`) records a review checkpoint; batch runs pause with `SystemExit` until `POST …/handoff-ack` for that stage ([operator-gates.md](../workflows/operator-gates.md)).
+5. **Auto-commit** — stage outputs are written straight to their final paths (`v2.auto_commit_artifacts: true`). Inter-stage handoff acks and per-stage write approval were removed ([operator-gates.md](../workflows/operator-gates.md)).
 
-**Out of scope:** binary audio (`*.wav`), raw AWS Transcribe export shape (optional future schema), deterministic numeric fields in `source_acoustic_profile.json` (WPM, pause stats from audio analysis).
+**Out of scope:** binary audio (`*.wav`), raw local STT export shape, deterministic numeric fields in `source_acoustic_profile.json` (WPM, pause stats from audio analysis).
 
 ---
 
@@ -35,7 +35,7 @@ flowchart TD
     Gaps[compute_gaps + validate_artifact_write]
     Disk --> Gaps
     Gaps --> Ctx[gap_fill_context in stage JSON]
-    Ctx --> Volley[context_volley]
+    Ctx --> Volley[stage_input_helpers]
   end
   subgraph openai [OpenAI]
     Volley --> Primary["primary task_kind — tier flagship"]
@@ -66,7 +66,7 @@ flowchart TD
 | Validated write | `src/interview_mux/artifact_writes.py` | `write_validated_artifact` — merge, validate, log, `RunContext.write_json` |
 | Schema registry | `src/interview_mux/prompt_validation.py` | `STAGE_ARTIFACT_SCHEMAS`, `STAGE_ARTIFACT_DISK_PATHS`, `ARTIFACT_WRITE_VALIDATORS`, `validate_artifact_write` |
 | Stage runner | `src/interview_mux/stages/analysis_stage.py` | `attach_gap_fill_to_input` on every LLM stage input |
-| Routing | `src/interview_mux/llm_stage_routing.py` | `force_openai` when `stage_key in STAGE_ARTIFACT_SCHEMAS` |
+| Call path | `src/interview_mux/llm_simple.py` | Single OpenAI call per attempt, max 2 attempts |
 | Pipeline | `src/interview_mux/pipeline.py` | Re-run LLM stage if `should_run_stage_for_artifact` even when `.stage_done` exists |
 | GUI API | `src/interview_mux/web/server.py` | `artifacts_status`, `POST …/fill-artifact-gaps` |
 | Zod codegen | `tools/codegen_zod_schemas.py` | Emits `frontend/src/schemas/generated/*.ts` |
@@ -170,7 +170,7 @@ If `validate_artifact_write` fails, `write_json` raises `ValueError` and `write_
 
 - **Config:** `config/app.defaults.json` → `models.stages.<stage_key>.tier: "flagship"` for every stage in `STAGE_ARTIFACT_SCHEMAS`.
 - **Registry:** [model-routing.md](./model-routing.md) — default API ID `o3` for tier `flagship`; override via `OPENAI_TIER_FLAGSHIP` in secrets.
-- **Local LLM:** May still compress the volley ([local-llm-tier.md](./local-llm-tier.md)), but stages that write structured artifacts **always** call OpenAI primary (`force_openai` in `llm_stage_routing.py`).
+- **Local LLM:** The local MLX framer may pre-compress the volley (fail-open), but stages that write structured artifacts **always** call OpenAI via `llm_simple.py`.
 
 ---
 
@@ -251,7 +251,7 @@ cd frontend && npm run build
 6. Use `make_stage_persist` or `write_validated_artifact` in the stage `persist` callback.
 7. Update stage prompt with gap-fill one-liner; add example under `docs/prompts/_shared/examples/` if non-trivial.
 8. Run `python tools/codegen_zod_schemas.py` and extend [json-schema-coverage.md](./json-schema-coverage.md).
-9. Update [stage-registry.md](../build-out/stage-registry.md) and [gui-surface-map.md](../workflows/gui-surface-map.md).
+9. Update [stage-contracts/00-INDEX.md](./stage-contracts/00-INDEX.md) and [gui-surface-map.md](../workflows/gui-surface-map.md).
 
 ---
 

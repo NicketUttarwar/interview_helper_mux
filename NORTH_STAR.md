@@ -23,13 +23,17 @@ Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-p
 
 ## Non-goals (v2)
 
+All of the below are **deleted from the codebase**, not disabled. Inventory: [docs/v2/drop-manifest.md](docs/v2/drop-manifest.md).
+
 - Flow 2 highlights, Flow 3 show-description pipeline, G2 flow picker (**permanent**)
-- Autopilot, ITR, Stage Decision Wizard (default off; see plan Track B if enabled)
-- Local MLX tier as product gate; **LLM-arbiter / investigation-queue UI** (default off) — not the same as **speaker volley** (conversation units in the podcast). See [docs/cross-cutting/volley-glossary.md](docs/cross-cutting/volley-glossary.md)
-- Holistic fabrication
+- Autopilot, ITR, Stage Decision Wizard
+- **LLM-arbiter / investigation-queue UI** and shard/collate/arbiter routing — not the same as **speaker volley** (conversation units in the podcast). See [docs/cross-cutting/volley-glossary.md](docs/cross-cutting/volley-glossary.md)
+- Local MLX tier as a product gate — the local framer and S2S runtimes stay, fail-open
+- Holistic fabrication, micro gap fill
 - Disfluency G0.5, analysis profile gate
 - Per-stage write approval, handoff acks between stages
-- Debug / Story GUI tabs as required journey stops
+- Debug / Story / Volley GUI tabs
+- Cloud STT (AWS Transcribe) and cloud audio APIs — STT, diarization, denoise, and SFX are local
 
 ## Volley lexicon (required reading)
 
@@ -42,6 +46,6 @@ Bare “volley” is ambiguous — always qualify.
 
 ## Pipeline shape
 
-**32 automated stages:** 19 analysis + 13 delivery → `master/master.wav`.
+**33 automated stages:** 20 analysis + 13 delivery → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 See [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) and [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).

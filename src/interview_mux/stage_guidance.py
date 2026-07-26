@@ -6,12 +6,9 @@ from typing import Any
 
 from interview_mux.gates import (
     check_analysis_artifacts_gate_pending,
-    check_disfluency_review_pending,
     check_g1_vo,
-    check_profile_gate_pending,
     check_transcript_review_pending,
     get_selected_flow,
-    is_operator_profile_verified,
 )
 from interview_mux.journey_state import OPERATOR_PHASES, stage_operator_phase
 from interview_mux.pipeline import ANALYSIS_ORDER, DELIVERY_ORDER, FLOW2_ORDER, FLOW3_ORDER
@@ -25,11 +22,6 @@ _G0_EXCEPTIONS = frozenset(
 )
 G0_LOCKED_ANALYSIS_STAGES = frozenset(s for s in ANALYSIS_ORDER if s not in _G0_EXCEPTIONS)
 
-_DISFLUENCY_EXCEPTIONS = frozenset(_G0_EXCEPTIONS | {"disfluency_extract"})
-DISFLUENCY_LOCKED_ANALYSIS_STAGES = frozenset(
-    s for s in ANALYSIS_ORDER if s not in _DISFLUENCY_EXCEPTIONS
-)
-
 LLM_HANDOFF_STAGES = frozenset(
     {
         "speaker_roles",
@@ -40,6 +32,7 @@ LLM_HANDOFF_STAGES = frozenset(
         "boundary_topic_resplit",
         "sound_design_palettes",
         "missing_framing",
+        "gap_framing_compose",
         "optimal_questions",
         "delivery_brief_build",
         "topic_coverage_audit",
@@ -81,9 +74,7 @@ STAGE_UNLOCKS: dict[str, str] = {
     "ingest": "Transcribe — normalized source audio",
     "transcribe": "STT review prep — word-level transcript",
     "transcript_review_build": "Transcript review (G0) — ranked clip queue",
-    "disfluency_extract": "Disfluency review (G0.5) — filler event catalog",
-    "disfluency_review": "Source acoustic profile and downstream analysis",
-    "transcript_review": "Disfluency extract (when enabled) or source acoustic profile",
+    "transcript_review": "Source acoustic profile and downstream analysis",
     "source_acoustic_profile": "Speaker roles and sonic pacing for mix/SFX",
     "interview_spine_build": "Local comprehension index for boundaries and retrieval",
     "speaker_roles": "Source topology (TBiy) and content understanding",
@@ -96,12 +87,13 @@ STAGE_UNLOCKS: dict[str, str] = {
     "sonic_context_build": "Sound design palettes",
     "sound_design_palettes": "Gap evaluation",
     "missing_framing": "Interviewer script and gap report",
+    "gap_framing_compose": "Delivery brief (duration/SFX policy)",
     "optimal_questions": "Delivery brief (duration/SFX policy)",
     "delivery_brief_build": "Soundscape policy standards",
     "soundscape_policy_build": "Episode structure compose",
     "episode_structure_compose": "Complete phase — G1 VO pickup if record lines exist",
-    "analysis_profile": "Flow 1 extended Build stages (topic coverage and later)",
     "g1_vo_pickup": "Confirm output (G2)",
+    "vo_synthesize": "VO pickup review and ingest",
     "vo_ingest": "Timeline VO merge on next pipeline run",
     "g2_flow_select": "Build, Sound, and Export stages for your chosen flow",
     "topic_coverage_audit": "Narrative arc plan",
@@ -408,30 +400,6 @@ def _open_coherence_risk_count(ctx: RunContext) -> int:
     return sum(1 for r in risks if isinstance(r, dict) and r.get("status", "open") == "open")
 
 
-def _g0_5_items(disfluency_review_pending: bool) -> list[dict[str, Any]]:
-    if not disfluency_review_pending:
-        return [
-            _guidance_item(
-                "g0_5",
-                "Disfluency review complete (G0.5)",
-                "done",
-                stage_id="disfluency_review",
-                action="checkpoint",
-            )
-        ]
-    return [
-        _guidance_item(
-            "g0_5",
-            "Complete disfluency review (G0.5)",
-            "todo",
-            stage_id="disfluency_review",
-            action="checkpoint",
-            kind="checkpoint",
-            substep_label="Complete disfluency review",
-        )
-    ]
-
-
 def _g0_items(transcript_review_pending: bool) -> list[dict[str, Any]]:
     if not transcript_review_pending:
         return [
@@ -514,7 +482,6 @@ def _flow_prereqs(
     stage_id: str,
     flow: str | None,
     g1_missing: list[str],
-    profile_gate_pending: bool,
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     info = STAGE_BY_ID.get(stage_id)
@@ -522,6 +489,7 @@ def _flow_prereqs(
         return items
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
+    _ = flow
     if g1_missing and not gap_fill_was_skipped(ctx):
         items.append(
             _guidance_item(
@@ -534,14 +502,8 @@ def _flow_prereqs(
             )
         )
     elif not ctx.artifact_exists("analysis_complete.json"):
-        from interview_mux.pipeline import shared_analysis_chain_complete
-
         pending_stage = (
-            "analysis_profile"
-            if gap_fill_was_skipped(ctx) and shared_analysis_chain_complete(ctx)
-            else "episode_structure_compose"
-            if gap_fill_was_skipped(ctx)
-            else "optimal_questions"
+            "episode_structure_compose" if gap_fill_was_skipped(ctx) else "optimal_questions"
         )
         items.append(
             _guidance_item(
@@ -550,19 +512,6 @@ def _flow_prereqs(
                 "todo",
                 stage_id=pending_stage,
                 kind="run",
-            )
-        )
-    if not flow or flow not in ("podcast", "flow1", "flow2", "flow3"):
-        return items
-    if profile_gate_pending and info.phase == "delivery":
-        items.append(
-            _guidance_item(
-                "profile",
-                "Mark interview profile verified",
-                "todo",
-                stage_id="analysis_profile",
-                action="checkpoint",
-                kind="profile",
             )
         )
     return items
@@ -660,22 +609,6 @@ def _stage_actions(
             actions.append(
                 _guidance_item("review_clips", "Transcript review complete", "done")
             )
-        return actions
-
-    if stage_id == "analysis_profile":
-        if status == "action_required":
-            actions.append(
-                _guidance_item(
-                    "verify_profile",
-                    "Review Story Board, then Mark profile verified",
-                    "todo",
-                    action="checkpoint",
-                    kind="profile",
-                    substep_label="Mark profile verified",
-                )
-            )
-        elif status == "done":
-            actions.append(_guidance_item("verify_profile", "Profile verified", "done"))
         return actions
 
     if stage_id == "missing_framing":
@@ -863,11 +796,6 @@ def build_stage_guidance(
     )
     g1 = g1_missing if g1_missing is not None else check_g1_vo(ctx)
     flow_sel = flow if flow is not None else get_selected_flow(ctx)
-    profile_pending = (
-        profile_gate_pending
-        if profile_gate_pending is not None
-        else check_profile_gate_pending(ctx)
-    )
 
     op_phase = stage_operator_phase(stage_id)
     phase_label = PHASE_DISPLAY.get(op_phase, op_phase.title())
@@ -915,8 +843,6 @@ def build_stage_guidance(
         )
     elif stage_id in G0_LOCKED_ANALYSIS_STAGES:
         prerequisites.extend(_g0_items(tr_pending))
-        if stage_id in DISFLUENCY_LOCKED_ANALYSIS_STAGES:
-            prerequisites.extend(_g0_5_items(check_disfluency_review_pending(ctx)))
         if stage_id == "source_acoustic_profile":
             prerequisites.append(
                 _guidance_item(
@@ -930,16 +856,6 @@ def build_stage_guidance(
             )
         else:
             prerequisites.extend(_prior_stage_items(ctx, stage_id, transcript_review_pending=tr_pending))
-    elif stage_id == "analysis_profile":
-        prerequisites.append(
-            _guidance_item(
-                "understanding_done",
-                "Understanding analysis artifacts populated",
-                "done" if ctx.artifact_exists("understanding/content_brief.json") else "todo",
-                stage_id="optimal_questions",
-            )
-        )
-        prerequisites.extend(_analysis_artifacts_gate_prereqs(ctx))
     elif stage_id == "g1_vo_pickup":
         prerequisites.append(
             _guidance_item(
@@ -966,9 +882,7 @@ def build_stage_guidance(
             )
     else:
         prerequisites.extend(_prior_stage_items(ctx, stage_id, transcript_review_pending=tr_pending))
-        prerequisites.extend(
-            _flow_prereqs(ctx, stage_id, flow_sel, g1, profile_pending)
-        )
+        prerequisites.extend(_flow_prereqs(ctx, stage_id, flow_sel, g1))
     if stage_id in {"sound_design_palettes", "sound_design_plan", "sound_design_plan_flow2", "sfx_prompt_craft"}:
         sonic = load_sonic_context(ctx)
         status = "done" if isinstance(sonic, dict) else "todo"
@@ -1091,16 +1005,6 @@ def build_phase_guidance(
                         "todo",
                         action="story_board",
                         kind="story_board",
-                    )
-                )
-            if check_profile_gate_pending(ctx) and is_operator_profile_verified(ctx) is False:
-                actions.append(
-                    _guidance_item(
-                        "profile",
-                        "Mark interview profile verified",
-                        "todo",
-                        stage_id="analysis_profile",
-                        kind="profile",
                     )
                 )
 

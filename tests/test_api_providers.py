@@ -12,20 +12,20 @@ from interview_mux.web.runner import JobRunner
 from interview_mux.run_context import RunContext
 
 
-def test_stage_api_providers_transcribe_uses_aws() -> None:
-    assert "aws" in stage_api_providers("transcribe")
+def test_stage_api_providers_transcribe_uses_local() -> None:
+    assert "local" in stage_api_providers("transcribe")
     assert "openai" in stage_api_providers("speaker_roles")
     assert stage_api_providers("mmaudio_sfx") == ()
 
 
 def test_missing_consents() -> None:
-    assert missing_consents("transcribe", {}) == ["aws"]
-    assert missing_consents("transcribe", {"aws": True}) == []
+    assert missing_consents("transcribe", {}) == ["local"]
+    assert missing_consents("transcribe", {"local": True}) == []
 
 
 def test_providers_for_stages_union() -> None:
     got = providers_for_stages(["transcribe", "speaker_roles"])
-    assert got == {"aws", "openai"}
+    assert got == {"local", "openai"}
 
 
 def test_merge_consents() -> None:
@@ -65,7 +65,9 @@ def test_runner_blocks_without_consent(tmp_path, monkeypatch) -> None:
         stage="transcribe",
         api_consents={},
     )
-    assert result.get("ok") is True
+    assert result.get("ok") is False
+    assert result.get("needs_api_consent") is True
+    assert "local" in str(result.get("error") or "")
 
 
 def test_persisted_consent_roundtrip(tmp_path, monkeypatch) -> None:

@@ -40,7 +40,7 @@ def audit_run(run_id: str) -> list[str]:
     )
     journey = None
     try:
-        from interview_mux.journey import build_journey_snapshot
+        from interview_mux.web.server import build_journey_snapshot
 
         journey = build_journey_snapshot(ctx)
     except Exception:

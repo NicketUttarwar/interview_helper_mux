@@ -23,14 +23,13 @@ def _write_test_wav(path: Path, *, sample_rate: int = 16000, duration_seconds: f
         wf.writeframes(bytes(frames))
 
 
-def test_analysis_order_places_source_acoustic_profile_after_disfluency_extract():
+def test_analysis_order_places_source_acoustic_profile_after_transcript_review_build():
     review_idx = ANALYSIS_ORDER.index("transcript_review_build")
-    disfluency_idx = ANALYSIS_ORDER.index("disfluency_extract")
     sap_idx = ANALYSIS_ORDER.index("source_acoustic_profile")
     speaker_idx = ANALYSIS_ORDER.index("speaker_roles")
     palettes_idx = ANALYSIS_ORDER.index("sound_design_palettes")
-    assert disfluency_idx == review_idx + 1
-    assert sap_idx == disfluency_idx + 1
+    assert "disfluency_extract" not in ANALYSIS_ORDER
+    assert sap_idx == review_idx + 1
     spine_idx = ANALYSIS_ORDER.index("interview_spine_build")
     assert spine_idx == sap_idx + 1
     assert speaker_idx == spine_idx + 1

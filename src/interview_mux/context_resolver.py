@@ -501,7 +501,7 @@ def resolve_volley_context(
     entries_list = idx.get("volley_entries") or []
     if not entries_list:
         return empty
-    plan = plan_for_stage(stage_key, ctx=ctx)
+    plan = plan_for_stage(stage_key)
     selected = select_entries_for_stage(
         idx,
         stage_key=stage_key,

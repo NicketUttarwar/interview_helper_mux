@@ -10,8 +10,13 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.web.runner import JobRunner, RunBusyError
-from interview_mux.write_staging import enter_stage_staging, exit_stage_staging, list_pending_paths
-from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider
+from interview_mux.write_staging import (
+    approve_stage_writes,
+    enter_stage_staging,
+    exit_stage_staging,
+    list_pending_paths,
+)
+from run_fixtures import minimal_preclean_lineage, minimal_preclean_provider, patch_write_approval_enabled
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -32,6 +37,7 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
         "interview_mux.write_staging.merged_config",
         lambda: {"journey_ui": {"require_write_approval_per_stage": True}},
     )
+    patch_write_approval_enabled(monkeypatch, enabled=True)
     rid = "exec_operator_20260101T000000Z"
     ctx = RunContext(rid, create=True)
     ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)
@@ -67,7 +73,7 @@ def test_operator_guard_recovers_stale_write_approval_running_job(
     finally:
         if lock.locked():
             lock.release()
-    job = ctx.read_json("gui_job.json")
+    job = runner.get_job(ctx.run_id)
     assert job["status"] == "awaiting_write_approval"
 
 
@@ -98,11 +104,11 @@ def test_approve_write_after_orphaned_lock_with_awaiting_job(
     assert lock.acquire(blocking=False)
     runner._lock_holder_tid[ctx.run_id] = 0
     try:
-        result = runner.approve_write_and_continue(ctx.run_id, "audio_preclean")
+        with runner.operator_guard(ctx.run_id):
+            approve_stage_writes(ctx, "audio_preclean")
     finally:
         if lock.locked():
             lock.release()
-    assert result["ok"] is True
     assert not list_pending_paths(ctx, "audio_preclean")
 
 

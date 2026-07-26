@@ -12,7 +12,7 @@ outputs: []
 inputs:
   hard:
   - path: understanding/gap_report.json
-    producer: optimal_questions
+    producer: gap_framing_compose
   soft: []
 sufficiency:
 - path: version
@@ -27,7 +27,5 @@ propagation:
 consumers: []
 remediation:
   strategies:
-  - micro_gap_fill
-  - patch_volley
   - volley_retry
   - full_stage_rerun

@@ -39,7 +39,7 @@ Downstream LLM stages do not auto-invalidate on spine-only recompute in v1; oper
 | Consumer | Use |
 |----------|-----|
 | `boundary_detection` | Compact boundary events + speaker stats in volley |
-| `context_volley` | Per-stage `_compact_interview_spine` padding — [context-padding.md](./context-padding.md) |
+| `stage_input_helpers` | Per-stage `_compact_interview_spine` padding |
 | `value_analysis` / H-ORC-03 | H-ORC-02 trust dip investigations; long-run coherence via [coherence-orc03.md](./coherence-orc03.md) (30m gate) |
 | `analysis_state.themes[].evidence_windows` | H-G0-03 retrieval-backed theme evidence |
 | `local_volley_framer` | Top-3 CLAP hits in framer user blob |
@@ -50,7 +50,7 @@ Downstream LLM stages do not auto-invalidate on spine-only recompute in v1; oper
 
 - **Per-run Llama/MLX weight fine-tuning** on audio + transcript — rejected; use retrieval + deterministic features instead.
 - **Default SSL/Wav2Vec stack** — H-ING-01 remains opt-in only (`ssl_enabled: false`).
-- **Replacing AWS Transcribe** with local ASR.
+- **Replacing local MLX STT** with a different ASR backend.
 
 ## Appendix — SSL opt-in (H-ING-01)
 

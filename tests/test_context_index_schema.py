@@ -13,8 +13,8 @@ from interview_mux.context_resolver import (
     prefer_index_over_legacy,
     select_entries_for_stage,
 )
-from interview_mux.context_volley import STAGE_PLANS, plan_for_stage
 from interview_mux.prompt_validation import validate_context_index
+from interview_mux.stage_input_helpers import STAGE_PLANS, plan_for_stage
 from interview_mux.run_context import RunContext
 
 
@@ -83,15 +83,14 @@ def test_select_entries_for_stage(minimal_ctx):
         },
     )
     idx = load_context_index(minimal_ctx, write=False)
-    plan = STAGE_PLANS["segment_classification"]
     selected = select_entries_for_stage(
         idx,
         stage_key="segment_classification",
-        prior_stages=plan.prior_stages,
+        prior_stages=("boundary_detection",),
         profile="full",
         task_kind="primary",
-        investigation_kinds=plan.investigation_kinds,
-        max_investigations=plan.max_investigations,
+        investigation_kinds=frozenset(),
+        max_investigations=0,
     )
     kinds = {e["kind"] for e in selected}
     assert "stage_conclusion" in kinds
@@ -103,56 +102,11 @@ def test_stage_plans_parity_with_index(minimal_ctx):
     assert set(STAGE_PLANS.keys()) == set(idx.get("stage_plans") or {})
 
 
-def test_build_message_volley_index_fallback(minimal_ctx, monkeypatch):
-    from interview_mux.context_volley import build_message_volley
-
-    monkeypatch.setattr(
-        "interview_mux.context_resolver.prefer_index_over_legacy",
-        lambda cfg=None: False,
-    )
-    volley = build_message_volley(
-        minimal_ctx,
-        "speaker_roles",
-        {"transcript_samples": {"opening": "hello"}, "speakers": []},
-    )
-    assert volley[0]["role"] == "user"
-
-
-def test_build_message_volley_uses_index_when_enabled(minimal_ctx, monkeypatch):
-    from interview_mux.context_volley import build_message_volley
-
-    append_stage_conclusion(
-        minimal_ctx,
-        stage_key="speaker_roles",
-        attempt=1,
-        reasoning_summary="Interviewer spk_0; guest spk_1.",
-    )
-    monkeypatch.setattr(
-        "interview_mux.context_resolver.prefer_index_over_legacy",
-        lambda cfg=None: True,
-    )
-    volley = build_message_volley(
-        minimal_ctx,
-        "content_context",
-        {"transcript": "sample text"},
-        profile="full",
-    )
-    joined = "\n".join(m["content"] for m in volley)
-    assert "volley memory" in joined.lower() or "Interviewer" in joined
-
-
-def test_topic_coverage_plan_matches_doc():
-    plan = STAGE_PLANS["topic_coverage_audit"]
-    assert "missing_framing" in plan.prior_stages
-    assert "optimal_questions" in plan.prior_stages
-    assert plan.max_investigations == 2
-
-
-def test_backfill_dry_run(minimal_ctx):
-    from interview_mux.backfill_volley_index import backfill_volley_index
-
-    stats = backfill_volley_index(minimal_ctx, dry_run=True)
-    assert stats["conclusions"] >= 1
+def test_plan_for_stage_returns_empty_default():
+    """v2 has no per-stage volley plans; every lookup yields the neutral default."""
+    plan = plan_for_stage("topic_coverage_audit")
+    assert plan.prior_stages == ()
+    assert plan.max_investigations == 0
 
 
 def test_apply_envelope_writes_volley_entry(minimal_ctx):

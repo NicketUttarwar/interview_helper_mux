@@ -1,6 +1,6 @@
 # Moonshot model families (audio-only)
 
-**Not OpenAI Chat routing:** This doc covers **audio ML research families** (SSL, CLAP, etc.), not LLM stage tiers. For Chat Completions routing, arbiter, and tiers, see [llm-orchestration.md](../../cross-cutting/llm-orchestration.md).
+**Not OpenAI Chat routing:** This doc covers **audio ML research families** (SSL, CLAP, etc.), not LLM stage tiers. For Chat Completions routing and tiers, see [llm-stage-model-matrix.md](../../cross-cutting/llm-stage-model-matrix.md).
 
 **Scope:** single or multitrack **interview audio** + transcript text. **No video ingest.** No computer vision or object detection (including YOLO-class stacks).
 

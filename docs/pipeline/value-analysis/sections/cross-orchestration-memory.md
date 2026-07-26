@@ -6,7 +6,7 @@ Keep long interviews **coherent across passes**: investigations, memory, and rer
 
 ## 2. Signals used today (context only)
 
-`analysis_state.json`, investigation queue, orchestration loop per [analysis-orchestration-loop.md](../../../workflows/analysis-orchestration-loop.md).
+`analysis_state.json`, investigation queue, and the per-stage attempt counts in `understanding/analysis_orchestration.json` — see [analysis-memory.md](../../../cross-cutting/analysis-memory.md).
 
 ## 3. Value hypotheses
 
@@ -52,9 +52,6 @@ Both write `understanding/investigation_queue.json` but differ by signal, timing
 | Kinds | `acoustic_anomaly`, stub `topic_drift` | `topic_drift`, `claim_contradiction`, `missing_callback` |
 | Blocking | Never | `claim_contradiction` may block `analysis_ready` |
 | Dedupe | `(kind, stage, window_id\|segment_id)` via `investigation_dedupe` | Same queue; `replace_stub_topic_shift_hints` suppresses ORC-02 stub when ORC-03 active |
-
-Full table: [05-WAVE-C-self-healing.md §6](../../../build-out/june182026build/05-WAVE-C-self-healing.md#6-orc-02-vs-orc-03-orthogonality).
-
 ## Related
 
 - [future-proofing.md](../../../roadmap/future-proofing.md)

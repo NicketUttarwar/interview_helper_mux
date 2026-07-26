@@ -45,9 +45,6 @@ SPECIALIST_IDS: dict[str, str] = {
 
 META_TASK_IDS: dict[str, str] = {
     "primary": "OM-01",
-    "arbiter": "OM-02",
-    "shard": "OM-03",
-    "collate": "OM-04",
 }
 
 LOCAL_FRAMER_IDS: dict[str, str] = {
@@ -163,78 +160,14 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         stage_key="*",
         task_kind="primary",
         trigger="Every stage attempt default path",
-        entrypoint="llm_stage_routing.run_llm_stage_with_routing",
+        entrypoint="llm_simple.run_llm_stage_simple",
         prompt_rel="(per stage)",
-        volley_profile="full|shard|collate",
+        volley_profile="full",
         response_schema="composed envelope+artifact",
         verify="validate_envelope + validate_stage_artifacts",
         on_verify_fail="volley_retry",
         goal="Produce stage artifacts",
         model_tier="flagship|standard|economy",
-    )
-    reg["OM-02"] = _entry(
-        id="OM-02",
-        provider="openai",
-        interaction="arbiter",
-        stage_key="_arbiter",
-        task_kind="arbiter",
-        trigger="After primary parse",
-        entrypoint="llm_arbiter.run_llm_arbiter",
-        prompt_rel="_shared/arbiter.system.txt",
-        volley_profile="single user blob",
-        response_schema="arbiter_verdict.schema.json",
-        verify="arbiter_verdict schema",
-        on_verify_fail="enqueue_investigation",
-        goal="accept / uptier / decompose / investigate",
-        model_tier="economy",
-    )
-    reg["OM-03"] = _entry(
-        id="OM-03",
-        provider="openai",
-        interaction="shard",
-        stage_key="(parent)",
-        task_kind="shard",
-        trigger="Decompose verdict or proactive shard",
-        entrypoint="llm_subtasks.run_shards_then_collate",
-        prompt_rel="(parent prompt)",
-        volley_profile="shard",
-        response_schema="same as primary",
-        verify="validate_envelope + validate_stage_artifacts",
-        on_verify_fail="blocked",
-        goal="Partial artifact for segment batch",
-        model_tier="economy",
-    )
-    reg["OM-04"] = _entry(
-        id="OM-04",
-        provider="openai",
-        interaction="collate",
-        stage_key="(parent)",
-        task_kind="collate",
-        trigger="After ≥1 shard",
-        entrypoint="llm_subtasks.run_shards_then_collate",
-        prompt_rel="(parent prompt)",
-        volley_profile="collate",
-        response_schema="same as primary",
-        verify="validate_envelope + validate_stage_artifacts",
-        on_verify_fail="collate_retry",
-        goal="Merge shard envelopes",
-        model_tier="economy",
-    )
-    reg["OM-05"] = _entry(
-        id="OM-05",
-        provider="openai",
-        interaction="collate_retry",
-        stage_key="(parent)",
-        task_kind="collate",
-        trigger="Collate schema/lint fail",
-        entrypoint="llm_subtasks L151",
-        prompt_rel="(parent prompt)",
-        volley_profile="collate+feedback",
-        response_schema="same as primary",
-        verify="validate_envelope + validate_stage_artifacts",
-        on_verify_fail="blocked",
-        goal="Second collate attempt",
-        model_tier="economy",
     )
 
     for sk, cid in SPECIALIST_IDS.items():
@@ -274,89 +207,6 @@ def _build_registry() -> dict[str, dict[str, Any]]:
     for tk, lid in LOCAL_FRAMER_IDS.items():
         reg[lid] = {**reg["LX-01"], "id": lid, "task_kind": f"local_{tk}"}
 
-    reg["LX-02"] = _entry(
-        id="LX-02",
-        provider="local_mlx",
-        interaction="itr_clarification",
-        stage_key="{stage}__itr",
-        task_kind="itr",
-        trigger="Open blocking issue + local_llm_for_important",
-        entrypoint="artifact_clarification_llm.infer_options_local_llm",
-        prompt_rel="_shared/specialists/artifact-clarification.system.txt",
-        volley_profile="single user blob",
-        response_schema="itr_clarification_options.schema.json",
-        verify="itr_clarification_options schema",
-        on_verify_fail="fail_open",
-        goal="Suggest repair options for operator/autopilot",
-        model_tier="local",
-    )
-    reg["LX-02a"] = {**reg["LX-02"], "id": "LX-02a", "trigger": "collect_issues → options empty"}
-
-    reg["LX-03"] = _entry(
-        id="LX-03",
-        provider="local_mlx",
-        interaction="local_digest_compress",
-        stage_key="(allowlist)",
-        task_kind="local_digest_compress",
-        trigger="capability_manifest LX-03 + truncated/large digest",
-        entrypoint="local_capability_router._run_lx03",
-        prompt_rel="_shared/local-digest-compressor.system.txt",
-        volley_profile="digest compress",
-        response_schema="local_digest_compressor.schema.json",
-        verify="local_digest_compressor schema",
-        on_verify_fail="abort_branch",
-        goal="Compress stage digest before LX-01",
-        model_tier="local",
-    )
-    reg["LX-04"] = _entry(
-        id="LX-04",
-        provider="local_mlx",
-        interaction="local_escalate_advisory",
-        stage_key="(allowlist)",
-        task_kind="local_escalate_advisory",
-        trigger="capability_manifest LX-04",
-        entrypoint="local_capability_router._run_lx04",
-        prompt_rel="_shared/local-escalate-advisory.system.txt",
-        volley_profile="advisory",
-        response_schema="local_escalate_advisory.schema.json",
-        verify="advisory schema",
-        on_verify_fail="ignore",
-        goal="Advise escalate; code remains source of truth",
-        model_tier="local",
-    )
-    reg["LX-05"] = _entry(
-        id="LX-05",
-        provider="local_mlx",
-        interaction="local_shard_prep",
-        stage_key="(allowlist)",
-        task_kind="local_shard_prep",
-        trigger="capability_manifest LX-05 + fanout>=K",
-        entrypoint="local_capability_router._run_lx05",
-        prompt_rel="_shared/local-shard-packet-prep.system.txt",
-        volley_profile="shard packets",
-        response_schema="local_shard_packet_prep.schema.json",
-        verify="local_shard_packet_prep schema",
-        on_verify_fail="abort_branch",
-        goal="Prepare shard packet briefs for decompose",
-        model_tier="local",
-    )
-    reg["OM-LX-P"] = _entry(
-        id="OM-LX-P",
-        provider="openai",
-        interaction="local_capability_planner",
-        stage_key="(allowlist)",
-        task_kind="arbiter",
-        trigger="fanout>=planner_fanout_k + LX-05 enabled",
-        entrypoint="local_capability_router._run_economy_planner",
-        prompt_rel="_shared/local-capability-planner.system.txt",
-        volley_profile="single user plan",
-        response_schema="envelope+local_capability_planner.schema.json",
-        verify="envelope artifacts.steps",
-        on_verify_fail="skip_planner",
-        goal="One-shot economy plan of local caps",
-        model_tier="economy",
-    )
-
     reg["OM-F01"] = _entry(
         id="OM-F01",
         provider="openai",
@@ -393,38 +243,11 @@ def _build_registry() -> dict[str, dict[str, Any]]:
             model_tier=tier,
         )
 
-    for sk in STAGE_ARTIFACT_SCHEMAS:
-        cid = f"OM-MG-{STAGE_PRIMARY_IDS.get(sk, sk)[:2]}"
-        reg[cid] = _entry(
-            id=cid,
-            provider="openai",
-            interaction=f"{sk}_micro_gap_fill",
-            stage_key=sk,
-            task_kind="micro_gap_fill",
-            trigger="remediation_orchestrator sufficiency / acceptance fail",
-            entrypoint="micro_gap_fill.run_micro_gap_fill",
-            prompt_rel="_shared/micro-gap-fill/default.system.txt",
-            volley_profile="patch paths only",
-            response_schema=f"patch envelope+{STAGE_ARTIFACT_SCHEMAS[sk]}",
-            verify="sufficiency_engine.evaluate",
-            on_verify_fail="volley_retry",
-            goal="Targeted artifact path patch without full stage rerun",
-            model_tier="standard",
-        )
-
     return reg
 
 # Mastering quality-hardening interactions (docs/cross-cutting/mastering-quality-hardening.md).
 # id -> (entrypoint, prompt_rel, response_schema, model_tier, goal, interaction)
 _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
-    "OH-01": (
-        "mastering_research_router.route_fields",
-        "mastering/research-router.system.txt",
-        "mastering_research_routing.schema.json",
-        "economy",
-        "Route the 38 research fields for this source",
-        "research_router",
-    ),
     "OH-02": (
         "mastering_shape_gates.emit_eval_rubric",
         "mastering/eval-rubric-mint.system.txt",
@@ -497,14 +320,6 @@ _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
         "Merge the critic panel; enforce integrity kills",
         "l4_arbiter",
     ),
-    "OH-P1": (
-        "mastering_polish_loop.build_audit_request",
-        "mastering/polish-audit.system.txt",
-        "mastering_polish_audit.schema.json",
-        "flagship",
-        "Audio-grounded polish audit + bounded remux directives",
-        "polish_audit_audio",
-    ),
 }
 
 _OA_GOALS: dict[str, str] = {
@@ -549,28 +364,15 @@ def resolve_interaction_id(
     volley_retry_index: int = 0,
     provider: Provider = "openai",
 ) -> str:
-    """Map a gateway call to catalog id."""
+    """Map a gateway call to catalog id.
+
+    `volley_retry_index` is accepted for gateway call compatibility; v2 has no
+    collate-retry id to distinguish, so every retry keeps the primary id.
+    """
     if provider == "local_mlx":
-        if stage_key.endswith("__itr"):
-            return "LX-02"
-        if task_kind == "local_digest_compress":
-            return "LX-03"
-        if task_kind == "local_escalate_advisory":
-            return "LX-04"
-        if task_kind == "local_shard_prep":
-            return "LX-05"
         tk = task_kind.removeprefix("local_") if task_kind.startswith("local_") else task_kind
         return LOCAL_FRAMER_IDS.get(tk, "LX-01")
 
-    if stage_key.endswith("__local_planner") or task_kind == "local_planner":
-        return "OM-LX-P"
-
-    if task_kind == "arbiter":
-        return "OM-02"
-    if task_kind == "shard":
-        return "OM-03"
-    if task_kind == "collate":
-        return "OM-05" if volley_retry_index > 0 else "OM-04"
     if task_kind == "specialist":
         sk = resolve_specialist_key_from_stage(stage_key)
         if sk and sk in SPECIALIST_IDS:
@@ -597,18 +399,12 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
     """Call-site patterns enforced by CI (module.function)."""
     return {
         "run_prompt_envelope": (
-            "llm_stage_routing",
-            "llm_subtasks",
-            "llm_arbiter",
             "llm_specialists",
             "llm_runner",
             "llm_simple",
-            "local_capability_router",
         ),
         "generate_local_chat": (
             "local_volley_framer",
-            "artifact_clarification_llm",
             "local_llm_runner",
-            "local_capability_router",
         ),
     }

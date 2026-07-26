@@ -123,6 +123,8 @@ def inventory_from_topology(
     pickup_id: str | None = None,
     topic_count: int = 0,
     defaults: dict[str, Any] | None = None,
+    ctx: RunContext | None = None,
+    gap_fill_skipped: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Build element inventory + strategies from topology-time signals only."""
     th = _thresholds()
@@ -143,6 +145,11 @@ def inventory_from_topology(
     reactors = list((role_map or {}).get("reactor_speaker_ids") or [])
     duration_ms = _duration_ms_from_stats(stats)
     elements: list[dict[str, Any]] = []
+    if gap_fill_skipped is None and ctx is not None:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        gap_fill_skipped = gap_fill_was_skipped(ctx)
+    gap_fill_skipped = bool(gap_fill_skipped)
 
     # dual_voice_reactor
     if frame and frame_talk >= th["frame_talk_present"] and reactors:
@@ -371,9 +378,7 @@ def inventory_from_topology(
         )
 
     # pickup_frame_voice
-    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-
-    if gap_fill_was_skipped(ctx):
+    if gap_fill_skipped:
         elements.append(
             _element(
                 "pickup_frame_voice",
@@ -626,6 +631,7 @@ def build_conformance_plan(
         pickup_id=pickup_id,
         topic_count=topic_count,
         defaults=defaults,
+        ctx=ctx,
     )
     if ctx is not None:
         elements = enrich_from_artifacts(ctx, elements)

@@ -105,7 +105,17 @@ def _seed_context(ctx, stage_key: str) -> None:
 @pytest.mark.parametrize("fixture_path", _fixture_paths(), ids=lambda p: p.name)
 def test_golden_envelope_stage_lint(tmp_path, monkeypatch, fixture_path: Path) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": False}}})
+    patch_merged_config(monkeypatch, {
+        "analysis": {"flow_hardening": {"enabled": False}},
+        "sound_design": {"max_assets": 6, "max_assets_flow1": 6},
+    })
+    monkeypatch.setattr(
+        "interview_mux.deterministic_lint.merged_config",
+        lambda: {
+            "analysis": {"flow_hardening": {"enabled": False}},
+            "sound_design": {"max_assets": 6, "max_assets_flow1": 6},
+        },
+    )
     monkeypatch.setattr(
         "interview_mux.deterministic_lint._lint_generic",
         lambda *_a, **_k: [],

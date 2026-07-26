@@ -100,10 +100,6 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "transcript/corrections.json",
         "glob:transcript/review_clips/*.wav",
     ),
-    "disfluency_extract": (
-        "transcript/disfluencies.json",
-        "glob:transcript/disfluency_clips/*.wav",
-    ),
     "source_acoustic_profile": ("understanding/source_acoustic_profile.json",),
     "interview_spine_build": (
         "understanding/interview_spine.json",
@@ -566,10 +562,6 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
 
             _apply_gate_meta_reuse(ctx, source, stage_id)
             _validate_copied_artifacts(ctx, stage_id)
-            if stage_id == "disfluency_extract" and not use_staging:
-                from interview_mux.stages.disfluency import maybe_auto_complete_review
-
-                maybe_auto_complete_review(ctx)
             if stage_id in _TRANSCRIPT_STAGES:
                 if stage_id == "transcript_review_build" and ctx.artifact_exists(
                     "transcript/review_queue.json"

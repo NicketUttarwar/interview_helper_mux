@@ -31,7 +31,7 @@ export function loadProfileToForm(
   const ident = st.interview_identity || {};
   const narrative = st.narrative || {};
   const style = st.style || {};
-  const meta = (st as { meta?: { production_style?: string } }).meta || {};
+  const meta = st.meta || {};
   return {
     title: ident.title || "",
     summary: ident.one_line_summary || "",
@@ -70,7 +70,7 @@ export function collectAnalysisProfileFromForm(
     themes: textToThemes(form.themes),
     major_questions: textToQuestions(form.questions),
     meta: {
-      ...((base as { meta?: Record<string, unknown> })?.meta || {}),
+      ...(base?.meta || {}),
       production_style: form.productionStyle.trim() || undefined,
     },
     style: {

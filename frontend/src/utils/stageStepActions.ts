@@ -10,7 +10,8 @@ interface StepActionHandlers {
   completeTranscriptReview: (acceptUnreviewed?: boolean) => Promise<void>;
   approveSfxPrompts: () => Promise<void>;
   skipOptional: (stageId: string) => Promise<void>;
-  declineReuseAndRun: (stageId: string) => Promise<void>;
+  /** Resolves to whether the fresh run was actually started. */
+  declineReuseAndRun: (stageId: string) => Promise<boolean>;
   redoFromStage: () => Promise<void>;
   selectStage: (stageId: string) => Promise<void>;
   stageAction: OperatorAction | null;

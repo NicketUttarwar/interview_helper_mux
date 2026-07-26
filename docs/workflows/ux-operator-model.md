@@ -30,4 +30,4 @@ Canonical operator GUI model — **inline step workbench** (no checkpoint modals
 | Checkpoint continuation | `advanceFromCheckpoint()` |
 | Session focus | `selected_stage_id` + `active_step_id` in `active_execution.json` |
 
-See [gui-flow-hardening.md](./gui-flow-hardening.md) and [operator-stage-checklists.md](./operator-stage-checklists.md).
+See [ui-truth-invariants.md](./ui-truth-invariants.md) and [operator-stage-checklists.md](./operator-stage-checklists.md).

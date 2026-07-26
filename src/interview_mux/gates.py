@@ -243,6 +243,10 @@ def is_operator_profile_verified(ctx: RunContext) -> bool:
 
 def check_profile_gate_pending(ctx: RunContext) -> bool:
     """True when profile is not verified before delivery extended analysis."""
+    from interview_mux.v2.config import v2_enabled
+
+    if v2_enabled():
+        return False
     if is_operator_profile_verified(ctx):
         return False
     from interview_mux.artifact_completeness import analysis_profile_ready_for_review

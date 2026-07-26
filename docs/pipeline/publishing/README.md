@@ -39,7 +39,7 @@ Flow 3 uses a **rich `full` volley** — same pattern as flagship selection stag
 - `missing_framing` / `optimal_questions` — only if gaps affect how the story should be framed (optional summaries)
 - Operator profile slice — `themes`, `narrative`, `style`, `major_questions`, `entities`
 
-See [context-padding.md](../../cross-cutting/context-padding.md) and [podcast-show-description.system.txt](../../prompts/publishing/podcast-show-description.system.txt).
+See [`analysis.context.*`](../../cross-cutting/config-keys.md#analysiscontext) and [podcast-show-description.system.txt](../../prompts/publishing/podcast-show-description.system.txt).
 
 ## Operator checklist
 
@@ -56,9 +56,3 @@ Full table: [operator-stage-checklists.md](../../workflows/operator-stage-checkl
 - [pipeline.md](../../pipeline.md) — three flows overview
 - [artifact-layout.md](../../cross-cutting/artifact-layout.md) — `show_notes/`
 - [model-routing.md](../../cross-cutting/model-routing.md) — flagship for `REMOVED_podcast_show_description`
-
----
-
-## Build-out
-
-BUILD-045, BUILD-046, BUILD-080 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)

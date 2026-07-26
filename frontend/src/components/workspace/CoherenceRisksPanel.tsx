@@ -2,11 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { COHERENCE_REPORT_PATH } from "../../utils";
-import {
-  formatApiError,
-  isExpectedEmptyApiError,
-  reportPanelFetchOutcome,
-} from "../../utils/safeApi";
+import { isExpectedEmptyApiError, reportPanelFetchOutcome } from "../../utils/safeApi";
 import type { CoherenceReport, CoherenceRisk } from "../../types";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
 

@@ -103,7 +103,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 |------|----------------------|--------|
 | `master/edl.json` | Mux depends on timeline events | **Schema yes** — `artifacts/edl.schema.json`; **validator wired** (`validate_edl`, `tools/verify_edl.py`) |
 | `segments/nle_edits.json` | Overrides selection / EDL | **Schema yes** — `nle_edits.schema.json`; validator on `save_nle` + `write_json` |
-| `transcript/full.json` | AWS Transcribe export shape | Optional: external-shape schema |
+| `transcript/full.json` | Local MLX STT export shape | Optional: external-shape schema |
 | `understanding/source_acoustic_profile.json` | Per-run pacing/mix profile | `source_acoustic_profile.schema.json` · validator wired |
 | `gui_log.jsonl` | NDJSON stream | Often line-schema only |
 
@@ -171,6 +171,5 @@ pip install -e .               # restart web runner so site-packages picks up co
 
 - [artifact-layout.md](./artifact-layout.md) — paths
 - [segment-schema.md](./segment-schema.md) — segment shapes and flags (alignment topic #2)
-- [build-out/README.md](../build-out/README.md) — tickets for EDL / SDP / NLE
 - [prompts/README.md](../prompts/README.md) — prompt ↔ schema conventions
 - [config-keys.md](./config-keys.md) — runtime caps that drive validation and context

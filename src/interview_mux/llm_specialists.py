@@ -150,7 +150,7 @@ def apply_segment_topic_patches(ctx: RunContext, patches: list[Any]) -> int:
                 merge_from_disk=False,
                 stage_key="segment_classification",
             )
-            downstream = tuple(ANALYSIS_ORDER[ANALYSIS_ORDER.index("missing_framing") : ANALYSIS_ORDER.index("optimal_questions") + 1])
+            downstream = tuple(ANALYSIS_ORDER[ANALYSIS_ORDER.index("missing_framing") : ANALYSIS_ORDER.index("gap_framing_compose") + 1])
             ctx.clear_from("missing_framing", ANALYSIS_ORDER)
             invalidate_stage_summaries(ctx, downstream)
         else:

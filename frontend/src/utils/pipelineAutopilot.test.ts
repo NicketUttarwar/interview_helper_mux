@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunData } from "../types";
+import { makeJourney, makeStage } from "../test/runFixtures";
 import {
   canAutoRunStage,
   isPipelineAutopilotEnabled,
@@ -14,10 +15,14 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
     run_id: "exec_test",
     working_dir: "/tmp/exec_test",
     stages: [
-      { id: "source_acoustic_profile", title: "Source acoustic", status: "done", phase: "understand" },
-      { id: "interview_spine_build", title: "Spine", status: "pending", phase: "understand" },
+      makeStage("source_acoustic_profile", {
+        title: "Source acoustic",
+        status: "done",
+        phase: "understand",
+      }),
+      makeStage("interview_spine_build", { title: "Spine", status: "pending", phase: "understand" }),
     ],
-    journey: { phase: "understand" },
+    journey: makeJourney({ phase: "understand" }),
     ...overrides,
   };
 }
@@ -31,12 +36,12 @@ describe("pipelineAutopilot", () => {
   it("detects pipeline completion from deliverable", () => {
     const complete = runStub({
       stages: [
-        { id: "export", title: "Export", status: "done", phase: "ship" },
+        makeStage("export", { title: "Export", status: "done", phase: "ship" }),
       ],
-      journey: {
+      journey: makeJourney({
         phase: "ship",
         deliverable: { kind: "master", paths: { master: "master/master.wav" } },
-      },
+      }),
     });
     expect(isPipelineComplete(complete)).toBe(true);
   });
@@ -44,9 +49,9 @@ describe("pipelineAutopilot", () => {
   it("builds absolute final output path", () => {
     const run = runStub({
       working_dir: "/Users/me/runs/exec_1/",
-      journey: {
+      journey: makeJourney({
         deliverable: { kind: "master", paths: { master: "master/master.wav" } },
-      },
+      }),
     });
     expect(resolveFinalOutputAbsolutePath(run)).toBe(
       "/Users/me/runs/exec_1/master/master.wav",
@@ -64,14 +69,17 @@ describe("pipelineAutopilot", () => {
   it("does not block auto-continue when handoffs disabled (v2)", () => {
     const run = runStub({
       stages: [
-        {
-          id: "speaker_roles",
+        makeStage("speaker_roles", {
           title: "Speaker roles",
           status: "done",
           phase: "understand",
           handoff_paths: ["understanding/speakers.json"],
-        },
-        { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
+        }),
+        makeStage("content_context", {
+          title: "Content context",
+          status: "pending",
+          phase: "understand",
+        }),
       ],
     });
     expect(shouldAutoNavigateFromStage(run, "speaker_roles", null)).toBe(true);
@@ -80,7 +88,7 @@ describe("pipelineAutopilot", () => {
 
   it("auto-navigates but does not auto-run when next stage has stage_reuse blocking", () => {
     const run = runStub({
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
@@ -88,7 +96,7 @@ describe("pipelineAutopilot", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     expect(shouldAutoNavigateFromStage(run, "source_acoustic_profile", null)).toBe(true);
     expect(shouldAutoContinueFromStage(run, "source_acoustic_profile", null)).toBe(false);

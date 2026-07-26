@@ -7,7 +7,8 @@ interface Props {
   error?: string | null;
   testId?: string;
   ariaLabel: string;
-  actions: ReactNode;
+  /** Omitted by banners that are purely informational (loading shell, gate notices). */
+  actions?: ReactNode;
   loading?: boolean;
 }
 

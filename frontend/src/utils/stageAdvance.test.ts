@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyReuseResultAndFocus, readyForStageMessage } from "./stageAdvance";
 import { invokeStepFooterSecondaryAction } from "./stageStepActions";
-import type { RunData, StageInfo, StageStep } from "../types";
+import type { RunData, StageStep } from "../types";
+import { makeStage, makeStep } from "../test/runFixtures";
 
 describe("readyForStageMessage", () => {
   it("uses consistent manual-run wording", () => {
@@ -24,8 +25,8 @@ describe("applyReuseResultAndFocus", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [
-        { id: "source_acoustic_profile", title: "SAP", status: "done", phase: "understand" },
-        { id: "interview_spine_build", title: "Spine", status: "pending", phase: "understand" },
+        makeStage("source_acoustic_profile", { title: "SAP", status: "done", phase: "understand" }),
+        makeStage("interview_spine_build", { title: "Spine", status: "pending", phase: "understand" }),
       ],
     };
     await applyReuseResultAndFocus({
@@ -47,8 +48,8 @@ describe("applyReuseResultAndFocus", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [
-        { id: "source_acoustic_profile", title: "SAP", status: "done", phase: "understand" },
-        { id: "interview_spine_build", title: "Spine", status: "pending", phase: "understand" },
+        makeStage("source_acoustic_profile", { title: "SAP", status: "done", phase: "understand" }),
+        makeStage("interview_spine_build", { title: "Spine", status: "pending", phase: "understand" }),
       ],
     };
     await applyReuseResultAndFocus({
@@ -75,8 +76,8 @@ describe("applyReuseResultAndFocus", () => {
       run_id: "exec_test",
       meta: { transcript_reuse_pending_edit: true },
       stages: [
-        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
-        { id: "transcript_review_build", title: "G0 build", status: "pending", phase: "prepare" },
+        makeStage("transcribe", { title: "Transcribe", status: "done", phase: "prepare" }),
+        makeStage("transcript_review_build", { title: "G0 build", status: "pending", phase: "prepare" }),
       ],
     };
     await applyReuseResultAndFocus({
@@ -111,8 +112,8 @@ describe("applyReuseResultAndFocus", () => {
         },
       },
       stages: [
-        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
-        { id: "transcript_review_build", title: "G0 build", status: "pending", phase: "prepare" },
+        makeStage("transcribe", { title: "Transcribe", status: "done", phase: "prepare" }),
+        makeStage("transcript_review_build", { title: "G0 build", status: "pending", phase: "prepare" }),
       ],
     };
     await applyReuseResultAndFocus({
@@ -141,14 +142,9 @@ describe("applyReuseResultAndFocus", () => {
     const run: RunData = {
       run_id: "exec_test",
       stages: [
-        { id: "transcribe", title: "Transcribe", status: "done", phase: "prepare" },
-        {
-          id: "transcript_review_build",
-          title: "G0 build",
-          status: "done",
-          phase: "prepare",
-        },
-        { id: "transcript_review", title: "G0", status: "pending", phase: "prepare" },
+        makeStage("transcribe", { title: "Transcribe", status: "done", phase: "prepare" }),
+        makeStage("transcript_review_build", { title: "G0 build", status: "done", phase: "prepare" }),
+        makeStage("transcript_review", { title: "G0", status: "pending", phase: "prepare" }),
       ],
     };
     await applyReuseResultAndFocus({
@@ -168,29 +164,20 @@ describe("applyReuseResultAndFocus", () => {
   });
 });
 
-function stage(id: string, title = id): StageInfo {
-  return { id, title, status: "pending", phase: "prepare" };
-}
-
 function reuseFreshStep(): StageStep {
-  return {
-    id: "reuse",
+  return makeStep("reuse", {
     number: 2,
-    title: "Choose reuse or run fresh",
-    instruction: "",
-    review: [],
+    label: "Choose reuse or run fresh",
     primary_button: "Reuse outputs",
     secondary_button: "Run fresh instead",
     kind: "reuse",
-    status: "todo",
-  };
+  });
 }
 
 describe("invokeStepFooterSecondaryAction — global step actions", () => {
   it("run fresh instead declines reuse and runs", async () => {
-    const declineReuseAndRun = vi.fn().mockResolvedValue(undefined);
-    await invokeStepFooterSecondaryAction(reuseFreshStep(), stage("ingest", "Ingest"), {
-      discardPendingWrites: vi.fn(),
+    const declineReuseAndRun = vi.fn().mockResolvedValue(true);
+    await invokeStepFooterSecondaryAction(reuseFreshStep(), makeStage("ingest", { title: "Ingest" }), {
       completeTranscriptReview: vi.fn(),
       skipOptional: vi.fn(),
       declineReuseAndRun,

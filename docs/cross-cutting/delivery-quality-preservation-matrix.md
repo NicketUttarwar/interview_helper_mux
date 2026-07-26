@@ -26,7 +26,7 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 | ingest | stage | pipeline.stage.ingest | integrity_only | no | no | — | Fingerprint / normalized.wav |
 | transcribe | stage | pipeline.stage.transcribe | integrity_only | no | no | — | AWS CLI STT |
 | transcript_review_build | stage | pipeline.stage.transcript_review_build | integrity_only | no | no | — | Builds G0 queue |
-| disfluency_extract | stage | pipeline.stage.disfluency_extract | integrity_only | no | no | — | Optional G0.5 |
+| disfluency_extract | stage | pipeline.stage.disfluency_extract | removed | — | — | — | G0.5 cut |
 | source_acoustic_profile | stage | pipeline.stage.source_acoustic_profile | integrity_only | no | no | — | SAP for mix |
 | interview_spine_build | stage | pipeline.stage.interview_spine_build | integrity_only | no | no | post_interview_spine | Soft unless escalated |
 | speaker_roles | stage | pipeline.stage.speaker_roles | integrity_only | no | no | — | LLM |
@@ -49,8 +49,8 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 | surface_id | kind | action_id(s) | policy_role | reads_brief | writes_brief | cross_validate | notes |
 |------------|------|--------------|-------------|-------------|--------------|----------------|-------|
 | transcript_review | gate | gui.transcript_review.complete | integrity_only | no | no | — | G0 |
-| disfluency_review | gate | gui.disfluency_review.complete | integrity_only | no | no | — | G0.5 |
-| analysis_profile | gate | gui.analysis_profile.verify | produce | yes | yes | — | Rebuild brief on verify if topics change |
+| disfluency_review | gate | gui.disfluency_review.complete | removed | — | — | — | G0.5 cut |
+| analysis_profile | gate | gui.analysis_profile.verify | removed | — | — | — | Profile gate cut |
 | g1_vo_pickup | gate | gui.g1.vo.continue; gui.vo.trim.apply | honor | yes | no | — | Lines ≤ question_budget |
 | g1_5_preview_pickup | gate | gui.g1_5.preview.continue; gui.g1_5.vo.upload | honor | yes | no | — | Duration band messaging |
 | pickup_speaker | gate | gui.adaptation.pickup_speaker; gui.adaptation.confirm | produce | no | yes | — | Via flow_adaptation → brief copy |
@@ -115,8 +115,8 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 | gui.stage_reuse.accept/decline | gui_action | gui.stage_reuse.* | integrity_only | no | no | Brief reuse rules apply |
 | gui.g2.select_flow / gui.g2.use_planned | gui_action | gui.g2.* | removed | no | no | Single delivery |
 | gui.transcript_review.complete | gui_action | gui.transcript_review.complete | integrity_only | no | no | G0 |
-| gui.disfluency_review.complete | gui_action | gui.disfluency_review.complete | integrity_only | no | no | G0.5 |
-| gui.analysis_profile.verify | gui_action | gui.analysis_profile.verify | produce | yes | yes | Rebuild brief |
+| gui.disfluency_review.complete | gui_action | gui.disfluency_review.complete | removed | — | — | G0.5 cut |
+| gui.analysis_profile.verify | gui_action | gui.analysis_profile.verify | removed | — | — | Profile gate cut |
 | gui.live_status.primary | gui_action | gui.live_status.primary | integrity_only | no | no | |
 | gui.decision.* | gui_action | gui.decision.resolve.start/apply | honor | yes | no | ITR / autopilot |
 | gui.autopilot.save | gui_action | gui.autopilot.save | honor | yes | no | Must not skip brief |
@@ -199,7 +199,7 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 |-------|----------|
 | KEEP | 32-stage analysis + delivery spine, G0 mandatory, G1 optional, SDP chain, QC (`verify_master`), NLE, stage reuse, preclean offer |
 | SIMPLIFY | LLM: schema + 1 retry (`llm_simple.py`); auto-commit artifacts; linear pipeline (no volley/autopilot/handoffs) |
-| CUT | G0.5 disfluency, profile gate, local MLX, investigation queue, write approval, handoffs, Decision Wizard |
+| CUT | G0.5 disfluency, profile gate, investigation queue, write approval, handoffs, Decision Wizard, Flow 2 / Flow 3, AWS Transcribe. **Kept:** local MLX framer + STT, `first_try`, `llm_specialists`. |
 | MERGE | Former flow2 quotability → `full_master_ranking` via enrichment flags |
 | DEFER | Show notes export after master (not a parallel flow) |
 | DEPRECATED | Flow 2 montage, Flow 3 parallel pipeline, G2 picker, legacy mux/sfx_brief as default |

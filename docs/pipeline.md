@@ -4,7 +4,7 @@
 
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 
-**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. Flow 1/2 mix via `mix` / `REMOVED_mix_flow2` (speech + VO + SDP overlays in `master.wav`). Flow 3 ships show-description copy via `REMOVED_publishing_flow3.py` (no audio mux). Stage ids and status: [stage-registry.md](./build-out/stage-registry.md). Remaining quality gaps: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+**Quality target:** A polished mastered podcast — narrative order, gap-filling VO, cohesive sound design, measured loudness — plus optional **distribution copy** for Flow 3. Flow 1/2 mix via `mix` / `REMOVED_mix_flow2` (speech + VO + SDP overlays in `master.wav`). Flow 3 ships show-description copy via `REMOVED_publishing_flow3.py` (no audio mux). Stage ids and status: [stage-contracts/00-INDEX.md](./cross-cutting/stage-contracts/00-INDEX.md). Remaining quality gaps: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
 
 ```mermaid
 flowchart TB
@@ -143,22 +143,17 @@ See [cross-cutting/artifact-layout.md](./cross-cutting/artifact-layout.md).
 
 ## Related docs
 
-- [build-out/implementation-guide.md](./build-out/implementation-guide.md) — full-repository build plan (start here for code)
-- [build-out/full-application-flow.md](./build-out/full-application-flow.md) — end-to-end operator journey
-- [build-out/stage-registry.md](./build-out/stage-registry.md) — every stage id and status
+- [cross-cutting/stage-contracts/00-INDEX.md](./cross-cutting/stage-contracts/00-INDEX.md) — every stage id, tier, and outputs
+- [workflows/operator-journey.md](./workflows/operator-journey.md) — end-to-end operator journey
 - [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md) — v1 vs target, priority waves
 - [logic-tree.md](./logic-tree.md)
 - [prompts/README.md](./prompts/README.md)
-- [build-out/README.md](./build-out/README.md) — tickets
-- [build-out/ticket-specs.md](./build-out/ticket-specs.md) — acceptance per BUILD id
-- [build-out/repository-map.md](./build-out/repository-map.md) — repo ↔ code
-- [build-out/steps-forward.md](./build-out/steps-forward.md) — prioritized backlog
+- [v2/drop-manifest.md](./v2/drop-manifest.md) — modules and surfaces not ported to v2
 - [cross-cutting/sound-design.md](./cross-cutting/sound-design.md) — coherent SFX (BUILD-060+)
 - [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API ↔ logs
 - [workflows/long-interview-chunking.md](./workflows/long-interview-chunking.md) — context caps
 - [workflows/operator-gates.md](./workflows/operator-gates.md) — gates + quality offers
-- [workflows/operator-flow-audit.md](./workflows/operator-flow-audit.md) — GUI tabs, modals, checkpoints
-- [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) — panels ↔ API
+- [workflows/gui-click-flow-matrix.md](./workflows/gui-click-flow-matrix.md) — GUI tabs, modals, checkpoints
 - [workflows/operator-stage-checklists.md](./workflows/operator-stage-checklists.md) — per-stage verification
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md) — symptom playbook
 - [pipeline/transcription/stt-and-diarization.md](./pipeline/transcription/stt-and-diarization.md)

@@ -32,7 +32,7 @@ How the project moves from **strong analysis** to a **polished mastered podcast*
 
 ### Wave B — Coherent sound + mix (BUILD-060–066) — **done**
 
-See [sound-design.md](./sound-design.md), [local-audio-stack.md](./local-audio-stack.md), and [build-out/README.md](../build-out/README.md#wave-5--coherent-sound-design-done).
+See [sound-design.md](./sound-design.md) and [local-audio-stack.md](./local-audio-stack.md).
 
 **Shipped:** SDP init + palettes, flow plans, craft/generate, `mix`/`REMOVED_mix_flow2` in pipeline + GUI.
 
@@ -94,8 +94,6 @@ flowchart LR
 
 ## Related docs
 
-- [build-out/remaining-build-commands.md](../build-out/remaining-build-commands.md) — open Agent work queue
-- [build-out/repository-map.md](../build-out/repository-map.md) — code ↔ docs layout
 - [pipeline.md](../pipeline.md) — stage overview
 - [operator-gates.md](../workflows/operator-gates.md) — mandatory stops + quality offers
 - [audio_preclean/README.md](../pipeline/audio_preclean/README.md) — pre-clean semantics

@@ -9,10 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from interview_mux.gates_tbiy import check_g1_5_preview_pickup_pending, require_g1_5_preview_pickup_clear
-from interview_mux.journey_orchestrator import mark_preview_listened
 from interview_mux.production_profile import TBIY_STYLE, is_tbiy
 from interview_mux.run_context import RunContext
-from interview_mux.web.server import create_app
+from interview_mux.web.server import create_app, mark_preview_listened
 from run_fixtures import (
     MINIMAL_WAV_BYTES,
     init_run_meta_for_test,
@@ -65,6 +64,7 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
             text="Wait — that's the moat right there.",
             voice_speaker_id="spk_1",
             delivery="record",
+            post_preview=True,
         ),
         minimal_gap_line(
             line_id="line_002",
@@ -72,6 +72,7 @@ def seed_tbiy_journey_ctx(ctx: RunContext) -> None:
             text="Let's rewind to the crisis year.",
             voice_speaker_id="spk_1",
             delivery="record",
+            post_preview=True,
         ),
     )
 
@@ -128,9 +129,7 @@ def test_tbiy_g1_pickup_and_preview_g1_5_gate(tmp_path: Path, monkeypatch) -> No
     (pickup_dir / "line_002.wav").write_bytes(MINIMAL_WAV_BYTES)
 
     mark_preview_listened(ctx)
-    report = ctx.read_json("understanding/gap_report.json")
-    post = [ln for ln in report.get("interviewer_lines") or [] if ln.get("post_preview")]
-    assert len(post) == 2
+    assert ctx.read_json("run_meta.json").get("preview_listened_at")
 
     pending = check_g1_5_preview_pickup_pending(ctx)
     assert set(pending) == {"line_001", "line_002"}
@@ -161,7 +160,8 @@ def test_tbiy_g1_5_stage_action_required(tmp_path: Path, monkeypatch) -> None:
     assert body["g1_5_preview_pickup_pending"]
     g15 = next(s for s in body["stages"] if s["id"] == "g1_5_preview_pickup")
     assert g15["status"] == "action_required"
-    assert body["journey"]["blocking"]["reason"] == "g1_5_preview_pickup"
+    assert body["journey"]["blocking"]["reason"] == "gate"
+    assert body["journey"]["blocking"]["stage_id"] == "g1_5_preview_pickup"
 
 def test_tbiy_gap_report_studio_crud(tmp_path: Path, monkeypatch) -> None:
     client, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)

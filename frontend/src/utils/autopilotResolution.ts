@@ -1,4 +1,4 @@
-import type { JobState, RunData } from "../types";
+import type { JobState, JourneyUiConfig, RunData } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 
 export type AutopilotCheckpointKind = "fix_all";
@@ -80,7 +80,7 @@ function jobCanAutopilotFix(run: RunData, stageId: string): boolean {
 /** Next checkpoint autopilot can clear without operator clicks. */
 export function resolveAutopilotCheckpoint(
   run: RunData | null,
-  config?: { journey_ui?: { auto_advance_pipeline?: boolean } } | null,
+  config?: JourneyUiConfig | null,
 ): AutopilotCheckpoint | null {
   if (!run || !isPipelineAutopilotEnabled(config)) return null;
   if (isClarificationDeferred(run.job)) return null;
@@ -112,7 +112,7 @@ export function resolveAutopilotCheckpoint(
 export function autopilotHidesReviewGate(
   run: RunData | null,
   stageId: string,
-  config?: { journey_ui?: { auto_advance_pipeline?: boolean } } | null,
+  config?: JourneyUiConfig | null,
 ): boolean {
   const checkpoint = resolveAutopilotCheckpoint(run, config);
   return Boolean(

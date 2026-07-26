@@ -6,7 +6,7 @@ Turn raw capture into **time-aligned language** that preserves **who said what, 
 
 ## 2. Signals used today (context only)
 
-Ingest normalizes audio; AWS Transcribe (CLI) produces word-level transcript and diarization labels. Downstream expects `transcript/full.json`-shaped artifacts per [stt-and-diarization.md](../../transcription/stt-and-diarization.md).
+Ingest normalizes audio; local MLX STT produces word-level transcript and diarization labels. Downstream expects `transcript/full.json`-shaped artifacts per [stt-and-diarization.md](../../transcription/stt-and-diarization.md).
 
 ## 3. Value hypotheses (not in repo as first-class)
 

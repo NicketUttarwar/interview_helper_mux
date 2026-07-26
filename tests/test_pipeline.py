@@ -36,6 +36,7 @@ def _bypass_stage_input_checks(monkeypatch) -> None:
     )
 
 def test_blocked_llm_stage_does_not_mark_done(tmp_path, monkeypatch):
+    from interview_mux.llm_simple import StageError
     from interview_mux.stages import analysis_stage
     from run_fixtures import isolated_run_ctx, patch_merged_config
 
@@ -45,20 +46,20 @@ def test_blocked_llm_stage_does_not_mark_done(tmp_path, monkeypatch):
         {"analysis": {"flow_hardening": {"enabled": True, "strict_critical_stages": True}}},
     )
     ctx = isolated_run_ctx(tmp_path, "blocked_stage")
-    blocked = {"status": "blocked", "needs": [{"type": "rerun_stage", "blocking": True}]}
+
+    def _failing_prompt(*_a, **_k):
+        return {"status": "partial", "artifacts": {}, "needs": [{"type": "rerun_stage", "blocking": True}]}
 
     monkeypatch.setattr(
-        analysis_stage,
-        "run_llm_stage_with_routing",
-        lambda *_a, **_k: (blocked, [], {"verdict": "enqueue_investigation"}, [], 0, None),
+        "interview_mux.llm_simple.run_prompt_envelope",
+        _failing_prompt,
     )
-    monkeypatch.setattr(analysis_stage, "finalize_stage_attempt", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        "interview_mux.analysis_orchestrator.max_iterations_for_stage",
-        lambda _c: 1,
+        "interview_mux.llm_simple.validate_stage_artifacts",
+        lambda *_a, **_k: ["schema validation failed"],
     )
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(StageError):
         analysis_stage.run_analysis_llm_stage(
             ctx,
             "content_context",
@@ -69,10 +70,19 @@ def test_blocked_llm_stage_does_not_mark_done(tmp_path, monkeypatch):
     assert not ctx.is_done("content_context")
 
 def test_run_delivery_blocks_when_profile_unverified(tmp_path):
+    from interview_mux.v2.config import v2_enabled
     from run_fixtures import seed_analysis_ready_artifacts
 
     ctx = ctx_from_fixture(tmp_path)
     seed_analysis_ready_artifacts(ctx, verified=False)
+    if v2_enabled():
+        # Profile gate cut in v2 — delivery proceeds past analysis readiness checks.
+        # Incomplete stage inputs still block (boundaries / shared analysis).
+        from interview_mux.stage_input_checks import StageInputError
+
+        with pytest.raises(StageInputError):
+            pipeline.run_delivery(ctx)
+        return
     with pytest.raises(SystemExit, match="Profile gate"):
         pipeline.run_delivery(ctx)
 
@@ -235,19 +245,16 @@ def test_run_analysis_smoke_uses_fixture_without_external_calls(tmp_path, monkey
     }
 
     monkeypatch.setattr(pipeline, "_analysis_stage_fns", lambda _ctx: stage_fns)
-    monkeypatch.setattr(pipeline, "pre_analysis_init", lambda _ctx: None)
-    monkeypatch.setattr(
-        pipeline,
-        "post_analysis_finalize",
-        lambda _ctx: {"analysis_ready": True, "blockers": []},
-    )
-    monkeypatch.setattr(pipeline, "drain_investigation_queue", lambda _ctx, _runners: None)
     monkeypatch.setattr(
         "interview_mux.artifact_cross_validate.maybe_cross_validate_after_stage",
         lambda _ctx, _name: None,
     )
     monkeypatch.setattr(pipeline, "check_transcript_review_pending", lambda _ctx: False)
     monkeypatch.setattr(pipeline, "check_g1_vo", lambda _ctx: [])
+    monkeypatch.setattr(
+        "interview_mux.analysis_memory.update_completion_from_analysis",
+        lambda _ctx: {"analysis_ready": True, "blockers": []},
+    )
     _bypass_stage_input_checks(monkeypatch)
     _bypass_upstream_llm_checks(monkeypatch)
     monkeypatch.setattr(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from interview_mux.artifact_completeness import artifact_status, analysis_profile_ready_for_review

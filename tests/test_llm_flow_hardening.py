@@ -156,6 +156,7 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
         monkeypatch,
         {
             "analysis": {
+                "coverage_limits": {"soft_progression": {"enabled": False}},
                 "flow_hardening": {
                     "enabled": True,
                     "block_mix_without_sfx_when_enabled": True,
@@ -168,6 +169,7 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
             }
         },
     )
+    monkeypatch.setattr("interview_mux.coverage_limits.soft_progression_enabled", lambda cfg=None: False)
     ctx = isolated_run_ctx(tmp_path, "fh_mix_gate")
     seed_flow1_sound_spend_ready(ctx)
     (ctx.path("sound_design", "assets") / "bed_01.wav").unlink()

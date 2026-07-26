@@ -114,7 +114,7 @@ export function SonicContextPanel() {
           Episode structure: atlas{" "}
           <strong>{episodeStructure.axes?.atlas_bucket || "—"}</strong>, slots{" "}
           <strong>{episodeStructure.slot_plan?.length ?? 0}</strong>
-          {(episodeStructure.omit_high_profile || []).length
+          {episodeStructure.omit_high_profile?.length
             ? `, omitted ${episodeStructure.omit_high_profile.join(", ")}`
             : ""}
           {episodeStructure.hook_reel?.repeat_allowed

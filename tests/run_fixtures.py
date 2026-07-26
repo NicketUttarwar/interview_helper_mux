@@ -25,23 +25,48 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.write_staging",
     "interview_mux.llm_call_record",
     "interview_mux.llm_calls_gui",
-    "interview_mux.journey_orchestrator",
     "interview_mux.journey_state",
-    "interview_mux.disfluency.config",
     "interview_mux.llm_flow_hardening",
     "interview_mux.llm_preflight",
     "interview_mux.gates",
     "interview_mux.stages.sound_design_stages",
     "interview_mux.artifact_cross_validate",
-    "interview_mux.artifact_issue_triage",
     "interview_mux.artifact_auto_resolve",
-    "interview_mux.full_autopilot",
     "interview_mux.config",
     "interview_mux.null_field_policy",
     "interview_mux.llm_fabricate",
     "interview_mux.llm_output_normalizer",
     "interview_mux.llm_output_resilience",
+    "interview_mux.soundscape_policy",
+    "interview_mux.creative_delivery",
+    "interview_mux.soundscape_verify",
+    "interview_mux.sound_design",
 )
+
+
+def patch_mix_test_config(
+    monkeypatch,
+    *,
+    disable_soundscape: bool = True,
+    disable_creative_delivery: bool = True,
+) -> None:
+    """Isolate mix tests from creative-delivery density gates and soundscape verify."""
+    from interview_mux.config import merged_config
+
+    base = merged_config()
+    overrides: dict[str, Any] = {**base}
+    if disable_soundscape:
+        overrides["soundscape"] = {
+            **(base.get("soundscape") or {}),
+            "enabled": False,
+            "fail_closed": False,
+        }
+    if disable_creative_delivery:
+        overrides["creative_delivery"] = {
+            **(base.get("creative_delivery") or {}),
+            "required": False,
+        }
+    patch_merged_config(monkeypatch, overrides)
 
 def parse_log_detail(entry: dict[str, Any]) -> dict[str, Any]:
     """Return inner detail dict from gui_log.jsonl entry (handles operator_log envelope)."""
@@ -142,6 +167,18 @@ def patch_merged_config(monkeypatch, cfg: dict[str, Any]) -> None:
             continue
         if hasattr(mod, "merged_config"):
             monkeypatch.setattr(mod, "merged_config", lambda c=cfg: c)
+
+
+def patch_write_approval_enabled(monkeypatch, *, enabled: bool = True) -> None:
+    """Force legacy write-approval staging (v2 auto-commit disables it by default)."""
+    monkeypatch.setattr(
+        "interview_mux.write_staging.write_approval_enabled",
+        lambda: enabled,
+    )
+    monkeypatch.setattr(
+        "interview_mux.v2.config.v2_auto_commit",
+        lambda: not enabled,
+    )
 
 def _execution_number_from_run_id(run_id: str) -> int | None:
     if not run_id.startswith("exec_"):
@@ -435,6 +472,8 @@ def seed_flow1_full_sound_path(ctx: RunContext) -> None:
 def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     """Minimal Flow 1 sound path artifacts for cross-validate spend/mix regression tests."""
     seed_analysis_ready_artifacts(ctx, verified=True)
+    if not ctx.artifact_exists("run_meta.json"):
+        init_run_meta_for_test(ctx)
     ctx.write_json(
         "master/selection.json",
         minimal_master_selection(chapters=[]),

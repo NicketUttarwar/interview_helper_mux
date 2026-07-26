@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { RunData } from "../types";
+import { makeJourney, makeStage } from "../test/runFixtures";
 import {
-  canAttemptAutopilotCheckpoint,
   canAttemptAutopilotFixAll,
   clearAutopilotCheckpointAttempts,
   recordAutopilotFixAllAttempt,
@@ -12,12 +12,19 @@ import {
 function runStub(overrides: Partial<RunData> = {}): RunData {
   return {
     run_id: "exec_test",
-    stages: [{ id: "boundary_detection", title: "Boundaries", status: "action_required", phase: "understand" }],
+    stages: [
+      makeStage("boundary_detection", {
+        title: "Boundaries",
+        status: "action_required",
+        phase: "understand",
+      }),
+    ],
     ...overrides,
   };
 }
 
-const legacyConfig = { journey_ui: { full_autopilot: false } } as const;
+/** Auto-advance left at its default (on) — the v2 checkpoint path. */
+const autoAdvanceConfig = { journey_ui: {} } as const;
 
 describe("autopilotResolution", () => {
   beforeEach(() => {
@@ -34,7 +41,7 @@ describe("autopilotResolution", () => {
         itr_blocking_count: 1,
       },
     });
-    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toBeNull();
+    expect(resolveAutopilotCheckpoint(run, autoAdvanceConfig)).toBeNull();
   });
 
   it("resolves fix_all when needs_clarification and can_fix_all", () => {
@@ -45,16 +52,16 @@ describe("autopilotResolution", () => {
         can_fix_all: true,
         itr_blocking_count: 2,
       },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
           reason: "artifact_clarification",
           stage_id: "boundary_detection",
         },
-      },
+      }),
     });
-    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
+    expect(resolveAutopilotCheckpoint(run, autoAdvanceConfig)).toEqual({
       kind: "fix_all",
       stageId: "boundary_detection",
     });
@@ -62,7 +69,13 @@ describe("autopilotResolution", () => {
 
   it("does not resolve write_approval — operator must save manually", () => {
     const run = runStub({
-      stages: [{ id: "boundary_detection", title: "Boundaries", status: "awaiting_write_approval", phase: "understand" }],
+      stages: [
+        makeStage("boundary_detection", {
+          title: "Boundaries",
+          status: "awaiting_write_approval",
+          phase: "understand",
+        }),
+      ],
       job: {
         status: "awaiting_write_approval",
         stage: "boundary_detection",
@@ -70,7 +83,7 @@ describe("autopilotResolution", () => {
         pending_write_paths: ["segments/boundaries.json"],
       },
     });
-    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toBeNull();
+    expect(resolveAutopilotCheckpoint(run, autoAdvanceConfig)).toBeNull();
   });
 
   it("hides review gate only for fix_all autopilot checkpoints", () => {
@@ -82,12 +95,18 @@ describe("autopilotResolution", () => {
         itr_blocking_count: 1,
       },
     });
-    expect(autopilotHidesReviewGate(run, "boundary_detection", legacyConfig)).toBe(true);
+    expect(autopilotHidesReviewGate(run, "boundary_detection", autoAdvanceConfig)).toBe(true);
   });
 
   it("prefers fix_all when ITR issues block save", () => {
     const run = runStub({
-      stages: [{ id: "boundary_detection", title: "Boundaries", status: "awaiting_write_approval", phase: "understand" }],
+      stages: [
+        makeStage("boundary_detection", {
+          title: "Boundaries",
+          status: "awaiting_write_approval",
+          phase: "understand",
+        }),
+      ],
       job: {
         status: "needs_clarification",
         stage: "boundary_detection",
@@ -96,39 +115,16 @@ describe("autopilotResolution", () => {
         itr_blocking_count: 5,
         can_fix_all: true,
       },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
           reason: "artifact_clarification",
           stage_id: "boundary_detection",
         },
-      },
+      }),
     });
-    expect(resolveAutopilotCheckpoint(run, legacyConfig)).toEqual({
-      kind: "fix_all",
-      stageId: "boundary_detection",
-    });
-  });
-
-  it("resolves fix_all regardless of full_autopilot flag (v2)", () => {
-    const run = runStub({
-      job: {
-        status: "needs_clarification",
-        stage: "boundary_detection",
-        can_fix_all: true,
-        itr_blocking_count: 2,
-      },
-      journey: {
-        phase: "understand",
-        blocking: {
-          blocked: true,
-          reason: "artifact_clarification",
-          stage_id: "boundary_detection",
-        },
-      },
-    });
-    expect(resolveAutopilotCheckpoint(run, { journey_ui: { full_autopilot: true } })).toEqual({
+    expect(resolveAutopilotCheckpoint(run, autoAdvanceConfig)).toEqual({
       kind: "fix_all",
       stageId: "boundary_detection",
     });

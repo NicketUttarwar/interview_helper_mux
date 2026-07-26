@@ -1,5 +1,5 @@
-import type { JobState, PipelineSubTab, RunData, AppConfig } from "../types";
-import { findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
+import type { JobState, JourneyUiConfig, PipelineSubTab, RunData } from "../types";
+import { resolveOperatorFocusStageId } from "./checkpoint";
 import { findNextRunnableStage } from "./preclean";
 import { firstUpstreamBlocker } from "./stageOutputs";
 import { readyForStageMessage } from "./stageAdvance";
@@ -16,12 +16,6 @@ import {
   isPipelineComplete,
   shouldAutoNavigateFromStage,
 } from "./pipelineAutopilot";
-import {
-  canAttemptAutopilotCheckpoint,
-  clearAutopilotCheckpointAttempts,
-  recordAutopilotCheckpointAttempt,
-  resolveAutopilotCheckpoint,
-} from "./autopilotResolution";
 import {
   markAutoNavConsumed,
   stageHadAutoNavigation,
@@ -121,7 +115,7 @@ export function patchRunAfterWriteApproval(
     journey: run.journey
       ? {
           ...run.journey,
-          blocking: reuseBlocking ?? clearWriteBlocking(run.journey.blocking),
+          blocking: reuseBlocking ?? clearWriteBlocking(run.journey.blocking) ?? {},
           active_substep_id: reuseStage
             ? `stage_reuse:${reuseStage}`
             : nextStageId
@@ -150,7 +144,7 @@ export interface AdvancePipelineOpts {
   navigateToNextBlocker: () => Promise<void>;
   /** When true, automatically start the next automated stage after focusing it. */
   autoRun?: boolean;
-  config?: AppConfig | null;
+  config?: JourneyUiConfig | null;
   /** auto_surface = show operator focus once per source stage; user_continue = always navigate. */
   navigationIntent?: NavigationIntent;
 }
@@ -522,6 +516,6 @@ export async function reconcileBusyRun(opts: ReconcileBusyOpts): Promise<{
     return { jobRunning: true, writeApprovalCleared: false };
   }
 
-  const refreshed = await opts.refreshRun();
+  await opts.refreshRun();
   return { jobRunning: false, writeApprovalCleared: false };
 }

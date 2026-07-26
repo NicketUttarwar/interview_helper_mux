@@ -113,7 +113,7 @@ The pipeline already produces everything S2S needs:
 | `flow_adaptation.pickup_eligible_speaker_id` | Only least-spoken speaker may receive new VO (TBIY invariant) |
 | `ingest/normalized.wav` + segment timestamps | Context audio around `targets_segment_id` for prosody matching |
 | `vo_pickup/{line_id}.wav` | Canonical pickup output consumed by `vo_ingest` → `edl` → `mix` |
-| `VoPickupPanel` | G1 record/upload/skip — [operator-gates-v2.md](../workflows/operator-gates-v2.md) |
+| `VoPickupPanel` | G1 record/upload/skip — [operator-gates.md](../workflows/operator-gates.md) |
 | DeepFilterNet preclean (`scope: vo_pickup`) | Noise only — not timbre/room match |
 
 Today `delivery: synthesize` exists in the gap schema but is **downgraded to `record`** at persist time (`gaps.py` → `persist_optimal_questions_companion_artifacts`). Shipping S2S re-enables that path as an **optional operator offer** (never auto-run — same rule as preclean).
@@ -342,7 +342,7 @@ Future-proofing row: [future-proofing.md](../roadmap/future-proofing.md).
 
 ## Related
 
-- [operator-gates-v2.md](../workflows/operator-gates-v2.md) — G1 optional
+- [operator-gates.md](../workflows/operator-gates.md) — G1 optional
 - [pipeline/interviewer-gap/README.md](../pipeline/interviewer-gap/README.md) — gap stages
 - [pipeline/audio_preclean/README.md](../pipeline/audio_preclean/README.md) — pickup noise (complements, does not replace VC)
 - [sound-design.md](./sound-design.md) — VO bridge cues and mix order

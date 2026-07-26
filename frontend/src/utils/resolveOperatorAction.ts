@@ -9,7 +9,6 @@ import { findPendingFocusStage } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
-import { parseFileCountFromMessage } from "./pendingAction";
 import {
   findNextRunnableStage,
   isOptionalStageSkipped,
@@ -19,7 +18,6 @@ import { buildNumberedStages, resolvePipelineNav } from "./pipelineNavigation";
 import {
   firstStageHealthTodoItem,
   firstUpstreamTodoItem,
-  guidanceHasTodo,
 } from "./stageGuidance";
 import { stageHasCommittedOutputs, stageIncompleteReason, firstUpstreamBlocker } from "./stageOutputs";
 import { isStageHidden } from "./stageVisibility";
@@ -46,7 +44,7 @@ function stageTitle(run: RunData, stageId: string | null | undefined): string {
   return stageById(run, stageId)?.title ?? stageId ?? "Pipeline";
 }
 
-function gateHeadline(run: RunData, stageId: string, blockingReason?: string | null): string {
+function gateHeadline(run: RunData, stageId: string): string {
   switch (stageId) {
     case "transcript_review":
       return "Review speech-to-text clips";
@@ -199,7 +197,7 @@ function buildGateAction(
   const headline =
     run.job?.status === "gate" && message
       ? message.slice(0, 80)
-      : gateHeadline(run, stageId, blockingReason);
+      : gateHeadline(run, stageId);
   return {
     mode: "needs_you",
     stageId,
@@ -460,7 +458,7 @@ export function resolveOperatorActionForStage(
   if (!stage) return global;
   if (isStageHidden(stage)) {
     const next = findNextRunnableStage(run.stages, run.meta);
-    return buildDoneAction(run, stage, next, null);
+    return buildDoneAction(run, stage, next ?? null, null);
   }
 
   const job = run.job;

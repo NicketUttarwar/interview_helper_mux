@@ -12,6 +12,15 @@ STAGE = "content_context"
 
 def test_build_outputs_view_marks_blocking_sufficiency(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr("interview_mux.sufficiency_engine.sufficiency_enabled", lambda: True)
+    monkeypatch.setattr(
+        "interview_mux.sufficiency_engine.evaluate",
+        lambda stage_id, doc, ctx: [
+            type("F", (), {"blocking": True, "path": "style.tone"})()
+        ]
+        if stage_id == STAGE and isinstance(doc, dict) and not str(doc.get("thesis") or "").strip()
+        else [],
+    )
     ctx = isolated_run_ctx(tmp_path, "suff_view")
     fixture = Path(__file__).resolve().parent / "fixtures" / "sufficiency" / "content_context" / "fail_empty_thesis.json"
     doc = json.loads(fixture.read_text(encoding="utf-8"))

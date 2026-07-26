@@ -51,6 +51,13 @@ const PHASE_ORDER: OperatorPhase[] = [
   "ship",
 ];
 
+/** Pre-v2 stages the backend no longer registers; old run JSON may still name them. */
+const REMOVED_STAGE_IDS = new Set([
+  "analysis_profile",
+  "disfluency_extract",
+  "disfluency_review",
+]);
+
 function stagePhase(stage: StageInfo): OperatorPhase {
   const op = stage.operator_phase ?? stage.phase ?? "understand";
   if (op === "gate") return "complete";
@@ -59,7 +66,6 @@ function stagePhase(stage: StageInfo): OperatorPhase {
 
 function subTabForStage(stageId: string, kind: AttentionKind): PipelineSubTab {
   if (kind === "handoff" || kind === "write_approval") return "files";
-  if (stageId === "analysis_profile") return "story";
   if (stageId.startsWith("nle") || stageId.includes("edl")) return "timeline";
   return "stage";
 }
@@ -107,6 +113,7 @@ export function listAttentionItems(
   const seen = new Set<string>();
 
   const push = (item: AttentionItem) => {
+    if (REMOVED_STAGE_IDS.has(item.stageId)) return;
     const key = `${item.kind}:${item.stageId}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -239,20 +246,6 @@ export function listAttentionItems(
     });
   }
 
-  if (run.profile_gate_pending && !run.profile_verified) {
-    push({
-      kind: "milestone",
-      priority: 6,
-      stageId: "analysis_profile",
-      stageTitle: "Interview profile",
-      title: "Review AI story profile",
-      message: "Verify themes and tone on Story Board before extended Flow 1 stages.",
-      primaryLabel: checkpointPrimaryLabel("analysis_profile", "milestone"),
-      phase: "understand",
-      subTab: "story",
-    });
-  }
-
   const inv = run.journey?.open_investigations ?? 0;
   if (inv > 0) {
     push({
@@ -273,7 +266,7 @@ export function listAttentionItems(
     push({
       kind: "blocked",
       priority: 2,
-      stageId: "analysis_profile",
+      stageId: "investigation_queue",
       stageTitle: "Story Board",
       title: "Resolve blocking claim contradictions",
       message: `${blockingCoherence} blocking coherence contradiction(s) — re-anchor brief or resolve on Story Board.`,
@@ -417,7 +410,6 @@ export function subTabAttentionFlags(
   }
 
   if ((run.journey?.open_investigations ?? 0) > 0) bump("story");
-  if (run.profile_gate_pending && !run.profile_verified) bump("story");
 
   if (run.nle_dirty) bump("timeline");
 

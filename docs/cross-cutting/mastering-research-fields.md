@@ -32,11 +32,11 @@ Each field: mint system prompt → research volley → acceptance → optional c
 
 | Field id | Knowledge | Artifacts / stages | Operator flows | Skip if |
 |----------|-----------|--------------------|----------------|---------|
-| `thesis_claims` | Thesis, claims, topics | `content_brief.json`, reanchor, analysis_state; `content_context`, `content_brief_reanchor` | Story Board themes | — |
+| `thesis_claims` | Thesis, claims, topics | `content_brief.json`, reanchor, analysis_state; `content_context`, `content_brief_reanchor` | Stage detail themes | — |
 | `value_features` | Deterministic spikes | `value_features.json` | Value-analysis | Value analysis off |
-| `coherence_risks` | Drift / contradiction | `coherence_report.json`, investigation_queue | Story Board investigations | Coherence off / short run |
+| `coherence_risks` | Drift / contradiction | `coherence_report.json`, investigation_queue | Stage detail investigations | Coherence off / short run |
 | `topic_coverage` | Topic survival | `coverage_audit.json` or brief+segments; `topic_coverage_audit` | Coverage audit | Pre-delivery: proxy only |
-| `narrative_arc_candidates` | Arc as *candidate only* | `narrative_plan.json`; `narrative_arc_plan` | Arc / Story Board | Pre-arc: thin |
+| `narrative_arc_candidates` | Arc as *candidate only* | `narrative_plan.json`; `narrative_arc_plan` | Arc panel | Pre-arc: thin |
 | `transition_bridge_inventory` | Spoken bridges | `transitions.json`, gap VO notes; `transitions` | Transitions / gap studio | Pre-transitions: thin |
 
 ## Wave 4 — Segmentation, budgets, and edit intent
@@ -75,7 +75,7 @@ Each field: mint system prompt → research volley → acceptance → optional c
 | Field id | Knowledge | Artifacts / stages | Operator flows | Skip if |
 |----------|-----------|--------------------|----------------|---------|
 | `journey_gates` | Gate completions | journey_state | G0 / G1 / G1.5 / preclean / framing | — |
-| `story_board_steering` | Theme / investigation edits | story-board API, analysis_state | **Story Board** | No edits: thin |
+| `story_board_steering` | Theme / investigation edits | legacy `story-board` API (no GUI) | — | Removed surface: always thin |
 | `conversation_studio` | Gap / volley steering | ConversationStudio / gap CRUD | **Conversation Studio** | No studio use: thin |
 | `stage_reuse_and_hash` | Reuse / source hash | run_meta, stage_reuse_decisions | PreviousSessionReuse / Start | Fresh run: thin |
 | `llm_volley_audit` | Prior LLM quality | `llm_calls/**`, registry | Debug / LlmVolleyReview | — |
@@ -107,7 +107,7 @@ Each field: mint system prompt → research volley → acceptance → optional c
 | Preclean offer | `preclean_lineage`, `source_readiness_band` |
 | G0 transcript review | `g0_transcript_fidelity` |
 | Profile / speaker roles | `speaker_roles`, `production_style_profile` |
-| Story Board | `thesis_claims`, `coherence_risks`, `narrative_arc_candidates`, `story_board_steering` |
+| Stage detail | `thesis_claims`, `coherence_risks`, `narrative_arc_candidates` |
 | Timeline / NLE | `nle_operator_edits`, `boundaries_segments` |
 | Conversation Studio | `speaker_volleys`, `gap_framing_plan`, `conversation_studio` |
 | G-Framing / G-Speaker / G-VoiceRef / G-Delivery | `gap_framing_plan`, `pickup_speaker_voice`, `delivery_brief_budgets` |

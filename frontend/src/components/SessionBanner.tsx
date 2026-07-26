@@ -2,14 +2,12 @@ import type { RunData, RunSummary } from "../types";
 
 interface SessionBannerProps {
   run: RunData | null;
-  runSummary?: RunSummary | null;
   previousRunSummary?: RunSummary | null;
   onReviewReuse?: () => void;
 }
 
 export function SessionBanner({
   run,
-  runSummary,
   previousRunSummary,
   onReviewReuse,
 }: SessionBannerProps) {

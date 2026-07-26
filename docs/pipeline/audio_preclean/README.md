@@ -4,7 +4,7 @@
 
 Reduce steady background noise so speech is clearer for STT, review clips, VO pickup, and the final mix. This is **noise reduction**, not voice isolation — operator copy should not promise “stem separation.”
 
-**Always optional** — never auto-enabled without operator consent. Under **first-try**, readiness green may **auto-dismiss** the offer (never auto-accept). See [first-try-reliability.md](../../workflows/first-try-reliability.md).
+**Always optional** — never auto-enabled without operator consent. Under **first-try**, readiness green may **auto-dismiss** the offer (never auto-accept). See [`journey_ui.first_try_mode`](../../cross-cutting/config-keys.md#top-level).
 
 ## When to use
 

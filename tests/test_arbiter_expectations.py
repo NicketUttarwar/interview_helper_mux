@@ -65,6 +65,8 @@ def test_build_stage_expectations_includes_rubric_fields():
     assert exp.get("decompose_eligible") is False
 
 
-def test_decompose_eligible_stages():
-    exp = build_stage_expectations("content_context")
-    assert exp.get("decompose_eligible") is True
+def test_decompose_never_eligible():
+    """v2 dropped shard/collate decomposition — no stage may opt back in."""
+    for stage_key in ("content_context", "segment_classification", "sound_design_plan"):
+        exp = build_stage_expectations(stage_key)
+        assert exp.get("decompose_eligible") is False, stage_key

@@ -235,7 +235,7 @@ High ambient noise, HVAC, handling, room reverb; STT stress.
 |--------|---------------|
 | Many G0 `flagged_chunks` | `transcript/review_queue.json` |
 | Low mean chunk confidence (<0.80) | G0 queue stats |
-| `transcript_quality.flagged_chunks` in volley | `context_volley.py` |
+| `transcript_quality.flagged_chunks` in volley | `stage_input_helpers.py` |
 | SAP: high noise floor | `source_acoustic_profile` |
 
 ### Prompt adaptations
@@ -243,7 +243,6 @@ High ambient noise, HVAC, handling, room reverb; STT stress.
 - **All P0 stages:** Honor `transcript_quality`; lower confidence on flagged regions.
 - **content_context:** Mark claims in flagged windows as `confidence: low`.
 - **boundary_detection:** Do not split mid-sentence to recover fragmentation unless obvious.
-- **disfluency_extract:** Expect higher false-positive rate; operator G0.5 critical.
 
 ### Sound posture
 

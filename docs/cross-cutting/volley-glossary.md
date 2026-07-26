@@ -24,16 +24,16 @@ Aliases (only when paired): “conversation volley”, “speaker exchange volle
 **LLM volley** = the **constructed message stack** (system / user / assistant / related turns) that builds the **full context packet** passed to a large language model for one stage call.
 
 - How messages are assembled, compacted, framed (local framer), and recorded.
-- Code: `compact_*_for_volley` / `compact_for_llm_volley`, `local_volley_framer`, `split_messages_for_volley`, LLM call records.
-- Not an operator gate on the default v2 path. Max **2** LLM attempts per stage, then hard stop.
+- Code: `compact_*_for_volley` / `compact_for_llm_volley`, `local_volley_framer` (local MLX, fail-open), `llm_call_record`.
+- **Not** a routing layer: there is no volley router, no shard/collate/arbiter path, and no operator gate. Every cloud call goes through `llm_simple.py`, max **2** attempts per stage, then hard stop.
 
 ---
 
 ## NORTH_STAR wording
 
-When NORTH_STAR lists “volley” under non-goals, it means **no LLM-arbiter / investigation-queue product UI** on the default journey — **not** “no speaker conversation structure” and **not** “erase LLM message-packet assembly.”
+When NORTH_STAR lists “volley” under non-goals, it means the **LLM-arbiter / investigation-queue product UI is gone** — **not** “no speaker conversation structure” and **not** “erase LLM message-packet assembly.”
 
-Flow 2 / Flow 3 / G2 remain permanently excluded from the volley architecture work.
+Flow 2 / Flow 3 / G2 were removed from the codebase and remain permanently out of scope.
 
 ---
 
@@ -44,7 +44,7 @@ Flow 2 / Flow 3 / G2 remain permanently excluded from the volley architecture wo
 | “run a volley” (ambiguous) | “run an LLM volley” or “preserve the speaker volley” |
 | Calling show-description copy a speaker volley | LLM volley → copy artifact |
 | Splitting a Q→A pair in ranking | Keep speaker volley atomic |
-| Bare `volley` in new operator UI | **Speaker volley** or **LLM volley review** |
+| Bare `volley` in new operator UI | **Speaker volley** (the only volley the operator sees) |
 
 ---
 

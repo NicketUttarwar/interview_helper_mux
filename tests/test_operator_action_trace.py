@@ -23,7 +23,7 @@ def trace_ctx(tmp_path, monkeypatch):
 
 def test_begin_end_action(trace_ctx):
     tid = begin_action(
-        "write_approval.approve",
+        "write_staging.approve",
         run_dir=trace_ctx.run_dir,
         stage="audio_preclean",
         origin="api",
@@ -31,7 +31,7 @@ def test_begin_end_action(trace_ctx):
     end_action(tid, run_dir=trace_ctx.run_dir, status="ok", detail={"flushed": ["a.wav"]})
     entries = read_action_trace(trace_ctx.run_dir, tail=10)
     assert len(entries) >= 2
-    assert entries[0]["action_id"] == "write_approval.approve"
+    assert entries[0]["action_id"] == "write_staging.approve"
     assert entries[0]["status"] == "running"
 
 
@@ -61,4 +61,4 @@ def test_approve_stage_writes_trace(trace_ctx, monkeypatch):
     assert flushed
     entries = read_action_trace(trace_ctx.run_dir)
     ids = [e.get("action_id") for e in entries]
-    assert "write_approval.approve" in ids
+    assert "write_staging.approve" in ids

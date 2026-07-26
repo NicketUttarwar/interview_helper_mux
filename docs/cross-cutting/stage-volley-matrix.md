@@ -2,6 +2,8 @@
 
 Every analysis, delivery, and gate stage declares how it relates to **speaker volley** and/or **LLM volley**. See [volley-glossary.md](./volley-glossary.md).
 
+"LLM volley" in the right-hand column means only *how the message packet for that stage call is assembled*. There is no volley routing layer, no shard/collate/arbiter path, and no Volley review tab — every cloud call goes through `llm_simple.py` with a max of 2 attempts. See [../v2/drop-manifest.md](../v2/drop-manifest.md).
+
 | Stage / gate | Speaker volley | LLM volley |
 |--------------|----------------|------------|
 | Preclean offer | Preserves speech for later detection | — |
@@ -13,7 +15,7 @@ Every analysis, delivery, and gate stage declares how it relates to **speaker vo
 | `source_acoustic_profile` | Pacing/energy of conversational stretches | Compact → LLM volley digests |
 | `interview_spine_build` | Time index → volley candidates | Compact → LLM volley |
 | `speaker_roles` | Who can participate in a speaker volley | Stage call = LLM volley |
-| `source_topology_build` | Topology predicts volley shape | LLM volley + adaptation |
+| `source_topology_build` | Topology predicts volley shape | LLM volley |
 | G-Framing / VoiceRef / Delivery | Host lines between/around volleys | Synthesis prompts = LLM volley |
 | `content_context` | Themes spanning volleys | LLM volley |
 | `boundary_detection` | Edges that define volley boundaries | LLM volley |
@@ -45,7 +47,7 @@ Every analysis, delivery, and gate stage declares how it relates to **speaker vo
 | `master_finalize` | Master of volley-ordered timeline | — |
 | `verify_master` | Loudness of final enjoyable master | — |
 
-Flow 2 / Flow 3 stages: **permanently excluded** from this matrix’s product path.
+Flow 2 / Flow 3 stages were removed from the codebase and are **permanently excluded** from this matrix.
 
 ## Mastering quality-hardening gates
 
@@ -53,7 +55,6 @@ Advisory by default; each writes an artifact and only blocks when its mode is `a
 
 | Gate | Speaker-volley relevance | LLM volley |
 |------|--------------------------|------------|
-| `research_routing` | Decides how deeply volley/topology fields are analysed | LLM volley (economy, OH-01) |
 | `evidence_packets` | Bounds what each consumer sees per volley | Deterministic |
 | `eval_rubric` | Weights that judge volley pacing for this source | LLM volley (flagship, OH-02) |
 | `diversity` | Forces candidates to differ in volley ordering, not just labels | Deterministic |
@@ -63,4 +64,5 @@ Advisory by default; each writes an artifact and only blocks when its mode is `a
 | `critics` | Six critics score volley arc, audio, pacing, integrity | LLM volley ×6 (OH-C1…C6) |
 | `arbiter` | Merges the panel; enforces integrity kills | LLM volley (flagship, OH-A1) |
 | `pareto` | Keeps frontier survivors instead of one score | Deterministic |
-| `polish` | Audio-grounded audit + bounded remux before finalize | LLM volley (flagship, OH-P1) |
+
+`research_routing` and `polish` config keys survive in `mastering_hardening_config.py`, but their implementing modules (`mastering_research_router.py`, `mastering_polish_loop.py`) were removed — treat both as inert.

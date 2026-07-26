@@ -34,11 +34,7 @@ class ProgressionBlocker:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
-    from interview_mux.gates import (
-        check_disfluency_review_pending,
-        check_g1_vo,
-        check_transcript_review_pending,
-    )
+    from interview_mux.gates import check_g1_vo, check_transcript_review_pending
 
     out: list[ProgressionBlocker] = []
     if check_transcript_review_pending(ctx):
@@ -48,15 +44,6 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
                 id="g0_transcript_review",
                 message="G0 transcript review pending — correct STT in the GUI before continuing.",
                 stage_id="transcript_review",
-            )
-        )
-    if check_disfluency_review_pending(ctx):
-        out.append(
-            ProgressionBlocker(
-                layer="gate",
-                id="g0_5_disfluency_review",
-                message="G0.5 disfluency review pending — confirm filler events in the GUI.",
-                stage_id="disfluency_review",
             )
         )
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
@@ -110,20 +97,6 @@ def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
                     id="gap_delivery_pending",
                     message="Gap delivery choice pending — select Chatterbox or record path.",
                     stage_id="gap_delivery",
-                )
-            )
-    if ctx.artifact_exists("understanding/analysis_state.json"):
-        state = ctx.read_json("understanding/analysis_state.json")
-        meta = state.get("meta") if isinstance(state, dict) else {}
-        if not (isinstance(meta, dict) and meta.get("operator_verified")):
-            out.append(
-                ProgressionBlocker(
-                    layer="gate",
-                    id="profile_operator_verified",
-                    message="Interview profile not operator-verified — mark verified in the GUI.",
-                    path="understanding/analysis_state.json",
-                    json_pointer="/meta/operator_verified",
-                    stage_id="analysis_profile",
                 )
             )
     return out

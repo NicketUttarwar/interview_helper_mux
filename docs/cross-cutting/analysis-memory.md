@@ -13,7 +13,7 @@ Every execution builds a **custom analysis profile** for that recording. Memory 
 | `understanding/analysis_state.json` | **Main profile** — themes, major questions, style, narrative, entities, completion |
 | `understanding/investigation_queue.json` | Open items the orchestrator may re-run stages to resolve |
 | `understanding/coherence_report.json` | H-ORC-03 scored risks (30m+ interviews) — see [coherence-orc03.md](./coherence-orc03.md) |
-| `analysis_state.coherence_risks[]` | Open subset mirrored from coherence report for Story Board / volley caps |
+| `analysis_state.coherence_risks[]` | Open subset mirrored from coherence report for stage panels / volley caps |
 | `understanding/content_brief.json` | Stage artifact (thesis, topics, typed claims, `topic_relationships`); synced into `analysis_state` — pass 1 from `content_context`, timeline patch from `content_brief_reanchor` |
 | `understanding/speakers.json` | Speaker roles, early `conversation_profile`, `gap_sensitivity`, optional `conversation_hypotheses` |
 | `segments/manifest.json` | Segment timeline |
@@ -49,7 +49,7 @@ If the LLM omits `one_line_summary`, `sync_content_brief_to_state` derives it fr
 
 ### Operator field locks
 
-GUI profile saves record edited paths in `meta.operator_locked_fields`. Locked fields (and all profile style/identity fields when `operator_verified`) are not overwritten by later LLM `style_patch` / `interview_identity_patch` merges. Conflicts enqueue `style_conflict` investigations in `investigation_queue.json` (Story Board).
+GUI profile saves record edited paths in `meta.operator_locked_fields`. Locked fields (and all profile style/identity fields when `operator_verified`) are not overwritten by later LLM `style_patch` / `interview_identity_patch` merges. Conflicts enqueue `style_conflict` investigations in `investigation_queue.json`.
 
 ## Supporting files (machine-managed)
 
@@ -61,7 +61,7 @@ GUI profile saves record edited paths in `meta.operator_locked_fields`. Locked f
 
 ## What gets sent to OpenAI
 
-Not the whole memory file. `context_volley.py` selects prior conclusions, profile slices, investigations, and shaped stage JSON per step. When enabled, `context_resolver.py` reads active entries from `context_index.json` instead of only `meta.stage_summaries`. See [context-padding.md](./context-padding.md).
+Not the whole memory file. `stage_input_helpers.py` selects prior conclusions, profile slices, and shaped stage JSON per step. When enabled, `context_resolver.py` reads active entries from `context_index.json` instead of only `meta.stage_summaries`. Padding knobs live under [`analysis.context.*`](./config-keys.md#analysiscontext).
 
 ## Volley entries (context_index v2)
 
@@ -89,10 +89,10 @@ On arbiter-accept merge, the pipeline appends structured entries:
 - **Incremental persist:** `merge_artifact()` deep-merges LLM patches into existing files; `gap_fill_context` tells the model which fields are already satisfied.
 - Operator edits to `analysis_state.json` are **not** overwritten silently — conflicting model updates should surface as `needs` with `type: operator`. When `meta.operator_verified: true`, merge skips protected profile keys (`themes`, `major_questions`, `narrative`, `style`).
 
-**Arbiter merge (BUILD-073):** Do **not** merge memory when the LLM arbiter rejects a primary response (`retry_uptier`, mid-flight `decompose`, or `enqueue_investigation`). Merge only after `accept` or successful collate — [llm-orchestration.md](./llm-orchestration.md).
+**Arbiter merge (BUILD-073):** Do **not** merge memory when the LLM arbiter rejects a primary response (`retry_uptier`, mid-flight `decompose`, or `enqueue_investigation`). Merge only after `accept` or successful collate.
 
 ## Per-interview customization
 
 No two interviews share memory. A new `exec_NNN_*` run starts from an empty profile template; analysis discovers themes and style from **that** transcript only.
 
-See [context-padding.md](./context-padding.md), [llm-orchestration.md](./llm-orchestration.md), and [workflows/analysis-orchestration-loop.md](../workflows/analysis-orchestration-loop.md).
+See [config-keys.md](./config-keys.md#analysiscontext) for padding knobs and [llm-stage-model-matrix.md](./llm-stage-model-matrix.md) for per-stage model routing.

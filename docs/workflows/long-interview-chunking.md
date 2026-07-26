@@ -1,10 +1,10 @@
 # Long interviews — context caps and chunking policy
 
-When a recording is **long or dense**, LLM stages may hit **token / character caps** defined in `config/app.defaults.json` → `analysis.context` and injected into the volley builder (`src/interview_mux/context_volley.py`). See [context-padding.md](../cross-cutting/context-padding.md) for what each stage receives.
+When a recording is **long or dense**, LLM stages may hit **token / character caps** defined in `config/app.defaults.json` → `analysis.context` and injected into the volley builder (`src/interview_mux/stage_input_helpers.py`).
 
 This document is the **policy** for operators and implementers: what to expect, what breaks, and how to recover **without** silently losing fidelity.
 
-**Shard → collate (BUILD-073/084, shipped):** when the arbiter returns `decompose` for eligible stages, the runner shards evidence and collates — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Shard → collate (BUILD-073/084, shipped):** when the arbiter returns `decompose` for eligible stages, the runner shards evidence and collates — eligibility per [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
 **Proactive decompose (`content_context`):** when transcript length exceeds `proactive_decompose_chars` (default 72k, aligned with `transcript_full_chars`), the runner skips the single primary pass and goes straight to shard/collate before the arbiter.
 
@@ -64,7 +64,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 | **Re-run from a mid pipeline stage** | After fixing G0 / manifest / profile | `--from-stage` per [idempotent-runs.md](./idempotent-runs.md) | Downstream invalidated |
 | **Operator edits + targeted re-run** | A theme is wrong but transcript OK | e.g. `--from-stage segment_classification` | Fastest when root cause is classification |
 | **Split into two executions** (manual) | Two logical “halves” of same recording | Two `run_id`s; merge in NLE later (advanced) | Editorial burden outside tool |
-| **Shard/collate** | Arbiter `decompose` on eligible stages (or deterministic plan when truncated) | Same stage after collate | [llm-orchestration.md](../cross-cutting/llm-orchestration.md) |
+| **Shard/collate** | Arbiter `decompose` on eligible stages (or deterministic plan when truncated) | Same stage after collate | Eligibility: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) |
 
 ---
 
@@ -96,7 +96,7 @@ See [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md).
 
 ## Related
 
-- [context-padding.md](../cross-cutting/context-padding.md)
+- [`analysis.context.*`](../cross-cutting/config-keys.md#analysiscontext) — volley caps
 - [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) — decompose eligibility
 - [operator-stage-checklists.md](./operator-stage-checklists.md)
 - [gui-surface-map.md](./gui-surface-map.md)

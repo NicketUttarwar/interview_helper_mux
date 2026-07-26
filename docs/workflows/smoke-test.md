@@ -2,7 +2,7 @@
 
 End-to-end validation checklist for a new machine.
 
-**Release candidate:** Automated `pytest tests/` is optional; use [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md) together with this doc for manual sign-off before calling the repo done.
+**Release candidate:** Run `pytest tests/` plus this checklist for manual sign-off before calling the repo done.
 
 ## Prerequisites
 
@@ -11,26 +11,25 @@ Install from the **anchor lock** (exact pins in repo-root `requirements.lock`; d
 ```bash
 ./scripts/bootstrap_venv.sh   # venv + pip install -r requirements.lock
 source .venv/bin/activate
-./tools/check_prerequisites.sh # ffmpeg, ffprobe, aws, Python 3.12.x, pip-audit on lock, import smoke
+./tools/check_prerequisites.sh # ffmpeg, ffprobe, Python 3.12.x, pip-audit on lock, import smoke
 ```
 
 **Fail fast:** If `pip-audit` reports HIGH/CRITICAL CVEs against the lock, refresh the lock or record an accepted advisory in [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md#accepted-advisories) before continuing.
 
-**Before a long Flow 1 run:**
+**Before a long delivery run:**
 
 1. `python tools/progression_chain_sanity.py --scope full` (progression regression)
 2. `./scripts/build_gui.sh` if `frontend/src` changed
 3. ASSETS venvs for audio tail (DeepFilterNet, MMAudio) when running past `edl`
-4. GUI **Flow 1 readiness** banner clear on `topic_coverage_audit` (`GET …/flow1-readiness`)
+4. GUI **delivery readiness** banner clear on `topic_coverage_audit` (`GET …/delivery-readiness`)
 
 See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) for stage/checkpoint map.
 
-**Pre-audio (SFX / mix):** require `master/assembly_preview.wav` before `mmaudio_sfx`; SDP flow1 cues before `mix`. `GET …/flow1-readiness?scope=pre_audio` lists blockers.
+**Pre-audio (SFX / mix):** require `master/assembly_preview.wav` before `mmaudio_sfx`; SDP cues before `mix`. `GET …/delivery-readiness?scope=pre_audio` lists blockers.
 
 ## Config
 
-- `config/secrets/secrets.env` has `OPENAI_API_KEY`, ``, `AWS_S3_BUCKET`, `AWS_DEFAULT_REGION`
-- `aws sts get-caller-identity` succeeds
+- `config/secrets/secrets.env` has `OPENAI_API_KEY` (the only required credential — STT, diarization, S2S, denoise, and SFX all run locally)
 - At least one `.wav` under `ASSETS/` (recommended: `ASSETS/input/interview.wav`)
 
 ## GUI path (preferred)
@@ -41,7 +40,7 @@ See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) 
 
 **Resume check:** stop the server, run `./scripts/run.sh` again — the GUI should open the **Start** tab (session cleared by default). Pick source audio or resume a prior run from **Executions**. Use `MUX_PRESERVE_SESSION=1 ./scripts/run.sh` to keep the last active pointer across that launch. Stage markers and `gui_log.jsonl` remain under `ASSETS/executions/<run_id>/`.
 
-**Steps sidebar:** expand a pipeline step to see substeps (gates, write approval, handoff). Completed steps collapse with a **Step complete** banner; click a todo substep to jump to the matching panel.
+**Steps sidebar:** expand a pipeline step to see its gate substeps. Completed steps collapse with a **Step complete** banner; click a todo substep to jump to the matching panel.
 
 **Refresh check:** with an active run, refresh the browser — same run, Pipeline tab, stage focus, and log tail should return without clicking Resume.
 
@@ -69,9 +68,7 @@ python tools/run_analysis.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 
 Use the `run_id` from the GUI step above. For headless-only setups, `INPUT_AUDIO_PATH` in `secrets.env` remains a fallback — not required when the run was created via the GUI asset picker.
 
-**Optional spot-check:** `understanding/stage_runs/<stage>/attempt_001.json` may include `arbiter_result.verdict: accept` and `shard_count` > 0 when decompose fires — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
-
-**Volley memory (optional):** After `content_context` accepts, open Pipeline → **Volley** — confirm `stage_conclusion` entries exist in `understanding/context_index.json`. Edit an entry, save, and confirm downstream handoff ack clears. Backfill older runs: `python tools/backfill_volley_index.py --run-id <exec_id>`. Enable index reads in config: `analysis.context_index.prefer_index_over_legacy_summaries: true` (default `false` for rollout).
+**Optional spot-check:** `understanding/stage_runs/<stage>/attempt_001.json` records the call. Each stage gets at most **2** attempts via `llm_simple.py`, then hard-stops — there is no shard/collate/arbiter fallback.
 
 Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 
@@ -89,53 +86,21 @@ If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_inges
 
 **Optional at G1:** If pickup recordings are noisy, accept VO-scoped pre-clean offer (BUILD-072) before continuing.
 
-## Flow 1
+## Delivery
+
+There is one delivery path. Flow 2 / Flow 3 and the G2 flow picker were removed; `--flow` is accepted and ignored.
 
 ```bash
-python tools/run_delivery.py --flow flow1 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
+python tools/run_delivery.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
 python tools/validate_narrative.py --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z --include-edl
 python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/master/master.wav
 ```
 
-**Expectations:** Playable `master.wav`. `verify_master.py` enforces Flow 1 targets: integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. `validate_narrative.py --include-edl` covers upstream narrative, EDL timeline, and EDL narrative QC; run `verify_edl.py` if you need schema-only diagnostics. Listen-test VO + SFX audibility per [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md).
-
-## Flow 2
-
-Use a fresh run or separate `run_002` after analysis:
-
-```bash
-python tools/run_delivery.py --flow flow2 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
-python tools/verify_master.py ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/REMOVED_flow2/master.wav
-```
-
-**Expectations:** Flow 2 targets: integrated LUFS −14 ±1, true peak ≤ −1 dBTP (same sample-rate and duration rules as Flow 1).
-
-## Flow 3
-
-After shared analysis and **G2** with `REMOVED_selected_flow: flow3`:
-
-```bash
-python tools/run_delivery.py --flow flow3 --run-id exec_001_a1b2c3d4e5f6_20260523T120000Z
-```
-
-**Expectations:**
-
-- `show_notes/show_description.json` validates against the show-description schema
-- `show_notes/show_description.md` exists (plain-text export)
-- Third-person blurb ~150–250 words (`word_count` in JSON)
-- No `master.wav` under the run directory
-
-Inspect copy in the GUI artifact editor or:
-
-```bash
-cat ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/show_notes/show_description.md
-```
-
-Spec: [publishing/README.md](../pipeline/publishing/README.md).
+**Expectations:** Playable `master.wav`. `verify_master.py` enforces integrated LUFS −16 ±1, true peak ≤ −1 dBTP, sample rate 44100 or 48000, duration > 0. Exits non-zero on failure. `validate_narrative.py --include-edl` covers upstream narrative, EDL timeline, and EDL narrative QC; run `verify_edl.py` if you need schema-only diagnostics. Listen-test VO + SFX audibility before sign-off.
 
 ## MMAudio SFX path (optional)
 
-After Flow 1 reaches polish with sound design enabled:
+After delivery reaches polish with sound design enabled:
 
 1. `sfx_prompt_craft` → approve prompts (G1.5 if `g1_5_require_prompt_approval`).
 2. `mmaudio_sfx` → `sound_design/assets/*.wav`, `sound_design/mmaudio_qa.json`.
@@ -152,15 +117,14 @@ Canon: [mastering-quality-hardening.md](../cross-cutting/mastering-quality-harde
 
 When the Shape Engine / Realization runtime is wired:
 
-1. Confirm `mastering/research/routing.json` exists after research (or is absent when `mode=off`).
-2. Confirm L0 emits `mastering/shape/eval_rubric.json` beside the agenda.
-3. After L2: `diversity_report.json` — near-clones reminted or flagged.
-4. Before L4: `feasibility.json` allow-list and `semantic_integrity.json` clean of critical findings.
-5. Auditions: `mastering/auditions/{candidate_id}/manifest.json` for up to `max_auditions` survivors (render optional in advisory mode).
-6. L4: `cross_critique.json` with ≥6 critic reports + arbiter; survivors feed `pareto.json`.
-7. Clone path: granting `vo_clone_*` without consent fails feasibility / voice gate; guest clone always rejected.
-8. After mix: `polish_audit.json` is `audio_grounded` with bounded `remux_directives` (max rounds from config).
-9. Prompt edits stay run-local (`prompt_promotions.json` records blockers) unless `allow_global_promotion` + corpus + approval.
+1. Confirm L0 emits `mastering/shape/eval_rubric.json` beside the agenda.
+2. After L2: `diversity_report.json` — near-clones reminted or flagged.
+3. Before L4: `feasibility.json` allow-list and `semantic_integrity.json` clean of critical findings.
+4. Auditions: `mastering/auditions/{candidate_id}/manifest.json` for up to `max_auditions` survivors (render optional in advisory mode).
+5. L4: `cross_critique.json` with ≥6 critic reports merged by the L4 panel arbiter in `mastering_critics.py`; survivors feed `pareto.json`.
+6. Clone path: granting `vo_clone_*` without consent fails feasibility / voice gate; guest clone always rejected.
+
+The `research_routing` and `polish` gates are inert — their config keys remain but `mastering_research_router.py` and `mastering_polish_loop.py` were removed, so no `routing.json`, `polish_audit.json`, or `prompt_promotions.json` is written.
 
 CI coverage (no network): `pytest tests/test_mastering_quality_*.py`.
 
@@ -168,7 +132,7 @@ CI coverage (no network): `pytest tests/test_mastering_quality_*.py`.
 
 - No unhandled exceptions
 - Master WAV plays; duration > 0
-- `verify_master.py` exits 0 for Flow 1 and Flow 2 masters
+- `verify_master.py` exits 0 for `master/master.wav`
 
 ## Coherence (H-ORC-03, optional)
 
@@ -179,7 +143,7 @@ For interviews ≥ 30 minutes:
 curl -s "$BASE/api/runs/$RUN_ID/coherence-report" | jq '.gate,.summary'
 ```
 
-Story Board should show **Coherence risks** when `gate.activated` is true.
+The Stage panel should show **Coherence risks** when `gate.activated` is true.
 
 ## If something fails
 

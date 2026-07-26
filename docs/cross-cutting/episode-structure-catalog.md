@@ -2,7 +2,7 @@
 
 **Status:** shipped (Plan 2). Deterministic composer writes `understanding/episode_structure.json`.
 
-**Related:** [sound-design.md](./sound-design.md) · [sonic-context.md](./sonic-context.md) · [soundscape-policy.md](./soundscape-policy.md) · [interview-scenario-atlas.md](../prompts/_shared/interview-scenario-atlas.md) · [local-llm-tier.md](./local-llm-tier.md) (Plan 1 LX-03 compact digest)
+**Related:** [sound-design.md](./sound-design.md) · [sonic-context.md](./sonic-context.md) · [soundscape-policy.md](./soundscape-policy.md) · [interview-scenario-atlas.md](../prompts/_shared/interview-scenario-atlas.md) · [`local_llm` config](./config-keys.md#local_llm) (Plan 1 LX-03 compact digest)
 
 ---
 

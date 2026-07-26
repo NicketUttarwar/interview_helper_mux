@@ -23,15 +23,15 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 
 ## Removed gates (v2)
 
-- G0.5 `disfluency_review`
-- `analysis_profile` / `operator_verified`
-- G2 flow selection
+- G0.5 `disfluency_review` (stage and panel deleted)
+- `analysis_profile` / `operator_verified` profile gate
+- G2 flow selection (Flow 2 / Flow 3 deleted)
 - G1.5 SFX prompt approval (default off: `g1_5_require_prompt_approval: false`)
 - Per-stage write approval (auto-commit artifacts)
 - Custom-run handoff acks
 
 ## LLM failures
 
-v2 uses **schema validate → one retry → hard stop** (`llm_simple.py`). No LLM-arbiter / investigation-queue UI on the default path (that is an optional **LLM volley** review surface — not **speaker volley** conversation structure). Re-run with `--from-stage <id>` after fixing upstream artifacts. See [volley-glossary.md](../cross-cutting/volley-glossary.md).
+v2 uses **schema validate → one retry → hard stop** (`llm_simple.py`). The LLM-arbiter / investigation-queue UI was removed, along with shard/collate/arbiter routing — there is no alternate path when a stage fails. Re-run with `--from-stage <id>` after fixing upstream artifacts. (This concerns **LLM volley** message assembly, not **speaker volley** conversation structure — see [volley-glossary.md](../cross-cutting/volley-glossary.md).)
 
 See [docs/v2/drop-manifest.md](../v2/drop-manifest.md).

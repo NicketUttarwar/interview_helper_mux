@@ -61,7 +61,7 @@ export function SpeakerRolesHypothesisPanel() {
     setBusy(true);
     traceAction("gui.speaker_roles.confirm_hypothesis", "Confirming conversation interpretation", {
       stage: "speaker_roles",
-      hypothesis_id: hypothesisId,
+      meta: { hypothesis_id: hypothesisId },
     });
     try {
       await api(`/api/runs/${runId}/speaker-roles/confirm-hypothesis`, {

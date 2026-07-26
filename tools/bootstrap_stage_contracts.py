@@ -40,6 +40,9 @@ _SUFFICIENCY: dict[str, list[dict]] = {
     "boundary_detection": [
         {"path": "boundaries", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
     ],
+    "boundary_topic_resplit": [
+        {"path": "boundaries", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
     "segment_classification": [
         {"path": "segments", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
     ],
@@ -73,22 +76,19 @@ _PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
 _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "sound_design_palettes": [{"path": "palettes", "rule": "min_rows", "min_count": 1}],
     "missing_framing": [{"path": "evaluations", "rule": "min_rows", "min_count": 1}],
-    "optimal_questions": [{"path": "gaps", "rule": "min_rows", "min_count": 1}],
+    "gap_framing_compose": [{"path": "gaps", "rule": "min_rows", "min_count": 1}],
     "topic_coverage_audit": [{"path": "topics", "rule": "min_rows", "min_count": 1}],
     "narrative_arc_plan": [{"path": "chapters", "rule": "min_rows", "min_count": 1}],
     "full_master_ranking": [{"path": "ranked_segments", "rule": "min_rows", "min_count": 1}],
     "edl_narrative_audit": [{"path": "findings", "rule": "min_rows", "min_count": 1}],
     "transitions": [{"path": "transitions", "rule": "min_rows", "min_count": 1}],
-    "podcast_sfx_brief": [{"path": "brief", "rule": "non_empty_string", "min_length": 8}],
     "sound_design_plan": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
-    "sfx_brief": [{"path": "montage", "rule": "non_empty_string", "min_length": 8}],
 }
 
 _GATES = {
     "transcript_review": {"tier": "gate", "gate_id": "G0"},
-    "disfluency_review": {"tier": "gate", "gate_id": "G0.5"},
     "g1_vo_pickup": {"tier": "gate", "gate_id": "G1"},
 }
 
@@ -97,7 +97,6 @@ _PROCESS_STAGES = [
     "ingest",
     "transcribe",
     "transcript_review_build",
-    "disfluency_extract",
     "vo_ingest",
     "assembly_preview",
     "edl",
@@ -166,7 +165,7 @@ def _contract_for(stage_id: str) -> dict:
         ),
         "propagation": {"invalidates_stages": list(_PROPAGATION_SEEDS.get(stage_id, ()))},
         "consumers": [c for c, paths in ARTIFACTS_REGISTRY.items() if rel in paths],
-        "remediation": {"strategies": ["micro_gap_fill", "patch_volley", "volley_retry", "full_stage_rerun"]},
+        "remediation": {"strategies": ["volley_retry", "full_stage_rerun"]},
     }
 
     if rel:

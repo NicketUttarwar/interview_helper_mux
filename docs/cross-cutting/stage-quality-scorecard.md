@@ -15,8 +15,8 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | **Crossval** | checkpoint id or `—` |
 | **Preflight** | `shipped` \| `partial` \| `missing` \| `shipped (G0 gate)` \| `—` |
 | **Examples** | `full` \| `compact` \| `doc_only` \| `missing` |
-| **Loop budget** | `shipped` \| `partial` \| `—` (via `attempt_budget.py`; LLM stages only) |
-| **ITR** | `shipped` \| `partial` \| `—` (artifact issue triage auto-repair + clarification; [artifact-issue-triage.md](./artifact-issue-triage.md)) |
+| **Loop budget** | `shipped` \| `partial` \| `—` (max 2 attempts in `llm_simple.py`; LLM stages only) |
+| **ITR** | `shipped` \| `partial` \| `—` (artifact issue triage auto-repair + clarification; [`analysis.artifact_issue_triage`](./config-keys.md#analysisartifact_issue_triage)) |
 | **Status** | `shipped` (target) \| `in_progress` \| `blocked` |
 
 **Lint column note:** `placement_apply` marks non-LLM mix stages where `apply_placement_adjustments` in `placement_qa.py` applies post-SFX hints — not arbiter lint.
@@ -88,8 +88,6 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 |-------|------|--------|---------|------|----------|-----------|----------|-------------|--------|
 | `transcript_review_build` | P4 | — | — | — | — | — | doc_only | — | shipped |
 | `transcript_review` (G0) | P4 | — | — | — | — | shipped (G0 gate) | doc_only | — | shipped |
-| `disfluency_extract` | P4 | — | — | — | — | — | doc_only | — | shipped |
-| `disfluency_review` (G0.5) | P4 | — | — | — | — | — | doc_only | — | shipped |
 | `source_acoustic_profile` | P4 | — | — | — | — | — | doc_only | — | shipped |
 | `sound_design_vo_finalize` | P4 | — | — | — | — | partial | doc_only | — | shipped |
 | `assembly_preview` | P4 | — | — | — | — | — | doc_only | — | shipped |
@@ -115,7 +113,7 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | Deterministic lint | `src/interview_mux/deterministic_lint.py` — generic keys fully implemented in `_lint_generic()` (coverage ratio, cross-refs, min rows, truncation/decompose) |
 | Arbiter rubrics | `docs/prompts/_shared/arbiter-rubrics/*.json` · [arbiter-stage-rubrics.md](../prompts/_shared/arbiter-stage-rubrics.md) |
 | Cross-validate | `src/interview_mux/artifact_cross_validate.py`, `sdp_cross_validate.py` |
-| Attempt budget | `src/interview_mux/attempt_budget.py` |
+| Attempt cap (2) | `src/interview_mux/llm_simple.py` |
 | Local volley framer | `src/interview_mux/local_volley_framer.py` — `prepare_volley_for_llm` |
 | Stage guidance | `src/interview_mux/stage_guidance.py` — GUI journey copy + gate CTAs |
 | Flow hardening | `src/interview_mux/llm_flow_hardening.py` |
@@ -136,4 +134,4 @@ When adding a stage to `STAGE_ARTIFACT_SCHEMAS`:
 3. Register lint in `deterministic_lint.py` if not schema-only.
 4. Register preflight in `llm_preflight.py` and crossval checkpoint in `artifact_cross_validate.py` when applicable.
 5. Add or extend `docs/prompts/_shared/examples/<stage>.examples.md`.
-6. Update [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md) and [stage-registry.md](../build-out/stage-registry.md).
+6. Update [analysis-stage-matrix.md](../prompts/analysis-stage-matrix.md) and [stage-contracts/00-INDEX.md](./stage-contracts/00-INDEX.md).

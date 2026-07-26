@@ -30,13 +30,16 @@
     },
     "segments/boundaries.json": {
       "schemas_by_producer": {
-        "boundary_detection": "boundaries_artifact.schema.json"
+        "boundary_detection": "boundaries_artifact.schema.json",
+        "boundary_topic_resplit": "boundaries_artifact.schema.json"
       },
       "producers": [
-        "boundary_detection"
+        "boundary_detection",
+        "boundary_topic_resplit"
       ],
       "consumers": [
-        "boundary_detection"
+        "boundary_detection",
+        "boundary_topic_resplit"
       ],
       "has_write_validator": true
     },
@@ -81,12 +84,15 @@
     },
     "understanding/gap_report.json": {
       "schemas_by_producer": {
+        "gap_framing_compose": "gap_report.schema.json",
         "optimal_questions": "gap_report.schema.json"
       },
       "producers": [
+        "gap_framing_compose",
         "optimal_questions"
       ],
       "consumers": [
+        "gap_framing_compose",
         "optimal_questions"
       ],
       "has_write_validator": true

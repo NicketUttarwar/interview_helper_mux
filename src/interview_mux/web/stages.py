@@ -37,7 +37,7 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
     StageInfo(
         "transcribe",
         "Transcribe",
-        "Run AWS Transcribe with speaker diarization to produce a word-level transcript.",
+        "Run local MLX speech-to-text with diarization to produce a word-level transcript.",
         "analysis",
         ("transcript/full.json", "transcript/speakers.json"),
         (),
@@ -45,22 +45,12 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
     StageInfo(
         "transcript_review_build",
         "STT review prep",
-        "Rank transcript clips by AWS confidence and pre-cut audio for human review.",
+        "Rank transcript clips by local STT confidence and pre-cut audio for human review.",
         "analysis",
         ("transcript/review_queue.json", "transcript/corrections.json"),
         (),
         ("glob:transcript/review_clips/*.wav",),
     ),
-)
-
-DISFLUENCY_EXTRACT_STAGE = StageInfo(
-    "disfluency_extract",
-    "Disfluency extract",
-    "Detect filler words in inter-word gaps (local VAD + Whisper) and export review clips.",
-    "analysis",
-    ("transcript/disfluencies.json",),
-    (),
-    ("glob:transcript/disfluency_clips/*.wav",),
 )
 
 # Back-compat alias: automated analysis stages in pipeline execution order (no gates).
@@ -80,37 +70,6 @@ TRANSCRIPT_REVIEW_GATE = StageInfo(
         "operator/transcript_corrections.json",
     ),
     ("transcript/corrections.json", "transcript/full.json"),
-)
-
-DISFLUENCY_REVIEW_GATE = StageInfo(
-    "disfluency_review",
-    "Disfluency review",
-    "Listen to detected filler clips, confirm or reject each event, then complete review before analysis continues.",
-    "gate",
-    ("transcript/disfluencies.json", "transcript/disfluency_review.json"),
-    ("transcript/disfluencies.json",),
-    ("glob:transcript/disfluency_clips/*.wav",),
-)
-
-ANALYSIS_PROFILE_STAGE = StageInfo(
-    "analysis_profile",
-    "Review AI story profile",
-    "After understanding analysis, review AI-generated themes, major questions, tone, and pacing. Verify when ready — feeds ranking, narrative QC, and sound design.",
-    "gate",
-    (
-        "understanding/analysis_state.json",
-        "understanding/investigation_queue.json",
-        "understanding/content_brief.json",
-        "understanding/sound_design_plan.json",
-    ),
-    (
-        "understanding/analysis_state.json",
-        "understanding/investigation_queue.json",
-        "understanding/content_brief.json",
-        "understanding/sound_design_plan.json",
-        "understanding/speakers.json",
-        "segments/manifest.json",
-    ),
 )
 
 ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
@@ -212,7 +171,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         ("understanding/gap_evaluations.json",),
     ),
     StageInfo(
-        "optimal_questions",
+        "gap_framing_compose",
         "Interviewer script",
         "Generate optimal pickup lines and a human-readable VO script for any gaps.",
         "analysis",
@@ -402,6 +361,14 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
 
 _LEGACY_STAGE_ALIASES: tuple[StageInfo, ...] = (
     StageInfo(
+        "optimal_questions",
+        "Interviewer script (legacy)",
+        "Backward-compatible id for gap_framing_compose.",
+        "analysis",
+        ("understanding/gap_report.json", "understanding/interviewer_script.txt"),
+        ("understanding/gap_report.json",),
+    ),
+    StageInfo(
         "mux_flow1",
         "Assembly (legacy)",
         "Backward-compatible id for mix.",
@@ -425,8 +392,6 @@ STAGE_BY_ID: dict[str, StageInfo] = {
     for s in (
         *ANALYSIS_STAGES,
         TRANSCRIPT_REVIEW_GATE,
-        DISFLUENCY_REVIEW_GATE,
-        ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
         VO_SYNTHESIZE_STAGE,
         VO_INGEST_STAGE,
@@ -484,24 +449,11 @@ def stage_status(ctx_done: Any, stage_id: str) -> str:
 
 def operator_stages_for_run(selected_flow: str | None = None) -> tuple[StageInfo, ...]:
     """Operator sidebar / GUI order: gates interleaved where they block downstream work."""
-    from interview_mux.v2.config import v2_enabled
-
     _ = selected_flow
-    if v2_enabled():
-        return (
-            *ANALYSIS_STAGES_PRE_G0,
-            TRANSCRIPT_REVIEW_GATE,
-            *ANALYSIS_STAGES_CONTINUED,
-            G1_STAGE,
-            *DELIVERY_STAGES,
-        )
     return (
         *ANALYSIS_STAGES_PRE_G0,
         TRANSCRIPT_REVIEW_GATE,
-        DISFLUENCY_EXTRACT_STAGE,
-        DISFLUENCY_REVIEW_GATE,
         *ANALYSIS_STAGES_CONTINUED,
-        ANALYSIS_PROFILE_STAGE,
         G1_STAGE,
         *DELIVERY_STAGES,
     )
@@ -568,7 +520,6 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "mix",
         "master_finalize",
         "transcript_review",
-        "analysis_profile",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
         "mux_flow1",
@@ -578,7 +529,6 @@ _STAGE_REUSE_POLICY.update(
     {
         "vo_ingest": "on_demand",
         "transcript_review": "gate",
-        "analysis_profile": "gate",
         "g1_vo_pickup": "gate",
         "g1_5_preview_pickup": "gate",
     }

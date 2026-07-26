@@ -13,9 +13,10 @@ def test_missing_secrets_openai(monkeypatch):
     assert "openai" in missing_secrets(["speaker_roles"])
 
 
-def test_missing_secrets_aws_transcribe(monkeypatch):
+def test_missing_secrets_transcribe_uses_local_not_aws(monkeypatch):
     monkeypatch.setattr(
         "interview_mux.config.merged_config",
-        lambda: {"secrets": {"OPENAI_API_KEY": "sk-x", "AWS_S3_BUCKET": ""}},
+        lambda: {"secrets": {"OPENAI_API_KEY": "", "AWS_S3_BUCKET": ""}},
     )
-    assert "aws" in missing_secrets(["transcribe"])
+    assert "aws" not in missing_secrets(["transcribe"])
+    assert missing_secrets(["transcribe"]) == []

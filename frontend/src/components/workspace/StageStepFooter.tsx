@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { StageInfo, StageStep } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { guardBusy, type ShowToastFn } from "../../utils/guardBusy";

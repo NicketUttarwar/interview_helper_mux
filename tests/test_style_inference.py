@@ -80,7 +80,7 @@ def test_save_analysis_state_tracks_operator_edits(tmp_path):
     edited["style"]["tone"] = "Edited by operator"
     save_analysis_state(ctx, edited, stage="operator_gui")
     state = load_analysis_state(ctx)
-    assert "style.tone" in (state.get("meta") or {}).get("operator_locked_fields", [])
+    assert "style" in (state.get("meta") or {}).get("operator_locked_fields", [])
 
 
 def test_derive_one_line_summary_caps_length():

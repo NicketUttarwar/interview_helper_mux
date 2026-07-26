@@ -58,8 +58,14 @@ describe("stageNavStatus", () => {
       status: "done",
       stage_output_mode: "optional_skipped",
       outputs_view: [
-        { path: "(skipped)", label: "Skipped", status: "complete", phase: "skipped" },
-        { path: "preclean/provider.json", label: "provider", status: "n_a", phase: "n_a" },
+        { path: "(skipped)", label: "Skipped", status: "complete", phase: "skipped", kind: "artifact" },
+        {
+          path: "preclean/provider.json",
+          label: "provider",
+          status: "n_a",
+          phase: "n_a",
+          kind: "artifact",
+        },
       ],
     });
     const run = minimalRun({ stages: [preclean] });
@@ -77,7 +83,11 @@ describe("stageNavStatus", () => {
         stage: "ingest",
       },
     });
-    const nav = resolvePipelineNav(run, { selectedStageId: "ingest", jobRunning: false });
+    const nav = resolvePipelineNav(run, {
+      selectedStageId: "ingest",
+      jobRunning: false,
+      apiGrants: {},
+    });
     const action = resolveOperatorAction(run, { selectedStageId: "ingest", jobRunning: false });
     expect(nav.focusStageId).toBeNull();
     expect(action.stageId).toBeNull();

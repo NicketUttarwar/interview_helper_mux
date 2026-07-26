@@ -1,4 +1,4 @@
-import type { AppConfig, RunData } from "../types";
+import type { JourneyUiConfig, RunData } from "../types";
 import { findNextRunnableStage } from "./preclean";
 import {
   stageArtifactsFullyComplete,
@@ -21,20 +21,20 @@ const MANUAL_BLOCKING = new Set([
   "gate",
 ]);
 
-function firstTryEnabled(config?: AppConfig | null, run?: RunData): boolean {
+function firstTryEnabled(config?: JourneyUiConfig | null, run?: RunData): boolean {
   if (run?.journey?.first_try?.enabled === false) return false;
   if (config?.journey_ui && "first_try_mode" in config.journey_ui) {
-    return Boolean((config.journey_ui as { first_try_mode?: boolean }).first_try_mode);
+    return Boolean(config.journey_ui.first_try_mode);
   }
-  return run?.journey?.first_try?.enabled !== false;
+  return true;
 }
 
-export function isPipelineAutopilotEnabled(config?: AppConfig | null): boolean {
+export function isPipelineAutopilotEnabled(config?: JourneyUiConfig | null): boolean {
   if (config?.journey_ui?.enabled === false) return false;
   return config?.journey_ui?.auto_advance_pipeline !== false;
 }
 
-export function canAutoRunStage(stageId: string, run?: RunData, config?: AppConfig | null): boolean {
+export function canAutoRunStage(stageId: string, run?: RunData, config?: JourneyUiConfig | null): boolean {
   if (MANUAL_CHECKPOINT_STAGES.has(stageId)) {
     if (!run || !firstTryEnabled(config, run)) return false;
     if (stageId === "transcript_review") {
@@ -84,7 +84,7 @@ export function resolveFinalOutputAbsolutePath(run: RunData): string | null {
 }
 
 /** True when autopilot must not start the next stage job (reuse, gates, etc.). */
-export function autopilotBlocksAutoRun(run: RunData, config?: AppConfig | null): boolean {
+export function autopilotBlocksAutoRun(run: RunData, config?: JourneyUiConfig | null): boolean {
   void config;
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) {
@@ -131,7 +131,7 @@ function autopilotBlocksNavigationFromStage(run: RunData, completedStageId: stri
 export function shouldAutoNavigateFromStage(
   run: RunData,
   stageId: string | null,
-  config?: AppConfig | null,
+  config?: JourneyUiConfig | null,
 ): boolean {
   if (config?.journey_ui?.enabled === false) return false;
   if (!stageId) return false;
@@ -158,7 +158,7 @@ export function shouldAutoNavigateFromStage(
 export function shouldAutoContinueFromStage(
   run: RunData,
   stageId: string | null,
-  config?: AppConfig | null,
+  config?: JourneyUiConfig | null,
 ): boolean {
   if (!shouldAutoNavigateFromStage(run, stageId, config)) return false;
   if (autopilotBlocksAutoRun(run, config)) return false;

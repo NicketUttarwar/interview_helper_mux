@@ -34,35 +34,60 @@ def main() -> int:
     args = parser.parse_args()
 
     import tempfile
+    from typing import Any
+    from unittest.mock import patch
 
     tmp = Path(tempfile.mkdtemp(prefix="progression_sanity_"))
+    base = merged_config()
     cfg = {
-        **merged_config(),
+        **base,
         "journey_ui": {
-            **(merged_config().get("journey_ui") or {}),
+            **(base.get("journey_ui") or {}),
             "require_write_approval_per_stage": True,
-            "full_autopilot": True,
         },
         "analysis": {
-            **(merged_config().get("analysis") or {}),
+            **(base.get("analysis") or {}),
             "artifact_issue_triage": {"enabled": True},
             "flow_hardening": {"enabled": True},
+        },
+        # Fixture plans are intentionally sparse — disable live density gates.
+        "creative_delivery": {
+            **(base.get("creative_delivery") or {}),
+            "required": False,
+        },
+        "soundscape": {
+            **(base.get("soundscape") or {}),
+            "fail_closed": False,
         },
     }
 
     class _Patch:
-        def setattr(self, _mod, _name, val):
-            pass
+        def __init__(self) -> None:
+            self._patches: list[Any] = []
 
-    patch_merged_config(_Patch(), cfg)  # type: ignore[arg-type]
+        def setattr(self, target: Any, name: str, value: Any) -> None:
+            p = patch.object(target, name, value)
+            p.start()
+            self._patches.append(p)
 
-    ctx = isolated_run_ctx(tmp, "progression_sanity_cli")
-    chain = (
-        list(PROGRESSION_ANALYSIS_STAGES)
-        if args.scope == "analysis"
-        else list(FULL_PROGRESSION_CHAIN)
-    )
-    report = run_progression_chain_sanity(ctx, chain=chain, include_write_approval_regression=True)
+        def stop(self) -> None:
+            for p in reversed(self._patches):
+                p.stop()
+
+    mp = _Patch()
+    try:
+        patch_merged_config(mp, cfg)  # type: ignore[arg-type]
+
+        ctx = isolated_run_ctx(tmp, "progression_sanity_cli")
+        chain = (
+            list(PROGRESSION_ANALYSIS_STAGES)
+            if args.scope == "analysis"
+            else list(FULL_PROGRESSION_CHAIN)
+        )
+        report = run_progression_chain_sanity(ctx, chain=chain, include_write_approval_regression=True)
+    finally:
+        mp.stop()
+
 
     if args.json:
         print(json.dumps(report, indent=2))

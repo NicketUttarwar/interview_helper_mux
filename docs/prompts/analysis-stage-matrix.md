@@ -2,9 +2,9 @@
 
 All LLM stages prepend [`_shared/analysis-preamble.system.txt`](./_shared/analysis-preamble.system.txt).
 
-Context is a **selective user/assistant volley** (see [context-padding.md](../cross-cutting/context-padding.md)), not a blind dump of `analysis_state.json`.
+Context is a **selective user/assistant volley** (see [`analysis.context.*`](../cross-cutting/config-keys.md#analysiscontext)), not a blind dump of `analysis_state.json`.
 
-**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Orchestration (spec):** [llm-orchestration.md](../cross-cutting/llm-orchestration.md). **Gap-fill + validation:** [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md). **Pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
+**Model tiers (target):** [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md). **Gap-fill + validation:** [artifact-generation-and-validation.md](../cross-cutting/artifact-generation-and-validation.md). **Pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md).
 
 When `gap_fill_context` is present in stage input, prompts must emit patch-only `artifacts` for listed `gaps` (see preamble).
 
@@ -54,7 +54,7 @@ Flow stages use the same envelope and read `analysis_state_summary`; arbiter run
 |-------|--------|------|--------|
 | `_arbiter` | _shared/arbiter | economy | minimal |
 
-Contract: [llm-arbiter-contract.md](./_shared/llm-arbiter-contract.md).
+The arbiter contract doc was removed with the arbiter routing path.
 
 ## Specialist post-passes (`analysis.specialists.enabled`)
 
@@ -67,7 +67,7 @@ Timing: **pre** runs before the parent primary LLM call; **post** runs after the
 | `topic_coverage_audit` | post | `emphasis_coverage_pass` | `emphasis_coverage.gaps[]` | Non-empty gaps → coverage re-audit |
 | `full_master_ranking` | post | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `comprehension_risk` / `gap_unresolved` |
 
-Enrichment inputs: see [context-padding.md](../cross-cutting/context-padding.md#stage-enrichment-inputs-stage_enrichmentpy).
+Enrichment inputs: see [config-keys.md](../cross-cutting/config-keys.md#stage-enrichment-inputs-stage_enrichmentpy).
 
 ## Typical investigations
 
@@ -77,7 +77,7 @@ Enrichment inputs: see [context-padding.md](../cross-cutting/context-padding.md#
 | segment_ambiguity | Overlapping boundaries | boundary_detection |
 | gap_unresolved | High-severity gap | missing_framing |
 
-Prefer **shard/collate** over investigations when the issue is payload size/truncation — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+Prefer **shard/collate** over investigations when the issue is payload size/truncation.
 
 ## Example packs
 

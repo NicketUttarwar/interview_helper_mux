@@ -29,7 +29,6 @@ export interface AppConfig {
   web_port: number;
   repo_root: string;
   value_analysis_enabled?: boolean;
-  disfluency_extract_enabled?: boolean;
   disfluency_restore_enabled?: boolean;
   api_consent_persist?: boolean;
   journey_ui?: {
@@ -44,8 +43,6 @@ export interface AppConfig {
     require_write_approval_per_stage?: boolean;
     /** When true (default), auto-navigate and run automated stages after each step completes. */
     auto_advance_pipeline?: boolean;
-    /** When true (default), in-run finalize + decision wizard replace Fix all / clarification UI. */
-    full_autopilot?: boolean;
     /** Cold-start friction collapse — see docs/workflows/first-try-reliability.md */
     first_try_mode?: boolean;
     defer_write_approval_until?: "phase_end" | "off" | "never";
@@ -72,6 +69,13 @@ export interface AppConfig {
     nle?: boolean;
   }>;
 }
+
+/**
+ * Subset of {@link AppConfig} consumed by auto-advance helpers. Accepting this
+ * instead of the full config lets callers pass partial configs (and tests pass
+ * small literals) without widening the helpers' real dependency.
+ */
+export type JourneyUiConfig = Pick<AppConfig, "journey_ui">;
 
 export interface AssetFile {
   path: string;
@@ -128,10 +132,8 @@ export type JourneyBlockingReason =
   | "write_approval"
   | "stage_reuse"
   | "transcript_review"
-  | "disfluency_review"
   | "g1_vo_pickup"
   | "g1_5_preview_pickup"
-  | "analysis_profile"
   | "handoff_review"
   | (string & {});
 
@@ -380,11 +382,6 @@ export interface JobState {
   lifecycle_phase?: string;
   /** Server defers visible needs_clarification while the pipeline lock is held. */
   clarification_pending?: boolean;
-  /** In-run finalize phase (full autopilot). */
-  phase?: string;
-  substep?: string;
-  pending_decision_count?: number;
-  failure_kind?: string;
 }
 
 export interface RunData {
@@ -400,8 +397,6 @@ export interface RunData {
   blocking?: JourneyBlocking;
   transcript_review_pending?: boolean;
   transcript_review_clear?: boolean;
-  disfluency_review_pending?: boolean;
-  disfluency_review_clear?: boolean;
   profile_verified?: boolean;
   profile_gate_pending?: boolean;
   profile_ready_for_review?: boolean;
@@ -475,6 +470,8 @@ export interface RunMeta {
       action: string;
       source_run_id?: string;
       at?: string;
+      /** Set once the reused artifacts were copied into this run. */
+      applied_at?: string;
     }
   >;
   /** True after transcript reuse accept until operator saves the edit interstitial. */
@@ -728,7 +725,7 @@ export interface AnalysisState {
     title?: string;
     one_line_summary?: string;
   };
-  narrative?: { thesis?: string };
+  narrative?: { thesis?: string; strategic_moat_concept?: string };
   themes?: Array<{
     id?: string;
     label?: string;
@@ -748,7 +745,11 @@ export interface AnalysisState {
     interviewee_style?: string;
   };
   operator_notes?: string;
-  meta?: { operator_verified?: boolean; operator_locked_fields?: string[] };
+  meta?: {
+    operator_verified?: boolean;
+    operator_locked_fields?: string[];
+    production_style?: string;
+  };
 }
 
 export interface AnalysisProfileResponse {
@@ -1085,18 +1086,6 @@ export interface CoherenceReport {
     missing_callback_count?: number;
     phase?: string;
   };
-}
-
-export interface StoryBoardData {
-  analysis_state: AnalysisState;
-  investigation_queue: Record<string, unknown>;
-  content_brief: Record<string, unknown>;
-  narrative_plan?: Record<string, unknown> | null;
-  source_acoustic_profile?: Record<string, unknown> | null;
-  value_features?: Record<string, unknown> | null;
-  interview_spine?: Record<string, unknown> | null;
-  coherence_report?: CoherenceReport | null;
-  operator_verified?: boolean;
 }
 
 export interface LlmCallSummary {

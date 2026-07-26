@@ -95,7 +95,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
 
     if not ctx.artifact_exists("segments/boundaries.json"):
         ctx.log("boundary_topic_resplit skipped — no boundaries", level="warning", stage="boundary_topic_resplit")
-        ctx.mark_done("boundary_topic_resplit")
+        ctx.mark_done("boundary_topic_resplit", force=True)
         return
 
     boundaries = ctx.read_json("segments/boundaries.json")
@@ -112,7 +112,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
 
     rows = [dict(r) for r in (boundaries.get("boundaries") or []) if isinstance(r, dict)]
     if not overloaded:
-        ctx.mark_done("boundary_topic_resplit")
+        ctx.mark_done("boundary_topic_resplit", force=True)
         return
 
     if policy.get("resegment_pass"):
@@ -150,8 +150,16 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         publish_boundary_contract(out)
         ctx.write_json("segments/boundaries.json", out, stage_key="boundary_topic_resplit")
 
-    ctx.clear_from("segment_classification", list(ANALYSIS_ORDER))
-    ctx.mark_done("boundary_topic_resplit")
+    # Classification/reanchor consumed pre-resplit boundaries — drop their done markers
+    # without clear_from(segment_classification), which would archive this write.
+    for sid in ("segment_classification", "content_brief_reanchor"):
+        marker = ctx.final_path(".stage_done", sid)
+        if marker.is_file():
+            marker.unlink()
+    next_idx = list(ANALYSIS_ORDER).index("boundary_topic_resplit") + 1
+    if next_idx < len(ANALYSIS_ORDER):
+        ctx.clear_from(ANALYSIS_ORDER[next_idx], list(ANALYSIS_ORDER))
+    ctx.mark_done("boundary_topic_resplit", force=True)
 
 
 def run_classification(ctx: RunContext) -> None:

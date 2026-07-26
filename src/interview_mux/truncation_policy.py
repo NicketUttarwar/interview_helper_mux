@@ -24,7 +24,7 @@ MARKER_FLAG_MAP: dict[str, str] = {
     "…[volley_middle_truncated]": "volley_middle_truncated",
 }
 
-# Active volley rebuild boost (0 = baseline caps). Applied by context_volley._char_limit.
+# Active volley rebuild boost (0 = baseline caps). Applied when rebuilding LLM input caps.
 _CONTEXT_CAP_BOOST_ROUND: ContextVar[int] = ContextVar("context_cap_boost_round", default=0)
 # When True, aggressively raise clip caps so rebuild can clear field_truncated markers.
 _CLEAR_FIELD_TRUNCATION: ContextVar[bool] = ContextVar("clear_field_truncation", default=False)

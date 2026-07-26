@@ -27,7 +27,7 @@ Module: `src/interview_mux/sound_design.py` — `mix` / `REMOVED_mix_flow2`.
 | BUILD-069 | **Shipped:** `assembly_preview.wav` — speech + VO only, before MMAudio SFX generation |
 | EDL narrative QC | **Shipped:** `edl_narrative_audit` + `edl_narrative_qc` verify final EDL narrative semantics before write |
 
-Stage ids and mix tables: [stage-registry.md](../../build-out/stage-registry.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+Stage ids and mix tables: [stage-contracts/00-INDEX.md](../../cross-cutting/stage-contracts/00-INDEX.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
 ## Sound design inputs (BUILD-060–064)
 
@@ -78,9 +78,3 @@ python tools/validate_narrative.py --run-id <exec_id> --include-edl   # upstream
 - `stages/edl_narrative_audit.py` — local-volley + flagship semantic audit before EDL
 - `REMOVED_assembly_flow2.py` — `run_micro_assembly` → `REMOVED_mix_flow2`
 - `sfx_mmaudio.py`, `sound_design_stages.py`
-
----
-
-## Build-out
-
-BUILD-035, BUILD-043, BUILD-065–066 · [README.md](../../build-out/README.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md)

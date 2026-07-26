@@ -145,7 +145,7 @@
   },
   {
     "action_id": "gui.write_approval.save",
-    "description": "Save staged files and continue pipeline",
+    "description": "[REMOVED] Save staged files and continue pipeline",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -153,24 +153,24 @@
   },
   {
     "action_id": "gui.write_approval.batch_save",
-    "description": "Batch Save all pending stage writes (first-try phase_end)",
-    "implementation": "frontend/src/context/AppContext.tsx#approveBatchWrites",
+    "description": "[REMOVED] Batch Save all pending stage writes (first-try phase_end)",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": "docs/workflows/first-try-reliability.md"
   },
   {
     "action_id": "api.write_approval.batch_approve",
-    "description": "POST pending-writes/approve-batch",
-    "implementation": "web/server.py#approve_pending_writes_batch",
+    "description": "[REMOVED] POST pending-writes/approve-batch",
+    "implementation": "*",
     "stage": "*",
     "origin": "api",
     "doc_link": "docs/workflows/first-try-reliability.md"
   },
   {
     "action_id": "write_approval.batch_approve",
-    "description": "Pipeline log for batch flush of staged writes",
-    "implementation": "write_staging.py#approve_batch_stage_writes",
+    "description": "[REMOVED] Pipeline log for batch flush of staged writes",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": "docs/workflows/first-try-reliability.md"
@@ -271,7 +271,6 @@
     "origin": "pipeline",
     "doc_link": "docs/cross-cutting/soundscape-policy.md"
   },
-
   {
     "action_id": "pipeline.selection.auto_pack",
     "description": "Trim selection to delivery_brief max duration",
@@ -282,7 +281,7 @@
   },
   {
     "action_id": "gui.write_approval.discard",
-    "description": "Discard staged files and re-run stage",
+    "description": "[REMOVED] Discard staged files and re-run stage",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -290,7 +289,7 @@
   },
   {
     "action_id": "gui.write_approval.saved",
-    "description": "Milestone after successful save",
+    "description": "[REMOVED] Milestone after successful save",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -298,7 +297,7 @@
   },
   {
     "action_id": "gui.write_approval.error",
-    "description": "Write approval failed",
+    "description": "[REMOVED] Write approval failed",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -306,7 +305,7 @@
   },
   {
     "action_id": "gui.write_approval.still_pending",
-    "description": "Save done but gate still active",
+    "description": "[REMOVED] Save done but gate still active",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -346,7 +345,7 @@
   },
   {
     "action_id": "gui.handoff.acknowledge",
-    "description": "Acknowledge AI handoff review",
+    "description": "[REMOVED] Acknowledge AI handoff review",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -386,7 +385,7 @@
   },
   {
     "action_id": "gui.gap_fill.skip",
-    "description": "Operator skips gap speaker sections — no gap analysis or VO pickup",
+    "description": "Operator skips gap speaker sections \u2014 no gap analysis or VO pickup",
     "implementation": "frontend/src/components/gates/PickupSpeakerPanel.tsx#skipGapFill",
     "stage": "missing_framing",
     "origin": "gui",
@@ -474,7 +473,7 @@
   },
   {
     "action_id": "gui.disfluency_review.complete",
-    "description": "Complete disfluency review gate",
+    "description": "[REMOVED] Complete disfluency review gate",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -482,7 +481,7 @@
   },
   {
     "action_id": "gui.analysis_profile.verify",
-    "description": "Verify analysis profile",
+    "description": "[REMOVED] Verify analysis profile",
     "implementation": "*",
     "stage": "*",
     "origin": "gui",
@@ -498,8 +497,8 @@
   },
   {
     "action_id": "api.write_approval.approve",
-    "description": "HTTP approve pending writes",
-    "implementation": "write_staging.approve_stage_writes",
+    "description": "[REMOVED] HTTP approve pending writes",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
@@ -514,16 +513,16 @@
   },
   {
     "action_id": "write_approval.approve",
-    "description": "Flush staged writes to disk",
-    "implementation": "write_staging.approve_stage_writes",
+    "description": "[REMOVED] Flush staged writes to disk",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
   },
   {
     "action_id": "write_approval.discard",
-    "description": "Discard staged writes",
-    "implementation": "write_staging.discard_stage_writes",
+    "description": "[REMOVED] Discard staged writes",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
@@ -682,16 +681,16 @@
   },
   {
     "action_id": "truncation.auto_decompose",
-    "description": "Routing auto-escalated truncated evidence to shard/collate",
-    "implementation": "llm_stage_routing.run_llm_stage_with_routing",
+    "description": "[REMOVED] Routing auto-escalated truncated evidence to shard/collate",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": "docs/cross-cutting/truncation-integrity.md"
   },
   {
     "action_id": "truncation.escalation_required",
-    "description": "TruncationEscalationRequired raised and mapped to decompose need",
-    "implementation": "llm_stage_routing._run_primary_with_volley_retries",
+    "description": "[REMOVED] TruncationEscalationRequired raised and mapped to decompose need",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": "docs/cross-cutting/truncation-integrity.md"
@@ -826,8 +825,8 @@
   },
   {
     "action_id": "pipeline.stage.disfluency_review",
-    "description": "Run pipeline stage disfluency_review",
-    "implementation": "stages/disfluency_review",
+    "description": "[REMOVED] Run pipeline stage disfluency_review",
+    "implementation": "*",
     "stage": "disfluency_review",
     "origin": "pipeline",
     "doc_link": ""
@@ -938,8 +937,8 @@
   },
   {
     "action_id": "pipeline.stage.analysis_profile",
-    "description": "Run pipeline stage analysis_profile",
-    "implementation": "stages/analysis_profile",
+    "description": "[REMOVED] Run pipeline stage analysis_profile",
+    "implementation": "*",
     "stage": "analysis_profile",
     "origin": "pipeline",
     "doc_link": ""
@@ -970,8 +969,8 @@
   },
   {
     "action_id": "pipeline.stage.disfluency_extract",
-    "description": "Run pipeline stage disfluency_extract",
-    "implementation": "stages/disfluency_extract",
+    "description": "[REMOVED] Run pipeline stage disfluency_extract",
+    "implementation": "*",
     "stage": "disfluency_extract",
     "origin": "pipeline",
     "doc_link": ""
@@ -1114,8 +1113,8 @@
   },
   {
     "action_id": "boundary.proactive_decompose",
-    "description": "Proactively decompose boundary stage on stuck signature",
-    "implementation": "llm_stage_routing",
+    "description": "[REMOVED] Proactively decompose boundary stage on stuck signature",
+    "implementation": "*",
     "stage": "boundary_detection",
     "origin": "pipeline",
     "doc_link": ""
@@ -1138,7 +1137,7 @@
   },
   {
     "action_id": "segmentation.boundary_deferred",
-    "description": "Boundary staged without pause — unified review at segment_classification",
+    "description": "Boundary staged without pause \u2014 unified review at segment_classification",
     "implementation": "write_staging.after_stage_write_check",
     "stage": "boundary_detection",
     "origin": "pipeline",
@@ -1274,32 +1273,32 @@
   },
   {
     "action_id": "itr.gate.suppressed",
-    "description": "Clarification gate suppressed under full autopilot",
-    "implementation": "artifact_issue_triage",
+    "description": "[REMOVED] Clarification gate suppressed under full autopilot",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "itr.decision.queue_set",
-    "description": "Set operator decision wizard queue for stage",
-    "implementation": "operator_decisions",
+    "description": "[REMOVED] Set operator decision wizard queue for stage",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "itr.decision.resolve",
-    "description": "Resolve one operator decision in wizard queue",
-    "implementation": "stage_finalize",
+    "description": "[REMOVED] Resolve one operator decision in wizard queue",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "itr.decision.queue_clear",
-    "description": "Clear operator decision queue for stage",
-    "implementation": "operator_decisions",
+    "description": "[REMOVED] Clear operator decision queue for stage",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1314,8 +1313,8 @@
   },
   {
     "action_id": "stage_finalize.decisions",
-    "description": "Stage finalize queued operator decisions",
-    "implementation": "stage_finalize",
+    "description": "[REMOVED] Stage finalize queued operator decisions",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1338,8 +1337,8 @@
   },
   {
     "action_id": "api.decision.resolve",
-    "description": "Apply one stage decision wizard choice via API",
-    "implementation": "server.post_stage_decision_resolve",
+    "description": "[REMOVED] Apply one stage decision wizard choice via API",
+    "implementation": "*",
     "stage": "*",
     "origin": "api",
     "doc_link": ""
@@ -1378,32 +1377,32 @@
   },
   {
     "action_id": "gui.decision.resolve.start",
-    "description": "Operator started applying a wizard decision",
-    "implementation": "useStageDecisions",
+    "description": "[REMOVED] Operator started applying a wizard decision",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
   },
   {
     "action_id": "gui.decision.apply",
-    "description": "Operator applied or skipped a wizard decision",
-    "implementation": "StageDecisionWizard",
+    "description": "[REMOVED] Operator applied or skipped a wizard decision",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
   },
   {
     "action_id": "gui.autopilot.save",
-    "description": "Autopilot auto-save staged outputs",
-    "implementation": "checkpointContinuation",
+    "description": "[REMOVED] Autopilot auto-save staged outputs",
+    "implementation": "*",
     "stage": "*",
     "origin": "gui",
     "doc_link": ""
   },
   {
     "action_id": "llm.adaptation.decompose_start",
-    "description": "Start LLM adaptation decompose step",
-    "implementation": "llm_stage_routing",
+    "description": "[REMOVED] Start LLM adaptation decompose step",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1434,24 +1433,24 @@
   },
   {
     "action_id": "llm.budget.arbiter_exhausted",
-    "description": "LLM arbiter attempt budget exhausted",
-    "implementation": "attempt_budget",
+    "description": "[REMOVED] LLM arbiter attempt budget exhausted",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "llm.budget.primary_exhausted",
-    "description": "LLM primary attempt budget exhausted",
-    "implementation": "attempt_budget",
+    "description": "[REMOVED] LLM primary attempt budget exhausted",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "llm.budget.stuck_signature",
-    "description": "LLM stuck on repeated output signature",
-    "implementation": "llm_stage_routing",
+    "description": "[REMOVED] LLM stuck on repeated output signature",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1490,8 +1489,8 @@
   },
   {
     "action_id": "llm.volley_retry",
-    "description": "Retry LLM volley after parse or quality failure",
-    "implementation": "llm_stage_routing",
+    "description": "[REMOVED] Retry LLM volley after parse or quality failure",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1514,16 +1513,16 @@
   },
   {
     "action_id": "write_approval.flush",
-    "description": "Flush staged writes to disk paths",
-    "implementation": "write_staging",
+    "description": "[REMOVED] Flush staged writes to disk paths",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
   },
   {
     "action_id": "write_approval.save",
-    "description": "Save staged outputs and continue pipeline",
-    "implementation": "write_staging",
+    "description": "[REMOVED] Save staged outputs and continue pipeline",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": ""
@@ -1626,16 +1625,16 @@
   },
   {
     "action_id": "holistic_fabrication.cleared",
-    "description": "Holistic fabrication fallback cleared blocked stage",
-    "implementation": "holistic_fabrication",
+    "description": "[REMOVED] Holistic fabrication fallback cleared blocked stage",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": "docs/cross-cutting/holistic-fabrication.md"
   },
   {
     "action_id": "holistic_fabrication.llm_failed",
-    "description": "Holistic fabrication LLM call failed",
-    "implementation": "holistic_fabrication",
+    "description": "[REMOVED] Holistic fabrication LLM call failed",
+    "implementation": "*",
     "stage": "*",
     "origin": "pipeline",
     "doc_link": "docs/cross-cutting/holistic-fabrication.md"
@@ -1702,6 +1701,70 @@
     "implementation": "server.patch_delivery_brief",
     "stage": "delivery_brief_build",
     "origin": "api",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.g1.vo.synthesize_all",
+    "description": "Batch-synthesize all pending G1 gap VO lines",
+    "implementation": "VoPickupPanel",
+    "stage": "g1_vo_pickup",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.llm_volley.review",
+    "description": "Open read-only LLM volley (message packet) inspector",
+    "implementation": "LlmVolleyReviewPanel",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "gui.speaker_volley.view",
+    "description": "View speaker volley timeline for the episode",
+    "implementation": "SpeakerVolleyTimelinePanel",
+    "stage": "*",
+    "origin": "gui",
+    "doc_link": ""
+  },
+  {
+    "action_id": "llm.resilience.merge_persist_failed",
+    "description": "Resilient merge could not persist stage artifact",
+    "implementation": "llm_output_resilience",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.selection.creative_pack",
+    "description": "Creative delivery packed segments into selection",
+    "implementation": "creative_delivery",
+    "stage": "full_master_ranking",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.selection.creative_trim",
+    "description": "Creative delivery trimmed segments from selection",
+    "implementation": "creative_delivery",
+    "stage": "full_master_ranking",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "pipeline.synthesis.fallback_to_manual",
+    "description": "Chatterbox synthesis failed; fell back to manual VO recording",
+    "implementation": "synthesis_fallback",
+    "stage": "g1_vo_pickup",
+    "origin": "pipeline",
+    "doc_link": ""
+  },
+  {
+    "action_id": "segment.cross_validate.partial",
+    "description": "Cross-artifact validation found partial segment coverage",
+    "implementation": "artifact_cross_validate",
+    "stage": "*",
+    "origin": "pipeline",
     "doc_link": ""
   }
 ]

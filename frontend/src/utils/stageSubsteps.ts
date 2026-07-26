@@ -253,16 +253,6 @@ export function buildStageSubsteps(
     );
   } else if (
     actionBusy &&
-    stage.id === "analysis_profile" &&
-    stage.status === "action_required"
-  ) {
-    substeps = substeps.map((s) =>
-      s.kind === "gate" || s.kind === "profile" || s.id.includes("profile")
-        ? { ...s, status: "running", label: "Verifying profile…" }
-        : s,
-    );
-  } else if (
-    actionBusy &&
     hasUnackedHandoff(stage, run)
   ) {
     substeps = substeps.map((s) =>

@@ -16,7 +16,7 @@ from interview_mux.mastering_voice_clone import (
     revoke_consent,
 )
 from interview_mux.run_context import RunContext
-from tests.run_fixtures import patch_executions_root
+from run_fixtures import patch_executions_root
 
 
 def _seed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:

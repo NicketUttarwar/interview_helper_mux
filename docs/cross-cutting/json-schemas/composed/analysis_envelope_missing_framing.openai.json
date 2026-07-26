@@ -26,7 +26,11 @@
               "gap_type",
               "secondary_gap_type",
               "listener_confusion",
-              "severity"
+              "severity",
+              "recommended_framing",
+              "candidate_for_summary",
+              "supports_ranking_exclude",
+              "duplicate_claim_cluster"
             ],
             "properties": {
               "segment_id": {
@@ -59,6 +63,37 @@
                   "medium",
                   "high"
                 ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recommended_framing": {
+                "enum": [
+                  "question",
+                  "summary",
+                  "preface",
+                  "bridge",
+                  "none"
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "candidate_for_summary": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "supports_ranking_exclude": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "duplicate_claim_cluster": {
                 "type": [
                   "string",
                   "null"

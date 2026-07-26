@@ -65,7 +65,7 @@ Capped by `coherence.max_investigations_per_run`; deduped by `(kind, stage, wind
 - `missing_framing`
 - `REMOVED_podcast_show_description` (blocking contradictions only)
 
-See [context-padding.md](./context-padding.md) for per-stage caps.
+See [`analysis.context.*`](./config-keys.md#analysiscontext) for per-stage caps.
 
 ## Relationship to other hypotheses
 
@@ -76,13 +76,13 @@ See [context-padding.md](./context-padding.md) for per-stage caps.
 
 - Per-run Llama/MLX fine-tune on audio + transcript
 - Default SSL/Wav2Vec (`interview_spine.ssl_enabled` stays false)
-- Replacing AWS Transcribe
+- Replacing the local MLX STT backend
 
 ## Promotion criteria (Park → Promote)
 
 1. 30m fixture `tests/fixtures/runs/coherence_30m_planted_drift/` detects planted contradiction, missing callback, and ignores decoy speaker turn
 2. Unit + integration tests pass (`tests/test_coherence_*.py`)
-3. Spike doc updated; operator GUI panel on Story Board
+3. Spike doc updated; operator GUI panel on stage detail
 
 ## Related
 

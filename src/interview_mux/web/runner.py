@@ -166,7 +166,7 @@ class JobRunner:
                 job = ctx.read_json("gui_job.json")
                 status = job.get("status")
                 if status in RUNNING_STATUSES:
-                    if run_id in self._lock_holder_tid:
+                    if run_id in self._lock_holder_tid and self._holder_thread_alive(run_id):
                         return False
             except OSError:
                 pass

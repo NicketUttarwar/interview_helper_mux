@@ -10,8 +10,6 @@ from typing import Any
 from interview_mux.config import repo_root
 from interview_mux.model_registry import resolve_model, stage_severity
 
-DECOMPOSE_ELIGIBLE: frozenset[str] = frozenset()
-
 RUBRICS_DIR = repo_root() / "docs" / "prompts" / "_shared" / "arbiter-rubrics"
 
 
@@ -44,7 +42,7 @@ def build_stage_expectations(
     return {
         "severity": severity,
         "default_tier": default_tier,
-        "decompose_eligible": stage_key in DECOMPOSE_ELIGIBLE,
+        "decompose_eligible": False,
         "accept_criteria": rubric.get("accept_criteria") or [],
         "reject_patterns": rubric.get("reject_patterns") or [],
         "min_confidence_on_accept": float(rubric.get("min_confidence_on_accept", 0.75) or 0.75),

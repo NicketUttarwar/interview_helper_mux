@@ -1,5 +1,7 @@
 /** Gate focus parity with backend gate_focus.py */
 
+import type { RunData } from "../types";
+
 export function operatorGateFocusStage(
   message: string | undefined,
   jobStage?: string | null,
@@ -8,9 +10,6 @@ export function operatorGateFocusStage(
   const low = message.toLowerCase();
   if (jobStage === "transcript_review_build" && low.includes("transcript review required")) {
     return "transcript_review";
-  }
-  if (jobStage === "disfluency_extract" && low.includes("disfluency review required")) {
-    return "disfluency_review";
   }
   return null;
 }

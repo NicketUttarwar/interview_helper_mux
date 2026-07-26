@@ -1,3 +1,3 @@
 # Contract drift report
-Contracts: 44
+Contracts: 41
 No drift warnings.

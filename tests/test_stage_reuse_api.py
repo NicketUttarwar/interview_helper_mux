@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, patch_executions_root, patch_server_ctx
+from run_fixtures import init_run_meta_for_test, patch_executions_root, patch_server_ctx, patch_write_approval_enabled
 
 
 def _patch_executions_root(monkeypatch, tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_reuse_decline_and_run_api(tmp_path: Path, monkeypatch) -> None:
     client = TestClient(create_app())
     res = client.post(
         "/api/runs/exec_101_20260101T000101Z/stages/transcribe/reuse",
-        json={"action": "decline_and_run", "api_consents": {"openai": True, "aws": True}},
+        json={"action": "decline_and_run", "api_consents": {"openai": True, "aws": True, "local": True}},
     )
     assert res.status_code == 200
     body = res.json()
@@ -109,6 +109,7 @@ def test_stage_list_awaiting_write_approval_status(tmp_path: Path, monkeypatch) 
     journey = dict(merged_config().get("journey_ui") or {})
     journey["require_write_approval_per_stage"] = True
     patch_executions_root(monkeypatch, tmp_path, journey_ui=journey)
+    patch_write_approval_enabled(monkeypatch, enabled=True)
     current = RunContext("exec_101_20260101T000101Z", create=True)
     init_run_meta_for_test(current)
     patch_server_ctx(monkeypatch, current)

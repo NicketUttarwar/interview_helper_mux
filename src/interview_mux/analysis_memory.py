@@ -149,8 +149,8 @@ def default_sound_design_plan() -> dict[str, Any]:
 
 
 def _build_context_index_from_plans(run_id: str) -> dict[str, Any]:
-    from interview_mux.stage_input_helpers import STAGE_PLANS
     from interview_mux.context_resolver import ARTIFACTS_REGISTRY, default_padding_rules
+    from interview_mux.stage_input_helpers import STAGE_PLANS
 
     idx = default_context_index(run_id)
     stage_plans: dict[str, Any] = {}
@@ -1024,6 +1024,10 @@ def record_stage_attempt(
         path = base / f"attempt_{attempt:03d}{suffix}.json"
     from interview_mux.file_store import write_json
     from interview_mux.stage_input_helpers import volley_char_estimate
+
+    meta = envelope.get("_llm_meta") if isinstance(envelope, dict) else None
+    if not isinstance(meta, dict):
+        meta = {}
     write_json(
         path,
         {

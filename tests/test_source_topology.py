@@ -123,6 +123,9 @@ def _seed_topology_ctx(tmp_path: Path) -> RunContext:
     ctx.write_json("understanding/source_topology.json", topo, skip_handoff=True)
     ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
     ctx.mark_done("source_topology_build")
+    from interview_mux.gap_vo_gates import set_gap_framing_enabled
+
+    set_gap_framing_enabled(ctx, True)
     from interview_mux.pipeline import ANALYSIS_ORDER
 
     for sid in ANALYSIS_ORDER:

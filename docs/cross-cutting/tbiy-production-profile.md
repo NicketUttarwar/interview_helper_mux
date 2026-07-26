@@ -46,7 +46,7 @@ Artifacts: `understanding/source_topology.json`, `understanding/flow_adaptation.
 
 ## Operator GUI
 
-- **Story Board** — topology summary (`FlowAdaptationCard`) with conformance score/moves, `production_style`, strategic moat
+- **Stage detail** — topology summary (`FlowAdaptationCard`) with conformance score/moves, `production_style`, strategic moat
 - **Conversation Studio** — gap-report CRUD (`POST/PATCH/DELETE /api/runs/{id}/gap-report/lines`)
 - **G1 VO pickup** — record/trim with boundary suggest; post-preview lines after assembly preview
 - **G1.5 gate + panel** — stage `g1_5_preview_pickup` in pipeline; blocks `mmaudio_sfx` until post-preview re-records (`post_preview_recorded_at` in VO metadata). **First-try does not skip** TBIY G1.5 when `post_preview` lines exist (documentary runs typically have none).

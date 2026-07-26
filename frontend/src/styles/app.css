@@ -2237,40 +2237,6 @@ code {
 .assembly-clip.disfluency { background: #5a4a2a; min-width: 10px; font-size: 0.65rem; }
 .assembly-clip.selected { outline: 2px solid var(--accent); }
 
-.disfluency-event-card {
-  margin: 0.75rem 0;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.disfluency-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-
-.disfluency-text {
-  font-size: 0.88rem;
-  margin: 0.5rem 0;
-}
-
-.disfluency-review-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.disfluency-review-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  margin-top: 0.25rem;
-}
-
 .disfluency-restore-panel {
   margin: 0.5rem 0 1rem;
 }
@@ -3052,23 +3018,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   font-size: 0.82rem;
 }
 
-.write-approval-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  margin-bottom: 0.65rem;
-}
-
-.write-approval-error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.65rem;
-}
-
 .stage-activity-cta {
   display: flex;
   flex-wrap: wrap;
@@ -3488,10 +3437,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   width: 100%;
 }
 
-.handoff-panel {
-  border-color: var(--accent);
-}
-
 .speaker-hypothesis-panel {
   margin: 0.75rem 0 1rem;
   padding: 0.75rem 1rem;
@@ -3521,33 +3466,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   align-items: baseline;
   gap: 0.35rem;
   margin-bottom: 0.35rem;
-}
-
-.handoff-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.handoff-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--surface-2);
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 0.8rem;
-}
-
-.handoff-item .handoff-actions {
-  display: flex;
-  gap: 0.35rem;
-  flex-shrink: 0;
 }
 
 .modal-overlay {
@@ -5146,12 +5064,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   font-family: var(--mono, monospace);
 }
 
-.story-board .story-headline {
-  font-size: 0.88rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
-}
-
 .sap-strip {
   font-size: 0.85rem;
   color: var(--muted);
@@ -5515,22 +5427,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin-bottom: 0.35rem;
 }
 
-.write-approval-panel .write-approval-file-list {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0;
-}
-
-.write-approval-panel .write-approval-file-list li {
-  margin-bottom: 0.5rem;
-}
-
-.write-approval-audio {
-  display: block;
-  width: 100%;
-  margin-top: 0.35rem;
-}
-
 .segmentation-review-panel {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
@@ -5571,12 +5467,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   border-bottom: 1px solid var(--border-subtle, #2a2f3a);
   padding: 0.25rem 0.5rem;
   text-align: left;
-}
-
-.write-approval-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
 }
 
 /* Source audio hash badge */
@@ -5768,91 +5658,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   flex: 1;
 }
 
-/* Write approval layout */
-.write-approval-layout {
-  display: grid;
-  grid-template-columns: minmax(10rem, 14rem) 1fr;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-@media (max-width: 640px) {
-  .write-approval-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.write-approval-file-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.write-approval-file-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
-  width: 100%;
-  padding: 0.45rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-2);
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: var(--text);
-}
-
-.write-approval-file-btn:hover,
-.write-approval-file-btn.active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--text);
-}
-
-.write-approval-file-btn.edited:not(.active) {
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-}
-
-.write-approval-edited-pill {
-  font-size: 0.62rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.06rem 0.35rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--warning) 16%, var(--surface-2));
-  color: var(--warning);
-}
-
-.write-approval-kind {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.05rem 0.35rem;
-  border-radius: 3px;
-  background: var(--surface-elevated);
-  color: var(--text-muted);
-}
-
-.write-approval-kind.kind-audio {
-  color: var(--accent);
-}
-
-.write-approval-preview {
-  min-height: 8rem;
-}
-
-.write-approval-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
 /* Executions tab enhancements */
 .executions-active-hash {
   display: flex;
@@ -5942,36 +5747,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .run-last-log:hover {
   color: var(--accent);
   text-decoration: underline;
-}
-
-.volley-memory-panel .volley-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.volley-memory-panel .volley-table th,
-.volley-memory-panel .volley-table td {
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.volley-memory-panel .volley-table tr.expanded {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.volley-memory-panel .volley-preview {
-  max-width: 28rem;
-  color: var(--muted);
-}
-
-.volley-memory-panel .volley-editor {
-  width: 100%;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  margin: 0.5rem 0;
 }
 
 .volley-filters {
@@ -6646,16 +6421,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin: 0.15rem 0 0.35rem;
 }
 
-.handoff-skim-list {
-  margin: 0.35rem 0 0.65rem 1.1rem;
-}
-
-.handoff-footer {
-  margin-top: 0.75rem;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .gate-progress-subheader {
   margin: 0 0 0.5rem;
   font-weight: 500;
@@ -6900,11 +6665,6 @@ button.pipeline-substep-row:hover {
   width: 100%;
   margin: 0.5rem 0;
   display: block;
-}
-
-.handoff-panel--done,
-.write-approval-panel--done {
-  opacity: 0.75;
 }
 
 .live-status-bar.mode-status-only .action-badge-btn {
@@ -7281,7 +7041,6 @@ button.pipeline-step-row:focus-visible,
 }
 
 .stage-decision-panel > .stage-reuse-section,
-.stage-decision-panel > .write-approval-panel,
 .stage-decision-panel > .previous-session-reuse {
   width: 100%;
 }
@@ -7390,16 +7149,6 @@ button.pipeline-step-row:focus-visible,
 .itr-auto-fixed {
   margin-bottom: 0.75rem;
   font-size: 0.85rem;
-}
-
-.write-approval-itr-banner {
-  margin-top: 0.5rem;
-  color: var(--warning, #fbbf24);
-}
-
-.write-approval-itr-banner .btn.link {
-  padding: 0;
-  vertical-align: baseline;
 }
 
 .itr-propagation-wizard {

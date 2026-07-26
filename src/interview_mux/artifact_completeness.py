@@ -230,11 +230,17 @@ def compute_gaps(
     ctx: RunContext | None = None,
 ) -> list[Gap]:
     if stage_key:
-        from interview_mux.sufficiency_engine import evaluate, findings_to_gap_paths
+        from interview_mux.sufficiency_engine import (
+            evaluate,
+            findings_to_gap_paths,
+            sufficiency_enabled,
+        )
 
-        findings = evaluate(stage_key, data, ctx)
-        if findings:
-            return [Gap(path=p, reason="incomplete") for p in findings_to_gap_paths(findings)]
+        if sufficiency_enabled():
+            raw = evaluate(stage_key, data, ctx)
+            findings = raw.get("findings", raw) if isinstance(raw, dict) else raw
+            if findings:
+                return [Gap(path=p, reason="incomplete") for p in findings_to_gap_paths(findings)]
     rule = _gap_rule_for(rel_path, stage_key)
     if not rule:
         return []

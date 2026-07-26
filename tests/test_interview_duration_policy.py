@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from interview_mux.adaptation_loop_guard import AdaptationLoopGuard, adaptation_loop_cfg
-from interview_mux.attempt_budget import max_primary_attempts
 from interview_mux.interview_duration_policy import (
     duration_tier,
     max_per_segment_shard_calls,
@@ -95,15 +93,6 @@ def test_shard_calls_scales_at_two_hours(tmp_path, monkeypatch):
     long_ctx = _ctx_with_duration(tmp_path, "lg", 3 * 60 * 60_000)
     assert max_per_segment_shard_calls(short_ctx) == 24
     assert max_per_segment_shard_calls(long_ctx) == 48
-
-
-def test_adaptation_guard_loads_duration_scaled_shard_cap(tmp_path, monkeypatch):
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    patch_merged_config(monkeypatch, {})
-    ctx = _ctx_with_duration(tmp_path, "very_long", 3 * 60 * 60_000)
-    guard = AdaptationLoopGuard.load(ctx, "content_context")
-    assert guard.cfg["max_per_segment_shard_calls"] == 48
-    assert adaptation_loop_cfg(ctx=ctx)["max_per_segment_shard_calls"] == 48
 
 
 def test_transcript_duration_ms_zero_without_artifact(tmp_path, monkeypatch):

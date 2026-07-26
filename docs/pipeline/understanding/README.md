@@ -36,7 +36,7 @@ BUILD-022, BUILD-023, BUILD-082, BUILD-083
 
 1. Run analysis stages (or full `run_analysis.py`)
 2. In **Stage outputs**, confirm `content_brief.json` is **complete** after `content_context` (semantic brief) and again after `content_brief_reanchor` (timeline anchors + topic links)
-3. Open **Interview profile** or **Story Board** — review themes, `tone_class`, format, and one-line summary
+3. Review themes, `tone_class`, format, and the one-line summary on the stage detail panel
 4. Edit JSON in **Files** tab if needed (Zod + server validation on save)
 5. Click **Mark profile verified** when the profile is correct
 6. Use **Fill gaps** on partial artifacts or **Redo from selected stage** to refresh LLM output
@@ -64,10 +64,4 @@ Gap-fill: each stage input includes `gap_fill_context` when a prior partial file
 
 ## Module
 
-`src/interview_mux/stages/understanding.py`, `analysis_memory.py`, `analysis_orchestrator.py`, `artifact_completeness.py`, `artifact_writes.py`
-
----
-
-## Build-out
-
-BUILD-022–023, BUILD-018 · [README.md](../../build-out/README.md) · [steps-forward.md](../../build-out/steps-forward.md)
+`src/interview_mux/stages/understanding.py`, `analysis_memory.py`, `artifact_completeness.py`, `artifact_writes.py`

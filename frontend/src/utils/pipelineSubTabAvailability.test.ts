@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { clampPipelineSubTab, pipelineSubTabAvailability } from "./pipelineSubTabAvailability";
 import type { RunData, TimelineData } from "../types";
+import { makeStage } from "../test/runFixtures";
 
 function baseRun(overrides: Partial<RunData> = {}): RunData {
   return {
     run_id: "exec_test",
     stages: [
-      { id: "ingest", title: "Ingest", status: "done" },
-      { id: "segment_classification", title: "Classify", status: "pending" },
+      makeStage("ingest", { title: "Ingest", status: "done" }),
+      makeStage("segment_classification", { title: "Classify", status: "pending" }),
     ],
     ...overrides,
   };
@@ -28,7 +29,7 @@ describe("pipelineSubTabAvailability", () => {
 
   it("locks timeline until segments exist", () => {
     const run = baseRun({ timeline_ready: false });
-    const tl: TimelineData = { segments: [], duration_ms: 1 };
+    const tl: TimelineData = { segments: [], duration_ms: 1, vo_lines: [], nle: null };
     expect(pipelineSubTabAvailability("timeline", run, tl).available).toBe(false);
 
     const ready = baseRun({ timeline_ready: true });

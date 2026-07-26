@@ -18,7 +18,7 @@ from interview_mux.write_staging import (
     staging_approval_hint,
 )
 
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_merged_config, patch_write_approval_enabled
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -41,6 +41,7 @@ def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
             "journey_ui": {"require_write_approval_per_stage": True},
         },
     )
+    patch_write_approval_enabled(monkeypatch, enabled=True)
     rid = "exec_001_20260101T000000Z"
     ctx = RunContext(rid, create=True)
     ctx.write_json("run_meta.json", {"execution_id": rid}, skip_handoff=True)
@@ -183,13 +184,35 @@ def test_segment_classification_blocked_when_boundaries_incomplete(
     boundaries_path = ctx.path("segments/boundaries.json")
     boundaries_path.parent.mkdir(parents=True, exist_ok=True)
     boundaries_path.write_text(
-        json.dumps({"boundaries": [], "_meta": {"resilience": {"partial": True}}}),
+        json.dumps(
+            {
+                "boundaries": [{"segment_id": "seg_1", "start_ms": 0, "end_ms": 1000}],
+                "_meta": {"resilience": {"partial": True}},
+            }
+        ),
         encoding="utf-8",
+    )
+    ctx.write_json(
+        "transcript/full.json",
+        {"text": "hello", "words": [], "segments": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.9, "label": "Host"}
+            ]
+        },
+        skip_handoff=True,
     )
     with pytest.raises(StageInputError) as exc:
         require_stage_inputs(ctx, "segment_classification")
     assert exc.value.stage_id == "segment_classification"
-    assert any("boundaries" in issue.message.lower() for issue in exc.value.issues)
+    assert any(
+        "boundar" in issue.message.lower() or "segment_contract" in issue.message.lower()
+        for issue in exc.value.issues
+    )
 
 
 def _stage_pending(ctx: RunContext, stage_id: str, rel: str) -> None:

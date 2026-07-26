@@ -32,19 +32,16 @@ Single reference for **what the operator sees**, which **HTTP API** backs it, an
 | Sub-tab | Unlocks when | Server flag | Fallback client rule |
 |---------|--------------|-------------|----------------------|
 | **Stage** | Always (active run) | — | — |
-| **Story** | Content understanding complete | `story_board_ready` | `content_context` done + `analysis_complete` |
 | **Timeline** | Segment manifest exists | `timeline_ready` | `timeline.segments.length > 0` |
-| **Profile** | Analysis profile ready for review | `profile_ready_for_review` or `profile_verified` | `analysis_profile` stage not `locked` |
-| **Files / Debug / Volley** | Always | — | — |
+
+**Stage** and **Timeline** are the only pipeline sub-tabs. Story, Profile, Files, Debug, and Volley were removed — see [../v2/drop-manifest.md](../v2/drop-manifest.md).
 
 Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip = `reason` from `pipelineSubTabAvailability`. Session restore clamps invalid `pipeline_sub_tab` to **Stage**.
-
-**Flow 2 / Flow 3:** Timeline gating is identical (needs classified segments). Story board may stay locked longer on Flow 2/3 until content stages complete — flags on `GET /api/runs/{id}` are flow-agnostic.
 
 | **Pipeline** | **`StageActivityStrip`** | Last 3 log lines for selected step + link to activity panel (**This step**, not All) |
 | **Logs** | Full log viewer | Filters (level, stage, search), tail size, detail expand, **Jump to active stream** |
 | Footer | **`ActivityTeaser`** (non-Pipeline tabs) | One-line latest activity; click → Pipeline + expand activity log |
-| Modals | `OperatorActionModal` | **Modal-first** checkpoints (write approval, reuse, gates, handoff); title from `resolveOperatorAction` |
+| Modals | `OperatorActionModal` | **Modal-first** checkpoints (reuse, gates); title from `resolveOperatorAction` |
 | Pipeline chrome | `JourneyShell` / `SessionBanner` / `PreviousSessionReusePanel` | `SessionBanner` in `LiveStatusBar` shows run, exec #, hash, phase, working dir; bulk reuse from immediate previous session on Start + Pipeline |
 | Modals | API consent / Confirm | Existing API consent; shared confirm dialog replaces `window.confirm` |
 
@@ -74,9 +71,9 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Terminology:** **Workflow phase** (7 chips) → **Pipeline stage** (numbered) → **Substep** (single operator action).
 
-**Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active. When gap-fill is skipped, hidden stage IDs (`missing_framing`, `optimal_questions`, `g1_vo_pickup`) are excluded from `stage_total` / `stages_planned` so progress matches the visible step list.
+**Job progress:** During batch executes, `gui_job.json` updates `current_stage`, `stage_index`, `stage_total`, `stages_planned` per stage. Frontend merges polled job into `run.job` every 1s while active. When gap-fill is skipped, hidden stage IDs (`missing_framing`, `gap_framing_compose`, `g1_vo_pickup`) are excluded from `stage_total` / `stages_planned` so progress matches the visible step list.
 
-**Stage visibility:** Each stage in `GET /api/runs/{id}` may include `stage_visibility: "visible" | "hidden"`. Hidden gap stages are omitted from sidebar numbering (not shown as “· skipped”). Run snapshot also includes `gap_fill_mode` and `gap_fill_skip_reason` for Activity log / Story Board.
+**Stage visibility:** Each stage in `GET /api/runs/{id}` may include `stage_visibility: "visible" | "hidden"`. Hidden gap stages are omitted from sidebar numbering (not shown as “· skipped”). Run snapshot also includes `gap_fill_mode` and `gap_fill_skip_reason` for the Activity log.
 
 **Terminology:** Job complete → **Step finished**; operator phase `complete` → **Record & choose**; stage done → **Done**.
 
@@ -86,23 +83,19 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 
 **Clear session:** Header menu — stops job poll, clears UI state, and clears server active run (`DELETE /api/session/active` or `PUT` with `run_id: null`). **Resume server session** appears on empty Pipeline when server still has an active `exec_*`; **Retry load** when the run id is set but data failed to load.
 
-**Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts (through write staging when approval enabled); **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util). **Transcript reuse** opens `TranscriptReuseEditModal` once (synced dock + fuzzy tools → `POST …/transcript/reuse-edit/complete` or dismiss via `POST …/transcript/reuse-edit/dismiss`) before continuing — not shown merely for visiting STT review.
+**Stage reuse:** `StageReuseSection` + `StageReuseOfferCard` (`frontend/src/components/guidance/`) on Stage detail (hidden while action modal is open) and in the action modal. Single `useStageReuseOffers` hook fetches offers; server blocks execute when `journey_ui.enable_stage_reuse_offers` is true (default). **Reuse outputs** copies artifacts; **Run fresh instead** declines then runs the stage. Hash-match banner when candidate shares `source_audio_hash` (normalized via `sourceHashShort` util). **Transcript reuse** opens `TranscriptReuseEditModal` once (synced dock + fuzzy tools → `POST …/transcript/reuse-edit/complete` or dismiss via `POST …/transcript/reuse-edit/dismiss`) before continuing — not shown merely for visiting STT review.
 
-**Write approval:** When `journey_ui.require_write_approval_per_stage` is true (default), `WriteApprovalPanel` lists staged files under `.pending_writes/<stage>/`. Preview JSON/text, listen to staged WAV (`GET …/audio?pending=1&pending_stage=…`), edit staging, then **Save & continue** (`POST …/approve`) or **Discard & re-run** (`POST …/discard`). Job status `awaiting_write_approval` until resolved. Under **first-try** (`defer_write_approval_until: phase_end`), mid-phase pauses are skipped; use **Save all pending** (`gui.write_approval.batch_save` / `POST …/pending-writes/approve-batch`). See [first-try-reliability.md](./first-try-reliability.md).
+**Artifact writes:** Stage outputs auto-commit to final paths (`v2.auto_commit_artifacts: true`). `WriteApprovalPanel`, the `.pending_writes` review flow, and `StageDecisionWizard` were removed.
 
-**Unified segmentation review** (`journey_ui.segmentation_unified_review`, default on): `boundary_detection` stages without pause; `segment_classification` shows `SegmentationReviewPanel` (timeline health, boundaries table, manifest table, parity/cross-artifact badges) and paired save via `POST …/approve-segmentation-writes` or checkpoint continue on `segment_classification`.
+**Unified segmentation review** (`journey_ui.segmentation_unified_review`, default on): `boundary_detection` stages without pause; `segment_classification` shows `SegmentationReviewPanel` (timeline health, boundaries table, manifest table, parity/cross-artifact badges) and checkpoint continue on `segment_classification`.
 
-**Write approval vs quality gates:** Critical LLM stages (`block_partial_on_quality_fail`) do not stage write-approvable partials after lint/truncation/accept failure — only audit sidecars under `understanding/stage_runs/`. Save is refused for resilience-partial critical artifacts; write-approval pause never overwrites `needs_clarification` / LLM `gate`. Truncated evidence auto-escalates to shard/collate ([truncation-integrity.md](../cross-cutting/truncation-integrity.md)).
-
-**Full autopilot (`journey_ui.full_autopilot`, default on):** After **Run**, the server runs in-run finalize (`stage_finalize.py`) with `gui_job.phase: auto_resolving`. If decisions remain, `StageDecisionWizard` (`operator_decisions` substep) shows one question at a time — `GET/POST …/stages/{id}/decisions`. When the queue is empty, operator lands on **Review and save** (`WriteApprovalPanel`). Fix all, artifact clarification, and standalone propagation wizard are **legacy mode only** (`full_autopilot: false`). See [full-autopilot-operator-model.md](./full-autopilot-operator-model.md).
+**Quality gates:** Critical LLM stages (`block_partial_on_quality_fail`) do not persist partials after lint/truncation failure — only audit sidecars under `understanding/stage_runs/`. A failing stage hard-stops after its second attempt; there is no shard/collate escalation.
 
 **Activity log alerts (Live / This step):** `PinnedAlertStrip` shows the latest error in a compact strip (2-line clamp). Overflow errors/warnings appear as `+N` badges; **Show all alerts** expands to a bounded scroll area (~2× row height) so the scrollable log history stays visible. **Dismiss** hides alerts until a newer error arrives.
 
 **Checkpoint continuation:** After any checkpoint (write approval, handoff ack, gate complete, reuse decide), the GUI calls `advanceFromCheckpoint()` → `advancePipeline()` which clears `actionBusy`, reconciles server state, auto-starts the next runnable stage (`executeJob` with `source: checkpoint_continue`), or focuses the next blocker. Modal closes via `closeActionModalAfterSuccess` (not sticky dismiss). Optional single-call API: `POST …/continue-after-checkpoint` with `{ kind: "write_approval", stage_id }`.
 
-**Operator feedback (flow hardening):** See [gui-flow-hardening.md](./gui-flow-hardening.md). Summary: `guardBusy` on all primaries; job terminal toasts; `actionBusy` drives sidebar spinners; locked sub-tabs toast on click; `completeAnalysisProfile` unifies profile verify paths.
-
-**Flow intent:** Optional at Start (`REMOVED_flow_intent` in `run_meta`); at G2 **Use planned choice** confirms intent without auto-running until clicked.
+**Operator feedback (flow hardening):** See [ui-truth-invariants.md](./ui-truth-invariants.md). Summary: `guardBusy` on all primaries; job terminal toasts; `actionBusy` drives sidebar spinners; locked sub-tabs toast on click; `completeAnalysisProfile` unifies profile verify paths.
 
 ---
 
@@ -136,15 +129,12 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Sub-tab / pane | Component | Content | When visible |
 |----------------|-----------|---------|--------------|
-| **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Review outputs before saving** (`WriteApprovalPanel`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages | Always when `run_id` set |
-| **Story board** | `StoryBoardPanel` | Themes, investigations (`GET …/story-board`; `PATCH …/investigation-queue/{id}`), profile verify CTA | When analysis workspace exists |
+| **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages | Always when `run_id` set |
 | **Timeline** | `NlePanel` | Mouse-first NLE: smart actions (batch toasts), review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification |
-| **Profile JSON** | `ProfilePanel` | Analysis profile form | When `profile_ready_for_review` or profile verified |
-| **Files** | `ArtifactEditor` | JSON / text artifact editor (Zod pre-save for registered paths); save spinner + toasts | When stage has editable artifacts |
-| **Debug** | `LlmCallsPanel` | LLM call record index/editor + routing summary tab (`GET …/llm-calls`, `GET …/llm-routing`) | Power-user audit path |
-| **Volley** | `VolleyMemoryPanel` | Volley Q&A memory index — view/edit/invalidate entries, rebuild from disk (`GET/PUT/POST …/context-index/*`) | Operator steering of prior context |
 
-**Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required` / handoff pending; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. Blocking G0/G0.5 gates show inline first; modal is optional via **Review in full-screen panel**.
+Removed sub-tabs: **Story board** (`StoryBoardPanel`), **Profile JSON** (`ProfilePanel`), **Files** (`ArtifactEditor` tab), **Debug** (`LlmCallsPanel`), **Volley** (`VolleyMemoryPanel`).
+
+**Gate rendering:** `GateActions` mounts **inline** on `StageDetail` (checkpoint inset when `action_required`; always for non-blocking panels like `AcousticProfilePanel`, `PlacementAdjustmentsPanel`). The same `GateActions` tree also mounts in `OperatorActionModal` for full-screen review. The blocking G0 gate shows inline first; modal is optional via **Review in full-screen panel**.
 
 ### Sonic context panel (`SonicContextPanel`)
 
@@ -152,7 +142,7 @@ Also shows an **Episode structure** summary strip when `understanding/episode_st
 
 | Component | APIs | Artifacts |
 |-----------|------|-----------|
-| `FlowAdaptationCard` / `DeliveryBriefCard` | Story board — topology adaptation + graduated TBIY conformance + adaptive delivery soft targets (`GET/PATCH …/delivery-brief`) | `understanding/flow_adaptation.json` (`tbiy_conformance`), `understanding/delivery_brief.json` |
+| `FlowAdaptationCard` / `DeliveryBriefCard` | Topology adaptation + graduated TBIY conformance + adaptive delivery soft targets (`GET/PATCH …/delivery-brief`) | `understanding/flow_adaptation.json` (`tbiy_conformance`), `understanding/delivery_brief.json` |
 
 Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_palettes` stage detail as a compact scenario/tag provenance view.
 
@@ -165,14 +155,6 @@ Shown on `source_acoustic_profile`, `sonic_context_build`, and `sound_design_pal
 | Fuzzy similar-word panel | `FuzzyReplacePopover` | *(client)* → batch `PATCH …/transcript/words` | Match strictness 80–100%, jump to match, **Replace N words** |
 
 Inline on `StageDetail` when `transcript_review` is `action_required`; also in `OperatorActionModal`. Transcript dock also on **Transcribe** / **Transcript review build** without the chunk navigator.
-
-### G0.5 disfluency review (`DisfluencyReviewPanel`)
-
-| Component | APIs | Artifacts |
-|-----------|------|-----------|
-| `DisfluencyReviewPanel` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
-
-Inline when `disfluency_review` is `action_required` (skipped when `disfluency_extract.enabled` is false). `DisfluencyRestorePanel` on `edl` / `assembly_preview` toggles per-run restore.
 
 ---
 
@@ -206,7 +188,7 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 | User-visible / area | API | Log file | Artifact |
 |----------------------|-----|----------|----------|
 | Health | `GET /api/health` | — | — |
-| Paths / port / feature flags | `GET /api/config` | — | `journey_ui`, `value_analysis_enabled`, `disfluency_*_enabled`, `llm_routing_stage_ids` |
+| Paths / port / feature flags | `GET /api/config` | — | `journey_ui`, `value_analysis_enabled`, `llm_routing_stage_ids` |
 | Active run + tail log | `GET /api/session` | `gui_log.jsonl` of active run | — |
 | Set active run / UI chrome | `PUT /api/session/active` `{ run_id?, selected_stage_id?, active_tab?, pipeline_sub_tab? }` | — | `ASSETS/.gui/active_execution.json`; partial merge; null `run_id` clears |
 | Clear active run | `DELETE /api/session/active` | — | removes active execution pointer |
@@ -230,8 +212,8 @@ Inline when `disfluency_review` is `action_required` (skipped when `disfluency_e
 | Run pipeline / stage | *(execute)* | `POST /api/runs/{id}/execute` body: `mode` = `stage` \| `analysis` \| `flow1` \| `flow2` \| `flow3` \| `nle_apply`, `stage`, `from_stage`, `until_stage`, `nle_full_refresh`, `nle_apply_mode` | `gui_log.jsonl`, `gui_job.json` | markers + stage outputs per `pipeline.py` orders |
 | Preview listened milestone | `assembly_preview` polish CTA | `POST …/milestones/preview-listened` | `gui_log.jsonl` | `run_meta.journey.preview_listened_at` when `require_preview_listen` |
 | Acoustic profile overrides | `source_acoustic_profile` | `PATCH …/acoustic-profile/overrides`, `POST …/recompute-acoustic-profile` | `gui_log.jsonl` | `understanding/source_acoustic_profile.json` → `operator_overrides` |
-| Interview spine | `interview_spine_build` | `GET …/interview-spine`, `POST …/recompute-interview-spine`, `POST …/interview-spine/query` | Story Board summary · pipeline gate panel | `understanding/interview_spine.json` |
-| Coherence (H-ORC-03) | hooks after `content_context`, `content_brief_reanchor`, `topic_coverage_audit` | `GET …/coherence-report`, `POST …/recompute-coherence` | Story Board **Coherence risks** panel | `understanding/coherence_report.json` |
+| Interview spine | `interview_spine_build` | `GET …/interview-spine`, `POST …/recompute-interview-spine`, `POST …/interview-spine/query` | Stage detail summary · pipeline gate panel | `understanding/interview_spine.json` |
+| Coherence (H-ORC-03) | hooks after `content_context`, `content_brief_reanchor`, `topic_coverage_audit` | `GET …/coherence-report`, `POST …/recompute-coherence` | Stage detail **Coherence risks** panel | `understanding/coherence_report.json` |
 | Placement QA hints | `mmaudio_sfx_flow*`, `mix_flow*` | *(read)* `sound_design/placement_adjustments.json` | — | `PlacementAdjustmentsPanel` after SFX/mix when `sound_design.placement_qa_enabled` |
 | Reset / invalidate | *(danger)* | `POST /api/runs/{id}/reset` | `gui_log.jsonl` | clears markers or re-inits run meta |
 
@@ -255,10 +237,9 @@ Non-blocking cards in the workspace **gate-actions** panel when the selected sta
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **Transcript review** (G0) | `transcript_review` | `GET …/transcript`, `PATCH …/transcript/words`, `GET …/transcript-review`, `PUT …/transcript-review/{chunk_id}`, `POST …/transcript-review/complete` | `gui_log.jsonl` (`Transcript dock: saved N word edit(s).`) | `transcript/full.json`, `transcript/review_queue.json`, `transcript/review_clips/*`, `transcript/corrections.json`, `operator/transcript_corrected.*`, `.stage_done/transcript_review` |
-| **Disfluency review** (G0.5) | `disfluency_review` | `GET/PUT …/disfluency-review`, `POST …/disfluency-review/complete`, `PATCH …/disfluency-restore` | `gui_log.jsonl` (`disfluency_review`) | `transcript/disfluencies.json`, `transcript/disfluency_clips/`, `.stage_done/disfluency_review` |
-| **Interview profile** | `analysis_profile` | `GET/PUT …/analysis-profile`, `POST …/analysis-profile/verify`, `GET …/story-board`, `PATCH …/investigation-queue/{id}` | `gui_log.jsonl` (`analysis_profile`) | `understanding/analysis_state.json`, `understanding/investigation_queue.json`; stage status `locked` until `optimal_questions` done; run payload includes `profile_ready_for_review` |
 | **VO pickup (G1)** | `g1_vo_pickup` | `POST …/vo/{line_id}` (multipart WAV), `POST …/preclean-offer` (`checkpoint: g1_vo_pickup`) | `gui_log.jsonl` (`g1_vo_pickup`, `audio_preclean`) | `vo_pickup/{line_id}.wav`, `understanding/gap_report.json`, `run_meta.json.audio_preclean.scope=vo_pickup` |
-| **Choose output (G2)** | `REMOVED_g2_flow_select` | `POST …/flow` body `{ "flow": "podcast" \| "flow2" \| "flow3" }` | `gui_log.jsonl` (`REMOVED_g2_flow_select`) | `run_meta.json` (`REMOVED_selected_flow`) |
+
+Removed gates: **G0.5 disfluency review**, the **`analysis_profile` interview-profile gate**, and **G2 choose-output**. G0 and G1 are the only operator gates; see [operator-gates.md](./operator-gates.md).
 
 ---
 
@@ -271,7 +252,6 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 | Ingest | `ingest` | `ingest/normalized.wav`, `ingest/checksums.json` |
 | Transcribe | `transcribe` | `transcript/full.json`, `transcript/speakers.json` |
 | STT review prep | `transcript_review_build` | `transcript/review_queue.json`, `transcript/corrections.json`, `transcript/review_clips/*` |
-| Disfluency extract | `disfluency_extract` | `transcript/disfluencies.json`, `transcript/disfluency_clips/` |
 | Source acoustic profile | `source_acoustic_profile` | `understanding/source_acoustic_profile.json` |
 | Sonic context build | `sonic_context_build` | `understanding/sonic_context.json` |
 | Speaker roles | `speaker_roles` | `understanding/speakers.json` (roles, `conversation_profile`, `conversation_hypotheses`, `gap_sensitivity`; operator confirms hypothesis at handoff via `POST …/speaker-roles/confirm-hypothesis`, `action_id` `gui.speaker_roles.confirm_hypothesis`) |
@@ -279,43 +259,34 @@ Executed via `POST …/execute` with `mode: "stage"` and `stage: <id>` or `mode:
 | Segment boundaries | `boundary_detection` | `segments/boundaries.json` |
 | Segment classification | `segment_classification` | `segments/manifest.json` |
 | Content brief re-anchor | `content_brief_reanchor` | `understanding/content_brief.json` (patch) |
+| Topic resplit | `boundary_topic_resplit` | `segments/boundaries.json` (patch) |
 | Sound design palettes | `sound_design_palettes` | SDP `palettes`, `coherence` in `understanding/sound_design_plan.json` |
 | Gap evaluation | `missing_framing` | `understanding/gap_evaluations.json` |
-| Interviewer script | `optimal_questions` | `understanding/gap_report.json`, `understanding/interviewer_script.txt` |
+| Interviewer script | `gap_framing_compose` | `understanding/gap_report.json`, `understanding/interviewer_script.txt` |
 | VO ingest *(on-demand)* | `vo_ingest` | Merges `vo_pickup/*.wav`; not in `ANALYSIS_ORDER` — runs on next batch execute or `mode: stage` |
 
 ---
 
-## Flow 1 / Flow 2 / Flow 3 stages (after G2)
+## Delivery stages
 
-Shown only when `run_meta.REMOVED_selected_flow` matches. Same execute endpoint: `mode: "podcast"` \| `"flow2"` \| `"flow3"` runs the full selected flow (or pass `from_stage`), or use `mode: "stage"` with a single stage id.
+One delivery path. Execute with `mode: "delivery"` (optionally with `from_stage` / `until_stage`), or `mode: "stage"` with a single stage id. Flow 2, Flow 3, and the G2 picker were removed.
 
-**Flow 3** is text-only publishing copy (`show_notes/show_description.json` + `.md`); no audio mux or `master.wav`. Prerequisites: shared analysis complete (`require_analysis_artifacts_complete`), G1 clear; preflight for `REMOVED_podcast_show_description` uses `content_brief`, `speakers`, `manifest` (not Flow 1 ranking).
-
-| Flow | Title | `id` | Main artifacts |
-|------|-------|------|------------------|
-| 1 | Topic coverage | `topic_coverage_audit` | `master/coverage_audit.json` |
-| 1 | Narrative arc | `narrative_arc_plan` | `master/narrative_plan.json` |
-| 1 | Segment ordering | `full_master_ranking` | `master/selection.json` |
-| 1 | EDL narrative audit | `edl_narrative_audit` | `master/edl_narrative_audit.json` |
-| 1 | Transitions | `transitions` | `master/transitions.json` |
-| 1 | Sound design plan | `sound_design_plan` | `understanding/sound_design_plan.json` |
-| 1 | VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
-| 1 | EDL | `edl` | `master/edl.json` |
-| 1 | Assembly preview | `assembly_preview` | `master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
-| 1 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
-| 1 | Generate SFX | `mmaudio_sfx` | `sound_design/assets/{asset_id}.wav` (+ mirror `master/sfx/`) |
-| 1 | Mix assembly | `mix` | `master/assembly.wav` |
-| 1 | Master export | `master_finalize` | `master/master.wav` |
-| 2 | Highlight selection | `REMOVED_highlight_selection` | `REMOVED_flow2/selection.json` |
-| 2 | Sound design plan | `REMOVED_sdp_flow2` | `understanding/sound_design_plan.json` |
-| 2 | Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
-| 2 | Generate SFX | `REMOVED_mmaudio_flow2` | `sound_design/assets/{asset_id}.wav` (+ mirror `REMOVED_flow2/sfx/`) |
-| 2 | Mix assembly | `REMOVED_mix_flow2` | `REMOVED_flow2/assembly.wav` |
-| 2 | Master export | `REMOVED_master_flow2` | `REMOVED_flow2/master.wav` |
-| 1 / 2 | Master QA (post-flow, automatic) | `verify_master` | `gui_log.jsonl` (`stage: verify_master`); validates `flow_*_*/master.wav` LUFS + true peak |
-| 3 | Show description | `REMOVED_podcast_show_description` | `show_notes/show_description.json` |
-| 3 | Export blurb | `REMOVED_export_show_description` | `show_notes/show_description.md` |
+| Title | `id` | Main artifacts |
+|-------|------|------------------|
+| Topic coverage | `topic_coverage_audit` | `master/coverage_audit.json` |
+| Narrative arc | `narrative_arc_plan` | `master/narrative_plan.json` |
+| Segment ordering | `full_master_ranking` | `master/selection.json` |
+| Transitions | `transitions` | `master/transitions.json` |
+| Sound design plan | `sound_design_plan` | `understanding/sound_design_plan.json` |
+| VO finalize | `sound_design_vo_finalize` | Updates SDP cues with `measured_duration_ms` from `vo_pickup/` |
+| EDL narrative audit | `edl_narrative_audit` | `master/edl_narrative_audit.json` |
+| EDL | `edl` | `master/edl.json` |
+| Assembly preview | `assembly_preview` | `master/assembly_preview.wav` (speech + VO only; listen before SFX spend) |
+| Craft MMAudio prompts | `sfx_prompt_craft` | `sound_design/sfx_prompts.json` |
+| Generate SFX | `mmaudio_sfx` | `sound_design/assets/{asset_id}.wav` (+ mirror `master/sfx/`) |
+| Mix assembly | `mix` | `master/assembly.wav` |
+| Master export | `master_finalize` | `master/master.wav` |
+| Master QA (automatic) | `verify_master` | `gui_log.jsonl` (`stage: verify_master`); validates `master/master.wav` LUFS + true peak |
 
 ### TBiy production profile gates
 
@@ -324,7 +295,7 @@ When `production_profiles.active` is `tbiy` (see [tbiy-production-profile.md](..
 | Panel | Stage `id` | API | Notes |
 |-------|------------|-----|-------|
 | **Pickup speaker** | `source_topology_build` | `GET/POST …/source-topology`, `POST …/flow-adaptation` | `PickupSpeakerPanel` — confirm least-spoken pickup voice |
-| **Conversation studio** | `optimal_questions` | `GET/PUT …/gap-report/lines` | `ConversationStudioPanel` — edit gap lines + `voice_speaker_id` |
+| **Conversation studio** | `gap_framing_compose` | `GET/PUT …/gap-report/lines` | `ConversationStudioPanel` — edit gap lines + `voice_speaker_id` |
 | **Flow adaptation** | `source_topology_build` | journey `flow_adaptation` | `FlowAdaptationCard` — topology-driven flow class |
 | **G1.5 post-preview pickup** | `g1_5_preview_pickup` | `POST …/vo/{line_id}` | `PreviewPickupPanel` — re-record after assembly preview listen. Non-TBIY / disabled → `optional_skipped` (not Failed/`incomplete` via pending `gap_report`). See [ui-truth-invariants.md](./ui-truth-invariants.md). |
 
@@ -337,9 +308,9 @@ Step-by-step: which panel, artifacts, and `gui_log.jsonl` events — [local-audi
 | User-visible | Stage `id` | API | Log file | Artifacts |
 |--------------|------------|-----|----------|-----------|
 | **G1.5 prompt review** (optional) | `sfx_prompt_craft` | `GET/PUT …/sfx-prompts`, `POST …/sfx-prompts/approve` | `gui_log.jsonl` (`sfx_prompt_craft`) | `sound_design/sfx_prompts.json`, `run_meta.json` → `sfx_prompt_review` |
-| **Post-listen QA** (advisory; **block_mix** when configured) | `sfx_prompt_craft`, `mmaudio_sfx`, `REMOVED_mmaudio_flow2`, **`mix`**, **`REMOVED_mix_flow2`** | `POST …/sfx-prompts/listen-result` (`mode`: `post_listen` \| `under_speech`); `GET …/sfx-prompts` → `mmaudio_qa`, `listen_results` | `sfx_post_listen_pass` / `sfx_post_listen_fail`; under-speech → `speech_under_listen_result_recorded` | `run_meta.json` → `sfx_listen_results[]` or `speech_under_listen_results[]` |
+| **Post-listen QA** (advisory; **block_mix** when configured) | `sfx_prompt_craft`, `mmaudio_sfx`, **`mix`** | `POST …/sfx-prompts/listen-result` (`mode`: `post_listen` \| `under_speech`); `GET …/sfx-prompts` → `mmaudio_qa`, `listen_results` | `sfx_post_listen_pass` / `sfx_post_listen_fail`; under-speech → `speech_under_listen_result_recorded` | `run_meta.json` → `sfx_listen_results[]` or `speech_under_listen_results[]` |
 | **Auto-refine / regen** (optional) | `sfx_prompt_craft`, `mmaudio_sfx_flow*` | `POST …/sfx-prompts/refine`, `POST …/sfx-prompts/regenerate`, `GET …/sfx-qa` | `sfx_prompts_refined`, `sfx_regen_requested` | updated `sfx_prompts.json`, `sound_design/mmaudio_qa.json` |
-| **Generate SFX** blocked when G1.5 required | `mmaudio_sfx` / `REMOVED_mmaudio_flow2` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
+| **Generate SFX** blocked when G1.5 required | `mmaudio_sfx` | same GET for `can_generate` | `gui_log.jsonl` on block | — |
 
 `SfxPostListenPanel` per asset shows: `verdict`, `theme_fit_score`, `semantic_qa_verdict`, `semantic_similarity`, `recommended_action`, `spectral_bucket_match` (from `mmaudio_qa`). When `post_listen_gate_mode` is `block`, failed listen/QA shows a blocking banner on mix stages.
 
@@ -353,8 +324,7 @@ When `run_meta.qc_summaries` is populated by narrative/EDL/show QC gates:
 |-------------|----------|--------|
 | `full_master_ranking`, `edl` | `narrative_qc` | `gates.check_narrative_qc` |
 | `edl_narrative_audit`, `edl` | `edl_narrative_qc` | `gates.check_edl_narrative_qc` |
-| `REMOVED_podcast_show_description` | `show_notes_qc` | `gates.check_show_notes_qc` |
-| `mix`, `REMOVED_mix_flow2`, `master_finalize`, `REMOVED_master_flow2` | `mix_intelligibility` | `run_meta.qc_summaries.mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
+| `mix`, `master_finalize` | `mix_intelligibility` | `run_meta.qc_summaries.mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
 
 ### Source acoustic profile
 
@@ -377,10 +347,10 @@ Set `g1_5_require_prompt_approval: true` in `config/app.defaults.json` (or overr
 
 | Path | Purpose |
 |------|---------|
-| `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, `context_volley`, schema validation errors — for **debugging model I/O**. |
+| `understanding/stage_runs/<stage>/attempt_*.json` | Full envelope, shaped stage input, schema validation errors — for **debugging model I/O**. |
 | `understanding/llm_calls/` | **Per API call** labeled JSON + optional `.md` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md); **GUI:** Pipeline → **Debug** (`LlmCallsPanel`); export via `tools/export_llm_calls.py` |
 
-**Routing fields (BUILD-073):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` may appear in `attempt_*.json` — [llm-orchestration.md](../cross-cutting/llm-orchestration.md).
+**Routing fields (BUILD-073):** `model_tier`, `model_id`, `task_kind`, `arbiter_result`, `shard_count`, `truncation_flags` may appear in `attempt_*.json` — [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
 
 Operators rarely need this; engineers and support do.
 

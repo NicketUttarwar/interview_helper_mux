@@ -28,6 +28,7 @@ sufficiency:
   blocking: progression
 propagation:
   invalidates_stages:
+  - boundary_topic_resplit
   - sonic_context_build
   - sound_design_palettes
   - missing_framing
@@ -37,8 +38,6 @@ consumers:
 - content_brief_reanchor
 remediation:
   strategies:
-  - micro_gap_fill
-  - patch_volley
   - volley_retry
   - full_stage_rerun
 critical_fields:

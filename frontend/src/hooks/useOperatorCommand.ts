@@ -54,7 +54,6 @@ export function useOperatorCommand(
     onExecute: (body: ExecuteBody) => void;
     onRunNext: () => void;
     onOpenCheckpoint: (stageId?: string, substepId?: string | null) => void;
-    onAcknowledgeHandoff: () => void;
     onApproveWrite?: (stageId: string) => void;
     onGoLogs: () => void;
     onGoStart: () => void;
@@ -73,7 +72,6 @@ export function useOperatorCommand(
     onExecute,
     onRunNext,
     onOpenCheckpoint,
-    onAcknowledgeHandoff,
     onGoLogs,
     onGoStart,
     onGoPipeline,
@@ -108,7 +106,6 @@ export function useOperatorCommand(
       onOpenCheckpoint,
       onExecute,
       onRunNext,
-      onAcknowledgeHandoff,
       onApproveWrite: opts.onApproveWrite,
       onGoPipeline,
       onGoStory,
@@ -196,7 +193,6 @@ export function useOperatorCommand(
     onExecute,
     onRunNext,
     onOpenCheckpoint,
-    onAcknowledgeHandoff,
     onGoLogs,
     onGoStart,
     onGoPipeline,

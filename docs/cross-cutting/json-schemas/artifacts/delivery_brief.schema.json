@@ -92,6 +92,15 @@
     "tbiy_conformance": {
       "type": "object",
       "additionalProperties": true
+    },
+    "speaker_volley_density": {
+      "type": "object",
+      "properties": {
+        "prefer_intact": { "type": "boolean" },
+        "min_volleys": { "type": "integer", "minimum": 0 },
+        "soft": { "type": "boolean" }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

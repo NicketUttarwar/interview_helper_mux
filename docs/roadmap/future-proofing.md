@@ -1,6 +1,6 @@
 # Future-proofing — guardrails for analysis & features
 
-Lightweight rules and **small idea directions** for future work. Does not replace [pipeline.md](../pipeline.md), [build-out/README.md](../build-out/README.md), [build-out/steps-forward.md](../build-out/steps-forward.md), or implementation specs.
+Lightweight rules and **small idea directions** for future work. Does not replace [pipeline.md](../pipeline.md) or the implementation specs.
 
 ## Guardrails
 

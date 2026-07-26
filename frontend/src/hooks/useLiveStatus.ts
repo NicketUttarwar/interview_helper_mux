@@ -111,7 +111,6 @@ export function useLiveStatus(
     onExecute: Parameters<typeof useOperatorCommand>[1]["onExecute"];
     onRunNext: () => void;
     onOpenCheckpoint: Parameters<typeof useOperatorCommand>[1]["onOpenCheckpoint"];
-    onAcknowledgeHandoff: Parameters<typeof useOperatorCommand>[1]["onAcknowledgeHandoff"];
     onApproveWrite?: (stageId: string) => void;
     onGoLogs: () => void;
     onGoStart: () => void;
@@ -132,7 +131,6 @@ export function useLiveStatus(
     onExecute: opts.onExecute,
     onRunNext: opts.onRunNext,
     onOpenCheckpoint: opts.onOpenCheckpoint,
-    onAcknowledgeHandoff: opts.onAcknowledgeHandoff,
     onApproveWrite: opts.onApproveWrite,
     onGoLogs: opts.onGoLogs,
     onGoStart: opts.onGoStart,

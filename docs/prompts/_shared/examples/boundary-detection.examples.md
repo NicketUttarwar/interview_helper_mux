@@ -35,5 +35,3 @@
 **Bad — overlap**
 
 - Two rows with overlapping `[start_ms, end_ms]` — invalid; should appear in `warnings` and trigger `segment_ambiguity` investigation instead of silent overlap.
-
-See [04-WAVE-B-audio-structure.md](../../build-out/june182026build/04-WAVE-B-audio-structure.md) for H-SEG-02 promotion gates.

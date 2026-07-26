@@ -2,7 +2,7 @@
 
 **Status:** Shipped — `source_acoustic_profile` stage in `understanding.py` writes `understanding/source_acoustic_profile.json`. Defines how **acoustic and pacing signals** from each interview’s source audio and transcript become a **stable per-run profile** that guides underscore, SFX, and mix decisions for a homogeneous, speech-first episode.
 
-**Related:** [sound-design.md](./sound-design.md) (SDP + roles), [local-audio-stack.md](./local-audio-stack.md) (generation + post-analysis), [analysis-memory.md](./analysis-memory.md) (semantic profile), [context-padding.md](./context-padding.md) (LLM volleys), [artifact-layout.md](./artifact-layout.md).
+**Related:** [sound-design.md](./sound-design.md) (SDP + roles), [local-audio-stack.md](./local-audio-stack.md) (generation + post-analysis), [analysis-memory.md](./analysis-memory.md) (semantic profile), [`analysis.context.*`](./config-keys.md#analysiscontext) (LLM volleys), [artifact-layout.md](./artifact-layout.md).
 
 ---
 
@@ -180,7 +180,7 @@ flowchart TB
 **Ordering:**
 
 1. `ingest` → `transcription` → **`source_acoustic_profile`**
-2. Wave 2 LLM stages may receive a **compact prose summary** of pacing + mix_contract in the volley ([context-padding.md](./context-padding.md) — future `STAGE_PLANS` row).
+2. Wave 2 LLM stages may receive a **compact prose summary** of pacing + mix_contract in the volley (future `STAGE_PLANS` row — see [`analysis.context.*`](./config-keys.md#analysiscontext)).
 3. Wave 5: `sound_design_palettes` / plan / `sfx_prompt_craft` read `source_acoustic_profile` + semantic profile.
 4. Post-generation QA and mux use `mix_contract` + per-cue placement hints.
 
@@ -204,7 +204,7 @@ flowchart TB
 | Stage | Profile slice | Status |
 |-------|----------------|--------|
 | `content_context` | `pace_class` + one-line pacing summary | shipped (`pacing_one_liner` in `understanding.py`) |
-| `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`acoustic_profile.compact_for_volley` via `context_volley.py`) |
+| `sound_design_palettes` | `mix_contract` + `prompt_tokens` + `pace_class` + `room_timbre_hint` | shipped (`acoustic_profile.compact_for_volley` via `stage_input_helpers.py`) |
 | `sound_design_plan_flow*` | `placement_hints` + `stinger_max_per_minute` | shipped (`compact_for_volley` in plan stage `build_input`) |
 | `sfx_prompt_craft` | Full profile via `build_input` (`prompt_tokens`, `mix_contract`, pacing) | shipped |
 | `podcast_sfx_brief` / `sfx_brief` | `pace_class`, `underscore_policy` | shipped (`selection.run_podcast_sfx_brief`) |
@@ -257,10 +257,6 @@ All MMAudio outputs for a run should obey the **same** `mix_contract`:
 | GUI | Shipped: **Recompute profile** button + `operator_overrides` panel on `source_acoustic_profile` stage |
 | Schema | `docs/cross-cutting/json-schemas/source_acoustic_profile.schema.json` |
 | Tests | Golden fixture from short WAV + synthetic transcript |
-
-**Build-out:** Link from [build-out/README.md](../build-out/README.md) when ticket is added (e.g. companion to Wave 5 / BUILD-060).
-
----
 
 ## Appendix A — Example `source_acoustic_profile.json`
 

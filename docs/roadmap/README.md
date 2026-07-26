@@ -4,4 +4,4 @@ Canonical **guardrails and small R&D directions**: **[future-proofing.md](./futu
 
 **Dependency pins:** [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md) (lock file, CVE gate, Context7).
 
-Product delivery order: [build-out/README.md](../build-out/README.md) · remaining Agent commands: [remaining-build-commands.md](../build-out/remaining-build-commands.md) · release sign-off: [definition-of-done-signoff.md](../build-out/definition-of-done-signoff.md) · prioritized backlog: [build-out/steps-forward.md](../build-out/steps-forward.md) · repo map: [build-out/repository-map.md](../build-out/repository-map.md). Shipped vs target mix: [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).
+Stage order: [pipeline.md](../pipeline.md) · [stage-contracts/00-INDEX.md](../cross-cutting/stage-contracts/00-INDEX.md). Shipped vs target mix: [podcast-quality-roadmap.md](../cross-cutting/podcast-quality-roadmap.md).

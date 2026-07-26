@@ -18,33 +18,58 @@ from run_fixtures import isolated_run_ctx, patch_merged_config  # noqa: E402
 
 
 def _run_fixture_audit() -> dict:
+    from typing import Any
+    from unittest.mock import patch
+
     from interview_mux.config import merged_config
     from progression_chain_sanity_helpers import FULL_PROGRESSION_CHAIN, run_progression_chain_sanity
 
     tmp = Path(tempfile.mkdtemp(prefix="lineage_audit_"))
+    base = merged_config()
     cfg = {
-        **merged_config(),
+        **base,
         "analysis": {
-            **(merged_config().get("analysis") or {}),
+            **(base.get("analysis") or {}),
             "flow_hardening": {"enabled": True},
+        },
+        "creative_delivery": {
+            **(base.get("creative_delivery") or {}),
+            "required": False,
+        },
+        "soundscape": {
+            **(base.get("soundscape") or {}),
+            "fail_closed": False,
         },
     }
 
     class _Patch:
-        def setattr(self, _mod, _name, val):
-            pass
+        def __init__(self) -> None:
+            self._patches: list[Any] = []
 
-    patch_merged_config(_Patch(), cfg)  # type: ignore[arg-type]
-    ctx = isolated_run_ctx(tmp, "lineage_audit_fixture")
-    sanity = run_progression_chain_sanity(ctx, chain=list(FULL_PROGRESSION_CHAIN))
-    report = audit_run(ctx)
-    report["progression_sanity_ok"] = sanity.get("ok", False)
-    if not sanity.get("ok"):
-        report["hard_failures"] = list(report.get("hard_failures") or []) + [
-            f"progression_chain_sanity: {f}" for f in (sanity.get("failures") or [])[:4]
-        ]
-        report["ok"] = False
-    return report
+        def setattr(self, target: Any, name: str, value: Any) -> None:
+            p = patch.object(target, name, value)
+            p.start()
+            self._patches.append(p)
+
+        def stop(self) -> None:
+            for p in reversed(self._patches):
+                p.stop()
+
+    mp = _Patch()
+    try:
+        patch_merged_config(mp, cfg)  # type: ignore[arg-type]
+        ctx = isolated_run_ctx(tmp, "lineage_audit_fixture")
+        sanity = run_progression_chain_sanity(ctx, chain=list(FULL_PROGRESSION_CHAIN))
+        report = audit_run(ctx)
+        report["progression_sanity_ok"] = sanity.get("ok", False)
+        if not sanity.get("ok"):
+            report["hard_failures"] = list(report.get("hard_failures") or []) + [
+                f"progression_chain_sanity: {f}" for f in (sanity.get("failures") or [])[:4]
+            ]
+            report["ok"] = False
+        return report
+    finally:
+        mp.stop()
 
 
 def main() -> int:

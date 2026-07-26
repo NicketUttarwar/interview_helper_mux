@@ -7,12 +7,8 @@ import {
   reuseStatusLine,
 } from "./operatorStatus";
 import { findNextRunnableStage, isOptionalStageSkipped, resolvePrecleanOffer } from "./preclean";
-import {
-  firstUpstreamBlocker,
-  stageArtifactsFullyComplete,
-  stageHasCommittedOutputs,
-} from "./stageOutputs";
-import { isStageHidden, visibleStages } from "./stageVisibility";
+import { firstUpstreamBlocker, stageArtifactsFullyComplete } from "./stageOutputs";
+import { visibleStages } from "./stageVisibility";
 
 export interface NumberedStage {
   number: number;

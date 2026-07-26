@@ -93,7 +93,7 @@ Adds reliability gates on top of A–F. Canon: [mastering-quality-hardening.md](
 
 | # | Touchpoint | Disposition | Notes |
 |---|------------|-------------|-------|
-| G1 | [`mastering_research_router.py`](../../src/interview_mux/mastering_research_router.py) | landed | Field routing decisions + wave budgets → `mastering/research/routing.json` |
+| G1 | `mastering_research_router.py` | dropped (v2) | Field routing decisions + wave budgets → `mastering/research/routing.json`; module removed with the research/polish loop |
 | G2 | [`mastering_context_compiler.py`](../../src/interview_mux/mastering_context_compiler.py) | landed | Evidence packets with provenance + token budget + truncation policy |
 | G3 | [`mastering_diversity.py`](../../src/interview_mux/mastering_diversity.py) | landed | Pairwise candidate distance; remint below threshold |
 | G4 | [`mastering_feasibility.py`](../../src/interview_mux/mastering_feasibility.py) | landed | Hard gate before auditions/synthesize ([spec](./mastering-feasibility.md)) |

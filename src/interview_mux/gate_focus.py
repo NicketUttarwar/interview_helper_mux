@@ -38,8 +38,6 @@ def operator_gate_focus_stage(
     low = message.lower()
     if job_stage == "transcript_review_build" and "transcript review required" in low:
         return "transcript_review"
-    if job_stage == "disfluency_extract" and "disfluency review required" in low:
-        return "disfluency_review"
     return None
 
 

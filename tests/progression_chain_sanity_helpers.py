@@ -519,7 +519,7 @@ def run_progression_chain_sanity(
         stage_report["artifact_path"] = rel
         stage_report["failures"] = failures
 
-        if stage_id == "optimal_questions":
+        if stage_id in ("gap_framing_compose", "optimal_questions"):
             seed_vo_from_gap_report(ctx)
 
         idx = chain.index(stage_id)

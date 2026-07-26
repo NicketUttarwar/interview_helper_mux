@@ -63,35 +63,32 @@ def test_align_palette_keywords_from_segment_overlap():
 
 
 def test_lint_sound_design_palettes_accepts_aligned_keywords(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
     from interview_mux.run_context import RunContext
 
     run = tmp_path / "run"
     run.mkdir()
     monkeypatch.setenv("INTERVIEW_MUX_RUN_DIR", str(run))
     ctx = RunContext(str(run), create=True)
-    ctx.write_json(
-        "understanding/sonic_context.json",
+    sonic_fixture = (
+        Path(__file__).resolve().parent / "fixtures" / "sonic_context" / "fireside.json"
+    )
+    sonic = json.loads(sonic_fixture.read_text(encoding="utf-8"))
+    sonic["tag_registry"] = [
         {
-            "version": 1,
-            "scenario": {"atlas_bucket": "one_on_one", "sound_posture": {}},
-            "sonic_identity_seed": {"primary_mood": "reflective", "density_hint": "sparse"},
-            "cue_opportunities": [],
-            "mix_policy": {"underscore_policy": "sparse"},
-            "avoid_hard": [],
-            "tag_registry": [
-                {
-                    "tag_id": "topic_early_life",
-                    "keywords": ["Early life and return to India"],
-                    "segment_ids": ["seg_001"],
-                }
-            ],
-        },
-        skip_validation=True,
-    )
-    ctx.write_json(
-        "segments/manifest.json",
-        {"segments": [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 1000}]},
-    )
+            "tag_id": "topic_early_life",
+            "kind": "topic",
+            "keywords": ["Early life and return to India"],
+            "segment_ids": ["seg_001"],
+            "provenance": ["content_brief.topics"],
+        }
+    ]
+    ctx.write_json("understanding/sonic_context.json", sonic, skip_handoff=True)
+    from run_fixtures import minimal_manifest
+
+    ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"))
     artifacts = {
         "coherence": {"sonic_identity": "Warm documentary intimacy under speech.", "density": "sparse"},
         "palettes": [

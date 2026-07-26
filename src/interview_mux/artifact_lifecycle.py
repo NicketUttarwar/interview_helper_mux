@@ -121,9 +121,16 @@ def validate_reuse_copy(ctx: Any, stage_key: str, source_run_id: str) -> list[st
     if not isinstance(doc, dict):
         return [f"reuse invalid json {rel}"]
     errors = list(validate_artifact_write(rel, doc) or [])
-    for f in evaluate(stage_key, doc, ctx):
-        if f.blocking:
-            errors.append(f.message)
+    evaluated = evaluate(stage_key, doc, ctx)
+    findings = evaluated.get("findings") if isinstance(evaluated, dict) else evaluated
+    for f in findings or []:
+        blocking = getattr(f, "blocking", None)
+        if blocking is None and isinstance(f, dict):
+            blocking = f.get("blocking")
+        if blocking:
+            message = getattr(f, "message", None) or (f.get("message") if isinstance(f, dict) else str(f))
+            if message:
+                errors.append(str(message))
     return errors
 
 

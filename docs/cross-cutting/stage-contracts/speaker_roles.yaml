@@ -33,8 +33,6 @@ consumers:
 - speaker_roles
 remediation:
   strategies:
-  - micro_gap_fill
-  - patch_volley
   - volley_retry
   - full_stage_rerun
 critical_fields:

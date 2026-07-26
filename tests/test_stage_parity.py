@@ -13,8 +13,6 @@ TESTS_DIR = Path(__file__).parent
 GATE_AND_ON_DEMAND_STAGES = frozenset(
     {
         "transcript_review",
-        "disfluency_review",
-        "analysis_profile",
         "g1_vo_pickup",
         "g1_5_preview_pickup",
         "vo_ingest",
@@ -27,55 +25,48 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "ingest": ["test_ingest_preclean.py", "test_assets_audio.py", "test_pipeline.py"],
     "transcribe": ["test_stage_reuse_api.py", "test_api_providers.py", "test_pipeline.py"],
     "transcript_review_build": ["test_transcript_review.py", "test_pipeline.py"],
-    "disfluency_extract": ["test_disfluency.py", "test_disfluency_end_to_end.py", "test_pipeline.py"],
     "source_acoustic_profile": ["test_source_acoustic_profile.py", "test_recompute_acoustic_profile.py", "test_pipeline.py"],
     "interview_spine_build": ["test_interview_spine.py", "test_pipeline.py"],
     "speaker_roles": ["test_prompt_validation.py", "test_pipeline.py"],
     "source_topology_build": ["test_source_topology.py", "test_production_profile.py"],
     "content_context": ["test_prompt_validation.py", "test_value_analysis_auto_extract.py", "test_pipeline.py"],
     "content_brief_reanchor": ["test_content_brief_reanchor.py", "test_pipeline.py"],
+    "boundary_topic_resplit": ["test_boundary_topic_resplit.py", "test_pipeline.py"],
     "sonic_context_build": ["test_sonic_context.py", "test_sfx_schema_build_sfx01.py", "test_pipeline.py"],
     "boundary_detection": ["test_prompt_validation.py", "test_llm_harness_084.py", "test_pipeline.py"],
     "segment_classification": ["test_prompt_validation.py", "test_llm_harness_084.py", "test_pipeline.py"],
     "sound_design_palettes": ["test_sound_design_stages.py", "test_sound_design_scenario.py", "test_pipeline.py"],
     "missing_framing": ["test_llm_runner_structured.py", "test_prompt_validation.py", "test_pipeline.py"],
-    "optimal_questions": ["test_gates.py", "test_prompt_validation.py", "test_pipeline.py"],
+    "gap_framing_compose": ["test_gap_framing_gates.py", "test_gaps_skip.py", "test_pipeline.py"],
     "delivery_brief_build": ["test_delivery_brief.py", "test_pipeline.py"],
     "soundscape_policy_build": ["test_soundscape_policy.py", "test_pipeline.py"],
     "episode_structure_compose": ["test_episode_structure.py", "test_pipeline.py"],
-    "topic_coverage_audit": ["test_analysis_orchestrator.py", "test_pipeline.py"],
+    "topic_coverage_audit": ["test_coherence_topic_coverage_volley.py", "test_pipeline.py"],
     "narrative_arc_plan": ["test_pipeline.py"],
     "full_master_ranking": ["test_llm_specialists.py", "test_nle_state.py", "test_pipeline.py"],
     "transitions": ["test_pipeline.py"],
     "sound_design_plan": ["test_sound_design_stages.py", "test_sound_design_plan_build060.py", "test_sound_design_scenario.py", "test_pipeline.py"],
     "sound_design_vo_finalize": ["test_mix_acoustic_profile.py", "test_pipeline.py"],
     "edl_narrative_audit": ["test_edl_narrative_qc.py", "test_pipeline.py"],
-    "edl": ["test_assembly.py", "test_disfluency_end_to_end.py", "test_edl_qc.py", "test_pipeline.py"],
-    "assembly_preview": ["test_assembly.py", "test_disfluency_mix.py", "test_sound_design_crossfade.py", "test_pipeline.py"],
+    "edl": ["test_assembly.py", "test_edl_qc.py", "test_pipeline.py"],
+    "assembly_preview": ["test_assembly.py", "test_sound_design_crossfade.py", "test_pipeline.py"],
     "sfx_prompt_craft": ["test_sound_design_stages.py", "test_g1_5_prompt_review.py", "test_sfx_gates.py", "test_pipeline.py"],
     "mmaudio_sfx": ["test_sfx_mmaudio.py", "test_sfx_gates.py", "test_pipeline.py"],
-    "mix": ["test_mix_engine.py", "test_disfluency_mix.py", "test_mix_completeness.py", "test_sfx_gates.py", "test_pipeline.py"],
+    "mix": ["test_mix_engine.py", "test_mix_completeness.py", "test_sfx_gates.py", "test_pipeline.py"],
     "master_finalize": ["test_mastering.py", "test_master_qc.py", "test_pipeline.py"],
 }
 
 def test_operator_linear_stage_order() -> None:
-    from interview_mux.v2.config import v2_enabled
     from interview_mux.web.stages import operator_linear_stage_ids
 
     ids = operator_linear_stage_ids(None)
     assert ids.index("transcript_review_build") < ids.index("transcript_review")
-    if v2_enabled():
-        assert "disfluency_extract" not in ids
-        assert "disfluency_review" not in ids
-        assert "analysis_profile" not in ids
-        assert ids.index("transcript_review") < ids.index("source_acoustic_profile")
-        assert ids.index("optimal_questions") < ids.index("g1_vo_pickup")
-    else:
-        assert ids.index("transcript_review") < ids.index("disfluency_extract")
-        assert ids.index("disfluency_extract") < ids.index("disfluency_review")
-        assert ids.index("disfluency_review") < ids.index("source_acoustic_profile")
-        assert ids.index("optimal_questions") < ids.index("analysis_profile")
-        assert ids.index("analysis_profile") < ids.index("g1_vo_pickup")
+    assert "disfluency_extract" not in ids
+    assert "disfluency_review" not in ids
+    assert "analysis_profile" not in ids
+    assert "optimal_questions" not in ids
+    assert ids.index("transcript_review") < ids.index("source_acoustic_profile")
+    assert ids.index("gap_framing_compose") < ids.index("g1_vo_pickup")
 
     operator_linear_stage_ids("podcast")
 

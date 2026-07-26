@@ -62,6 +62,6 @@ python -m interview_mux flow --flow flow1 --run-id exec_002_… --no-reuse-offer
 ## Config
 
 - `journey_ui.enable_stage_reuse_offers` (default `true`) — block execute until reuse decision.
-- `journey_ui.require_write_approval_per_stage` (default `true`) — stage outputs (including reused copies) await review in **WriteApprovalPanel** before final save.
+- Reused copies auto-commit to final paths like any other stage output (`v2.auto_commit_artifacts: true`); the write-approval review step was removed.
 
 See [config-keys.md](../cross-cutting/config-keys.md), [idempotent-runs.md](./idempotent-runs.md), [api-reference.md](./api-reference.md), [gui-surface-map.md](./gui-surface-map.md).

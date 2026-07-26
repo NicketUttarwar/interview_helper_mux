@@ -1,0 +1,33 @@
+stage_id: gap_framing_compose
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/gap_report.json
+  schema: gap_report.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: understanding/gap_evaluations.json
+    producer: missing_framing
+  soft: []
+sufficiency:
+- path: gaps
+  rule: min_rows
+  min_count: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- optimal_questions
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- gaps

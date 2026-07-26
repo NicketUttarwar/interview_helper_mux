@@ -17,6 +17,9 @@ from interview_mux.file_store import write_json as fs_write_json
 from interview_mux.file_store import write_text as fs_write_text
 from interview_mux.run_context import RunContext
 
+# Re-export for tests that monkeypatch write_staging.merged_config.
+from interview_mux.config import merged_config  # noqa: F401
+
 _active_stage: ContextVar[str | None] = ContextVar("write_staging_stage", default=None)
 
 OPERATIONAL_REL_PATHS = frozenset(
@@ -202,6 +205,15 @@ def staging_read_trap_hint(ctx: RunContext, rel: str) -> str | None:
     )
 
 
+def _legacy_read_alias(ctx: RunContext, rel: str) -> Path | None:
+    """Pre single-flow migration: flow_1_master/ mirrors master/."""
+    if rel.startswith("master/"):
+        legacy = ctx.run_dir / "flow_1_master" / rel[len("master/") :]
+        if legacy.is_file():
+            return legacy
+    return None
+
+
 def resolve_read_path(ctx: RunContext, rel: str) -> Path:
     """Prefer staged copy when present."""
     if is_operational_path(rel):
@@ -216,7 +228,13 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
         staged = staged_path(ctx, rel, stage_id=pending)
         if staged.is_file():
             return staged
-    return ctx.run_dir.joinpath(*rel.split("/"))
+    primary = ctx.run_dir.joinpath(*rel.split("/"))
+    if primary.is_file():
+        return primary
+    legacy = _legacy_read_alias(ctx, rel)
+    if legacy is not None:
+        return legacy
+    return primary
 
 
 def artifact_exists_resolved(ctx: RunContext, rel: str) -> bool:
@@ -329,6 +347,27 @@ def pending_stage_for_path(ctx: RunContext, rel: str) -> str | None:
 
 def has_pending_writes(ctx: RunContext, stage_id: str) -> bool:
     return bool(list_pending_paths(ctx, stage_id))
+
+
+def stages_with_pending_writes(ctx: RunContext) -> list[str]:
+    """Stage ids with staged files on disk (ignores save-blocked / schema state)."""
+    stages: list[str] = []
+    root = ctx.run_dir / ".pending_writes"
+    if root.is_dir():
+        stages.extend(
+            p.name
+            for p in sorted(root.iterdir())
+            if p.is_dir() and has_pending_writes(ctx, p.name)
+        )
+    meta_path = ctx.run_dir / "run_meta.json"
+    if meta_path.is_file():
+        meta = ctx.read_json("run_meta.json")
+        pending = meta.get("pending_write_approval") if isinstance(meta, dict) else {}
+        if isinstance(pending, dict):
+            for sid in pending:
+                if sid not in stages:
+                    stages.append(str(sid))
+    return stages
 
 
 def record_pending_approval(ctx: RunContext, stage_id: str) -> None:
@@ -673,13 +712,25 @@ def check_write_approval_before_execute(
     ctx: RunContext,
     stage_id: str | None = None,
 ) -> WriteApprovalPending | None:
-    """v2 auto-commit — execute is never blocked by pending writes."""
+    """Block execute when pending writes require an operator Save pause.
+
+    v2 auto-commit disables this entirely. Under ``defer_write_approval_until=phase_end``,
+    prior stages may keep staged files without pausing every subsequent execute.
+    """
+    from interview_mux.first_try import write_approval_deferred
+
     if not write_approval_enabled():
         return None
-    stages = all_pending_stages(ctx)
+
+    if write_approval_deferred():
+        if stage_id and has_pending_writes(ctx, stage_id):
+            return WriteApprovalPending(stage_id, list_pending_paths(ctx, stage_id))
+        return None
+
+    stages = stages_with_pending_writes(ctx)
     if not stages:
         return None
-    sid = stage_id or stages[0]
+    sid = stages[0]
     paths = list_pending_paths(ctx, sid)
     if paths:
         return WriteApprovalPending(sid, paths)

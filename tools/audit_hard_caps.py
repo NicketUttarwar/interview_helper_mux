@@ -16,8 +16,6 @@ PROTECTED_FILES = frozenset(
         "interview_spine/boundaries.py",
         "coherence/compact.py",
         "value_analysis/extract.py",
-        "llm_shard_plans.py",
-        "llm_subtasks.py",
     }
 )
 

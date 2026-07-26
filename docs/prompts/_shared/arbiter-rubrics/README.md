@@ -4,7 +4,7 @@ Per-stage quality rubrics for the economy-tier LLM arbiter. Each file names one 
 
 The runner loads `docs/prompts/_shared/arbiter-rubrics/<stage_key>.json` and merges it into `stage_expectations` alongside severity and `decompose_eligible` from [llm-stage-model-matrix.md](../../../cross-cutting/llm-stage-model-matrix.md).
 
-**Related:** [arbiter.system.txt](../arbiter.system.txt) · [llm-arbiter-contract.md](../llm-arbiter-contract.md) · [LLM-ANALYSIS-ARCHITECTURE.md](../../../../LLM-ANALYSIS-ARCHITECTURE.md) §11
+**Related:** [arbiter.system.txt](../arbiter.system.txt) · [arbiter-stage-rubrics.md](../arbiter-stage-rubrics.md). Arbiter routing was removed in v2; only `deterministic_lint_keys` is still consumed.
 
 ---
 
@@ -113,7 +113,7 @@ Rubrics should list generic keys that apply to every stage plus any stage-only i
 | `decompose_eligible` and evidence too large or partial timeline coverage | `decompose` (non-empty `shard_plan`) |
 | Wrong upstream stage, operator input, or non-decomposable truncation | `enqueue_investigation` |
 
-Do **not** use rubrics to rewrite artifacts — routing only. See [llm-arbiter-contract.md](../llm-arbiter-contract.md).
+Do **not** use rubrics to rewrite artifacts — they supply deterministic lint keys only.
 
 ---
 

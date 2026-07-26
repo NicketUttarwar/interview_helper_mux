@@ -18,9 +18,6 @@ NESTED_DOC_KEYS = (
     "analysis.sufficiency.enabled",
     "analysis.sufficiency.default_blocking_tier",
     "analysis.sufficiency.per_stage_overrides",
-    "analysis.remediation_orchestrator.enabled",
-    "analysis.remediation_orchestrator.max_micro_gap_fill_per_stage",
-    "analysis.remediation_orchestrator.max_upstream_reruns",
     "analysis.artifact_lifecycle.fingerprint_enabled",
     "analysis.artifact_lifecycle.post_commit_validate",
     "analysis.artifact_lifecycle.read_stale_guard",
@@ -28,8 +25,6 @@ NESTED_DOC_KEYS = (
     "analysis.artifact_contract.enabled",
     "analysis.artifact_contract.contracts_dir",
     "analysis.artifact_contract.verify_on_ci",
-    "analysis.downstream_probe.enabled",
-    "analysis.downstream_probe.blocking_tier",
 )
 
 

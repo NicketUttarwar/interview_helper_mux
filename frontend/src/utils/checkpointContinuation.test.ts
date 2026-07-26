@@ -9,6 +9,7 @@ import {
   tryAutopilotCheckpointResolution,
 } from "./checkpointContinuation";
 import type { RunData } from "../types";
+import { makeJourney, makeStage } from "../test/runFixtures";
 import { clearAutoNavLedgerForTests, resetAutoNavLedgerIfServerChanged } from "./autoNavigationLedger";
 
 afterEach(() => {
@@ -23,8 +24,12 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
   return {
     run_id: "exec_test",
     stages: [
-      { id: "audio_preclean", title: "Pre-clean", status: "awaiting_write_approval", phase: "prepare" },
-      { id: "ingest", title: "Ingest", status: "pending", phase: "prepare" },
+      makeStage("audio_preclean", {
+        title: "Pre-clean",
+        status: "awaiting_write_approval",
+        phase: "prepare",
+      }),
+      makeStage("ingest", { title: "Ingest", status: "pending", phase: "prepare" }),
     ],
     job: {
       status: "awaiting_write_approval",
@@ -37,11 +42,11 @@ function runStub(overrides: Partial<RunData> = {}): RunData {
 
 describe("patchRunAfterWriteApproval", () => {
   it("builds complete job from nextStageId when server job lacks status", () => {
-    const run = runStub({ journey: { phase: "prepare" } });
+    const run = runStub({ journey: makeJourney({ phase: "prepare" }) });
     const patched = patchRunAfterWriteApproval(run, {
       savedStageId: "audio_preclean",
       nextStageId: "ingest",
-      job: { ok: true, run_id: "exec_test", mode: "stage" } as never,
+      job: { mode: "stage" },
     });
     expect(patched.job?.status).toBe("complete");
     expect(patched.job?.stage).toBe("audio_preclean");
@@ -53,7 +58,7 @@ describe("patchRunAfterWriteApproval", () => {
     const patched = patchRunAfterWriteApproval(run, {
       savedStageId: "audio_preclean",
       nextStageId: "ingest",
-      job: { ok: true, status: "running", stage: "ingest" } as never,
+      job: { status: "running", stage: "ingest" },
     });
     expect(patched.stages.find((s) => s.id === "audio_preclean")?.status).toBe("done");
     expect(patched.job?.awaiting_write_approval).toBe(false);
@@ -62,12 +67,11 @@ describe("patchRunAfterWriteApproval", () => {
   });
 
   it("surfaces stage reuse blocker after save", () => {
-    const run = runStub({ journey: { phase: "prepare" } });
+    const run = runStub({ journey: makeJourney({ phase: "prepare" }) });
     const patched = patchRunAfterWriteApproval(run, {
       savedStageId: "audio_preclean",
       nextStageId: "ingest",
       job: {
-        ok: false,
         status: "needs_operator",
         stage: "ingest",
         needs_stage_reuse: true,
@@ -113,8 +117,8 @@ describe("advancePipeline", () => {
     const showToast = vi.fn();
     const run = runStub({
       stages: [
-        { id: "audio_preclean", title: "Pre-clean", status: "done", phase: "prepare" },
-        { id: "ingest", title: "Ingest", status: "pending", phase: "prepare" },
+        makeStage("audio_preclean", { title: "Pre-clean", status: "done", phase: "prepare" }),
+        makeStage("ingest", { title: "Ingest", status: "pending", phase: "prepare" }),
       ],
       job: { status: "complete" },
     });
@@ -142,25 +146,27 @@ describe("advancePipeline", () => {
   });
 
   it("auto-runs next stage when handoffs disabled (v2)", async () => {
-    const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "speaker_roles",
+        makeStage("speaker_roles", {
           title: "Speaker roles",
           status: "done",
           phase: "understand",
           handoff_paths: ["understanding/speakers.json"],
-        },
-        { id: "content_context", title: "Content context", status: "pending", phase: "understand" },
+        }),
+        makeStage("content_context", {
+          title: "Content context",
+          status: "pending",
+          phase: "understand",
+        }),
       ],
       job: { status: "complete", stage: "speaker_roles" },
-      journey: {
+      journey: makeJourney({
         first_try: { enabled: false },
         handoff: { handoff_between_stages_enabled: true },
-      },
+      }),
     });
     const started = await advancePipeline({
       run,
@@ -177,10 +183,8 @@ describe("advancePipeline", () => {
       navigateToNextBlocker: vi.fn(),
       autoRun: true,
       config: { journey_ui: { auto_advance_pipeline: true } },
-      acknowledgeHandoff,
     });
     expect(started).toBe(true);
-    expect(acknowledgeHandoff).not.toHaveBeenCalled();
     expect(executeJob).toHaveBeenCalled();
     expect(selectStage).toHaveBeenCalledWith("content_context", { stepId: "run" });
   });
@@ -191,8 +195,8 @@ describe("advancePipeline", () => {
     const showToast = vi.fn();
     const run = runStub({
       stages: [
-        { id: "audio_preclean", title: "Pre-clean", status: "done", phase: "prepare" },
-        { id: "ingest", title: "Ingest", status: "pending", phase: "prepare" },
+        makeStage("audio_preclean", { title: "Pre-clean", status: "done", phase: "prepare" }),
+        makeStage("ingest", { title: "Ingest", status: "pending", phase: "prepare" }),
       ],
       job: { status: "complete" },
     });
@@ -224,22 +228,20 @@ describe("syncPipelineStageFocus", () => {
     const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "source_acoustic_profile",
+        makeStage("source_acoustic_profile", {
           title: "Source acoustic profile",
           status: "done",
           phase: "understand",
-        },
-        {
-          id: "interview_spine_build",
+        }),
+        makeStage("interview_spine_build", {
           title: "Interview spine",
           status: "pending",
           phase: "understand",
-        },
+        }),
       ],
       handoff_ack: { source_acoustic_profile: "2026-01-01T00:00:00Z" },
       job: { status: "complete", stage: "source_acoustic_profile" },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
@@ -247,7 +249,7 @@ describe("syncPipelineStageFocus", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     const navigated = await syncPipelineStageFocus({
       run,
@@ -275,20 +277,18 @@ describe("syncPipelineStageFocus", () => {
     const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "source_acoustic_profile",
+        makeStage("source_acoustic_profile", {
           title: "Source acoustic profile",
           status: "done",
           phase: "understand",
-        },
-        {
-          id: "interview_spine_build",
+        }),
+        makeStage("interview_spine_build", {
           title: "Interview spine",
           status: "pending",
           phase: "understand",
-        },
+        }),
       ],
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
@@ -296,7 +296,7 @@ describe("syncPipelineStageFocus", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     const opts = {
       run,
@@ -329,20 +329,14 @@ describe("syncPipelineStageFocus", () => {
     const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "ingest",
-          title: "Ingest",
-          status: "done",
-          phase: "prepare",
-        },
-        {
-          id: "interview_spine_build",
+        makeStage("ingest", { title: "Ingest", status: "done", phase: "prepare" }),
+        makeStage("interview_spine_build", {
           title: "Interview spine",
           status: "pending",
           phase: "understand",
-        },
+        }),
       ],
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
@@ -350,7 +344,7 @@ describe("syncPipelineStageFocus", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     const opts = {
       run,
@@ -401,21 +395,19 @@ describe("tryAutoContinuePipeline", () => {
     const selectStage = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "source_acoustic_profile",
+        makeStage("source_acoustic_profile", {
           title: "Source acoustic profile",
           status: "done",
           phase: "understand",
-        },
-        {
-          id: "interview_spine_build",
+        }),
+        makeStage("interview_spine_build", {
           title: "Interview spine",
           status: "pending",
           phase: "understand",
-        },
+        }),
       ],
       job: { status: "complete", stage: "source_acoustic_profile" },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         blocking: {
           blocked: true,
@@ -423,7 +415,7 @@ describe("tryAutoContinuePipeline", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     await tryAutoContinuePipeline({
       run,
@@ -449,29 +441,26 @@ describe("tryAutoContinuePipeline", () => {
   });
 
   it("auto-continues when handoffs disabled (v2)", async () => {
-    const acknowledgeHandoff = vi.fn().mockResolvedValue(undefined);
     const executeJob = vi.fn().mockResolvedValue(undefined);
     const run = runStub({
       stages: [
-        {
-          id: "source_acoustic_profile",
+        makeStage("source_acoustic_profile", {
           title: "Source acoustic profile",
           status: "done",
           phase: "understand",
           handoff_paths: ["understanding/source_acoustic_profile.json"],
-        },
-        {
-          id: "interview_spine_build",
+        }),
+        makeStage("interview_spine_build", {
           title: "Interview spine",
           status: "pending",
           phase: "understand",
-        },
+        }),
       ],
       job: { status: "complete", stage: "source_acoustic_profile" },
-      journey: {
+      journey: makeJourney({
         first_try: { enabled: false },
         handoff: { handoff_between_stages_enabled: true },
-      },
+      }),
     });
     const started = await tryAutoContinuePipeline({
       run,
@@ -487,11 +476,9 @@ describe("tryAutoContinuePipeline", () => {
       showToast: vi.fn(),
       refreshRun: vi.fn().mockResolvedValue(run),
       navigateToNextBlocker: vi.fn(),
-      acknowledgeHandoff,
       config: { journey_ui: { auto_advance_pipeline: true } },
     });
     expect(started).toBe(true);
-    expect(acknowledgeHandoff).not.toHaveBeenCalled();
     expect(executeJob).toHaveBeenCalled();
   });
 });
@@ -535,15 +522,13 @@ describe("reconcileBusyRun", () => {
 
 describe("tryAutopilotCheckpointResolution", () => {
   it("is disabled in v2 (operator checkpoints require manual action)", async () => {
-    const fixAllAndContinueStage = vi.fn().mockResolvedValue(true);
     const run = runStub({
       stages: [
-        {
-          id: "boundary_detection",
+        makeStage("boundary_detection", {
           title: "Boundaries",
           status: "action_required",
           phase: "understand",
-        },
+        }),
       ],
       job: {
         status: "needs_clarification",
@@ -565,11 +550,9 @@ describe("tryAutopilotCheckpointResolution", () => {
       showToast: vi.fn(),
       refreshRun: vi.fn().mockResolvedValue(run),
       navigateToNextBlocker: vi.fn(),
-      config: { journey_ui: { auto_advance_pipeline: true, full_autopilot: false } },
-      fixAllAndContinueStage,
+      config: { journey_ui: { auto_advance_pipeline: true } },
     });
     expect(ok).toBe(false);
-    expect(fixAllAndContinueStage).not.toHaveBeenCalled();
   });
 });
 

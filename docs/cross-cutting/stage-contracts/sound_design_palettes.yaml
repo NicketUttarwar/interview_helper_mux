@@ -14,8 +14,8 @@ outputs:
   staging: true
 inputs:
   hard:
-  - path: understanding/content_brief.json
-    producer: content_brief_reanchor
+  - path: segments/boundaries.json
+    producer: boundary_topic_resplit
   soft: []
 sufficiency:
 - path: palettes
@@ -30,8 +30,6 @@ consumers:
 - sound_design_plan
 remediation:
   strategies:
-  - micro_gap_fill
-  - patch_volley
   - volley_retry
   - full_stage_rerun
 critical_fields:

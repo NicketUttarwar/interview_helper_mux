@@ -148,6 +148,7 @@ def _preflight_boundary_detection(ctx: RunContext) -> list[str]:
 
 
 def _preflight_segment_classification(ctx: RunContext) -> list[str]:
+    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
     from interview_mux.segmentation_input_resolver import (
         assert_boundary_contract_ready,
         resolve_segmentation_inputs,
@@ -156,6 +157,10 @@ def _preflight_segment_classification(ctx: RunContext) -> list[str]:
     bundle = resolve_segmentation_inputs(ctx)
     errors = list(bundle.errors)
     errors.extend(assert_boundary_contract_ready(bundle))
+    if ctx.artifact_exists("segments/boundaries.json") and not upstream_artifact_acceptable(
+        "boundary_detection", "segments/boundaries.json", ctx
+    ):
+        errors.append("segments/boundaries.json is incomplete — re-run boundary_detection")
     return errors[:6]
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from interview_mux.artifact_completeness import compute_gaps
-from interview_mux.llm_shard_plans import DECOMPOSE_ELIGIBLE, should_proactive_decompose_content_context
 from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.prompt_validation import validate_content_brief
 from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manifest_segment
@@ -10,21 +9,13 @@ from run_fixtures import isolated_run_ctx, minimal_content_brief, minimal_manife
 def test_analysis_order_includes_content_brief_reanchor():
     seg_idx = ANALYSIS_ORDER.index("segment_classification")
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
+    resplit_idx = ANALYSIS_ORDER.index("boundary_topic_resplit")
     sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert reanchor_idx == seg_idx + 1
-    assert sonic_idx == reanchor_idx + 1
+    assert resplit_idx == reanchor_idx + 1
+    assert sonic_idx == resplit_idx + 1
     assert pal_idx == sonic_idx + 1
-
-
-def test_decompose_eligible_includes_content_brief_reanchor():
-    assert "content_brief_reanchor" in DECOMPOSE_ELIGIBLE
-
-
-def test_proactive_decompose_when_transcript_exceeds_threshold():
-    long_text = "x" * 80000
-    assert should_proactive_decompose_content_context({"transcript": long_text}) is True
-    assert should_proactive_decompose_content_context({"transcript": "short"}) is False
 
 
 def test_enriched_content_brief_schema_valid():

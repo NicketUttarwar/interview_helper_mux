@@ -28,9 +28,3 @@ Default path: straight to [ingest](../ingest/README.md) with no API call.
 ## Next stage (default)
 
 [ingest](../ingest/README.md)
-
----
-
-## Build-out
-
-[README.md](../../build-out/README.md) · [repository-map.md](../../build-out/repository-map.md) · [steps-forward.md](../../build-out/steps-forward.md)

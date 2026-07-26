@@ -18,12 +18,6 @@ export function jobCompletionHint(
     return "Timeline unlocked — open the Timeline tab to review segments.";
   }
   if (
-    completedStageId === "optimal_questions" &&
-    refreshed.journey?.blocking?.reason === "analysis_profile"
-  ) {
-    return "Analysis profile gate — verify story on Story Board or Profile tab.";
-  }
-  if (
     completedStageId === "delivery_brief_build" &&
     gapFillSkipped(refreshed)
   ) {

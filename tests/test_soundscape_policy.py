@@ -14,7 +14,7 @@ from interview_mux.soundscape_policy import (
     save_operator_overrides,
     score_cue_slots,
 )
-from run_fixtures import isolated_run_ctx, minimal_source_acoustic_profile
+from run_fixtures import isolated_run_ctx, minimal_source_acoustic_profile, patch_mix_test_config
 
 
 def _raw_write(ctx, rel: str, data: dict) -> None:
@@ -88,7 +88,8 @@ def _seed_inputs(ctx, *, underscore: str = "normal", pace: str = "conversational
     _raw_write(ctx, "understanding/sound_design_plan.json", sdp)
 
 
-def test_build_policy_skips_beds_on_skip(tmp_path) -> None:
+def test_build_policy_skips_beds_on_skip(tmp_path, monkeypatch) -> None:
+    patch_mix_test_config(monkeypatch, disable_soundscape=False, disable_creative_delivery=True)
     ctx = isolated_run_ctx(tmp_path, "run_sp_skip")
     _seed_inputs(ctx, underscore="skip")
     policy = build_policy(ctx)
@@ -97,7 +98,8 @@ def test_build_policy_skips_beds_on_skip(tmp_path) -> None:
     assert all("ambient_bed" not in (s.get("allowed_roles") or []) for s in policy["cue_slots"])
 
 
-def test_build_policy_high_music_risk_forces_skip(tmp_path) -> None:
+def test_build_policy_high_music_risk_forces_skip(tmp_path, monkeypatch) -> None:
+    patch_mix_test_config(monkeypatch, disable_soundscape=False, disable_creative_delivery=True)
     ctx = isolated_run_ctx(tmp_path, "run_sp_music")
     _seed_inputs(ctx, underscore="normal", music_risk="high")
     policy = build_policy(ctx)

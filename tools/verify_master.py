@@ -22,7 +22,7 @@ def _parse_flow(raw: str | None) -> FlowName | None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python tools/verify_master.py <master.wav> [--flow flow1|flow2]")
+        print("Usage: python tools/verify_master.py <master.wav> [--flow podcast]")
         sys.exit(1)
 
     args = sys.argv[1:]

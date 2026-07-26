@@ -1,5 +1,7 @@
 /** Per-tab GUI session leader — prevents stale browser tabs from mutating runs. */
 
+import type { SessionActive } from "../types";
+
 const CLIENT_ID_KEY = "interview_mux_gui_client_id";
 const CHANNEL_NAME = "interview-mux-gui-session";
 
@@ -37,16 +39,12 @@ export function guiClientHeaders(): Record<string, string> {
   return { "X-GUI-Client-Id": getClientInstanceId() };
 }
 
-export function parseSessionLeader(active: Record<string, unknown> | null | undefined): SessionLeaderState {
+export function parseSessionLeader(
+  active: Pick<SessionActive, "active_client_instance_id" | "ui_revision"> | null | undefined,
+): SessionLeaderState {
   const clientInstanceId = getClientInstanceId();
-  const leaderClientId =
-    typeof active?.active_client_instance_id === "string"
-      ? active.active_client_instance_id
-      : null;
-  const uiRevision =
-    typeof active?.ui_revision === "number"
-      ? active.ui_revision
-      : Number(active?.ui_revision) || 0;
+  const leaderClientId = active?.active_client_instance_id ?? null;
+  const uiRevision = active?.ui_revision ?? 0;
   const isLeader = !leaderClientId || leaderClientId === clientInstanceId;
   return { clientInstanceId, leaderClientId, uiRevision, isLeader };
 }

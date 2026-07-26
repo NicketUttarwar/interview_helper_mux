@@ -6,7 +6,6 @@ export interface NextActionHandlers {
   onOpenCheckpoint: (stageId?: string) => void;
   onExecute: (body: ExecuteBody) => void;
   onRunNext: () => void;
-  onAcknowledgeHandoff: () => void;
   onApproveWrite?: (stageId: string) => void;
   onGoPipeline: () => void;
   onGoStory: () => void;

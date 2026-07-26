@@ -1,5 +1,5 @@
-"""Deterministic mastering hardening compilers: router, context, diversity,
-feasibility, semantic integrity, pareto.
+"""Deterministic mastering hardening compilers: context, diversity, feasibility,
+semantic integrity, pareto.
 
 Specs: docs/cross-cutting/mastering-quality-hardening.md and siblings.
 """
@@ -16,18 +16,13 @@ from interview_mux.mastering_context_compiler import (
 from interview_mux.mastering_diversity import build_diversity_report, candidate_distance
 from interview_mux.mastering_feasibility import build_feasibility_report, eligible_candidates
 from interview_mux.mastering_pareto import build_frontier, dominates, select_synthesize_inputs
-from interview_mux.mastering_research_router import (
-    active_field_ids,
-    disposition_for,
-    route_fields,
-)
 from interview_mux.mastering_semantic_integrity import (
     build_integrity_report,
     clean_candidates,
     flagged_windows,
     merge_llm_findings,
 )
-from tests.mastering_quality_corpus import (
+from mastering_quality_corpus import (
     TAXONOMY,
     candidates,
     feasibility_inputs,
@@ -35,18 +30,6 @@ from tests.mastering_quality_corpus import (
     integrity_inputs,
     load_fixture,
 )
-
-FIELDS = [
-    {"field_id": "source_hygiene", "wave": 1},
-    {"field_id": "preclean_outcome", "wave": 1},
-    {"field_id": "speaker_volleys", "wave": 2},
-    {"field_id": "pickup_voice", "wave": 2},
-    {"field_id": "gap_framing_coverage", "wave": 5},
-    {"field_id": "sfx_asset_catalog", "wave": 6},
-    {"field_id": "nle_operator_edits", "wave": 4},
-    {"field_id": "master_verify_readiness", "wave": 8},
-]
-
 
 # --- corpus ---------------------------------------------------------------
 
@@ -63,42 +46,6 @@ def test_corpus_covers_every_axis_value():
         if set(values) - seen.get(axis, set())
     }
     assert not gaps, f"eval corpus is missing fixtures for: {gaps}"
-
-
-# --- router ---------------------------------------------------------------
-
-
-def test_router_skips_fields_whose_flow_was_skipped():
-    routing = route_fields(
-        fields=FIELDS,
-        signature={"skipped_flows": ["preclean", "nle"]},
-        available_flows={"gap_framing", "sfx_assets", "voice_reference"},
-    )
-    assert disposition_for(routing, "preclean_outcome") == "skip"
-    assert disposition_for(routing, "nle_operator_edits") == "skip"
-    assert disposition_for(routing, "gap_framing_coverage") == "required"
-
-
-def test_router_never_hard_skips_a_foundational_field():
-    routing = route_fields(fields=FIELDS, available_flows=set())
-    assert disposition_for(routing, "speaker_volleys") in {"required", "thin", "deepen"}
-
-
-def test_router_defers_fields_that_need_audio():
-    routing = route_fields(fields=FIELDS, available_flows=set())
-    assert disposition_for(routing, "master_verify_readiness") == "revisit_after_preview"
-    assert "master_verify_readiness" not in active_field_ids(routing)
-
-
-def test_router_honors_deepen_budget():
-    routing = route_fields(
-        fields=FIELDS,
-        available_flows={"gap_framing", "sfx_assets"},
-        deepen_hints={"speaker_volleys", "pickup_voice"},
-        cfg={"mastering": {"research": {"routing": {"max_deep_fields": 1}}}},
-    )
-    deepened = [f for f in routing["fields"] if f["disposition"] == "deepen"]
-    assert len(deepened) == 1
 
 
 # --- context compiler -----------------------------------------------------

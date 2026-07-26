@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findHandoffStage, findPendingFocusStage, resolveOperatorFocusStageId } from "./checkpoint";
 import { resolveOperatorAction } from "./resolveOperatorAction";
 import type { RunData } from "../types";
+import { makeJourney } from "../test/runFixtures";
 
 function minimalRun(overrides: Partial<RunData> = {}): RunData {
   return {
@@ -87,8 +88,8 @@ describe("findPendingFocusStage", () => {
           phase: "gate",
         },
         {
-          id: "disfluency_extract",
-          title: "Disfluency extract",
+          id: "source_acoustic_profile",
+          title: "Source acoustic profile",
           description: "",
           status: "locked",
           phase: "analysis",
@@ -120,7 +121,7 @@ describe("findPendingFocusStage", () => {
         },
       ],
       job: { status: "complete", stage: "source_acoustic_profile" },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         first_try: { enabled: true },
         blocking: {
@@ -129,7 +130,7 @@ describe("findPendingFocusStage", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     expect(findHandoffStage(run)).toBeNull();
     expect(findPendingFocusStage(run)).toBe("interview_spine_build");
@@ -155,7 +156,7 @@ describe("findPendingFocusStage", () => {
         },
       ],
       job: { status: "complete", stage: "source_acoustic_profile" },
-      journey: {
+      journey: makeJourney({
         phase: "understand",
         first_try: { enabled: false },
         handoff: { handoff_between_stages_enabled: true },
@@ -165,7 +166,7 @@ describe("findPendingFocusStage", () => {
           stage_id: "interview_spine_build",
           message: "Choose reuse or run fresh",
         },
-      },
+      }),
     });
     expect(findHandoffStage(run)).toBeNull();
     expect(findPendingFocusStage(run)).toBe("interview_spine_build");
@@ -189,7 +190,7 @@ describe("findPendingFocusStage", () => {
         message:
           "Transcript review required. Open the GUI to correct ranked clips, then complete review.",
       },
-      journey: {
+      journey: makeJourney({
         phase: "prepare",
         blocking: {
           blocked: true,
@@ -197,7 +198,7 @@ describe("findPendingFocusStage", () => {
           stage_id: "transcript_review",
           message: "Review 3 ranked STT clips",
         },
-      },
+      }),
     });
     expect(findPendingFocusStage(run)).toBe("transcript_review");
     expect(resolveOperatorFocusStageId(run)).toBe("transcript_review");

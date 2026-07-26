@@ -5,11 +5,13 @@ import pytest
 from interview_mux.artifact_auto_resolve import (
     AutoResolveOutcome,
     auto_resolve_stage,
+    blocking_issues_remaining,
     can_auto_resolve_issue,
+    get_stage_issues_summary,
     pick_recommended_choice,
+    run_triage_pipeline,
     stage_capabilities,
 )
-from interview_mux.artifact_issue_triage import blocking_issues_remaining, run_triage_pipeline
 from interview_mux.operator_clarifications_store import upsert_items
 from interview_mux.write_staging import write_pending_content
 from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment, patch_merged_config
@@ -104,3 +106,13 @@ def test_auto_resolve_applies_recommended_choice(tmp_path, monkeypatch: pytest.M
     result = auto_resolve_stage(ctx, "segment_classification")
     assert result.resolved_count >= 0
     assert result.outcome in (AutoResolveOutcome.SUCCESS, AutoResolveOutcome.MANUAL_REQUIRED, AutoResolveOutcome.PARTIAL)
+
+
+def test_stage_issues_summary_never_offers_bridge(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The lint-repair bridge is gone in v2 — summaries must never advertise it."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _itr_config())
+    ctx = isolated_run_ctx(tmp_path, "itr_bridge_off")
+    summary = get_stage_issues_summary(ctx, "segment_classification")
+    assert summary["bridge_eligible"] is False
+    assert summary["open_blocking"] == 0

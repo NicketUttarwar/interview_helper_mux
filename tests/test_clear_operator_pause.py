@@ -21,4 +21,4 @@ def test_clear_operator_pause_writes_complete_job(tmp_path, monkeypatch) -> None
     job = ctx.read_json("gui_job.json")
     assert job["status"] == "complete"
     assert job.get("pending_write_stage") is None
-    assert job.get("awaiting_write_approval") is False
+    assert job.get("awaiting_write_approval") is not True

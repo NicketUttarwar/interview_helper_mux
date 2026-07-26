@@ -53,16 +53,19 @@ def test_g0_locks_source_acoustic_profile(tmp_path) -> None:
     )
     sap = next(s for s in stages if s["id"] == "source_acoustic_profile")
     assert sap["status"] in {"locked", "pending"}
-    de = next(s for s in stages if s["id"] == "disfluency_extract")
-    assert de["status"] == "locked"
     assert sap["guidance"]["prerequisites"][0]["status"] == "todo"
     assert "transcript review" in sap["guidance"]["prerequisites"][0]["label"].lower()
 
 def test_g0_locked_analysis_stages_includes_source_acoustic_profile() -> None:
+    from interview_mux.v2.config import v2_enabled
+
     assert "source_acoustic_profile" in G0_LOCKED_ANALYSIS_STAGES
-    assert "disfluency_extract" in G0_LOCKED_ANALYSIS_STAGES
     assert "speaker_roles" in G0_LOCKED_ANALYSIS_STAGES
     assert "ingest" not in G0_LOCKED_ANALYSIS_STAGES
+    if v2_enabled():
+        assert "disfluency_extract" not in G0_LOCKED_ANALYSIS_STAGES
+    else:
+        assert "disfluency_extract" in G0_LOCKED_ANALYSIS_STAGES
 
 def test_phase_guidance_includes_all_phases(tmp_path) -> None:
     ctx = isolated_run_ctx(tmp_path, "phase_guidance")
@@ -81,6 +84,7 @@ def test_phase_guidance_includes_all_phases(tmp_path) -> None:
         assert phase_guidance[phase]["goal"]
 
 def test_flow_stage_shows_analysis_artifacts_gate_when_incomplete(tmp_path, monkeypatch) -> None:
+    from interview_mux.v2.config import v2_enabled
     from run_fixtures import patch_merged_config
 
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
@@ -89,7 +93,16 @@ def test_flow_stage_shows_analysis_artifacts_gate_when_incomplete(tmp_path, monk
     guidance = build_stage_guidance(ctx, "topic_coverage_audit", status="pending", flow="podcast")
     labels = [p["label"] for p in guidance["prerequisites"]]
     assert any("Analysis artifacts complete" in label for label in labels)
-    assert any(p["label"].startswith("Analysis artifacts complete") and p["status"] == "todo" for p in guidance["prerequisites"])
+    gate_items = [
+        p for p in guidance["prerequisites"]
+        if p.get("label", "").startswith("Analysis artifacts complete")
+    ]
+    assert gate_items
+    if v2_enabled():
+        # v2 removed the analysis-profile gate; flow hardening shows satisfied.
+        assert gate_items[0]["status"] == "done"
+    else:
+        assert gate_items[0]["status"] == "todo"
 
 def test_flow_stage_shows_analysis_artifacts_gate_done_when_ready(tmp_path, monkeypatch) -> None:
     from run_fixtures import patch_merged_config, seed_analysis_ready_artifacts

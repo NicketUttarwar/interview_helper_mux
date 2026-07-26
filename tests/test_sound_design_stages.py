@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from interview_mux.analysis_memory import default_analysis_state, default_sound_design_plan
-from interview_mux.context_volley import _shape_stage_input
 from interview_mux.pipeline import ANALYSIS_ORDER
 from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
@@ -63,29 +62,6 @@ def _seed_flow1_inputs(ctx: RunContext) -> None:
         minimal_manifest(minimal_manifest_segment("seg_001", start_ms=0, end_ms=2000, text="hello")),
     )
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
-
-
-def test_sound_design_plan_volley_includes_sound_design_plan():
-    raw = {
-        "sound_design_plan": {
-            "version": 1,
-            "coherence": {"sonic_identity": "Warm doc", "primary_mood": "warm", "density": "sparse"},
-            "palettes": [{"palette_id": "origin", "theme_label": "Origin", "segment_ids": ["seg_001"]}],
-            "assets": [{"asset_id": "old_asset", "role": "chapter_stinger"}],
-            "flow_plans": {"podcast": {"profile": "podcast", "cues": []}},
-        },
-        "selection": {"ordered_segment_ids": ["seg_001"], "chapters": []},
-        "narrative_plan": {"arc_summary": "Test"},
-        "transitions": {"transitions": []},
-        "gap_report": {"interviewer_lines": []},
-        "segments": {"segments": [{"segment_id": "seg_001", "text": "hi"}]},
-    }
-    shaped = _shape_stage_input("sound_design_plan", raw)
-    sdp = shaped["sound_design_plan"]
-    assert sdp["coherence"]["sonic_identity"] == "Warm doc"
-    assert sdp["palettes"][0]["palette_id"] == "origin"
-    assert "assets" not in sdp
-    assert "flow_plans" not in sdp
 
 
 def test_sound_design_plan_persists_assets_and_cues(tmp_path, monkeypatch):
@@ -250,30 +226,12 @@ def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
 
 def test_analysis_order_places_sonic_context_and_palettes_after_content_brief_reanchor():
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
+    resplit_idx = ANALYSIS_ORDER.index("boundary_topic_resplit")
     sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
-    assert sonic_idx == reanchor_idx + 1
+    assert resplit_idx == reanchor_idx + 1
+    assert sonic_idx == resplit_idx + 1
     assert pal_idx == sonic_idx + 1
-
-
-def test_sound_design_palettes_volley_includes_source_acoustic_profile():
-    raw = {
-        "content_brief": {"thesis": "Test"},
-        "segments": {"segments": []},
-        "sound_design_plan": default_sound_design_plan(),
-        "source_acoustic_profile": {
-            "pacing": {"pace_class": "conversational", "speech_active_ratio": 0.7},
-            "energy": {"room_timbre_hint": "dry_close_mic"},
-            "mix_contract": {"underscore_policy": "sparse", "stinger_max_per_minute": 1},
-            "prompt_tokens": {"bed_style": "soft room tone", "avoid": "trailer whoosh"},
-        },
-    }
-    shaped = _shape_stage_input("sound_design_palettes", raw)
-    sap = shaped["source_acoustic_profile"]
-    assert sap["pace_class"] == "conversational"
-    assert sap["room_timbre_hint"] == "dry_close_mic"
-    assert sap["mix_contract"]["underscore_policy"] == "sparse"
-    assert sap["prompt_tokens"]["bed_style"] == "soft room tone"
 
 
 def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypatch):

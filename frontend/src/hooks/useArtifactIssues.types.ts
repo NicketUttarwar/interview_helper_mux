@@ -1,5 +1,3 @@
-import type { ArtifactIssueOption } from "./useArtifactIssues";
-
 export interface RecoveryAction {
   type: string;
   label: string;
@@ -18,7 +16,14 @@ export interface PropagationPlan {
   has_blocking?: boolean;
 }
 
-export type { ArtifactIssueOption };
+/** One operator-selectable repair choice — see artifact_auto_resolve.pick_recommended_choice. */
+export interface ArtifactIssueOption {
+  value?: unknown;
+  choice?: unknown;
+  label?: string;
+  confidence?: number;
+  score?: number;
+}
 
 export interface ArtifactIssue {
   id: string;

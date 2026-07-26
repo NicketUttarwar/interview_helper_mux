@@ -51,8 +51,8 @@ describe("preclean", () => {
         phase: "gate",
       },
       {
-        id: "disfluency_extract",
-        title: "Disfluency extract",
+        id: "source_acoustic_profile",
+        title: "Source acoustic profile",
         description: "",
         status: "pending",
         phase: "analysis",
