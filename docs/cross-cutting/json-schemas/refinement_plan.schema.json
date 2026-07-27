@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefinementPlan",
+  "type": "object",
+  "required": ["run_id", "schema_version", "passes"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "schema_version": { "type": "integer" },
+    "updated_at": { "type": "string" },
+    "passes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pass_id", "status"],
+        "properties": {
+          "pass_id": { "type": "string" },
+          "cfi_id": { "type": "string" },
+          "agenda_class": { "type": "string" },
+          "decided_at": { "type": "string" },
+          "status": { "type": "string", "enum": ["activate", "skip"] },
+          "gate": { "type": "string" },
+          "rationale": { "type": "string" },
+          "reason_code": { "type": "string" },
+          "input_hash": { "type": "string" },
+          "signals": { "type": "object" }
+        }
+      }
+    }
+  }
+}

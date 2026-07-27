@@ -9,30 +9,14 @@ import {
 import { buildStageProgress, shouldShowRunningConnector } from "../../utils/stageSubsteps";
 import { stageHasTodoActions } from "../../utils/stageGuidance";
 import { isOptionalStageSkipped } from "../../utils/preclean";
-import { stageNeedsAttention } from "../../utils/attentionQueue";
 import { firstUpstreamBlocker } from "../../utils/stageOutputs";
 import { isJobActivelyRunning } from "../../utils/jobStatus";
 import { ActionMarker } from "../guidance/ActionMarker";
 import { StepListContextHeader } from "./StepListContextHeader";
-import { StepDoneBanner } from "./StepDoneBanner";
 import { StepRunningConnector } from "./StepRunningConnector";
 import { resolveFocusStepId } from "../../utils/resolveActiveStep";
 import { stageHadAutoNavigation } from "../../utils/autoNavigationLedger";
-
-function stageNeedsSubstepAttention(
-  run: NonNullable<ReturnType<typeof useApp>["run"]>,
-  stageId: string,
-  apiGrants: Record<string, boolean>,
-  jobRunning: boolean,
-  jobStageId?: string,
-): boolean {
-  const stage = run.stages.find((s) => s.id === stageId);
-  if (!stage) return false;
-  const progress = buildStageProgress(stage, run, { jobRunning, apiGrants });
-  if (progress.hasTodo || progress.hasRunning) return true;
-  if (jobRunning && jobStageId === stageId) return true;
-  return stageNeedsAttention(run, stageId, apiGrants);
-}
+import { isRefinementPassStage } from "../../utils/refinementStage";
 
 export function PipelineStepList() {
   const {
@@ -43,12 +27,7 @@ export function PipelineStepList() {
     jobRunning,
     actionBusy,
     pinSelectedStage,
-    pipelineCollapsedStages,
-    pipelineExpandedDoneStages,
-    toggleDoneStageExpanded,
     expandStage,
-    pipelineFilterNeedsYou,
-    setPipelineFilterNeedsYou,
     isStagePinned,
     showToast,
   } = useApp();
@@ -95,29 +74,13 @@ export function PipelineStepList() {
   if (!run) return null;
 
   const numbered = buildNumberedStages(run.stages);
-  const jobStageId = run.job?.current_stage || run.job?.stage;
-
-  const filtered = pipelineFilterNeedsYou
-    ? numbered.filter(
-        (entry) =>
-          stageNeedsSubstepAttention(run, entry.stage.id, apiGrants, jobRunning, jobStageId) ||
-          entry.stage.id === focusStageId,
-      )
-    : numbered;
-
-  const toggleFilter = () => {
-    setPipelineFilterNeedsYou(!pipelineFilterNeedsYou);
-  };
+  const agenda = run.refinement_agenda;
 
   const isStageExpanded = (
     stageId: string,
     progress: ReturnType<typeof buildStageProgress>,
     navStatus: string,
   ): boolean => {
-    if (pipelineCollapsedStages.includes(stageId)) return false;
-    if (progress.fullyComplete) {
-      return pipelineExpandedDoneStages.includes(stageId);
-    }
     if (navStatus === "current" || navStatus === "blocked" || navStatus === "running") {
       return true;
     }
@@ -131,21 +94,41 @@ export function PipelineStepList() {
       <StepListContextHeader />
       <div className="pipeline-step-list-head">
         <h3 className="pipeline-step-list-title">Steps</h3>
-        <button
-          type="button"
-          className={`btn ghost sm pipeline-step-list-filter${pipelineFilterNeedsYou ? " active" : ""}`}
-          onClick={toggleFilter}
-        >
-          Needs you only
-        </button>
       </div>
-      {pipelineFilterNeedsYou && filtered.length === 0 ? (
-        <p className="hint sm pipeline-step-filter-empty">
-          Nothing matches — open the attention queue above or turn off the filter.
-        </p>
-      ) : null}
+      <div
+        className="refinement-agenda-strip"
+        data-testid="refinement-agenda-strip"
+        role="status"
+        aria-live="polite"
+      >
+        {agenda ? (
+          <span className="sr-only">
+            Refinement pass 2 agenda for this tape
+            {agenda.tape_character?.length ? `: ${agenda.tape_character.join(", ")}` : ""}
+            {agenda.eligible_classes?.length
+              ? `. Eligible classes: ${agenda.eligible_classes.join(", ")}.`
+              : ". No classes eligible for this tape."}
+          </span>
+        ) : null}
+        {agenda?.tape_character?.map((tc) => (
+          <span
+            key={tc}
+            className="refinement-agenda-chip refinement-agenda-chip--tape-character"
+          >
+            {tc}
+          </span>
+        ))}
+        {agenda?.eligible_classes?.map((cls) => (
+          <span
+            key={cls}
+            className="refinement-agenda-chip refinement-agenda-chip--eligible-class"
+          >
+            {cls}
+          </span>
+        ))}
+      </div>
       <ol className="pipeline-steps" onKeyDown={onStepsKeyDown}>
-        {filtered.map((entry, index) => {
+        {numbered.map((entry, index) => {
           const status = stageNavStatus(entry, run, selectedStageId, focusStageId);
           const isSelected = entry.stage.id === selectedStageId;
           const isFocus =
@@ -166,7 +149,8 @@ export function PipelineStepList() {
             apiGrants,
           });
           const expanded = isStageExpanded(entry.stage.id, progress, navStatus);
-          const nextEntry = filtered[index + 1];
+          const isPass2 = isRefinementPassStage(entry.stage);
+          const nextEntry = numbered[index + 1];
           const showConnector =
             nextEntry &&
             shouldShowRunningConnector(
@@ -200,7 +184,7 @@ export function PipelineStepList() {
             <Fragment key={entry.stage.id}>
               <li className="pipeline-step-item">
                 <div
-                  className={`pipeline-step-row-wrap${progress.fullyComplete ? " fully-done" : ""}${progress.fullyComplete && !expanded ? " collapsed" : ""}`}
+                  className={`pipeline-step-row-wrap${progress.fullyComplete ? " fully-done" : ""}`}
                 >
                   <button
                     type="button"
@@ -210,10 +194,6 @@ export function PipelineStepList() {
                     onClick={() => {
                       if (skipped) {
                         showToast("Optional step skipped — not required for this run.");
-                        return;
-                      }
-                      if (progress.fullyComplete) {
-                        toggleDoneStageExpanded(entry.stage.id);
                         return;
                       }
                       pinSelectedStage();
@@ -238,6 +218,14 @@ export function PipelineStepList() {
                           <span className="spinner-inline pipeline-step-title-spinner" aria-hidden />
                         ) : null}
                         {entry.stage.title}
+                        {isPass2 ? (
+                          <span
+                            className="pipeline-step-pass2-badge"
+                            title="Refinement pass 2"
+                          >
+                            Pass 2
+                          </span>
+                        ) : null}
                         {isSelected && isStagePinned ? (
                           <span
                             className="pipeline-step-pin muted"
@@ -264,9 +252,6 @@ export function PipelineStepList() {
                       </span>
                     </span>
                   </button>
-                  {progress.fullyComplete && !expanded ? (
-                    <StepDoneBanner variant="step" />
-                  ) : null}
                 </div>
               </li>
               {showConnector ? (

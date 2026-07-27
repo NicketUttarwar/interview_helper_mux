@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefinementAgenda",
+  "type": "object",
+  "required": ["run_id", "schema_version", "phase", "eligible_classes"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "schema_version": { "type": "integer" },
+    "phase": { "type": "string", "enum": ["draft", "confirm"] },
+    "decided_at": { "type": "string" },
+    "tape_character": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "eligible_classes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "ineligible_classes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "class_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "succession_hints": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "policy_pack_id": { "type": ["string", "null"] },
+    "prior_bias_applied": { "type": "boolean" },
+    "north_star_notes": { "type": "string" }
+  }
+}

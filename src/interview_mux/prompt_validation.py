@@ -309,6 +309,19 @@ def validate_placement_adjustments(data: dict[str, Any]) -> list[str]:
 def validate_context_index(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("context_index.schema.json", data)
 
+
+def validate_refinement_agenda(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/refinement_agenda.json` (L0)."""
+    return _validate_by_artifact_schema("refinement_agenda.schema.json", data)
+
+def validate_refinement_ledger(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/refinement_ledger.json` (CFI call ledger)."""
+    return _validate_by_artifact_schema("refinement_ledger.schema.json", data)
+
+def validate_refinement_plan(data: dict[str, Any]) -> list[str]:
+    """Validate `understanding/refinement_plan.json` (L1 gate decisions)."""
+    return _validate_by_artifact_schema("refinement_plan.schema.json", data)
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
@@ -346,6 +359,9 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "segments/nle_edits.json": validate_nle_edits,
     "understanding/investigation_queue.json": validate_investigation_queue,
     "understanding/context_index.json": validate_context_index,
+    "understanding/refinement_agenda.json": validate_refinement_agenda,
+    "understanding/refinement_ledger.json": validate_refinement_ledger,
+    "understanding/refinement_plan.json": validate_refinement_plan,
 }
 
 def validate_artifact_write(rel_path: str, data: dict[str, Any]) -> list[str]:

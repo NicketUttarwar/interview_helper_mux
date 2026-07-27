@@ -6,10 +6,12 @@ import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
 
 export function ConversationStudioPanel() {
-  const { runId, refreshRun, showToast } = useApp();
+  const { run, runId, refreshRun, showToast } = useApp();
   const [lines, setLines] = useState<VoLine[]>([]);
   const [newText, setNewText] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const gapVoEligible = Boolean(run?.refinement_agenda?.eligible_classes?.includes("gap_vo"));
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -67,11 +69,23 @@ export function ConversationStudioPanel() {
     <section className="conversation-studio panel-inset">
       <h4>Conversation studio</h4>
       <p className="hint sm">Add or remove pickup lines (gap pickup speaker only).</p>
+      {gapVoEligible ? (
+        <p className="hint sm refinement-cfi-cap-hint" data-testid="conversation-studio-cfi-hint">
+          Host VO is eligible for one Refinement Pass 2 rewrite (CFI-capped — at most one
+          automatic re-run per function this run).
+        </p>
+      ) : null}
       <ul>
         {lines.map((ln) => (
           <li key={ln.line_id}>
             <strong>{ln.line_id}</strong>: {ln.text}
             {ln.post_preview ? " · post-preview" : ""}
+            {ln.origin === "operator" ? (
+              <span className="conversation-studio-pin-note hint sm" title="Pinned by operator">
+                {" "}
+                · pinned — survives Pass 2 recompose while its target segment is kept
+              </span>
+            ) : null}
             <button
               type="button"
               className="btn ghost sm"

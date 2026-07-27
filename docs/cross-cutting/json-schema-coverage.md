@@ -56,6 +56,9 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [sonic_context.schema.json](./json-schemas/sonic_context.schema.json) | `understanding/sonic_context.json` — tags, scenario policy, cue opportunities (BUILD-SFX-01) |
 | [soundscape_policy.schema.json](./json-schemas/soundscape_policy.schema.json) | `understanding/soundscape_policy.json` — unified soundscape standards + cue slots (BUILD-SS-01) |
 | [artifacts/mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) | `sound_design/mmaudio_qa.json` post-generation QA |
+| [refinement_agenda.schema.json](./json-schemas/refinement_agenda.schema.json) | `understanding/refinement_agenda.json` — L0 eligible-class agenda ([refinement-passes.md](./refinement-passes.md)) |
+| [refinement_ledger.schema.json](./json-schemas/refinement_ledger.schema.json) | `understanding/refinement_ledger.json` — CFI call ledger, second-run cap |
+| [refinement_plan.schema.json](./json-schemas/refinement_plan.schema.json) | `understanding/refinement_plan.json` — L1 activate/skip gate decisions |
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
@@ -88,6 +91,9 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_soundscape_policy` | `understanding/soundscape_policy.json` | Yes (BUILD-SS-01) |
 | `validate_mmaudio_qa` | `sound_design/mmaudio_qa.json` | Yes (BUILD-SFX-01) |
 | `validate_placement_adjustments` | `sound_design/placement_adjustments.json` | Yes (BUILD-SFX-01) |
+| `validate_refinement_agenda` | `understanding/refinement_agenda.json` | Yes |
+| `validate_refinement_ledger` | `understanding/refinement_ledger.json` | Yes |
+| `validate_refinement_plan` | `understanding/refinement_plan.json` | Yes |
 | `validate_run_meta` | `run_meta.json` | Yes |
 | `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
 | `validate_disfluencies` | `transcript/disfluencies.json` | Yes |

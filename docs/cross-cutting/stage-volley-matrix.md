@@ -4,6 +4,8 @@ Every analysis, delivery, and gate stage declares how it relates to **speaker vo
 
 "LLM volley" in the right-hand column means only *how the message packet for that stage call is assembled*. There is no volley routing layer, no shard/collate/arbiter path, and no Volley review tab — every cloud call goes through `llm_simple.py` with a max of 2 attempts. See [../v2/drop-manifest.md](../v2/drop-manifest.md).
 
+Rows marked **(Pass 2)** are [Refinement Pass](./refinement-passes.md) stages — deterministic recompose/refine passes gated by L0/L1, not additional LLM calls.
+
 | Stage / gate | Speaker volley | LLM volley |
 |--------------|----------------|------------|
 | Preclean offer | Preserves speech for later detection | — |
@@ -33,11 +35,19 @@ Every analysis, delivery, and gate stage declares how it relates to **speaker vo
 | `topic_coverage_audit` | Coverage across volley groups | LLM volley |
 | `narrative_arc_plan` | Chapters group speaker volleys | LLM volley |
 | `full_master_ranking` | Atomic speaker volleys; quality-first | LLM volley |
+| `refinement_agenda` (L0) | Confirms eligible Pass 2 classes against kept volleys | Deterministic |
+| `gap_framing_recompose` (Pass 2) | Rewrites host VO against the kept-order volleys; drops orphan lines | Deterministic (constitution: `docs/prompts/interviewer-gap/gap-framing-recompose.system.txt`) |
+| `selection_framing_apply` (Pass 2) | Applies `covered_by_framing_vo` excludes after recompose, coverage-guarded | Deterministic |
+| `ranking_refine` (Pass 2) | Re-checks topic-survival volleys when coverage holes remain | Deterministic |
+| `narrative_arc_refine` (Pass 2) | Re-checks chapters against the volleys that actually kept | Deterministic |
 | NLE (optional) | Must not silently split locked volleys | — |
 | `transitions` | Bridges only at speaker-volley boundaries | LLM volley |
+| `transitions_refine` (Pass 2) | No duplicate bridges after final gap VO | Deterministic |
 | `sound_design_plan` | Beds under volleys; stingers at hinges | LLM volley |
+| `sdp_intent_refine` (Pass 2) | SFX restraint check against final timeline volleys | Deterministic |
 | `sound_design_vo_finalize` | VO duration at volley edges | — |
 | `edl_narrative_audit` | Narrative readiness of volley order | LLM volley |
+| `edl_narrative_refine` (Pass 2) | Last editorial sanity on volley order before EDL | Deterministic |
 | `edl` | Timeline encodes speaker-volley integrity | QC |
 | `assembly_preview` | Listen to speaker volleys (speech+VO) | — |
 | G1.5 (TBIY) | Re-record with preview of volleys | — |

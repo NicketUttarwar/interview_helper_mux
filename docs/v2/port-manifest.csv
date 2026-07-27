@@ -24,10 +24,18 @@ g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording
 topic_coverage_audit,delivery,llm,stages/analysis_extended.py,yes,
 narrative_arc_plan,delivery,llm,stages/analysis_extended.py,yes,
 full_master_ranking,delivery,llm,stages/selection.py,yes,NLE overrides
+refinement_agenda,delivery,non_llm,refinement_agenda.py,yes,Refinement Pass L0 confirm (see refinement-passes.md)
+gap_framing_recompose,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — recompose or skip-copy draft gap_report
+selection_framing_apply,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — apply covered_by_framing_vo excludes
+ranking_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional when topic holes remain
+narrative_arc_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional narrative refine
 transitions,delivery,llm,stages/selection.py,yes,
+transitions_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional bridge dedupe
 sound_design_plan,delivery,llm,stages/sound_design_stages.py,yes,
+sdp_intent_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional SFX-restraint refine
 sound_design_vo_finalize,delivery,non_llm,stages/sound_design_vo_finalize.py,yes,
 edl_narrative_audit,delivery,llm,stages/edl_narrative_audit.py,yes,
+edl_narrative_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional pre-EDL sanity refine
 edl,delivery,non_llm,stages/assembly.py,yes,
 assembly_preview,delivery,non_llm,stages/assembly.py,yes,speech+VO preview
 sfx_prompt_craft,delivery,llm,stages/sound_design_stages.py,yes,soft LLM

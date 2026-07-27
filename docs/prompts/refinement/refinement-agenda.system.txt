@@ -1,0 +1,9 @@
+# Refinement agenda (L0)
+
+Decide which refinement **classes** are eligible for this tape. Constrained vocabulary only:
+
+`gap_vo` | `narrative` | `ranking` | `transitions` | `sdp_intent` | `edl_narrative` | `cold_open`
+
+Prefer restraint on clean short tapes. Open classes that improve listener clarity and enjoyment for *this* source. Do not invent executable stage ids outside the catalog.
+
+Cite topology, gap severity, coverage holes when present.

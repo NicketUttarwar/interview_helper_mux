@@ -135,8 +135,7 @@ interface AppContextValue {
   activeSubstepId: string | null;
   activeStepId: string | null;
   setActiveStepId: (stepId: string | null) => void;
-  pipelineCollapsedStages: string[];
-  pipelineExpandedDoneStages: string[];
+  /** @deprecated Steps panel is always fully expanded — kept for session-payload compat. */
   pipelineFilterNeedsYou: boolean;
   isStagePinned: boolean;
   setActivityLogTab: (tab: LogStreamTab) => void;
@@ -189,9 +188,9 @@ interface AppContextValue {
   activateSubstep: (substep: StageSubstep) => void;
   setActiveSubstepId: (id: string | null) => void;
   skipOptionalStage: (stageId: string) => Promise<void>;
+  /** @deprecated no-op — done stages are never collapsed. */
   expandStage: (stageId: string) => void;
-  collapseStage: (stageId: string) => void;
-  toggleDoneStageExpanded: (stageId: string) => void;
+  /** @deprecated no-op — kept so existing callers don't need to change. */
   setPipelineFilterNeedsYou: (enabled: boolean) => void;
   sessionStale: boolean;
   takeOverSession: () => Promise<void>;
@@ -262,11 +261,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [jobCompleteAt, setJobCompleteAt] = useState<number | null>(null);
   const [activeSubstepId, setActiveSubstepIdState] = useState<string | null>(null);
   const [activeStepId, setActiveStepIdState] = useState<string | null>(null);
-  const [pipelineCollapsedStages, setPipelineCollapsedStages] = useState<string[]>([]);
-  const [pipelineExpandedDoneStages, setPipelineExpandedDoneStages] = useState<string[]>(
-    [],
-  );
-  const [pipelineFilterNeedsYou, setPipelineFilterNeedsYouState] = useState(true);
+  // Steps panel always shows the full numbered list now (Refinement Pass cleanup) —
+  // this stays permanently false and is kept only for session-payload compat.
+  const [pipelineFilterNeedsYou] = useState(false);
   const [pinnedStageId, setPinnedStageId] = useState<string | null>(null);
   const [apiGrants, setApiGrants] = useState<Record<string, boolean>>(() => ({
     ...ALL_API_CONSENTS,
@@ -284,9 +281,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pipelineSubTabRef = useRef<PipelineSubTab>("stage");
   const activityLogTabRef = useRef<LogStreamTab>("all");
   const activityLogCollapsedRef = useRef(false);
-  const pipelineCollapsedRef = useRef<string[]>([]);
-  const pipelineExpandedDoneRef = useRef<string[]>([]);
-  const pipelineFilterNeedsYouRef = useRef(true);
   const lastAttentionPingKeyRef = useRef("");
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -381,33 +375,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     activityLogCollapsedRef.current = activityLogCollapsed;
   }, [activityLogCollapsed]);
-  useEffect(() => {
-    pipelineCollapsedRef.current = pipelineCollapsedStages;
-  }, [pipelineCollapsedStages]);
-  useEffect(() => {
-    pipelineExpandedDoneRef.current = pipelineExpandedDoneStages;
-  }, [pipelineExpandedDoneStages]);
-  useEffect(() => {
-    pipelineFilterNeedsYouRef.current = pipelineFilterNeedsYou;
-  }, [pipelineFilterNeedsYou]);
-
   const setActiveSubstepId = useCallback((id: string | null) => {
     setActiveSubstepIdState(id);
   }, []);
 
-  const expandStage = useCallback((stageId: string) => {
-    setPipelineCollapsedStages((prev) => prev.filter((id) => id !== stageId));
-  }, []);
-
-  const collapseStage = useCallback((stageId: string) => {
-    setPipelineCollapsedStages((prev) => (prev.includes(stageId) ? prev : [...prev, stageId]));
-  }, []);
-
-  const toggleDoneStageExpanded = useCallback((stageId: string) => {
-    setPipelineExpandedDoneStages((prev) =>
-      prev.includes(stageId) ? prev.filter((id) => id !== stageId) : [...prev, stageId],
-    );
-  }, []);
+  // Steps panel never collapses stages anymore — kept as a stable no-op so the
+  // many existing call sites (auto-navigation, checkpoints, etc.) don't need to change.
+  const expandStage = useCallback((_stageId: string) => {}, []);
 
   const pinSelectedStage = useCallback(() => {
     const sid = selectedStageIdRef.current;
@@ -432,9 +406,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           pipeline_sub_tab: pipelineSubTabRef.current,
           activity_log_tab: activityLogTabRef.current,
           activity_log_collapsed: activityLogCollapsedRef.current,
-          pipeline_collapsed_stages: pipelineCollapsedRef.current,
-          pipeline_expanded_done_stages: pipelineExpandedDoneRef.current,
-          pipeline_filter_needs_you: pipelineFilterNeedsYouRef.current,
+          // Steps panel is always fully visible now — send false unconditionally.
+          pipeline_filter_needs_you: false,
           client_instance_id: getClientInstanceId(),
         }),
       })
@@ -451,14 +424,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 200);
   }, []);
 
-  const setPipelineFilterNeedsYou = useCallback(
-    (enabled: boolean) => {
-      setPipelineFilterNeedsYouState(enabled);
-      pipelineFilterNeedsYouRef.current = enabled;
-      persistSessionUi();
-    },
-    [persistSessionUi],
-  );
+  // No-op: the Steps panel no longer has a "needs you only" filter.
+  const setPipelineFilterNeedsYou = useCallback((_enabled: boolean) => {}, []);
 
   const setActivityLogTab = useCallback(
     (tab: LogStreamTab) => {
@@ -852,20 +819,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [run, sessionStale, persistSessionUi],
   );
-
-  useEffect(() => {
-    if (!run || activeTabRef.current !== "pipeline") return;
-    const needsFilter =
-      run.stages.some(
-        (s) => s.status === "action_required" || s.status === "awaiting_write_approval",
-      ) ||
-      Boolean(run.journey?.blocking?.blocked) ||
-      Boolean(run.job?.needs_stage_reuse);
-    if (needsFilter && !pipelineFilterNeedsYouRef.current) {
-      setPipelineFilterNeedsYouState(true);
-      pipelineFilterNeedsYouRef.current = true;
-    }
-  }, [pipelineFocusKey, run]);
 
   useEffect(() => {
     if (!run || jobRunning) return;
@@ -1572,7 +1525,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userDismissedActionRef.current = false;
     setActionBusy(false);
     actionBusyRef.current = false;
-    const completedStageId = selectedStageIdRef.current;
     await advancePipeline({
       run,
       runId,
@@ -1593,12 +1545,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     const refreshed = runId ? await refreshRun() : null;
     await syncPipelineStageFocusRef.current(refreshed);
-    if (
-      completedStageId &&
-      refreshed?.stages.find((s) => s.id === completedStageId)?.status === "done"
-    ) {
-      collapseStage(completedStageId);
-    }
     if (!actionBusyRef.current) {
       setActionModalOpen(false);
       userDismissedActionRef.current = false;
@@ -1614,7 +1560,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshRun,
     runNextStage,
     setPipelineSubTabWrapped,
-    collapseStage,
     setActiveStepId,
     config,
   ]);
@@ -1978,18 +1923,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setActivityLogCollapsedState(active.activity_log_collapsed);
             activityLogCollapsedRef.current = active.activity_log_collapsed;
           }
-          if (Array.isArray(active?.pipeline_collapsed_stages)) {
-            setPipelineCollapsedStages(active.pipeline_collapsed_stages);
-            pipelineCollapsedRef.current = active.pipeline_collapsed_stages;
-          }
-          if (Array.isArray(active?.pipeline_expanded_done_stages)) {
-            setPipelineExpandedDoneStages(active.pipeline_expanded_done_stages);
-            pipelineExpandedDoneRef.current = active.pipeline_expanded_done_stages;
-          }
-          if (typeof active?.pipeline_filter_needs_you === "boolean") {
-            setPipelineFilterNeedsYouState(active.pipeline_filter_needs_you);
-            pipelineFilterNeedsYouRef.current = active.pipeline_filter_needs_you;
-          }
+          // pipeline_collapsed_stages / pipeline_expanded_done_stages / pipeline_filter_needs_you
+          // are no longer read — the Steps panel is always fully visible and expanded.
           if (gen !== bootGenRef.current) return;
           if (serverRestarted && runIdRef.current) {
             const rid = runIdRef.current;
@@ -2116,12 +2051,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (substepId) {
       setActiveSubstepIdState((prev) => (prev === substepId ? prev : substepId));
     }
-    if (opAction.stageId) {
-      setPipelineCollapsedStages((prev) => {
-        if (!prev.includes(opAction.stageId!)) return prev;
-        return prev.filter((id) => id !== opAction.stageId);
-      });
-    }
   }, [
     run?.journey?.blocking,
     run?.job?.status,
@@ -2186,8 +2115,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activeSubstepId,
     activeStepId,
     setActiveStepId,
-    pipelineCollapsedStages,
-    pipelineExpandedDoneStages,
     pipelineFilterNeedsYou,
     isStagePinned,
     setPipelineFilterNeedsYou,
@@ -2240,8 +2167,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveSubstepId,
     skipOptionalStage,
     expandStage,
-    collapseStage,
-    toggleDoneStageExpanded,
   };
 
   return (

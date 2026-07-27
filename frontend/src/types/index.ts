@@ -331,6 +331,123 @@ export interface StageInfo {
   audio_outputs_present?: string[];
   api_providers?: string[];
   guidance?: StageGuidance;
+  /** True when this stage belongs to a second refinement pass over earlier output. */
+  refinement_pass?: boolean;
+  /** Id of the stage this refinement pass revisits, if applicable. */
+  pass_of?: string;
+  skip_reason?: string;
+}
+
+/** Operator-facing agenda for a refinement pass — see docs Refinement Pass plan. */
+export interface RefinementAgenda {
+  phase?: "draft" | "confirm";
+  tape_character?: string[];
+  eligible_classes?: string[];
+  ineligible_classes?: Array<{ class_id: string; reason?: string }>;
+  succession_hints?: string[];
+  policy_pack_id?: string;
+  prior_bias_applied?: boolean;
+  north_star_notes?: string;
+}
+
+/** Point-in-time listener outcome snapshot — understanding/listener_outcome_trajectory.json. */
+export interface ListenerOutcomeTrajectory {
+  run_id?: string;
+  points?: Array<{
+    milestone: string;
+    at: string;
+    payload?: unknown;
+  }>;
+}
+
+/** L1 gate decision for one refinement pass — see refinement_gate.py. */
+export interface RefinementPassDecision {
+  pass_id: string;
+  cfi_id?: string;
+  agenda_class?: string;
+  status: "activate" | "skip";
+  gate?: string;
+  rationale?: string;
+  reason_code?: string;
+  decided_at?: string;
+  input_hash?: string;
+  signals?: Record<string, unknown>;
+}
+
+/** understanding/refinement_plan.json — see refinement_gate.py::load_plan. */
+export interface RefinementPlan {
+  run_id?: string;
+  schema_version?: number;
+  passes: RefinementPassDecision[];
+  updated_at?: string;
+}
+
+/** Best-known artifact for a refinement domain — see refinement_champion.py. */
+export interface RefinementChampionEntry {
+  domain: string;
+  artifact_paths: string[];
+  score_vector: Record<string, number>;
+  source?: string;
+  updated_at?: string;
+}
+
+/** Path-only reference to an evidence packet — opened read-only via openArtifactInEditor. */
+export interface RefinementEvidencePacketRef {
+  pass_id: string;
+  path: string;
+}
+
+/** understanding/refinement_cascade.json — downstream invalidation after an accepted candidate. */
+export interface RefinementCascade {
+  at?: string;
+  line_ids_changed?: string[];
+  line_ids_dropped?: string[];
+  stages_to_invalidate?: string[];
+  g1_synth_line_ids?: string[];
+  remix_after_edl?: boolean;
+}
+
+/** Lightweight story snapshot — thesis / chapters / host lines — kept read-only. */
+export interface RefinementBible {
+  thesis?: string;
+  chapters?: string[];
+  host_lines?: string[];
+}
+
+/** understanding/gap_framing_recompose.json accept record — see refinement_accept.py. */
+export interface RefinementRecomposeAccept {
+  accepted: boolean;
+  reason_code: string;
+  delta?: {
+    kept?: string[];
+    rewritten?: string[];
+    added?: string[];
+    dropped?: string[];
+    meaningful?: boolean;
+  };
+  champion_scores?: Record<string, number>;
+  candidate_scores?: Record<string, number>;
+  orphans?: number;
+}
+
+/** understanding/gap_framing_recompose.json — last recompose attempt's decisions + accept verdict. */
+export interface RefinementRecomposeDoc {
+  decisions?: Array<{ line_id: string; action: string; reason: string }>;
+  accept?: RefinementRecomposeAccept;
+  input_hash?: string;
+}
+
+/** Response shape for GET /api/runs/{run_id}/refinement — see refinement_routes.py. */
+export interface RefinementSummary {
+  agenda?: RefinementAgenda | null;
+  plan?: RefinementPlan | null;
+  champion?: Record<string, RefinementChampionEntry>;
+  evidence_packets?: RefinementEvidencePacketRef[];
+  cascade?: RefinementCascade | null;
+  listener_outcome_trajectory?: ListenerOutcomeTrajectory | null;
+  bible?: RefinementBible;
+  /** Preview tags (confusing/dull/redundant) — advisory only. */
+  preview_annotations?: Array<{ line_id?: string; tag: string; note?: string }> | null;
 }
 
 export interface ReuseCandidate {
@@ -421,6 +538,12 @@ export interface RunData {
   nle_dirty?: boolean;
   analysis_complete?: boolean;
   job?: JobState;
+  refinement_agenda?: RefinementAgenda;
+  listener_outcome_trajectory?: ListenerOutcomeTrajectory;
+  refinement_plan?: RefinementPlan | null;
+  refinement_champion?: Record<string, RefinementChampionEntry>;
+  refinement_evidence_packets?: RefinementEvidencePacketRef[];
+  refinement_cascade?: RefinementCascade | null;
   stages: StageInfo[];
   log_tail?: LogEntry[];
   llm_verification_alerts?: Array<{
@@ -523,6 +646,8 @@ export interface VoLine {
   delivery?: string;
   line_category?: string;
   recorded_file?: string | null;
+  /** "operator" lines are pinned — they survive a Pass 2 recompose as long as their target segment is kept. */
+  origin?: "operator" | "llm" | string;
 }
 
 export interface TbiyConformanceElement {

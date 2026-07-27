@@ -11,7 +11,7 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 | **G-Speaker** | G-Framing = Yes | Confirm gap pickup speaker — default **least-spoken** (`PickupSpeakerPanel`). |
 | **G-VoiceRef** | G-Framing = Yes | Approve collated voice reference for Chatterbox (`VoiceReferencePanel`). |
 | **G-Delivery** | G-Framing = Yes | Chatterbox clone (default) or record at G1 (`GapDeliveryPanel`). |
-| **G1** | `g1_vo_pickup` | **Optional.** Record or synthesize gap lines, or **Skip — continue without gap VO** (`POST …/g1/skip-optional`). Batch synthesize: `POST …/g1/synthesize-all`. |
+| **G1** | `g1_vo_pickup` | **Optional.** Reachable after `gap_framing_recompose` accepts a candidate **or** skip-copies the draft — [flow integrity](../cross-cutting/refinement-passes.md) guarantees `understanding/gap_report.json` is always authoritative first. Record or synthesize gap lines, or **Skip — continue without gap VO** (`POST …/g1/skip-optional`). Batch synthesize: `POST …/g1/synthesize-all`. |
 
 ## Non-gates (optional offers)
 

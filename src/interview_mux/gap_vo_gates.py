@@ -173,6 +173,10 @@ def check_gap_delivery_pending(ctx: RunContext) -> bool:
 def check_voice_reference_pending(ctx: RunContext) -> bool:
     if not gap_framing_enabled(ctx):
         return False
+    # No pickup-eligible speaker determined yet (topology/adaptation not built) — nothing to
+    # approve, mirrors the prerequisite guard in check_pickup_speaker_pending.
+    if pickup_eligible_speaker_id(ctx) is None:
+        return False
     if not pickup_speaker_confirmed(ctx):
         return True
     return not voice_reference_approved(ctx)

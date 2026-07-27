@@ -108,9 +108,17 @@ def test_disfluency_review_absent_from_stage_list(
     assert "disfluency_review" not in {s["id"] for s in stages}
 
 
-def test_gap_fill_stages_hidden_when_skipped(
+def test_gap_fill_stages_stay_visible_when_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Gap-fill GUI stages remain visible even when the gap-fill decision is skipped.
+
+    The hide-when-skipped path was intentionally retired so that gap_vo-class stages
+    (missing_framing, gap_framing_compose, optimal_questions, g1_vo_pickup) stay
+    reachable and eligible for the Refinement Pass agenda rather than disappearing
+    from the operator stage list.
+    """
+    from interview_mux.gap_fill_eligibility import GAP_FILL_GUI_STAGE_IDS
     from interview_mux.v2.config import v2_enabled
 
     ctx = _ctx(tmp_path, monkeypatch)
@@ -118,15 +126,11 @@ def test_gap_fill_stages_hidden_when_skipped(
 
     ensure_gap_fill_skipped(ctx, reason="peer topology", signals={"topology_class": "test"})
     stages = _build_stage_list(ctx, [], False, False, False)
-    hidden = [s for s in stages if s.get("stage_visibility") == "hidden"]
-    hidden_ids = {s["id"] for s in hidden}
+    hidden_ids = {s["id"] for s in stages if s.get("stage_visibility") == "hidden"}
     stage_ids = {s["id"] for s in stages}
-    assert "missing_framing" in hidden_ids
-    assert "g1_vo_pickup" in hidden_ids
+    assert not (hidden_ids & GAP_FILL_GUI_STAGE_IDS)
     if v2_enabled():
-        assert "gap_framing_compose" in hidden_ids
-        assert "optimal_questions" not in stage_ids
-    else:
-        assert "optimal_questions" in hidden_ids
-    visible_count = len([s for s in stages if s.get("stage_visibility", "visible") != "hidden"])
-    assert visible_count == len(stages) - len(hidden)
+        assert "gap_framing_compose" in stage_ids
+    for stage_id in ("missing_framing", "g1_vo_pickup"):
+        if stage_id in stage_ids:
+            assert stage_id not in hidden_ids

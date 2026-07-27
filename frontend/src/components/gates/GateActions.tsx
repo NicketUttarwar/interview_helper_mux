@@ -26,7 +26,9 @@ import { SonicContextPanel } from "./SonicContextPanel";
 import { collectSfxBlockReasons } from "../../utils/sfxBlockReasons";
 import { resolvePrecleanOffer } from "../../utils/preclean";
 import { isStageHidden } from "../../utils/stageVisibility";
+import { isRefinementPassStage } from "../../utils/refinementStage";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
+import { RefinementQualityPanel } from "../refinement/RefinementQualityPanel";
 
 interface Props {
   stage: StageInfo;
@@ -39,6 +41,15 @@ const SONIC_CONTEXT_STAGES = new Set([
 ]);
 
 const MIX_INTELLIGIBILITY_STAGES = new Set(["mix", "master_finalize"]);
+
+/** Stages where the Refinement Pass quality panel (agenda/champion/evidence/etc.) is relevant. */
+function showsRefinementQuality(stage: StageInfo): boolean {
+  return (
+    isRefinementPassStage(stage) ||
+    stage.id === "gap_framing_compose" ||
+    stage.id === "optimal_questions"
+  );
+}
 
 function wrapDoneGate(stage: StageInfo, children: ReactNode, title?: string) {
   if (stage.status !== "done") return children;
@@ -82,6 +93,7 @@ export function GateActions({ stage }: Props) {
     (
       <div className="gate-actions">
         <div className="attention-required-wrap">
+          {showsRefinementQuality(stage) ? <RefinementQualityPanel /> : null}
           <StageAudioActions stage={stage} />
 
           {stage.id === "missing_framing" && stage.status === "action_required" ? (

@@ -54,6 +54,12 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./understanding_interview_spine_jsonSchema")).understanding_interview_spine_jsonSchema,
   "understanding/investigation_queue.json": async () =>
     (await import("./understanding_investigation_queue_jsonSchema")).understanding_investigation_queue_jsonSchema,
+  "understanding/refinement_agenda.json": async () =>
+    (await import("./understanding_refinement_agenda_jsonSchema")).understanding_refinement_agenda_jsonSchema,
+  "understanding/refinement_ledger.json": async () =>
+    (await import("./understanding_refinement_ledger_jsonSchema")).understanding_refinement_ledger_jsonSchema,
+  "understanding/refinement_plan.json": async () =>
+    (await import("./understanding_refinement_plan_jsonSchema")).understanding_refinement_plan_jsonSchema,
   "understanding/sonic_context.json": async () =>
     (await import("./understanding_sonic_context_jsonSchema")).understanding_sonic_context_jsonSchema,
   "understanding/sound_design_plan.json": async () =>

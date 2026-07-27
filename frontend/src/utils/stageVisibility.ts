@@ -1,8 +1,11 @@
 import type { RunData, RunMeta, StageInfo } from "../types";
 
-/** True when backend omits this stage from the operator step list. */
-export function isStageHidden(stage: StageInfo): boolean {
-  return stage.stage_visibility === "hidden";
+/**
+ * Steps panel always shows the full numbered list now (Refinement Pass
+ * cleanup) — kept as a no-op for callers/tests that still reference it.
+ */
+export function isStageHidden(_stage: StageInfo): boolean {
+  return false;
 }
 
 /** Stages shown in sidebar numbering and navigation. */

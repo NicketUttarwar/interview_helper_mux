@@ -20,19 +20,23 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("buildNumberedStages", () => {
-  it("hidden gap-fill stages excluded from numbering", () => {
+  it("always shows the full numbered list, even stages marked stage_visibility: hidden", () => {
+    // Refinement Pass cleanup: Steps panel never hides stages — isStageHidden is a
+    // permanent no-op, so every stage gets a number.
     const visible = stage({ id: "ingest", title: "Ingest", status: "done" });
-    const hidden = stage({
+    const previouslyHidden = stage({
       id: "missing_framing",
       title: "Missing framing",
       status: "done",
       stage_visibility: "hidden",
     });
-    const run = minimalRun({ stages: [visible, hidden] });
+    const run = minimalRun({ stages: [visible, previouslyHidden] });
     const numbered = buildNumberedStages(run.stages);
-    expect(numbered).toHaveLength(1);
+    expect(numbered).toHaveLength(2);
     expect(numbered[0].stage.id).toBe("ingest");
     expect(numbered[0].number).toBe(1);
+    expect(numbered[1].stage.id).toBe("missing_framing");
+    expect(numbered[1].number).toBe(2);
   });
 });
 

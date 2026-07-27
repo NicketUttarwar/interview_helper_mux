@@ -115,6 +115,17 @@ _DETERMINISTIC = [
     "interview_spine_build",
     "sonic_context_build",
     "sound_design_vo_finalize",
+    # Refinement Pass (docs/cross-cutting/refinement-passes.md) — deterministic
+    # L0 agenda + recompose/refine runners, gated by refinement_gate.decide_pass.
+    # No LLM calls.
+    "refinement_agenda",
+    "gap_framing_recompose",
+    "selection_framing_apply",
+    "ranking_refine",
+    "narrative_arc_refine",
+    "transitions_refine",
+    "sdp_intent_refine",
+    "edl_narrative_refine",
 ]
 
 def _all_stage_ids() -> list[str]:

@@ -13,6 +13,7 @@ Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-p
 | Master loudness | `-16 LUFS` integrated, true peak within bounds — `python tools/verify_master.py <path>/master/master.wav` |
 | Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix — bound to Mastering Process plan when present |
 | Operator friction | Hard stops for **G0 transcript fix** and **gap-framing gate ladder** (recommended Yes + voice-cloned least-spoken host); **G1 gap VO** remains skippable; preclean is an optional offer |
+| Refinement Pass | L0/L1 second analyses (gap recompose et al.); one second-run per function, never dead-ends G1/delivery — [refinement-passes.md](docs/cross-cutting/refinement-passes.md) |
 
 ## Operator stops (only these)
 
@@ -47,6 +48,6 @@ Bare “volley” is ambiguous — always qualify.
 
 ## Pipeline shape
 
-**33 automated stages:** 20 analysis + 13 delivery → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
+**41 automated stages:** 20 analysis + 21 delivery (incl. 8 Refinement Pass stages — L0 agenda + 7 recompose/apply/refine) → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 See [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) and [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).

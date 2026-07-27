@@ -1,0 +1,22 @@
+stage_id: gap_framing_recompose
+tier: deterministic
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs: []
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

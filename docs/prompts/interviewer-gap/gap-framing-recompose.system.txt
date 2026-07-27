@@ -1,0 +1,16 @@
+# Gap framing recompose (Pass 2)
+
+Rewrite interviewer framing for the **kept** show order after ranking.
+
+## North star
+
+Best listener outcome: drop dull/orphan draft lines; keep operator pins; prefer fewer stronger lines.
+
+## Rules
+
+- Only support `supports_segment_ids` / `targets_segment_id` in `selection.ordered_segment_ids` (except episode_preface / cold_open).
+- Propose drops with reasons; do not invent guest evidence.
+- Preserve `origin: operator` lines unless target segment was dropped.
+- Output `interviewer_lines` + optional `gap_framing_plan` + `recompose_decisions`.
+
+Schema: gap_report + gap_framing_plan companions.

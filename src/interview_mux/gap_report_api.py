@@ -40,6 +40,9 @@ def add_line(ctx: RunContext, body: dict[str, Any]) -> dict[str, Any]:
         "placement": body.get("placement") or "before",
         "delivery": "record",
         "voice_speaker_id": eligible or body.get("voice_speaker_id"),
+        # Operator-authored lines are pinned — refinement_accept.py keeps them
+        # across gap_framing_recompose as long as their target survives selection.
+        "origin": "operator",
     }
     if body.get("act_context") is not None:
         line["act_context"] = int(body["act_context"])
@@ -70,6 +73,9 @@ def update_line(ctx: RunContext, line_id: str, body: dict[str, Any]) -> dict[str
             updated["post_preview"] = bool(body["post_preview"])
         if updated.get("delivery") == "record" and eligible:
             updated["voice_speaker_id"] = eligible
+        # A GUI text edit pins the line so it survives gap_framing_recompose.
+        if "text" in body and body["text"] is not None:
+            updated["origin"] = "operator"
         lines[i] = updated
         report["interviewer_lines"] = lines
         write_validated_artifact(

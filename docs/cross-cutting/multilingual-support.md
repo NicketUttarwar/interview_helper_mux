@@ -345,6 +345,16 @@ Exit condition: every generated line is in the source/master language, authorize
 
 Each new source language is a capability release, not just a config entry. Add fixtures, native review, prompt evaluation, STT thresholds, VO status, known limitations, and regression results before marking it supported for same-language mastering.
 
+## Refinement Pass language packs (deferred)
+
+[Refinement Pass](./refinement-passes.md) policy packs (`refinement_policy.POLICY_PACKS`) currently key off tape shape (`short_clean`, `asymmetric_technical`, `panel_multi_guest`, `long_meander`, `default`) and are English-listener tuned — pacing kernels such as `vo_second_budget` assume words-per-second and the listener rubric (`refinement_accept.score_gap_report`) assumes English sentence structure for clarity/succinctness/hook scoring. These are **docs-only hooks for now**, not implemented:
+
+- A `language`-keyed dimension alongside `tape_character` in `refinement_agenda.json`, so policy packs can vary eligible classes per source language once Phase 2 (language-aware analysis) lands.
+- Locale-aware `vo_second_budget` (words-per-second varies materially by language and script).
+- Priors (`refinement_priors.py`) segmented by `(language, tape_character)` instead of `tape_character` alone, so accept-rate bias does not leak across languages.
+
+None of this blocks same-language mastering for English today; Refinement Pass runs unchanged (English-tuned defaults) regardless of source language until this work is scheduled.
+
 ## Effort estimate
 
 For two or three pilot source languages, same-language masters, an English operator GUI, and no translation/dubbing:

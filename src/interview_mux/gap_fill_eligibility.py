@@ -34,7 +34,7 @@ def gap_fill_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "enabled": True,
         "auto_skip_when_ineligible": True,
         "frame_confidence_min": 0.65,
-        "hide_gui_stages_when_skipped": True,
+        "hide_gui_stages_when_skipped": False,
     }
     raw = analysis.get("gap_fill")
     if isinstance(raw, dict):
@@ -303,12 +303,7 @@ def persist_gap_fill_mode(ctx: RunContext, decision: GapFillDecision, *, skipped
 
 
 def gap_fill_stage_visibility(ctx: RunContext, stage_id: str) -> Literal["visible", "hidden"]:
-    if (
-        gap_fill_hide_gui_stages()
-        and gap_fill_was_skipped(ctx)
-        and stage_id in GAP_FILL_GUI_STAGE_IDS
-    ):
-        return "hidden"
+    """Always visible — refinement plan removes hide path for skipped gap stages."""
     return "visible"
 
 

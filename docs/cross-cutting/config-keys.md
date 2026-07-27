@@ -299,7 +299,25 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO �
 | `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / least-spoken / Chatterbox without human input |
 | `analysis.gap_fill.auto_skip_when_ineligible` | `true` | Ineligible sources still spend LLM on gap-fill |
 | `analysis.gap_fill.frame_confidence_min` | `0.65` | Frame-speaker threshold for eligibility |
-| `analysis.gap_fill.hide_gui_stages_when_skipped` | `true` | Skipped gap stages still appear in step list |
+| `analysis.gap_fill.hide_gui_stages_when_skipped` | `false` | If `true`, skipped gap stages are hidden from the step list (legacy v2 behavior; Refinement Pass keeps the full step list always visible) |
+
+---
+
+## `analysis.refinement_passes`
+
+[Refinement Pass](./refinement-passes.md) — L0 agenda, L1 gate, CFI ledger cap, blacklist/whitelist, succession/mutex. `refinement_catalog.py`, `refinement_gate.py`, `refinement_ledger.py`.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `analysis.refinement_passes.enabled` | `true` | L1 always skips; every Pass 2 stage becomes a deterministic no-op |
+| `analysis.refinement_passes.full_auto` | `true` | Reserved — no approval-modal path is implemented; always full auto today |
+| `analysis.refinement_passes.max_second_runs_per_cfi` | `1` | Raising this allows more than one refinement call per Canonical Function Identity per run (anti-loop cap) |
+| `analysis.refinement_passes.priors.enabled` | `"soft"` | `false` disables prior-biased L0 eligible-class expansion; priors never remove eligibility either way |
+| `analysis.refinement_passes.shadow_score.enabled` | `true` | Disables the informational skip-vs-draft score written when a pass is skipped |
+| `analysis.refinement_passes.blacklist.*` | see `refinement_catalog._DEFAULT_BLACKLIST_STAGES` | Blacklist always wins over whitelist — removing a stage here can let non-refinable stages (e.g. `mix`) be gated as refinements |
+| `analysis.refinement_passes.whitelist.pass_ids` | 7 catalog pass ids | Only listed pass ids can ever `activate`; a pass id missing here always skips with `reason_code: not_whitelisted` |
+| `analysis.refinement_passes.succession.unlocks` / `.mutex` / `.priority` | see catalog defaults | Governs pass ordering — wrong unlock rules can leave `ranking_refine` / `transitions_refine` / `sdp_intent_refine` permanently locked |
+| `analysis.refinement_passes.policy_packs.*` | see `refinement_policy.POLICY_PACKS` | Per-tape-character eligible-class defaults for L0; overrides merge onto (not replace) the built-in packs |
 
 ---
 

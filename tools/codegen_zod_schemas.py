@@ -44,6 +44,9 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "transcript/disfluencies.json": "disfluencies.schema.json",
     "segments/nle_edits.json": "nle_edits.schema.json",
     "transcript/review_queue.json": "transcript_review.schema.json",
+    "understanding/refinement_agenda.json": "refinement_agenda.schema.json",
+    "understanding/refinement_ledger.json": "refinement_ledger.schema.json",
+    "understanding/refinement_plan.json": "refinement_plan.schema.json",
 }
 
 def _safe_name(rel: str) -> str:

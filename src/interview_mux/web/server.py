@@ -74,6 +74,7 @@ from interview_mux.journey_state import (
 )
 from interview_mux.operator_quality import preclean_acknowledged
 from interview_mux.web.runner import RunBusyError, runner
+from interview_mux.web.refinement_routes import register_refinement_routes
 from interview_mux.web.session_routes import ActiveBody, register_session_routes
 from interview_mux.web.workspace_routes import register_workspace_routes
 from interview_mux.web.stages import LLM_ROUTING_STAGE_IDS, STAGE_BY_ID, all_stages_for_run
@@ -687,6 +688,16 @@ def create_app() -> FastAPI:
             "gap_fill_mode": gap_mode,
             "gap_fill_skip_reason": gap_skip_reason,
             **gap_gates,
+            "refinement_agenda": (
+                ctx.read_json("understanding/refinement_agenda.json")
+                if ctx.artifact_exists("understanding/refinement_agenda.json")
+                else None
+            ),
+            "listener_outcome_trajectory": (
+                ctx.read_json("understanding/listener_outcome_trajectory.json")
+                if ctx.artifact_exists("understanding/listener_outcome_trajectory.json")
+                else None
+            ),
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "job": job,
             "journey": journey,
@@ -2956,6 +2967,9 @@ def create_app() -> FastAPI:
         run_guard=runner.operator_guard,
     )
     app.include_router(_workspace_router)
+    _refinement_router = APIRouter()
+    register_refinement_routes(_refinement_router, ctx_factory=_ctx)
+    app.include_router(_refinement_router)
 
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
@@ -3320,6 +3334,14 @@ def _build_stage_list(
     )
     gate_stage = gate_blocked_stage(ctx) if pending_write_stages else None
 
+    from interview_mux.refinement_gate import load_plan as _load_refinement_plan
+
+    refinement_decisions_by_pass_id: dict[str, dict[str, Any]] = {
+        str(p.get("pass_id")): p
+        for p in (_load_refinement_plan(ctx).get("passes") or [])
+        if isinstance(p, dict) and p.get("pass_id")
+    }
+
     for s in stages:
         reconcile_stage_done_marker(ctx, s["id"])
     for s in stages:
@@ -3437,6 +3459,12 @@ def _build_stage_list(
             from interview_mux.web.stages import reuse_policy_for
 
             s["reuse_policy"] = reuse_policy_for(sid)
+            if info.refinement_pass:
+                decision = refinement_decisions_by_pass_id.get(sid)
+                if decision and decision.get("status") == "skip":
+                    s["skip_reason"] = str(
+                        decision.get("reason_code") or decision.get("rationale") or "skipped"
+                    )
             if s["stage_output_mode"] == "optional_skipped":
                 for a in info.artifacts:
                     if a and not a.endswith("/"):

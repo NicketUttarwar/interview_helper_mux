@@ -33,10 +33,18 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
+    "refinement_agenda",  # confirm L0 after ranking
+    "gap_framing_recompose",  # deterministic recompose/skip-copy — not an LLM call
+    "selection_framing_apply",
+    "ranking_refine",
+    "narrative_arc_refine",
     "transitions",
+    "transitions_refine",
     "sound_design_plan",
+    "sdp_intent_refine",
     "sound_design_vo_finalize",
     "edl_narrative_audit",
+    "edl_narrative_refine",
     "edl",
     "assembly_preview",
     "sfx_prompt_craft",

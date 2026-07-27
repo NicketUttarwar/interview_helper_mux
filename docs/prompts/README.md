@@ -8,6 +8,8 @@ User messages include **analysis memory** (`analysis_state_summary`, `open_inves
 
 **Routing:** v2 has no arbiter or shard/collate routing. Every stage goes through `llm_simple.py`: one structured call, one retry on schema failure, then hard stop. The `arbiter.system.txt` prompt and rubrics under `_shared/arbiter-rubrics/` are heritage — see [../v2/drop-manifest.md](../v2/drop-manifest.md).
 
+**Refinement Pass prompts:** `interviewer-gap/gap-framing-recompose.system.txt` and `refinement/refinement-agenda.system.txt` document the *editorial rules* for Pass 2 — the current `refinement_passes.py` / `refinement_agenda.py` runners implement those rules deterministically (no LLM call). Treat the `.system.txt` files as the spec/constitution kept in sync with the deterministic code, not as active prompts, until an LLM-backed variant is wired in. See [refinement-passes.md](../cross-cutting/refinement-passes.md).
+
 ## Tree
 
 ```
@@ -27,7 +29,10 @@ prompts/
 │   └── segment-classification.system.txt
 ├── interviewer-gap/
 │   ├── missing-framing.system.txt
-│   └── optimal-questions.system.txt
+│   ├── optimal-questions.system.txt
+│   └── gap-framing-recompose.system.txt  ← Pass 2 constitution; current runner is deterministic (no LLM call yet)
+├── refinement/
+│   └── refinement-agenda.system.txt      ← Pass 2 L0 constitution; current runner is deterministic (no LLM call yet)
 ├── selection/
 │   ├── topic-coverage-audit.system.txt
 │   ├── narrative-arc-plan.system.txt

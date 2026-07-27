@@ -10,7 +10,7 @@ Gap framing adds interviewer audio (questions, summaries, prefaces, story bridge
 | **G-Speaker** | G-Framing = Yes | Least-spoken speaker | `pickup_speaker_confirmed` |
 | **G-VoiceRef** | G-Framing = Yes | Auto-extracted clips | `voice_reference_approved_at` |
 | **G-Delivery** | G-Framing = Yes | **Chatterbox** | `run_meta.gap_vo_delivery` |
-| **G1** | After `gap_framing_compose` | Synthesize all / record / edit | `vo_pickup/` |
+| **G1** | After `gap_framing_recompose` (or skip-copy) | Synthesize all / record / edit | `vo_pickup/` |
 
 Operator GUI always requires an explicit choice at each gate. Unattended / E2E runs may apply the same defaults without human input when `analysis.gap_fill.auto_accept_defaults` is true or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`.
 
@@ -18,9 +18,13 @@ API: `POST /api/runs/{id}/gap-framing/enable`, `…/gap-framing/delivery`, `…/
 
 ## Succinct master artifacts
 
-- `understanding/gap_report.json` — `interviewer_lines[]` with `line_category`, `supports_segment_ids`, `replaces_source_segments`
+- `understanding/gap_report.json` — `interviewer_lines[]` with `line_category`, `supports_segment_ids`, `replaces_source_segments`; authoritative only after [Refinement Pass](./refinement-passes.md) `gap_framing_recompose` accepts a candidate or skip-copies the draft (flow integrity)
 - `understanding/gap_framing_plan.json` — act / impact block map
-- `full_master_ranking` — may exclude segments with reason `covered_by_framing_vo`
+- `master/selection.json` — `selection_framing_apply` (Pass 2, runs after `gap_framing_recompose`) may exclude segments with reason `covered_by_framing_vo`, coverage-guarded so no topic loses every surviving segment
+
+## Refinement Pass (Pass 2)
+
+`gap_framing_compose` above only produces the **draft** `gap_report`. After `full_master_ranking`, [Refinement Pass](./refinement-passes.md) confirms the L0 agenda and either recomposes the draft against the kept segment order (`gap_framing_recompose`) or skip-copies it verbatim (`refinement_flow_integrity.skip_copy_draft_to_final`) — either way `understanding/gap_report.json` is authoritative before G1, so G1 is always reachable.
 
 ## Synthesis routing
 

@@ -20,11 +20,17 @@ from interview_mux.write_staging import write_approval_enabled
 def test_v2_analysis_order_excludes_disfluency():
     assert "disfluency_extract" not in ANALYSIS_ORDER_V2
     assert len(ANALYSIS_ORDER_V2) == 20
-    assert len(DELIVERY_ORDER_V2) == 13
-    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 33
+    # +8 Refinement Pass stages (refinement_agenda, gap_framing_recompose,
+    # selection_framing_apply, ranking_refine, narrative_arc_refine,
+    # transitions_refine, sdp_intent_refine, edl_narrative_refine).
+    assert len(DELIVERY_ORDER_V2) == 21
+    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 41
 
 
 def test_v2_llm_stage_count():
+    # Refinement Pass stages (refinement_agenda, gap_framing_recompose, selection_framing_apply,
+    # ranking_refine, narrative_arc_refine, transitions_refine, sdp_intent_refine,
+    # edl_narrative_refine) are deterministic — not LLM calls — so they are excluded here.
     assert len(ALL_LLM_STAGES_V2) == 16
 
 

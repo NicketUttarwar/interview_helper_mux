@@ -13,6 +13,11 @@ class StageInfo:
     artifacts: tuple[str, ...]
     editable: tuple[str, ...]
     audio_outputs: tuple[str, ...] = ()
+    # Refinement Pass (see docs/cross-cutting/refinement-passes.md): True for L0 agenda,
+    # gap recompose/apply, and *_refine stages so the GUI can badge them "Pass 2".
+    refinement_pass: bool = False
+    # For refine/recompose stages: the stage_id this pass revisits (from refinement_catalog).
+    pass_of: str | None = None
 
 
 ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
@@ -259,6 +264,54 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         ("master/selection.json",),
     ),
     StageInfo(
+        "refinement_agenda",
+        "Refinement agenda (L0)",
+        "Confirm which Pass 2 classes are eligible for this tape after ranking.",
+        "delivery",
+        ("understanding/refinement_agenda.json",),
+        ("understanding/refinement_agenda.json",),
+        refinement_pass=True,
+    ),
+    StageInfo(
+        "gap_framing_recompose",
+        "Gap framing recompose (Pass 2)",
+        "Rewrite host VO against kept segment order — or skip-copy draft for flow integrity.",
+        "delivery",
+        ("understanding/gap_report.json", "understanding/gap_framing_recompose.json"),
+        ("understanding/gap_report.json",),
+        refinement_pass=True,
+        pass_of="gap_framing_compose",
+    ),
+    StageInfo(
+        "selection_framing_apply",
+        "Apply framing excludes",
+        "Apply covered_by_framing_vo excludes after recompose with coverage guards.",
+        "delivery",
+        ("master/selection.json",),
+        ("master/selection.json",),
+        refinement_pass=True,
+    ),
+    StageInfo(
+        "ranking_refine",
+        "Ranking refine (Pass 2)",
+        "Optional ranking refinement when topic holes remain.",
+        "delivery",
+        ("master/selection.json",),
+        ("master/selection.json",),
+        refinement_pass=True,
+        pass_of="full_master_ranking",
+    ),
+    StageInfo(
+        "narrative_arc_refine",
+        "Narrative refine (Pass 2)",
+        "Optional narrative arc refinement after gap commit.",
+        "delivery",
+        ("master/narrative_plan.json",),
+        ("master/narrative_plan.json",),
+        refinement_pass=True,
+        pass_of="narrative_arc_plan",
+    ),
+    StageInfo(
         "transitions",
         "Transitions",
         "Generate interviewer bridge lines between segments.",
@@ -267,12 +320,32 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         ("master/transitions.json",),
     ),
     StageInfo(
+        "transitions_refine",
+        "Transitions refine (Pass 2)",
+        "Optional bridge dedupe/refine against final gap VO.",
+        "delivery",
+        ("master/transitions.json",),
+        ("master/transitions.json",),
+        refinement_pass=True,
+        pass_of="transitions",
+    ),
+    StageInfo(
         "sound_design_plan",
         "Sound design plan",
         "Build Flow 1 reusable sound design assets and cues in the shared sound design plan.",
         "delivery",
         ("understanding/sound_design_plan.json",),
         ("understanding/sound_design_plan.json",),
+    ),
+    StageInfo(
+        "sdp_intent_refine",
+        "SDP intent refine (Pass 2)",
+        "Optional SFX-restraint refinement of the sound design plan for the final timeline.",
+        "delivery",
+        ("understanding/sound_design_plan.json",),
+        ("understanding/sound_design_plan.json",),
+        refinement_pass=True,
+        pass_of="sound_design_plan",
     ),
     StageInfo(
         "sound_design_vo_finalize",
@@ -294,6 +367,16 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
             "master/transitions.json",
         ),
         ("master/edl_narrative_audit.json",),
+    ),
+    StageInfo(
+        "edl_narrative_refine",
+        "EDL narrative refine (Pass 2)",
+        "Optional last editorial sanity refinement before EDL construction.",
+        "delivery",
+        ("master/edl_narrative_audit.json",),
+        ("master/edl_narrative_audit.json",),
+        refinement_pass=True,
+        pass_of="edl_narrative_audit",
     ),
     StageInfo(
         "edl",
@@ -468,7 +551,7 @@ def all_stages_for_run(selected_flow: str | None) -> list[dict[str, Any]]:
 
 
 def _stage_dict(s: StageInfo) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "id": s.id,
         "title": s.title,
         "description": s.description,
@@ -479,6 +562,11 @@ def _stage_dict(s: StageInfo) -> dict[str, Any]:
         "api_providers": list(STAGE_API_PROVIDERS.get(s.id, ())),
         "reuse_policy": reuse_policy_for(s.id),
     }
+    if s.refinement_pass:
+        d["refinement_pass"] = True
+    if s.pass_of:
+        d["pass_of"] = s.pass_of
+    return d
 
 
 # Reuse eligibility vs immediate-previous execution (hash-gated copy).
@@ -509,10 +597,18 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "refinement_agenda",
+        "gap_framing_recompose",
+        "selection_framing_apply",
+        "ranking_refine",
+        "narrative_arc_refine",
         "transitions",
+        "transitions_refine",
         "sound_design_plan",
+        "sdp_intent_refine",
         "sound_design_vo_finalize",
         "edl_narrative_audit",
+        "edl_narrative_refine",
         "edl",
         "assembly_preview",
         "sfx_prompt_craft",

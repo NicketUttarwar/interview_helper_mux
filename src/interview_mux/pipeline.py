@@ -12,6 +12,17 @@ from interview_mux.gates import (
     require_g1_clear,
     require_transcript_review_clear,
 )
+from interview_mux.refinement_agenda import run_refinement_agenda
+from interview_mux.refinement_passes import (
+    after_gap_compose_hook,
+    run_edl_narrative_refine,
+    run_gap_framing_recompose,
+    run_narrative_arc_refine,
+    run_ranking_refine,
+    run_sdp_intent_refine,
+    run_selection_framing_apply,
+    run_transitions_refine,
+)
 from interview_mux.run_context import RunContext
 from interview_mux.stage_execution_reuse import resolve_before_stage_run
 from interview_mux.stages import analysis_extended
@@ -93,10 +104,20 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
         "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
         "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
+        # Refinement Pass (docs/cross-cutting/refinement-passes.md): L0 agenda + deterministic
+        # recompose/refine stages. No LLM calls — gated by refinement_gate.decide_pass.
+        "refinement_agenda": lambda: run_refinement_agenda(ctx, phase="confirm"),
+        "gap_framing_recompose": lambda: run_gap_framing_recompose(ctx),
+        "selection_framing_apply": lambda: run_selection_framing_apply(ctx),
+        "ranking_refine": lambda: run_ranking_refine(ctx),
+        "narrative_arc_refine": lambda: run_narrative_arc_refine(ctx),
         "transitions": lambda: selection.run_transitions(ctx),
+        "transitions_refine": lambda: run_transitions_refine(ctx),
         "sound_design_plan": lambda: sound_design_stages.run_sound_design_plan(ctx),
+        "sdp_intent_refine": lambda: run_sdp_intent_refine(ctx),
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
+        "edl_narrative_refine": lambda: run_edl_narrative_refine(ctx),
         "edl": lambda: assembly.run_edl(ctx),
         "assembly_preview": lambda: assembly.run_preview(ctx),
         "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
@@ -153,6 +174,9 @@ def _run_gap_framing_compose_stage(ctx: RunContext) -> None:
     if _gap_path_skipped(ctx):
         return
     gaps.run_gap_framing_compose(ctx)
+    # Refinement Pass: seed the gap_vo champion/draft snapshot so
+    # gap_framing_recompose (Pass 2) has a baseline to compare against.
+    after_gap_compose_hook(ctx)
 
 
 def _run_optimal_questions_stage(ctx: RunContext) -> None:

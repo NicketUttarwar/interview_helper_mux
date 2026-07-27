@@ -10,7 +10,7 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)
 - [workflows/smoke-test.md](./workflows/smoke-test.md)
 - [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md)
-- [v2/port-manifest.csv](./v2/port-manifest.csv) — 32 stage inventory
+- [v2/port-manifest.csv](./v2/port-manifest.csv) — 41 stage inventory (incl. Refinement Pass)
 
 ## Core specs
 
@@ -33,6 +33,7 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [cross-cutting/mastering-voice-clone-policy.md](./cross-cutting/mastering-voice-clone-policy.md) — clone consent, scope, disclosure, audit
 - [cross-cutting/mastering-eval-corpus.md](./cross-cutting/mastering-eval-corpus.md) — fixture taxonomy + quality metrics
 - [cross-cutting/mastering-integration-backlog.md](./cross-cutting/mastering-integration-backlog.md) — TBIY → mastering migration backlog
+- [cross-cutting/refinement-passes.md](./cross-cutting/refinement-passes.md) — Refinement Pass: L0 agenda, L1 gate, CFI ledger, flow integrity
 - [cross-cutting/tbiy-production-profile.md](./cross-cutting/tbiy-production-profile.md) — TBIY heritage (superseded as strategy)
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — pinned deps, CVE gate
 - [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — DeepFilterNet + MMAudio + CLAP

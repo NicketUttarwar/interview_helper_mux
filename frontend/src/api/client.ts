@@ -1,4 +1,4 @@
-import type { SfxPromptsResponse } from "../types";
+import type { RefinementSummary, SfxPromptsResponse } from "../types";
 import { guiClientHeaders } from "../utils/sessionTabLeader";
 
 export class ApiError extends Error {
@@ -85,4 +85,8 @@ export function postSfxListenResult(
 
 export function getSfxUnderSpeechUrl(runId: string, assetId: string): string {
   return `/api/runs/${runId}/audio/sfx-under-speech?asset_id=${encodeURIComponent(assetId)}`;
+}
+
+export function getRefinementSummary(runId: string): Promise<RefinementSummary> {
+  return api<RefinementSummary>(`/api/runs/${runId}/refinement`);
 }

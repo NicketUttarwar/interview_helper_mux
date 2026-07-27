@@ -11,10 +11,12 @@
 | `delivery_brief_build` | process | — |
 | `edl` | process | — |
 | `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
+| `edl_narrative_refine` | deterministic | — |
 | `episode_structure_compose` | process | — |
 | `full_master_ranking` | llm_full | master/selection.json |
 | `g1_vo_pickup` | gate | — |
 | `gap_framing_compose` | llm_full | understanding/gap_report.json |
+| `gap_framing_recompose` | deterministic | — |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
 | `master_finalize` | process | — |
@@ -22,9 +24,14 @@
 | `mix` | process | — |
 | `mmaudio_sfx` | process | — |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
+| `narrative_arc_refine` | deterministic | — |
 | `optimal_questions` | llm_full | understanding/gap_report.json |
 | `podcast_sfx_brief` | llm_full | master/podcast_sfx_brief.json |
+| `ranking_refine` | deterministic | — |
+| `refinement_agenda` | deterministic | — |
+| `sdp_intent_refine` | deterministic | — |
 | `segment_classification` | llm_full | segments/manifest.json |
+| `selection_framing_apply` | deterministic | — |
 | `sfx_brief` | llm_full | REMOVED_flow2/sfx_brief.json |
 | `sfx_prompt_craft` | llm_full | sound_design/sfx_prompts.json |
 | `sfx_prompt_refine` | llm_full | sound_design/sfx_prompts.json |
@@ -42,4 +49,5 @@
 | `transcript_review` | gate | — |
 | `transcript_review_build` | process | — |
 | `transitions` | llm_full | master/transitions.json |
+| `transitions_refine` | deterministic | — |
 | `vo_ingest` | process | — |

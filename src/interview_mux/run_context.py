@@ -413,6 +413,9 @@ class RunContext:
         from interview_mux.stage_step_through import clear_step_through_from
 
         clear_step_through_from(self, stage, order)
+        from interview_mux.refinement_ledger import reset_ledger_from_stages
+
+        reset_ledger_from_stages(self, set(order[idx:]))
         self.log(f"Invalidated stages from {stage} onward — ready to re-run.", level="warning", stage=stage)
 
     def _resolve_input_audio_ref(self, input_audio_path: str) -> Path:

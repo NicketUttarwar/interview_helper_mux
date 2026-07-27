@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefinementLedger",
+  "type": "object",
+  "required": ["run_id", "schema_version", "calls", "counts_by_cfi", "order_of_refinement_pass_ids"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "schema_version": { "type": "integer" },
+    "calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["seq", "cfi_id", "stage_id", "kind"],
+        "properties": {
+          "seq": { "type": "integer" },
+          "at": { "type": "string" },
+          "cfi_id": { "type": "string" },
+          "human_key": { "type": "string" },
+          "stage_id": { "type": "string" },
+          "pass_id": { "type": ["string", "null"] },
+          "pass_index": { "type": "integer" },
+          "kind": { "type": "string" },
+          "outcome": { "type": "string" },
+          "refines_cfi": { "type": "string" },
+          "gate": { "type": "string" },
+          "input_hash": { "type": "string" },
+          "detail": { "type": "object" }
+        }
+      }
+    },
+    "counts_by_cfi": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "first_pass": { "type": "integer" },
+          "refinement": { "type": "integer" },
+          "total": { "type": "integer" }
+        }
+      }
+    },
+    "order_of_refinement_pass_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

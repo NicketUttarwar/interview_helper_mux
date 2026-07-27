@@ -623,7 +623,66 @@
       "succinct_master_default": true,
       "auto_skip_when_ineligible": true,
       "frame_confidence_min": 0.65,
-      "hide_gui_stages_when_skipped": true
+      "hide_gui_stages_when_skipped": false
+    },
+    "refinement_passes": {
+      "enabled": true,
+      "full_auto": true,
+      "max_second_runs_per_cfi": 1,
+      "priors": { "enabled": "soft" },
+      "shadow_score": { "enabled": true },
+      "blacklist": {
+        "stage_ids": [
+          "audio_preclean", "ingest", "transcribe", "transcript_review_build", "transcript_review",
+          "source_acoustic_profile", "interview_spine_build", "sonic_context_build",
+          "edl", "assembly_preview", "mmaudio_sfx", "mix", "master_finalize", "g1_vo_pickup", "vo_ingest"
+        ],
+        "cfi_ids": [],
+        "module_path_prefixes": [
+          "interview_mux.stages.sfx_mmaudio",
+          "interview_mux.stages.mastering",
+          "interview_mux.stages.audio_preclean",
+          "interview_mux.stages.ingest",
+          "interview_mux.stages.transcribe_local"
+        ]
+      },
+      "whitelist": {
+        "pass_ids": [
+          "gap_framing_recompose", "selection_framing_apply", "narrative_arc_refine",
+          "ranking_refine", "transitions_refine", "sdp_intent_refine", "edl_narrative_refine"
+        ]
+      },
+      "succession": {
+        "unlocks": [
+          { "after_accept_or_skip_copy": "gap_framing_recompose", "unlock": "transitions_refine" },
+          { "after_accept_or_skip_copy": "gap_framing_recompose", "unlock": "sdp_intent_refine", "requires_frozen_vo": true },
+          { "after_signal": "post_gap_topic_holes", "unlock": "ranking_refine" }
+        ],
+        "mutex": [
+          { "passes": ["narrative_arc_refine", "ranking_refine"], "when": "both_would_reorder" }
+        ],
+        "priority": [
+          "gap_framing_recompose", "selection_framing_apply", "ranking_refine",
+          "narrative_arc_refine", "transitions_refine", "sdp_intent_refine", "edl_narrative_refine"
+        ]
+      },
+      "policy_packs": {
+        "asymmetric_technical": {
+          "eligible_class_defaults": ["gap_vo", "transitions", "cold_open", "sdp_intent"],
+          "simple_tape_override": false,
+          "kill_dull_aggression": "high",
+          "sfx_restraint": "med",
+          "midpass_shard_threshold_sec": 1800,
+          "interviewer_summary_max_words": 80
+        },
+        "short_clean": {
+          "eligible_class_defaults": [],
+          "simple_tape_override": true,
+          "kill_dull_aggression": "low",
+          "sfx_restraint": "high",
+          "midpass_shard_threshold_sec": 99999
+        }
+      }
     },
     "gap_framing": {
       "interviewer_question_max_words": 60,
