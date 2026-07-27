@@ -30,8 +30,8 @@ Gap-fill and flagship generation: [artifact-generation-and-validation.md](../../
 
 ## Operator gates
 
-- **G-Framing** (default No) — `POST …/gap-framing/enable`
-- **G-Speaker / G-VoiceRef / G-Delivery** when framing enabled — see [chatterbox-interviewer-vo.md](../../cross-cutting/chatterbox-interviewer-vo.md)
+- **G-Framing** (recommended default **Yes**; operator must choose) — `POST …/gap-framing/enable`
+- **G-Speaker / G-VoiceRef / G-Delivery** when framing enabled — least-spoken host + Chatterbox clone by default — see [chatterbox-interviewer-vo.md](../../cross-cutting/chatterbox-interviewer-vo.md)
 - **G1** — record or Chatterbox-synthesize into `vo_pickup/` (optional skip)
 
 After each pickup (or when all lines are recorded), the operator should be **offered** optional [background noise removal](../audio_preclean/README.md) scoped to **`vo_pickup` only** — common when additional questions are recorded in a home office while the interview was cleaner. This does not force re-cleaning the original interview.

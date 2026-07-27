@@ -31,7 +31,8 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | Gate | When | Action |
 |------|------|--------|
 | **G0** | After `transcript_review_build` | Fix STT in GUI before analysis |
-| **G1** | After gap stages (optional) | Record VO or skip |
+| **G-Framing** | After topology (before gap LLM) | Required choice; recommended **Yes** + voice-cloned least-spoken host |
+| **G1** | After gap stages (optional) | Record/synthesize VO or skip |
 | **Preclean** | Checkpoint offer | Never auto-run |
 
 Full copy: **`docs/workflows/operator-gates.md`**.

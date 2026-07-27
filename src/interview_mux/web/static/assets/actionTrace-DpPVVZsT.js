@@ -1,0 +1,1 @@
+import{f as n}from"./index-BLsiBaro.js";import"./react-vendor-CBBoJgXi.js";async function o(t,a=50){return(await n(`/api/runs/${t}/action-trace?tail=${a}`)).entries??[]}async function e(t){return(await n(`/api/runs/${t}/action-trace/dump-last`,{method:"POST"})).text??""}export{e as dumpLastAction,o as fetchActionTrace};

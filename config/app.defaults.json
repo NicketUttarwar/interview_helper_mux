@@ -617,8 +617,9 @@
     },
     "gap_fill": {
       "enabled": true,
-      "default_framing_enabled": false,
+      "default_framing_enabled": true,
       "require_explicit_opt_in": true,
+      "auto_accept_defaults": false,
       "succinct_master_default": true,
       "auto_skip_when_ineligible": true,
       "frame_confidence_min": 0.65,

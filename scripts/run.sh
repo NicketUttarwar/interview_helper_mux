@@ -10,6 +10,12 @@
 #   MUX_PRESERVE_SESSION=1       Keep last run selected in the GUI
 #   MUX_REBUILD_GUI=1            Rebuild React bundle before serve
 #   MUX_REFRESH_DEPS=1           Re-pip core .venv after git pull
+#   MUX_SKIP_ASSETS_CLEANUP=1    Skip ephemeral ASSETS/ cleanup (debug)
+#
+# Fresh launch (default): clears ephemeral ASSETS/ state (.gui session,
+# operator session logs, orphan non-exec_* debris, stale locks). Durable
+# exec_* runs (and their stage outputs for 5-run reuse lookback), input
+# WAVs, and local_* runtimes are never deleted.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -37,9 +43,10 @@ Setup once:  ./scripts/bootstrap_venv.sh
 Launch:      ./scripts/run.sh
 
 Environment:
-  MUX_PRESERVE_SESSION=1   Keep GUI session across launches
-  MUX_REBUILD_GUI=1        npm build before serve
-  MUX_REFRESH_DEPS=1       Refresh core .venv after git pull
+  MUX_PRESERVE_SESSION=1      Keep GUI session across launches
+  MUX_REBUILD_GUI=1           npm build before serve
+  MUX_REFRESH_DEPS=1          Refresh core .venv after git pull
+  MUX_SKIP_ASSETS_CLEANUP=1   Skip ephemeral ASSETS/ cleanup
 EOF
       exit 0
       ;;
@@ -71,30 +78,7 @@ elif [[ ! -f "$ROOT/src/interview_mux/web/static/index.html" ]]; then
   exit 1
 fi
 
-if [[ "$CLI_MODE" == "1" ]]; then
-  if (($# > 0)); then
-    exec python -m interview_mux "$@"
-  fi
-  exec python -m interview_mux
-fi
-
-GUI_DIR="$(python - <<'PY'
-from interview_mux.config import merged_config, repo_root
-print((repo_root() / merged_config().get("assets_root", "ASSETS") / ".gui").as_posix())
-PY
-)"
-
-if [[ "${MUX_PRESERVE_SESSION:-0}" != "1" ]]; then
-  rm -f \
-    "$GUI_DIR/active_execution.json" \
-    "$GUI_DIR/application_state.json" \
-    "$GUI_DIR/server_session.json" \
-    "$GUI_DIR/api_consent.json" \
-    "$GUI_DIR/active_execution.json.lock" \
-    "$GUI_DIR/server_session.json.lock" \
-    "$GUI_DIR/api_consent.json.lock"
-fi
-
+# Release stale process holds before deleting lock files under exec_*/
 WEB_PORT="$(python - <<'PY'
 from interview_mux.config import merged_config
 print(int(merged_config().get("web_port", 8765)))
@@ -115,6 +99,21 @@ if command -v ps >/dev/null 2>&1; then
     kill ${orphan_workers} 2>/dev/null || true
     sleep 1
   fi
+fi
+
+if [[ "${MUX_SKIP_ASSETS_CLEANUP:-0}" != "1" ]]; then
+  CLEANUP_ARGS=()
+  if [[ "${MUX_PRESERVE_SESSION:-0}" == "1" ]]; then
+    CLEANUP_ARGS+=(--preserve-session)
+  fi
+  python -m interview_mux.assets_ephemeral_cleanup "${CLEANUP_ARGS[@]}"
+fi
+
+if [[ "$CLI_MODE" == "1" ]]; then
+  if (($# > 0)); then
+    exec python -m interview_mux "$@"
+  fi
+  exec python -m interview_mux
 fi
 
 if ((${#SERVE_ARGS[@]} > 0)); then

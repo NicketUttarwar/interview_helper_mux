@@ -86,9 +86,9 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
     <section className="gap-framing-panel panel-inset" data-testid="gap-framing-panel">
       <h4>Add interviewer gap framing?</h4>
       <p className="hint sm">
-        Gap framing audio includes questions, summaries, prefaces, and story bridges so the episode
-        can be clearer and shorter. Default: <strong>No</strong> — use source segments and ranking
-        only.
+        Gap framing adds interviewer VO (questions, summaries, prefaces, bridges) — usually via a
+        Chatterbox clone of the least-spoken speaker — so the episode can be clearer and shorter.
+        Recommended default: <strong>Yes</strong>. You must choose before analysis continues.
       </p>
       <div className="pickup-speaker-actions">
         <button

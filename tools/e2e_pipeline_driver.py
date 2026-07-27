@@ -158,6 +158,67 @@ def skip_g1_optional(run_id: str) -> None:
         print(f"  G1 skip note: {exc}", flush=True)
 
 
+def synthesize_g1(run_id: str) -> bool:
+    try:
+        result = api("POST", f"/api/runs/{run_id}/g1/synthesize-all", {})
+        print(
+            f"  G1 synthesize-all: {len(result.get('synthesized') or [])} lines"
+            f" errors={result.get('errors') or []}",
+            flush=True,
+        )
+        return bool(result.get("ok", True)) and not (result.get("errors") or [])
+    except RuntimeError as exc:
+        print(f"  G1 synthesize note: {exc}", flush=True)
+        return False
+
+
+def accept_gap_framing_defaults(run_id: str) -> None:
+    """Apply product defaults: framing Yes, least-spoken host, Chatterbox clone + consent."""
+    gate = api("GET", f"/api/runs/{run_id}/gap-framing")
+    if gate.get("gap_framing_decision_pending"):
+        api("POST", f"/api/runs/{run_id}/gap-framing/enable", {"enabled": True})
+        print("  Gap framing enabled (default Yes)", flush=True)
+
+    pickup = api("GET", f"/api/runs/{run_id}/pickup-speaker")
+    if pickup.get("pending") or not pickup.get("pickup_speaker_confirmed"):
+        sid = pickup.get("pickup_eligible_speaker_id") or pickup.get("least_spoken_speaker_id")
+        body = {"pickup_eligible_speaker_id": sid} if sid else {}
+        api("POST", f"/api/runs/{run_id}/pickup-speaker/confirm", body)
+        print(f"  Pickup speaker confirmed: {sid or 'default least-spoken'}", flush=True)
+
+    gate = api("GET", f"/api/runs/{run_id}/gap-framing")
+    if gate.get("voice_reference_pending"):
+        try:
+            api("POST", f"/api/runs/{run_id}/voice-reference/approve")
+            print("  Voice reference approved", flush=True)
+        except RuntimeError as exc:
+            print(f"  Voice reference approve note: {exc}", flush=True)
+            return
+
+    gate = api("GET", f"/api/runs/{run_id}/gap-framing")
+    if gate.get("gap_delivery_pending") or not gate.get("gap_vo_delivery"):
+        api("POST", f"/api/runs/{run_id}/gap-framing/delivery", {"delivery": "chatterbox"})
+        print("  Gap delivery: chatterbox", flush=True)
+
+    gate = api("GET", f"/api/runs/{run_id}/gap-framing")
+    if gate.get("clone_consent_pending") or gate.get("clone_consent_required"):
+        sid = gate.get("pickup_eligible_speaker_id")
+        try:
+            api(
+                "POST",
+                f"/api/runs/{run_id}/voice-clone-consent",
+                {
+                    "speaker_id": sid,
+                    "scopes": ["cold_open", "bridges", "outro"],
+                    "disclosure": "none",
+                    "granted_by": "e2e_pipeline_driver",
+                },
+            )
+            print("  Voice clone consent granted", flush=True)
+        except RuntimeError as exc:
+            print(f"  Clone consent note: {exc}", flush=True)
+
+
 def decline_reuse(run_id: str, stage_id: str) -> None:
     api("POST", f"/api/runs/{run_id}/stages/{stage_id}/reuse", {"action": "decline"})
     print(f"  Declined reuse for {stage_id}", flush=True)
@@ -215,7 +276,20 @@ def handle_gate(run_id: str, job: dict[str, Any], body: dict[str, Any]) -> bool:
         return True
 
     if stage == "g1_vo_pickup" or ("g1" in low and "vo" in low):
-        skip_g1_optional(run_id)
+        if not synthesize_g1(run_id):
+            skip_g1_optional(run_id)
+        execute(run_id, body)
+        return True
+
+    if (
+        stage in {"missing_framing", "gap_framing_compose", "optimal_questions"}
+        or "gap framing" in low
+        or "pickup speaker" in low
+        or "voice reference" in low
+        or "gap delivery" in low
+        or "voice clone" in low
+    ):
+        accept_gap_framing_defaults(run_id)
         execute(run_id, body)
         return True
 
@@ -292,7 +366,7 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "sonic_context_build",
             "sound_design_palettes",
             "missing_framing",
-            "optimal_questions",
+            "gap_framing_compose",
             "delivery_brief_build",
             "soundscape_policy_build",
             "episode_structure_compose",

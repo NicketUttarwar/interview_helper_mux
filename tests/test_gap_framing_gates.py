@@ -17,6 +17,8 @@ from interview_mux.gap_framing import (
 from interview_mux.gap_vo_gates import (
     check_gap_framing_decision_pending,
     gap_framing_enabled,
+    maybe_auto_accept_gap_gate_defaults,
+    recommended_gap_framing_enabled,
     set_gap_framing_enabled,
     set_gap_vo_delivery,
 )
@@ -35,8 +37,10 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     return run
 
 
-def test_default_gap_framing_disabled_without_decision(ctx: RunContext) -> None:
-    assert gap_framing_enabled(ctx) is False
+def test_default_gap_framing_recommended_yes_without_decision(ctx: RunContext) -> None:
+    """Product default is Yes, but operator decision is still pending until explicit opt-in."""
+    assert gap_framing_enabled(ctx) is True
+    assert recommended_gap_framing_enabled() is True
 
 
 def test_gap_framing_decision_pending_after_topology(ctx: RunContext) -> None:
@@ -46,6 +50,52 @@ def test_gap_framing_decision_pending_after_topology(ctx: RunContext) -> None:
     for sid in ANALYSIS_ORDER[:idx]:
         ctx.mark_done(sid, force=True)
     assert check_gap_framing_decision_pending(ctx) is True
+
+
+def test_auto_accept_gap_gate_defaults(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    monkeypatch.setenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "1")
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {
+            "topology_class": "one_on_one_asymmetric",
+            "least_spoken_speaker_id": "spk_0",
+            "pickup_eligible_speaker_id": "spk_0",
+            "speaker_stats": [
+                {
+                    "speaker_id": "spk_0",
+                    "talk_ms": 10_000,
+                    "talk_ratio": 0.2,
+                    "role_hint": "interviewer",
+                },
+                {
+                    "speaker_id": "spk_1",
+                    "talk_ms": 40_000,
+                    "talk_ratio": 0.8,
+                    "role_hint": "guest",
+                },
+            ],
+        },
+    )
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {
+            "pickup_eligible_speaker_id": "spk_0",
+            "operator_overrides": {},
+        },
+    )
+    idx = ANALYSIS_ORDER.index("missing_framing")
+    for sid in ANALYSIS_ORDER[:idx]:
+        ctx.mark_done(sid, force=True)
+    assert check_gap_framing_decision_pending(ctx) is True
+    assert maybe_auto_accept_gap_gate_defaults(ctx) is True
+    assert check_gap_framing_decision_pending(ctx) is False
+    assert gap_framing_enabled(ctx) is True
+    meta = ctx.read_json("run_meta.json")
+    assert meta.get("gap_framing_enabled") is True
+    adapt = ctx.read_json("understanding/flow_adaptation.json")
+    assert adapt["operator_overrides"].get("pickup_speaker_confirmed") is True
 
 
 def test_set_gap_framing_no_skips_compose_stage(ctx: RunContext) -> None:

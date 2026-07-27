@@ -394,17 +394,6 @@ def build_session_payload() -> dict[str, Any]:
 
 def clear_session_files(*, fresh: bool = False) -> None:
     """Clear session state when launch requests a fresh GUI session."""
-    if not fresh:
-        return
-    for name in (
-        _STATE_PATH_NAME,
-        "active_execution.json",
-        "server_session.json",
-        "api_consent.json",
-        "active_execution.json.lock",
-        "server_session.json.lock",
-        "api_consent.json.lock",
-    ):
-        p = gui_dir() / name
-        if p.is_file():
-            p.unlink()
+    from interview_mux.assets_ephemeral_cleanup import clear_gui_session_files_only
+
+    clear_gui_session_files_only(fresh=fresh)

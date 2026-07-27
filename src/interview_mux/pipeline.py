@@ -125,10 +125,12 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
     )
     from interview_mux.gap_vo_gates import (
         gap_framing_enabled,
+        maybe_auto_accept_gap_gate_defaults,
         require_gap_framing_decision_clear,
         require_gap_path_clear,
     )
 
+    maybe_auto_accept_gap_gate_defaults(ctx)
     require_gap_framing_decision_clear(ctx)
     if not gap_framing_enabled(ctx):
         gaps.ensure_gap_fill_skipped(
@@ -237,6 +239,7 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
         if stage in ("missing_framing", "gap_framing_compose", "optimal_questions"):
             from interview_mux.gap_vo_gates import (
                 gap_framing_enabled,
+                maybe_auto_accept_gap_gate_defaults,
                 require_gap_framing_decision_clear,
             )
             from interview_mux.source_topology import (
@@ -244,6 +247,7 @@ def _run_single_stage_impl(ctx: RunContext, stage: str) -> None:
                 require_pickup_speaker_clear,
             )
 
+            maybe_auto_accept_gap_gate_defaults(ctx)
             require_gap_framing_decision_clear(ctx)
             if gap_framing_enabled(ctx):
                 maybe_auto_confirm_pickup_speaker(ctx)

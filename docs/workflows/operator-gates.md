@@ -7,8 +7,8 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 | Gate | ID | Behavior |
 |------|-----|----------|
 | **G0** | `transcript_review` | **Mandatory.** Pipeline stops after `transcript_review_build` until STT corrections are complete. |
-| **G-Framing** | After `source_topology_build` | **Optional (default No).** Add interviewer framing audio (questions, summaries, prefaces, bridges)? `POST …/gap-framing/enable`. |
-| **G-Speaker** | G-Framing = Yes | Confirm gap pickup speaker (`PickupSpeakerPanel`). |
+| **G-Framing** | After `source_topology_build` | **Required choice (recommended default Yes).** Add interviewer framing audio (questions, summaries, prefaces, bridges) with voice-cloned least-spoken host? `POST …/gap-framing/enable`. Unattended/E2E may auto-accept via `analysis.gap_fill.auto_accept_defaults` or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`. |
+| **G-Speaker** | G-Framing = Yes | Confirm gap pickup speaker — default **least-spoken** (`PickupSpeakerPanel`). |
 | **G-VoiceRef** | G-Framing = Yes | Approve collated voice reference for Chatterbox (`VoiceReferencePanel`). |
 | **G-Delivery** | G-Framing = Yes | Chatterbox clone (default) or record at G1 (`GapDeliveryPanel`). |
 | **G1** | `g1_vo_pickup` | **Optional.** Record or synthesize gap lines, or **Skip — continue without gap VO** (`POST …/g1/skip-optional`). Batch synthesize: `POST …/g1/synthesize-all`. |

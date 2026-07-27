@@ -617,8 +617,15 @@ def run_source_topology_build(ctx: RunContext) -> None:
 
 
 def maybe_auto_confirm_pickup_speaker(ctx: RunContext) -> bool:
-    """v2: operator confirms pickup speaker explicitly."""
-    return False
+    """Confirm least-spoken pickup speaker when unattended auto-accept is enabled."""
+    from interview_mux.gap_vo_gates import auto_accept_gap_gate_defaults_enabled
+
+    if not auto_accept_gap_gate_defaults_enabled():
+        return False
+    if not check_pickup_speaker_pending(ctx):
+        return False
+    confirm_pickup_speaker(ctx)
+    return True
 
 
 def apply_flow_adaptation_patch(ctx: RunContext, patch: dict[str, Any]) -> dict[str, Any]:

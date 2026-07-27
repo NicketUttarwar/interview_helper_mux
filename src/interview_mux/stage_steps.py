@@ -933,7 +933,8 @@ def build_stage_steps(
                         "Add interviewer gap framing?",
                         instruction=(
                             "Choose whether to add interviewer framing audio (questions, summaries, "
-                            "prefaces, story bridges) for a clearer, shorter episode. Default: No."
+                            "prefaces, story bridges) with a voice-cloned least-spoken interviewer. "
+                            "Recommended default: Yes. Choice is required."
                         ),
                         kind="gate",
                         status="todo",

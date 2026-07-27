@@ -2,15 +2,17 @@
 
 Gap framing adds interviewer audio (questions, summaries, prefaces, story bridges) to build a **succinct master**: extracted context in host VO plus curated impact clips from source audio.
 
-## Operator gate ladder (default: no gap framing)
+## Operator gate ladder (default: offer gap framing — Yes recommended)
 
 | Gate | When | Default | Persisted |
 |------|------|---------|-----------|
-| **G-Framing** | After `source_topology_build` | **No** | `run_meta.gap_framing_enabled` |
+| **G-Framing** | After `source_topology_build` | **Yes** (operator must confirm) | `run_meta.gap_framing_enabled` |
 | **G-Speaker** | G-Framing = Yes | Least-spoken speaker | `pickup_speaker_confirmed` |
 | **G-VoiceRef** | G-Framing = Yes | Auto-extracted clips | `voice_reference_approved_at` |
 | **G-Delivery** | G-Framing = Yes | **Chatterbox** | `run_meta.gap_vo_delivery` |
 | **G1** | After `gap_framing_compose` | Synthesize all / record / edit | `vo_pickup/` |
+
+Operator GUI always requires an explicit choice at each gate. Unattended / E2E runs may apply the same defaults without human input when `analysis.gap_fill.auto_accept_defaults` is true or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`.
 
 API: `POST /api/runs/{id}/gap-framing/enable`, `…/gap-framing/delivery`, `…/voice-reference/approve`, `…/g1/synthesize-all`.
 

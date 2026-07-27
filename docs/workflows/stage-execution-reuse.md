@@ -4,6 +4,8 @@ At **every pipeline stage**, the GUI can offer to copy outputs from a **recent p
 
 The scanner walks the **last N prior executions** (`journey_ui.stage_reuse_lookback_executions`, default **5**), ordered by `execution_number` from newest to oldest. The **first** run in that window with a hash match and complete stage outputs becomes the reuse candidate. Runs outside the lookback window are not offered even when the hash matches.
 
+Those prior `exec_*` workspaces (and their stage outputs) are **durable**. Fresh-launch ephemeral cleanup (`assets_ephemeral_cleanup` via `./scripts/run.sh`) must never delete them — only session pointers, operator session logs, non-product debris dirs, and stale process locks / empty staging.
+
 Fresh executions are the default. Reuse is **opt-in per stage** and only appears when strict eligibility checks pass.
 
 ## When an offer appears

@@ -11,6 +11,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | Variable | Default | Used by | If wrong |
 |----------|---------|---------|----------|
 | `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
+| `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, orphan non-`exec_*` dirs, stale locks) |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
 
 ---
@@ -293,6 +294,9 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO â€
 | Key | Default | If wrong |
 |-----|---------|----------|
 | `analysis.gap_fill.enabled` | `true` | Eligibility never evaluated; gap stages always run |
+| `analysis.gap_fill.default_framing_enabled` | `true` | G-Framing recommends No; product default is Yes + voice-cloned least-spoken host |
+| `analysis.gap_fill.require_explicit_opt_in` | `true` | Framing decision may be treated as settled without operator confirm |
+| `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / least-spoken / Chatterbox without human input |
 | `analysis.gap_fill.auto_skip_when_ineligible` | `true` | Ineligible sources still spend LLM on gap-fill |
 | `analysis.gap_fill.frame_confidence_min` | `0.65` | Frame-speaker threshold for eligibility |
 | `analysis.gap_fill.hide_gui_stages_when_skipped` | `true` | Skipped gap stages still appear in step list |

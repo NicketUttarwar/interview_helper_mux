@@ -12,14 +12,15 @@ Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-p
 |-----------|----------------|
 | Master loudness | `-16 LUFS` integrated, true peak within bounds — `python tools/verify_master.py <path>/master/master.wav` |
 | Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix — bound to Mastering Process plan when present |
-| Operator friction | Hard stops only for **G0 transcript fix**; **G1 gap VO** is optional; preclean is an optional offer |
+| Operator friction | Hard stops for **G0 transcript fix** and **gap-framing gate ladder** (recommended Yes + voice-cloned least-spoken host); **G1 gap VO** remains skippable; preclean is an optional offer |
 
 ## Operator stops (only these)
 
 1. **G0 — Transcript review** (mandatory): fix STT before analysis continues.
-2. **G1 — Gap VO** (optional): record pickup lines or **Skip — continue without gap VO**.
-3. **Preclean offer** (optional): accept or dismiss; never auto-run.
-4. **NLE edits** (optional): timeline trims before ranking/EDL when operator chooses.
+2. **G-Framing ladder** (mandatory choice; recommended **Yes**): enable interviewer framing, confirm least-spoken pickup speaker, approve voice reference, choose Chatterbox clone (default) or record. Unattended/E2E may auto-accept product defaults.
+3. **G1 — Gap VO** (optional once framing is on): synthesize/record pickup lines or **Skip — continue without gap VO**.
+4. **Preclean offer** (optional): accept or dismiss; never auto-run.
+5. **NLE edits** (optional): timeline trims before ranking/EDL when operator chooses.
 
 ## Non-goals (v2)
 

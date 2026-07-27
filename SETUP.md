@@ -19,6 +19,6 @@ mkdir -p ASSETS/input
 
 Optional bootstrap flags: `BOOTSTRAP_SKIP_GUI=1`, `BOOTSTRAP_SKIP_VERIFY=1`
 
-Optional run flags: `MUX_PRESERVE_SESSION=1`, `MUX_REBUILD_GUI=1`, `MUX_REFRESH_DEPS=1`
+Optional run flags: `MUX_PRESERVE_SESSION=1`, `MUX_REBUILD_GUI=1`, `MUX_REFRESH_DEPS=1`, `MUX_SKIP_ASSETS_CLEANUP=1`
 
 Operator journey: [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md)

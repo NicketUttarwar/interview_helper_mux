@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -23,8 +24,9 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = analysis.get("gap_fill") or {}
     defaults = {
         "enabled": True,
-        "default_framing_enabled": False,
+        "default_framing_enabled": True,
         "require_explicit_opt_in": True,
+        "auto_accept_defaults": False,
         "succinct_master_default": True,
         "auto_skip_when_ineligible": True,
         "frame_confidence_min": 0.65,
@@ -33,6 +35,14 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     if isinstance(raw, dict):
         return {**defaults, **raw}
     return defaults
+
+
+def auto_accept_gap_gate_defaults_enabled(cfg: dict[str, Any] | None = None) -> bool:
+    """True for unattended / E2E runs that may apply product defaults without a human."""
+    env = os.environ.get("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "").strip().lower()
+    if env in {"1", "true", "yes", "on"}:
+        return True
+    return bool(gap_fill_cfg_block(cfg).get("auto_accept_defaults", False))
 
 
 def _run_meta(ctx: RunContext) -> dict[str, Any]:
@@ -53,7 +63,12 @@ def gap_framing_enabled(ctx: RunContext) -> bool:
     overrides = adapt.get("operator_overrides") or {}
     if "gap_framing_enabled" in overrides:
         return bool(overrides.get("gap_framing_enabled"))
-    return bool(gap_fill_cfg_block().get("default_framing_enabled", False))
+    return bool(gap_fill_cfg_block().get("default_framing_enabled", True))
+
+
+def recommended_gap_framing_enabled() -> bool:
+    """Product default offered at G-Framing (operator must still confirm unless auto-accept)."""
+    return bool(gap_fill_cfg_block().get("default_framing_enabled", True))
 
 
 def set_gap_framing_enabled(ctx: RunContext, enabled: bool) -> None:
@@ -239,6 +254,119 @@ def require_clone_consent_clear(ctx: RunContext) -> None:
         )
 
 
+def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
+    """Apply product defaults for unattended / E2E runs. Operator GUI still requires explicit choice."""
+    if not auto_accept_gap_gate_defaults_enabled():
+        return False
+
+    applied = False
+    if check_gap_framing_decision_pending(ctx):
+        enabled = recommended_gap_framing_enabled()
+        set_gap_framing_enabled(ctx, enabled)
+        applied = True
+        ctx.log(
+            f"Gap framing auto-accepted (defaults): {'enabled' if enabled else 'disabled'}",
+            level="action",
+            stage="missing_framing",
+            detail={
+                "kind": "gate",
+                "action_id": "auto.gap_framing.accept_defaults",
+                "gap_framing_enabled": enabled,
+            },
+        )
+
+    if not gap_framing_enabled(ctx):
+        return applied
+
+    from interview_mux.source_topology import (
+        check_pickup_speaker_pending,
+        confirm_pickup_speaker,
+    )
+
+    if check_pickup_speaker_pending(ctx):
+        try:
+            confirm_pickup_speaker(ctx)
+            applied = True
+            ctx.log(
+                "Pickup speaker auto-confirmed (least-spoken default)",
+                level="action",
+                stage="missing_framing",
+                detail={"kind": "gate", "action_id": "auto.adaptation.pickup_speaker"},
+            )
+        except Exception as exc:
+            ctx.log(
+                f"Pickup speaker auto-confirm skipped: {exc}",
+                level="warning",
+                stage="missing_framing",
+            )
+            return applied
+
+    if check_voice_reference_pending(ctx):
+        speaker_id = pickup_eligible_speaker_id(ctx)
+        if speaker_id:
+            try:
+                from interview_mux.voice_reference import approve_voice_reference
+
+                approve_voice_reference(ctx, speaker_id)
+                applied = True
+                ctx.log(
+                    f"Voice reference auto-approved for {speaker_id}",
+                    level="action",
+                    stage="missing_framing",
+                    detail={"kind": "gate", "action_id": "auto.voice_reference.approve"},
+                )
+            except Exception as exc:
+                ctx.log(
+                    f"Voice reference auto-approve skipped: {exc}",
+                    level="warning",
+                    stage="missing_framing",
+                )
+                return applied
+
+    if check_gap_delivery_pending(ctx):
+        from interview_mux.gap_framing import gap_vo_cfg
+
+        default = str(gap_vo_cfg().get("default_delivery", "chatterbox")).lower()
+        delivery: GapVoDelivery = "chatterbox" if default == "chatterbox" else "record"
+        set_gap_vo_delivery(ctx, delivery)
+        applied = True
+        ctx.log(
+            f"Gap VO delivery auto-accepted: {delivery}",
+            level="action",
+            stage="missing_framing",
+            detail={"kind": "gate", "action_id": "auto.gap_delivery.accept_defaults"},
+        )
+
+    if check_clone_consent_pending(ctx):
+        speaker_id = pickup_eligible_speaker_id(ctx)
+        if speaker_id:
+            try:
+                from interview_mux.mastering_voice_clone import VALID_SCOPES, grant_consent
+
+                grant_consent(
+                    ctx,
+                    speaker_id=speaker_id,
+                    scopes=list(VALID_SCOPES),
+                    granted_by="auto_accept_defaults",
+                    disclosure="none",
+                )
+                applied = True
+                ctx.log(
+                    f"Voice clone consent auto-granted for {speaker_id}",
+                    level="action",
+                    stage="missing_framing",
+                    detail={"kind": "gate", "action_id": "auto.voice_clone.consent"},
+                )
+            except Exception as exc:
+                ctx.log(
+                    f"Voice clone consent auto-grant skipped: {exc}",
+                    level="warning",
+                    stage="missing_framing",
+                )
+
+    return applied
+
+
 def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
     from interview_mux.mastering_voice_clone import consent_payload
     from interview_mux.synthesis_fallback import (
@@ -252,6 +380,7 @@ def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
         "clone_consent_pending": check_clone_consent_pending(ctx),
         "gap_framing_enabled": gap_framing_enabled(ctx),
         "gap_framing_decision_pending": check_gap_framing_decision_pending(ctx),
+        "recommended_gap_framing_enabled": recommended_gap_framing_enabled(),
         "gap_vo_delivery": resolve_gap_vo_delivery(ctx) if gap_framing_enabled(ctx) else None,
         "gap_delivery_pending": check_gap_delivery_pending(ctx),
         "voice_reference_pending": check_voice_reference_pending(ctx),
@@ -260,4 +389,5 @@ def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
         "pickup_eligible_speaker_id": pickup_eligible_speaker_id(ctx),
         "chatterbox_runtime_available": chatterbox_runtime_available(),
         "synthesis_fallback_notice": synthesis_fallback_notice(ctx),
+        "auto_accept_defaults": auto_accept_gap_gate_defaults_enabled(),
     }
