@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "modes": {
+    "conversational_host": {
+      "prefer_line_categories": ["framing_question", "story_bridge", "context_setup"],
+      "forbid_line_categories": [],
+      "prefer_grammar_moves": ["clip_then_react_vo", "interleaved_bridges", "vo_then_clip"],
+      "forbid_grammar_moves": [],
+      "sonic_density": "minimal",
+      "default_pov": "host_first_person"
+    },
+    "guide_summary": {
+      "prefer_line_categories": ["segment_summary", "extracted_context", "episode_preface", "story_bridge"],
+      "forbid_line_categories": [],
+      "prefer_grammar_moves": ["vo_then_clip", "summary_replace_setup", "act_preface_blocks"],
+      "forbid_grammar_moves": [],
+      "sonic_density": "moderate",
+      "default_pov": "host_second_person"
+    },
+    "documentary_bridge": {
+      "prefer_line_categories": ["episode_preface", "story_bridge", "extracted_context", "segment_summary"],
+      "forbid_line_categories": [],
+      "prefer_grammar_moves": ["vo_then_clip", "act_preface_blocks", "interleaved_bridges", "summary_replace_setup"],
+      "forbid_grammar_moves": [],
+      "sonic_density": "moderate",
+      "default_pov": "expository_third_person"
+    },
+    "hook_montage": {
+      "prefer_line_categories": ["episode_preface", "story_bridge", "context_setup"],
+      "forbid_line_categories": [],
+      "prefer_grammar_moves": ["cold_open_then_body", "vo_then_clip", "interleaved_bridges"],
+      "forbid_grammar_moves": [],
+      "sonic_density": "hook_forward",
+      "default_pov": "host_second_person"
+    },
+    "sparse_source": {
+      "prefer_line_categories": ["story_bridge"],
+      "forbid_line_categories": ["episode_preface", "segment_summary", "extracted_context"],
+      "prefer_grammar_moves": ["clip_then_react_vo"],
+      "forbid_grammar_moves": ["summary_replace_setup", "act_preface_blocks", "cold_open_then_body"],
+      "sonic_density": "minimal",
+      "default_pov": "host_first_person"
+    },
+    "hybrid_bespoke": {
+      "prefer_line_categories": [],
+      "forbid_line_categories": [],
+      "prefer_grammar_moves": [],
+      "forbid_grammar_moves": [],
+      "sonic_density": "moderate",
+      "default_pov": "host_second_person",
+      "requires_in_plan_matrix": true
+    }
+  }
+}

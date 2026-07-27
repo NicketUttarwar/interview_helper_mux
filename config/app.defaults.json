@@ -881,6 +881,15 @@
         "max_deep_fields": 12
       }
     },
+    "shape": {
+      "soft_gate": {
+        "enable": true,
+        "mode": "advisory",
+        "shadow_compare": true,
+        "consumers_bind": false,
+        "two_pass": true
+      }
+    },
     "quality_hardening": {
       "enabled": true,
       "context": {

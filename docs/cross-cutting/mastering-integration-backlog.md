@@ -161,3 +161,18 @@ Adds reliability gates on top of A–F. Canon: [mastering-quality-hardening.md](
 6. Closed-loop polish remux (G12, G20)
 7. Corpus + promotion gate (G21, G24, G25)
 8. Flip each gate `advisory → authoritative` one at a time
+
+---
+
+## H. Narrative excellence + 8-wave research (landed soft-gate)
+
+| # | Touchpoint | Disposition | Notes |
+|---|------------|-------------|-------|
+| H1 | `narrative_mode` / `montage_grammar` on `mastering_plan` | landed | Prefer/forbid JSON; two-pass Shape |
+| H2 | 8-wave research runtime → `research_dossier.json` | landed | Fail-open thin fields; feeds Shape |
+| H3 | Stages: research + shape agenda/candidates/synthesize/confirm + listen_delight_audit | landed | `v2/config.py` + `pipeline.py` |
+| H4 | Voice clone any on-tape speaker | landed | Prefer pickup; guest allowed with consent |
+| H5 | Listen delight / mode_consistency | landed | **Always advisory** — never block master |
+| H6 | `mastering.shape.soft_gate.*` | landed | enable/mode/shadow_compare/consumers_bind/two_pass — **no timeout/spend caps** |
+| H7 | Consumers bind (`consumers_bind`) | soft | Default false/advisory; flip after shadow evidence |
+| H8 | TBIY demotion when plan present | migrate | Hint-only |

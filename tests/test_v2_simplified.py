@@ -19,12 +19,14 @@ from interview_mux.write_staging import write_approval_enabled
 
 def test_v2_analysis_order_excludes_disfluency():
     assert "disfluency_extract" not in ANALYSIS_ORDER_V2
-    assert len(ANALYSIS_ORDER_V2) == 20
-    # +8 Refinement Pass stages (refinement_agenda, gap_framing_recompose,
-    # selection_framing_apply, ranking_refine, narrative_arc_refine,
-    # transitions_refine, sdp_intent_refine, edl_narrative_refine).
-    assert len(DELIVERY_ORDER_V2) == 21
-    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 41
+    # Includes 8-wave research + two-pass Shape soft-gate stages
+    assert "mastering_plan_synthesize" in ANALYSIS_ORDER_V2
+    assert "mastering_plan_confirm" in ANALYSIS_ORDER_V2
+    assert len(ANALYSIS_ORDER_V2) == 27
+    # +8 Refinement Pass stages + listen_delight_audit
+    assert "listen_delight_audit" in DELIVERY_ORDER_V2
+    assert len(DELIVERY_ORDER_V2) == 22
+    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 49
 
 
 def test_v2_llm_stage_count():

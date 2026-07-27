@@ -225,10 +225,9 @@ def _check_pickup_voice(
     line_ids: list[str],
     inputs: FeasibilityInputs,
 ) -> dict[str, Any]:
-    """New VO must be the pickup-eligible speaker, and cloning needs authorization.
+    """Prefer pickup-eligible speaker; consented on-tape speakers are allowed.
 
-    Guest / content-speaker cloning fails here in every mode — the ban is not
-    configurable (docs/cross-cutting/mastering-voice-clone-policy.md).
+    Non-pickup VO is editorial preference, not an absolute ban when clone_authorized.
     """
     problems: list[str] = []
     speakers = {
@@ -242,12 +241,14 @@ def _check_pickup_voice(
 
     for sid in sorted(speakers):
         if inputs.pickup_speaker_id and sid != inputs.pickup_speaker_id:
-            problems.append(
-                f"VO attributed to {sid}, which is not the pickup-eligible speaker "
-                f"({inputs.pickup_speaker_id})"
-            )
-        elif not inputs.pickup_speaker_id:
-            problems.append(f"VO attributed to {sid} but no pickup-eligible speaker is confirmed")
+            if not inputs.clone_authorized:
+                problems.append(
+                    f"VO attributed to {sid}, which is not the preferred pickup-eligible speaker "
+                    f"({inputs.pickup_speaker_id}) and clone is not authorized"
+                )
+            # else: allowed with consent — prefer pickup editorially only
+        elif not inputs.pickup_speaker_id and not inputs.clone_authorized:
+            problems.append(f"VO attributed to {sid} but no pickup speaker / clone authorization")
 
     if cold_kind in VO_COLD_OPEN_KINDS and not inputs.clone_authorized:
         problems.append(

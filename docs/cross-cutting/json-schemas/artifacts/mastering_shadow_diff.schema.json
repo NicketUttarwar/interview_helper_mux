@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringShadowDiff",
+  "type": "object",
+  "required": [
+    "version",
+    "advisory",
+    "generated_at"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "provisional_mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "confirmed_mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "legacy_structure_proxy": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "vo_density_plan": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "vo_density_air": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "exclude_overlap_ratio": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "cold_open_plan": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cold_open_present": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "delta_summary": {
+      "type": "string"
+    },
+    "would_prefer_plan": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "advisory": {
+      "type": "boolean",
+      "const": true
+    },
+    "generated_at": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

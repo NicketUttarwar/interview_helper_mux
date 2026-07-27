@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "description": "Hint → narrative_mode prior weights. Hints never override a confirmed mastering_plan.",
+  "priors": [
+    {"hint_source": "tone_class", "hint_value": "conversational", "mode": "conversational_host", "weight": 0.8},
+    {"hint_source": "tone_class", "hint_value": "journalistic", "mode": "documentary_bridge", "weight": 0.75},
+    {"hint_source": "tone_class", "hint_value": "human_interest", "mode": "guide_summary", "weight": 0.7},
+    {"hint_source": "tone_class", "hint_value": "technical", "mode": "guide_summary", "weight": 0.65},
+    {"hint_source": "tone_class", "hint_value": "investor", "mode": "conversational_host", "weight": 0.6},
+    {"hint_source": "format_class", "hint_value": "interview", "mode": "conversational_host", "weight": 0.55},
+    {"hint_source": "format_class", "hint_value": "documentary", "mode": "documentary_bridge", "weight": 0.7},
+    {"hint_source": "production_style", "hint_value": "tbiy_narrative", "mode": "hook_montage", "weight": 0.5},
+    {"hint_source": "production_style", "hint_value": "documentary_interview", "mode": "sparse_source", "weight": 0.45},
+    {"hint_source": "tape_character", "hint_value": "dense_qa", "mode": "sparse_source", "weight": 0.6},
+    {"hint_source": "tape_character", "hint_value": "story_heavy", "mode": "guide_summary", "weight": 0.65},
+    {"hint_source": "episode_pack", "hint_value": "DYN_teaser_montage", "mode": "hook_montage", "weight": 0.85},
+    {"hint_source": "episode_pack", "hint_value": "DYN_montage_glue", "mode": "hook_montage", "weight": 0.7}
+  ]
+}

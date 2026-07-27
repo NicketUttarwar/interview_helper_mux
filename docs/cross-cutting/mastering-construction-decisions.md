@@ -17,14 +17,14 @@ Every decision below is additionally subject to the [quality hardening gates](./
 |--------|------|----------|
 | `none` | Start on first ordered body segment | Always |
 | `segment_hook` | Lift a high-salience source segment to the front | Real `segment_id`; Wave-3 salience; Wave-8 intelligibility |
-| `vo_clone_open` | Opening line in **pickup-eligible** AI clone voice | Wave-2 pickup voice; Wave-5 synthesis ladder; **clone consent with `cold_open` scope**; never guest voice |
+| `vo_clone_open` | Opening line in AI clone voice (prefer pickup; any on-tape speaker with consent) | Wave-2 voice; Wave-5 synthesis; **clone consent with `cold_open` scope** |
 | `vo_plus_segment` | Clone tease → segment hook | Both above |
 
 **SFX** (independent): `{ enabled, cue_ref? }` on any non-`none` kind — opening stinger/bed from Wave-6 assets.
 
 **Evidence to cite:** thesis/value/coherence; volleys + pickup voice; VO synthesis quality; soundscape/SFX; intelligibility/lint.
 
-**Guards:** pickup-voice invariant; segment_hook not duplicated later unless `reprise=true`; if nothing clears acceptance → `none` with reason.
+**Guards:** prefer pickup voice (any on-tape speaker OK with consent); segment_hook not duplicated later unless `reprise=true`; if nothing clears acceptance → `none` with reason.
 
 **Realization:** first EDL element(s) — VO via pickup/synthesis path; segment cut from source; SFX via mix house chain before body.
 
@@ -121,3 +121,14 @@ Mirror of cold-open logic: `none` | `segment` | `vo` | `vo+sfx` — dynamically 
 ## Ensemble rule
 
 Cold open + body + VO/SFX + close must read as **one bespoke solution**. L4 and flagship synthesize reject mismatched or programmatic ensembles even if each piece is locally “valid.”
+
+
+## Narrative mode + montage grammar (`structure_candidates` / L0)
+
+**Owner:** Shape L0 + structure/vo modules (two-pass).  
+**Plan fields:** `narrative_mode`, `montage_grammar`, `listener_outcome`, `pass`, `plan_status`.
+
+See [narrative-mode-and-montage.md](./narrative-mode-and-montage.md). Prefer/forbid: [narrative-mode-prefer-forbid.json](./narrative-mode-prefer-forbid.json).
+
+**Sonic density** by mode binds SDP/MMAudio when `consumers_bind` is true.
+

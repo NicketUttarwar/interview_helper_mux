@@ -8,36 +8,91 @@
     "decisions",
     "bespoke_rationale",
     "invariants",
-    "generated_at"
+    "generated_at",
+    "narrative_mode",
+    "montage_grammar",
+    "plan_status",
+    "pass"
   ],
   "properties": {
-    "version": { "type": "integer", "const": 1 },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
     "cold_open": {
       "type": "object",
-      "required": ["kind", "rationale", "evidence_refs", "confidence"],
+      "required": [
+        "kind",
+        "rationale",
+        "evidence_refs",
+        "confidence"
+      ],
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["none", "segment_hook", "vo_clone_open", "vo_plus_segment"]
+          "enum": [
+            "none",
+            "segment_hook",
+            "vo_clone_open",
+            "vo_plus_segment"
+          ]
         },
-        "segment_id": { "type": ["string", "null"] },
-        "vo_line_id": { "type": ["string", "null"] },
-        "vo_voice_speaker_id": { "type": ["string", "null"] },
+        "segment_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vo_line_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vo_voice_speaker_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sfx": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "cue_ref": { "type": ["string", "null"] }
+            "enabled": {
+              "type": "boolean"
+            },
+            "cue_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           },
           "additionalProperties": true
         },
-        "reprise_later": { "type": "boolean" },
-        "rationale": { "type": "string" },
-        "evidence_refs": { "type": "array", "items": { "type": "string" } },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reprise_later": {
+          "type": "boolean"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "clarifying_questions": {
           "type": "array",
-          "items": { "type": "object", "additionalProperties": true }
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       },
       "additionalProperties": true
@@ -46,40 +101,182 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "decision", "rationale", "evidence_refs", "confidence"],
+        "required": [
+          "id",
+          "decision",
+          "rationale",
+          "evidence_refs",
+          "confidence"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "owner_module": { "type": "string" },
-          "decision": { "type": "object", "additionalProperties": true },
-          "rationale": { "type": "string" },
-          "evidence_refs": { "type": "array", "items": { "type": "string" } },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          "id": {
+            "type": "string"
+          },
+          "owner_module": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
         },
         "additionalProperties": true
       }
     },
     "ordered_segment_ids": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "excluded_segment_ids": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "bespoke_rationale": { "type": "string" },
+    "bespoke_rationale": {
+      "type": "string"
+    },
     "invariants": {
       "type": "object",
-      "required": ["pickup_voice_only", "never_invent_guest_evidence"],
+      "required": [
+        "never_invent_unspoken_dialogue"
+      ],
       "properties": {
-        "pickup_voice_only": { "type": "boolean", "const": true },
-        "never_invent_guest_evidence": { "type": "boolean", "const": true },
-        "pickup_eligible_speaker_id": { "type": "string" }
+        "never_invent_unspoken_dialogue": {
+          "type": "boolean",
+          "const": true
+        },
+        "prefer_pickup_voice": {
+          "type": "boolean"
+        },
+        "pickup_voice_only": {
+          "type": "boolean"
+        },
+        "pickup_eligible_speaker_id": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
-    "agenda_ref": { "type": "string" },
-    "cross_critique_ref": { "type": "string" },
-    "generated_at": { "type": "string", "format": "date-time" }
+    "agenda_ref": {
+      "type": "string"
+    },
+    "cross_critique_ref": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "narrative_mode": {
+      "type": "string",
+      "enum": [
+        "conversational_host",
+        "guide_summary",
+        "documentary_bridge",
+        "hook_montage",
+        "sparse_source",
+        "hybrid_bespoke"
+      ]
+    },
+    "montage_grammar": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "vo_then_clip",
+          "clip_then_react_vo",
+          "summary_replace_setup",
+          "cold_open_then_body",
+          "act_preface_blocks",
+          "interleaved_bridges"
+        ]
+      }
+    },
+    "plan_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "degraded",
+        "forced_sparse",
+        "absent_legacy"
+      ]
+    },
+    "pass": {
+      "type": "string",
+      "enum": [
+        "provisional",
+        "confirmed"
+      ]
+    },
+    "provisional_mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "confirmed_mode": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pov": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "listener_outcome": {
+      "type": "object",
+      "properties": {
+        "finishability": {
+          "type": "string"
+        },
+        "recommendability": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "degradation_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_packet_hash": {
+      "type": "string"
+    },
+    "hybrid_label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hybrid_prefer_forbid": {
+      "type": "object",
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MasteringListenDelightAudit",
+  "type": "object",
+  "required": [
+    "version",
+    "advisory",
+    "blocking",
+    "generated_at"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "advisory": {
+      "type": "boolean",
+      "const": true
+    },
+    "blocking": {
+      "type": "boolean",
+      "const": false
+    },
+    "narrative_mode": {
+      "type": "string"
+    },
+    "finishability": {
+      "type": "number"
+    },
+    "fatigue_risk": {
+      "type": "number"
+    },
+    "mode_audible": {
+      "type": "boolean"
+    },
+    "recommendability": {
+      "type": "number"
+    },
+    "mode_consistency": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated_at": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

@@ -13,6 +13,7 @@
 
 1. [NORTH_STAR.md](NORTH_STAR.md)
 2. [docs/cross-cutting/mastering-process.md](docs/cross-cutting/mastering-process.md) — **unified strategy** for final master construction (TBIY is heritage only)
+   - [docs/cross-cutting/narrative-mode-and-montage.md](docs/cross-cutting/narrative-mode-and-montage.md) — narrative_mode, montage grammar, two-pass Shape, FT
    - [docs/cross-cutting/mastering-quality-hardening.md](docs/cross-cutting/mastering-quality-hardening.md) — reliability gates layered on that strategy
 3. [docs/cross-cutting/volley-glossary.md](docs/cross-cutting/volley-glossary.md) — **speaker volley** vs **LLM volley**
 4. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md)

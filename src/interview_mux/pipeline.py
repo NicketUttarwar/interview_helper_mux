@@ -83,7 +83,28 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "boundary_topic_resplit": lambda: segmentation.run_boundary_topic_resplit(ctx),
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
+        "mastering_research_routing": lambda: __import__(
+            "interview_mux.mastering_research", fromlist=["run_mastering_research_routing"]
+        ).run_mastering_research_routing(ctx),
+        "mastering_research_waves": lambda: __import__(
+            "interview_mux.mastering_research", fromlist=["run_mastering_research_waves"]
+        ).run_mastering_research_waves(ctx),
+        "mastering_research_rollup": lambda: __import__(
+            "interview_mux.mastering_research", fromlist=["run_mastering_research_rollup"]
+        ).run_mastering_research_rollup(ctx),
+        "mastering_shape_agenda": lambda: __import__(
+            "interview_mux.mastering_shape_runtime", fromlist=["run_mastering_shape_agenda"]
+        ).run_mastering_shape_agenda(ctx),
+        "mastering_shape_candidates": lambda: __import__(
+            "interview_mux.mastering_shape_runtime", fromlist=["run_mastering_shape_candidates"]
+        ).run_mastering_shape_candidates(ctx),
+        "mastering_plan_synthesize": lambda: __import__(
+            "interview_mux.mastering_shape_runtime", fromlist=["run_mastering_plan_synthesize"]
+        ).run_mastering_plan_synthesize(ctx),
         "missing_framing": lambda: _run_missing_framing_stage(ctx),
+        "mastering_plan_confirm": lambda: __import__(
+            "interview_mux.mastering_shape_runtime", fromlist=["run_mastering_plan_confirm"]
+        ).run_mastering_plan_confirm(ctx),
         "gap_framing_compose": lambda: _run_gap_framing_compose_stage(ctx),
         "optimal_questions": lambda: _run_gap_framing_compose_stage(ctx),
         "delivery_brief_build": lambda: __import__(
@@ -120,6 +141,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "edl_narrative_refine": lambda: run_edl_narrative_refine(ctx),
         "edl": lambda: assembly.run_edl(ctx),
         "assembly_preview": lambda: assembly.run_preview(ctx),
+        "listen_delight_audit": lambda: __import__(
+            "interview_mux.listen_delight", fromlist=["run_listen_delight_audit"]
+        ).run_listen_delight_audit(ctx),
         "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
         "mmaudio_sfx": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
         "mix": lambda: assembly.run_mix(ctx),

@@ -132,7 +132,16 @@ def run_missing_framing(ctx: RunContext) -> None:
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "missing_framing")
-        return attach_adaptation_to_payload(c, payload)
+        payload = attach_adaptation_to_payload(c, payload)
+        try:
+            from interview_mux.mastering_shape_runtime import provisional_mode_for_volley
+
+            nm = provisional_mode_for_volley(c)
+            if nm:
+                payload["narrative_mode_priors"] = nm
+        except Exception:
+            pass
+        return payload
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
 
@@ -169,7 +178,24 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf
-        return attach_adaptation_to_payload(c, payload)
+        payload = attach_adaptation_to_payload(c, payload)
+        try:
+            from interview_mux.mastering_plan_loader import best_available_mode, validate_or_degrade
+            from interview_mux.narrative_mode import prefer_forbid_volley_block
+
+            plan = validate_or_degrade(c)
+            mode = best_available_mode(plan)
+            payload["mastering_plan_summary"] = {
+                "narrative_mode": mode,
+                "pass": plan.get("pass"),
+                "plan_status": plan.get("plan_status"),
+                "montage_grammar": plan.get("montage_grammar"),
+                "pov": plan.get("pov"),
+            }
+            payload["narrative_mode_priors"] = prefer_forbid_volley_block(mode, plan)
+        except Exception:
+            pass
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         from interview_mux.artifact_repairs import repair_gap_report

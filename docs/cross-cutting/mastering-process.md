@@ -2,9 +2,11 @@
 
 > **One interview → one bespoke `master/master.wav`.** Structure emerges from source + assets + operator intent — never from a fixed template.
 
-**TBIY heritage:** [tbiy-production-profile.md](./tbiy-production-profile.md) was the original Wondery-style compass. The Mastering Process **evolves past TBIY**. Five-act / moat / dual-voice are optional tools when evidence supports them — not an enforced compass. Useful TBIY discipline retained: **pickup-eligible (least-spoken) voice only for new VO**; never invent guest evidence; speech-wins ducking under speaker volleys.
+**TBIY heritage:** [tbiy-production-profile.md](./tbiy-production-profile.md) was the original Wondery-style compass. The Mastering Process **evolves past TBIY**. Five-act / moat / dual-voice are optional tools when evidence supports them — not an enforced compass. Useful TBIY discipline retained: **prefer pickup-eligible (least-spoken) voice for new VO** (any on-tape speaker allowed with consent when needed); never invent unspoken dialogue; speech-wins ducking under speaker volleys.
 
 **Reliability layer:** [mastering-quality-hardening.md](./mastering-quality-hardening.md) — routing, evidence packets, diversity, feasibility, semantic integrity, clone consent, auditions, multi-critic L4, Pareto, closed-loop polish. Gates default to `advisory` and fail open.
+
+**Narrative excellence:** [narrative-mode-and-montage.md](./narrative-mode-and-montage.md) — two-pass Shape (`narrative_mode` + `montage_grammar`), 8-wave research dossier, listen delight always advisory.
 
 **Related:** [mastering-research-fields.md](./mastering-research-fields.md) · [mastering-shape-engine.md](./mastering-shape-engine.md) · [mastering-construction-decisions.md](./mastering-construction-decisions.md) · [mastering-integration-backlog.md](./mastering-integration-backlog.md) · [mix-house-chain.md](./mix-house-chain.md) · [volley-glossary.md](./volley-glossary.md)
 
@@ -41,8 +43,9 @@ Research lane (8 waves / 38 fields, dynamically routed)
 4. Bespoke, not programmatic
 5. Non-repetitive
 6. Best *ensemble* (cold open + body + VO/SFX + close)
-7. Convey real knowledge (no invented guest speech)
+7. Convey real knowledge (no invented unspoken dialogue)
 8. Impressive when earned (restraint otherwise)
+9. **Worth finishing / lovable when earned** — finishability and recommendability (always advisory; never hard-block master)
 
 ---
 
@@ -133,12 +136,13 @@ Until cutover: if `mastering_plan` is missing, fall back to today’s ranking pa
 
 ## Hard invariants
 
-- New VO only on **pickup-eligible** (least-spoken) speaker
-- Never invent guest / content-speaker evidence
+- Prefer **pickup-eligible** speaker for new VO; **any on-tape speaker** allowed with consent when needed
+- Never invent unspoken dialogue / false attributed claims
 - Locked **speaker volleys** stay intact through EDL
 - Mechanical loudness QC unchanged (`verify_master`)
-- Voice cloning requires consent + approved reference + scope; guest cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
+- Voice cloning requires consent + approved reference + scope; off-tape cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
 - No candidate reaches synthesize while infeasible or carrying a critical semantic-integrity finding
+- Listen delight / mode_consistency never block `master_finalize`
 
 ---
 

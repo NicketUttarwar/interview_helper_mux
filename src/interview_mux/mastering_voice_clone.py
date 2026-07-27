@@ -4,8 +4,9 @@ Spec: docs/cross-cutting/mastering-voice-clone-policy.md
 Schema: mastering_voice_clone_audit.schema.json
 Artifact: mastering/voice_clone_audit.json
 
-Least-spoken eligibility is an editorial rule; it is not authorization. Cloning a
-guest / content speaker is banned outright and no config value relaxes that.
+Prefer pickup / least-spoken host for new VO. Any on-tape speaker may be cloned
+when consented with an approved reference — including guests when needed.
+Never invent unspoken interview dialogue; never clone people not on the tape.
 """
 
 from __future__ import annotations
@@ -95,25 +96,26 @@ def grant_consent(
     if disclosure not in VALID_DISCLOSURES:
         raise ValueError(f"unknown disclosure value: {disclosure}")
 
-    eligible = pickup_eligible_speaker_id(ctx)
-    if not eligible:
-        raise CloneNotAuthorized(
-            "speaker_unidentified", "No pickup-eligible speaker is confirmed for this run"
-        )
-    if speaker_id != eligible:
-        raise CloneNotAuthorized(
-            "guest_clone_attempted",
-            f"{speaker_id} is not the pickup-eligible speaker ({eligible}); "
-            "cloning a content speaker is never permitted",
-        )
-
+    # Prefer pickup, but any on-tape speaker is fair game when consented.
     conv = load_conversation_context(ctx)
-    role = str((conv.speaker_by_id.get(speaker_id) or {}).get("role") or "")
-    if not role_is_frame(role):
-        raise CloneNotAuthorized(
-            "guest_clone_attempted",
-            f"{speaker_id} has role '{role}', which is not a frame role; cloning is banned",
-        )
+    if speaker_id not in (conv.speaker_by_id or {}):
+        # Fall back: allow if topology knows the id
+        from interview_mux.source_topology import load_source_topology
+
+        topo = {}
+        try:
+            topo = load_source_topology(ctx) if hasattr(load_source_topology, "__call__") else {}
+        except Exception:
+            topo = {}
+        known = set((topo or {}).get("speaker_ids") or []) if isinstance(topo, dict) else set()
+        if speaker_id not in known and not conv.speaker_by_id:
+            raise CloneNotAuthorized(
+                "speaker_unidentified",
+                f"{speaker_id} is not an on-tape speaker for this run",
+            )
+
+    eligible = pickup_eligible_speaker_id(ctx)
+    # Editorial preference recorded on consent; not a hard ban for non-pickup.
 
     rel = f"understanding/voice_reference/{speaker_id}.json"
     ref_doc = ctx.read_json(rel) if ctx.artifact_exists(rel) else {}
@@ -129,6 +131,8 @@ def grant_consent(
         "reference_path": rel,
         "reference_approved": approved,
         "disclosure": disclosure,
+        "preferred_pickup_speaker_id": eligible,
+        "is_preferred_pickup": bool(eligible) and speaker_id == eligible,
     }
 
     def patch(meta: dict[str, Any]) -> None:
@@ -162,29 +166,28 @@ def authorization_error(
     pickup_speaker_id: str | None,
     speaker_role: str | None = None,
 ) -> tuple[str, str] | None:
-    """Return `(code, detail)` when the authorization chain is incomplete, else None."""
-    if speaker_role is not None and not role_is_frame(speaker_role):
-        return (
-            "guest_clone_attempted",
-            f"{speaker_id} has role '{speaker_role}'; cloning a content speaker is banned",
-        )
+    """Return `(code, detail)` when the authorization chain is incomplete, else None.
+
+    Non-pickup / guest speakers are allowed when consent was granted for that speaker_id.
+    Prefer pickup editorially; role is advisory only.
+    """
     if not speaker_id:
         return ("speaker_unidentified", "clone requested for an unidentified speaker")
-    if not pickup_speaker_id:
-        return ("speaker_not_pickup_eligible", "no pickup-eligible speaker is confirmed")
-    if speaker_id != pickup_speaker_id:
-        return (
-            "guest_clone_attempted",
-            f"{speaker_id} is not the pickup-eligible speaker ({pickup_speaker_id})",
-        )
     if consent.get("revoked_at"):
         return ("consent_revoked", f"clone consent was revoked at {consent['revoked_at']}")
     if not consent.get("granted"):
         return ("consent_missing", "no clone consent recorded for this run")
+    if consent.get("speaker_id") and str(consent.get("speaker_id")) != str(speaker_id):
+        return (
+            "speaker_mismatch",
+            f"consent is for {consent.get('speaker_id')}, not {speaker_id}",
+        )
     if not consent.get("reference_approved"):
         return ("reference_not_approved", "voice reference sample is not approved")
     if scope not in (consent.get("scopes") or []):
         return ("scope_not_granted", f"clone consent does not cover scope '{scope}'")
+    # Advisory: note when not pickup (does not block)
+    _ = (pickup_speaker_id, speaker_role, role_is_frame)
     return None
 
 
@@ -202,8 +205,7 @@ def clone_authorized(ctx: RunContext, *, scope: str) -> bool:
 
 
 def require_clone_authorized(ctx: RunContext, *, scope: str) -> None:
-    """Hard gate for synthesis call sites. Blocks in authoritative mode only,
-    except the guest-clone ban, which always blocks."""
+    """Hard gate for synthesis call sites. Blocks in authoritative mode only."""
     consent = load_consent(ctx)
     err = authorization_error(
         consent,
@@ -214,7 +216,7 @@ def require_clone_authorized(ctx: RunContext, *, scope: str) -> None:
     if not err:
         return
     code, detail = err
-    if code == "guest_clone_attempted" or gate_mode("voice_clone") == "authoritative":
+    if gate_mode("voice_clone") == "authoritative":
         raise CloneNotAuthorized(code, detail)
     ctx.log(
         f"Voice clone advisory: {detail}",

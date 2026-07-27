@@ -1,4 +1,4 @@
-"""Voice-clone consent: guest cloning is banned; consent is required for vo_clone_*."""
+"""Voice-clone consent: prefer pickup; any on-tape speaker allowed with consent."""
 
 from __future__ import annotations
 
@@ -68,14 +68,20 @@ def _seed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     return ctx
 
 
-def test_guest_clone_is_always_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_guest_clone_allowed_with_on_tape_speaker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Any on-tape speaker may receive consent; prefer pickup but guest is not banned."""
     ctx = _seed_run(tmp_path, monkeypatch)
-    with pytest.raises(CloneNotAuthorized) as exc:
-        grant_consent(ctx, speaker_id="spk_guest", scopes=["cold_open"])
-    assert exc.value.code == "guest_clone_attempted"
+    ctx.write_json(
+        "understanding/voice_reference/spk_guest.json",
+        {"speaker_id": "spk_guest", "approved": True, "approved_at": "2026-01-01T00:00:00Z"},
+        skip_handoff=True,
+    )
+    consent = grant_consent(ctx, speaker_id="spk_guest", scopes=["cold_open"])
+    assert consent["speaker_id"] == "spk_guest"
+    assert consent.get("is_preferred_pickup") is False
 
 
-def test_authorization_rejects_content_role_even_with_matching_id():
+def test_authorization_allows_content_role_when_consented():
     err = authorization_error(
         {
             "granted": True,
@@ -85,11 +91,10 @@ def test_authorization_rejects_content_role_even_with_matching_id():
         },
         speaker_id="spk_guest",
         scope="cold_open",
-        pickup_speaker_id="spk_guest",
+        pickup_speaker_id="spk_host",
         speaker_role="interviewee",
     )
-    assert err is not None
-    assert err[0] == "guest_clone_attempted"
+    assert err is None
 
 
 def test_consent_required_for_vo_clone_cold_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -156,7 +161,7 @@ def test_feasibility_blocks_unconsented_vo_clone_open():
     assert any("consent" in r.lower() or "clone" in r.lower() for r in row["blocking_reasons"])
 
 
-def test_feasibility_blocks_guest_speaker_on_vo_line():
+def test_feasibility_allows_consented_non_pickup_vo_line():
     candidate = {
         "candidate_id": "c1",
         "cold_open": {"kind": "none", "rationale": "x", "evidence_refs": ["a"], "confidence": 0.5},
@@ -171,5 +176,5 @@ def test_feasibility_blocks_guest_speaker_on_vo_line():
         clone_authorized=True,
     )
     row = check_candidate(candidate, inputs)
-    assert row["verdict"] == "fail"
-    assert any("pickup" in r.lower() for r in row["blocking_reasons"])
+    # Prefer pickup is editorial; consented non-pickup must not hard-fail solely for speaker class
+    assert row["verdict"] != "fail" or not any("pickup" in r.lower() for r in row["blocking_reasons"])
