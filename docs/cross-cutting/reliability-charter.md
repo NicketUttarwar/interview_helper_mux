@@ -1,24 +1,24 @@
 # Reliability charter — voice + pipeline guardrails
 
-Holistic reliability for gap framing, Chatterbox synthesis, and Flow 1 delivery. Operator gates remain the primary control surface; automation degrades gracefully rather than blocking `master/master.wav`.
+Holistic reliability for gap framing, Chatterbox synthesis, and Flow 1 delivery. Operator gates remain the primary control surface. **Irreparable major failures hard-stop** with operator-visible logs (Activity / `gui_log.jsonl` / terminal) rather than silently skipping VO.
 
-## Voice degradation ladder
+## Voice failure posture
 
 ```mermaid
 flowchart TD
     CB[Chatterbox zero-shot]
-    MLX[mlx-audio S2S fallback]
+    MLX[mlx-audio S2S]
+    STOP[Hard stop + loud logs]
     REC[Operator record/upload]
-    SKIP[Skip line G1 optional]
     SRC[Source-only G-Framing No]
-    CB -->|fail_open| MLX
-    MLX -->|fail_open| REC
-    REC -->|skip_optional| SKIP
-    SKIP --> SRC
-    CB -->|both fail| REC
+    CB -->|fail_open true| MLX
+    CB -->|default fail_open false| STOP
+    MLX -->|fallback_to_manual true| REC
+    MLX -->|default false| STOP
+    SRC --> Master[Continue master from segments]
 ```
 
-When Chatterbox and mlx-audio both fail (or Chatterbox runtime is missing at G-Delivery), the run **automatically switches to manual record/upload** at G1. Operators see `run_meta.synthesis_fallback_notice`; the pipeline continues.
+Shipped defaults: `gap_vo.fail_open=false`, `gap_vo.fallback_to_manual_on_failure=false`, `gap_fill.auto_skip_when_ineligible=false`. Explicit operator **No** at G-Framing still skips VO intentionally. Opt-in knobs restore the legacy degrade-and-continue ladder.
 
 ## QC tiers
 
@@ -29,13 +29,15 @@ When Chatterbox and mlx-audio both fail (or Chatterbox runtime is missing at G-D
 | Framing guards | `framing_coverage_guard` after ranking | Strict on primary impact / topic survival |
 | EDL narrative QC | `edl_narrative_qc` at `edl` | `strict: true` |
 | Master verify | `verify_master` LUFS/TP | Release checklist |
+| Loud fail | `loud_fail.raise_loud_failure` | Hard-stop irreparable VO / eligibility failures |
 
 ## Config knob index
 
 | Key block | Purpose |
 |-----------|---------|
 | `analysis.gap_framing.*` | Word caps, exclusion ratio, topic survival, framing-before-impact |
-| `analysis.gap_vo.*` | Chatterbox default, fail-open, reference length, post-synthesis QC |
+| `analysis.gap_vo.*` | Chatterbox default, fail-open (off), manual fallback (off), reference length |
+| `analysis.gap_fill.auto_skip_when_ineligible` | Legacy silent skip when framing ineligible (default **false** = hard-stop) |
 | `edl_narrative_qc.*` | Strict EDL checks, synthesized VO requirement, framing alignment |
 
 See `docs/cross-cutting/config-keys.md` for full key list.
@@ -49,6 +51,6 @@ See `docs/cross-cutting/config-keys.md` for full key list.
 1. `./tools/check_prerequisites.sh` (includes Chatterbox WARN in `verify_local_models.sh`)
 2. Gap path smoke: `docs/workflows/smoke-test.md`
 3. `./scripts/verify_artifact_contract.sh`
-4. Targeted pytest: gap framing, synthesis report, EDL QC, framing guard
+4. Targeted pytest: gap framing, synthesis report, EDL QC, framing guard, `test_loud_fail`, `test_synthesis_fallback`
 
 Related: [chatterbox-interviewer-vo.md](chatterbox-interviewer-vo.md), [operator-gates.md](../workflows/operator-gates.md).

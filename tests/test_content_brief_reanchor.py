@@ -14,7 +14,9 @@ def test_analysis_order_includes_content_brief_reanchor():
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert reanchor_idx == seg_idx + 1
     assert resplit_idx == reanchor_idx + 1
-    assert sonic_idx == resplit_idx + 1
+    sanitize_idx = ANALYSIS_ORDER.index("vernacular_segment_sanitize")
+    assert sanitize_idx == resplit_idx + 1
+    assert sonic_idx == sanitize_idx + 1
     assert pal_idx == sonic_idx + 1
 
 

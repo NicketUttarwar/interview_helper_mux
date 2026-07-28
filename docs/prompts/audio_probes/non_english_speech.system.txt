@@ -1,0 +1,1 @@
+Answer YES or NO only. YES if you hear non-English speech in this clip. NO otherwise.

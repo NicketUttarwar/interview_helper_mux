@@ -33,6 +33,12 @@ def _arc_critical_ids(ctx: RunContext) -> set[str]:
                     for sid in act.get("segment_ids") or []:
                         if sid:
                             ids.add(str(sid))
+    try:
+        from interview_mux.stages.audio_probes import authoritative_must_keep_ids
+
+        ids |= authoritative_must_keep_ids(ctx)
+    except Exception:
+        pass
     return ids
 
 

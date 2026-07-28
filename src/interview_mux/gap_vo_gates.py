@@ -28,7 +28,7 @@ def gap_fill_cfg_block(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "require_explicit_opt_in": True,
         "auto_accept_defaults": False,
         "succinct_master_default": True,
-        "auto_skip_when_ineligible": True,
+        "auto_skip_when_ineligible": False,
         "frame_confidence_min": 0.65,
         "hide_gui_stages_when_skipped": True,
     }

@@ -37,6 +37,8 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [cross-cutting/tbiy-production-profile.md](./cross-cutting/tbiy-production-profile.md) — TBIY heritage (superseded as strategy)
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — pinned deps, CVE gate
 - [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — DeepFilterNet + MMAudio + CLAP
+- [cross-cutting/vernacular-evidence-covenant.md](./cross-cutting/vernacular-evidence-covenant.md) — audio probe platform + vernacular must_keep
+- [cross-cutting/multilingual-support.md](./cross-cutting/multilingual-support.md) — same-language master plan (broader)
 - [cross-cutting/speech-to-speech-vo.md](./cross-cutting/speech-to-speech-vo.md) — S2S gap VO (R&D): synthesis, VC, prosody, tone
 - [cross-cutting/chatterbox-interviewer-vo.md](./cross-cutting/chatterbox-interviewer-vo.md) — Chatterbox zero-shot gap VO + degradation ladder
 - [cross-cutting/reliability-charter.md](./cross-cutting/reliability-charter.md) — holistic guardrails, QC tiers, config index

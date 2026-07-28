@@ -42,7 +42,57 @@ def transcript_quality_for_ctx(ctx: RunContext) -> dict[str, Any]:
         try:
             q = ctx.read_json("transcript/review_queue.json")
             if isinstance(q, dict):
-                out["review_queue_size"] = len(q.get("items") or [])
+                chunks = q.get("chunks") if isinstance(q.get("chunks"), list) else None
+                items = q.get("items") if isinstance(q.get("items"), list) else None
+                out["review_queue_size"] = len(chunks if chunks is not None else (items or []))
+        except Exception:
+            pass
+    if ctx.artifact_exists("analysis/run_golden_facts.json"):
+        try:
+            gf = ctx.read_json("analysis/run_golden_facts.json")
+            if isinstance(gf, dict):
+                run = gf.get("run") if isinstance(gf.get("run"), dict) else {}
+                out["golden_facts"] = {
+                    k: run.get(k)
+                    for k in (
+                        "has_in_flow_vernacular",
+                        "has_non_english_spans",
+                        "has_uncommon_english",
+                        "has_high_passion",
+                        "has_pull_quote",
+                        "has_affect_burst",
+                        "has_crosstalk",
+                        "has_bleed",
+                        "has_unintelligible",
+                        "has_payoff",
+                        "has_sensitive_disclosure",
+                        "enforcement_mode",
+                        "vernacular_must_keep_segment_ids",
+                        "special_keywords",
+                        "special_speaker_flow_ids",
+                    )
+                    if k in run
+                }
+        except Exception:
+            pass
+    if ctx.artifact_exists("transcript/protected_zones.json"):
+        try:
+            pz = ctx.read_json("transcript/protected_zones.json")
+            if isinstance(pz, dict):
+                zones = pz.get("zones") or []
+                out["protected_zones_summary"] = [
+                    {
+                        "zone_id": z.get("zone_id"),
+                        "speaker_flow_id": z.get("speaker_flow_id"),
+                        "start_ms": z.get("start_ms"),
+                        "end_ms": z.get("end_ms"),
+                        "keywords": (z.get("keywords") or [])[:8],
+                        "segment_ids": z.get("segment_ids") or [],
+                        "retention": z.get("retention"),
+                    }
+                    for z in zones
+                    if isinstance(z, dict)
+                ][:40]
         except Exception:
             pass
     return out

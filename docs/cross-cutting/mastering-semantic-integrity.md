@@ -12,6 +12,7 @@ Module: `src/interview_mux/mastering_semantic_integrity.py` · Artifact: `master
 
 | Class id | Severity | What it catches |
 |----------|----------|-----------------|
+| `vernacular_evidence_dropped` | critical | Master candidate omits authoritative vernacular must_keep children |
 | `quote_out_of_context` | critical | Hook lifts a clause whose meaning inverts without its neighbours (negation, conditional, hypothetical, quoting someone else) |
 | `causality_reversal` | critical | Reorder makes an effect precede its stated cause |
 | `false_reaction_adjacency` | critical | A reaction is placed against a statement it never responded to |

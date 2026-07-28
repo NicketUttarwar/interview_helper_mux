@@ -146,7 +146,8 @@ Interviews may use British, American, Indian, Australian, African, Caribbean, or
 - **Spelling and idiom:** Preserve the interviewee's dialect in quoted or paraphrased claims; do not Americanize or Anglicize their words in artifacts unless the operator profile locks a house style.
 - **Comprehension bar:** Judge self-explanatory segments for a general English podcast listener — not a transcript perfectionist. STT artifacts (homophones, missing articles, dialect particles like "yeah no" or "innit") do not by themselves create gaps unless meaning is lost.
 - **Names and titles:** Use diacritics and non-ASCII names when present in transcript; do not guess anglicized spellings.
-- **Code-switching:** When speakers mix English with another language, treat untranslated phrases as potential `missing_definition` only if the rest of the answer depends on understanding that phrase; note code-switch in segment flags or reasoning, not as error.
+- **Code-switching / vernacular:** When `transcript_quality.golden_facts.has_in_flow_vernacular` is true, treat listed protected zones and special child `segment_ids` as **binding evidence** — do not drop, anglicize, or “clean away” those words. Prefer citing special children. Do **not** default code-switches to `missing_definition` VO that replaces guest/host audio; gloss may sit beside source text. Low model understanding of a special zone is a reason to keep and escalate, not omit.
+- **Audio probe facts:** When `transcript_quality.golden_facts` is present, honor pack flags (passion, speech_act, crosstalk, nonliteral, payoff, sensitive, etc.) in claims, beats, gaps, and ranking rationale.
 - **Panel and broadcast formats:** `format_class: panel` allows cross-guest references without repeating full intros; `media_profile` and `fireside` tolerate lighter framing; `technical_deep_dive` and `debate` require stricter definitional clarity.
 - **Quality bar:** Reject generic filler themes ("leadership journey", "passion for innovation") unless anchored to specific claims, segments, or emotional beats in the evidence.
 
@@ -156,6 +157,7 @@ Adapt stage behavior when `style.format_class` is present in the profile slice (
 
 When stage input includes `transcript_quality`:
 
+- **`golden_facts` / `protected_zones_summary`** — audio-probe platform run truths and vernacular zones. Treat `retention: must_keep` and special keywords as binding; do not invent English replacements for protected speech.
 - **`flagged_chunks`** — regions with low STT confidence, diarization mismatch, or operator flags. Lower confidence on claims, boundaries, and gap evaluations tied to those times; cite chunk ids in `reasoning_summary` when they affect output.
 - **`warnings`** — pipeline-level issues (missing timestamps, crosstalk density, truncated tail). Do not invent words to repair gaps; prefer `needs` or `follow_up_investigations` over hallucination.
 - **`dialect_hint`** — optional locale register (e.g. `en-GB`, `en-IN`, `en-US`, `en-AU`, `mixed`). Use for comprehension judgment only; do not relabel speakers or rewrite quotes.

@@ -16,7 +16,13 @@ PHASES: list[dict[str, Any]] = [
         "id": "prepare",
         "label": "Prepare",
         "description": "Normalize audio, transcribe, build transcript review queue.",
-        "stages": ["audio_preclean", "ingest", "transcribe", "transcript_review_build"],
+        "stages": [
+            "audio_preclean",
+            "ingest",
+            "transcribe",
+            "audio_probe_build",
+            "transcript_review_build",
+        ],
         "gate": None,
     },
     {
@@ -40,6 +46,7 @@ PHASES: list[dict[str, Any]] = [
             "segment_classification",
             "content_brief_reanchor",
             "boundary_topic_resplit",
+            "vernacular_segment_sanitize",
             "sonic_context_build",
             "sound_design_palettes",
             "delivery_brief_build",

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run_golden_facts.schema.json",
+  "type": "object",
+  "required": ["version", "facts", "run"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string" },
+    "source": { "type": "string" },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fact_id", "key", "status"],
+        "properties": {
+          "fact_id": { "type": "string" },
+          "scope": { "type": "string" },
+          "type": { "type": "string" },
+          "key": { "type": "string" },
+          "value": {},
+          "confidence": { "type": "number" },
+          "status": { "type": "string" },
+          "subject_id": { "type": "string" },
+          "evidence": { "type": "object" }
+        }
+      }
+    },
+    "run": { "type": "object" },
+    "conflicts": { "type": "array" },
+    "meta": { "type": "object" }
+  },
+  "additionalProperties": true
+}

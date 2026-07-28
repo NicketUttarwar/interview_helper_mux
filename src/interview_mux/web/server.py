@@ -2275,16 +2275,17 @@ def create_app() -> FastAPI:
                     "g1_missing": check_g1_vo(ctx),
                 }
             except Exception as exc:
-                block = (merged_config().get("local_speech") or {})
-                if block.get("fail_open", True):
-                    ctx.log(
-                        f"S2S synthesize fail-open for {line_id}: {exc}",
-                        level="warning",
-                        stage="g1_vo_pickup",
-                        action_id="gui.g1.vo.synthesize",
-                    )
-                    raise HTTPException(503, str(exc)) from exc
-                raise HTTPException(500, str(exc)) from exc
+                from interview_mux.loud_fail import LoudStageFailure
+
+                ctx.log(
+                    f"VO synthesis failed for {line_id}: {exc}",
+                    level="error",
+                    stage="g1_vo_pickup",
+                    action_id="gui.g1.vo.synthesize",
+                    detail={"line_id": line_id, "hard_stop": True},
+                )
+                status = 503 if isinstance(exc, LoudStageFailure) else 500
+                raise HTTPException(status, str(exc)) from exc
             ctx.log(
                 f"S2S synthesized vo_pickup/{out.name}",
                 level="success",
@@ -2702,10 +2703,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(404, "gap_report.json not found")
             report = ctx.read_json("understanding/gap_report.json")
             from interview_mux import s2s_runner
+            from interview_mux.loud_fail import LoudStageFailure
             from interview_mux.synthesis_fallback import SynthesisFallbackToManual
 
             synthesized: list[str] = []
-            errors: list[str] = []
             fallbacks: list[dict[str, Any]] = []
             for line in report.get("interviewer_lines") or []:
                 if not isinstance(line, dict):
@@ -2719,15 +2720,31 @@ def create_app() -> FastAPI:
                     s2s_runner.synthesize_line(ctx, line, mode="synthesize")
                     synthesized.append(lid)
                 except SynthesisFallbackToManual as fb:
+                    # Opt-in legacy path only (fallback_to_manual_on_failure=true).
                     fallbacks.append({"line_id": lid, "notice": fb.notice})
                 except Exception as exc:
-                    errors.append(f"{lid}: {exc}")
+                    ctx.log(
+                        f"Batch VO synthesis hard-stopped at {lid or 'line'}: {exc}",
+                        level="error",
+                        stage="g1_vo_pickup",
+                        action_id="gui.g1.vo.synthesize_all",
+                        detail={
+                            "line_id": lid,
+                            "synthesized_before_fail": synthesized,
+                            "hard_stop": True,
+                        },
+                    )
+                    refresh_journey_meta(ctx)
+                    raise HTTPException(
+                        500 if not isinstance(exc, LoudStageFailure) else 503,
+                        f"VO synthesis failed for {lid or 'line'}: {exc}",
+                    ) from exc
             refresh_journey_meta(ctx)
             notice = fallbacks[-1]["notice"] if fallbacks else None
             return {
-                "ok": not errors,
+                "ok": True,
                 "synthesized": synthesized,
-                "errors": errors,
+                "errors": [],
                 "fallbacks": fallbacks,
                 "fallback": "record" if fallbacks else None,
                 "notice": notice,

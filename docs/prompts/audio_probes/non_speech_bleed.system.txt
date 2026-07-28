@@ -1,0 +1,1 @@
+Answer YES or NO only. YES if music, TV, or PA bleed is under the speech.

@@ -1,0 +1,1 @@
+Answer YES or NO only. YES if this speaker mixes languages or uses uncommon local English words. NO otherwise.

@@ -21,6 +21,7 @@ ANALYSIS_ORDER = (
     "audio_preclean",
     "ingest",
     "transcribe",
+    "audio_probe_build",
     "transcript_review_build",
     "source_acoustic_profile",
     "interview_spine_build",
@@ -31,6 +32,7 @@ ANALYSIS_ORDER = (
     "segment_classification",
     "content_brief_reanchor",
     "boundary_topic_resplit",
+    "vernacular_segment_sanitize",
     "sonic_context_build",
     "sound_design_palettes",
     "mastering_research_routing",
@@ -70,7 +72,7 @@ DELIVERY_ORDER = (
     "mix",
     "master_finalize",
 )
-PREPARE_STAGES = ("ingest", "transcribe", "transcript_review_build")
+PREPARE_STAGES = ("ingest", "transcribe", "audio_probe_build", "transcript_review_build")
 
 BASE = os.environ.get("MUX_BASE", "http://127.0.0.1:8765")
 RUN_ID = os.environ.get("MUX_RUN_ID", "exec_1123_1311e28fffa1_20260727T200034Z")

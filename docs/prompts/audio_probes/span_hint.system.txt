@@ -1,0 +1,1 @@
+Reply SPANS: then mm:ss-mm:ss ranges relative to this clip where special language or uncommon English occurs.

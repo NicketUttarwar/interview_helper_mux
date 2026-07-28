@@ -110,6 +110,13 @@ def run_pre_critique_gates(
 
     if gate_runs("semantic_integrity", cfg):
         inputs = integrity_inputs or integrity_mod.IntegrityInputs()
+        if ctx is not None and not inputs.vernacular_must_keep_segment_ids:
+            try:
+                from interview_mux.stages.audio_probes import authoritative_must_keep_ids
+
+                inputs.vernacular_must_keep_segment_ids = authoritative_must_keep_ids(ctx)
+            except Exception:
+                pass
         report = integrity_mod.build_integrity_report(result.candidates, inputs, cfg=cfg)
         result.semantic_integrity = report
         if ctx is not None:

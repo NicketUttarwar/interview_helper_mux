@@ -144,7 +144,7 @@ def synthesize_line(
                     return out
             except Exception as exc:
                 block = gap_vo_cfg()
-                if block.get("fail_open", True) and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
+                if block.get("fail_open", False) and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
                     ctx.log(
                         f"Chatterbox fail-open → mlx-audio: {exc}",
                         level="warning",

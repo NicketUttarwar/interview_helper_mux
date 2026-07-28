@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
+import { formatApiError } from "../../utils/safeApi";
 import { isV2Enabled } from "../../utils/v2Phases";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
@@ -108,14 +109,16 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
         synthesized?: string[];
       }>(`/api/runs/${runId}/g1/synthesize-all`, { method: "POST" });
       if (res.fallback === "record" && res.notice) {
-        showToast(res.notice, "info");
-        appendClientLog(res.notice, "warning", "g1_vo_pickup");
+        showToast(res.notice, "error");
+        appendClientLog(res.notice, "error", "g1_vo_pickup");
       } else {
         showToast("Batch synthesis complete.");
       }
       await refreshRun();
-    } catch {
-      showToast("Batch synthesis partially failed — record or upload instead.");
+    } catch (e) {
+      const msg = formatApiError(e, "Batch VO synthesis failed — pipeline stopped.");
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "g1_vo_pickup");
     } finally {
       setSynthLine(null);
     }
@@ -131,14 +134,16 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
         { method: "POST" },
       );
       if (res.fallback === "record" && res.notice) {
-        showToast(res.notice, "info");
-        appendClientLog(res.notice, "warning", "g1_vo_pickup");
+        showToast(res.notice, "error");
+        appendClientLog(res.notice, "error", "g1_vo_pickup");
       } else {
         showToast(`Synthesized VO for ${lineId}.`);
       }
       await refreshRun();
-    } catch {
-      showToast("Synthesis unavailable — record or upload instead.");
+    } catch (e) {
+      const msg = formatApiError(e, `VO synthesis failed for ${lineId} — pipeline stopped.`);
+      showToast(msg, "error");
+      appendClientLog(msg, "error", "g1_vo_pickup");
     } finally {
       setSynthLine(null);
     }

@@ -97,8 +97,8 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.never_exclude_primary_impact` | `framing_coverage_guard` | Block excluding sole primary impact segment (default **true**) |
 | `analysis.gap_framing.require_topic_survival` | `framing_coverage_guard` | Block exclusions that zero out a brief topic (default **true**) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
-| `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **true**) |
-| `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **true**) |
+| `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
+| `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
 | `analysis.gap_vo.timbre_match.enabled` | `timbre_match`, G1 `/match` endpoint | Enables deterministic spectral/loudness matching of an operator take; never synthesizes replacement words |
 | `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Optional duration QC + mlx retry when `auto_fallback_on_qc_fail` |
@@ -297,7 +297,7 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO �
 | `analysis.gap_fill.default_framing_enabled` | `true` | G-Framing recommends No; product default is Yes + voice-cloned least-spoken host |
 | `analysis.gap_fill.require_explicit_opt_in` | `true` | Framing decision may be treated as settled without operator confirm |
 | `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / least-spoken / Chatterbox without human input |
-| `analysis.gap_fill.auto_skip_when_ineligible` | `true` | Ineligible sources still spend LLM on gap-fill |
+| `analysis.gap_fill.auto_skip_when_ineligible` | `false` | When false (default), ineligible framing with G-Framing Yes hard-stops; set true for legacy silent skip |
 | `analysis.gap_fill.frame_confidence_min` | `0.65` | Frame-speaker threshold for eligibility |
 | `analysis.gap_fill.hide_gui_stages_when_skipped` | `false` | If `true`, skipped gap stages are hidden from the step list (legacy v2 behavior; Refinement Pass keeps the full step list always visible) |
 
@@ -907,13 +907,34 @@ Local mlx-audio STT + S2S — [speech-to-speech-vo.md](./speech-to-speech-vo.md)
 |-----|---------|----------|
 | `local_speech.enabled` | `true` | STT stage fails on arm64 when disabled |
 | `local_speech.models_dir` | `ASSETS/local_speech/models` | HF weights cache location |
-| `local_speech.fail_open` | `true` | S2S errors block G1 when `false` |
+| `local_speech.fail_open` | `false` | S2S/VO errors hard-stop when `false` (default); set `true` only for legacy soft continue |
 | `local_speech.stt_timeout_sec` | `3600` | Long interviews timeout mid-transcribe |
 | `local_speech.s2s_timeout_sec` | `600` | Gap VO synthesis timeout |
 | `local_speech.context_clip_enabled` | `true` | Disable segment-adjacent prosody clips |
 | `local_speech.context_clip_min_ms` | `2000` | Minimum context window |
 | `local_speech.context_clip_max_ms` | `8000` | Maximum context window |
 | `local_speech.min_reference_sec` | `3.0` | Speaker sample quality floor |
+| `local_speech.warmup_tts_model_id` | `""` | MLX TTS id for probe warm-up (empty → heuristic path) |
+| `local_speech.interrogate_model_id` | `""` | MLX listen-and-answer id (empty → heuristic answers) |
+| `local_speech.interrogate_timeout_sec` | `120` | Per-probe interrogate timeout |
+
+---
+
+## `audio_probes`
+
+Local Audio Probe Platform + Vernacular Evidence Covenant — [vernacular-evidence-covenant.md](./vernacular-evidence-covenant.md).
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `audio_probes.enabled` | `true` | Stage may no-op or skip |
+| `audio_probes.enforcement_mode` | `shadow` | `authoritative` hard-blocks auto_pack drops of vernacular must_keep |
+| `audio_probes.low_confidence_threshold` | `0.85` | Prefilter brick detection |
+| `audio_probes.fail_open` | `true` | Prefer continue with unknown facts |
+| `audio_probes.enabled_packs` | `null` | `null` = all packs; else list of pack names |
+| `audio_probes.budget.max_clips` | `40` | Probe call cap |
+| `audio_probes.budget.max_audio_sec` | `600` | Audio seconds fed to probes |
+| `audio_probes.budget.max_wall_sec` | `900` | Wall budget (reserved) |
+| `audio_probes.sanitize.min_child_ms` | `800` | Min child duration after N-way split |
 
 ---
 

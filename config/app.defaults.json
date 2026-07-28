@@ -338,19 +338,38 @@
     "enabled": true,
     "model_id": "ResembleAI/chatterbox",
     "timeout_sec": 600,
-    "fail_open": true
+    "fail_open": false
   },
   "_comment_local_speech": "Local mlx-audio STT + S2S (Apple Silicon); replaces AWS Transcribe",
   "local_speech": {
     "enabled": true,
     "models_dir": "ASSETS/local_speech/models",
-    "fail_open": true,
+    "fail_open": false,
     "stt_timeout_sec": 3600,
     "s2s_timeout_sec": 600,
     "context_clip_enabled": true,
     "context_clip_min_ms": 2000,
     "context_clip_max_ms": 8000,
-    "min_reference_sec": 3.0
+    "min_reference_sec": 3.0,
+    "warmup_tts_model_id": "",
+    "interrogate_model_id": "",
+    "interrogate_timeout_sec": 120
+  },
+  "_comment_audio_probes": "Local Audio Probe Platform + Vernacular Evidence Covenant",
+  "audio_probes": {
+    "enabled": true,
+    "enforcement_mode": "shadow",
+    "low_confidence_threshold": 0.85,
+    "fail_open": true,
+    "enabled_packs": null,
+    "budget": {
+      "max_clips": 40,
+      "max_audio_sec": 600,
+      "max_wall_sec": 900
+    },
+    "sanitize": {
+      "min_child_ms": 800
+    }
   },
   "_comment_local_llm_block": "Local MLX volley framer (LX-01) — prep only; OpenAI produces artifacts",
   "local_llm": {
@@ -624,7 +643,7 @@
       "require_explicit_opt_in": true,
       "auto_accept_defaults": false,
       "succinct_master_default": true,
-      "auto_skip_when_ineligible": true,
+      "auto_skip_when_ineligible": false,
       "frame_confidence_min": 0.65,
       "hide_gui_stages_when_skipped": false
     },
@@ -710,9 +729,9 @@
       "max_reference_candidates": 5,
       "target_reference_sec": 10.0,
       "min_reference_sec": 3.0,
-      "fail_open": true,
+      "fail_open": false,
       "auto_fallback_on_qc_fail": false,
-      "fallback_to_manual_on_failure": true,
+      "fallback_to_manual_on_failure": false,
       "timbre_match": {
         "enabled": true,
         "max_eq_db": 6

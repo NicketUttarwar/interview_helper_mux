@@ -66,10 +66,10 @@ def gap_vo_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "allowed_delivery": ["chatterbox", "record"],
         "synthesis_backend": "chatterbox",
         "fallback_backend": "mlx_audio",
-        "fail_open": True,
+        "fail_open": False,
         "min_reference_sec": 3.0,
         "auto_fallback_on_qc_fail": False,
-        "fallback_to_manual_on_failure": True,
+        "fallback_to_manual_on_failure": False,
         "timbre_match": {
             "enabled": True,
             "max_eq_db": 6.0,

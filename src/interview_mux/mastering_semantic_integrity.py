@@ -27,6 +27,7 @@ CRITICAL_CLASSES: frozenset[str] = frozenset(
         "false_reaction_adjacency",
         "fabricated_exchange",
         "vo_overstates_claim",
+        "vernacular_evidence_dropped",
     }
 )
 
@@ -55,6 +56,7 @@ class IntegrityInputs:
     reaction_segment_ids: set[str] = field(default_factory=set)
     vo_lines: dict[str, dict[str, Any]] = field(default_factory=dict)
     claims: list[dict[str, Any]] = field(default_factory=list)
+    vernacular_must_keep_segment_ids: set[str] = field(default_factory=set)
 
 
 def _now() -> str:
@@ -275,6 +277,28 @@ def scan_chronology(candidate: dict[str, Any], inputs: IntegrityInputs) -> list[
     ]
 
 
+def scan_vernacular_evidence_dropped(
+    candidate: dict[str, Any], inputs: IntegrityInputs
+) -> list[dict[str, Any]]:
+    """Authoritative vernacular must_keep children missing from the candidate order."""
+    must = {str(s) for s in (inputs.vernacular_must_keep_segment_ids or set()) if s}
+    if not must:
+        return []
+    ordered = {str(s) for s in (candidate.get("ordered_segment_ids") or []) if s}
+    missing = sorted(must - ordered)
+    if not missing:
+        return []
+    return [
+        _finding(
+            "vernacular_evidence_dropped",
+            f"Vernacular must_keep segments omitted from candidate: {', '.join(missing[:12])}",
+            related=missing,
+            repair=f"Include {', '.join(missing[:8])} or demote vernacular enforcement with recorded override",
+            confidence=0.95,
+        )
+    ]
+
+
 def check_candidate(
     candidate: dict[str, Any],
     inputs: IntegrityInputs,
@@ -291,6 +315,7 @@ def check_candidate(
     findings.extend(scan_orphaned_referents(candidate, inputs))
     findings.extend(scan_reprise(candidate))
     findings.extend(scan_chronology(candidate, inputs))
+    findings.extend(scan_vernacular_evidence_dropped(candidate, inputs))
 
     critical = [f for f in findings if f["severity"] == "critical"]
     if critical:

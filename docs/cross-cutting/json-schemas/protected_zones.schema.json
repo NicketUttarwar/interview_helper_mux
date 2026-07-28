@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "protected_zones.schema.json",
+  "type": "object",
+  "required": ["version", "zones"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "primary_language": { "type": "string" },
+    "master_language": { "type": "string" },
+    "doctrine": { "type": "string" },
+    "automation": { "type": "string" },
+    "scope": { "type": "object" },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["zone_id", "start_ms", "end_ms", "retention"],
+        "properties": {
+          "zone_id": { "type": "string" },
+          "speaker_flow_id": { "type": "string" },
+          "speaker_id": { "type": "string" },
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "protection_class": { "type": "string" },
+          "retention": { "type": "string" },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "spans": { "type": "array" },
+          "segment_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "generated_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

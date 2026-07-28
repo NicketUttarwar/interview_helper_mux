@@ -32,7 +32,7 @@ def gap_fill_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     analysis = (cfg or merged_config()).get("analysis") or {}
     defaults = {
         "enabled": True,
-        "auto_skip_when_ineligible": True,
+        "auto_skip_when_ineligible": False,
         "frame_confidence_min": 0.65,
         "hide_gui_stages_when_skipped": False,
     }
@@ -49,7 +49,7 @@ def gap_fill_enabled(cfg: dict[str, Any] | None = None) -> bool:
 def gap_fill_auto_skip_enabled(cfg: dict[str, Any] | None = None) -> bool:
     cfg_block = gap_fill_cfg(cfg)
     return bool(cfg_block.get("enabled", True)) and bool(
-        cfg_block.get("auto_skip_when_ineligible", True)
+        cfg_block.get("auto_skip_when_ineligible", False)
     )
 
 

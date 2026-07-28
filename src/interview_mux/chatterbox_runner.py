@@ -18,7 +18,7 @@ def chatterbox_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "enabled": True,
         "model_id": "ResembleAI/chatterbox",
         "timeout_sec": 600,
-        "fail_open": True,
+        "fail_open": False,
     }
     if isinstance(block, dict):
         return {**defaults, **block}

@@ -18,7 +18,7 @@ from interview_mux.web.stages import STAGE_BY_ID, operator_linear_stage_ids
 
 # Stages blocked until G0 transcript review clears (matches pipeline.require_transcript_review_clear).
 _G0_EXCEPTIONS = frozenset(
-    {"audio_preclean", "ingest", "transcribe", "transcript_review_build"}
+    {"audio_preclean", "ingest", "transcribe", "audio_probe_build", "transcript_review_build"}
 )
 G0_LOCKED_ANALYSIS_STAGES = frozenset(s for s in ANALYSIS_ORDER if s not in _G0_EXCEPTIONS)
 
@@ -74,6 +74,8 @@ STAGE_UNLOCKS: dict[str, str] = {
     "ingest": "Transcribe — normalized source audio",
     "transcribe": "STT review prep — word-level transcript",
     "transcript_review_build": "Transcript review (G0) — ranked clip queue",
+    "audio_probe_build": "Audio probes + vernacular golden facts",
+    "vernacular_segment_sanitize": "N-way vernacular sub-segmentation",
     "transcript_review": "Source acoustic profile and downstream analysis",
     "source_acoustic_profile": "Speaker roles and sonic pacing for mix/SFX",
     "interview_spine_build": "Local comprehension index for boundaries and retrieval",

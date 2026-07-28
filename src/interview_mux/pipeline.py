@@ -40,6 +40,7 @@ from interview_mux.stages import sound_design_stages
 from interview_mux.stages import sound_design_vo_finalize
 from interview_mux.stages import sfx_mmaudio
 from interview_mux.stages import transcribe_local
+from interview_mux.stages import audio_probes
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
 from interview_mux.v2.config import (
@@ -69,6 +70,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "audio_preclean": lambda: audio_preclean.run_audio_preclean(ctx),
         "ingest": lambda: ingest.run_ingest(ctx),
         "transcribe": lambda: transcribe_local.run_transcribe(ctx),
+        "audio_probe_build": lambda: audio_probes.run_audio_probe_build(ctx),
         "transcript_review_build": lambda: transcript_review.run_transcript_review_build(ctx),
         "source_acoustic_profile": lambda: understanding.run_source_acoustic_profile(ctx),
         "interview_spine_build": lambda: interview_spine_stage.run_interview_spine_build(ctx),
@@ -81,6 +83,7 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "segment_classification": lambda: segmentation.run_classification(ctx),
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
         "boundary_topic_resplit": lambda: segmentation.run_boundary_topic_resplit(ctx),
+        "vernacular_segment_sanitize": lambda: audio_probes.run_vernacular_segment_sanitize(ctx),
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
         "mastering_research_routing": lambda: __import__(
@@ -188,9 +191,28 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
     if _gap_path_skipped(ctx):
         return
     decision = assess_gap_fill_eligibility(ctx)
-    if not decision.eligible and gap_fill_auto_skip_enabled():
-        gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
-        return
+    if not decision.eligible:
+        if gap_fill_auto_skip_enabled():
+            gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
+            return
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            f"Gap framing is enabled but this interview is not eligible for interviewer VO: "
+            f"{decision.reason}",
+            stage="missing_framing",
+            reason="gap_fill_ineligible",
+            detail={
+                "signals": decision.signals,
+                "hint": (
+                    "Fix speaker roles / topology so a clear interviewer frame exists, "
+                    "or explicitly choose No at G-Framing / Skip gap-fill. "
+                    "Set analysis.gap_fill.auto_skip_when_ineligible=true only if silent skip is desired."
+                ),
+            },
+            action_id="pipeline.gap_fill.ineligible_hard_stop",
+        )
     gaps.run_missing_framing(ctx)
 
 

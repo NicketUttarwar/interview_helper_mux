@@ -1,4 +1,9 @@
-"""Fall back from Chatterbox / mlx synthesis to manual G1 record-upload."""
+"""Fall back from Chatterbox / mlx synthesis to manual G1 record-upload.
+
+Default posture (``fallback_to_manual_on_failure: false``): irreparable synthesis
+failures hard-stop via ``loud_fail.raise_loud_failure`` so the operator sees the
+break in Activity, terminal, and gui_log — they do not silently continue.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,7 @@ from interview_mux.run_context import RunContext
 
 
 class SynthesisFallbackToManual(Exception):
-    """Synthesis exhausted — run switched to manual record path."""
+    """Synthesis exhausted — run switched to manual record path (legacy opt-in)."""
 
     def __init__(
         self,
@@ -28,7 +33,7 @@ class SynthesisFallbackToManual(Exception):
 
 
 def manual_fallback_enabled(cfg: dict[str, Any] | None = None) -> bool:
-    return bool(gap_vo_cfg(cfg).get("fallback_to_manual_on_failure", True))
+    return bool(gap_vo_cfg(cfg).get("fallback_to_manual_on_failure", False))
 
 
 def chatterbox_runtime_available() -> bool:
@@ -70,9 +75,29 @@ def fallback_to_manual_collection(
     switch_delivery: bool = True,
     stage: str = "g1_vo_pickup",
 ) -> dict[str, Any]:
-    """Switch synthesize lines to record; persist operator notice; never block the run."""
+    """Switch synthesize lines to record; persist operator notice.
+
+    When ``fallback_to_manual_on_failure`` is false (default), raises a loud
+    hard-stop instead of continuing.
+    """
     if not manual_fallback_enabled():
-        return {"notice": reason, "line_ids": [], "reason": reason, "delivery": resolve_gap_vo_delivery(ctx)}
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            f"Voice synthesis failed and manual fallback is disabled: {reason.strip()}",
+            stage=stage,
+            reason="synthesis_failed_no_manual_fallback",
+            detail={
+                "line_ids": list(line_ids or []),
+                "hint": (
+                    "Fix Chatterbox / mlx-audio runtime, approve a usable voice reference, "
+                    "or set analysis.gap_vo.fallback_to_manual_on_failure=true to allow "
+                    "manual record/upload after synthesis failure."
+                ),
+            },
+            action_id="pipeline.synthesis.hard_stop",
+        )
 
     affected: list[str] = []
     if ctx.artifact_exists("understanding/gap_report.json"):
@@ -160,10 +185,27 @@ def maybe_fallback_after_synthesis_failure(
     *,
     stage: str = "vo_synthesize",
 ) -> None:
-    """On total synthesis failure, switch to manual collection and raise for callers."""
-    if not manual_fallback_enabled():
-        raise exc
+    """On total synthesis failure: hard-stop (default) or switch to manual (opt-in)."""
     line_id = str(line.get("line_id") or line.get("targets_segment_id") or "")
+    if not manual_fallback_enabled():
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            f"Voice synthesis failed for {line_id or 'line'}: {exc}",
+            stage=stage,
+            reason="synthesis_failed",
+            detail={
+                "line_id": line_id,
+                "hint": (
+                    "Fix the Chatterbox / mlx-audio stack and voice reference, "
+                    "or enable analysis.gap_vo.fallback_to_manual_on_failure to "
+                    "continue with manual record/upload."
+                ),
+            },
+            action_id="pipeline.synthesis.hard_stop",
+            cause=exc,
+        )
     payload = fallback_to_manual_collection(
         ctx,
         reason=str(exc),
@@ -179,7 +221,7 @@ def maybe_fallback_after_synthesis_failure(
 
 
 def ensure_chatterbox_or_manual(ctx: RunContext, *, stage: str = "gap_delivery") -> dict[str, Any] | None:
-    """When operator chose Chatterbox but runtime is missing, fall back before G1."""
+    """When operator chose Chatterbox but runtime is missing: hard-stop or fall back."""
     if resolve_gap_vo_delivery(ctx) != "chatterbox":
         return None
     if chatterbox_runtime_available():

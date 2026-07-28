@@ -1,0 +1,1 @@
+List up to five rare or non-English words you hear. Reply exactly: KEYWORDS: then comma-separated words. If none: KEYWORDS: none.

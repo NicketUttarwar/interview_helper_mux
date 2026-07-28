@@ -28,13 +28,19 @@ API: `POST /api/runs/{id}/gap-framing/enable`, `…/gap-framing/delivery`, `…/
 
 ## Synthesis routing
 
-When `gap_vo_delivery=chatterbox`, G1 calls `chatterbox_runner` (`ASSETS/local_chatterbox/venv`, `tools/chatterbox_generate.py`). Degradation ladder:
+When `gap_vo_delivery=chatterbox`, G1 calls `chatterbox_runner` (`ASSETS/local_chatterbox/venv`, `tools/chatterbox_generate.py`).
+
+**Default posture: hard-stop.** Irreparable synthesis failures (and gap-fill ineligibility while framing is Yes) abort the run with an error in `gui_log.jsonl` (Activity panel), terminal mirror (`MUX_MIRROR_OPERATOR_ERRORS`), and a `[HARD STOP]` stderr line.
+
+Optional degradation (opt-in only):
 
 1. **Chatterbox** zero-shot clone
-2. **mlx-audio** S2S (`s2s_runner`) when Chatterbox fails (`gap_vo.fail_open`)
-3. **Manual record/upload** at G1 when both fail (`gap_vo.fallback_to_manual_on_failure`, default **on**)
+2. **mlx-audio** S2S (`s2s_runner`) when Chatterbox fails — only if `gap_vo.fail_open=true`
+3. **Manual record/upload** at G1 when both fail — only if `gap_vo.fallback_to_manual_on_failure=true`
 
-The run continues with `run_meta.synthesis_fallback_notice` and affected lines switched to `delivery: record`. Audit: `vo_pickup/synthesis_report.json`.
+With those knobs off (shipped defaults), the run stops so the operator knows what broke. Audit: `vo_pickup/synthesis_report.json`.
+
+Gap-fill ineligibility while framing is enabled also hard-stops unless `analysis.gap_fill.auto_skip_when_ineligible=true` (legacy silent skip). Explicit operator **No** at G-Framing / Skip gap-fill remains intentional and continues without VO.
 
 Voice reference: collated `understanding/speaker_samples/{speaker_id}.wav` from approved `understanding/voice_reference/` candidates.
 
