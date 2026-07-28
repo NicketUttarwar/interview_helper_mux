@@ -41,7 +41,6 @@ LLM_HANDOFF_STAGES = frozenset(
         "transitions",
         "sound_design_plan",
         "sound_design_plan_flow2",
-        "highlight_selection",
         "edl_narrative_audit",
         "podcast_show_description",
         "sfx_prompt_craft",
@@ -118,17 +117,12 @@ STAGE_UNLOCKS: dict[str, str] = {
     "g1_5_preview_pickup": "Craft MMAudio prompts after post-preview VO",
     "sfx_prompt_craft": "MMAudio SFX generation",
     "mmaudio_sfx": "Mix assembly",
-    "mmaudio_sfx_flow2": "Mix assembly",
     "mix": "Master export",
-    "mix_flow2": "Master export",
     "master_finalize": "Deliverable ready — listen or export",
-    "master_flow2": "Deliverable ready — listen or export",
-    "highlight_selection": "Flow 2 sound design plan",
     "sound_design_plan_flow2": "Sound phase — prompt craft and SFX",
     "podcast_show_description": "Export show description blurb",
     "export_show_description": "Ship phase — markdown export",
     "mux_flow1": "Same as Mix assembly",
-    "mux_flow2": "Same as Mix assembly",
     "podcast_sfx_brief": "(legacy — use SDP path)",
     "sfx_brief": "(legacy — use SDP path)",
 }
@@ -326,7 +320,7 @@ def _llm_hardening_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[s
                 "done" if ctx.is_done(stage_id) else "waiting",
             )
         )
-    if stage_id in ("mix", "mix_flow2") and ctx.artifact_exists("sound_design/placement_adjustments.json"):
+    if stage_id == "mix" and ctx.artifact_exists("sound_design/placement_adjustments.json"):
         items.append(
             _guidance_item(
                 "placement_qa",
@@ -357,7 +351,7 @@ def _stage_reuse_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str
 
 
 def _post_listen_guidance_items(ctx: RunContext, stage_id: str) -> list[dict[str, Any]]:
-    if stage_id not in ("sfx_prompt_craft", "mmaudio_sfx", "mmaudio_sfx_flow2"):
+    if stage_id not in ("sfx_prompt_craft", "mmaudio_sfx"):
         return []
     if not ctx.artifact_exists("run_meta.json"):
         return [
@@ -711,7 +705,7 @@ def _stage_actions(
             )
         return actions
 
-    if stage_id in ("mmaudio_sfx", "mmaudio_sfx_flow2"):
+    if stage_id == "mmaudio_sfx":
         if status == "pending" and not blocked:
             actions.append(
                 _guidance_item("run", "Run this step", "todo", action="run", kind="run")

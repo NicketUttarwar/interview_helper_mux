@@ -328,10 +328,6 @@ def require_selected_flow_flow1(ctx: RunContext) -> None:
     return
 
 
-def require_selected_flow_flow2(ctx: RunContext) -> None:
-    raise RuntimeError("Flow 2 removed")
-
-
 def narrative_qc_strict_enabled() -> bool:
     nqc = merged_config().get("narrative_qc") or {}
     return bool(nqc.get("strict"))

@@ -353,14 +353,17 @@
     "min_reference_sec": 3.0,
     "warmup_tts_model_id": "",
     "interrogate_model_id": "",
-    "interrogate_timeout_sec": 120
+    "interrogate_mode": "stt_listen",
+    "interrogate_timeout_sec": 120,
+    "warmup_voice_wav": "ASSETS/local_speech/warmup_voice/neutral.wav"
   },
-  "_comment_audio_probes": "Local Audio Probe Platform + Vernacular Evidence Covenant",
+  "_comment_audio_probes": "Local Audio Probe Platform + Vernacular Evidence Covenant. For hard vernacular protection set enforcement_mode=authoritative.",
   "audio_probes": {
     "enabled": true,
     "enforcement_mode": "shadow",
     "low_confidence_threshold": 0.85,
     "fail_open": true,
+    "prefer_mlx": true,
     "enabled_packs": null,
     "budget": {
       "max_clips": 40,

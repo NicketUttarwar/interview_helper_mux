@@ -57,6 +57,7 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
             "transcript/protected_zones.json",
             "transcript/speaker_flows.json",
             "vernacular/probe_report.json",
+            "vernacular/audio_tags_by_flow.json",
         ),
         (),
     ),

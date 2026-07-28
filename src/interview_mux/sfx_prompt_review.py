@@ -41,7 +41,7 @@ def _collect_sdp_asset_ids(sdp: dict[str, Any]) -> set[str]:
     for asset in sdp.get("assets") or []:
         if isinstance(asset, dict) and asset.get("asset_id"):
             ids.add(str(asset["asset_id"]))
-    for flow_key in ("podcast", "flow2"):
+    for flow_key in ("podcast", "flow1"):
         plan = (sdp.get("flow_plans") or {}).get(flow_key) or {}
         for cue in plan.get("cues") or []:
             if isinstance(cue, dict) and cue.get("asset_id"):

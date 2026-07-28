@@ -914,9 +914,11 @@ Local mlx-audio STT + S2S — [speech-to-speech-vo.md](./speech-to-speech-vo.md)
 | `local_speech.context_clip_min_ms` | `2000` | Minimum context window |
 | `local_speech.context_clip_max_ms` | `8000` | Maximum context window |
 | `local_speech.min_reference_sec` | `3.0` | Speaker sample quality floor |
-| `local_speech.warmup_tts_model_id` | `""` | MLX TTS id for probe warm-up (empty → heuristic path) |
-| `local_speech.interrogate_model_id` | `""` | MLX listen-and-answer id (empty → heuristic answers) |
-| `local_speech.interrogate_timeout_sec` | `120` | Per-probe interrogate timeout |
+| `local_speech.warmup_tts_model_id` | `""` | MLX TTS id for probe warm-up (empty → selection `s2s_model_id`) |
+| `local_speech.interrogate_model_id` | `""` | Listen STT model (empty → `stt_model_id` / selection Whisper) |
+| `local_speech.interrogate_mode` | `stt_listen` | Certified path: clip STT → contract answer (`stt_listen`) |
+| `local_speech.interrogate_timeout_sec` | `120` | Per-probe listen timeout |
+| `local_speech.warmup_voice_wav` | `ASSETS/local_speech/warmup_voice/neutral.wav` | Neutral warm-up voice (auto-created via `scripts/ensure_warmup_voice.py`) |
 
 ---
 
@@ -929,11 +931,12 @@ Local Audio Probe Platform + Vernacular Evidence Covenant — [vernacular-eviden
 | `audio_probes.enabled` | `true` | Stage may no-op or skip |
 | `audio_probes.enforcement_mode` | `shadow` | `authoritative` hard-blocks auto_pack drops of vernacular must_keep |
 | `audio_probes.low_confidence_threshold` | `0.85` | Prefilter brick detection |
-| `audio_probes.fail_open` | `true` | Prefer continue with unknown facts |
+| `audio_probes.fail_open` | `true` | Prefer continue with unknown facts / empty safe artifacts |
+| `audio_probes.prefer_mlx` | `true` | Attempt local classify before heuristic (still fail-open) |
 | `audio_probes.enabled_packs` | `null` | `null` = all packs; else list of pack names |
 | `audio_probes.budget.max_clips` | `40` | Probe call cap |
 | `audio_probes.budget.max_audio_sec` | `600` | Audio seconds fed to probes |
-| `audio_probes.budget.max_wall_sec` | `900` | Wall budget (reserved) |
+| `audio_probes.budget.max_wall_sec` | `900` | Wall-clock budget for probe stage |
 | `audio_probes.sanitize.min_child_ms` | `800` | Min child duration after N-way split |
 
 ---

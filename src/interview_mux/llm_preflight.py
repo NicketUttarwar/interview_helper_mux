@@ -20,15 +20,10 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
     ),
     "narrative_arc_plan": ("master/coverage_audit.json",),
     "full_master_ranking": ("master/narrative_plan.json",),
-    "highlight_selection": (
-        "segments/manifest.json",
-        "understanding/content_brief.json",
-    ),
     "transitions": ("master/selection.json",),
     "podcast_sfx_brief": ("master/selection.json",),
     "sound_design_plan": ("understanding/sound_design_plan.json",),
     "sound_design_plan_flow2": ("understanding/sound_design_plan.json",),
-    "sfx_brief": ("flow_2_highlights/selection.json",),
 }
 
 
@@ -255,7 +250,7 @@ def _preflight_sound_design_plan(ctx: RunContext) -> list[str]:
 def _preflight_sound_design_plan_flow2(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(
         ctx,
-        ("understanding/sound_design_plan.json", "flow_2_highlights/selection.json"),
+        ("understanding/sound_design_plan.json",),
     )
 
 
@@ -351,13 +346,6 @@ def _preflight_full_master_ranking(ctx: RunContext) -> list[str]:
     )
 
 
-def _preflight_highlight_selection(ctx: RunContext) -> list[str]:
-    return _check_upstream_artifacts(
-        ctx,
-        ("segments/manifest.json", "understanding/content_brief.json", "understanding/gap_report.json"),
-    )
-
-
 def _preflight_transitions(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(ctx, ("master/selection.json",))
 
@@ -387,7 +375,6 @@ _PREFLIGHT_CHECKERS: dict[str, Any] = {
     "topic_coverage_audit": _preflight_topic_coverage,
     "narrative_arc_plan": _preflight_narrative_arc_plan,
     "full_master_ranking": _preflight_full_master_ranking,
-    "highlight_selection": _preflight_highlight_selection,
     "transitions": _preflight_transitions,
     "sound_design_plan": _preflight_sound_design_plan,
     "sound_design_plan_flow2": _preflight_sound_design_plan_flow2,

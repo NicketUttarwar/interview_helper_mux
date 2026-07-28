@@ -101,13 +101,22 @@ def flow_signals(flow: dict[str, Any], *, low_conf: float = 0.85) -> dict[str, A
         if c < low_conf:
             brick_count += 1
     one_off = brick_count == 1 and not non_ascii and uncommon < 0.15 and len(words) >= 4
+    dur = int(flow.get("duration_ms") or 0)
+    word_count = int(flow.get("word_count") or len(words) or 0)
+    # Mid-band confidence on a real turn: likely anglicized or partially garbled vernacular.
+    mid_uncertain = False
+    if mean_c is not None:
+        mc = float(mean_c)
+        mid_uncertain = dur >= 8_000 and 0.55 <= mc < 0.92
     return {
         "non_ascii": non_ascii,
         "uncommon_ratio": uncommon,
         "low_confidence": low,
         "brick_count": brick_count,
         "one_off_miscomprehension": one_off,
-        "long_turn": int(flow.get("duration_ms") or 0) >= 20_000,
+        "long_turn": dur >= 20_000,
+        "mid_uncertain": mid_uncertain,
+        "dense_turn": word_count >= 12 and dur >= 6_000,
         "stress_proxy": (1.0 - float(mean_c)) if mean_c is not None else (0.4 if non_ascii else 0.2),
     }
 
@@ -122,6 +131,14 @@ def passes_prefilter(prefilter: str, signals: dict[str, Any]) -> tuple[bool, str
             return True, "vernacular_signal"
         if signals.get("low_confidence") and signals.get("brick_count", 0) >= 2:
             return True, "brick_cluster"
+        # Recovery sampling: primary STT often anglicizes code-switch in long turns.
+        # Re-listen these so STT-listen can recover non-ASCII / uncommon English.
+        if signals.get("long_turn"):
+            return True, "long_turn_relisten"
+        if signals.get("mid_uncertain"):
+            return True, "mid_uncertain_relisten"
+        if signals.get("dense_turn") and signals.get("brick_count", 0) >= 1:
+            return True, "dense_uncertain"
         return False, "no_vernacular_signal"
     if prefilter == "stress_or_salience":
         if float(signals.get("stress_proxy") or 0) >= 0.25 or signals.get("long_turn"):

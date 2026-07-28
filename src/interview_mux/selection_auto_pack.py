@@ -119,6 +119,31 @@ def auto_pack_selection_to_brief(
     if not dropped:
         return selection
 
+    # Shadow advisory: vernacular must_keep that would have been protected if authoritative.
+    shadow_vernacular: list[str] = []
+    try:
+        from interview_mux.stages.audio_probes import (
+            enforcement_mode_for_ctx,
+            load_must_keep_segment_ids,
+        )
+
+        vernacular_ids = load_must_keep_segment_ids(ctx)
+        shadow_vernacular = [sid for sid in dropped if sid in vernacular_ids]
+        if shadow_vernacular and enforcement_mode_for_ctx(ctx) != "authoritative":
+            ctx.log(
+                f"Shadow vernacular: auto_pack dropped {len(shadow_vernacular)} must_keep id(s)",
+                level="warning",
+                stage=stage,
+                action_id="vernacular.shadow.would_keep",
+                detail={
+                    "event": "vernacular_shadow_drop",
+                    "dropped_must_keep": shadow_vernacular[:20],
+                    "enforcement_mode": "shadow",
+                },
+            )
+    except Exception:
+        pass
+
     out = dict(selection)
     out["ordered_segment_ids"] = remaining
     excluded = list(out.get("excluded_segment_ids") or [])
@@ -132,6 +157,7 @@ def auto_pack_selection_to_brief(
         "before_sec": round(est, 1),
         "after_sec": round(estimated_duration_sec(ctx, remaining), 1),
         "max_sec": max_sec_f,
+        "shadow_vernacular_dropped": shadow_vernacular,
     }
     out["_meta"] = meta
     ctx.log(
@@ -145,6 +171,7 @@ def auto_pack_selection_to_brief(
             "before_sec": est,
             "after_sec": meta["auto_pack"]["after_sec"],
             "max_sec": max_sec_f,
+            "shadow_vernacular_dropped": shadow_vernacular[:20],
         },
     )
     return out

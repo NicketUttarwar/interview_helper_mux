@@ -23,6 +23,7 @@ import { SfxPostListenPanel } from "./SfxPostListenPanel";
 import { PlacementAdjustmentsPanel } from "./PlacementAdjustmentsPanel";
 import { SfxBlockedPanel } from "./SfxBlockedPanel";
 import { SonicContextPanel } from "./SonicContextPanel";
+import { AudioProbesPanel } from "./AudioProbesPanel";
 import { collectSfxBlockReasons } from "../../utils/sfxBlockReasons";
 import { resolvePrecleanOffer } from "../../utils/preclean";
 import { isStageHidden } from "../../utils/stageVisibility";
@@ -38,6 +39,11 @@ const SONIC_CONTEXT_STAGES = new Set([
   "source_acoustic_profile",
   "sound_design_palettes",
   "sound_design_plan",
+]);
+
+const AUDIO_PROBES_STAGES = new Set([
+  "audio_probe_build",
+  "vernacular_segment_sanitize",
 ]);
 
 const MIX_INTELLIGIBILITY_STAGES = new Set(["mix", "master_finalize"]);
@@ -133,6 +139,7 @@ export function GateActions({ stage }: Props) {
           {stage.id === "source_acoustic_profile" ? <AcousticProfilePanel /> : null}
           {stage.id === "interview_spine_build" ? <InterviewSpinePanel /> : null}
           {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
+          {AUDIO_PROBES_STAGES.has(stage.id) ? <AudioProbesPanel /> : null}
 
           {run.journey?.phase === "ship" ? (
             <>

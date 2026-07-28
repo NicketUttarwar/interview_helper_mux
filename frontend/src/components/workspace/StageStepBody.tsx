@@ -5,6 +5,7 @@ import { NlePanel } from "./NlePanel";
 import { AcousticProfilePanel } from "../gates/AcousticProfilePanel";
 import { InterviewSpinePanel } from "./InterviewSpinePanel";
 import { SonicContextPanel } from "../gates/SonicContextPanel";
+import { AudioProbesPanel } from "../gates/AudioProbesPanel";
 import { SpeakerVolleyTimelinePanel } from "../gates/SpeakerVolleyTimelinePanel";
 import { LlmVolleyReviewPanel } from "../gates/LlmVolleyReviewPanel";
 import { CoherenceRisksPanel } from "./CoherenceRisksPanel";
@@ -30,6 +31,11 @@ interface Props {
   step: StageStep;
   stage: StageInfo;
 }
+
+const AUDIO_PROBES_STAGES = new Set([
+  "audio_probe_build",
+  "vernacular_segment_sanitize",
+]);
 
 export function StageStepBody({ step, stage }: Props) {
   const { run, timeline } = useApp();
@@ -83,9 +89,11 @@ export function StageStepBody({ step, stage }: Props) {
     );
   }
 
+  const audioProbesPanel = AUDIO_PROBES_STAGES.has(stage.id) ? <AudioProbesPanel /> : null;
+
   switch (step.kind) {
-    case "info":
-      return stage.guidance?.prerequisites?.length ? (
+    case "info": {
+      const prereqList = stage.guidance?.prerequisites?.length ? (
         <ul className="stage-step-prereq-list">
           {(stage.guidance.prerequisites || []).map((p) => (
             <li
@@ -100,6 +108,16 @@ export function StageStepBody({ step, stage }: Props) {
           ))}
         </ul>
       ) : null;
+      if (audioProbesPanel) {
+        return (
+          <>
+            {audioProbesPanel}
+            {prereqList}
+          </>
+        );
+      }
+      return prereqList;
+    }
 
     case "reuse":
       return (
@@ -147,7 +165,12 @@ export function StageStepBody({ step, stage }: Props) {
       return <SfxPostListenPanel stage={stage} />;
 
     case "done":
-      return <StageOutputsPanel stage={stage} />;
+      return (
+        <>
+          {audioProbesPanel}
+          <StageOutputsPanel stage={stage} />
+        </>
+      );
 
     case "locked":
       return (
@@ -167,6 +190,8 @@ export function StageStepBody({ step, stage }: Props) {
       return <AcousticProfilePanel />;
     case "interview_spine":
       return <InterviewSpinePanel />;
+    case "audio_probes":
+      return <AudioProbesPanel />;
     case "sonic_context":
       return (
         <>
@@ -216,6 +241,14 @@ export function StageStepBody({ step, stage }: Props) {
       return <SfxPromptReviewPanel stage={stage} />;
     default:
       if (step.kind === "gate") return <GateActions stage={stage} />;
-      return step.status === "done" ? <StageOutputsPanel stage={stage} /> : null;
+      if (step.status === "done") {
+        return (
+          <>
+            {audioProbesPanel}
+            <StageOutputsPanel stage={stage} />
+          </>
+        );
+      }
+      return audioProbesPanel;
   }
 }

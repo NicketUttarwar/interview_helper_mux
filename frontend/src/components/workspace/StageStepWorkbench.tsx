@@ -4,6 +4,7 @@ import { StepActionHeader } from "./StepActionHeader";
 import { StageStepRow } from "./StageStepRow";
 import { StageOutputsPanel } from "./StageOutputsPanel";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
+import { AudioProbesPanel } from "../gates/AudioProbesPanel";
 import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import { useActiveStageStep } from "../../hooks/useActiveStageStep";
 import { useStageProgress } from "../../hooks/useStageProgress";
@@ -16,6 +17,11 @@ import { StageParentProgressBanner } from "./StageParentProgressBanner";
 import { ProgressionReadinessBanner } from "../guidance/ProgressionReadinessBanner";
 import { stageHasCommittedOutputs } from "../../utils/stageOutputs";
 import { resolveVirtualPipelineFocus } from "../../utils/virtualPipelineFocus";
+
+const AUDIO_PROBES_STAGES = new Set([
+  "audio_probe_build",
+  "vernacular_segment_sanitize",
+]);
 export function StageStepWorkbench() {
   const {
     run,
@@ -171,6 +177,7 @@ export function StageStepWorkbench() {
       {showDoneShell ? (
         <div className="stage-detail-done-shell">
           <StepDoneBanner variant="step" />
+          {AUDIO_PROBES_STAGES.has(selectedStage.id) ? <AudioProbesPanel /> : null}
           <StageOutputsPanel stage={selectedStage} />
         </div>
       ) : steps.length ? (

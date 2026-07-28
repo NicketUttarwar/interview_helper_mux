@@ -114,7 +114,7 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
             )
             ctx.log(exit_msg, level="error", stage=stage_key)
             raise SystemExit(exit_msg)
-    if stage_key in ("mix", "mix_flow2"):
+    if stage_key == "mix":
         from interview_mux.gates import require_post_listen_clear
 
         require_post_listen_clear(ctx, stage=stage_key)
@@ -150,7 +150,7 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                     stage=stage_key,
                 )
             else:
-                flow = "flow1" if stage_key == "mix" else "flow2"
+                flow = "podcast"
                 from interview_mux.sdp_cross_validate import validate_pre_mix
 
                 errors = validate_pre_mix(ctx, flow)

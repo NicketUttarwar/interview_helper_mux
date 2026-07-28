@@ -137,10 +137,6 @@ def collect_segment_ids_from_artifacts(stage_key: str, artifacts: dict[str, Any]
     elif stage_key == "full_master_ranking":
         for sid in artifacts.get("ordered_segment_ids") or []:
             refs.add(str(sid))
-    elif stage_key == "highlight_selection":
-        for row in artifacts.get("clips") or artifacts.get("highlights") or []:
-            if isinstance(row, dict) and row.get("segment_id"):
-                refs.add(str(row["segment_id"]))
     elif stage_key in ("topic_coverage_audit", "content_brief_reanchor"):
         if stage_key == "topic_coverage_audit":
             for row in artifacts.get("topic_mappings") or []:
@@ -472,20 +468,7 @@ def _lint_sound_design_plan_flow2(artifacts: dict[str, Any], ctx: RunContext) ->
     assets = artifacts.get("assets") or []
     if len(assets) > cap:
         errors.append(f"asset count {len(assets)} exceeds cap {cap}")
-    ranks: set[int] = set()
-    if ctx.artifact_exists("flow_2_highlights/selection.json"):
-        sel = ctx.read_json("flow_2_highlights/selection.json")
-        for clip in sel.get("clips") or sel.get("highlights") or []:
-            if isinstance(clip, dict) and clip.get("rank") is not None:
-                ranks.add(int(clip["rank"]))
     cues = ((artifacts.get("flow_plans") or {}).get("flow2") or {}).get("cues") or []
-    for cue in cues:
-        if not isinstance(cue, dict):
-            continue
-        for key in ("from_clip_rank", "to_clip_rank"):
-            r = cue.get(key)
-            if r is not None and ranks and int(r) not in ranks:
-                errors.append(f"cue rank {key}={r} not in highlight selection")
     between = [c for c in cues if isinstance(c, dict) and c.get("placement") == "between_clips"]
     transition_assets = {
         str(c.get("asset_id")) for c in between if isinstance(c, dict) and c.get("asset_id")
@@ -990,18 +973,6 @@ def _lint_generic(
     return errors
 
 
-def _lint_highlight_selection(artifacts: dict[str, Any], _ctx: RunContext) -> list[str]:
-    errors: list[str] = []
-    clips = artifacts.get("clips") or artifacts.get("highlights") or []
-    cfg = merged_config()
-    cap = int((merged_config().get("analysis") or {}).get("prompt_thresholds", {}).get(
-        "max_highlight_clips", 5
-    ))
-    if len(clips) > cap:
-        errors.append(f"more than {cap} highlight clips")
-    return errors
-
-
 _LINTERS: dict[str, Any] = {
     "speaker_roles": _lint_speaker_roles,
     "content_context": _lint_content_context,
@@ -1016,7 +987,6 @@ _LINTERS: dict[str, Any] = {
     "sfx_prompt_refine": _lint_sfx_prompt_craft,
     "transitions": _lint_transitions,
     "full_master_ranking": _lint_full_master_ranking,
-    "highlight_selection": _lint_highlight_selection,
     "optimal_questions": _lint_optimal_questions,
     "gap_framing_compose": _lint_optimal_questions,
     "topic_coverage_audit": _lint_topic_coverage_audit,

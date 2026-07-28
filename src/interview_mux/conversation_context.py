@@ -91,7 +91,6 @@ _STAGES_GAP_SENSITIVITY = frozenset(
         "missing_framing",
         "optimal_questions",
         "full_master_ranking",
-        "highlight_selection",
         "edl_narrative_audit",
     }
 )

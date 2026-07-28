@@ -44,14 +44,11 @@ _ROLE_INFLUENCE: dict[str, float] = {
 
 def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
     """Generate sound-design WAVs via local MMAudio text-to-audio."""
-    if profile == "podcast":
-        brief_path = "master/podcast_sfx_brief.json"
-        out_rel = "master/sfx"
-        stage = "mmaudio_sfx"
-    else:
-        brief_path = "flow_2_highlights/sfx_brief.json"
-        out_rel = "flow_2_highlights/sfx"
-        stage = "mmaudio_sfx_flow2"
+    if profile != "podcast":
+        raise RuntimeError("Flow 2 removed")
+    brief_path = "master/podcast_sfx_brief.json"
+    out_rel = "master/sfx"
+    stage = "mmaudio_sfx"
     out_dir = ctx.path(out_rel)
     out_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = ctx.path("sound_design", "assets")
@@ -60,10 +57,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     require_spend_artifacts_complete(ctx, stage)
     require_sfx_generation(ctx)
-    if stage == "mmaudio_sfx":
-        from interview_mux.gates_tbiy import require_g1_5_preview_pickup_clear
+    from interview_mux.gates_tbiy import require_g1_5_preview_pickup_clear
 
-        require_g1_5_preview_pickup_clear(ctx, stage=stage)
+    require_g1_5_preview_pickup_clear(ctx, stage=stage)
     with logged_step(f"{stage}/load_plan", ctx=ctx, stage=stage):
         cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
 
@@ -465,12 +461,10 @@ def maybe_auto_refine(ctx: RunContext, stage: str) -> list[str]:
 
 
 def _collect_generation_items_for_regen(ctx: RunContext, stage: str) -> list[dict]:
-    profile = "podcast" if stage.endswith("flow1") else "montage"
-    brief_path = (
-        "master/podcast_sfx_brief.json"
-        if profile == "podcast"
-        else "flow_2_highlights/sfx_brief.json"
-    )
+    if stage != "mmaudio_sfx":
+        raise RuntimeError("Flow 2 removed")
+    profile = "podcast"
+    brief_path = "master/podcast_sfx_brief.json"
     cues = _load_fallback_cues(ctx=ctx, brief_path=brief_path, profile=profile)
     return _collect_generation_items(ctx=ctx, profile=profile, fallback_cues=cues)
 
@@ -750,9 +744,13 @@ def _collect_generation_items(
     if not plan:
         return _dedupe_fallback_cues(fallback_cues)
 
-    flow_key = "podcast" if profile == "podcast" else "flow2"
+    flow_key = "podcast"
+    if profile != "podcast":
+        raise RuntimeError("Flow 2 removed")
     flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
     flow = flow_plans.get(flow_key) if isinstance(flow_plans.get(flow_key), dict) else {}
+    if not flow and isinstance(flow_plans.get("flow1"), dict):
+        flow = flow_plans["flow1"]
     cues = flow.get("cues") if isinstance(flow.get("cues"), list) else []
     assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
     assets_by_id = {
@@ -824,20 +822,14 @@ def _mirror_assets_to_flow_dir(*, ctx: RunContext, asset_ids: list[str], target_
 
 def _collect_cues(brief: dict, profile: str) -> list[dict]:
     cues: list[dict] = []
-    if profile == "podcast":
-        for item in brief.get("chapter_stingers") or []:
-            cues.append({**item, "role": "chapter_stinger", "description": item.get("description", item.get("mood", "soft stinger"))})
-        for item in brief.get("bridges") or []:
-            cues.append({**item, "role": "vo_bridge", "description": item.get("description", "light bridge")})
-        for item in brief.get("beds") or []:
-            cues.append({**item, "role": "ambient_bed", "description": item.get("description", item.get("mood", "quiet bed"))})
-    else:
-        for item in brief.get("transitions") or []:
-            cues.append({**item, "role": "transition_stinger"})
-        if brief.get("cold_open"):
-            cues.insert(0, {**brief["cold_open"], "role": "cold_open"})
-        if brief.get("outro"):
-            cues.append({**brief["outro"], "role": "cold_open"})
+    if profile != "podcast":
+        raise RuntimeError("Flow 2 removed")
+    for item in brief.get("chapter_stingers") or []:
+        cues.append({**item, "role": "chapter_stinger", "description": item.get("description", item.get("mood", "soft stinger"))})
+    for item in brief.get("bridges") or []:
+        cues.append({**item, "role": "vo_bridge", "description": item.get("description", "light bridge")})
+    for item in brief.get("beds") or []:
+        cues.append({**item, "role": "ambient_bed", "description": item.get("description", item.get("mood", "quiet bed"))})
     if not cues:
         cues.append({"description": "short neutral stinger", "duration_ms": 1500, "role": "chapter_stinger"})
     return cues

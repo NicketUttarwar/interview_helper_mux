@@ -264,9 +264,6 @@ def validate_transitions(data: dict[str, Any]) -> list[str]:
 def validate_podcast_sfx_brief(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("podcast_sfx_artifact.schema.json", data)
 
-def validate_highlights_selection(data: dict[str, Any]) -> list[str]:
-    return _validate_by_artifact_schema("highlights_artifact.schema.json", data)
-
 def validate_sfx_montage_brief(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("sfx_montage_artifact.schema.json", data)
 

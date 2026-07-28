@@ -1572,6 +1572,154 @@ def create_app() -> FastAPI:
             "report": report,
         }
 
+    @app.get("/api/runs/{run_id}/audio-probes")
+    def get_audio_probes(run_id: str) -> dict[str, Any]:
+        """Read-only summary of vernacular audio-probe artifacts (fault-tolerant)."""
+        ctx = _ctx(run_id)
+        candidate_paths = (
+            "analysis/run_golden_facts.json",
+            "transcript/protected_zones.json",
+            "transcript/speaker_flows.json",
+            "vernacular/probe_report.json",
+            "vernacular/audio_tags_by_flow.json",
+            "vernacular/resplit_report.json",
+            "analysis/vernacular_must_keep.json",
+        )
+        present: list[str] = []
+        for path in candidate_paths:
+            try:
+                if ctx.artifact_exists(path):
+                    present.append(path)
+            except Exception:
+                continue
+
+        empty: dict[str, Any] = {
+            "available": False,
+            "enforcement_mode": "shadow",
+            "run": {},
+            "zones_count": 0,
+            "must_keep_segment_ids": [],
+            "answer_stats": {},
+            "probe_rows_preview": [],
+            "resplit_patterns": [],
+            "artifacts": present,
+        }
+        if not present:
+            return empty
+
+        run_subset: dict[str, Any] = {}
+        enforcement_mode = "shadow"
+        answer_stats: dict[str, Any] = {}
+        zones_count = 0
+        must_keep: list[str] = []
+        probe_rows: list[Any] = []
+        resplit_patterns: list[Any] = []
+
+        try:
+            if ctx.artifact_exists("analysis/run_golden_facts.json"):
+                gf = ctx.read_json("analysis/run_golden_facts.json")
+                if isinstance(gf, dict):
+                    run = gf.get("run") if isinstance(gf.get("run"), dict) else {}
+                    run_keys = (
+                        "has_in_flow_vernacular",
+                        "has_non_english_spans",
+                        "has_uncommon_english",
+                        "has_high_passion",
+                        "has_pull_quote",
+                        "has_affect_burst",
+                        "has_crosstalk",
+                        "has_bleed",
+                        "has_unintelligible",
+                        "has_payoff",
+                        "has_sensitive_disclosure",
+                        "enforcement_mode",
+                        "vernacular_must_keep_segment_ids",
+                        "special_keywords",
+                        "special_speaker_flow_ids",
+                        "vernacular_flow_count",
+                    )
+                    run_subset = {k: run[k] for k in run_keys if k in run}
+                    enforcement_mode = str(run.get("enforcement_mode") or enforcement_mode)
+                    mk = run.get("vernacular_must_keep_segment_ids")
+                    if isinstance(mk, list):
+                        must_keep = [str(x) for x in mk if x]
+                    meta = gf.get("meta") if isinstance(gf.get("meta"), dict) else {}
+                    stats = meta.get("answer_stats")
+                    if isinstance(stats, dict):
+                        answer_stats = stats
+        except Exception:
+            pass
+
+        try:
+            if ctx.artifact_exists("transcript/protected_zones.json"):
+                pz = ctx.read_json("transcript/protected_zones.json")
+                if isinstance(pz, dict):
+                    zones = pz.get("zones")
+                    if isinstance(zones, list):
+                        zones_count = len(zones)
+        except Exception:
+            pass
+
+        try:
+            if ctx.artifact_exists("vernacular/probe_report.json"):
+                report = ctx.read_json("vernacular/probe_report.json")
+                if isinstance(report, dict):
+                    rows = report.get("rows")
+                    if isinstance(rows, list):
+                        probe_rows = rows[:12]
+                    stats = report.get("answer_stats")
+                    if isinstance(stats, dict) and not answer_stats:
+                        answer_stats = stats
+        except Exception:
+            pass
+
+        try:
+            if ctx.artifact_exists("analysis/vernacular_must_keep.json"):
+                side = ctx.read_json("analysis/vernacular_must_keep.json")
+                if isinstance(side, dict):
+                    mk = side.get("must_keep_segment_ids")
+                    if isinstance(mk, list) and mk:
+                        must_keep = [str(x) for x in mk if x]
+                    mode = side.get("enforcement_mode")
+                    if mode:
+                        enforcement_mode = str(mode)
+        except Exception:
+            pass
+
+        try:
+            if ctx.artifact_exists("vernacular/resplit_report.json"):
+                resplit = ctx.read_json("vernacular/resplit_report.json")
+                if isinstance(resplit, dict):
+                    rows = resplit.get("rows")
+                    if isinstance(rows, list):
+                        patterns: list[Any] = []
+                        for row in rows:
+                            if not isinstance(row, dict):
+                                continue
+                            pat = row.get("pattern")
+                            if pat:
+                                patterns.append(pat)
+                            if len(patterns) >= 8:
+                                break
+                        resplit_patterns = patterns
+                    mk = resplit.get("must_keep_segment_ids")
+                    if isinstance(mk, list) and mk and not must_keep:
+                        must_keep = [str(x) for x in mk if x]
+        except Exception:
+            pass
+
+        return {
+            "available": True,
+            "enforcement_mode": enforcement_mode if enforcement_mode in ("shadow", "authoritative") else "shadow",
+            "run": run_subset,
+            "zones_count": zones_count,
+            "must_keep_segment_ids": must_keep,
+            "answer_stats": answer_stats,
+            "probe_rows_preview": probe_rows,
+            "resplit_patterns": resplit_patterns,
+            "artifacts": present,
+        }
+
     @app.get("/api/runs/{run_id}/episode-structure")
     def get_episode_structure(run_id: str) -> dict[str, Any]:
         from interview_mux.episode_structure import (

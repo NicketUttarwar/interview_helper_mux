@@ -110,6 +110,8 @@ STAGE_REVIEW: dict[str, list[str]] = {
 STAGE_EMBED: dict[str, str] = {
     "transcribe": "transcript_dock",
     "transcript_review_build": "transcript_dock",
+    "audio_probe_build": "audio_probes",
+    "vernacular_segment_sanitize": "audio_probes",
     "source_acoustic_profile": "acoustic_profile",
     "interview_spine_build": "interview_spine",
     "sonic_context_build": "sonic_context",

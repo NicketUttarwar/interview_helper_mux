@@ -317,19 +317,6 @@ def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
-def _check_mmaudio_sfx_flow2(ctx: RunContext) -> list[StageInputIssue]:
-    issues: list[StageInputIssue] = []
-    for rel, remediation in (
-        ("understanding/sound_design_plan.json", "Run sound_design_plan_flow2."),
-        ("sound_design/sfx_prompts.json", "Run sfx_prompt_craft."),
-        ("flow_2_highlights/selection.json", "Run highlight_selection."),
-    ):
-        issue = _require_artifact(ctx, rel, remediation=remediation)
-        if issue:
-            issues.append(issue)
-    return issues
-
-
 def _check_edl(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
@@ -523,7 +510,6 @@ _LLM_STAGES = frozenset(
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
-        "highlight_selection",
         "transitions",
         "sound_design_plan",
         "sound_design_plan_flow2",
@@ -547,6 +533,5 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "mix": _check_mix,
     "master_finalize": _check_master_finalize,
     "mmaudio_sfx": _check_mmaudio_sfx,
-    "mmaudio_sfx_flow2": _check_mmaudio_sfx_flow2,
     "edl": _check_edl,
 }
