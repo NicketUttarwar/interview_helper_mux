@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""CLAP text–audio similarity — runs inside ASSETS/local_mmaudio/venv."""
+"""CLAP text–audio similarity — runs inside ASSETS/local_mmaudio/venv.
+
+Uses get_audio_features / get_text_features (same contract as clap_embed_window)
+so joint processor kwargs cannot silently fail Tier-2 QA.
+"""
 from __future__ import annotations
 
 import json
@@ -43,17 +47,18 @@ def main() -> None:
         model = ClapModel.from_pretrained(model_id)
         model.eval()
         audio, _sr = librosa.load(str(wav_path), sr=48000, mono=True)
-        inputs = processor(
-            text=[text],
-            audios=audio,
-            sampling_rate=48000,
-            return_tensors="pt",
-            padding=True,
-        )
+        text_inputs = processor(text=[text], return_tensors="pt", padding=True)
+        # transformers ClapProcessor: `audio=` (not deprecated `audios=`)
+        audio_inputs = processor(audio=audio, sampling_rate=48000, return_tensors="pt", padding=True)
         with torch.no_grad():
-            outputs = model(**inputs)
-            audio_embed = outputs.audio_embeds
-            text_embed = outputs.text_embeds
+            text_out = model.get_text_features(**text_inputs)
+            audio_out = model.get_audio_features(**audio_inputs)
+            text_embed = getattr(text_out, "pooler_output", None)
+            audio_embed = getattr(audio_out, "pooler_output", None)
+            if text_embed is None:
+                text_embed = text_out[1] if isinstance(text_out, tuple) else text_out
+            if audio_embed is None:
+                audio_embed = audio_out[1] if isinstance(audio_out, tuple) else audio_out
             score = float(torch.nn.functional.cosine_similarity(audio_embed, text_embed).item())
     except Exception as exc:  # noqa: BLE001 — subprocess must always emit JSON
         _respond({"available": False, "error": str(exc)[:500]})

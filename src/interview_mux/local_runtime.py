@@ -227,19 +227,26 @@ def run_runtime_json(
         ctx=ctx,
         stage=stage,
     )
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()[:500]
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err}")
     raw = (proc.stdout or "").strip()
+    parsed: dict[str, Any] | None = None
+    if raw:
+        try:
+            candidate = json.loads(raw)
+            if isinstance(candidate, dict):
+                parsed = candidate
+        except json.JSONDecodeError:
+            parsed = None
+    if proc.returncode != 0:
+        if parsed and (parsed.get("error") or parsed.get("ok") is False):
+            err = str(parsed.get("error") or "runtime failed")[:500]
+            raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err}")
+        err = (proc.stderr or proc.stdout or "").strip()[:500]
+        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err or 'empty stderr/stdout'}")
     if not raw:
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} returned empty stdout")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} returned invalid JSON") from exc
-    if not isinstance(data, dict):
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} JSON must be an object")
-    return data
+    if parsed is None:
+        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} returned invalid JSON")
+    return parsed
 
 
 def write_install_manifest(

@@ -49,7 +49,12 @@ def transcript_quality_for_ctx(ctx: RunContext) -> dict[str, Any]:
 
 
 def compact_transcript_for_boundaries(transcript: dict[str, Any]) -> dict[str, Any]:
-    """Strip heavy STT fields (segment tokens, logprobs) before boundary LLM calls."""
+    """Compact STT for boundary LLM calls.
+
+    Long interviews blow flagship context when every word is serialized (~140k+
+    tokens). Prefer contiguous speaker turns with timing; keep a short word
+    sample only when the interview is short enough to fit safely.
+    """
     words_in = transcript.get("words") or []
     words: list[dict[str, Any]] = []
     for row in words_in:
@@ -67,12 +72,42 @@ def compact_transcript_for_boundaries(transcript: dict[str, Any]) -> dict[str, A
     if not text and words:
         text = " ".join(str(w.get("text", "")) for w in words)
     duration_ms = int(words[-1].get("end_ms") or 0) if words else 0
-    return {
+
+    turns: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for w in words:
+        sid = w.get("speaker_id")
+        if current is None or current.get("speaker_id") != sid:
+            if current is not None:
+                turns.append(current)
+            current = {
+                "speaker_id": sid,
+                "start_ms": w.get("start_ms"),
+                "end_ms": w.get("end_ms"),
+                "text": str(w.get("text") or ""),
+                "word_count": 1,
+            }
+        else:
+            current["end_ms"] = w.get("end_ms")
+            current["text"] = f"{current['text']} {w.get('text') or ''}".strip()
+            current["word_count"] = int(current.get("word_count") or 0) + 1
+    if current is not None:
+        turns.append(current)
+
+    # Word arrays dominate tokens; keep them only for short sources.
+    # ~1500 words ≈ safe with prompt pack + schema under a 200k context window.
+    include_words = len(words) <= 1500
+    out: dict[str, Any] = {
         "text": text,
         "word_count": len(words),
         "duration_ms": duration_ms,
-        "words": words,
+        "turn_count": len(turns),
+        "turns": turns,
+        "timing_resolution": "words" if include_words else "speaker_turns",
     }
+    if include_words:
+        out["words"] = words
+    return out
 
 
 def attach_disfluency_context(payload: dict[str, Any], ctx: RunContext) -> dict[str, Any]:

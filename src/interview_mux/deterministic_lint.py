@@ -548,8 +548,11 @@ def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[
                 if pat.search(text):
                     errors.append(f"prompt for {aid} contains speech/lyrics pattern")
                     break
-        if role == "ambient_bed" and not allow_diegetic and _DIEGETIC_HINTS.search(text):
-            errors.append(f"prompt for {aid} requests diegetic ambient while disabled")
+        if role == "ambient_bed" and not allow_diegetic:
+            # Ignore Forbidden/Avoid clauses — LLMs list banned diegetic words there.
+            scrub = re.split(r"\b(?:Forbidden|Avoid)\s*:", text, maxsplit=1, flags=re.I)[0]
+            if _DIEGETIC_HINTS.search(scrub):
+                errors.append(f"prompt for {aid} requests diegetic ambient while disabled")
         dur = float(row.get("duration_seconds") or 0)
         band = _ROLE_DURATION_BANDS.get(role)
         if band and dur:
@@ -632,8 +635,16 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
             if str(sid) not in manifest_ids:
                 errors.append(f"ordered segment {sid} not in manifest")
     excluded = artifacts.get("excluded_segment_ids") or []
-    if excluded and not artifacts.get("exclude_rationales"):
-        errors.append("excluded segments without exclude_rationales")
+    rationales = artifacts.get("exclude_rationales")
+    if excluded and not rationales:
+        # Object-form exclusions already include per-row reasons.
+        has_inline = all(
+            isinstance(row, dict) and str(row.get("reason") or "").strip()
+            for row in excluded
+            if row is not None
+        )
+        if not has_inline:
+            errors.append("excluded segments without exclude_rationales")
     from interview_mux.framing_coverage_guard import validate_framing_ranking
 
     errors.extend(validate_framing_ranking(ctx, artifacts))

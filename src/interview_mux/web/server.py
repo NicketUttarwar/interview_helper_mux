@@ -1392,7 +1392,9 @@ def create_app() -> FastAPI:
             for line in lines:
                 if not isinstance(line, dict):
                     continue
-                if str(line.get("delivery") or "").lower() != "record":
+                delivery = str(line.get("delivery") or "").lower()
+                # Record pickups and failed/abandoned synthesize lines are both skippable at G1.
+                if delivery not in {"record", "synthesize"}:
                     continue
                 lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
                 if wanted is not None and lid not in wanted:
@@ -1413,14 +1415,22 @@ def create_app() -> FastAPI:
             for lid in skipped:
                 record_skipped_vo(ctx, lid, reason="g1_skip_optional")
 
-            def _mark_g1_skipped(meta: dict[str, Any]) -> None:
-                meta["g1_vo_skipped_optional"] = True
+            # Never set the meta flag on a no-op skip (empty skipped) — that
+            # previously cascaded into repair_gap_report marking all synthesize lines skipped.
+            if skipped:
 
-            ctx.mutate_run_meta(_mark_g1_skipped)
+                def _mark_g1_skipped(meta: dict[str, Any]) -> None:
+                    meta["g1_vo_skipped_optional"] = True
+                    prev = meta.get("g1_skip_applied_line_ids")
+                    existing = [str(x) for x in prev] if isinstance(prev, list) else []
+                    merged = list(dict.fromkeys([*existing, *[str(x) for x in skipped if x]]))
+                    meta["g1_skip_applied_line_ids"] = merged
+
+                ctx.mutate_run_meta(_mark_g1_skipped)
             rebuild_delivery_brief(ctx, reason="g1_skip_optional")
             ctx.log(
                 f"G1 skip-optional: marked {len(skipped)} line(s)",
-                level="success",
+                level="success" if skipped else "warning",
                 stage="g1_vo_pickup",
                 action_id="gui.g1.skip_optional",
                 detail={"event": "g1_skip_optional", "line_ids": skipped},

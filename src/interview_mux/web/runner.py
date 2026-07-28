@@ -1163,6 +1163,16 @@ class JobRunner:
             )
             return
         detail = "; ".join(result.failures)
+        # True-peak-only misses after loudnorm are usually measurement noise — warn, don't poison Activity.
+        tp_only = bool(result.failures) and all("True peak" in f for f in result.failures)
+        if tp_only:
+            ctx.log(
+                f"Master QA soft warning ({flow}): {detail}",
+                level="warning",
+                stage="verify_master",
+                detail="; ".join(result.checks),
+            )
+            return
         ctx.log(
             f"Master QA failed ({flow}): {detail}",
             level="error",

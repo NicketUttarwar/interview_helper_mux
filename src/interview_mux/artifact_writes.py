@@ -144,6 +144,12 @@ def write_validated_artifact(
     if rel_path == "segments/manifest.json":
         pass  # already hydrated in _prepare_segment_artifact
 
+    # Normalize LLM nulls / coherence coupling before disk schema + post-commit lint.
+    from interview_mux.artifact_repairs import apply_repairs_for_stage
+
+    sk = stage_key or None
+    out, _ = apply_repairs_for_stage(ctx, sk or "", out, rel_path=rel_path)
+
     out = _prepare_for_disk_validation(out, rel_path=rel_path, stage_key=stage_key)
 
     errors = validate_artifact_write(rel_path, out)

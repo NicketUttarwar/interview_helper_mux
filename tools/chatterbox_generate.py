@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Chatterbox zero-shot TTS CLI — JSON stdin, JSON stdout."""
+"""Chatterbox zero-shot TTS CLI — JSON stdin, JSON stdout.
+
+API contract (chatterbox 0.1.x): ChatterboxTTS.from_pretrained(device) only.
+``model_id`` in the payload is echoed for audit; weights come from the package default.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +13,21 @@ from pathlib import Path
 
 
 def main() -> int:
-    raw = sys.stdin.read()
-    payload = json.loads(raw or "{}")
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": f"invalid stdin JSON: {exc}"}))
+        return 1
+
+    if not isinstance(payload, dict):
+        print(json.dumps({"ok": False, "error": "payload must be object"}))
+        return 1
+
     text = str(payload.get("text") or "").strip()
     ref_audio = Path(str(payload.get("ref_audio") or ""))
     out_wav = Path(str(payload.get("out_wav") or ""))
+    # Audit-only; chatterbox 0.1.x from_pretrained(device) does not take model_id.
     model_id = str(payload.get("model_id") or "ResembleAI/chatterbox")
 
     if not text:
@@ -27,18 +41,31 @@ def main() -> int:
     try:
         import torch
         import torchaudio
+        import perth
+        # perth may leave PerthImplicitWatermarker=None when perth_net deps missing
+        # (e.g. pkg_resources). ChatterboxTTS.__init__ calls it unconditionally.
+        if getattr(perth, "PerthImplicitWatermarker", None) is None:
+            from perth.dummy_watermarker import DummyWatermarker
+
+            perth.PerthImplicitWatermarker = DummyWatermarker  # type: ignore[misc, assignment]
         from chatterbox.tts import ChatterboxTTS
     except ImportError as exc:
         print(json.dumps({"ok": False, "error": f"chatterbox import failed: {exc}"}))
         return 1
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    model = ChatterboxTTS.from_pretrained(model_id, device=device)
-    wav = model.generate(text, audio_prompt_path=str(ref_audio))
-    if wav.ndim > 1:
-        wav = wav.squeeze(0)
-    torchaudio.save(str(out_wav), wav.unsqueeze(0).cpu(), model.sr)
-    print(json.dumps({"ok": True, "out_wav": str(out_wav), "model_id": model_id}))
+    try:
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # chatterbox 0.1.7: from_pretrained(device) — do NOT pass model_id.
+        model = ChatterboxTTS.from_pretrained(device)
+        wav = model.generate(text, audio_prompt_path=str(ref_audio))
+        if wav.ndim > 1:
+            wav = wav.squeeze(0)
+        torchaudio.save(str(out_wav), wav.unsqueeze(0).cpu(), model.sr)
+    except Exception as exc:  # noqa: BLE001 — CLI must always emit JSON
+        print(json.dumps({"ok": False, "error": str(exc)[:500], "model_id": model_id}))
+        return 1
+
+    print(json.dumps({"ok": True, "out_wav": str(out_wav), "model_id": model_id, "device": device}))
     return 0
 
 

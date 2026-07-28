@@ -34,6 +34,32 @@ def test_verify_master_pass(monkeypatch) -> None:
     assert result.ok is True
     assert result.failures == []
 
+
+def test_verify_master_true_peak_slack_allows_limiter_overshoot(monkeypatch) -> None:
+    """ffmpeg loudnorm often reports TP a few hundredths above the limiter target."""
+
+    def _fake_run(cmd, **kwargs):  # noqa: ANN001
+        if cmd[0] == "ffprobe":
+            return _Proc(
+                stdout='{"streams":[{"sample_rate":"48000","channels":1}],"format":{"duration":"60.0"}}'
+            )
+        if cmd[0] == "ffmpeg":
+            return _Proc(
+                stderr="""
+{
+  "input_i" : "-16.0",
+  "input_tp" : "-0.84"
+}
+"""
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr("interview_mux.operator_subprocess.subprocess.run", _fake_run)
+    result = master_qc.verify_master(Path("/tmp/master/master.wav"), flow="podcast")
+    assert result.ok is True
+    assert result.failures == []
+
+
 def test_verify_master_failures(monkeypatch) -> None:
     def _fake_run(cmd, **kwargs):  # noqa: ANN001
         if cmd[0] == "ffprobe":
@@ -56,4 +82,4 @@ def test_verify_master_failures(monkeypatch) -> None:
     assert result.ok is False
     assert any("Integrated LUFS" in line for line in result.failures)
     assert any("True peak" in line for line in result.failures)
-    assert any("Sample rate" in line for line in result.failures)
+    assert any("sample rate" in line.lower() for line in result.failures)

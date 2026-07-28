@@ -114,7 +114,7 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
     master_filter = calls[0][calls[0].index("-af") + 1]
     assert master_filter.startswith("alimiter=limit=0.891251:attack=5:release=50,loudnorm=")
     assert "I=-16.0" in master_filter
-    assert "TP=-0.85" in master_filter
+    assert "TP=-1.0" in master_filter
     assert any("Assembly bus measured -18.50 LUFS" in msg for msg, _ in ctx.logs)
 
 

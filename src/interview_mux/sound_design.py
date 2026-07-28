@@ -185,6 +185,20 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     missing_vo.append(line_id or "unknown")
                 vo_count += 1
                 clip_crossfade = crossfade_ms
+            elif ctype == "transition":
+                src_rel = clip.get("source_path")
+                if src_rel:
+                    tr_path = ctx.read_path(str(src_rel))
+                    if tr_path.is_file():
+                        audio = load_audio(tr_path)
+                    else:
+                        audio = placeholder_from_clip(clip)
+                        missing_vo.append(f"transition:{src_rel}")
+                else:
+                    # Text-less or silent transition marker — skip (zero duration).
+                    continue
+                vo_count += 1
+                clip_crossfade = crossfade_ms
             else:
                 continue
             if len(base) == 0:

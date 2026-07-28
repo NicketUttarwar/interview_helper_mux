@@ -9,7 +9,8 @@ from interview_mux.run_context import RunContext
 _AUDIO_CLIP_TYPES = frozenset({"speech", "vo_pickup"})
 
 
-def _gap_record_line_ids(ctx: RunContext) -> dict[str, dict[str, Any]]:
+def _gap_vo_line_ids(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """Index gap VO lines that produce vo_pickup clips (record or synthesize)."""
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return {}
     report = ctx.read_json("understanding/gap_report.json")
@@ -17,12 +18,24 @@ def _gap_record_line_ids(ctx: RunContext) -> dict[str, dict[str, Any]]:
     for line in (report.get("interviewer_lines") or []) if isinstance(report, dict) else []:
         if not isinstance(line, dict):
             continue
-        if line.get("delivery") != "record":
+        delivery = str(line.get("delivery") or "").lower()
+        if delivery not in {"record", "synthesize"}:
+            continue
+        if line.get("skipped_optional"):
             continue
         lid = line.get("line_id")
         if isinstance(lid, str) and lid.strip():
             out[lid] = line
     return out
+
+
+def _gap_record_line_ids(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    # Backward-compatible alias used by older callers/tests.
+    return {
+        lid: row
+        for lid, row in _gap_vo_line_ids(ctx).items()
+        if str(row.get("delivery") or "").lower() == "record"
+    }
 
 
 def _segment_ids_from_manifest(ctx: RunContext) -> set[str]:
@@ -58,7 +71,7 @@ def _validate_vo_line_ids(
         if gap_line is None:
             errors.append(
                 f'clips[{index}]: vo_pickup line_id "{line_id}" not found in gap_report '
-                "(delivery=record)"
+                "(delivery=record|synthesize)"
             )
             continue
         target = clip.get("targets_segment_id")
@@ -182,7 +195,7 @@ def validate_flow1_edl(
     if not isinstance(clips, list):
         return ["clips must be an array"]
 
-    gap_lines = _gap_record_line_ids(ctx)
+    gap_lines = _gap_vo_line_ids(ctx)
     valid_segments = _segment_ids_from_manifest(ctx)
     errors.extend(_validate_vo_line_ids(clips, gap_lines))
     errors.extend(_validate_no_overlapping_speech(clips))

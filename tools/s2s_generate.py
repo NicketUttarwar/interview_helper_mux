@@ -155,14 +155,16 @@ def main() -> int:
         raw = sys.stdin.read()
         payload = json.loads(raw or "{}")
     except json.JSONDecodeError:
-        print(json.dumps({"error": "invalid stdin JSON"}))
+        print(json.dumps({"ok": False, "error": "invalid stdin JSON"}))
         return 1
 
     try:
         result = run_payload(payload)
     except Exception as exc:
-        print(json.dumps({"error": str(exc)[:500]}))
+        print(json.dumps({"ok": False, "error": str(exc)[:500]}))
         return 1
+    if isinstance(result, dict) and "ok" not in result:
+        result = {**result, "ok": True}
     print(json.dumps(result))
     return 0
 

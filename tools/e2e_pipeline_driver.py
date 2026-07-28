@@ -172,6 +172,14 @@ def synthesize_g1(run_id: str) -> bool:
         return False
 
 
+def approve_sfx_prompts(run_id: str) -> None:
+    try:
+        result = api("POST", f"/api/runs/{run_id}/sfx-prompts/approve", {})
+        print(f"  SFX prompts approve: {result}", flush=True)
+    except RuntimeError as exc:
+        print(f"  SFX prompts approve note: {exc}", flush=True)
+
+
 def accept_gap_framing_defaults(run_id: str) -> None:
     """Apply product defaults: framing Yes, least-spoken host, Chatterbox clone + consent."""
     gate = api("GET", f"/api/runs/{run_id}/gap-framing")
@@ -277,7 +285,30 @@ def handle_gate(run_id: str, job: dict[str, Any], body: dict[str, Any]) -> bool:
 
     if stage == "g1_vo_pickup" or ("g1" in low and "vo" in low):
         if not synthesize_g1(run_id):
+            framing_active = False
+            delivery = ""
+            try:
+                gate = api("GET", f"/api/runs/{run_id}/gap-framing")
+                framing_active = bool(gate.get("gap_framing_enabled") or gate.get("enabled"))
+                delivery = str(gate.get("gap_vo_delivery") or gate.get("delivery") or "").lower()
+            except Exception:
+                pass
+            if framing_active or delivery in {"chatterbox", "voice_clone", "synthesize"}:
+                raise RuntimeError(
+                    "G1 synthesize-all failed while framing/chatterbox active — refusing auto-skip"
+                )
             skip_g1_optional(run_id)
+        execute(run_id, body)
+        return True
+
+    if (
+        stage in {"sfx_prompt_craft", "mmaudio_sfx"}
+        or "g1.5" in low
+        or "prompt approval" in low
+        or "sfx prompt" in low
+        or "approve prompts" in low
+    ):
+        approve_sfx_prompts(run_id)
         execute(run_id, body)
         return True
 

@@ -1,3 +1,4 @@
 chatterbox-tts
 torch
 torchaudio
+setuptools>=70,<81

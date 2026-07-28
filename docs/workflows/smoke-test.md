@@ -136,6 +136,10 @@ CI coverage (no network): `pytest tests/test_mastering_quality_*.py`.
 - No unhandled exceptions
 - Master WAV plays; duration > 0
 - `verify_master.py` exits 0 for `master/master.wav`
+- Before trusting E2E delivery: `./scripts/verify_local_models.sh` then
+  `STRICT_LOCAL_SMOKE=1 python tools/smoke_local_runtimes.py --generate`
+  (Chatterbox, S2S, MMAudio, CLAP, DeepFilter golden WAVs under `ASSETS/smoke/local_runtimes/`)
+- Autopsy recent masters: `python tools/audit_execution_breakages.py --limit 25`
 
 ## Coherence (H-ORC-03, optional)
 

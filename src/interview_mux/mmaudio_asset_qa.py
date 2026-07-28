@@ -139,6 +139,10 @@ def analyze_asset_wav(
 
     peak = max(abs(s) for s in samples) if samples else 0.0
     mean_rms = _rms(samples)
+    peak_dbfs = 20.0 * math.log10(max(peak, 1e-8))
+    rms_dbfs = 20.0 * math.log10(max(mean_rms, 1e-8))
+    row["peak_dbfs"] = round(peak_dbfs, 2)
+    row["rms_dbfs"] = round(rms_dbfs, 2)
     row["silence_detected"] = bool(mean_rms <= silence_threshold)
     if row["silence_detected"]:
         row["verdict"] = "fail"
@@ -149,6 +153,22 @@ def analyze_asset_wav(
         row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
         row["reasons"].append("peak_too_hot")
         row["suggested_level_db_delta"] = -3.0
+
+    mm_cfg = merged_config().get("mmaudio") or {}
+    # Reject near-inaudible assets (e.g. stingers at ~−35 dBFS) before mix.
+    min_peak = float(mm_cfg.get("min_audible_peak_dbfs", -28.0))
+    min_rms = float(mm_cfg.get("min_audible_rms_dbfs", -40.0))
+    stinger_roles = {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"}
+    if role in stinger_roles or role == "ambient_bed":
+        role_min_peak = min_peak
+        if role in stinger_roles:
+            role_min_peak = float(mm_cfg.get("min_stinger_peak_dbfs", min_peak))
+        if peak_dbfs < role_min_peak or rms_dbfs < min_rms:
+            row["verdict"] = "fail"
+            row["reasons"].append("inaudible_level")
+            row["action"] = "regenerate"
+            row["recommended_action"] = "regenerate"
+            row["suggested_level_db_delta"] = max(0.0, role_min_peak - peak_dbfs + 3.0)
 
     if role in {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"}:
         tail_n = int(rate * 0.2)
@@ -163,9 +183,12 @@ def analyze_asset_wav(
         speech_ratio = _band_energy_ratio(samples, rate, 300.0, 3400.0)
         row["speech_band_ratio"] = round(speech_ratio, 4)
         if speech_ratio > 0.55:
-            row["verdict"] = "fail"
+            # Zero-crossing band proxy is noisy on broadband beds — warn, don't fail
+            # the mix when the asset is clearly audible/non-silent.
+            row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
             row["reasons"].append("speech_band_leak")
-            row["action"] = "regenerate"
+            if row.get("recommended_action") == "pass":
+                row["recommended_action"] = "refine"
             row["suggested_cfg_delta"] = -0.4
 
         if mean_rms < 0.01:

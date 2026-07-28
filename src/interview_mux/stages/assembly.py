@@ -113,6 +113,7 @@ def build_flow1_edl(
     resolve_vo_path: Callable[[dict], Path | None] | None = None,
     vo_relpath: Callable[[Path], str] | None = None,
     vo_duration_ms: Callable[[Path], int] | None = None,
+    resolve_transition_path: Callable[[str, str], Path | None] | None = None,
 ) -> dict:
     """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors."""
     ordered = list(selection.get("ordered_segment_ids") or [])
@@ -122,6 +123,7 @@ def build_flow1_edl(
     missing_vo: list[str] = []
     missing_targets: list[str] = []
     missing_segments: list[str] = []
+    missing_transitions: list[str] = []
 
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
@@ -228,17 +230,30 @@ def build_flow1_edl(
             nxt = ordered[idx + 1]
             tr = _transition_after_segment(transitions, sid, nxt)
             if tr:
+                text = str(tr.get("text") or "")
+                tr_path = (
+                    resolve_transition_path(sid, nxt) if resolve_transition_path else None
+                )
+                tr_rel = None
+                tr_dur = 0
+                if tr_path is not None and tr_path.is_file():
+                    tr_rel = vo_relpath(tr_path) if vo_relpath else tr_path.as_posix()
+                    tr_dur = duration_fn(tr_path)
+                elif text.strip():
+                    missing_transitions.append(f"{sid}->{nxt}")
                 clips.append(
                     {
                         "type": "transition",
                         "after_segment_id": sid,
                         "before_segment_id": nxt,
-                        "text": tr.get("text", ""),
+                        "text": text,
                         "transition_type": tr.get("type", "bridge"),
-                        "duration_ms": 0,
+                        "source_path": tr_rel,
+                        "duration_ms": tr_dur,
                         "timeline_start_ms": timeline_ms,
                     }
                 )
+                timeline_ms += tr_dur
 
     return {
         "version": 1,
@@ -253,6 +268,7 @@ def build_flow1_edl(
             "missing_vo_files": sorted(set(missing_vo)),
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
             "missing_segment_lookups": sorted(set(missing_segments)),
+            "missing_transition_audio": sorted(set(missing_transitions)),
         },
         "mux_scope": "full_mix",
     }
@@ -296,6 +312,24 @@ def run_edl(ctx: RunContext) -> None:
             else None
         )
 
+    with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
+        from interview_mux.transition_vo import (
+            assert_spoken_transitions_audible,
+            resolve_transition_wav,
+            synthesize_spoken_transitions,
+        )
+
+        synth_rows = synthesize_spoken_transitions(ctx)
+        if synth_rows:
+            failed = [r for r in synth_rows if r.get("ok") is False]
+            if failed:
+                ctx.log(
+                    f"EDL: {len(failed)} transition synth failure(s)",
+                    level="warning",
+                    stage="edl",
+                    detail={"failed": failed[:6]},
+                )
+
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         edl = build_flow1_edl(
             selection=selection,
@@ -304,6 +338,7 @@ def run_edl(ctx: RunContext) -> None:
             transitions=transitions,
             resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
             vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
+            resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
         )
 
     warnings = edl.get("warnings") or {}
@@ -316,8 +351,12 @@ def run_edl(ctx: RunContext) -> None:
         missing = sorted(set(warnings["missing_vo_files"]))
         skipped_ids: set[str] = set()
         if gap_report:
+            from interview_mux.gates import vo_gap_line_effectively_optional
+
             for line in gap_report.get("interviewer_lines") or []:
-                if not isinstance(line, dict) or not line.get("skipped_optional"):
+                if not isinstance(line, dict):
+                    continue
+                if not (line.get("skipped_optional") or vo_gap_line_effectively_optional(ctx, line)):
                     continue
                 skipped_ids.add(str(line.get("line_id") or ""))
                 skipped_ids.add(str(line.get("targets_segment_id") or ""))
@@ -340,6 +379,7 @@ def run_edl(ctx: RunContext) -> None:
         level="success",
         stage="edl",
     )
+    assert_spoken_transitions_audible(ctx, edl)
     check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
     check_edl_narrative_qc(ctx, stage="edl", edl=edl)
 
@@ -419,17 +459,19 @@ def run_preview(ctx: RunContext) -> Path:
                 clip_paths.append(out)
                 continue
 
-            if ctype != "vo_pickup":
+            if ctype not in {"vo_pickup", "transition"}:
                 continue
 
             src_rel = clip.get("source_path")
             if not src_rel:
+                if ctype == "transition" and not str(clip.get("text") or "").strip():
+                    continue
                 raise RuntimeError(
-                    f"assembly_preview: vo_pickup clip {clip.get('line_id') or i} missing source_path"
+                    f"assembly_preview: {ctype} clip {clip.get('line_id') or i} missing source_path"
                 )
             vo_src = ctx.read_path(src_rel)
             if not vo_src.is_file():
-                raise FileNotFoundError(f"assembly_preview: vo_pickup clip missing WAV: {src_rel}")
+                raise FileNotFoundError(f"assembly_preview: {ctype} clip missing WAV: {src_rel}")
             run_command(
                 [
                     "ffmpeg",
@@ -446,7 +488,7 @@ def run_preview(ctx: RunContext) -> Path:
                     str(out),
                 ],
                 stage="assembly_preview",
-                label=f"ffmpeg vo_pickup clip {i}",
+                label=f"ffmpeg {ctype} clip {i}",
                 capture_output=True,
             )
             clip_paths.append(out)

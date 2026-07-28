@@ -45,7 +45,10 @@ def main() -> None:
                 _respond({"available": False, "error": "empty_text"})
             inputs = processor(text=[text], return_tensors="pt", padding=True)
             with torch.no_grad():
-                embed = model.get_text_features(**inputs)
+                out = model.get_text_features(**inputs)
+                embed = getattr(out, "pooler_output", None)
+                if embed is None:
+                    embed = out[0] if not hasattr(out, "pooler_output") else out.pooler_output
                 vec = embed[0].cpu().numpy().tolist()
         else:
             if not wav_path.is_file():
@@ -58,9 +61,12 @@ def main() -> None:
             duration_sec = max((end_ms - start_ms) / 1000.0, 0.05)
             max_samples = int(duration_sec * sr)
             audio = audio[:max_samples]
-            inputs = processor(audios=audio, sampling_rate=48000, return_tensors="pt", padding=True)
+            inputs = processor(audio=audio, sampling_rate=48000, return_tensors="pt", padding=True)
             with torch.no_grad():
-                embed = model.get_audio_features(**inputs)
+                out = model.get_audio_features(**inputs)
+                embed = getattr(out, "pooler_output", None)
+                if embed is None:
+                    embed = out[0]
                 vec = embed[0].cpu().numpy().tolist()
         _respond(
             {

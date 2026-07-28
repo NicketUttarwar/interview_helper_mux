@@ -762,6 +762,7 @@ def _collect_generation_items(
     }
 
     ordered_asset_ids: list[str] = []
+    # Prefer cue order first so generation priority matches placement.
     for cue in cues:
         if not isinstance(cue, dict):
             continue
@@ -769,6 +770,10 @@ def _collect_generation_items(
         if not aid or aid not in assets_by_id or aid in ordered_asset_ids:
             continue
         ordered_asset_ids.append(aid)
+    # Generate ALL planned assets (not only cue-referenced) so SDP density is audible.
+    for aid in assets_by_id:
+        if aid not in ordered_asset_ids:
+            ordered_asset_ids.append(aid)
 
     if not ordered_asset_ids:
         return _dedupe_fallback_cues(fallback_cues)

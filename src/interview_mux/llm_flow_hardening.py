@@ -139,8 +139,11 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                     raise SystemExit(exit_msg)
         if flow_hardening_cfg().get("block_mix_without_sfx_when_enabled"):
             from interview_mux.coverage_limits import soft_progression_enabled
+            from interview_mux.creative_delivery import creative_delivery_required
 
-            if soft_progression_enabled():
+            # Soft progression must not bypass SFX completeness when creative delivery
+            # is required — that shipped source-like masters with thin/missing SFX.
+            if soft_progression_enabled() and not creative_delivery_required():
                 ctx.log(
                     "Mix gate: block_mix_without_sfx skipped (soft_progression)",
                     level="warning",
@@ -151,6 +154,8 @@ def require_spend_artifacts_complete(ctx: RunContext, stage_key: str) -> None:
                 from interview_mux.sdp_cross_validate import validate_pre_mix
 
                 errors = validate_pre_mix(ctx, flow)
+                if not ctx.artifact_exists("sound_design/mmaudio_qa.json"):
+                    errors = list(errors) + ["sound_design/mmaudio_qa.json missing"]
                 if errors:
                     exit_msg = f"Mix gate: {'; '.join(errors[:3])}"
                     ctx.log(exit_msg, level="error", stage=stage_key)

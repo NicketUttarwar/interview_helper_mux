@@ -131,6 +131,23 @@ for entry in "deepfilter:local_deepfilter" "mmaudio:local_mmaudio" "speech:local
   fi
 done
 
+# Golden generate smokes (opt-in): proves real audio out, not just import.
+if [[ "${STRICT_LOCAL_SMOKE:-0}" == "1" ]]; then
+  echo ""
+  echo "Running STRICT_LOCAL_SMOKE golden generates..."
+  if [[ -d .venv ]]; then
+    # shellcheck source=/dev/null
+    source .venv/bin/activate
+  fi
+  if python "$ROOT/tools/smoke_local_runtimes.py" --generate; then
+    _report OK "golden_generate" "smoke_local_runtimes.py passed"
+  else
+    _report FAIL "golden_generate" "smoke_local_runtimes.py failed — see ASSETS/smoke/local_runtimes/"
+  fi
+else
+  _report WARN "golden_generate" "skipped — set STRICT_LOCAL_SMOKE=1 for Chatterbox/S2S/MMAudio/CLAP/DeepFilter generate smokes"
+fi
+
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then
   if [[ "$WARN" -eq 0 ]]; then
