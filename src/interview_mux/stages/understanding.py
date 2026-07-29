@@ -140,13 +140,32 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
             )
 
     def build_input(c: RunContext) -> dict:
+        from interview_mux.stage_enrichment import compact_manifest_for_volley
+
+        manifest = c.read_json("segments/manifest.json")
+        compact_manifest = compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {})
         payload: dict[str, Any] = {
             "content_brief": c.read_json("understanding/content_brief.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest,
             "speakers": c.read_json("understanding/speakers.json"),
         }
         if c.artifact_exists("segments/boundaries.json"):
-            payload["boundaries"] = c.read_json("segments/boundaries.json")
+            # Boundaries are pre-vernacular; keep ids only to avoid duplicating timeline bulk.
+            boundaries = c.read_json("segments/boundaries.json")
+            if isinstance(boundaries, dict):
+                rows = []
+                for b in boundaries.get("boundaries") or []:
+                    if not isinstance(b, dict):
+                        continue
+                    rows.append(
+                        {
+                            "segment_id": b.get("segment_id"),
+                            "start_ms": b.get("start_ms"),
+                            "end_ms": b.get("end_ms"),
+                            "speaker_id": b.get("speaker_id"),
+                        }
+                    )
+                payload["boundaries"] = {"boundaries": rows}
         from interview_mux.coherence import attach_coherence_summary
 
         attach_coherence_summary(payload, c, "content_brief_reanchor")

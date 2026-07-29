@@ -374,3 +374,36 @@ def compact_value_features_summary(ctx: RunContext) -> dict[str, Any] | None:
         out["silence_ratio"] = audio.get("silence_ratio")
         out["rms_p90"] = audio.get("rms_p90")
     return out or None
+
+
+def compact_manifest_for_volley(
+    manifest: dict[str, Any] | None,
+    *,
+    text_max: int = 180,
+) -> dict[str, Any]:
+    """Drop bulky segment fields so post-vernacular manifests fit model context."""
+    rows_in = manifest.get("segments") if isinstance(manifest, dict) else None
+    if not isinstance(rows_in, list):
+        return manifest if isinstance(manifest, dict) else {"segments": []}
+    compact_rows: list[dict[str, Any]] = []
+    for row in rows_in:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("text") or row.get("text_excerpt") or "")
+        if len(text) > text_max:
+            text = text[: max(0, text_max - 3)] + "..."
+        compact_rows.append(
+            {
+                "segment_id": row.get("segment_id"),
+                "type": row.get("type"),
+                "speaker_id": row.get("speaker_id"),
+                "speaker_role": row.get("speaker_role"),
+                "topic_tags": row.get("topic_tags") or [],
+                "start_ms": row.get("start_ms"),
+                "end_ms": row.get("end_ms"),
+                "parent_segment_id": row.get("parent_segment_id"),
+                "text_excerpt": text,
+                "flags": row.get("flags") or [],
+            }
+        )
+    return {"segments": compact_rows}

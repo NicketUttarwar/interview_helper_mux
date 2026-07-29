@@ -103,6 +103,15 @@ def _download(repo_id: str, *, revision: str | None) -> Path:
 
     os.environ.setdefault("HF_HOME", str(hf_cache))
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache))
+    try:
+        from interview_mux.config import huggingface_hub_token
+
+        token = huggingface_hub_token()
+        if token:
+            os.environ.setdefault("HF_TOKEN", token)
+            os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
+    except Exception:
+        pass
 
     print(f"Downloading {repo_id} → {dest}")
     snapshot_download(

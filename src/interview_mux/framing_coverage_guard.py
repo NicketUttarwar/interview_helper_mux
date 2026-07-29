@@ -76,8 +76,48 @@ def validate_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> list
 
 
 def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
-    """Apply deterministic guards; raises ValueError when strict errors exist."""
-    issues = validate_framing_ranking(ctx, selection)
+    """Apply deterministic guards; auto-heal primary-impact exclusions when possible."""
+    out = dict(selection)
+    cfg = gap_framing_cfg()
+    if cfg.get("never_exclude_primary_impact", True):
+        plan = load_gap_framing_plan(ctx)
+        primary_ids: set[str] = set()
+        if plan:
+            for act in plan.get("acts") or []:
+                if not isinstance(act, dict):
+                    continue
+                for block in act.get("impact_blocks") or []:
+                    if not isinstance(block, dict):
+                        continue
+                    primary_ids.update(str(s) for s in (block.get("source_segment_ids") or []) if s)
+        if primary_ids:
+            excluded_raw = list(out.get("excluded_segment_ids") or [])
+            kept_excl: list[Any] = []
+            restored: list[str] = []
+            for row in excluded_raw:
+                sid = ""
+                if isinstance(row, dict):
+                    sid = str(row.get("segment_id") or "")
+                elif isinstance(row, str):
+                    sid = row
+                if sid and sid in primary_ids:
+                    restored.append(sid)
+                    continue
+                kept_excl.append(row)
+            if restored:
+                out["excluded_segment_ids"] = kept_excl
+                ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+                for sid in restored:
+                    if sid not in ordered:
+                        ordered.append(sid)
+                out["ordered_segment_ids"] = ordered
+                ctx.log(
+                    "framing_coverage_guard: restored primary impact segment(s) "
+                    f"{', '.join(restored[:6])}",
+                    level="info",
+                    stage="full_master_ranking",
+                )
+    issues = validate_framing_ranking(ctx, out)
     if issues:
         hardening = (merged_config().get("analysis") or {}).get("flow_hardening") or {}
         strict = bool(hardening.get("strict_critical_stages", True))
@@ -85,4 +125,4 @@ def enforce_framing_ranking(ctx: RunContext, selection: dict[str, Any]) -> dict[
         ctx.log(f"framing_coverage_guard: {msg}", level="warning", stage="full_master_ranking")
         if strict and any("never_exclude_primary_impact" in i or "no surviving segment" in i for i in issues):
             raise ValueError(f"framing_coverage_guard: {msg}")
-    return selection
+    return out

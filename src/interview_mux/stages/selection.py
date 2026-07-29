@@ -17,6 +17,7 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.stage_enrichment import compact_manifest_for_volley
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
@@ -50,6 +51,10 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 level="info",
                 stage="full_master_ranking",
             )
+        segments_payload = compact_manifest_for_volley(
+            segments_payload if isinstance(segments_payload, dict) else {},
+            text_max=100,
+        )
         payload = {
             "segments": segments_payload,
             "gap_report": c.read_json("understanding/gap_report.json"),
@@ -112,9 +117,10 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
 def run_transitions(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
+        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
         payload = {
             "selection": c.read_json("master/selection.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
             "interviewer_sample_lines": interviewer_sample_lines(c),

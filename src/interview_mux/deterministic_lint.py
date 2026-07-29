@@ -41,7 +41,17 @@ _DIEGETIC_HINTS = re.compile(r"\b(diegetic|street|traffic|crowd|cafe|restaurant|
 
 
 def _manifest_ids(ctx: RunContext) -> set[str]:
-    """Segment ids for coverage denominator — prefer boundary contract."""
+    """Segment ids for coverage checks.
+
+    Prefer the live ``segments/manifest.json`` (includes vernacular child ids).
+    Fall back to the boundary contract only when no manifest exists yet.
+    """
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
+        ids = {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
+        if ids:
+            return ids
     if ctx.artifact_exists("segments/boundaries.json"):
         from interview_mux.stage_coupling import contract_segment_ids
 
@@ -50,11 +60,7 @@ def _manifest_ids(ctx: RunContext) -> set[str]:
             ids = contract_segment_ids(doc)
             if ids:
                 return set(ids)
-    if not ctx.artifact_exists("segments/manifest.json"):
-        return set()
-    manifest = ctx.read_json("segments/manifest.json")
-    segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
-    return {str(s.get("segment_id")) for s in segs if isinstance(s, dict) and s.get("segment_id")}
+    return set()
 
 
 def _artifacts(envelope: dict[str, Any]) -> dict[str, Any]:

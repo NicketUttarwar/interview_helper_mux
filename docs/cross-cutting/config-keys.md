@@ -810,6 +810,7 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_PROFILE` | Auth failures — see troubleshooting |
 | `AWS_S3_BUCKET` / `AWS_S3_INPUT_KEY` / `AWS_S3_URI` | Transcribe cannot read media |
 | `CURSOR_API_KEY` | Cursor SDK agent runs (`config.cursor_api_key()`) — set in `config/secrets/secrets.env` or env |
+| `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` | Hugging Face Hub auth for public model downloads (CLAP / local stacks). Free account token is enough. Injected into local runtime subprocesses via `local_runtime` / `huggingface_hub_token()` |
 
 Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Deepgram, etc.) are **not wired** until an adapter exists — document when adding code.
 

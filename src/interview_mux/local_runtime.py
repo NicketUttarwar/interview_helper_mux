@@ -144,11 +144,18 @@ def run_runtime_script(
             stage=sid,
             detail={"runtime_id": runtime_id, "script": script_rel},
         )
-    env = None
-    if env_extra:
-        import os
+    import os
 
-        env = os.environ.copy()
+    from interview_mux.config import huggingface_hub_token
+
+    # Always pass a copy so secrets.env HF tokens reach isolated venvs
+    # (huggingface_hub does not read config/secrets/secrets.env itself).
+    env = os.environ.copy()
+    hf_token = huggingface_hub_token()
+    if hf_token:
+        env.setdefault("HF_TOKEN", hf_token)
+        env.setdefault("HUGGING_FACE_HUB_TOKEN", hf_token)
+    if env_extra:
         env.update(env_extra)
     timeout = timeout_sec if timeout_sec is not None else _default_timeout(runtime_id)
     try:

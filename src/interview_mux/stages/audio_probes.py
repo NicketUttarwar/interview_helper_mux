@@ -9,6 +9,7 @@ from interview_mux.audio_probe_orchestrator import (
     empty_probe_artifacts,
 )
 from interview_mux.config import merged_config
+from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.vernacular_sanitize import sanitize_manifest_with_zones
 
@@ -124,7 +125,7 @@ def run_audio_probe_build(ctx: RunContext) -> None:
     except Exception:
         work_dir = None
 
-    with ctx.logged_step(stage, "Run audio probe platform"):
+    with logged_step(f"{stage}/run_platform", ctx=ctx, stage=stage):
         try:
             arts = build_audio_probe_artifacts(
                 transcript,
@@ -269,7 +270,7 @@ def run_vernacular_segment_sanitize(ctx: RunContext) -> None:
 
     min_child = int((cfg.get("sanitize") or {}).get("min_child_ms") or 800)
 
-    with ctx.logged_step(stage, "N-way vernacular resplit"):
+    with logged_step(f"{stage}/nway_resplit", ctx=ctx, stage=stage):
         try:
             result = sanitize_manifest_with_zones(manifest, zones, min_child_ms=min_child)
         except Exception as exc:  # noqa: BLE001

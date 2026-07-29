@@ -85,3 +85,21 @@ def cursor_api_key() -> str:
     if env_key:
         return env_key
     return (load_secrets().get("CURSOR_API_KEY") or "").strip()
+
+
+def huggingface_hub_token() -> str:
+    """HF Hub token for public-model downloads (env overrides secrets.env).
+
+    Free Hugging Face accounts are sufficient for public repos (CLAP, MLX).
+    Accepts ``HF_TOKEN`` or ``HUGGING_FACE_HUB_TOKEN``.
+    """
+    for key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        env_val = os.environ.get(key, "").strip()
+        if env_val:
+            return env_val
+    secrets = load_secrets()
+    for key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        val = (secrets.get(key) or "").strip()
+        if val:
+            return val
+    return ""

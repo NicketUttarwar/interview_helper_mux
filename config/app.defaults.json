@@ -547,7 +547,7 @@
       "classification_obligation_enabled": true,
       "classification_excerpt_max_chars": 600,
       "per_segment_shard_max": 20,
-      "proactive_decompose_segments": 0
+      "proactive_decompose_segments": 40
     },
     "segment_timeline": {
       "allow_overlap_ms": 0,

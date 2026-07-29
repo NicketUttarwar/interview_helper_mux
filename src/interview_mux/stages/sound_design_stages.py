@@ -19,7 +19,7 @@ from interview_mux.sonic_context import (
     compact_for_volley as sonic_compact_for_volley,
     load_sonic_context,
 )
-from interview_mux.stage_enrichment import compact_value_features_summary
+from interview_mux.stage_enrichment import compact_manifest_for_volley, compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
@@ -30,9 +30,10 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         return
 
     def build_input(c: RunContext) -> dict:
+        manifest = c.read_json("segments/manifest.json")
         payload: dict = {
             "content_brief": c.read_json("understanding/content_brief.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}),
             "analysis_state": c.read_json("understanding/analysis_state.json"),
         }
         sdp = _load_sound_design_plan(c)
@@ -120,13 +121,14 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                     level="warning",
                     stage="sound_design_plan",
                 )
+        manifest = c.read_json("segments/manifest.json")
         payload = {
             "sound_design_plan": _load_sound_design_plan(c),
             "selection": c.read_json("master/selection.json"),
             "narrative_plan": c.read_json("master/narrative_plan.json"),
             "transitions": c.read_json("master/transitions.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}),
         }
         from interview_mux.gap_framing import framing_vo_for_sound_design
 

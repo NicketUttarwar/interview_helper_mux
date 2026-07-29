@@ -16,7 +16,7 @@ def classification_context_cfg(cfg: dict[str, Any] | None = None) -> dict[str, A
         "classification_obligation_enabled": True,
         "classification_excerpt_max_chars": 600,
         "per_segment_shard_max": 20,
-        "proactive_decompose_segments": 0,
+        "proactive_decompose_segments": 40,
     }
     return {**defaults, **{k: context.get(k, v) for k, v in defaults.items()}}
 

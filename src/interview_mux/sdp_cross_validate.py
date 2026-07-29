@@ -181,12 +181,29 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
         if placement in {"after_segment", "before_segment", "between_clips", "before_timeline", "after_timeline"}:
             stinger_cues += 1
     if stinger_cap is not None and stinger_cap >= 0:
-        # Approximate per-minute using selection duration when available
+        # Approximate per-minute using selection duration when available.
+        # Missing estimated_duration_sec must not collapse to 1.0 min — that falsely
+        # fails long interviews with a normal stinger count.
         minutes = 1.0
         if ctx.artifact_exists("master/selection.json"):
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict) and sel.get("estimated_duration_sec"):
                 minutes = max(1.0, float(sel["estimated_duration_sec"]) / 60.0)
+            elif isinstance(sel, dict) and ctx.artifact_exists("segments/manifest.json"):
+                order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+                if order:
+                    durs: dict[str, float] = {}
+                    man = ctx.read_json("segments/manifest.json")
+                    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+                        if not isinstance(row, dict):
+                            continue
+                        sid = str(row.get("segment_id") or "")
+                        if not sid:
+                            continue
+                        durs[sid] = max(0.0, (int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0)) / 1000.0)
+                    total_sec = sum(durs.get(s, 0.0) for s in order)
+                    if total_sec > 0:
+                        minutes = max(1.0, total_sec / 60.0)
         if stinger_cues / minutes > stinger_cap + 0.01:
             errors.append(
                 f"stinger cue rate {stinger_cues / minutes:.2f}/min > stinger_max_per_minute {stinger_cap}"

@@ -66,9 +66,17 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
 
 def vo_pickup_relpath(ctx: RunContext, path: Path) -> str:
     try:
-        return path.relative_to(ctx.run_dir).as_posix()
+        rel = path.relative_to(ctx.run_dir).as_posix()
     except ValueError:
         return path.as_posix()
+    # Writes during a staged stage land under .pending_writes/<stage>/… — committed
+    # EDL/mix consumers must see the post-flush run-relative path.
+    prefix = ".pending_writes/"
+    if rel.startswith(prefix):
+        rest = rel[len(prefix) :]
+        if "/" in rest:
+            rel = rest.split("/", 1)[1]
+    return rel
 
 
 def _gap_lines_for_segment(

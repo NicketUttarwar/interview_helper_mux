@@ -11,11 +11,16 @@ from interview_mux.llm_specialists import (
 )
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
-from interview_mux.stage_enrichment import compact_value_features_summary
+from interview_mux.stage_enrichment import compact_manifest_for_volley, compact_value_features_summary
 from interview_mux.source_topology import attach_adaptation_to_payload, pickup_eligible_speaker_id
 from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
+
+
+def _compact_segments_payload(c: RunContext) -> dict[str, Any]:
+    manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
+    return compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100)
 
 
 def ensure_gap_fill_skipped(
@@ -117,7 +122,7 @@ def ensure_gap_fill_skipped(
 def run_missing_framing(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         payload = {
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": _compact_segments_payload(c),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
         risks = load_comprehension_risks(c, "missing_framing")
@@ -167,7 +172,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
 
         payload = {
             "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": _compact_segments_payload(c),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "gap_framing_policy": gap_framing_cfg(),
         }
@@ -234,7 +239,7 @@ def run_optimal_questions_legacy(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         payload = {
             "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": _compact_segments_payload(c),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
         vf = compact_value_features_summary(c)

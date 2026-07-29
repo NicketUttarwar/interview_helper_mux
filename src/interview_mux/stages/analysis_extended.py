@@ -4,6 +4,7 @@ from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.llm_specialists import maybe_run_post_stage_specialists
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import (
+    compact_manifest_for_volley,
     compact_value_features_summary,
     emphasis_regions_for_segments,
 )
@@ -17,9 +18,10 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 def run_topic_coverage(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
+        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
         payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
             "emphasis_regions": emphasis_regions_for_segments(c),
         }
         vf = compact_value_features_summary(c)
@@ -63,10 +65,11 @@ def run_topic_coverage(ctx: RunContext) -> None:
 
 def run_narrative_arc(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
+        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
         payload = {
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("master/coverage_audit.json"),
-            "segments": c.read_json("segments/manifest.json"),
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
             "emphasis_regions": emphasis_regions_for_segments(c),
         }
         vf = compact_value_features_summary(c)
