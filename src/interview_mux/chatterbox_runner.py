@@ -94,4 +94,7 @@ def synthesize_line(
         ref_audio=str(ref),
         model_id=str(chatterbox_cfg().get("model_id") or ""),
     )
+    from interview_mux.s2s_runner import promote_synthesized_vo
+
+    promote_synthesized_vo(ctx, line_id=line_id, src=out_wav)
     return out_wav

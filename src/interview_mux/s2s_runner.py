@@ -234,7 +234,22 @@ def synthesize_line(
             fallback_reason="chatterbox_fail_open_or_qc" if chatterbox_fallback else None,
             model_id=str(payload.get("model_id") or ""),
         )
+        promote_synthesized_vo(ctx, line_id=line_id, src=out_wav)
     return out_wav
+
+
+def promote_synthesized_vo(ctx: RunContext, *, line_id: str, src: Path) -> Path | None:
+    """Copy synthesized WAV to vo_pickup/{line_id}.wav for G1/EDL resolution."""
+    if not src.is_file() or not line_id:
+        return None
+    dest = ctx.path("vo_pickup") / f"{line_id}.wav"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.resolve() != src.resolve():
+            dest.write_bytes(src.read_bytes())
+        return dest
+    except OSError:
+        return None
 
 
 def _append_qa_sidecar(

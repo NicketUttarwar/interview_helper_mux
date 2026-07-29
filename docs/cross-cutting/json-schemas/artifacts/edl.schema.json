@@ -171,6 +171,28 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "timeline_start_ms",
+              "duration_ms"
+            ],
+            "properties": {
+              "type": {
+                "const": "silence"
+              },
+              "air_kind": {
+                "type": "string"
+              },
+              "timeline_start_ms": {
+                "type": "integer"
+              },
+              "duration_ms": {
+                "type": "integer"
+              }
+            }
           }
         ]
       }
@@ -181,11 +203,26 @@
     "timeline_duration_ms": {
       "type": "integer"
     },
+    "silence_clip_count": {
+      "type": "integer"
+    },
+    "vo_pickup_clip_count": {
+      "type": "integer"
+    },
+    "transition_clip_count": {
+      "type": "integer"
+    },
+    "gap_report_line_count": {
+      "type": "integer"
+    },
     "disfluency_clip_count": {
       "type": "integer"
     },
     "disfluency_restore_enabled": {
       "type": "boolean"
+    },
+    "warnings": {
+      "type": "object"
     },
     "mux_scope": {
       "type": "string"

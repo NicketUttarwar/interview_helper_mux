@@ -35,6 +35,23 @@
       "preclean/provider.json"
     ]
   },
+  "audio_probes": {
+    "reads": [
+      "ingest/normalized.wav",
+      "segments/manifest.json",
+      "transcript/full.json"
+    ],
+    "writes": [
+      "analysis/run_golden_facts.json",
+      "analysis/vernacular_must_keep.json",
+      "segments/manifest.json",
+      "transcript/protected_zones.json",
+      "transcript/speaker_flows.json",
+      "vernacular/audio_tags_by_flow.json",
+      "vernacular/probe_report.json",
+      "vernacular/resplit_report.json"
+    ]
+  },
   "edl_narrative_audit": {
     "reads": [
       "master/coverage_audit.json",
@@ -83,6 +100,7 @@
   },
   "segmentation": {
     "reads": [
+      "run_meta.json",
       "segments/boundaries.json",
       "segments/manifest.json",
       "transcript/full.json",

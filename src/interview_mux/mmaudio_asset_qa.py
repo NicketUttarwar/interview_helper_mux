@@ -183,8 +183,12 @@ def analyze_asset_wav(
         speech_ratio = _band_energy_ratio(samples, rate, 300.0, 3400.0)
         row["speech_band_ratio"] = round(speech_ratio, 4)
         if speech_ratio > 0.55:
-            # Zero-crossing band proxy is noisy on broadband beds — warn, don't fail
-            # the mix when the asset is clearly audible/non-silent.
+            # Speech-band-heavy "beds" sound like hum/buzz under dialogue — fail + regenerate.
+            row["verdict"] = "fail"
+            row["reasons"].append("speech_band_leak")
+            row["recommended_action"] = "regenerate"
+            row["suggested_cfg_delta"] = -0.4
+        elif speech_ratio > 0.4:
             row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
             row["reasons"].append("speech_band_leak")
             if row.get("recommended_action") == "pass":
@@ -199,6 +203,14 @@ def analyze_asset_wav(
             row["suggested_level_db_delta"] = -2.0
             row["reasons"].append("default_speech_first_bed_lower")
         row["loop_seam_score"] = round(_loop_seam_score(samples, rate), 4)
+
+    if role == "era_music_bed":
+        speech_ratio = _band_energy_ratio(samples, rate, 300.0, 3400.0)
+        row["speech_band_ratio"] = round(speech_ratio, 4)
+        if speech_ratio > 0.55:
+            row["verdict"] = "fail"
+            row["reasons"].append("speech_band_leak")
+            row["recommended_action"] = "regenerate"
 
     if role == "chapter_stinger" and row["verdict"] == "pass":
         row["suggested_crossfade_ms"] = 120
@@ -325,9 +337,13 @@ def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
                 pass
 
     doc = {"version": 1, "assets": results}
-    out = ctx.path(*OUTPUT_PATH.split("/"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    # Always commit to the final artifact tree (not only .pending_writes).
+    try:
+        ctx.write_json(OUTPUT_PATH, doc, stage_key="mmaudio_sfx", skip_handoff=True)
+    except Exception:
+        out = ctx.final_path(*OUTPUT_PATH.split("/"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     if results:
         fails = sum(1 for r in results if r.get("verdict") == "fail")
         warns = sum(1 for r in results if r.get("verdict") == "warn")

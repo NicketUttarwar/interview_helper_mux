@@ -142,15 +142,16 @@
     "stall_threshold_sec": 180,
     "subprocess_stall_threshold_sec": 7200
   },
-  "_comment_sound_design": "SDP asset caps and post-generation placement QA",
+  "_comment_sound_design": "SDP soft guidance + post-generation placement QA (no hard unique-asset reject caps)",
   "sound_design": {
     "enabled": true,
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "block_mix",
-    "max_palettes": 3,
-    "max_assets": 8,
-    "max_assets_flow1": 8,
+    "max_palettes": 6,
+    "max_assets": 24,
+    "max_assets_flow1": 24,
     "use_adaptive_caps": true,
+    "enforce_unique_asset_cap": false,
     "placement_qa_enabled": true,
     "block_mix_on_mmaudio_qa_fail": true,
     "one_regen_on_fail": true,
@@ -165,23 +166,50 @@
     "min_density": {
       "min_assets": 3,
       "min_beds": 1,
-      "min_stingers": 3,
+      "min_stingers": 1,
       "min_foley": 1,
-      "min_bed_coverage_ratio": 0.08,
+      "min_bed_coverage_ratio": 0.22,
       "min_audible_bed_level_db": -22,
       "min_audible_stinger_level_db": -18
     },
     "remediation": {
-      "max_remux_cycles": 1,
-      "max_regen_per_asset": 1
+      "max_remux_cycles": 2,
+      "max_regen_per_asset": 2
     }
   },
-  "_comment_creative_delivery": "Every run must include audible SFX/music and editorial shaping",
+  "_comment_creative_delivery": "Every run must include audible SFX/music, host VO abundance, and intentional air — percentage bands only",
   "creative_delivery": {
     "required": true,
     "trim_target": "ideal",
     "min_trim_segments": 1,
-    "min_excluded_ratio": 0.05
+    "min_excluded_ratio": 0.05,
+    "listenability_guards": {
+      "host_vo_coverage_min_ratio": 0.35,
+      "host_vo_coverage_max_ratio": 0.85,
+      "host_vo_duration_min_ratio": 0.08,
+      "host_vo_duration_max_ratio": 0.45,
+      "host_vo_quartile_presence_min_ratio": 0.75,
+      "bed_coverage_min_ratio": 0.22,
+      "bed_coverage_max_ratio": 0.55,
+      "bed_quartile_presence_min_ratio": 0.5,
+      "hinge_stinger_coverage_min_ratio": 0.5,
+      "hinge_stinger_coverage_max_ratio": 1.0,
+      "intentional_air_min_ratio": 0.02,
+      "intentional_air_max_ratio": 0.12,
+      "air_after_vo_fraction": 0.18,
+      "air_before_answer_fraction": 0.08,
+      "air_at_chapter_hinge_fraction": 0.12,
+      "air_pad_floor_ms": 250,
+      "air_pad_ceil_ms": 1800,
+      "gap_eval_scored_min_ratio": 0.95,
+      "uncovered_high_gap_max_ratio": 0.0,
+      "fail_closed": true
+    }
+  },
+  "_comment_audio_preclean_default": "Full-source DeepFilterNet runs by default; operator may explicitly dismiss",
+  "audio_preclean": {
+    "default_action": "run",
+    "auto_run_before_ingest": true
   },
   "first_try": {
     "enabled": true,
@@ -192,10 +220,10 @@
   "production_profiles": {
     "documentary_interview": {
       "punctuators_enabled": true,
-      "max_assets_flow1": 8,
-      "max_punctuators": 4,
-      "max_beds": 3,
-      "max_foley": 2,
+      "max_assets_flow1": 24,
+      "max_punctuators": 24,
+      "max_beds": 24,
+      "max_foley": 12,
       "mix_overrides": {
         "bed_under_dialogue_db": -20,
         "foley_under_dialogue_db": -20,
@@ -204,10 +232,10 @@
     },
     "tbiy_narrative": {
       "punctuators_enabled": true,
-      "max_assets_flow1": 8,
-      "max_punctuators": 4,
-      "max_beds": 2,
-      "max_foley": 2,
+      "max_assets_flow1": 24,
+      "max_punctuators": 24,
+      "max_beds": 24,
+      "max_foley": 12,
       "mix_overrides": {
         "punctuator_peak_db": -10,
         "bed_under_dialogue_db": -26,
@@ -540,8 +568,8 @@
       "proactive_decompose_chars": 72000,
       "segment_text_max_chars": 400,
       "max_segments_in_context": 200,
-      "max_segments_in_gap_pass": 100,
-      "max_gap_evaluations": 50,
+      "max_segments_in_gap_pass": 500,
+      "max_gap_evaluations": 0,
       "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8,
       "classification_obligation_enabled": true,
@@ -594,7 +622,7 @@
       "max_ratio_of_source": 1.0,
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
-      "question_budget_max": 6,
+      "question_budget_max": 0,
       "enforce_duration": false
     },
     "coverage_limits": {
@@ -607,7 +635,7 @@
       "volley_spread_quartile_min_ratio": 0.25,
       "volley_hydrate_max_ratio_of_budget": 0.2,
       "volley_spine_event_max_ratio": 1.0,
-      "gap_fill_max_ratio": 0.2,
+      "gap_fill_max_ratio": 1.0,
       "fabricate_max_ratio_per_call": 0.2,
       "fabricate_max_ratio_per_stage": 0.2,
       "synthetic_edit_max_ratio": 0.2,

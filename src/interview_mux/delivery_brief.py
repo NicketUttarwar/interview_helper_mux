@@ -117,8 +117,13 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     target_max = min(max_sec, max(int(source_sec * max_ratio) if source_sec else max_sec, int(ideal * 1.25) if ideal else max_sec))
 
     high_gaps, all_gaps = _count_record_gaps(ctx)
-    q_ideal = min(question_max, high_gaps if high_gaps else all_gaps)
-    q_max = min(question_max, max(q_ideal, all_gaps))
+    # question_budget_max <= 0 means uncapped — density follows gap evidence + listenability ratios.
+    if question_max <= 0:
+        q_ideal = high_gaps if high_gaps else all_gaps
+        q_max = max(q_ideal, all_gaps)
+    else:
+        q_ideal = min(question_max, high_gaps if high_gaps else all_gaps)
+        q_max = min(question_max, max(q_ideal, all_gaps))
     q_min = 0 if q_ideal == 0 else max(0, min(1, q_ideal))
 
     segs = _segment_count(ctx)

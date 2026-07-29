@@ -233,7 +233,10 @@ def volley_spine_event_cap(total_events: int, cfg: dict[str, Any] | None = None)
 
 def gap_fill_cap(total: int, cfg: dict[str, Any] | None = None) -> int:
     limits = coverage_limits_cfg(cfg)
-    return ratio_cap(total, _float(limits, "gap_fill_max_ratio", 0.20), floor=1)
+    ratio = _float(limits, "gap_fill_max_ratio", 1.0)
+    if ratio >= 1.0:
+        return max(total, 1)
+    return ratio_cap(total, ratio, floor=1)
 
 
 def fabricate_cap(total: int, cfg: dict[str, Any] | None = None, *, per_call: bool = True) -> int:

@@ -124,6 +124,8 @@ def build_flow1_edl(
     resolve_transition_path: Callable[[str, str], Path | None] | None = None,
 ) -> dict:
     """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors."""
+    from interview_mux.listenability_guards import air_pad_ms, listenability_guards_cfg
+
     ordered = list(selection.get("ordered_segment_ids") or [])
     clips: list[dict] = []
     gap_placements: list[dict] = []
@@ -132,6 +134,22 @@ def build_flow1_edl(
     missing_targets: list[str] = []
     missing_segments: list[str] = []
     missing_transitions: list[str] = []
+    air_cfg = listenability_guards_cfg()
+
+    def _append_air(kind: str, ref_dur: int) -> None:
+        nonlocal timeline_ms
+        pad = air_pad_ms(ref_dur, kind=kind, cfg=air_cfg)
+        if pad <= 0:
+            return
+        clips.append(
+            {
+                "type": "silence",
+                "air_kind": kind,
+                "duration_ms": pad,
+                "timeline_start_ms": timeline_ms,
+            }
+        )
+        timeline_ms += pad
 
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
@@ -185,8 +203,14 @@ def build_flow1_edl(
                 }
             )
             timeline_ms += dur
+            if dur > 0:
+                _append_air("after_vo", dur)
 
         speech_dur = int(seg["end_ms"]) - int(seg["start_ms"])
+        if clips and str(clips[-1].get("type") or "") == "silence":
+            pass
+        elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
+            _append_air("before_answer", speech_dur)
         clips.append(
             {
                 "segment_id": sid,
@@ -233,6 +257,8 @@ def build_flow1_edl(
                 }
             )
             timeline_ms += dur
+            if dur > 0:
+                _append_air("after_vo", dur)
 
         if idx + 1 < len(ordered):
             nxt = ordered[idx + 1]
@@ -262,6 +288,10 @@ def build_flow1_edl(
                     }
                 )
                 timeline_ms += tr_dur
+                if tr_dur > 0:
+                    _append_air("chapter_hinge", tr_dur)
+                else:
+                    _append_air("chapter_hinge", speech_dur)
 
     return {
         "version": 1,
@@ -272,6 +302,7 @@ def build_flow1_edl(
         "gap_report_line_count": len((gap_report or {}).get("interviewer_lines") or []),
         "vo_pickup_clip_count": sum(1 for c in clips if c.get("type") == "vo_pickup"),
         "transition_clip_count": sum(1 for c in clips if c.get("type") == "transition"),
+        "silence_clip_count": sum(1 for c in clips if c.get("type") == "silence"),
         "warnings": {
             "missing_vo_files": sorted(set(missing_vo)),
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
@@ -462,6 +493,31 @@ def run_preview(ctx: RunContext) -> Path:
                     ],
                     stage="assembly_preview",
                     label=f"ffmpeg speech clip {i}",
+                    capture_output=True,
+                )
+                clip_paths.append(out)
+                continue
+
+            if ctype == "silence":
+                pad_ms = max(0, int(clip.get("duration_ms") or 0))
+                if pad_ms <= 0:
+                    continue
+                run_command(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        f"anullsrc=r=48000:cl=mono",
+                        "-t",
+                        f"{pad_ms / 1000.0:.3f}",
+                        "-c:a",
+                        "pcm_s16le",
+                        str(out),
+                    ],
+                    stage="assembly_preview",
+                    label=f"ffmpeg silence clip {i}",
                     capture_output=True,
                 )
                 clip_paths.append(out)

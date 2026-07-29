@@ -270,15 +270,55 @@ def _skip_context_from_meta(ctx: RunContext) -> tuple[str, str]:
 
 
 def _selected_scope(ctx: RunContext) -> str:
+    from interview_mux.config import merged_config
+    from interview_mux.operator_quality import preclean_checkpoint_decision
+
+    cfg = (merged_config().get("audio_preclean") or {})
+    auto_run = bool(cfg.get("auto_run_before_ingest", True)) or str(cfg.get("default_action") or "").lower() == "run"
+
     if not ctx.artifact_exists("run_meta.json"):
-        return ""
+        return "full_source" if auto_run else ""
     meta = ctx.read_json("run_meta.json")
+    if not isinstance(meta, dict):
+        return "full_source" if auto_run else ""
+    if preclean_checkpoint_decision(meta, "before_ingest") == "dismiss":
+        return ""
+    if preclean_checkpoint_decision(meta, "g1_vo_pickup") == "dismiss" and str(
+        (meta.get("audio_preclean") or {}).get("scope") or ""
+    ) == "vo_pickup":
+        return ""
+
     preclean = meta.get("audio_preclean")
     if not isinstance(preclean, dict):
-        return ""
-    if not preclean.get("enabled"):
-        return ""
-    return str(preclean.get("scope") or "").strip()
+        preclean = {}
+    if preclean.get("enabled"):
+        return str(preclean.get("scope") or "full_source").strip() or "full_source"
+
+    if auto_run:
+        # Enable full-source DeepFilterNet by default unless operator dismissed.
+        def patch(m: dict[str, Any]) -> None:
+            ap = dict(m.get("audio_preclean") or {})
+            ap["enabled"] = True
+            ap["scope"] = str(ap.get("scope") or "full_source") or "full_source"
+            ap["provider"] = str(ap.get("provider") or "deepfilternet")
+            ap["default_action"] = "run"
+            decisions = list(ap.get("decisions") or [])
+            decisions.append(
+                {
+                    "checkpoint": "before_ingest",
+                    "action": "accept",
+                    "scope": ap["scope"],
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "default_auto_run",
+                    "by": "audio_preclean",
+                }
+            )
+            ap["decisions"] = decisions
+            m["audio_preclean"] = ap
+
+        ctx.mutate_run_meta(patch)
+        return "full_source"
+    return ""
 
 
 def _can_skip_full_source(

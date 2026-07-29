@@ -164,10 +164,14 @@ def load_source_readiness(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def maybe_auto_dismiss_preclean(ctx: RunContext, *, checkpoint: str = "before_ingest") -> bool:
-    """Dismiss preclean offer when readiness is green (never auto-accept)."""
+    """Legacy green-source auto-dismiss — disabled when preclean defaults to run."""
+    from interview_mux.config import merged_config
     from interview_mux.first_try import preclean_auto_dismiss_when_green
     from interview_mux.operator_quality import preclean_checkpoint_decision
 
+    pc_cfg = (merged_config().get("audio_preclean") or {})
+    if bool(pc_cfg.get("auto_run_before_ingest", True)) or str(pc_cfg.get("default_action") or "").lower() == "run":
+        return False
     if not preclean_auto_dismiss_when_green():
         return False
     doc = load_source_readiness(ctx)

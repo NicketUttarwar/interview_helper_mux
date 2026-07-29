@@ -51,17 +51,17 @@ def validate_post_sound_palettes(ctx: RunContext) -> list[str]:
 
 
 def validate_post_sound_plan(ctx: RunContext) -> list[str]:
-    """Validate podcast SDP assets/cues against selection and adaptive asset caps."""
+    """Validate podcast SDP assets/cues against selection; unique-asset caps are soft only."""
     errors: list[str] = []
     sdp = _sdp(ctx)
     cfg = merged_config()
     sd = cfg.get("sound_design") or {}
-    fallback = int(sd.get("max_assets", sd.get("max_assets_flow1", 6)))
+    enforce_cap = bool(sd.get("enforce_unique_asset_cap", False))
+    fallback = int(sd.get("max_assets", sd.get("max_assets_flow1", 24)))
     cap = _asset_cap(ctx, fallback=fallback)
     dens: dict[str, int] = {}
     underscore = "normal"
     bed_range: list[float] | None = None
-    stinger_cap: float | None = None
     from interview_mux.soundscape_policy import load_policy, role_bucket, strict_slots
 
     policy = load_policy(ctx)
@@ -73,14 +73,12 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
             "max_foley": int(dens_raw.get("max_foley") or 0),
         }
         policy_cap = sum(dens.values())
-        if policy_cap > 0:
+        if policy_cap > 0 and enforce_cap:
             cap = min(cap, policy_cap) if cap else policy_cap
         underscore = str(policy.get("underscore_policy") or "normal")
         mc = policy.get("mix_contract") if isinstance(policy.get("mix_contract"), dict) else {}
         if isinstance(mc.get("bed_level_db_range"), list) and len(mc["bed_level_db_range"]) == 2:
             bed_range = [float(mc["bed_level_db_range"][0]), float(mc["bed_level_db_range"][1])]
-        if mc.get("stinger_max_per_minute") is not None:
-            stinger_cap = float(mc["stinger_max_per_minute"])
     elif ctx.artifact_exists("understanding/delivery_brief.json"):
         brief = ctx.read_json("understanding/delivery_brief.json")
         if isinstance(brief, dict):
@@ -91,28 +89,15 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
                 "max_foley": int(dens_raw.get("max_foley") or 0),
             }
             brief_cap = sum(dens.values())
-            if brief_cap > 0:
+            if brief_cap > 0 and enforce_cap:
                 cap = min(cap, brief_cap) if cap else brief_cap
     assets = sdp.get("assets") or []
     asset_ids = {str(a.get("asset_id")) for a in assets if isinstance(a, dict) and a.get("asset_id")}
-    if len(asset_ids) > cap:
+    if enforce_cap and len(asset_ids) > cap:
         errors.append(f"asset count {len(asset_ids)} > cap {cap}")
-    # Per-role caps
-    if dens:
-        counts = {"beds": 0, "punctuators": 0, "foley": 0}
-        for a in assets:
-            if not isinstance(a, dict):
-                continue
-            bucket = role_bucket(str(a.get("role") or ""))
-            counts[bucket] = counts.get(bucket, 0) + 1
-        if dens.get("max_beds") is not None and counts["beds"] > dens["max_beds"]:
-            errors.append(f"bed assets {counts['beds']} > max_beds {dens['max_beds']}")
-        if dens.get("max_punctuators") is not None and counts["punctuators"] > dens["max_punctuators"]:
-            errors.append(
-                f"punctuator assets {counts['punctuators']} > max_punctuators {dens['max_punctuators']}"
-            )
-        if dens.get("max_foley") is not None and counts["foley"] > dens["max_foley"]:
-            errors.append(f"foley assets {counts['foley']} > max_foley {dens['max_foley']}")
+    # Per-role unique-asset counts are soft guidance only (reuse cues freely).
+    _ = dens
+    _ = role_bucket
     selection_ids = _selection_ids(ctx)
     palette_seg_ids: set[str] = set()
     for pal in sdp.get("palettes") or []:
@@ -127,13 +112,11 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
     flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     trauma_adjacent = {str(x) for x in (flags.get("trauma_adjacent") or [])}
-    slot_ids = set()
     slot_by_seg: dict[str, set[str]] = {}
     if policy:
         for slot in policy.get("cue_slots") or []:
             if not isinstance(slot, dict):
                 continue
-            slot_ids.add(str(slot.get("slot_id") or ""))
             sid = str(slot.get("segment_id") or "")
             if sid:
                 slot_by_seg.setdefault(sid, set()).update(str(r) for r in (slot.get("allowed_roles") or []))
@@ -141,7 +124,6 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
     }
     under_seg_count = 0
-    stinger_cues = 0
     for cue in cues:
         if not isinstance(cue, dict):
             continue
@@ -177,37 +159,8 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
                     errors.append(
                         f"cue {cue.get('cue_id')} role {role} not in soundscape cue_slots for {seg}"
                     )
-        placement = str(cue.get("placement") or "")
-        if placement in {"after_segment", "before_segment", "between_clips", "before_timeline", "after_timeline"}:
-            stinger_cues += 1
-    if stinger_cap is not None and stinger_cap >= 0:
-        # Approximate per-minute using selection duration when available.
-        # Missing estimated_duration_sec must not collapse to 1.0 min — that falsely
-        # fails long interviews with a normal stinger count.
-        minutes = 1.0
-        if ctx.artifact_exists("master/selection.json"):
-            sel = ctx.read_json("master/selection.json")
-            if isinstance(sel, dict) and sel.get("estimated_duration_sec"):
-                minutes = max(1.0, float(sel["estimated_duration_sec"]) / 60.0)
-            elif isinstance(sel, dict) and ctx.artifact_exists("segments/manifest.json"):
-                order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
-                if order:
-                    durs: dict[str, float] = {}
-                    man = ctx.read_json("segments/manifest.json")
-                    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
-                        if not isinstance(row, dict):
-                            continue
-                        sid = str(row.get("segment_id") or "")
-                        if not sid:
-                            continue
-                        durs[sid] = max(0.0, (int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0)) / 1000.0)
-                    total_sec = sum(durs.get(s, 0.0) for s in order)
-                    if total_sec > 0:
-                        minutes = max(1.0, total_sec / 60.0)
-        if stinger_cues / minutes > stinger_cap + 0.01:
-            errors.append(
-                f"stinger cue rate {stinger_cues / minutes:.2f}/min > stinger_max_per_minute {stinger_cap}"
-            )
+    # Stinger rate is soft — hinge coverage ratios enforce density instead of /min caps.
+    _ = under_seg_count
     from interview_mux.creative_delivery import (
         validate_creative_density,
         validate_cue_segment_anchors,

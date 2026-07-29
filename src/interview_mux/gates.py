@@ -443,6 +443,21 @@ def check_edl_narrative_qc(
 ) -> None:
     """Warn or block when final EDL violates narrative intent."""
     errors = validate_flow1_edl_narrative(ctx, edl)
+    if errors:
+        try:
+            from interview_mux.artifact_repairs import repair_edl_narrative_selection
+
+            notes = repair_edl_narrative_selection(ctx)
+            if notes:
+                errors = validate_flow1_edl_narrative(ctx, None)
+                ctx.log(
+                    f"EDL narrative repair applied ({len(notes)} action(s))",
+                    level="info",
+                    stage=stage,
+                    detail=notes[:8],
+                )
+        except Exception as exc:
+            ctx.log(f"EDL narrative repair skipped: {exc}", level="warning", stage=stage)
     use_strict = edl_narrative_qc_strict_enabled() if strict is None else strict
     if not errors:
         ctx.log(

@@ -709,8 +709,33 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `max_ratio_of_source` | `1.0` | duration ceiling | Full-length masters blocked when set lower |
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
-| `question_budget_max` | `6` | clamp record gaps | Too many VO pickups or none |
+| `question_budget_max` | `0` (uncapped) | soft guidance only when >0 | Prefer `creative_delivery.listenability_guards` host_vo coverage ratios |
 | `enforce_duration` | `false` | ranking cross-validate | When `true`, soft duration band becomes hard fail |
+
+---
+
+## `creative_delivery.listenability_guards`
+
+Percentage-band QC for conversation, beds, stingers, and intentional air. **No numbered hard caps** on interviewer lines / beds / stingers.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `host_vo_coverage_min_ratio` / `max` | `0.35` / `0.85` | Share of selected segments near a host VO/transition |
+| `host_vo_duration_min_ratio` / `max` | `0.08` / `0.45` | Host vs total speech duration |
+| `host_vo_quartile_presence_min_ratio` | `0.75` | Quartiles with host presence |
+| `bed_coverage_min_ratio` / `max` | `0.22` / `0.55` | Selection duration under beds |
+| `bed_quartile_presence_min_ratio` | `0.5` | Quartiles with a bed |
+| `hinge_stinger_coverage_min_ratio` / `max` | `0.5` / `1.0` | Chapter/topic hinges with punctuator |
+| `intentional_air_min_ratio` / `max` | `0.02` / `0.12` | Explicit silence pads in EDL |
+| `gap_eval_scored_min_ratio` | `0.95` | Scored gap evaluations completeness |
+| `fail_closed` | `true` | Mix raises on listenability fail |
+
+## `audio_preclean`
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `default_action` | `run` | Accept DeepFilterNet unless operator dismisses |
+| `auto_run_before_ingest` | `true` | Enable full_source scope by default |
 
 TBIY runs (legacy) additionally refresh `flow_adaptation.tbiy_conformance` during `delivery_brief_build` and may copy `five_act_mode` / `moat_mode` / `vo_bridge_priority` onto the brief. Strategy authority is now the [Mastering Process](./mastering-process.md); conformance is descriptive pending cutover ([mastering-integration-backlog.md](./mastering-integration-backlog.md)).
 

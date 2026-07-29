@@ -199,6 +199,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     continue
                 vo_count += 1
                 clip_crossfade = crossfade_ms
+            elif ctype == "silence":
+                from pydub import AudioSegment as _AS
+
+                pad = max(0, int(clip.get("duration_ms") or 0))
+                if pad <= 0:
+                    continue
+                audio = _AS.silent(duration=pad, frame_rate=getattr(base, "frame_rate", None) or 48000)
+                clip_crossfade = 0
             else:
                 continue
             if len(base) == 0:
@@ -290,6 +298,22 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             missing_vo=missing_vo,
             missing_sfx=list(overlay_stats.get("missing_assets") or []),
         )
+        from interview_mux.listenability_guards import (
+            evaluate_listenability,
+            write_listenability_contract,
+        )
+
+        edl_doc = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
+        listen_report = evaluate_listenability(ctx, edl=edl_doc if isinstance(edl_doc, dict) else None, stage="mix")
+        write_listenability_contract(ctx, listen_report)
+        if listen_report.get("verdict") == "fail":
+            from interview_mux.creative_delivery import creative_delivery_required
+
+            msg = "listenability_contract: " + "; ".join(listen_report.get("failures") or [])
+            if listen_report.get("fail_closed") and creative_delivery_required():
+                ctx.log(msg, level="error", stage="mix")
+                raise RuntimeError(msg)
+            ctx.log(msg, level="warning", stage="mix")
     ctx.mark_done("mix")
     return assembly
 

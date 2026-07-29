@@ -204,16 +204,21 @@ def execute(body: dict[str, Any]) -> None:
     log("execute still busy after retries — joining existing job")
 
 
-def dismiss_preclean() -> None:
+def accept_preclean() -> None:
     try:
         api(
             "POST",
             f"/api/runs/{RUN_ID}/preclean-offer",
-            {"checkpoint": "before_ingest", "action": "dismiss", "scope": "full_source"},
+            {"checkpoint": "before_ingest", "action": "accept", "scope": "full_source"},
         )
-        log("preclean dismissed")
+        log("preclean accepted (default run)")
     except RuntimeError as exc:
         log(f"preclean note: {exc}")
+
+
+def dismiss_preclean() -> None:
+    # Happy path: run DeepFilterNet. Kept name for call sites; no longer dismisses.
+    accept_preclean()
 
 
 def complete_g0() -> None:

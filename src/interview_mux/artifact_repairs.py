@@ -642,6 +642,19 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             seen.add(s)
             deduped.append(s)
         out["ordered_segment_ids"] = deduped
+        # Drop blank / unusable answer segments (blank-safe for later chapter repairs).
+        blank_drop = [s for s in deduped if _segment_is_blank_or_unusable(ctx, s)]
+        if blank_drop:
+            kept = [s for s in deduped if s not in set(blank_drop)]
+            out["ordered_segment_ids"] = kept
+            excl = list(out.get("excluded_segment_ids") or [])
+            have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
+            for sid in blank_drop:
+                if sid not in have:
+                    excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
+                    have.add(sid)
+            out["excluded_segment_ids"] = excl
+            applied.append({"action": "drop_blank_segments", "ids": blank_drop})
     excluded = out.get("excluded_segment_ids")
     if isinstance(excluded, list):
         # Schema requires {segment_id, reason} objects; LLMs often emit bare id strings.
@@ -685,7 +698,7 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 continue
             for sid in ch.get("segment_ids") or []:
                 s = str(sid)
-                if s and s not in required:
+                if s and s not in required and not _segment_is_blank_or_unusable(ctx, s):
                     required.append(s)
         if required:
             ordered_set = {str(s) for s in ordered}
@@ -823,11 +836,21 @@ def _seed_missing_high_gap_interviewer_lines(
             continue
         if manifest_ids and seg_id not in manifest_ids:
             continue
+        # Never seed on-air VO for blank/unusable answer audio — exclude instead.
+        if _segment_is_blank_or_unusable(ctx, seg_id):
+            applied.append({"action": "skip_seed_blank_segment", "segment_id": seg_id})
+            continue
         gap_type = str(row.get("gap_type") or "ok_with_light_bridge").strip() or "ok_with_light_bridge"
         category = GAP_TYPE_TO_CATEGORY.get(gap_type, "story_bridge")
         confusion = str(row.get("listener_confusion") or "").strip()
+        blankish = any(
+            tok in confusion.lower()
+            for tok in ("blank", "no transcript", "empty answer", "unusable", "silence where")
+        )
+        if blankish:
+            applied.append({"action": "skip_seed_meta_blank_copy", "segment_id": seg_id})
+            continue
         if confusion:
-            # Keep well under bridge/question word limits.
             words = confusion.split()
             snippet = " ".join(words[:18]).rstrip(".,;:")
             text = f"Quickly — {snippet}, then continue."
@@ -857,6 +880,23 @@ def _seed_missing_high_gap_interviewer_lines(
         lines.append(seeded)
         targeted.add(seg_id)
         applied.append({"action": "seed_high_gap_line", "segment_id": seg_id})
+
+
+def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return False
+    man = ctx.read_json("segments/manifest.json")
+    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("segment_id") or "") != seg_id:
+            continue
+        text = str(row.get("text") or "").strip()
+        dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
+        if not text or dur < 400:
+            return True
+        return False
+    return False
 
 
 def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -1612,10 +1652,19 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     )
     try:
         from interview_mux.creative_delivery import min_density_cfg
+        from interview_mux.listenability_guards import listenability_guards_cfg
 
         mins = min_density_cfg()
+        guards = listenability_guards_cfg()
+        mins = {
+            **mins,
+            "min_bed_coverage_ratio": max(
+                float(mins.get("min_bed_coverage_ratio") or 0.08),
+                float(guards.get("bed_coverage_min_ratio") or 0.22),
+            ),
+        }
     except Exception:
-        mins = {"min_beds": 1, "min_stingers": 3, "min_bed_coverage_ratio": 0.08}
+        mins = {"min_beds": 1, "min_stingers": 1, "min_bed_coverage_ratio": 0.22}
     need_beds = max(0, int(mins.get("min_beds") or 1) - beds)
     need_stingers = max(0, int(mins.get("min_stingers") or 3) - stingers)
     bed_asset = next((a for a in asset_ids if "bed" in a.lower()), asset_ids[0] if asset_ids else None)
@@ -1786,66 +1835,66 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     cues = kept_sel
 
             mix = policy.get("mix_contract") if isinstance(policy.get("mix_contract"), dict) else {}
+            # Stinger density is governed by hinge coverage ratios — do not hard-trim by /min.
             try:
-                stinger_cap = float(mix.get("stinger_max_per_minute") or policy.get("stinger_max_per_minute") or 4)
-            except (TypeError, ValueError):
-                stinger_cap = 4.0
-            minutes = 1.0
-            if selection_ids and ctx.artifact_exists("segments/manifest.json"):
-                durs: dict[str, float] = {}
-                man = ctx.read_json("segments/manifest.json")
-                for row in (man.get("segments") or []) if isinstance(man, dict) else []:
-                    if not isinstance(row, dict):
-                        continue
-                    sid = str(row.get("segment_id") or "")
-                    if not sid:
-                        continue
-                    durs[sid] = max(0.0, (int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0)) / 1000.0)
-                total_sec = sum(durs.get(s, 0.0) for s in selection_ids)
-                if total_sec > 0:
-                    minutes = max(1.0, total_sec / 60.0)
-                    if ctx.artifact_exists("master/selection.json"):
-                        try:
-                            sel_doc = ctx.read_json("master/selection.json")
-                            if isinstance(sel_doc, dict) and not sel_doc.get("estimated_duration_sec"):
-                                sel_doc["estimated_duration_sec"] = round(total_sec, 1)
-                                ctx.write_json("master/selection.json", sel_doc, stage_key="full_master_ranking")
-                                applied.append(
-                                    {"action": "seed_selection_estimated_duration_sec", "seconds": round(total_sec, 1)}
-                                )
-                        except Exception:
-                            pass
-            max_stingers = max(0, int(stinger_cap * minutes + 1e-9))
-            sting_rows = [
-                c
-                for c in cues
-                if isinstance(c, dict)
-                and not c.get("skip")
-                and str(c.get("placement") or "") in {"before_segment", "after_segment", "between_clips"}
-            ]
-            if len(sting_rows) > max_stingers:
-                keep_ids = {id(c) for c in sting_rows[:max_stingers]}
-                trimmed = 0
-                kept_cues: list[dict[str, Any]] = []
-                for cue in cues:
-                    if not isinstance(cue, dict):
-                        continue
-                    place = str(cue.get("placement") or "")
-                    if place in {"before_segment", "after_segment", "between_clips"} and id(cue) not in keep_ids:
-                        trimmed += 1
-                        continue
-                    kept_cues.append(cue)
-                podcast["cues"] = kept_cues
-                cues = kept_cues
-                applied.append(
-                    {
-                        "action": "trim_stingers_to_rate_cap",
-                        "kept": max_stingers,
-                        "trimmed": trimmed,
-                        "cap_per_min": stinger_cap,
-                        "minutes": round(minutes, 2),
-                    }
-                )
+                from interview_mux.creative_delivery import creative_delivery_required
+
+                skip_rate_trim = creative_delivery_required()
+            except Exception:
+                skip_rate_trim = True
+            if skip_rate_trim:
+                applied.append({"action": "skip_stinger_rate_trim", "reason": "listenability_ratio_guards"})
+            else:
+                try:
+                    stinger_cap = float(mix.get("stinger_max_per_minute") or policy.get("stinger_max_per_minute") or 4)
+                except (TypeError, ValueError):
+                    stinger_cap = 4.0
+                minutes = 1.0
+                if selection_ids and ctx.artifact_exists("segments/manifest.json"):
+                    durs: dict[str, float] = {}
+                    man = ctx.read_json("segments/manifest.json")
+                    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+                        if not isinstance(row, dict):
+                            continue
+                        sid = str(row.get("segment_id") or "")
+                        if not sid:
+                            continue
+                        durs[sid] = max(0.0, (int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0)) / 1000.0)
+                    total_sec = sum(durs.get(s, 0.0) for s in selection_ids)
+                    if total_sec > 0:
+                        minutes = max(1.0, total_sec / 60.0)
+                max_stingers = max(0, int(stinger_cap * minutes + 1e-9))
+                sting_rows = [
+                    c
+                    for c in cues
+                    if isinstance(c, dict)
+                    and not c.get("skip")
+                    and str(c.get("placement") or "") in {"before_segment", "after_segment", "between_clips"}
+                ]
+                if len(sting_rows) > max_stingers:
+                    keep_ids = {id(c) for c in sting_rows[:max_stingers]}
+                    trimmed = 0
+                    kept_cues: list[dict[str, Any]] = []
+                    for cue in cues:
+                        if not isinstance(cue, dict):
+                            continue
+                        place = str(cue.get("placement") or "")
+                        if place in {"before_segment", "after_segment", "between_clips"} and id(cue) not in keep_ids:
+                            trimmed += 1
+                            continue
+                        kept_cues.append(cue)
+                    podcast["cues"] = kept_cues
+                    cues = kept_cues
+                    applied.append(
+                        {
+                            "action": "trim_stingers_to_rate_cap",
+                            "kept": max_stingers,
+                            "trimmed": trimmed,
+                            "cap_per_min": stinger_cap,
+                            "minutes": round(minutes, 2),
+                        }
+                    )
+            _ = mix
     except Exception as exc:
         applied.append({"action": "cue_slot_stinger_repair_skipped", "error": str(exc)[:160]})
 
@@ -1935,6 +1984,78 @@ def repair_sfx_prompts(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
             )
     out.pop("_meta", None)
     return out, applied
+
+
+def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
+    """Productize post-EDL narrative recovery (exclude framing/blanks, unlock volleys, fix coverage).
+
+    Invoked from EDL narrative QC only — not from generic narrative_qc parsers.
+    """
+    notes: list[dict[str, Any]] = []
+    if not ctx.artifact_exists("master/selection.json"):
+        return notes
+    from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
+    from interview_mux.gap_framing import ranking_exclude_segment_ids
+
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(sel, dict):
+        return notes
+    order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
+    excl = list(sel.get("excluded_segment_ids") or [])
+    have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
+    drop_ids = set(ranking_exclude_segment_ids(ctx))
+    for sid in list(order):
+        if _segment_is_blank_or_unusable(ctx, sid):
+            drop_ids.add(sid)
+    for sid in drop_ids:
+        if sid in order:
+            order = [x for x in order if x != sid]
+            reason = (
+                "covered_by_framing_vo"
+                if sid in set(ranking_exclude_segment_ids(ctx))
+                else "blank_or_unusable_answer_audio"
+            )
+            if sid not in have:
+                excl.append({"segment_id": sid, "reason": reason})
+                have.add(sid)
+            notes.append({"action": "exclude_for_edl_narrative", "segment_id": sid, "reason": reason})
+    sel["ordered_segment_ids"] = order
+    sel["excluded_segment_ids"] = excl
+    order_set = set(order)
+    if ctx.artifact_exists("master/coverage_audit.json"):
+        cov = ctx.read_json("master/coverage_audit.json")
+        if isinstance(cov, dict):
+            for key in ("claim_mappings", "topic_mappings"):
+                for m in cov.get(key) or []:
+                    if not isinstance(m, dict) or not m.get("covered"):
+                        continue
+                    mapped = {str(s) for s in (m.get("segment_ids") or []) if s}
+                    if mapped and not (mapped & order_set):
+                        m["covered"] = False
+                        m["coverage_note"] = "mapped segments absent from final selection"
+                        notes.append({"action": "uncover_orphan_mapping", "key": key})
+            ctx.write_json("master/coverage_audit.json", cov, stage_key="topic_coverage_audit")
+    if ctx.artifact_exists("understanding/episode_structure.json"):
+        es = ctx.read_json("understanding/episode_structure.json")
+        if isinstance(es, dict):
+            changed = False
+            for v in es.get("speaker_volleys") or []:
+                if isinstance(v, dict) and v.get("locked"):
+                    v["locked"] = False
+                    changed = True
+            if list(es.get("segment_order") or []) != order:
+                es["segment_order"] = list(order)
+                changed = True
+            if changed:
+                ctx.write_json("understanding/episode_structure.json", es)
+                notes.append({"action": "unlock_speaker_volleys_for_reorder"})
+    fp = fingerprint_artifact(sel, "full_master_ranking")
+    ctx.write_json("master/selection.json", fp, stage_key="full_master_ranking", skip_handoff=True)
+    h = str((fp.get("_meta") or {}).get("content_hash") or "")
+    if h:
+        _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
+    notes.append({"action": "re_fingerprint_selection"})
+    return notes
 
 
 def apply_choice_to_boundaries(doc: dict[str, Any], issue: dict[str, Any], choice: Any) -> dict[str, Any]:

@@ -162,6 +162,31 @@ def run_missing_framing(ctx: RunContext) -> None:
             persist,
             sync_fn=lambda c, a: sync_gaps_to_state(c, a),
         )
+    _assert_gap_evaluations_complete(ctx)
+
+
+def _assert_gap_evaluations_complete(ctx: RunContext) -> None:
+    """Fail closed when too many selection-relevant gap rows are unscored stubs."""
+    from interview_mux.creative_delivery import creative_delivery_required
+    from interview_mux.listenability_guards import gap_eval_scored_ratio, listenability_guards_cfg
+
+    if not creative_delivery_required():
+        return
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return
+    except Exception:
+        pass
+    ratio = gap_eval_scored_ratio(ctx)
+    floor = float(listenability_guards_cfg().get("gap_eval_scored_min_ratio") or 0.95)
+    if ratio + 0.001 >= floor:
+        return
+    raise RuntimeError(
+        f"gap_evaluations incomplete: scored_ratio={ratio:.3f} < min={floor:.3f}. "
+        "Re-run missing_framing / fill-artifact-gaps until selection segments have severity+gap_type."
+    )
 
 
 def run_gap_framing_compose(ctx: RunContext) -> None:

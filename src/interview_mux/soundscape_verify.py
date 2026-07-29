@@ -97,23 +97,29 @@ def _min_bed_level_db(ctx: RunContext) -> float | None:
 
 
 def evaluate_soundscape(ctx: RunContext) -> dict[str, Any]:
-    from interview_mux.creative_delivery import creative_delivery_required, min_density_cfg
+    from interview_mux.creative_delivery import creative_delivery_required
+    from interview_mux.listenability_guards import (
+        bed_quartile_presence,
+        hinge_stinger_coverage_ratio,
+        listenability_guards_cfg,
+        required_sfx_roles_present,
+    )
 
     policy = load_policy(ctx)
     contract = resolve_mix_contract(ctx)
     standards = (policy or {}).get("standards") if isinstance(policy, dict) else {}
     if not isinstance(standards, dict):
         standards = {}
+    guards = listenability_guards_cfg()
     max_coverage = float(
         standards.get("max_bed_coverage_ratio")
         if standards.get("max_bed_coverage_ratio") is not None
-        else contract.get("max_bed_coverage_ratio", 0.4)
+        else contract.get("max_bed_coverage_ratio", guards["bed_coverage_max_ratio"])
     )
     min_rel = float(standards.get("min_speech_relative_db") or 12.0)
     coverage = _estimate_bed_coverage(ctx)
     counts = _count_active_cues(ctx)
     bed_level = _min_bed_level_db(ctx)
-    # Relative speech proxy: -bed_level_db approximates speech dominance when duck is applied
     speech_rel = abs(float(bed_level)) if bed_level is not None else min_rel + 1.0
     duck = float(contract.get("duck_under_speech_db") or 16.0)
     speech_rel_effective = speech_rel + max(0.0, duck - 8.0) * 0.25
@@ -128,16 +134,24 @@ def evaluate_soundscape(ctx: RunContext) -> dict[str, Any]:
         failures.append(f"beds={counts['beds']} while underscore={underscore}")
 
     if creative_delivery_required():
-        mins = min_density_cfg()
-        min_beds = int(mins.get("min_beds") or 1)
-        min_stingers = int(mins.get("min_stingers") or 3)
-        min_cov = float(mins.get("min_bed_coverage_ratio") or 0.08)
-        if counts["beds"] < min_beds:
-            failures.append(f"active_beds {counts['beds']} < min {min_beds}")
-        if counts["stingers"] < min_stingers:
-            failures.append(f"active_stingers {counts['stingers']} < min {min_stingers}")
+        min_cov = float(guards["bed_coverage_min_ratio"])
         if coverage + 0.001 < min_cov:
             failures.append(f"bed_coverage {coverage:.2f} < min {min_cov:.2f}")
+        bed_q = bed_quartile_presence(ctx)
+        if bed_q + 0.001 < float(guards["bed_quartile_presence_min_ratio"]):
+            failures.append(
+                f"bed_quartile_presence {bed_q:.2f} < min {guards['bed_quartile_presence_min_ratio']:.2f}"
+            )
+        hinge_c = hinge_stinger_coverage_ratio(ctx)
+        if hinge_c + 0.001 < float(guards["hinge_stinger_coverage_min_ratio"]):
+            failures.append(
+                f"hinge_stinger_coverage {hinge_c:.2f} < min {guards['hinge_stinger_coverage_min_ratio']:.2f}"
+            )
+        missing_roles = required_sfx_roles_present(ctx)
+        if missing_roles:
+            failures.append(f"missing_sfx_roles:{','.join(missing_roles)}")
+        if counts["beds"] < 1:
+            failures.append("active_beds 0 < min 1")
 
     verdict = "pass" if not failures else "fail"
     return {
@@ -211,12 +225,33 @@ def apply_cheap_remediation(ctx: RunContext) -> list[str]:
 
 
 def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str, Any]:
+    # Discard shadowed pending mix/SDP writes so coverage repairs read committed SDP.
+    try:
+        from interview_mux.write_staging import discard_stage_writes
+
+        for sid in ("mix", "edl", "listen_delight_audit"):
+            discard_stage_writes(ctx, sid)
+    except Exception:
+        pass
     report = evaluate_soundscape(ctx)
     report["remux_cycle"] = remux_cycle
     report["remediation_actions"] = []
     max_cycles = max_remux_cycles()
     if report["verdict"] == "fail" and remux_cycle < max_cycles:
         actions = apply_cheap_remediation(ctx)
+        # If under-covered, seed more beds instead of only lowering levels.
+        fails = " ".join(report.get("failures") or [])
+        if "bed_coverage" in fails and "< min" in fails:
+            try:
+                from interview_mux.artifact_repairs import repair_sound_design_plan
+
+                if ctx.artifact_exists("understanding/sound_design_plan.json"):
+                    sdp = ctx.read_json("understanding/sound_design_plan.json")
+                    fixed, notes = repair_sound_design_plan(ctx, sdp if isinstance(sdp, dict) else {})
+                    ctx.write_json("understanding/sound_design_plan.json", fixed)
+                    actions.extend([str(n.get("action") or n) for n in notes[-6:]])
+            except Exception as exc:
+                actions.append(f"bed_seed_repair_failed:{exc}"[:120])
         report["remediation_actions"] = actions
         report["verdict"] = "remediate"
         ctx.log(

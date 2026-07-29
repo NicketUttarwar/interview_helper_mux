@@ -59,14 +59,19 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_creative_sfx_density(dens: dict[str, Any]) -> dict[str, Any]:
-    """Raise editorial SFX caps to satisfy minimum creative density."""
+    """Raise editorial SFX budgets using soft guidance — not hard reject ceilings."""
     if not creative_delivery_required():
         return dens
+    from interview_mux.listenability_guards import soft_unique_asset_guidance
+
     mins = min_density_cfg()
     out = dict(dens)
-    out["max_beds"] = max(int(out.get("max_beds") or 0), int(mins.get("min_beds") or 1))
-    out["max_punctuators"] = max(int(out.get("max_punctuators") or 0), int(mins.get("min_stingers") or 3))
-    out["max_foley"] = max(int(out.get("max_foley") or 0), int(mins.get("min_foley") or 1))
+    soft = soft_unique_asset_guidance(0)
+    out["max_beds"] = max(int(out.get("max_beds") or 0), int(mins.get("min_beds") or 1), soft)
+    out["max_punctuators"] = max(
+        int(out.get("max_punctuators") or 0), int(mins.get("min_stingers") or 1), soft
+    )
+    out["max_foley"] = max(int(out.get("max_foley") or 0), int(mins.get("min_foley") or 1), soft // 2)
     return out
 
 
@@ -197,24 +202,33 @@ def validate_cue_segment_anchors(cues: list[dict[str, Any]], selection_ids: set[
 
 
 def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]:
+    """Validate role presence (coverage ratios enforced at soundscape/listenability verify)."""
     errors: list[str] = []
     if not creative_delivery_required():
         return errors
-    mins = min_density_cfg()
     assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
-    min_assets = int(mins.get("min_assets") or 3)
-    if len(assets) < min_assets:
-        errors.append(f"creative delivery requires >= {min_assets} SDP assets (have {len(assets)})")
+    if len(assets) < 3:
+        errors.append(f"creative delivery requires role-diverse SDP assets (have {len(assets)})")
+
+    roles = {str(a.get("role") or "") for a in assets}
+    if "era_music_bed" in roles:
+        roles.add("ambient_bed")
+    if "transition_stinger" in roles:
+        roles.add("chapter_stinger")
+    need = {"ambient_bed", "chapter_stinger"}
+    miss = sorted(need - roles)
+    accent_family = {"accent_foley", "vo_bridge", "environmental_foley", "rhetorical_punctuator"}
+    if not (roles & accent_family):
+        miss.append("accent_or_bridge_texture")
+    for m in miss:
+        errors.append(f"creative delivery missing sfx role:{m}")
 
     flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict) and not c.get("skip")]
     beds = sum(1 for c in cues if c.get("placement") == "under_segment")
-    stingers = sum(1 for c in cues if c.get("placement") != "under_segment")
-    if beds < int(mins.get("min_beds") or 1):
-        errors.append(f"creative delivery requires >= {mins.get('min_beds')} bed cue(s) (have {beds})")
-    if stingers < int(mins.get("min_stingers") or 3):
-        errors.append(f"creative delivery requires >= {mins.get('min_stingers')} stinger/accent cue(s) (have {stingers})")
+    if beds < 1:
+        errors.append("creative delivery requires at least one under_segment bed cue")
 
     from interview_mux.soundscape_policy import resolve_mix_contract
 

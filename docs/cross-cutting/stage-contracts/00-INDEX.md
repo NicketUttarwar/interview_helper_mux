@@ -4,6 +4,7 @@
 |-------|------|---------|
 | `assembly_preview` | process | — |
 | `audio_preclean` | process | — |
+| `audio_probe_build` | process | — |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
@@ -19,7 +20,15 @@
 | `gap_framing_recompose` | deterministic | — |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
+| `listen_delight_audit` | process | — |
 | `master_finalize` | process | — |
+| `mastering_plan_confirm` | process | — |
+| `mastering_plan_synthesize` | process | — |
+| `mastering_research_rollup` | process | — |
+| `mastering_research_routing` | process | — |
+| `mastering_research_waves` | process | — |
+| `mastering_shape_agenda` | process | — |
+| `mastering_shape_candidates` | process | — |
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | — |
 | `mmaudio_sfx` | process | — |
@@ -50,4 +59,5 @@
 | `transcript_review_build` | process | — |
 | `transitions` | llm_full | master/transitions.json |
 | `transitions_refine` | deterministic | — |
+| `vernacular_segment_sanitize` | process | — |
 | `vo_ingest` | process | — |

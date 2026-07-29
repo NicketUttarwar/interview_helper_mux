@@ -29,6 +29,7 @@ def test_validate_pre_mix_missing_assets(tmp_path, monkeypatch):
 
 
 def test_validate_post_sound_plan_flow2_over_cap(tmp_path, monkeypatch):
+    """Unique-asset caps are soft by default — many role assets must not hard-fail."""
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_sdp_mix_cap")
     assets = [_sample_asset(f"bed_{i}") for i in range(9)]
@@ -38,4 +39,4 @@ def test_validate_post_sound_plan_flow2_over_cap(tmp_path, monkeypatch):
         skip_handoff=True,
     )
     errors = validate_post_sound_plan_flow2(ctx)
-    assert any("cap" in e for e in errors)
+    assert not any("cap" in e for e in errors)
