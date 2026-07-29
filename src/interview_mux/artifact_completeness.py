@@ -534,6 +534,24 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
             text = " ".join(str(w.get("text", "")) for w in span if w.get("text"))
             if text:
                 out["text"] = text
+        # Boundary-only stubs must still satisfy manifest schema required fields.
+        if "topic_tags" not in out or out.get("topic_tags") is None:
+            out["topic_tags"] = []
+        if not out.get("speaker_id"):
+            out["speaker_id"] = "spk_unknown"
+        if not out.get("speaker_role") or str(out.get("speaker_role")) not in {
+            "interviewer",
+            "interviewee",
+            "unknown",
+        }:
+            out["speaker_role"] = speakers_by_id.get(str(out.get("speaker_id") or ""), "unknown")
+        if not out.get("type"):
+            role = str(out.get("speaker_role") or "unknown").lower()
+            out["type"] = (
+                "interviewer_question"
+                if role in {"interviewer", "host", "moderator", "co_host", "frame"}
+                else "interviewee_answer"
+            )
         hydrated.append(out)
 
     from interview_mux.segment_timeline import sort_segments_by_start_ms

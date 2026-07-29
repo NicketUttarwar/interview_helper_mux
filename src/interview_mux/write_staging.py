@@ -806,7 +806,11 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             manifest = ctx.read_json("segments/manifest.json")
             hydrated = hydrate_manifest_from_boundaries(ctx, manifest)
             if hydrated != manifest:
-                ctx.write_json("segments/manifest.json", hydrated, stage_key=stage_id)
+                # Ensure hydrate stubs pass schema before write_json validation.
+                from interview_mux.artifact_repairs import repair_manifest_segments
+
+                repaired, _notes = repair_manifest_segments(ctx, hydrated)
+                ctx.write_json("segments/manifest.json", repaired, stage_key=stage_id)
         from interview_mux.stage_completion import assert_stage_artifacts_complete
 
         assert_stage_artifacts_complete(ctx, stage_id)

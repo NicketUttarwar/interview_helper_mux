@@ -224,13 +224,32 @@ def apply_cheap_remediation(ctx: RunContext) -> list[str]:
     return actions
 
 
-def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str, Any]:
-    # Discard shadowed pending mix/SDP writes so coverage repairs read committed SDP.
-    try:
-        from interview_mux.write_staging import discard_stage_writes
+def _clear_pending_sdp_shadows(ctx: RunContext) -> None:
+    """Drop pending SDP overlays that shadow the committed plan.
 
-        for sid in ("mix", "edl", "listen_delight_audit"):
-            discard_stage_writes(ctx, sid)
+    Do **not** discard the whole mix staging root — that deletes
+    ``master/assembly.wav`` written just before verify runs.
+    """
+    from interview_mux.write_staging import staging_root
+
+    shadow_rels = (
+        "understanding/sound_design_plan.json",
+        "understanding/sound_design_plan_init.json",
+    )
+    for sid in ("mix", "edl", "listen_delight_audit", "sound_design_plan", "sound_design_vo_finalize"):
+        root = staging_root(ctx, sid)
+        if not root.is_dir():
+            continue
+        for rel in shadow_rels:
+            p = root.joinpath(*rel.split("/"))
+            if p.is_file():
+                p.unlink(missing_ok=True)
+
+
+def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str, Any]:
+    # Clear shadowed pending SDP only — preserve pending mix assembly.wav.
+    try:
+        _clear_pending_sdp_shadows(ctx)
     except Exception:
         pass
     report = evaluate_soundscape(ctx)

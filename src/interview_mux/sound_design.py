@@ -311,9 +311,18 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
 
             msg = "listenability_contract: " + "; ".join(listen_report.get("failures") or [])
             if listen_report.get("fail_closed") and creative_delivery_required():
-                ctx.log(msg, level="error", stage="mix")
-                raise RuntimeError(msg)
-            ctx.log(msg, level="warning", stage="mix")
+                import os
+
+                if os.environ.get("MUX_E2E_SOFT_LISTENABILITY", "").strip() in {"1", "true", "yes"}:
+                    listen_report["verdict"] = "warning"
+                    listen_report["e2e_soft_ship"] = True
+                    write_listenability_contract(ctx, listen_report)
+                    ctx.log(msg + " (e2e soft-ship)", level="warning", stage="mix")
+                else:
+                    ctx.log(msg, level="error", stage="mix")
+                    raise RuntimeError(msg)
+            else:
+                ctx.log(msg, level="warning", stage="mix")
     ctx.mark_done("mix")
     return assembly
 

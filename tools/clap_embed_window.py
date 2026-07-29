@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
-"""CLAP audio embedding for a WAV time slice — runs inside ASSETS/local_mmaudio/venv."""
+"""CLAP audio embedding for WAV time slice(s) — runs inside ASSETS/local_mmaudio/venv.
+
+Single window (legacy):
+  {"wav_path","start_ms","end_ms","model_id"} -> {"available","vector","dim",...}
+
+Batch (preferred — load model once):
+  {"wav_path","windows":[{"start_ms","end_ms"},...],"model_id"}
+    -> {"available","vectors":[[...],...],"dim",...}
+"""
 from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 
 def _respond(payload: dict[str, object], *, exit_code: int = 0) -> None:
     print(json.dumps(payload))
     raise SystemExit(exit_code)
+
+
+def _embed_audio(model, processor, audio, *, torch) -> list[float]:
+    inputs = processor(audio=audio, sampling_rate=48000, return_tensors="pt", padding=True)
+    with torch.no_grad():
+        out = model.get_audio_features(**inputs)
+        embed = getattr(out, "pooler_output", None)
+        if embed is None:
+            embed = out[0]
+        return embed[0].cpu().numpy().tolist()
 
 
 def main() -> None:
@@ -26,9 +43,19 @@ def main() -> None:
     text_only = bool(payload.get("text_only"))
     text = str(payload.get("text") or "").strip()
     wav_path = Path(str(payload.get("wav_path") or ""))
-    start_ms = int(payload.get("start_ms") or 0)
-    end_ms = int(payload.get("end_ms") or 0)
     model_id = str(payload.get("model_id") or "laion/clap-htsat-fused")
+    windows_raw = payload.get("windows")
+    batch_windows: list[dict[str, int]] = []
+    if isinstance(windows_raw, list) and windows_raw:
+        for row in windows_raw:
+            if not isinstance(row, dict):
+                continue
+            batch_windows.append(
+                {
+                    "start_ms": int(row.get("start_ms") or 0),
+                    "end_ms": int(row.get("end_ms") or 0),
+                }
+            )
 
     try:
         import torch
@@ -50,24 +77,54 @@ def main() -> None:
                 if embed is None:
                     embed = out[0] if not hasattr(out, "pooler_output") else out.pooler_output
                 vec = embed[0].cpu().numpy().tolist()
-        else:
-            if not wav_path.is_file():
-                _respond({"available": False, "error": f"missing_wav: {wav_path}"})
-            if end_ms <= start_ms:
-                _respond({"available": False, "error": "invalid_time_range"})
-            import librosa
+            _respond(
+                {
+                    "available": True,
+                    "vector": vec,
+                    "dim": len(vec),
+                    "model_id": model_id,
+                }
+            )
 
-            audio, sr = librosa.load(str(wav_path), sr=48000, mono=True, offset=start_ms / 1000.0)
-            duration_sec = max((end_ms - start_ms) / 1000.0, 0.05)
-            max_samples = int(duration_sec * sr)
-            audio = audio[:max_samples]
-            inputs = processor(audio=audio, sampling_rate=48000, return_tensors="pt", padding=True)
-            with torch.no_grad():
-                out = model.get_audio_features(**inputs)
-                embed = getattr(out, "pooler_output", None)
-                if embed is None:
-                    embed = out[0]
-                vec = embed[0].cpu().numpy().tolist()
+        if not wav_path.is_file():
+            _respond({"available": False, "error": f"missing_wav: {wav_path}"})
+
+        import librosa
+
+        if batch_windows:
+            vectors: list[list[float]] = []
+            for win in batch_windows:
+                start_ms = int(win["start_ms"])
+                end_ms = int(win["end_ms"])
+                if end_ms <= start_ms:
+                    _respond({"available": False, "error": "invalid_time_range"})
+                audio, sr = librosa.load(
+                    str(wav_path), sr=48000, mono=True, offset=start_ms / 1000.0
+                )
+                duration_sec = max((end_ms - start_ms) / 1000.0, 0.05)
+                max_samples = int(duration_sec * sr)
+                audio = audio[:max_samples]
+                vectors.append(_embed_audio(model, processor, audio, torch=torch))
+            dim = len(vectors[0]) if vectors else 0
+            _respond(
+                {
+                    "available": True,
+                    "vectors": vectors,
+                    "dim": dim,
+                    "count": len(vectors),
+                    "model_id": model_id,
+                }
+            )
+
+        start_ms = int(payload.get("start_ms") or 0)
+        end_ms = int(payload.get("end_ms") or 0)
+        if end_ms <= start_ms:
+            _respond({"available": False, "error": "invalid_time_range"})
+        audio, sr = librosa.load(str(wav_path), sr=48000, mono=True, offset=start_ms / 1000.0)
+        duration_sec = max((end_ms - start_ms) / 1000.0, 0.05)
+        max_samples = int(duration_sec * sr)
+        audio = audio[:max_samples]
+        vec = _embed_audio(model, processor, audio, torch=torch)
         _respond(
             {
                 "available": True,

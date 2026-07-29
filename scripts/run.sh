@@ -106,7 +106,12 @@ if [[ "${MUX_SKIP_ASSETS_CLEANUP:-0}" != "1" ]]; then
   if [[ "${MUX_PRESERVE_SESSION:-0}" == "1" ]]; then
     CLEANUP_ARGS+=(--preserve-session)
   fi
-  python -m interview_mux.assets_ephemeral_cleanup "${CLEANUP_ARGS[@]}"
+  # Under `set -u`, empty "${arr[@]}" is unbound on some Bash builds — expand safely.
+  if ((${#CLEANUP_ARGS[@]} > 0)); then
+    python -m interview_mux.assets_ephemeral_cleanup "${CLEANUP_ARGS[@]}"
+  else
+    python -m interview_mux.assets_ephemeral_cleanup
+  fi
 fi
 
 if [[ "$CLI_MODE" == "1" ]]; then

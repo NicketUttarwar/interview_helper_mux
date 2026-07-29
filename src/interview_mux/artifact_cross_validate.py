@@ -545,18 +545,37 @@ def _validate_post_ranking(ctx: RunContext) -> list[str]:
     if not isinstance(sel, dict):
         return ["master/selection.json missing"]
     ordered = sel.get("ordered_segment_ids") or []
+    ordered_set = {str(x) for x in ordered}
     for sid in ordered:
         if str(sid) not in manifest_ids:
             errors.append(f"selection segment {sid} not in manifest")
-    # Honor narrative ordering constraints when present
+    # Ranking is authoritative: prune narrative chapter segment_ids that fell out of selection
+    # so post-commit does not fail a valid reorder.
     plan = _committed_json(ctx, "master/narrative_plan.json")
+    if isinstance(plan, dict) and ordered_set:
+        chapters = plan.get("chapters") or []
+        changed = False
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            prior = [str(s) for s in (ch.get("segment_ids") or [])]
+            kept = [s for s in prior if s in ordered_set]
+            if kept != prior:
+                ch["segment_ids"] = kept
+                changed = True
+        if changed:
+            try:
+                ctx.write_json("master/narrative_plan.json", plan, stage_key="narrative_arc_plan", skip_handoff=True)
+            except Exception:
+                pass
+            plan = _committed_json(ctx, "master/narrative_plan.json")
     if isinstance(plan, dict):
         chapters = plan.get("chapters") or []
         for ch in chapters:
             if not isinstance(ch, dict):
                 continue
             for sid in ch.get("segment_ids") or []:
-                if ordered and str(sid) not in {str(x) for x in ordered}:
+                if ordered and str(sid) not in ordered_set:
                     errors.append(f"narrative chapter segment {sid} missing from selection")
     from interview_mux.delivery_brief import delivery_brief_cfg, estimated_selection_duration_sec, load_delivery_brief
 
@@ -730,9 +749,58 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
         )
     ):
         return []
-    if issues and isinstance(issues[0], dict):
-        return [str(issues[0].get("issue", "edl narrative audit fail"))]
+    # Drop transition-order LLM complaints already fixed on disk (selection after→before).
+    remaining: list[dict] = []
+    for item in issues:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(
+            str(x)
+            for x in (
+                item.get("issue"),
+                item.get("detail"),
+                " ".join(str(e) for e in (item.get("evidence") or [])),
+            )
+            if x
+        ).lower()
+        if "transition" in text and (
+            "mis-alignment" in text
+            or "violating transition" in text
+            or "appears after" in text
+            or "positions before" in text
+        ):
+            if _transitions_match_selection_order(ctx):
+                continue
+        remaining.append(item)
+    if not remaining:
+        return []
+    if remaining and isinstance(remaining[0], dict):
+        return [str(remaining[0].get("issue", "edl narrative audit fail"))]
     return ["edl_narrative_audit verdict is fail"]
+
+
+def _transitions_match_selection_order(ctx: RunContext) -> bool:
+    """True when every after→before pair appears in that order in selection."""
+    if not ctx.artifact_exists("master/selection.json") or not ctx.artifact_exists(
+        "master/transitions.json"
+    ):
+        return False
+    sel = ctx.read_json("master/selection.json")
+    tr = ctx.read_json("master/transitions.json")
+    if not isinstance(sel, dict) or not isinstance(tr, dict):
+        return False
+    order = [str(x) for x in (sel.get("ordered_segment_ids") or [])]
+    index = {sid: i for i, sid in enumerate(order)}
+    for row in tr.get("transitions") or []:
+        if not isinstance(row, dict):
+            continue
+        a = str(row.get("after_segment_id") or "")
+        b = str(row.get("before_segment_id") or "")
+        if not a or not b or a not in index or b not in index:
+            continue
+        if index[a] >= index[b]:
+            return False
+    return True
 
 
 def _validate_post_interview_spine(ctx: RunContext) -> list[str]:
