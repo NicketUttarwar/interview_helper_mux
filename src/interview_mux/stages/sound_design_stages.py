@@ -144,6 +144,14 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         policy = load_policy(c)
         if policy:
             payload["soundscape_policy"] = soundscape_compact(policy)
+        from interview_mux.music_motif import build_music_brief, default_motif_family
+
+        brief = build_music_brief(c)
+        c.write_json("understanding/music_brief.json", brief)
+        payload["music_brief"] = brief
+        sdp_partial = payload.get("sound_design_plan")
+        if isinstance(sdp_partial, dict) and not isinstance(sdp_partial.get("motif_family"), dict):
+            payload["motif_family_seed"] = default_motif_family(brief)
         return attach_disfluency_context(
             attach_episode_structure_to_payload(
                 c,
@@ -171,6 +179,13 @@ def run_sound_design_plan(ctx: RunContext) -> None:
 
         _normalize_sound_design_assets(sdp)
         _normalize_chapter_stinger_reuse(sdp)
+        from interview_mux.music_motif import build_music_brief, ensure_motif_on_plan
+
+        brief = build_music_brief(c)
+        c.write_json("understanding/music_brief.json", brief)
+        if isinstance(artifacts.get("motif_family"), dict):
+            sdp["motif_family"] = artifacts["motif_family"]
+        sdp = ensure_motif_on_plan(sdp, brief)
         from interview_mux.creative_delivery import hydrate_flow_cue_segments
 
         actions = hydrate_flow_cue_segments(c, sdp)

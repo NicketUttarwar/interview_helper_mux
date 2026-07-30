@@ -126,6 +126,24 @@
     "generated": {
       "type": "object",
       "additionalProperties": { "type": "string" }
+    },
+    "motif_family": {
+      "type": "object",
+      "description": "Shared musical identity for MusicGen theme stems (music-only creative delivery).",
+      "properties": {
+        "motif_id": { "type": "string" },
+        "genre_hint": { "type": "string" },
+        "instrumentation": { "type": "array", "items": { "type": "string" } },
+        "scale_or_mode": { "type": "string" },
+        "tempo_bpm_feel": { "type": "string" },
+        "time_feel": { "type": "string" },
+        "motif_phrase": { "type": "string" },
+        "mood": { "type": "string" },
+        "energy_curve_by_act": { "type": "array" },
+        "prompt_dna": { "type": "string" },
+        "stems": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

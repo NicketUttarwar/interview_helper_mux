@@ -21,9 +21,22 @@ from interview_mux.sonic_context import load_sonic_context
 POLICY_PATH = "understanding/soundscape_policy.json"
 REPORT_PATH = "sound_design/soundscape_report.json"
 
-_BED_ROLES = frozenset({"ambient_bed", "era_music_bed"})
+_BED_ROLES = frozenset({"theme_underscore", "ambient_bed", "era_music_bed"})
 _PUNCTUATOR_ROLES = frozenset(
-    {"chapter_stinger", "transition_stinger", "cold_open", "outro", "vo_bridge", "rhetorical_punctuator"}
+    {
+        "theme_cold_open",
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_outro",
+        "theme_transition",
+        # Legacy — creative delivery should not plan these; kept for read compatibility.
+        "chapter_stinger",
+        "transition_stinger",
+        "cold_open",
+        "outro",
+        "vo_bridge",
+        "rhetorical_punctuator",
+    }
 )
 _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_whoosh"})
 
@@ -259,7 +272,7 @@ def score_cue_slots(
                         "slot_id": f"bed_{sid}",
                         "segment_id": sid,
                         "placement": "under_segment",
-                        "allowed_roles": ["ambient_bed"],
+                        "allowed_roles": ["theme_underscore", "ambient_bed"],
                         "priority": round(priority, 3),
                         "max_level_db": bed_level,
                         "reason": "duration_ok"
@@ -275,7 +288,7 @@ def score_cue_slots(
                     "slot_id": f"sting_{sid}",
                     "segment_id": sid,
                     "placement": "after_segment",
-                    "allowed_roles": ["chapter_stinger"],
+                    "allowed_roles": ["theme_chapter_resolve", "theme_transition", "chapter_stinger"],
                     "priority": 0.75,
                     "max_level_db": -14.0,
                     "reason": "chapter_boundary",
@@ -284,7 +297,11 @@ def score_cue_slots(
             sting_budget -= 1
 
     # Cap slots by priority if over budget after scoring
-    bed_slots = [s for s in slots if "ambient_bed" in s.get("allowed_roles", [])]
+    bed_slots = [
+        s
+        for s in slots
+        if "theme_underscore" in s.get("allowed_roles", []) or "ambient_bed" in s.get("allowed_roles", [])
+    ]
     other = [s for s in slots if s not in bed_slots]
     bed_slots.sort(key=lambda s: float(s.get("priority") or 0), reverse=True)
     bed_slots = bed_slots[: dens.get("max_beds", 0)]

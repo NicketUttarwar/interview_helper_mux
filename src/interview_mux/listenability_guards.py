@@ -363,10 +363,14 @@ def uncovered_high_gap_ratio(ctx: RunContext) -> float:
 
 
 def required_sfx_roles_present(ctx: RunContext) -> list[str]:
-    """Return missing required roles (empty if OK)."""
-    required = {"ambient_bed", "chapter_stinger"}
-    # accent optional but preferred — require at least one of accent_foley / vo_bridge / environmental_foley
-    accent_family = {"accent_foley", "vo_bridge", "environmental_foley", "rhetorical_punctuator"}
+    """Return missing required roles (empty if OK). Music-only creative delivery."""
+    required = {"theme_underscore", "theme_cold_open"}
+    accent_family = {
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_transition",
+        "theme_outro",
+    }
     roles: set[str] = set()
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
         sdp = ctx.read_json("understanding/sound_design_plan.json")
@@ -374,14 +378,16 @@ def required_sfx_roles_present(ctx: RunContext) -> list[str]:
             for a in sdp.get("assets") or []:
                 if isinstance(a, dict) and a.get("role"):
                     roles.add(str(a["role"]))
-            # era_music_bed satisfies ambient need
-            if "era_music_bed" in roles:
-                roles.add("ambient_bed")
-            if "transition_stinger" in roles:
-                roles.add("chapter_stinger")
+            # Legacy aliases map to theme requirements during migration.
+            if "era_music_bed" in roles or "ambient_bed" in roles:
+                roles.add("theme_underscore")
+            if "cold_open" in roles:
+                roles.add("theme_cold_open")
+            if "chapter_stinger" in roles or "transition_stinger" in roles:
+                roles.add("theme_chapter_resolve")
     missing = sorted(required - roles)
     if not (roles & accent_family):
-        missing.append("accent_or_bridge_texture")
+        missing.append("theme_emphasis_or_resolve")
     return missing
 
 

@@ -6,12 +6,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
-from interview_mux.config import merged_config
 from interview_mux.coverage_limits import (
     delivery_output_ideal_ratio,
     delivery_output_min_ratio,
 )
-from interview_mux.run_context import RunContext
 from interview_mux.run_context import RunContext
 
 DELIVERY_BRIEF_PATH = "understanding/delivery_brief.json"
@@ -56,8 +54,8 @@ def _source_duration_ms(ctx: RunContext) -> int:
     return 0
 
 
-def _count_record_gaps(ctx: RunContext) -> tuple[int, int]:
-    """Return (blocking_severity_record_count, all_record_count)."""
+def _count_vo_gaps(ctx: RunContext) -> tuple[int, int]:
+    """Return (blocking_severity_vo_count, all_record_or_synthesize_count)."""
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return 0, 0
     from interview_mux.gates import _line_requires_vo
@@ -67,18 +65,29 @@ def _count_record_gaps(ctx: RunContext) -> tuple[int, int]:
     if isinstance(rep, dict):
         lines = rep.get("interviewer_lines") or rep.get("lines") or rep.get("gaps") or []
     high = 0
-    all_rec = 0
+    all_vo = 0
     for row in lines:
         if not isinstance(row, dict):
             continue
-        delivery = str(row.get("delivery") or "").lower()
-        if delivery and delivery != "record":
+        if row.get("skipped_optional"):
             continue
-        all_rec += 1
-        if _line_requires_vo(row):
-            high += 1
-    return high, all_rec
+        delivery = str(row.get("delivery") or "").lower()
+        # Count synthesize and record — both are host VO for density.
+        if delivery and delivery not in {"record", "synthesize", "synth", ""}:
+            continue
+        if not delivery:
+            # Default host lines without delivery still count toward density.
+            pass
+        all_vo += 1
+        if _line_requires_vo(row) or delivery in {"record", "synthesize", "synth"}:
+            if str(row.get("severity") or "").lower() in HIGH_SEVERITY or _line_requires_vo(row):
+                high += 1
+    return high, all_vo
 
+
+def _count_record_gaps(ctx: RunContext) -> tuple[int, int]:
+    """Compat wrapper — prefer synthesize+record VO counts."""
+    return _count_vo_gaps(ctx)
 
 def _segment_count(ctx: RunContext) -> int:
     if not ctx.artifact_exists("segments/manifest.json"):
@@ -116,17 +125,33 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     target_min = max(int(source_sec * min_ratio) if source_sec else min_sec // 2, int(ideal * 0.7))
     target_max = min(max_sec, max(int(source_sec * max_ratio) if source_sec else max_sec, int(ideal * 1.25) if ideal else max_sec))
 
-    high_gaps, all_gaps = _count_record_gaps(ctx)
-    # question_budget_max <= 0 means uncapped — density follows gap evidence + listenability ratios.
-    if question_max <= 0:
-        q_ideal = high_gaps if high_gaps else all_gaps
-        q_max = max(q_ideal, all_gaps)
-    else:
-        q_ideal = min(question_max, high_gaps if high_gaps else all_gaps)
-        q_max = min(question_max, max(q_ideal, all_gaps))
-    q_min = 0 if q_ideal == 0 else max(0, min(1, q_ideal))
-
+    high_gaps, all_gaps = _count_vo_gaps(ctx)
     segs = _segment_count(ctx)
+    # Density floor from gap_framing.min_vo_insert_ratio (selected speech count).
+    import math
+
+    gf = (cfg.get("analysis") or {}).get("gap_framing") or {}
+    vo_min_ratio = float(gf.get("min_vo_insert_ratio") or 0.20)
+    vo_target_ratio = float(gf.get("target_vo_insert_ratio") or 0.35)
+    ordered_n = 0
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
+    if ordered_n <= 0:
+        ordered_n = segs
+    vo_floor = max(1, int(math.ceil(ordered_n * vo_min_ratio))) if ordered_n else 0
+    vo_target_n = max(vo_floor, int(math.ceil(ordered_n * vo_target_ratio))) if ordered_n else vo_floor
+
+    # question_budget_max <= 0 means uncapped — density follows gap evidence + VO floor.
+    if question_max <= 0:
+        q_ideal = max(all_gaps, vo_floor, vo_target_n)
+        q_max = max(q_ideal, all_gaps, vo_target_n)
+    else:
+        q_ideal = min(question_max, max(high_gaps if high_gaps else all_gaps, vo_floor))
+        q_max = min(question_max, max(q_ideal, all_gaps, vo_floor))
+    q_min = vo_floor if vo_floor else (0 if q_ideal == 0 else max(0, min(1, q_ideal)))
+
     if segs <= 8:
         ch_ideal = max(1, min(max_chapters, max(2, segs // 2)))
     elif segs <= 24:
@@ -184,7 +209,8 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     rationale = [
         f"source_duration_ms={source_ms}",
         f"delivery_compression_ratio={round(ideal / source_sec, 3) if source_sec else 0}",
-        f"high_severity_record_gaps={high_gaps}",
+        f"high_severity_vo_gaps={high_gaps}",
+        f"vo_density_floor={vo_floor}",
         f"segment_count={segs}",
         f"topology_style={adapt.get('production_style') or 'unknown'}",
     ]
@@ -206,9 +232,11 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
         # Soft hint: prefer intact speaker volleys (conversation units) over max isolated clips.
         # See docs/cross-cutting/volley-glossary.md — not an LLM message-packet setting.
         "speaker_volley_density": {
-            "prefer_intact": True,
-            "min_volleys": 0,
+            # Soft: prefer shorter alternating turns; long-form keeps content.
+            "prefer_intact": False,
+            "min_volleys": max(4, int(segs // 12) if segs else 4),
             "soft": True,
+            "split_same_speaker_run_ms": 28000,
         },
         "ranking_weights": dict(weights) if weights else {},
         "rationale": rationale,

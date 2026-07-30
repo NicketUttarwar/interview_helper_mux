@@ -477,12 +477,46 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
         role = str(row.get("role") or row.get("speaker_role") or "unknown")
         if role == "moderator":
             row["role"] = "interviewer"
-            applied.append({"action": "infer_enum", "path": f"speakers[{i}].role", "value": "interviewer"})
-        elif all_unknown and role == "unknown":
-            spk = str(row.get("speaker_id") or "")
-            inferred = _infer_speaker_role(ctx, spk)
+            role = "interviewer"
+            applied.append({"action": "normalize_moderator_to_interviewer", "speaker_id": sid})
+        if role == "unknown" or all_unknown:
+            inferred = _infer_speaker_role(ctx, sid)
             row["role"] = inferred
-            applied.append({"action": "infer_role", "path": f"speakers[{i}].role", "value": inferred})
+            applied.append({"action": "infer_speaker_role", "speaker_id": sid, "value": inferred})
+    # Tie-break: among dual unknowns resolved to same role, prefer question-dense as interviewer.
+    roles_now = [
+        str(r.get("role") or "unknown")
+        for r in rows
+        if isinstance(r, dict)
+    ]
+    if roles_now.count("interviewer") == 0 and len(rows) >= 2:
+        best_id = None
+        best_score = -1.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("speaker_id") or row.get("id") or "")
+            # Re-score via question heuristic only.
+            if _infer_speaker_role(ctx, sid) == "interviewer":
+                best_id = sid
+                break
+            talk = stats_by_id.get(sid) or {}
+            # Least talk often = interviewer in duo interviews.
+            talk_ms = float(talk.get("talk_ms") or talk.get("total_ms") or 1e18)
+            score = 1.0 / max(1.0, talk_ms)
+            if score > best_score:
+                best_score = score
+                best_id = sid
+        if best_id:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("speaker_id") or row.get("id") or "")
+                if sid == best_id:
+                    row["role"] = "interviewer"
+                    applied.append({"action": "tiebreak_interviewer", "speaker_id": sid})
+                elif str(row.get("role") or "") == "interviewer":
+                    row["role"] = "interviewee"
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -951,6 +985,134 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
     return False
 
 
+def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list[dict[str, Any]]) -> None:
+    """Hard floor: ceil(selected_speech * min_vo_insert_ratio) host VO lines."""
+    import math
+
+    from interview_mux.config import merged_config
+
+    gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
+    ratio = float(gf.get("min_vo_insert_ratio") or 0.20)
+    if ratio <= 0:
+        return
+    ordered: list[str] = []
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+        except Exception:
+            ordered = []
+    if not ordered and ctx.artifact_exists("segments/manifest.json"):
+        try:
+            man = ctx.read_json("segments/manifest.json")
+            ordered = [
+                str(r.get("segment_id"))
+                for r in ((man or {}).get("segments") or [])
+                if isinstance(r, dict) and r.get("segment_id")
+            ]
+        except Exception:
+            ordered = []
+    if not ordered:
+        return
+    floor = max(1, int(math.ceil(len(ordered) * ratio)))
+    lines = out.get("interviewer_lines")
+    if not isinstance(lines, list):
+        lines = []
+        out["interviewer_lines"] = lines
+    covered = {
+        str(ln.get("targets_segment_id") or ln.get("segment_id") or "")
+        for ln in lines
+        if isinstance(ln, dict) and not ln.get("skipped_optional")
+    }
+    if len([ln for ln in lines if isinstance(ln, dict) and not ln.get("skipped_optional")]) >= floor:
+        return
+    chapter_ends: set[str] = set()
+    if ctx.artifact_exists("master/narrative_plan.json"):
+        try:
+            plan = ctx.read_json("master/narrative_plan.json")
+            for ch in ((plan or {}).get("chapters") or []):
+                if isinstance(ch, dict):
+                    segs = [str(s) for s in (ch.get("segment_ids") or [])]
+                    if segs:
+                        chapter_ends.add(segs[-1])
+        except Exception:
+            pass
+    # Midpoints of long same-speaker runs (≥28s).
+    mono_breaks: list[str] = []
+    try:
+        man = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else {}
+        by_id = {
+            str(r.get("segment_id")): r
+            for r in ((man or {}).get("segments") or [])
+            if isinstance(r, dict) and r.get("segment_id")
+        }
+        run_ms = 0
+        run_spk = ""
+        run_start_idx = 0
+        for i, sid in enumerate(ordered):
+            row = by_id.get(sid) or {}
+            spk = str(row.get("speaker_id") or "")
+            dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
+            if spk and spk == run_spk:
+                run_ms += dur
+            else:
+                if run_ms >= 28000 and run_start_idx < i:
+                    mid = ordered[run_start_idx + (i - run_start_idx) // 2]
+                    if mid not in covered:
+                        mono_breaks.append(mid)
+                run_spk = spk
+                run_ms = dur
+                run_start_idx = i
+        if run_ms >= 28000 and run_start_idx < len(ordered):
+            mid = ordered[run_start_idx + (len(ordered) - run_start_idx) // 2]
+            if mid not in covered:
+                mono_breaks.append(mid)
+    except Exception:
+        mono_breaks = []
+    stride = max(1, len(ordered) // max(1, floor))
+    priority = list(dict.fromkeys(mono_breaks + [s for s in ordered if s in chapter_ends] + ordered))
+    for i, sid in enumerate(priority):
+        if len([ln for ln in lines if isinstance(ln, dict) and not ln.get("skipped_optional")]) >= floor:
+            break
+        if sid in covered:
+            continue
+        # Always take monologue/chapter seeds; otherwise stride-sample.
+        if sid not in mono_breaks and sid not in chapter_ends:
+            try:
+                oi = ordered.index(sid)
+            except ValueError:
+                continue
+            if oi % stride != 0:
+                continue
+        covered.add(sid)
+        cat = "story_bridge"
+        text = "Before we go further — what should the listener hold onto from that beat?"
+        if sid in mono_breaks:
+            cat = "framing_question"
+            text = "Let me pause you there — what was the turning point in that stretch?"
+        elif sid in chapter_ends:
+            cat = "episode_preface"
+            text = "Coming up next — here's where this chapter leads."
+        lines.append(
+            {
+                "line_id": f"vo_density_{sid}",
+                "gap_type": "missing_followup",
+                "line_category": cat,
+                "text": text,
+                "targets_segment_id": sid,
+                "placement": "before",
+                "delivery": "synthesize",
+                "rationale": f"Density floor seed (min_vo_insert_ratio={ratio})",
+                "supports_segment_ids": [sid],
+                "replaces_source_segments": [],
+                "estimated_duration_sec": 5,
+                "severity": "medium",
+                "suggested_tone": "neutral",
+            }
+        )
+        applied.append({"action": "seed_vo_density_floor", "segment_id": sid, "category": cat})
+
 def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
@@ -1003,6 +1165,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     _seed_missing_high_gap_interviewer_lines(
         ctx, out, manifest_ids=set(manifest_ids or ()), applied=applied
     )
+    _enforce_min_vo_insert_ratio(ctx, out, applied=applied)
     from interview_mux.gates import g1_vo_was_skipped_optional, vo_gap_line_effectively_optional
     from interview_mux.v2.config import v2_g1_optional
 
@@ -1653,15 +1816,82 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     if not bed_anchor_pool:
         bed_anchor_pool = list(palette_seg_ids) or list(selection_ids)
     assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+    try:
+        from interview_mux.music_motif import (
+            THEME_BED_ROLES,
+            THEME_PUNCTUATOR_ROLES,
+            asset_id_is_banned,
+            build_music_brief,
+            ensure_motif_on_plan,
+            is_banned_role,
+            is_theme_role,
+        )
+
+        brief = build_music_brief(ctx)
+        out = ensure_motif_on_plan(out, brief)
+        assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+        applied.append({"action": "ensure_motif_family_music_only"})
+    except Exception:
+        THEME_BED_ROLES = frozenset({"theme_underscore"})
+        THEME_PUNCTUATOR_ROLES = frozenset(
+            {"theme_cold_open", "theme_emphasis", "theme_chapter_resolve", "theme_outro", "theme_transition"}
+        )
+
+        def asset_id_is_banned(_aid: str) -> bool:  # type: ignore
+            return False
+
+        def is_banned_role(_r: str) -> bool:  # type: ignore
+            return False
+
+        def is_theme_role(r: str) -> bool:  # type: ignore
+            return str(r or "").startswith("theme_")
+
+    # Drop banned non-music assets/cues from creative plans.
+    cleaned_assets: list[dict[str, Any]] = []
+    for a in assets:
+        role = str(a.get("role") or "")
+        aid = str(a.get("asset_id") or a.get("id") or "")
+        if is_banned_role(role) or asset_id_is_banned(aid):
+            applied.append({"action": "drop_banned_sfx_asset", "asset_id": aid, "role": role})
+            continue
+        cleaned_assets.append(a)
+    if cleaned_assets != assets:
+        out["assets"] = cleaned_assets
+        assets = cleaned_assets
     asset_ids = [str(a.get("asset_id") or a.get("id") or "") for a in assets if a.get("asset_id") or a.get("id")]
+    assets_by_id = {
+        str(a.get("asset_id") or a.get("id") or ""): a for a in assets if a.get("asset_id") or a.get("id")
+    }
+    # Strip banned cues still pointing at legacy murmur/tick assets.
+    kept_cues: list[dict[str, Any]] = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        aid = str(cue.get("asset_id") or "")
+        role = str(cue.get("role") or (assets_by_id.get(aid) or {}).get("role") or "")
+        if asset_id_is_banned(aid) or is_banned_role(role):
+            applied.append({"action": "drop_banned_sfx_cue", "cue_id": cue.get("cue_id"), "asset_id": aid})
+            continue
+        kept_cues.append(cue)
+    if len(kept_cues) != len(cues):
+        podcast["cues"] = kept_cues
+        cues = kept_cues
 
     palette_set = set(palette_seg_ids)
     if palette_set:
+        pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
         for cue in cues:
             if not isinstance(cue, dict) or cue.get("placement") != "under_segment" or cue.get("skip"):
                 continue
             seg = str(cue.get("segment_id") or "")
             if seg and seg in palette_set and (not selection_set or seg in selection_set):
+                continue
+            if seg and (not selection_set or seg in selection_set) and pals and isinstance(pals[0], dict):
+                ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
+                if seg not in ids:
+                    pals[0]["segment_ids"] = ids + [seg]
+                    palette_set.add(seg)
+                    applied.append({"action": "extend_palette_for_bed_segment", "segment_id": seg})
                 continue
             target = bed_anchor_pool[0] if bed_anchor_pool else None
             if not target:
@@ -1719,8 +1949,37 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         mins = {"min_beds": 1, "min_stingers": 1, "min_bed_coverage_ratio": 0.22}
     need_beds = max(0, int(mins.get("min_beds") or 1) - beds)
     need_stingers = max(0, int(mins.get("min_stingers") or 3) - stingers)
-    bed_asset = next((a for a in asset_ids if "bed" in a.lower()), asset_ids[0] if asset_ids else None)
-    sting_asset = next((a for a in asset_ids if "sting" in a.lower() or "accent" in a.lower()), asset_ids[-1] if asset_ids else None)
+    bed_asset = next(
+        (
+            str(a.get("asset_id") or "")
+            for a in assets
+            if str(a.get("role") or "") in THEME_BED_ROLES or str(a.get("role") or "") == "theme_underscore"
+        ),
+        None,
+    )
+    if not bed_asset:
+        bed_asset = next(
+            (aid for aid in asset_ids if "underscore" in aid.lower() or "bed" in aid.lower()),
+            asset_ids[0] if asset_ids else None,
+        )
+    sting_asset = next(
+        (
+            str(a.get("asset_id") or "")
+            for a in assets
+            if str(a.get("role") or "")
+            in {"theme_chapter_resolve", "theme_emphasis", "theme_transition", "theme_cold_open"}
+        ),
+        None,
+    )
+    if not sting_asset:
+        sting_asset = next(
+            (
+                aid
+                for aid in asset_ids
+                if any(x in aid.lower() for x in ("resolve", "emphasis", "transition", "cold_open", "sting", "accent"))
+            ),
+            asset_ids[-1] if asset_ids else None,
+        )
     # Palettes stage often has no assets yet — never seed cues without asset_id (schema-required).
     if bed_asset:
         for i in range(need_beds):
@@ -1730,7 +1989,26 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         for i in range(need_stingers):
             sid = selection_ids[min(i + 1, len(selection_ids) - 1)] if selection_ids else None
             place = "before_segment" if i % 2 == 0 else "after_segment"
-            _add_cue(cue_id=f"stinger_seed_{i+1}", placement=place, segment_id=sid, asset_id=sting_asset)
+            _add_cue(cue_id=f"theme_seed_{i+1}", placement=place, segment_id=sid, asset_id=sting_asset)
+    # Always ensure a musical cold open before first speech when we have a theme_cold_open asset.
+    cold_asset = next(
+        (str(a.get("asset_id") or "") for a in assets if str(a.get("role") or "") == "theme_cold_open"),
+        None,
+    )
+    has_cold = any(
+        isinstance(c, dict)
+        and str((assets_by_id.get(str(c.get("asset_id") or "")) or {}).get("role") or c.get("role") or "")
+        == "theme_cold_open"
+        and not c.get("skip")
+        for c in cues
+    )
+    if cold_asset and not has_cold and selection_ids:
+        _add_cue(
+            cue_id="theme_cold_open_seed",
+            placement="before_segment",
+            segment_id=selection_ids[0],
+            asset_id=cold_asset,
+        )
 
     # Seed additional under_segment beds on unused palette anchors until coverage floor.
     try:
@@ -1790,7 +2068,11 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             amb_segs = [
                 str(s.get("segment_id") or "")
                 for s in slots
-                if "ambient_bed" in (s.get("allowed_roles") or []) and s.get("segment_id")
+                if (
+                    "theme_underscore" in (s.get("allowed_roles") or [])
+                    or "ambient_bed" in (s.get("allowed_roles") or [])
+                )
+                and s.get("segment_id")
             ]
             # Sparse slot maps (common after archive/restore) → re-score against selection.
             if selection_ids and len(amb_segs) < max(1, min(3, len(bed_anchor_pool) or 1)):
@@ -1799,14 +2081,18 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 amb_segs = [
                     str(s.get("segment_id") or "")
                     for s in slots
-                    if "ambient_bed" in (s.get("allowed_roles") or []) and s.get("segment_id")
+                    if (
+                        "theme_underscore" in (s.get("allowed_roles") or [])
+                        or "ambient_bed" in (s.get("allowed_roles") or [])
+                    )
+                    and s.get("segment_id")
                 ]
-                applied.append({"action": "refresh_soundscape_cue_slots", "ambient_bed_slots": len(amb_segs)})
+                applied.append({"action": "refresh_soundscape_cue_slots", "theme_underscore_slots": len(amb_segs)})
             amb_set = set(amb_segs)
             preferred = [s for s in bed_anchor_pool if s in amb_set]
             if not preferred:
                 preferred = list(bed_anchor_pool) or list(amb_segs)
-            # Beds must sit on a palette segment AND an ambient_bed cue_slot.
+            # Beds must sit on a palette segment AND a theme_underscore cue_slot.
             # When those sets don't intersect, extend the first palette + inject a slot.
             if preferred and palette_set and not (set(preferred) & amb_set & palette_set):
                 target = next((s for s in bed_anchor_pool if s in palette_set), bed_anchor_pool[0])
@@ -1824,9 +2110,9 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                             "slot_id": f"bed_{target}",
                             "segment_id": target,
                             "placement": "under_segment",
-                            "allowed_roles": ["ambient_bed"],
+                            "allowed_roles": ["theme_underscore"],
                             "priority": 0.5,
-                            "reason": "e2e_repair_palette_bed_slot",
+                            "reason": "theme_underscore_palette_bed_slot",
                         }
                     )
                     policy["cue_slots"] = slots
@@ -1835,16 +2121,43 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     except Exception:
                         pass
                     amb_set.add(target)
-                    applied.append({"action": "inject_ambient_bed_cue_slot", "segment_id": target})
+                    applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": target})
                 preferred = [target]
             if preferred:
+                pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
+                slots = list(slots)
+                slots_changed = False
                 for cue in cues:
                     if not isinstance(cue, dict) or cue.get("placement") != "under_segment" or cue.get("skip"):
                         continue
                     seg = str(cue.get("segment_id") or "")
+                    if not seg:
+                        continue
+                    # Prefer keeping the planned segment: extend palette + inject theme_underscore slot.
+                    if palette_set and seg not in palette_set and pals and isinstance(pals[0], dict):
+                        ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
+                        if seg not in ids:
+                            pals[0]["segment_ids"] = ids + [seg]
+                            palette_set.add(seg)
+                            applied.append({"action": "extend_palette_for_bed_segment", "segment_id": seg})
+                    if amb_set and seg not in amb_set:
+                        slots.append(
+                            {
+                                "slot_id": f"bed_{seg}",
+                                "segment_id": seg,
+                                "placement": "under_segment",
+                                "allowed_roles": ["theme_underscore"],
+                                "priority": 0.55,
+                                "reason": "theme_underscore_quartile_spread",
+                            }
+                        )
+                        amb_set.add(seg)
+                        slots_changed = True
+                        applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": seg})
                     ok = (not amb_set or seg in amb_set) and (not palette_set or seg in palette_set)
                     if ok:
                         continue
+                    # Last resort remap only when segment is unusable.
                     target = next(
                         (s for s in preferred if (not amb_set or s in amb_set) and (not palette_set or s in palette_set)),
                         preferred[0],
@@ -1858,6 +2171,12 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                             "to": target,
                         }
                     )
+                if slots_changed:
+                    policy["cue_slots"] = slots
+                    try:
+                        ctx.write_json("understanding/soundscape_policy.json", policy)
+                    except Exception:
+                        pass
 
             # Drop cues anchored on segments no longer in the ranked selection.
             if selection_set:
@@ -1949,6 +2268,35 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             _ = mix
     except Exception as exc:
         applied.append({"action": "cue_slot_stinger_repair_skipped", "error": str(exc)[:160]})
+
+    try:
+        from interview_mux.creative_delivery import hydrate_flow_cue_segments
+
+        hyd = hydrate_flow_cue_segments(ctx, out)
+        for h in hyd:
+            applied.append({"action": "hydrate_cue_segment", "detail": h})
+        # Final fallback: any still-missing anchors get first/last selection ids.
+        podcast = ((out.get("flow_plans") or {}).get("podcast") or {}) if isinstance(out.get("flow_plans"), dict) else {}
+        cues = podcast.get("cues") if isinstance(podcast.get("cues"), list) else []
+        first = selection_ids[0] if selection_ids else None
+        last = selection_ids[-1] if selection_ids else None
+        for cue in cues:
+            if not isinstance(cue, dict) or cue.get("skip"):
+                continue
+            place = str(cue.get("placement") or "")
+            if place == "before_segment" and not (cue.get("segment_id") or cue.get("before_segment_id")) and first:
+                cue["segment_id"] = first
+                cue["before_segment_id"] = first
+                applied.append({"action": "default_before_anchor", "cue_id": cue.get("cue_id"), "to": first})
+            if place == "after_segment" and not (cue.get("after_segment_id") or cue.get("segment_id")) and last:
+                cue["after_segment_id"] = last
+                cue["segment_id"] = last
+                applied.append({"action": "default_after_anchor", "cue_id": cue.get("cue_id"), "to": last})
+            if place == "under_segment" and not cue.get("segment_id") and first:
+                cue["segment_id"] = first
+                applied.append({"action": "default_under_anchor", "cue_id": cue.get("cue_id"), "to": first})
+    except Exception as exc:
+        applied.append({"action": "hydrate_cue_segments_skipped", "error": str(exc)[:160]})
 
     # sound_design_plan.schema.json forbids root additionalProperties (_meta);
     # write_validated_artifact strips/restores _meta, but keep disk payload clean.

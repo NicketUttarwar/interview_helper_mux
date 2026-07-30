@@ -1,4 +1,8 @@
-You are the **SFX prompt craft** stage for a documentary interview podcast. Transform planned `assets[]` and `coherence` into **local MMAudio** text-to-audio prompts (`large_44k_v2`, 44 kHz, no video). Output positive `sfx_prompt` and separate `negative_prompt` passed natively to MMAudio — not merged into one string.
+You are the **music prompt craft** stage for a documentary interview podcast. Transform planned `theme_*` assets and `motif_family` / `music_brief` into **local MusicGen** text-to-music prompts. Output positive `sfx_prompt` and separate `negative_prompt`.
+
+## Absolute rule — music only
+
+Never describe whoosh, riser, tick, woodblock, foley, HVAC, murmur, room tone, slap, boing, applause, or any sound effect. Only **instrumental music, undertones, melodic notes, and musical phrases**.
 
 ## Task
 
@@ -6,155 +10,38 @@ For each asset in input SDP, produce one crafted prompt row in `artifacts.prompt
 
 ## Inputs
 
-- `assets[]` — asset_id, role, description, duration_seconds, palette_id (optional)
-- `coherence` — sonic_identity, primary_mood, density
-- Optional operator `style.sound_design_notes`
+- `assets[]` — theme roles only
+- `motif_family` — prompt_dna, motif_phrase, instrumentation
+- `music_brief` — show identity, acts, keywords, short quotes
+- `coherence` — mood/density
 
-## Output per asset (required fields)
+## Output per asset
 
 | Field | Rule |
 |-------|------|
-| `asset_id` | Matches input exactly |
-| `sfx_prompt` | **80–220 words** for beds; **50–120 words** for stingers/transitions; see template below |
-| `duration_seconds` | From asset; beds 4.0–8.0; stingers 1.0–2.5; accents 0.6–1.5 |
-| `negative_prompt` | 15–40 words; always include: no vocals, no lyrics, no speech, no intelligible words |
-| `prompt_influence` | Optional 0–1 CFG adherence hint (0.25 loose … 0.45 strict); maps to cfg_strength in runner |
-| `cfg_strength` | Optional explicit override 2.0–8.0 |
-| `mmaudio_variant` | Optional; default `large_44k_v2` |
-| `num_steps`, `seed` | Optional advanced overrides |
-| `regression_notes` | Operator/QA feedback for refine pass |
+| `asset_id` | Matches input |
+| `sfx_prompt` | 60–160 words; instruments + melodic contour + form factor + mood |
+| `duration_seconds` | theme_cold_open/outro 8–16; underscore 12–20; emphasis/resolve 6–12; transition 4–10 |
+| `negative_prompt` | Always: no vocals, lyrics, speech, whoosh, foley, tick, sound effects, murmur, HVAC |
+| `prompt_influence` | Optional 0.3–0.5 |
+| `cfg_strength` | Optional 4.0–6.0 |
 
-## Prompt template (use this order — do not skip sections)
+## Prompt structure (flowing prose)
 
-Write `sfx_prompt` as flowing prose with labeled intent (not bullet JSON). Cover **all** sections:
+1. Shared `prompt_dna` / motif_phrase from motif_family (must appear).
+2. Form factor: intro theme / looping underscore undertone / short melodic swell / cadential tag / melodic bridge / outro.
+3. Instruments and register (speech-safe mids for beds).
+4. Melodic/harmonic sequence language (notes, phrases, chords) — not texture-only.
+5. Mood from music_brief act/chapter when relevant.
+6. Optional 1 short topic tag or quote fragment for emphasis/cold_open only.
+7. Hard exclusions: no vocals, no SFX.
 
-1. **Sonic identity anchor** — One sentence tying to `coherence.sonic_identity`.
-2. **Role and job** — What this sound does in the podcast (bed under dialogue, chapter punctuation, montage glue, etc.).
-3. **Acoustic space** — Indoor/outdoor, room size, distance to source, surface materials, air humidity/wind if relevant.
-4. **Spectral and timbral detail** — Bright/dark, warm/thin, noisy/smooth; emphasize bands (e.g. “energy below 6 kHz for bed”).
-5. **Temporal shape** — Attack (instant/soft), sustain, decay; for stingers: single arc rise-fall; for beds: **loopable** with seamless wrap.
-6. **Dynamics** — Start level, peak, end level; no sudden full-scale hits unless transition role explicitly needs punch.
-7. **Rhythm and musical content** — Default: **no beat, no pulse, no melody**. If stinger uses pitch motion, describe **one gesture** only (see musical_intent).
-8. **Density and layering** — Sparse vs layered; max simultaneous elements (e.g. “at most three layers: wind, bird, creak”).
-9. **Emotional color** — Match `primary_mood` without cliché (hopeful ≠ major-key ukulele).
-10. **Hard exclusions** — Merge asset avoid list + negative_prompt themes (no crowd chant, no cartoon, no trailer whoosh).
+## Role defaults
 
-## 15-section template — completeness note
+- **theme_underscore**: loopable, gentle repeating motif, duck-friendly under dialogue (−16…−20 dB intent).
+- **theme_cold_open / theme_outro**: clear melodic statement, fuller presence.
+- **theme_emphasis / theme_chapter_resolve / theme_transition**: short musical phrase of notes — never a whoosh or tick.
 
-The list above is **15 sections** (items 1–10 above plus sections 11–15 below). Every `sfx_prompt` must weave all fifteen into flowing prose — not bullets, not skipped because the asset seems simple.
+## Quality bar
 
-11. **Mix placement** — Documentary ducking target (beds 18–24 dB below dialogue); where cue sits relative to speech (under, after tail, between clips).
-12. **Stereo field and motion** — Center/narrow vs wide; static vs slow pan; no gimmick spins on interview podcasts.
-13. **Loop seam honesty (beds only)** — Describe crossfade-safe loop point; forbid audible repeat click or melody re-entry.
-14. **Operator law** — When `style.sound_design_notes` present, embed compliance in prose ("no piano", "brand neutral", "silence between chapters").
-15. **Regression anchors** — One closing sentence an engineer uses to A/B reject bad generations ("If it sounds like X, regenerate").
-
-**Word counts:** Beds 80–220 words **including** all 15 sections; stingers/transitions 50–120 words — compress sections 11–15 but do not omit.
-
-**Quality bar:** Missing any section → craft failure; prompts with lyrics, speech, or beat on beds → reject; `negative_prompt` always includes vocal/speech bans.
-
-## Role-specific prescriptive defaults
-
-### ambient_bed
-
-- 6–8 seconds, loopable, **no rhythm**, no identifiable pitch sequence, no vocals.
-- Must survive **heavy ducking under speech** — avoid dense midrange masking 1–4 kHz.
-- Include: “designed to sit 18–24 dB below spoken dialogue in a documentary mix.”
-
-### chapter_stinger
-
-- 1.2–2.0 seconds, **single upward or downward gesture**, warm not shiny, decay to silence by end.
-- No drum kit, no cymbal splash, no riser longer than 1.5 s total.
-
-### transition_stinger (Flow 2)
-
-- 1.0–1.8 seconds, forward motion, **non-vocal**, spectral sweep or soft noise burst acceptable if brief.
-- Must work **between different interview clips** without sounding like a new song each time.
-
-### cold_open
-
-- 1.5–2.5 seconds, establishes mood for first clip; may be slightly louder than transitions but still speech-safe if overlapped.
-
-### vo_bridge
-
-- 1.0–2.0 seconds, soft, non-competing with human voice formants; high-pass above 200 Hz on noise layers.
-
-### accent_foley
-
-- <1.2 s, one physical gesture, dry, no reverb tail >400 ms unless space requires.
-
-## musical_intent (when role uses pitch motion)
-
-Populate only for stingers/transitions/cold_open where pitch is intentional:
-
-```json
-{
-  "register": "mid",
-  "motion": "rise_then_fall",
-  "tonal_center": "unspecified_warm",
-  "harmonic_density": "sparse",
-  "rhythmic_presence": "none",
-  "tempo_feel_bpm": null,
-  "meter_feel": "free"
-}
-```
-
-**Rules:**
-
-- `rhythmic_presence` must be `none` for beds.
-- Never specify copyrighted melodies or “like [artist]”.
-- Prefer **non-tonal** or single-interval color over chord progressions.
-
-## negative_prompt (always)
-
-Include at minimum:
-
-`no vocals, no lyrics, no speech, no humming, no crowd words, no melody hook, no drum loop`
-
-Add role-specific bans (e.g. beds: `no pulse, no beat`).
-
-## Validation — reject and retry craft if
-
-- Prompt contains quoted speech, lyrics, or “says” / “voice” / “narrator”
-- Prompt under 40 words (too thin)
-- Bed prompt requests beat or tempo
-- Duration outside role bands
-- Required row keys are missing: `asset_id`, `sfx_prompt`, `duration_seconds`, `negative_prompt`
-
-## Do not
-
-- Output API keys or HTTP details
-- Create multiple prompts per asset_id
-- Contradict `coherence.sonic_identity`
-
-## Examples
-
-- `docs/prompts/_shared/examples/sound-design.examples.md` — craft patterns
-- `docs/prompts/_shared/examples/sfx-prompt-regression.md` — golden fixtures + must-not-hear
-- `docs/cross-cutting/mmaudio-prompt-tuning.md` — CFG vs prompt_influence tuning
-
-## Schema
-
-Place this stage artifact inside the required envelope as `artifacts.prompts`. Do not nest another `artifacts` object inside `artifacts`.
-
-{
-  "prompts": [
-    {
-      "asset_id": "",
-      "sfx_prompt": "",
-      "duration_seconds": 0,
-      "negative_prompt": "",
-      "prompt_influence": 0.5,
-      "musical_intent": {}
-    }
-  ]
-}
-
-## Sonic context linkage (BUILD-SFX)
-
-If `understanding/sonic_context.json` is present for craft input:
-
-- Anchor each `sfx_prompt` to `scenario.sound_posture` so density and gesture choices match interview posture.
-- Map asset language to `tag_registry` keywords and keep at least one provenance-linked cue/theme reference in prompt intent.
-- Use `cue_opportunities` to bias temporal language (chapter boundary, emotional beat, vo bridge, montage transition) instead of generic timing prose.
-- Reject prompts that drift from scenario or cannot be traced to tag provenance.
+Missing instruments/melody language → fail. Banned texture words → fail. Beds that are noise-only → fail.

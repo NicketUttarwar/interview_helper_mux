@@ -268,6 +268,7 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
     mcfg = merged_config().get("mmaudio") or {}
     min_s = float(mcfg.get("min_duration_sec", 3.0))
     max_s = float(mcfg.get("max_duration_sec", 8.0))
+    by_role = mcfg.get("duration_bands_by_role") if isinstance(mcfg.get("duration_bands_by_role"), dict) else {}
     for asset in assets:
         if not isinstance(asset, dict):
             continue
@@ -277,7 +278,12 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
         dur = asset.get("duration_seconds")
         if dur is not None:
             d = float(dur)
-            band = ROLE_DURATION_BANDS.get(role)
+            band = None
+            cfg_band = by_role.get(role)
+            if isinstance(cfg_band, (list, tuple)) and len(cfg_band) >= 2:
+                band = (float(cfg_band[0]), float(cfg_band[1]))
+            elif role in ROLE_DURATION_BANDS:
+                band = ROLE_DURATION_BANDS.get(role)
             if band:
                 if d < float(band[0]) - 0.1 or d > float(band[1]) + 0.1:
                     errors.append(

@@ -781,7 +781,6 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 done.unlink(missing_ok=True)
                 log("gate: cleared mix done — assembly.wav missing (re-run mix)")
             _clear_pending_sdp_shadows(ctx)
-            os.environ["MUX_E2E_SOFT_LISTENABILITY"] = "1"
             execute({"mode": "delivery", "from_stage": "mix"})
             return "continue"
         except Exception as exc:
@@ -1055,29 +1054,28 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
                 final.parent.mkdir(parents=True, exist_ok=True)
                 final.write_text(_json.dumps(doc, indent=2) + "\n")
-            # Soft-pass hard fails so mix can complete when WAV exists but QA is picky.
+            # Soft-pass disabled: music-only creative delivery must pass QA or use motif-family fallback.
             if final.is_file():
                 import json as _json
 
                 qa = _json.loads(final.read_text())
-                changed = False
-                for row in qa.get("assets") or []:
-                    if not isinstance(row, dict):
-                        continue
-                    verd = str(row.get("verdict") or "").lower()
-                    if verd == "fail" or str(row.get("generation_status") or "").lower() in {
-                        "failed",
-                        "placeholder",
-                    }:
-                        row["verdict"] = "pass"
-                        row["generation_status"] = "pass"
-                        row["recommended_action"] = "pass"
-                        row["reasons"] = []
-                        row["e2e_soft_pass"] = True
-                        changed = True
-                if changed:
-                    final.write_text(_json.dumps(qa, indent=2) + "\n")
-                    log("mix gate heal: forced mmaudio_qa assets to schema-valid pass")
+                fails = [
+                    r
+                    for r in (qa.get("assets") or [])
+                    if isinstance(r, dict)
+                    and (
+                        str(r.get("verdict") or "").lower() == "fail"
+                        or str(r.get("generation_status") or "").lower()
+                        in {"failed", "placeholder"}
+                    )
+                ]
+                if fails:
+                    log(
+                        f"mix gate heal: refusing soft-pass for {len(fails)} failing music assets — "
+                        "retry mmaudio_sfx with motif-family fallback"
+                    )
+                    execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
+                    return "continue"
             for sid in ("assembly_preview", "listen_delight_audit", "sfx_prompt_craft", "mmaudio_sfx"):
                 ctx.mark_done(sid, force=True)
             log(f"mix gate heal: mmaudio_qa assets={len((doc or {}).get('assets') or [])}")
@@ -1783,9 +1781,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 except Exception as exc:
                     log(f"sdp heal: {exc}")
             if "listenability_contract" in low_err:
-                os.environ["MUX_E2E_SOFT_LISTENABILITY"] = "1"
-                log("enabling MUX_E2E_SOFT_LISTENABILITY for mix retry")
-                execute({"mode": "delivery", "from_stage": "mix"})
+                log("listenability_contract fail — retry mix without soft-ship (music-only density path)")
+                execute({"mode": "delivery", "from_stage": "sound_design_plan"})
                 continue
             if "missing master/assembly.wav" in low_err or (
                 "missing" in low_err and "assembly.wav" in low_err
@@ -1802,7 +1799,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         done.unlink(missing_ok=True)
                         log("cleared mix done marker — assembly.wav missing")
                     _clear_pending_sdp_shadows(ctx)
-                    os.environ["MUX_E2E_SOFT_LISTENABILITY"] = "1"
                     execute({"mode": "delivery", "from_stage": "mix"})
                     continue
                 except Exception as exc:
@@ -1834,29 +1830,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if isinstance(r, dict)
                     }
                     total = sum(durs.get(s, 0) for s in order) or 1
-                    min_ratio = float(listenability_guards_cfg().get("bed_coverage_min_ratio") or 0.22)
-                    need = int(total * max(0.30, min_ratio + 0.08))
+                    min_ratio = float(listenability_guards_cfg().get("bed_coverage_min_ratio") or 0.28)
+                    max_ratio = float(listenability_guards_cfg().get("bed_coverage_max_ratio") or 0.40)
+                    # Restraint band: aim mid (~34%), not wall-to-wall.
+                    need = int(total * min(max_ratio, max(0.30, min_ratio + 0.06)))
                     flow = ((sdp.get("flow_plans") or {}).get("podcast") or {})
                     cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict)]
                     non_beds = [c for c in cues if c.get("placement") != "under_segment"]
-                    bed_asset = "ambient_production_floor_murmur"
+                    bed_asset = None
                     for a in sdp.get("assets") or []:
-                        if isinstance(a, dict) and "ambient" in str(a.get("asset_id") or "").lower():
-                            bed_asset = str(a.get("asset_id"))
+                        if not isinstance(a, dict):
+                            continue
+                        role = str(a.get("role") or "")
+                        aid = str(a.get("asset_id") or "")
+                        if role == "theme_underscore" or "underscore" in aid.lower():
+                            bed_asset = aid
                             break
-                    # Spread beds across the timeline (~every 3rd segment) for quartile presence.
+                    if not bed_asset:
+                        for a in sdp.get("assets") or []:
+                            if isinstance(a, dict) and a.get("asset_id"):
+                                bed_asset = str(a["asset_id"])
+                                break
+                    if not bed_asset:
+                        bed_asset = "theme_underscore_calm"
+                        sdp.setdefault("assets", []).append(
+                            {"asset_id": bed_asset, "role": "theme_underscore", "duration_seconds": 16}
+                        )
+                    # Spread theme underscore across important beats (~every 3rd) within restraint band.
                     new_beds: list[dict] = []
                     bed_ms = 0
                     for i, sid in enumerate(order):
-                        if i % 3 != 0 and bed_ms >= need:
-                            continue
+                        if bed_ms >= need:
+                            break
                         if i % 3 != 0:
                             continue
                         new_beds.append(
                             {
-                                "cue_id": f"bed_every3_{sid}",
+                                "cue_id": f"theme_bed_{sid}",
                                 "asset_id": bed_asset,
-                                "role": "ambient_bed",
+                                "role": "theme_underscore",
                                 "placement": "under_segment",
                                 "segment_id": sid,
                                 "skip": False,
@@ -1864,7 +1876,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             }
                         )
                         bed_ms += durs.get(sid, 0)
-                    # Top up longest remaining segments if still short.
                     covered = {str(c.get("segment_id")) for c in new_beds}
                     for sid in sorted(order, key=lambda s: durs.get(s, 0), reverse=True):
                         if bed_ms >= need:
@@ -1874,9 +1885,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         covered.add(sid)
                         new_beds.append(
                             {
-                                "cue_id": f"bed_fill_{sid}",
+                                "cue_id": f"theme_bed_fill_{sid}",
                                 "asset_id": bed_asset,
-                                "role": "ambient_bed",
+                                "role": "theme_underscore",
                                 "placement": "under_segment",
                                 "segment_id": sid,
                                 "skip": False,
@@ -1887,7 +1898,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     sdp.setdefault("flow_plans", {})["podcast"] = {**flow, "cues": non_beds + new_beds}
                     sdp_path.write_text(_json.dumps(sdp, indent=2) + "\n")
                     cov = _estimate_bed_coverage(ctx)
-                    log(f"bed coverage heal: beds={len(new_beds)} coverage~{cov:.3f} (need>={min_ratio:.2f})")
+                    log(f"bed coverage heal: theme_underscore beds={len(new_beds)} coverage~{cov:.3f} (need>={min_ratio:.2f})")
                     execute({"mode": "delivery", "from_stage": "mix"})
                     continue
                 except Exception as exc:

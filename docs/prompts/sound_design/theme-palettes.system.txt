@@ -28,7 +28,7 @@ Write a **sonic_identity** string (2–4 sentences) that an audio engineer could
 - Genre posture (e.g. warm documentary, investigative neutral, intimate fireside)
 - Energy envelope (sparse / moderate / dense — prefer sparse for interview podcasts)
 - Timbre palette (organic vs synthetic; bright vs dark; dry vs reverberant)
-- Explicit **speech-first** rule: all future beds duck under dialogue; no trailer whoosh aesthetic unless operator notes request it
+- Explicit **speech-first** rule: musical underscoring ducks under dialogue; **music only** — no trailer whoosh, tick, or foley aesthetic
 
 Also set:
 
@@ -45,9 +45,9 @@ Each palette:
 | `theme_label` | Human-readable theme name |
 | `keywords` | 3–8 words grounded in brief/topics/tags |
 | `segment_ids` | ≥1 real segment_id from manifest |
-| `ambient_description` | **Continuous** low bed: what space, what motion, what is absent (no voices, no melody hooks) |
-| `accent_description` | **Rare** one-shot texture; how often it may appear |
-| `avoid` | 3–6 clichés or wrong-tone sounds for *this* interview |
+| `ambient_description` | **Musical underscore undertone**: instruments, soft motif/harmony, loopable, speech-safe (no vocals, no SFX, no HVAC/murmur) |
+| `accent_description` | **Rare melodic accent phrase** (notes/cadence); never whoosh/tick/foley |
+| `avoid` | 3–6 wrong sounds including whoosh, tick, foley, murmur, trailer hits |
 
 **Grounding:** Do not invent themes without transcript support. Single-topic interviews → 1 palette is correct.
 

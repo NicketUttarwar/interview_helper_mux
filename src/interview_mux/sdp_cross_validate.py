@@ -154,8 +154,16 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
             if policy and strict_slots() and seg:
                 allowed = slot_by_seg.get(seg) or set()
                 aid = str(cue.get("asset_id") or "")
-                role = str((assets_by_id.get(aid) or {}).get("role") or "ambient_bed")
-                if not allowed or role not in allowed:
+                role = str((assets_by_id.get(aid) or {}).get("role") or cue.get("role") or "theme_underscore")
+                # Music-only beds are interchangeable with legacy ambient_bed slots.
+                compatible = set(allowed)
+                if "ambient_bed" in allowed:
+                    compatible.add("theme_underscore")
+                if "theme_underscore" in allowed:
+                    compatible.add("ambient_bed")
+                if "chapter_stinger" in allowed:
+                    compatible.update({"theme_chapter_resolve", "theme_transition", "theme_emphasis"})
+                if not allowed or role not in compatible:
                     errors.append(
                         f"cue {cue.get('cue_id')} role {role} not in soundscape cue_slots for {seg}"
                     )

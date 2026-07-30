@@ -217,6 +217,8 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
 
     def build_input(c: RunContext) -> dict:
         from interview_mux.gap_framing import gap_framing_cfg
+        from interview_mux.config import merged_config
+        import math
 
         payload = {
             "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
@@ -228,6 +230,32 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
         if c.artifact_exists("understanding/episode_structure.json"):
             payload["episode_structure"] = c.read_json("understanding/episode_structure.json")
+        # VO density contract for compose (hard min ≈20% of selected speech).
+        gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
+        min_r = float(gf.get("min_vo_insert_ratio") or 0.20)
+        tgt_r = float(gf.get("target_vo_insert_ratio") or 0.35)
+        ordered_n = 0
+        if c.artifact_exists("master/selection.json"):
+            sel = c.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
+        if ordered_n <= 0 and c.artifact_exists("segments/manifest.json"):
+            man = c.read_json("segments/manifest.json")
+            ordered_n = len(
+                [r for r in ((man or {}).get("segments") or []) if isinstance(r, dict) and r.get("segment_id")]
+            )
+        vo_min = max(1, int(math.ceil(ordered_n * min_r))) if ordered_n else 1
+        vo_ideal = max(vo_min, int(math.ceil(ordered_n * tgt_r))) if ordered_n else vo_min
+        qb = {}
+        if isinstance(payload.get("delivery_brief"), dict):
+            qb = (payload["delivery_brief"].get("question_budget") or {}) if isinstance(
+                payload["delivery_brief"].get("question_budget"), dict
+            ) else {}
+        payload["vo_line_budget"] = {
+            "min": int(qb.get("min") or vo_min),
+            "ideal": int(qb.get("ideal") or vo_ideal),
+            "max": int(qb.get("max") or max(vo_ideal, vo_min)),
+        }
         vf = compact_value_features_summary(c)
         if vf:
             payload["value_features_summary"] = vf

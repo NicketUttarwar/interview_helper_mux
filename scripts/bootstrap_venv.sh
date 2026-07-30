@@ -20,8 +20,9 @@ else
   echo "Skipped (BOOTSTRAP_SKIP_GUI=1)"
 fi
 
-echo "=== 3/5 Local audio (DeepFilterNet + MMAudio) ==="
+echo "=== 3/5 Local audio (DeepFilterNet + MMAudio + MusicGen) ==="
 bash "$ROOT/scripts/lib/bootstrap_local_runtimes.sh"
+bash "$ROOT/scripts/bootstrap_musicgen.sh" || echo "WARN: MusicGen bootstrap failed — theme stubs will be used until fixed."
 
 echo "=== 4/5 Local speech (MLX STT + diarization + S2S) ==="
 bash "$ROOT/scripts/lib/bootstrap_local_speech.sh"

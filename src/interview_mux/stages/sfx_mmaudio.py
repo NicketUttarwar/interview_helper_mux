@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.mmaudio_asset_qa import run_mmaudio_asset_qa
+from interview_mux.music_motif import (
+    THEME_ROLES,
+    asset_id_is_banned,
+    is_banned_role,
+    is_theme_role,
+    validate_theme_prompt,
+)
+from interview_mux.musicgen_runner import generate_music_clip, musicgen_enabled
 from interview_mux.mmaudio_runner import (
     MMAudioUnavailable,
     clamp_duration_seconds,
@@ -29,6 +37,12 @@ def _log_sfx_event(
     log_journey(ctx, "sfx", message, level=level, stage=stage, category="sfx", **detail)
 
 _ROLE_INFLUENCE: dict[str, float] = {
+    "theme_cold_open": 0.42,
+    "theme_underscore": 0.32,
+    "theme_emphasis": 0.40,
+    "theme_chapter_resolve": 0.38,
+    "theme_transition": 0.38,
+    "theme_outro": 0.40,
     "ambient_bed": 0.30,
     "chapter_stinger": 0.38,
     "transition_stinger": 0.40,
@@ -336,16 +350,94 @@ def execute_fitness_remediation(ctx: RunContext, *, stage: str) -> list[str]:
                 skip_after.append(aid)
 
     if skip_after:
-        _mark_assets_skip_in_placement(ctx, sorted(set(skip_after)))
-        acted.extend(f"skip_cue:{aid}" for aid in sorted(set(skip_after)))
-        ctx.log(
-            f"fitness remediation skip after regen budget: {sorted(set(skip_after))}",
-            level="warning",
-            stage=stage,
-        )
+        rescued = _fallback_to_motif_family_stems(ctx, sorted(set(skip_after)), stage=stage)
+        still_fail = [aid for aid in sorted(set(skip_after)) if aid not in rescued]
+        if rescued:
+            acted.extend(f"motif_family_fallback:{aid}" for aid in rescued)
+            ctx.log(
+                f"fitness remediation motif-family fallback: {rescued}",
+                level="info",
+                stage=stage,
+            )
+        if still_fail:
+            _mark_assets_skip_in_placement(ctx, still_fail)
+            acted.extend(f"skip_cue:{aid}" for aid in still_fail)
+            ctx.log(
+                f"fitness remediation fail-closed (no family stem): {still_fail}",
+                level="error",
+                stage=stage,
+            )
     if acted:
         ctx.log(f"fitness remediation: {acted}", level="info", stage=stage)
     return acted
+
+
+def _fallback_to_motif_family_stems(
+    ctx: RunContext, asset_ids: list[str], *, stage: str
+) -> list[str]:
+    """Copy an already-passed WAV from the same motif family; never invent SFX."""
+    import shutil
+
+    from interview_mux.mmaudio_asset_qa import load_mmaudio_qa
+    from interview_mux.music_motif import is_theme_role
+
+    qa = load_mmaudio_qa(ctx)
+    passed: dict[str, str] = {}
+    role_of: dict[str, str] = {}
+    for row in qa.get("assets") or []:
+        if not isinstance(row, dict):
+            continue
+        aid = str(row.get("asset_id") or "")
+        role = str(row.get("role") or "")
+        role_of[aid] = role
+        if str(row.get("verdict") or "").lower() == "pass" and aid:
+            passed[aid] = role
+
+    assets_dir = ctx.final_path("sound_design", "assets")
+    if not assets_dir.is_dir():
+        return []
+
+    # Prefer same role, else any theme_* pass in the family.
+    donors_by_role: dict[str, list[str]] = {}
+    any_theme: list[str] = []
+    for aid, role in passed.items():
+        path = assets_dir / f"{aid}.wav"
+        if not path.is_file() or path.stat().st_size < 1000:
+            continue
+        donors_by_role.setdefault(role, []).append(aid)
+        if is_theme_role(role):
+            any_theme.append(aid)
+
+    rescued: list[str] = []
+    for aid in asset_ids:
+        dest = assets_dir / f"{aid}.wav"
+        role = role_of.get(aid) or ""
+        donor = None
+        for cand in donors_by_role.get(role) or []:
+            if cand != aid:
+                donor = cand
+                break
+        if donor is None:
+            for cand in any_theme:
+                if cand != aid:
+                    donor = cand
+                    break
+        if donor is None:
+            continue
+        src = assets_dir / f"{donor}.wav"
+        try:
+            shutil.copy2(src, dest)
+            rescued.append(aid)
+            ctx.log(
+                f"motif-family fallback: {aid} <- {donor}",
+                level="warning",
+                stage=stage,
+            )
+        except OSError as exc:
+            ctx.log(f"motif-family fallback failed for {aid}: {exc}", level="error", stage=stage)
+    if rescued:
+        run_mmaudio_asset_qa(ctx)
+    return rescued
 
 
 def _mark_assets_skip_in_placement(ctx: RunContext, asset_ids: list[str]) -> None:
@@ -589,6 +681,38 @@ def _generate_with_retry(
     params: dict[str, Any],
     out_file: Path,
 ) -> dict[str, Any]:
+    role = str(params.get("role") or "")
+    # Creative delivery: music-only path via MusicGen (never whoosh/tick/foley).
+    if musicgen_enabled() and (is_theme_role(role) or not is_banned_role(role)):
+        if is_banned_role(role) or asset_id_is_banned(asset_id):
+            raise RuntimeError(f"banned non-music asset blocked: {asset_id} role={role}")
+        errs = validate_theme_prompt(str(params.get("prompt") or ""))
+        if errs and is_theme_role(role):
+            ctx.log(
+                f"theme prompt arbiter warnings for {asset_id}: {errs}",
+                level="warning",
+                stage=stage,
+            )
+        melody: Path | None = None
+        assets_dir = out_file.parent
+        # Prefer cold_open as canonical motif for conditioning.
+        for cand in sorted(assets_dir.glob("*cold_open*.wav")):
+            if cand.is_file() and cand.stat().st_size > 1000 and cand != out_file:
+                melody = cand
+                break
+        seed = params.get("seed")
+        meta = generate_music_clip(
+            prompt=str(params.get("prompt") or ""),
+            negative_prompt=str(params.get("negative_prompt") or ""),
+            duration_sec=float(params.get("duration_seconds") or 12.0),
+            out_wav=out_file,
+            role=role or "theme_underscore",
+            seed=int(seed) if seed is not None else None,
+            melody_wav=melody,
+        )
+        return meta
+
+    # Legacy MMAudio path — only if musicgen disabled (should not run for creative delivery).
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
@@ -690,10 +814,12 @@ def _resolve_generation_params(
     prompt_row: dict | None,
 ) -> dict[str, Any]:
     duration_seconds = _plan_duration_seconds(cue)
-    role = cue.get("role") or "chapter_stinger"
-    influence = _ROLE_INFLUENCE.get(role, 0.35)
-    prompt = cue.get("description") or cue.get("mood") or "short podcast stinger"
-    negative_prompt = "no vocals, no speech, no lyrics, no humming, no drum loop"
+    role = cue.get("role") or "theme_underscore"
+    influence = _ROLE_INFLUENCE.get(str(role), 0.35)
+    prompt = cue.get("description") or cue.get("mood") or "instrumental documentary motif, acoustic guitar and soft piano"
+    negative_prompt = (
+        "no vocals, no speech, no lyrics, no whoosh, no foley, no tick, no sound effects, no murmur"
+    )
     cfg_strength = None
     num_steps = None
     seed = None
@@ -776,7 +902,12 @@ def _collect_generation_items(
     if not ordered_asset_ids:
         return _dedupe_fallback_cues(fallback_cues)
 
-    return [assets_by_id[aid] for aid in ordered_asset_ids]
+    return [
+        assets_by_id[aid]
+        for aid in ordered_asset_ids
+        if not is_banned_role(str((assets_by_id[aid] or {}).get("role") or ""))
+        and not asset_id_is_banned(aid)
+    ]
 
 
 def _load_sound_design_plan(ctx: RunContext) -> dict:
@@ -794,7 +925,7 @@ def _load_fallback_cues(*, ctx: RunContext, brief_path: str, profile: str) -> li
     if ctx.artifact_exists(brief_path):
         brief = ctx.read_json_required(brief_path)
         return _collect_cues(brief, profile)
-    return [{"description": "short neutral stinger", "duration_ms": 1500, "role": "chapter_stinger"}]
+    return [{"description": "warm acoustic guitar opening motif", "duration_ms": 12000, "role": "theme_cold_open"}]
 
 
 def _dedupe_fallback_cues(cues: list[dict]) -> list[dict]:

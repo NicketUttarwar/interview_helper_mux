@@ -34,6 +34,8 @@ def sidechain_duck_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "attack_ms": int(raw.get("attack_ms", DEFAULT_ATTACK_MS)),
         "release_ms": int(raw.get("release_ms", DEFAULT_RELEASE_MS)),
         "hop_ms": int(raw.get("hop_ms", DEFAULT_HOP_MS)),
+        # Raise underscore in intentional air / post-VO gaps (music-only pause-ride).
+        "pause_ride_db": float(raw.get("pause_ride_db", 4.5)),
     }
 
 
@@ -135,11 +137,13 @@ def envelope_duck(
     attack_ms: float = DEFAULT_ATTACK_MS,
     release_ms: float = DEFAULT_RELEASE_MS,
     hop_ms: float = DEFAULT_HOP_MS,
+    pause_ride_db: float = 0.0,
 ) -> AudioSegment:
     """Duck ``bed`` with a speech-RMS envelope; depth_db is max attenuation under speech.
 
     Caller should apply base cue ``level_db`` before this. Under silence the envelope
-    recovers toward 0 dB attenuation (base level preserved).
+    recovers toward 0 dB attenuation (base level preserved), optionally boosted by
+    ``pause_ride_db`` so underscore rides up in intentional air.
     """
     if depth_db <= 0 or len(bed) <= 0:
         return bed
@@ -171,7 +175,9 @@ def envelope_duck(
         attack_ms=attack_ms,
         release_ms=release_ms,
     )
-    gain_db = [-float(depth_db) * a for a in followed]
+    ride = max(0.0, float(pause_ride_db))
+    # Under speech: −depth; in air: +pause_ride (amount→0).
+    gain_db = [(-float(depth_db) * a) + (ride * (1.0 - a)) for a in followed]
     return _apply_gain_envelope(bed, gain_db, hop)
 
 
@@ -196,4 +202,5 @@ def duck_bed_with_sidechain(
         attack_ms=float(settings["attack_ms"]),
         release_ms=float(settings["release_ms"]),
         hop_ms=float(settings["hop_ms"]),
+        pause_ride_db=float(settings.get("pause_ride_db") or 0.0),
     )

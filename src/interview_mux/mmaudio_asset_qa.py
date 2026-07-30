@@ -158,10 +158,21 @@ def analyze_asset_wav(
     # Reject near-inaudible assets (e.g. stingers at ~−35 dBFS) before mix.
     min_peak = float(mm_cfg.get("min_audible_peak_dbfs", -28.0))
     min_rms = float(mm_cfg.get("min_audible_rms_dbfs", -40.0))
-    stinger_roles = {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"}
-    if role in stinger_roles or role == "ambient_bed":
+    from interview_mux.music_motif import THEME_PUNCTUATOR_ROLES, THEME_ROLES, asset_id_is_banned, is_theme_role
+
+    if asset_id_is_banned(asset_id):
+        row["verdict"] = "fail"
+        row["reasons"].append("banned_non_music_asset_id")
+        row["action"] = "regenerate"
+        row["recommended_action"] = "regenerate"
+        return row
+
+    stinger_roles = {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"} | set(
+        THEME_PUNCTUATOR_ROLES
+    )
+    if role in stinger_roles or role in {"ambient_bed", "theme_underscore"} or is_theme_role(role):
         role_min_peak = min_peak
-        if role in stinger_roles:
+        if role in stinger_roles or role in THEME_PUNCTUATOR_ROLES:
             role_min_peak = float(mm_cfg.get("min_stinger_peak_dbfs", min_peak))
         if peak_dbfs < role_min_peak or rms_dbfs < min_rms:
             row["verdict"] = "fail"
@@ -170,7 +181,7 @@ def analyze_asset_wav(
             row["recommended_action"] = "regenerate"
             row["suggested_level_db_delta"] = max(0.0, role_min_peak - peak_dbfs + 3.0)
 
-    if role in {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"}:
+    if role in {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"} | set(THEME_PUNCTUATOR_ROLES):
         tail_n = int(rate * 0.2)
         if tail_n > 0 and len(samples) >= tail_n:
             tail_rms = _rms(samples[-tail_n:])
@@ -179,30 +190,51 @@ def analyze_asset_wav(
                 row["reasons"].append("hot_tail")
                 row["suggested_trim_ms"] = row.get("suggested_trim_ms", 200)
 
-    if role == "ambient_bed":
+    if role in {"ambient_bed", "theme_underscore"} or role in THEME_ROLES:
         speech_ratio = _band_energy_ratio(samples, rate, 300.0, 3400.0)
         row["speech_band_ratio"] = round(speech_ratio, 4)
-        if speech_ratio > 0.55:
-            # Speech-band-heavy "beds" sound like hum/buzz under dialogue — fail + regenerate.
+        # theme_underscore musical beds are pitched instruments — speech-band energy is expected;
+        # only fail hard ambient_bed murmur-like leaks.
+        if speech_ratio > 0.55 and role == "ambient_bed":
             row["verdict"] = "fail"
             row["reasons"].append("speech_band_leak")
             row["recommended_action"] = "regenerate"
             row["suggested_cfg_delta"] = -0.4
-        elif speech_ratio > 0.4:
+        elif speech_ratio > 0.7 and role == "theme_underscore":
+            row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
+            row["reasons"].append("speech_band_heavy_music")
+            if row.get("recommended_action") == "pass":
+                row["recommended_action"] = "refine"
+        elif speech_ratio > 0.4 and role == "ambient_bed":
             row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
             row["reasons"].append("speech_band_leak")
             if row.get("recommended_action") == "pass":
                 row["recommended_action"] = "refine"
             row["suggested_cfg_delta"] = -0.4
 
-        if mean_rms < 0.01:
+        if role in {"ambient_bed", "theme_underscore"} and mean_rms < 0.01:
             row["verdict"] = "warn" if row["verdict"] == "pass" else row["verdict"]
             row["reasons"].append("bed_too_quiet")
             row["suggested_level_db_delta"] = 2.0
         elif role == "ambient_bed" and row["verdict"] == "pass":
             row["suggested_level_db_delta"] = -2.0
             row["reasons"].append("default_speech_first_bed_lower")
-        row["loop_seam_score"] = round(_loop_seam_score(samples, rate), 4)
+        if role in {"ambient_bed", "theme_underscore"}:
+            row["loop_seam_score"] = round(_loop_seam_score(samples, rate), 4)
+
+    # Tick/murmur density gate for theme music — reject percussive woodtick-like stems.
+    if is_theme_role(role) or role in THEME_ROLES:
+        dens = _peak_density(samples, rate)
+        row["peak_density"] = round(dens, 4)
+        if dens > 0.35:
+            row["verdict"] = "fail"
+            row["reasons"].append("tick_like_transient_density")
+            row["recommended_action"] = "regenerate"
+        # Near-flat noise beds (murmur/HVAC proxy): low peak density + low tonal variation.
+        if dens < 0.02 and mean_rms > 0.02 and peak / max(mean_rms, 1e-6) < 1.8:
+            row["verdict"] = "fail"
+            row["reasons"].append("murmur_like_noise_bed")
+            row["recommended_action"] = "regenerate"
 
     if role == "era_music_bed":
         speech_ratio = _band_energy_ratio(samples, rate, 300.0, 3400.0)

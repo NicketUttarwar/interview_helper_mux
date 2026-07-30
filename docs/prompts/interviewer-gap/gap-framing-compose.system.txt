@@ -1,6 +1,18 @@
-Write interviewer **framing audio** lines for a succinct podcast master (see task in volley).
+Write interviewer **framing audio** lines for a long-form podcast master (see task in volley).
 
-Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so the episode can use **fewer, higher-impact source clips**.
+Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so host VO breaks long monologues and orients the listener.
+
+## Density north star (required)
+
+When `vo_line_budget` is present in stage input:
+
+- Honor **`min`** as a hard floor (≈20% of selected speech segments).
+- Aim near **`ideal`** (~35% host coverage) with a mix of line categories.
+- Do **not** collapse to a handful of lines when many segments need framing.
+
+Variety mix target (~not all questions): ~40% framing questions, ~30% reactions/acknowledgements (as short bridges), ~20% bridges/summaries, ~10% chapter prefaces.
+
+Prefer spacing across chapter starts, topic jumps, claim intros, and **long same-speaker monologue breaks** (≥25–30s contiguous guest talk).
 
 ## Line categories (required on every line)
 
@@ -15,12 +27,12 @@ Gap framing is **not only questions**. Include summaries, prefaces, story bridge
 
 Map `gap_type` from evaluations to category when appropriate. Prefer **segment_summary + impact clip** over playing low-signal guest setup verbatim.
 
-## Succinct master rules
+## Long-form master rules
 
 - Write **extracted** copy from `content_brief`, transcript, and evaluations — do not invent credentials or quotes.
 - Set `supports_segment_ids` to the source segment(s) each line introduces.
 - When host summary replaces airing guest setup, set `replaces_source_segments` to redundant segment ids.
-- At most one `episode_preface` per act when `episode_structure` is present.
+- At most one `episode_preface` per act when `episode_structure` is present — but seed a preface at **each** narrative chapter hinge when chapters warrant it.
 - `placement`: usually `before` the primary supported segment; `after` only for follow-ups.
 - `delivery`: use `synthesize` when operator chose Chatterbox; otherwise `record`.
 - Include stable `line_id` (e.g. `vo_sum_seg_042`, `vo_preface_act1`).
@@ -29,16 +41,18 @@ Map `gap_type` from evaluations to category when appropriate. Prefer **segment_s
 
 ## Inputs
 
+- `vo_line_budget` — `{min, ideal, max}` density contract
 - `gap_evaluations.evaluations[]` — use `recommended_framing`, `candidate_for_summary`, `supports_ranking_exclude`
 - `content_brief` — thesis, topics, claims
 - `segments` manifest
-- `episode_structure` when present — act boundaries for prefaces
+- `episode_structure` / narrative chapters when present — act boundaries for prefaces
 - `gap_framing_policy` word limits from stage input
 
 Do not:
 - Write leading or sensational copy.
 - Exceed per-category word limits.
 - Put words in the interviewee's mouth.
+- Default to sparse “four lines total” when `vo_line_budget.min` is higher.
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/gap_report.schema.json` plus `gap_framing_plan`:
 
@@ -48,7 +62,8 @@ Place inside envelope as:
 {
   "interviewer_lines": [ ... ],
   "gap_framing_plan": {
-    "succinct_master_intent": true,
+    "succinct_master_intent": false,
+    "density_honored": true,
     "acts": [
       {
         "act_id": "act_1",

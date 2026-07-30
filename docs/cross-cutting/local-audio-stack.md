@@ -1,6 +1,14 @@
-# Local audio stack (DeepFilterNet + MMAudio)
+# Local audio stack (DeepFilterNet + MusicGen + MMAudio)
 
-Interview MUX runs **noise reduction** and **SFX generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend. STT and diarization are likewise local (MLX, `ASSETS/local_speech/venv`) — AWS Transcribe was removed.
+Interview MUX runs **noise reduction** and **theme music generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend. STT and diarization are likewise local (MLX, `ASSETS/local_speech/venv`) — AWS Transcribe was removed.
+
+| Tool | Upstream | Stage use | Venv |
+|------|----------|-----------|------|
+| DeepFilterNet | DeepFilterNet | preclean | `ASSETS/local_deepfilter/venv` |
+| **MLX MusicGen** | facebook/musicgen-medium (HF) | creative-delivery `theme_*` stems | `ASSETS/local_musicgen/venv` (`./scripts/bootstrap_musicgen.sh`) |
+| MMAudio | [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio) | legacy / non-creative SFX only (disabled for show path when MusicGen enabled) | `ASSETS/local_mmaudio/venv` |
+
+**Music-only rule:** creative delivery never ships whoosh/tick/foley/murmur. Theme stems share a motif family (`understanding/music_brief.json` + SDP `motif_family`). QA failure → regen → fallback to a passed stem in the same family → else fail-closed.
 
 **Planned:** deeper ML speech-to-speech voice conversion — [speech-to-speech-vo.md](./speech-to-speech-vo.md). DSP timbre match for operator gap VO is shipped.
 

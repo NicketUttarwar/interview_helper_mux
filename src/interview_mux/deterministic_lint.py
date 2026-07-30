@@ -29,6 +29,14 @@ _FORBIDDEN_MMAUDIO_STRINGS = (
     re.compile(r"POST\s+https?://", re.I),
 )
 _ROLE_DURATION_BANDS: dict[str, tuple[float, float]] = {
+    # Music-only theme stems (MusicGen) — longer form factors than legacy SFX.
+    "theme_cold_open": (8.0, 16.0),
+    "theme_underscore": (12.0, 20.0),
+    "theme_emphasis": (6.0, 12.0),
+    "theme_chapter_resolve": (6.0, 12.0),
+    "theme_transition": (4.0, 10.0),
+    "theme_outro": (8.0, 16.0),
+    # Legacy SFX roles (heritage / non-creative paths).
     "ambient_bed": (4.0, 8.0),
     "chapter_stinger": (1.0, 2.5),
     "transition_stinger": (1.0, 1.8),

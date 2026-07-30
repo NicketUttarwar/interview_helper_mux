@@ -19,6 +19,7 @@ Rules:
 - When `gap_sensitivity` is in stage input, treat its `severity_hints`, `priority_gap_types`, and `deemphasize_gap_types` as **authoritative** — do not re-derive gap policy from format alone.
 - When `profile_style.format_class` is `panel`, allow `missing_callback` across guests and do not expect every guest intro to repeat full show context.
 - When `profile_style.format_class` is `one_on_one`, use a stricter self-explanatory bar — fewer `ok_with_light_bridge` allowances.
+- When creative delivery / dense host VO is required, **do not** default almost everything to `ok_with_light_bridge`. Flag framing opportunities at **chapter starts**, **topic jumps**, **claim intros**, and **long same-speaker monologue breaks** (≥25–30s) as `missing_followup` / `missing_setup` / `missing_question` with at least `medium` severity so compose can insert host VO.
 - When `profile_style.format_class` is `technical_deep_dive`, prioritize `missing_definition` for jargon the brief flags.
 - When `comprehension_risks` appear in stage input (specialist pass), treat high `risk_score` segments as priority.
 - `self_explanatory: true` may use `gap_type: ok_with_light_bridge` only for minor bridges; otherwise use `gap_type: null`.

@@ -452,8 +452,18 @@ def flow1_overlays_from_sdp(
         placement = str(cue.get("placement") or "")
         level_db = float(cue.get("level_db", -24.0))
         from interview_mux.creative_delivery import audibility_level_db
+        from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
-        if placement == "under_segment":
+        asset_role_early = str(asset.get("role") or cue.get("role") or "")
+        if placement == "under_segment" or asset_role_early in THEME_BED_ROLES:
+            level_db = audibility_level_db(role="bed", default=level_db)
+        elif is_theme_role(asset_role_early) or asset_role_early in THEME_PUNCTUATOR_ROLES:
+            # Cold open / resolve / emphasis slightly hotter than beds.
+            if asset_role_early in {"theme_cold_open", "theme_chapter_resolve", "theme_outro"}:
+                level_db = audibility_level_db(role="stinger", default=max(level_db, -14.0))
+            else:
+                level_db = audibility_level_db(role="stinger", default=level_db)
+        elif placement == "under_segment":
             level_db = audibility_level_db(role="bed", default=level_db)
         else:
             level_db = audibility_level_db(role="stinger", default=level_db)
@@ -510,7 +520,7 @@ def flow1_overlays_from_sdp(
             out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
             continue
 
-        asset_role = str(asset.get("role") or "")
+        asset_role = str(asset.get("role") or cue.get("role") or "")
         if _cue_uses_pause_alignment(cue, asset):
             if stinger_count >= max_stingers:
                 ctx.log(
@@ -526,12 +536,17 @@ def flow1_overlays_from_sdp(
         cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
         cue_audio = apply_pan_position(cue_audio, cue.get("pan_position"))
         pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)
+        # Musical cold open: lead-in before first speech when no anchor resolved.
+        if asset_role == "theme_cold_open" and (pos is None or pos < 80):
+            pos = 0
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
         if _cue_uses_pause_alignment(cue, asset):
             dur_s = float(asset.get("duration_seconds") or 0.4)
-            if asset_role in ("chapter_stinger", "transition_stinger", "transition_whoosh"):
-                cue_audio = cue_audio[: int(dur_s * 1000)]
+            musical_punct = asset_role in THEME_PUNCTUATOR_ROLES or is_theme_role(asset_role)
+            legacy_sting = asset_role in ("chapter_stinger", "transition_stinger", "transition_whoosh")
+            if musical_punct or legacy_sting:
+                cue_audio = cue_audio[: int(max(dur_s, 4.0 if musical_punct else 0.4) * 1000)]
             pos = _align_stinger_to_pause_tail(
                 ctx,
                 pos=pos,
@@ -546,6 +561,12 @@ def flow1_overlays_from_sdp(
             continue
         if asset_role == "rhetorical_punctuator":
             role = "punctuator"
+        elif asset_role in THEME_BED_ROLES:
+            role = "bed"
+        elif asset_role in {"theme_cold_open", "theme_outro"}:
+            role = "theme"
+        elif is_theme_role(asset_role):
+            role = "theme_punctuator"
         else:
             role = "bridge" if placement == "before_segment" else "stinger"
         out.append({"audio": cue_audio, "position_ms": pos, "role": role})
@@ -818,8 +839,11 @@ def _stinger_segment_id(cue: dict[str, Any], placement: str) -> str:
 def _cue_uses_pause_alignment(cue: dict[str, Any], asset: dict[str, Any]) -> bool:
     if str(cue.get("trigger") or "") == "pause":
         return True
-    role = str(asset.get("role") or "")
+    role = str(asset.get("role") or cue.get("role") or "")
     return role in (
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_transition",
         "chapter_stinger",
         "rhetorical_punctuator",
         "transition_stinger",

@@ -1,16 +1,20 @@
 # Coherent sound design (shipped)
 
-**Status:** Wave 5 shipped — SDP palettes + flow plans, MMAudio craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
+**Status:** Wave 5 shipped — SDP palettes + flow plans, **music-only** theme stems via **MLX MusicGen** (`theme_*` roles), craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
+
+**Creative delivery (locked):** show audio is **instrumental music only** — underscore, cold open, emphasis, chapter resolve, transition phrases, outro. **Forbidden forever:** whoosh, tick/woodtick, foley, murmur/HVAC, or any SFX accent. MMAudio is **not** used for creative-delivery show audio (legacy/non-creative only).
 
 **Prompt-stage guardrails:** [prompts/sound_design/guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md)
 
-**Local audio stack:** [local-audio-stack.md](./local-audio-stack.md) — DeepFilterNet preclean + MMAudio SFX (local venvs).
+**Local audio stack:** [local-audio-stack.md](./local-audio-stack.md) — DeepFilterNet preclean + MusicGen theme stems (+ optional legacy MMAudio venv).
 
-**Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, local MMAudio subprocess, `openai` for craft stages).
+**Toolchain:** [anchored-toolchain.md](./anchored-toolchain.md) (`pydub`, `ffmpeg`, local MusicGen subprocess, `openai` for craft stages).
 
 **Prompt files (Wave 5):** [theme-palettes](../prompts/sound_design/theme-palettes.system.txt), [plan-flow1](../prompts/sound_design/plan-flow1.system.txt), [sfx-prompt-craft](../prompts/sound_design/sfx-prompt-craft.system.txt), [sfx-prompt-refine](../prompts/sound_design/sfx-prompt-refine.system.txt). Examples: [sound-design.examples.md](../prompts/_shared/examples/sound-design.examples.md).
 
 **Per-interview acoustic baseline (shipped, BUILD-082):** [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md) — `understanding/source_acoustic_profile.json` feeds `coherence`, craft volleys, and mix contract.
+
+**Music brief:** `understanding/music_brief.json` packs narrative/topics/moods for MusicGen prompt compile (`music_motif.py`).
 
 ---
 
@@ -32,12 +36,12 @@
 Sound design is a **timeline artifact**, not a one-shot JSON before export:
 
 1. **Discover** sonic opportunities during analysis (themes, entities, beats, gaps, VO).
-2. **Plan** when, where, why, and how loud — with **reusable `asset_id`s**.
-3. **Craft** SFX prompts via OpenAI (shared sonic identity).
-4. **Generate** one file per `asset_id` (same WAV referenced by many cues).
-5. **Mix** with ducking, semantic placement, VO bridges.
+2. **Plan** a **motif family** (`motif_family` + music-only `theme_*` assets) with restrained cues (~28–40% underscore).
+3. **Craft** MusicGen prompts via OpenAI (shared `prompt_dna` / melodic phrase).
+4. **Generate** one file per `asset_id` via local MusicGen (same WAV referenced by many cues).
+5. **Mix** with ducking, pause-ride in air, semantic placement, dense host VO bridges.
 
-Example: interview about **farming** → palette `farming` maps to segments tagged `farming` → one `ambient_farm_morning` asset looped under those segments; one `chapter_stinger_warm` reused at every chapter end.
+Example: interview about **founders / ESOP** → motif family with warm acoustic + piano DNA → `theme_underscore` under important beats; `theme_chapter_resolve` cadences at chapter hinges — never woodtick/murmur.
 
 ---
 

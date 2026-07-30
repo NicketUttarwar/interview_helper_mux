@@ -211,17 +211,24 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
         errors.append(f"creative delivery requires role-diverse SDP assets (have {len(assets)})")
 
     roles = {str(a.get("role") or "") for a in assets}
-    if "era_music_bed" in roles:
-        roles.add("ambient_bed")
-    if "transition_stinger" in roles:
-        roles.add("chapter_stinger")
-    need = {"ambient_bed", "chapter_stinger"}
+    if "era_music_bed" in roles or "ambient_bed" in roles:
+        roles.add("theme_underscore")
+    if "cold_open" in roles:
+        roles.add("theme_cold_open")
+    if "chapter_stinger" in roles or "transition_stinger" in roles:
+        roles.add("theme_chapter_resolve")
+    need = {"theme_underscore", "theme_cold_open"}
     miss = sorted(need - roles)
-    accent_family = {"accent_foley", "vo_bridge", "environmental_foley", "rhetorical_punctuator"}
+    accent_family = {
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_transition",
+        "theme_outro",
+    }
     if not (roles & accent_family):
-        miss.append("accent_or_bridge_texture")
+        miss.append("theme_emphasis_or_resolve")
     for m in miss:
-        errors.append(f"creative delivery missing sfx role:{m}")
+        errors.append(f"creative delivery missing music role:{m}")
 
     flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
