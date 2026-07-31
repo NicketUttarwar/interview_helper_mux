@@ -276,6 +276,34 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             payload["narrative_mode_priors"] = prefer_forbid_volley_block(mode, plan)
         except Exception:
             pass
+        # Address labels for name/group-aware VO (never invent names)
+        try:
+            from interview_mux.speaker_delivery_plan import (
+                build_speaker_delivery_plan,
+                write_speaker_delivery_plan,
+            )
+
+            if c.artifact_exists("understanding/speaker_delivery_plan.json"):
+                sdp = c.read_json("understanding/speaker_delivery_plan.json")
+            else:
+                sdp = build_speaker_delivery_plan(c)
+                try:
+                    write_speaker_delivery_plan(c)
+                except Exception:
+                    pass
+            if isinstance(sdp, dict):
+                payload["address_labels"] = sdp.get("address_labels") or {}
+                payload["speaker_delivery_plan"] = {
+                    "clone_speaker_id": sdp.get("clone_speaker_id"),
+                    "insert_strategy": sdp.get("insert_strategy"),
+                    "address_mode": sdp.get("address_mode"),
+                    "group_label": sdp.get("group_label"),
+                    "speaker_count": sdp.get("speaker_count"),
+                }
+        except Exception:
+            pass
+        if c.artifact_exists("understanding/reorder_bridges.json"):
+            payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")
         return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:

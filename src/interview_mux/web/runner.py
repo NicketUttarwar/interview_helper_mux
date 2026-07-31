@@ -373,8 +373,15 @@ class JobRunner:
         stages: list[str] = []
         if cats["structural"] or full_refresh:
             stages.append("full_master_ranking")
+            # Split / reorder always needs transition + audit refresh (cascade)
+            if "transitions" not in stages:
+                stages.append("transitions")
+            if "edl_narrative_audit" not in stages:
+                stages.append("edl_narrative_audit")
         if full_refresh or apply_mode == "full_refresh":
-            stages.extend(["transitions", "edl_narrative_audit"])
+            for sid in ("transitions", "edl_narrative_audit"):
+                if sid not in stages:
+                    stages.append(sid)
         stages.extend(["edl", "assembly_preview"])
         return stages
 

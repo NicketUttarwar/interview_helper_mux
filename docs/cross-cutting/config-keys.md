@@ -766,6 +766,12 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
 | `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
 | `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |
+| `mastering.timeline_optimizer.enabled` | `true` | Endless mid-mix daemon after mix | `false` skips open-ended search |
+| `mastering.timeline_optimizer.mode` | `endless_daemon` | Search lifecycle | Other modes unused; keep endless for defaults |
+| `mastering.timeline_optimizer.mutation_surface` | `maximum` | structure+glue+SDP+LLM | Narrower surfaces not plumbed yet |
+| `mastering.timeline_optimizer.auto_start_after_mix` | `true` | Full-auto path | `false` requires GUI Keep optimizing |
+| `mastering.timeline_optimizer.use_llm_proposer` | `true` | Periodic flagship mutation proposals | `false` = heuristics only |
+| `mastering.timeline_optimizer.block_finalize_until_take_or_skip` | `false` | Soft by default | `true` hard-stops finalize until take/skip |
 | `mastering.quality_hardening.enabled` | `true` | Master switch for all gates below | `false` disables the whole layer regardless of per-gate modes |
 | `mastering.quality_hardening.context.mode` | `advisory` | `mastering_context_compiler` | `authoritative` enforces token budgets on every consumer |
 | `mastering.quality_hardening.context.default_max_tokens` | `24000` | Evidence packet budget | Too small truncates decisive evidence; too large overflows models |
@@ -853,6 +859,8 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `max_palettes` | `3` | `sound_design_palettes` planning bounds | Over-broad palette spread or constrained thematic coverage |
 | `use_adaptive_caps` | `true` | `sound_design` planners + sonic context posture | Ignores scenario-based cap tuning when false |
 | `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
+| `g_listen_enabled` | `true` | optional G-Listen offer after mix when listen_critic is borderline | Set false to hide |
+| `g_listen_mode` | `warn` | `warn` advisory; `block` / `block_mix` hard-stops master_finalize until continue/skip | Soft by default |
 | `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `mmaudio_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
 
 `placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. With BUILD-SS-03, `execute_fitness_remediation` may action `regenerate` / `skip_cue` after MMAudio (capped); mix still applies placement adjustments.

@@ -1380,6 +1380,103 @@ def create_app() -> FastAPI:
 
         return segmentation_review_report(ctx)
 
+    @app.get("/api/runs/{run_id}/timeline-optimizer")
+    def get_timeline_optimizer(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.timeline_optimizer.daemon import is_optimizer_running
+        from interview_mux.timeline_optimizer.state import optimizer_status_payload
+
+        payload = optimizer_status_payload(ctx)
+        payload["running"] = is_optimizer_running(run_id) or payload.get("status") == "running"
+        return payload
+
+    @app.post("/api/runs/{run_id}/timeline-optimizer/start")
+    def timeline_optimizer_start(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.timeline_optimizer.daemon import start_optimizer_daemon
+
+            return start_optimizer_daemon(ctx, force=True)
+
+    @app.post("/api/runs/{run_id}/timeline-optimizer/stop")
+    def timeline_optimizer_stop(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.timeline_optimizer.daemon import stop_optimizer_daemon
+
+            return stop_optimizer_daemon(ctx)
+
+    @app.post("/api/runs/{run_id}/timeline-optimizer/take-best")
+    def timeline_optimizer_take_best(
+        run_id: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            body = body or {}
+            remaster = bool(body.get("remaster", True))
+            from interview_mux.gates import clear_timeline_optimizer_gate
+            from interview_mux.timeline_optimizer.apply import take_best_candidate
+
+            result = take_best_candidate(
+                ctx,
+                remaster=remaster,
+                sync_remaster=remaster,
+                runner=runner if not remaster else None,
+            )
+            clear_timeline_optimizer_gate(ctx, skipped=False)
+            return result
+
+    @app.post("/api/runs/{run_id}/timeline-optimizer/skip")
+    def timeline_optimizer_skip(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.gates import clear_timeline_optimizer_gate
+            from interview_mux.timeline_optimizer.daemon import stop_optimizer_daemon
+
+            stop_optimizer_daemon(ctx)
+            clear_timeline_optimizer_gate(ctx, skipped=True)
+            return {"ok": True, "skipped": True}
+
+    @app.get("/api/runs/{run_id}/g-listen")
+    def get_g_listen(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.gates import check_g_listen_pending
+
+        critic = (
+            ctx.read_json("master/listen_critic.json")
+            if ctx.artifact_exists("master/listen_critic.json")
+            else {}
+        )
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        return {
+            "pending": check_g_listen_pending(ctx),
+            "quality_score": (critic or {}).get("quality_score")
+            if isinstance(critic, dict)
+            else meta.get("g_listen_quality_score"),
+            "verdict": (critic or {}).get("verdict") if isinstance(critic, dict) else None,
+            "issues": ((critic or {}).get("issues") or [])[:8] if isinstance(critic, dict) else [],
+            "skipped": bool(isinstance(meta, dict) and meta.get("g_listen_skipped")),
+            "cleared": bool(isinstance(meta, dict) and meta.get("g_listen_cleared")),
+        }
+
+    @app.post("/api/runs/{run_id}/g-listen/continue")
+    def g_listen_continue(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.gates import clear_g_listen
+
+            clear_g_listen(ctx, skipped=False)
+            return {"ok": True, "cleared": True}
+
+    @app.post("/api/runs/{run_id}/g-listen/skip")
+    def g_listen_skip(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.gates import clear_g_listen
+
+            clear_g_listen(ctx, skipped=True)
+            return {"ok": True, "skipped": True}
+
     @app.post("/api/runs/{run_id}/g1/skip-optional")
     def g1_skip_optional(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Mark non-blocking delivery:record gaps as skipped_optional and rebuild delivery_brief."""

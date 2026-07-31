@@ -320,12 +320,54 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 if ctx.artifact_exists("master/story_health.json")
                 else None
             )
+            hook_id = None
+            by_id: dict = {}
+            narr = None
+            gap = None
+            sdp = None
+            if ctx.artifact_exists("understanding/episode_structure.json"):
+                try:
+                    es = ctx.read_json("understanding/episode_structure.json")
+                    if isinstance(es, dict):
+                        hook_id = es.get("hook_segment_id")
+                except Exception:
+                    pass
+            if ctx.artifact_exists("segments/manifest.json"):
+                man = ctx.read_json("segments/manifest.json")
+                by_id = {
+                    str(s["segment_id"]): s
+                    for s in ((man or {}).get("segments") or [])
+                    if isinstance(s, dict) and s.get("segment_id")
+                }
+            if ctx.artifact_exists("master/narrative_plan.json"):
+                narr = ctx.read_json("master/narrative_plan.json")
+            if ctx.artifact_exists("understanding/gap_report.json"):
+                gap = ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/sound_design_plan.json"):
+                sdp = ctx.read_json("understanding/sound_design_plan.json")
             critic = evaluate_listen_critic(
                 ordered=ordered,
                 edl=edl_doc if isinstance(edl_doc, dict) else None,
                 story_health=health if isinstance(health, dict) else None,
+                hook_segment_id=str(hook_id) if hook_id else None,
+                segments_by_id=by_id or None,
+                narrative_plan=narr if isinstance(narr, dict) else None,
+                gap_report=gap if isinstance(gap, dict) else None,
+                sound_design_plan=sdp if isinstance(sdp, dict) else None,
             )
             ctx.write_json("master/listen_critic.json", critic)
+            if critic.get("g_listen_recommended"):
+                def _glisten(m: dict) -> None:
+                    m["g_listen_pending"] = True
+                    m["g_listen_quality_score"] = critic.get("quality_score")
+
+                ctx.mutate_run_meta(_glisten)
+                ctx.log(
+                    f"G-Listen recommended (score={critic.get('quality_score')}) — "
+                    "optional operator listen before master_finalize",
+                    level="warning",
+                    stage="mix",
+                )
             if critic.get("verdict") == "warn":
                 ctx.log(
                     f"listen_critic warn: {critic.get('warning_count')} issue(s)",
@@ -353,6 +395,45 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             else:
                 ctx.log(msg, level="warning", stage="mix")
     ctx.mark_done("mix")
+    # Mode C: endless per-run timeline optimizer (defaults auto-start)
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict) and meta.get("timeline_optimizer_remastering"):
+            # Clear remastering flag; do not nest another daemon start from sync remaster
+            def _clear(m: dict) -> None:
+                m["timeline_optimizer_remastering"] = False
+
+            ctx.mutate_run_meta(_clear)
+        else:
+            from interview_mux.timeline_optimizer.config import optimizer_cfg
+            from interview_mux.timeline_optimizer.daemon import (
+                is_optimizer_running,
+                start_optimizer_daemon,
+            )
+
+            ocfg = optimizer_cfg()
+            if (
+                ocfg.get("enabled")
+                and ocfg.get("auto_start_after_mix")
+                and not is_optimizer_running(ctx.run_id)
+            ):
+                res = start_optimizer_daemon(ctx)
+                ctx.log(
+                    f"timeline_optimizer daemon: {res}",
+                    level="info",
+                    stage="mix",
+                )
+
+                def _opt_meta(m: dict) -> None:
+                    m["timeline_optimizer"] = {
+                        "auto_started": True,
+                        "mode": "endless_daemon",
+                        "mutation_surface": "maximum",
+                    }
+
+                ctx.mutate_run_meta(_opt_meta)
+    except Exception as exc:
+        ctx.log(f"timeline_optimizer start skipped: {exc}", level="warning", stage="mix")
     return assembly
 
 
@@ -921,6 +1002,21 @@ def _align_stinger_to_pause_tail(
 
 def flow1_cue_position(*, cue: dict, segment_timing: dict[str, tuple[int, int]]) -> int | None:
     placement = str(cue.get("placement") or "")
+    role = str(cue.get("role") or "")
+    # Cold open theme always leads the timeline when placement is ambiguous
+    if role == "theme_cold_open" or placement in {"cold_open", "show_open"}:
+        if segment_timing:
+            first = min(v[0] for v in segment_timing.values())
+            return max(0, first - 80)
+        return 0
+    # Chapter / hinge punctuators: prefer after_segment hinge, never spoken "Chapter N"
+    if role in {"theme_chapter_resolve", "theme_transition", "rhetorical_punctuator"}:
+        after = str(cue.get("after_segment_id") or cue.get("segment_id") or "")
+        before = str(cue.get("before_segment_id") or "")
+        if after and after in segment_timing:
+            return segment_timing[after][1]
+        if before and before in segment_timing:
+            return segment_timing[before][0]
     if placement in {"before_segment", "under_segment"}:
         sid = str(cue.get("segment_id") or cue.get("before_segment_id") or "")
         timing = segment_timing.get(sid)

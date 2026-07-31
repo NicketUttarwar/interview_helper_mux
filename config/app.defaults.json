@@ -148,6 +148,8 @@
     "enabled": true,
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "block_mix",
+    "g_listen_enabled": true,
+    "g_listen_mode": "warn",
     "max_palettes": 6,
     "max_assets": 24,
     "max_assets_flow1": 24,
@@ -998,6 +1000,24 @@
         "consumers_bind": false,
         "two_pass": true
       }
+    },
+    "timeline_optimizer": {
+      "enabled": true,
+      "mode": "endless_daemon",
+      "mutation_surface": "maximum",
+      "auto_start_after_mix": true,
+      "max_generations_soft": 48,
+      "max_llm_proposals": 8,
+      "llm_every_n_gens": 3,
+      "sleep_ms": 750,
+      "plateau_gens": 6,
+      "min_score_delta": 0.75,
+      "auto_promote_on_plateau": true,
+      "auto_promote_remaster": false,
+      "beam_width": 4,
+      "archive_max": 24,
+      "block_finalize_until_take_or_skip": false,
+      "use_llm_proposer": true
     },
     "quality_hardening": {
       "enabled": true,

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { V2_PHASES, isV2Enabled, phaseForStage } from "../../utils/v2Phases";
 import { StageStepWorkbench } from "./StageStepWorkbench";
@@ -29,7 +29,17 @@ function phaseStatus(
 }
 
 export function PhaseWorkbench() {
-  const { run, config, selectedStageId, selectStage, setPipelineSubTab } = useApp();
+  const {
+    run,
+    config,
+    selectedStageId,
+    selectStage,
+    setPipelineSubTab,
+    showToast,
+    appendClientLog,
+    refreshRun,
+  } = useApp();
+  const [splitBusy, setSplitBusy] = useState(false);
 
   const activePhase = useMemo(() => {
     if (!run) return V2_PHASES[0];
@@ -42,6 +52,28 @@ export function PhaseWorkbench() {
     }
     return V2_PHASES[0];
   }, [run, selectedStageId]);
+
+  const segmentsExist = Boolean(
+    run?.stages?.some(
+      (s) =>
+        ["boundary_detection", "segment_classification", "boundary_topic_resplit"].includes(s.id) &&
+        s.status === "done",
+    ),
+  );
+
+  const splitSelectedHint = async () => {
+    setSplitBusy(true);
+    try {
+      setPipelineSubTab("timeline");
+      appendClientLog("Opened timeline for split", "action", "nle", "gui.workbench.split");
+      showToast("Timeline open — select a segment and use Split at playhead", "info");
+      await refreshRun();
+    } catch (err) {
+      showToast(String(err), "error");
+    } finally {
+      setSplitBusy(false);
+    }
+  };
 
   if (!run || !isV2Enabled(config)) {
     return <StageStepWorkbench />;
@@ -86,6 +118,22 @@ export function PhaseWorkbench() {
         <header className="phase-workbench-header">
           <h2>{activePhase.label}</h2>
           <p className="hint">{activePhase.description}</p>
+          {segmentsExist ? (
+            <div className="phase-workbench-split-bar">
+              <button
+                type="button"
+                className="btn sm primary"
+                disabled={splitBusy}
+                onClick={() => void splitSelectedHint()}
+                title="Always available after segments exist — opens timeline and splits at playhead when selected"
+              >
+                Split segment
+              </button>
+              <span className="hint">
+                Cut long or multi-topic clips (N-way cuts supported in timeline). Auto-splits also run at boundary enrich.
+              </span>
+            </div>
+          ) : null}
           {(run.segment_lineage_warnings?.length ?? 0) > 0 ? (
             <div className="phase-workbench-lineage-warnings" role="alert">
               <strong>Segment lineage</strong>

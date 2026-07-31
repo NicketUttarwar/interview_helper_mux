@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "listen_critic",
+  "type": "object",
+  "required": ["version", "verdict", "issues"],
+  "properties": {
+    "version": { "type": "integer" },
+    "verdict": { "type": "string", "enum": ["pass", "warn", "fail"] },
+    "issues": { "type": "array", "items": { "type": "object" } },
+    "error_count": { "type": "integer" },
+    "warning_count": { "type": "integer" },
+    "quality_score": { "type": "number" },
+    "g_listen_recommended": { "type": "boolean" }
+  }
+}

@@ -181,6 +181,33 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         m["boundary_topic_resplit_cycle_done"] = True
 
     ctx.mutate_run_meta(_mark_cycle_done)
+
+    # Propose + auto-apply split_plan for duration/overload (operator can undo via NLE)
+    try:
+        from interview_mux.split_plan import (
+            apply_split_plan,
+            mark_split_rerank_cascade,
+            propose_split_plan,
+            write_split_plan,
+        )
+
+        plan_doc = write_split_plan(ctx, propose_split_plan(ctx))
+        if plan_doc.get("proposals"):
+            applied = apply_split_plan(ctx, plan=plan_doc)
+            if applied.get("applied") and (
+                int(applied.get("boundary_count_after") or 0)
+                > int(applied.get("boundary_count_before") or 0)
+            ):
+                mark_split_rerank_cascade(ctx, reason="split_plan_auto_apply")
+                ctx.log(
+                    f"split_plan auto-applied: "
+                    f"{applied.get('boundary_count_before')}→{applied.get('boundary_count_after')} boundaries",
+                    level="info",
+                    stage="boundary_topic_resplit",
+                )
+    except Exception as exc:
+        ctx.log(f"split_plan skipped: {exc}", level="warning", stage="boundary_topic_resplit")
+
     ctx.mark_done("boundary_topic_resplit", force=True)
     # Stop this analysis pass — continuing would hit sonic_context without a fresh
     # manifest. The next execute must resume from segment_classification.

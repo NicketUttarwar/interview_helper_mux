@@ -310,6 +310,9 @@ def run_mastering_plan_synthesize(ctx: RunContext) -> None:
         # Prefer first candidate (highest prior); Pareto needs scored frontier — optional later
         chosen = cands[0]
         plan = _plan_from_candidate(chosen, pass_name="provisional", plan_status="complete", evidence_hash=eh)
+        from interview_mux.shape_order_emit import attach_shape_order
+
+        plan = attach_shape_order(ctx, plan)
         write_plan(ctx, plan)
     except Exception as exc:
         write_plan(ctx, forced_sparse_plan(reason=f"synthesize_failed:{exc}"))
@@ -358,6 +361,12 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
             degradation_reasons=reasons,
         )
         plan["confirmed_mode"] = mode
+        # Preserve provisional order when confirm rebuilds from mode-only cand
+        if isinstance(prev.get("ordered_segment_ids"), list) and prev.get("ordered_segment_ids"):
+            plan["ordered_segment_ids"] = list(prev["ordered_segment_ids"])
+        from interview_mux.shape_order_emit import attach_shape_order
+
+        plan = attach_shape_order(ctx, plan)
         write_plan(ctx, plan)
         _maybe_shadow_diff(ctx, plan)
     except Exception as exc:

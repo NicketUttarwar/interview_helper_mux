@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+
+from interview_mux.bridge_completeness import assert_bridges_complete, missing_reorder_bridges
 from interview_mux.bridge_voice_policy import choose_bridge_voice
+from interview_mux.listen_quality import ensure_hook_early, evaluate_listen_critic
+from interview_mux.rank_candidates import pick_best_order
 from interview_mux.reorder_bridges import build_reorder_bridges
 from interview_mux.selection_order_repair import (
     finale_tail_errors,
     ordering_constraint_errors,
     topo_satisfy_order,
 )
+from interview_mux.shape_order_bind import resolve_air_order, shape_order_bindable
 from interview_mux.spoken_meta_lint import lint_spoken_text, spoken_structure_hits
 from interview_mux.story_health import evaluate_story_health
 from interview_mux.nle_state import apply_nle_to_selection
@@ -104,3 +110,70 @@ def test_story_health_nle_softens_to_warn():
     # soft path must not be fail when errors were softened.
     if hard.get("verdict") == "fail":
         assert soft.get("verdict") == "warn"
+
+
+def test_dual_candidate_picks_healthier_order():
+    plan = {
+        "chapters": [
+            {"segment_ids": ["a", "b"]},
+            {"segment_ids": ["c"]},
+        ],
+        "ordering_constraints": [
+            {"before_segment_id": "a", "after_segment_id": "c"},
+        ],
+    }
+    segs = {
+        "a": {"start_ms": 0, "end_ms": 1000},
+        "b": {"start_ms": 1000, "end_ms": 2000},
+        "c": {"start_ms": 2000, "end_ms": 3000},
+    }
+    pick = pick_best_order(
+        [
+            {"source": "bad", "ordered_segment_ids": ["c", "a", "b"]},
+            {"source": "good", "ordered_segment_ids": ["a", "b", "c"]},
+        ],
+        narrative_plan=plan,
+        segments_by_id=segs,
+    )
+    assert pick["winner"] == "good"
+    assert pick["ordered_segment_ids"] == ["a", "b", "c"]
+
+
+def test_bridge_completeness_hard_gate():
+    bridges = {
+        "pairs": [
+            {"after_id": "a", "before_id": "b", "kind": "reorder"},
+        ]
+    }
+    missing = missing_reorder_bridges(bridges, gap_report=None, transitions=None)
+    assert len(missing) == 1
+    with pytest.raises(SystemExit):
+        assert_bridges_complete(bridges, soft=False)
+    transitions = {
+        "transitions": [
+            {"after_segment_id": "a", "before_segment_id": "b", "text": "Meanwhile…"},
+        ]
+    }
+    doc = assert_bridges_complete(bridges, transitions=transitions, soft=False)
+    assert doc["complete"] is True
+
+
+def test_shape_hybrid_bind_requires_health():
+    plan = {"ordered_segment_ids": ["a", "b", "c"]}
+    ok, ordered, reason = shape_order_bindable(plan, kept_ids={"a", "b", "c"})
+    assert ok and ordered == ["a", "b", "c"] and reason == "bind_ok"
+    bind = resolve_air_order(
+        mastering_plan=plan,
+        selection_ordered=["c", "b", "a"],
+        prefer_shape=True,
+    )
+    assert bind["order_authority"] == "shape"
+    assert bind["ordered_segment_ids"] == ["a", "b", "c"]
+
+
+def test_hook_guarantee_and_listen_critic():
+    ordered, moved = ensure_hook_early(["a", "b", "c", "hook"], "hook")
+    assert moved and ordered[0] == "hook"
+    critic = evaluate_listen_critic(ordered=["a"], hook_segment_id="hook")
+    assert critic["verdict"] == "warn"
+    assert "quality_score" in critic

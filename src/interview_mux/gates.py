@@ -27,6 +27,124 @@ def _gate_exit(ctx: RunContext, message: str, *, stage: str, level: str = "error
     raise SystemExit(message)
 
 
+def check_timeline_optimizer_pending(ctx: RunContext) -> bool:
+    """True when finalize should wait for take-best/skip (optional hard mode)."""
+    from interview_mux.timeline_optimizer.config import optimizer_cfg
+
+    cfg = optimizer_cfg()
+    if not cfg.get("block_finalize_until_take_or_skip"):
+        return False
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict) and (
+        meta.get("timeline_optimizer_skipped")
+        or meta.get("timeline_optimizer_promoted")
+        or meta.get("operator_took_best")
+    ):
+        return False
+    from interview_mux.timeline_optimizer.state import load_optimizer_state
+    from interview_mux.timeline_optimizer.daemon import is_optimizer_running
+
+    state = load_optimizer_state(ctx)
+    if state.get("operator_took_best") or state.get("auto_promoted_once"):
+        return False
+    return is_optimizer_running(ctx.run_id) or state.get("status") == "running"
+
+
+def require_timeline_optimizer_clear(ctx: RunContext, *, stage: str) -> None:
+    from interview_mux.timeline_optimizer.config import optimizer_cfg
+
+    cfg = optimizer_cfg()
+    if not cfg.get("block_finalize_until_take_or_skip"):
+        # Advisory: still log if daemon is running
+        try:
+            from interview_mux.timeline_optimizer.daemon import is_optimizer_running
+            from interview_mux.timeline_optimizer.state import load_optimizer_state
+
+            if is_optimizer_running(ctx.run_id):
+                st = load_optimizer_state(ctx)
+                ctx.log(
+                    f"timeline_optimizer still running (gen={st.get('generation')} "
+                    f"best={st.get('best_score')}) — finalize uses current artifacts; "
+                    "Take best anytime via GUI",
+                    level="info",
+                    stage=stage,
+                )
+        except Exception:
+            pass
+        return
+    if check_timeline_optimizer_pending(ctx):
+        _gate_exit(
+            ctx,
+            "Timeline optimizer pending — Take best or Skip via GUI "
+            "(POST …/timeline-optimizer/take-best|skip).",
+            stage=stage,
+        )
+
+
+def clear_timeline_optimizer_gate(ctx: RunContext, *, skipped: bool = False) -> None:
+    def patch(meta: dict) -> None:
+        if skipped:
+            meta["timeline_optimizer_skipped"] = True
+        else:
+            meta["timeline_optimizer_cleared"] = True
+
+    ctx.mutate_run_meta(patch)
+
+
+def check_g_listen_pending(ctx: RunContext) -> bool:
+    """Optional G-Listen when listen_critic recommends a borderline quality review."""
+    sound_cfg = merged_config().get("sound_design") or {}
+    if not bool(sound_cfg.get("g_listen_enabled", True)):
+        return False
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        return False
+    if meta.get("g_listen_skipped") or meta.get("g_listen_cleared"):
+        return False
+    if meta.get("g_listen_pending"):
+        return True
+    if ctx.artifact_exists("master/listen_critic.json"):
+        try:
+            critic = ctx.read_json("master/listen_critic.json")
+            if isinstance(critic, dict) and critic.get("g_listen_recommended"):
+                return True
+        except Exception:
+            return False
+    return False
+
+
+def require_g_listen_clear(ctx: RunContext, *, stage: str) -> None:
+    """Soft-block master_finalize only when g_listen_mode=block."""
+    sound_cfg = merged_config().get("sound_design") or {}
+    mode = str(sound_cfg.get("g_listen_mode", "warn")).lower()
+    if mode not in {"block", "block_mix"}:
+        if check_g_listen_pending(ctx):
+            ctx.log(
+                "G-Listen recommended (optional) — continue or skip via GUI",
+                level="warning",
+                stage=stage,
+            )
+        return
+    if check_g_listen_pending(ctx):
+        _gate_exit(
+            ctx,
+            "G-Listen pending — listen to assembly/master preview and continue "
+            "(POST …/g-listen/continue) or skip (POST …/g-listen/skip).",
+            stage=stage,
+        )
+
+
+def clear_g_listen(ctx: RunContext, *, skipped: bool = False) -> None:
+    def patch(meta: dict) -> None:
+        meta["g_listen_pending"] = False
+        if skipped:
+            meta["g_listen_skipped"] = True
+        else:
+            meta["g_listen_cleared"] = True
+
+    ctx.mutate_run_meta(patch)
+
+
 def sync_post_listen_gate_state(ctx: RunContext) -> dict:
     """Persist post_listen_gate_state on run_meta from listen results and optional QA block."""
     sound_cfg = merged_config().get("sound_design") or {}

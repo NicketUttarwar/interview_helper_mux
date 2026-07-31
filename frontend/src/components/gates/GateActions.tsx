@@ -13,6 +13,8 @@ import { GapFramingScriptPanel } from "./GapFramingScriptPanel";
 import { ImpactBlockPreview } from "./ImpactBlockPreview";
 import { VoiceReferencePanel } from "./VoiceReferencePanel";
 import { GapDeliveryPanel } from "./GapDeliveryPanel";
+import { GListenPanel } from "./GListenPanel";
+import { TimelineOptimizerPanel } from "./TimelineOptimizerPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
 import { InterviewSpinePanel } from "../workspace/InterviewSpinePanel";
@@ -156,7 +158,11 @@ export function GateActions({ stage }: Props) {
               ) : null}
 
               {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (
-                <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+                <>
+                  <QcSummaryCard qcKey="mix_intelligibility" stageId={stage.id} />
+                  <TimelineOptimizerPanel />
+                  <GListenPanel />
+                </>
               ) : null}
             </>
           ) : null}

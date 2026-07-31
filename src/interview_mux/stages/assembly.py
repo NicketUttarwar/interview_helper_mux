@@ -366,9 +366,32 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("master/transitions.json")
             else None
         )
+        # Hard bridge completeness before synth / EDL (softened only post-NLE via story_health)
+        if ctx.artifact_exists("understanding/reorder_bridges.json"):
+            from interview_mux.bridge_completeness import assert_bridges_complete
+            from interview_mux.nle_state import nle_has_operator_edits as _nle_ops
+
+            bridges = ctx.read_json("understanding/reorder_bridges.json")
+            soft = bool(_nle_ops(nle))
+            completeness = assert_bridges_complete(
+                bridges if isinstance(bridges, dict) else None,
+                gap_report=gap_report if isinstance(gap_report, dict) else None,
+                transitions=transitions if isinstance(transitions, dict) else None,
+                soft=soft,
+            )
+            ctx.write_json("master/bridge_completeness.json", completeness)
+            if soft and not completeness.get("complete"):
+                ctx.log(
+                    f"bridge_completeness soft (NLE overlay): "
+                    f"{completeness.get('missing_count')} missing — shipping",
+                    level="warning",
+                    stage="edl",
+                    detail=completeness.get("missing", [])[:6],
+                )
 
     with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
         from interview_mux.transition_vo import (
+            assert_required_bridge_synth_ok,
             assert_spoken_transitions_audible,
             resolve_transition_wav,
             synthesize_spoken_transitions,
@@ -384,6 +407,7 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                     detail={"failed": failed[:6]},
                 )
+            assert_required_bridge_synth_ok(ctx, synth_rows)
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         edl = build_flow1_edl(

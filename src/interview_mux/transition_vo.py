@@ -90,41 +90,80 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
             "voice_speaker_id": speaker_id or item.get("voice_speaker_id"),
             "suggested_tone": item.get("tone") or "bridge",
         }
-        try:
-            wav = synthesize_line(ctx, line, mode="synthesize", dest_dir=out.parent)
-            # synthesize_line writes under vo_pickup/synthesized/{line_id}.wav —
-            # copy/rename into master/transitions when needed.
-            if wav.resolve() != out.resolve():
-                out.write_bytes(wav.read_bytes())
-            results.append(
-                {
-                    "after_segment_id": after_id,
-                    "before_segment_id": before_id,
-                    "path": out.as_posix(),
-                    "ok": True,
-                }
-            )
-            ctx.log(
-                f"Synthesized transition {after_id}→{before_id}",
-                level="info",
-                stage="edl",
-                detail={"event": "transition_synth", "path": out.as_posix()},
-            )
-        except Exception as exc:
+        last_err: Exception | None = None
+        wav = None
+        for attempt in range(2):
+            try:
+                wav = synthesize_line(ctx, line, mode="synthesize", dest_dir=out.parent)
+                last_err = None
+                break
+            except Exception as exc:
+                last_err = exc
+                ctx.log(
+                    f"Transition synth attempt {attempt + 1} failed "
+                    f"{after_id}→{before_id}: {exc}",
+                    level="warning" if attempt == 0 else "error",
+                    stage="edl",
+                )
+        if last_err is not None or wav is None:
             results.append(
                 {
                     "after_segment_id": after_id,
                     "before_segment_id": before_id,
                     "ok": False,
-                    "error": str(exc)[:300],
+                    "error": str(last_err)[:300] if last_err else "no_wav",
+                    "required": True,
                 }
             )
-            ctx.log(
-                f"Transition synth failed {after_id}→{before_id}: {exc}",
-                level="error",
-                stage="edl",
-            )
+            continue
+        # synthesize_line writes under vo_pickup/synthesized/{line_id}.wav —
+        # copy/rename into master/transitions when needed.
+        if wav.resolve() != out.resolve():
+            out.write_bytes(wav.read_bytes())
+        results.append(
+            {
+                "after_segment_id": after_id,
+                "before_segment_id": before_id,
+                "path": out.as_posix(),
+                "ok": True,
+            }
+        )
+        ctx.log(
+            f"Synthesized transition {after_id}→{before_id}",
+            level="info",
+            stage="edl",
+            detail={"event": "transition_synth", "path": out.as_posix()},
+        )
     return results
+
+
+def assert_required_bridge_synth_ok(
+    ctx: RunContext, synth_rows: list[dict[str, Any]]
+) -> None:
+    """Fail-closed when a required reorder-bridge transition synth failed twice."""
+    from interview_mux.bridge_completeness import required_bridge_keys
+
+    bridges = None
+    if ctx.artifact_exists("understanding/reorder_bridges.json"):
+        bridges = ctx.read_json("understanding/reorder_bridges.json")
+    required = required_bridge_keys(bridges if isinstance(bridges, dict) else None)
+    # Also treat any spoken transition with text as required once listed
+    failed = [
+        r
+        for r in synth_rows
+        if isinstance(r, dict) and r.get("ok") is False
+    ]
+    blocking: list[str] = []
+    for row in failed:
+        a = str(row.get("after_segment_id") or "")
+        b = str(row.get("before_segment_id") or "")
+        if (a, b) in required or row.get("required"):
+            blocking.append(f"{a}->{b}")
+    if blocking:
+        raise SystemExit(
+            "transition synth fail-closed after retry for required bridge(s): "
+            + ", ".join(blocking[:8])
+        )
 
 
 def assert_spoken_transitions_audible(ctx: RunContext, edl: dict[str, Any]) -> None:

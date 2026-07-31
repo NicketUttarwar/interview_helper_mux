@@ -20,6 +20,8 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 | Pre-clean source | Before ingest | Never auto-run; dismissible |
 | NLE edits | After ranking / before EDL | Operator choice via Timeline tab |
 | Assembly preview listen | After `assembly_preview` | Soft milestone; does not block mix by default |
+| **G-Listen** | After `mix` when `master/listen_critic.json` recommends (`g_listen_recommended`) | Optional borderline quality review before `master_finalize`. Default `sound_design.g_listen_mode: warn` (advisory). Set `block` to hard-stop. Continue: `POST …/g-listen/continue`; skip: `POST …/g-listen/skip`. |
+| **Timeline optimizer** | Auto-starts after `mix` (defaults) | **Endless daemon (mode C)** permutes structure + glue + SDP + optional LLM proposals per run. GUI: Take best + remaster / Keep optimizing / Stop / Skip. Artifacts under `master/optimizer/`. Config: `mastering.timeline_optimizer`. |
 
 ## Removed gates (v2)
 

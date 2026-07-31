@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "bridge_completeness",
+  "type": "object",
+  "required": ["version", "complete", "missing"],
+  "properties": {
+    "version": { "type": "integer" },
+    "complete": { "type": "boolean" },
+    "missing_count": { "type": "integer" },
+    "missing": { "type": "array", "items": { "type": "object" } }
+  }
+}

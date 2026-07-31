@@ -17,9 +17,11 @@
       "master/edl_narrative_audit.json",
       "master/selection.json",
       "master/transitions.json",
-      "understanding/gap_report.json"
+      "understanding/gap_report.json",
+      "understanding/reorder_bridges.json"
     ],
     "writes": [
+      "master/bridge_completeness.json",
       "master/edl.json",
       "master/selection.json"
     ]
@@ -63,12 +65,15 @@
   },
   "gaps": {
     "reads": [
+      "master/selection.json",
       "segments/manifest.json",
       "understanding/content_brief.json",
       "understanding/delivery_brief.json",
       "understanding/episode_structure.json",
       "understanding/gap_evaluations.json",
-      "understanding/gap_report.json"
+      "understanding/gap_report.json",
+      "understanding/reorder_bridges.json",
+      "understanding/speaker_delivery_plan.json"
     ],
     "writes": [
       "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n",
@@ -119,16 +124,27 @@
       "master/narrative_plan.json",
       "master/selection.json",
       "master/transitions.json",
+      "mastering/mastering_plan.json",
       "segments/manifest.json",
       "understanding/content_brief.json",
-      "understanding/gap_report.json"
+      "understanding/episode_structure.json",
+      "understanding/gap_report.json",
+      "understanding/reorder_bridges.json",
+      "understanding/speaker_delivery_plan.json"
     ],
-    "writes": []
+    "writes": [
+      "master/rank_candidates.json",
+      "master/story_health.json",
+      "understanding/reorder_bridges.json"
+    ]
   },
   "sfx_mmaudio": {
     "reads": [
       "run_meta.json",
+      "segments/manifest.json",
       "sound_design/sfx_prompts.json",
+      "understanding/music_brief.json",
+      "understanding/sonic_acoustic_profile.json",
       "understanding/sound_design_plan.json"
     ],
     "writes": [
@@ -153,7 +169,8 @@
       "understanding/gap_report.json"
     ],
     "writes": [
-      "run_meta.json"
+      "run_meta.json",
+      "understanding/music_brief.json"
     ]
   },
   "sound_design_vo_finalize": {

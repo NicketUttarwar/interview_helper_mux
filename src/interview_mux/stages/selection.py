@@ -117,21 +117,14 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
         artifacts = enforce_framing_ranking(c, artifacts)
 
-        # Dual-candidate stub: keep committed order + pre-NLE snapshot when present
-        ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-        c.write_json(
-            "master/rank_candidates.json",
-            {
-                "version": 1,
-                "candidates": [{"source": "committed", "ordered_segment_ids": ordered}],
-                "winner": "committed",
-            },
-        )
-
         from interview_mux.story_health import evaluate_story_health
         from interview_mux.reorder_bridges import build_reorder_bridges
         from interview_mux.bridge_voice_policy import annotate_reorder_bridges
         from interview_mux.speaker_delivery_plan import write_speaker_delivery_plan
+        from interview_mux.rank_candidates import chapter_order_from_plan, pick_best_order
+        from interview_mux.shape_order_bind import resolve_air_order
+        from interview_mux.listen_quality import ensure_hook_early
+        from interview_mux.split_plan import clear_split_rerank_cascade
 
         by_id = segments_by_id_with_nle(c) if nle_overlay else {}
         if not by_id and c.artifact_exists("segments/manifest.json"):
@@ -141,30 +134,46 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 for s in (man.get("segments") or [])
                 if isinstance(s, dict) and s.get("segment_id")
             }
-        chapter_ends: set[str] = set()
-        if isinstance(plan, dict):
-            for ch in plan.get("chapters") or []:
-                if isinstance(ch, dict):
-                    ids = [str(x) for x in (ch.get("segment_ids") or []) if x]
-                    if ids:
-                        chapter_ends.add(ids[-1])
-        bridges = annotate_reorder_bridges(
-            build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
-            narrative_mode=str((plan or {}).get("narrative_mode") or "")
-            if isinstance(plan, dict)
-            else None,
-        )
-        # Prefer mastering_plan narrative_mode when present
+
+        ranking_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
+        candidates: list[dict] = [
+            {"source": "ranking", "ordered_segment_ids": ranking_ordered},
+        ]
+        chapter_cand = chapter_order_from_plan(plan if isinstance(plan, dict) else None)
+        if chapter_cand and chapter_cand != ranking_ordered:
+            # Intersect with kept ranking ids when ranking already filtered
+            kept = set(ranking_ordered) if ranking_ordered else set(chapter_cand)
+            filtered_ch = [s for s in chapter_cand if s in kept] or chapter_cand
+            candidates.append({"source": "narrative_chapters", "ordered_segment_ids": filtered_ch})
+
+        mp = None
         if c.artifact_exists("mastering/mastering_plan.json"):
             try:
                 mp = c.read_json("mastering/mastering_plan.json")
-                if isinstance(mp, dict) and mp.get("narrative_mode"):
-                    bridges = annotate_reorder_bridges(
-                        bridges, narrative_mode=str(mp.get("narrative_mode"))
+            except Exception:
+                mp = None
+        if isinstance(mp, dict):
+            shape_ids = [str(s) for s in (mp.get("ordered_segment_ids") or []) if s]
+            if shape_ids:
+                kept = set(ranking_ordered) if ranking_ordered else set(shape_ids)
+                filtered_sh = [s for s in shape_ids if s in kept] or shape_ids
+                candidates.append({"source": "shape", "ordered_segment_ids": filtered_sh})
+
+        hook_id = None
+        if c.artifact_exists("understanding/episode_structure.json"):
+            try:
+                es = c.read_json("understanding/episode_structure.json")
+                if isinstance(es, dict):
+                    hook_id = es.get("hook_segment_id") or (
+                        (es.get("cold_open") or {}).get("segment_id")
+                        if isinstance(es.get("cold_open"), dict)
+                        else None
                     )
             except Exception:
-                pass
-        c.write_json("understanding/reorder_bridges.json", bridges)
+                hook_id = None
+        if not hook_id and isinstance(mp, dict):
+            cold = mp.get("cold_open") if isinstance(mp.get("cold_open"), dict) else {}
+            hook_id = cold.get("segment_id") or cold.get("hook_segment_id")
 
         gap = (
             c.read_json("understanding/gap_report.json")
@@ -176,6 +185,68 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             if c.artifact_exists("master/transitions.json")
             else None
         )
+        pick = pick_best_order(
+            candidates,
+            narrative_plan=plan if isinstance(plan, dict) else None,
+            segments_by_id=by_id,
+            gap_report=gap if isinstance(gap, dict) else None,
+            transitions=tr if isinstance(tr, dict) else None,
+            hook_segment_id=str(hook_id) if hook_id else None,
+        )
+        c.write_json("master/rank_candidates.json", pick)
+        dual_ordered = [str(s) for s in (pick.get("ordered_segment_ids") or ranking_ordered) if s]
+        if dual_ordered:
+            artifacts["ordered_segment_ids"] = dual_ordered
+            artifacts["rank_candidate_winner"] = pick.get("winner")
+
+        # Hybrid Shape bind (per-run; global consumers_bind stays false)
+        bind = resolve_air_order(
+            mastering_plan=mp if isinstance(mp, dict) else None,
+            selection_ordered=list(artifacts.get("ordered_segment_ids") or []),
+            narrative_plan=plan if isinstance(plan, dict) else None,
+            prefer_shape=True,
+        )
+        if bind.get("order_authority") == "shape" and bind.get("ordered_segment_ids"):
+            artifacts["ordered_segment_ids"] = list(bind["ordered_segment_ids"])
+            c.log(
+                f"hybrid Shape bind: using plan order ({bind.get('bind_reason')})",
+                level="info",
+                stage="full_master_ranking",
+            )
+        artifacts["order_authority"] = bind.get("order_authority") or "ranking"
+        artifacts["order_bind_reason"] = bind.get("bind_reason")
+
+        # Guarantee hook in first 30–60s window (first three slots)
+        ordered, hook_moved = ensure_hook_early(
+            [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s],
+            str(hook_id) if hook_id else None,
+        )
+        if hook_moved:
+            artifacts["ordered_segment_ids"] = ordered
+            c.log(
+                f"hook guarantee: moved {hook_id} to open",
+                level="info",
+                stage="full_master_ranking",
+            )
+
+        chapter_ends: set[str] = set()
+        if isinstance(plan, dict):
+            for ch in plan.get("chapters") or []:
+                if isinstance(ch, dict):
+                    ids = [str(x) for x in (ch.get("segment_ids") or []) if x]
+                    if ids:
+                        chapter_ends.add(ids[-1])
+        narrative_mode = None
+        if isinstance(mp, dict) and mp.get("narrative_mode"):
+            narrative_mode = str(mp.get("narrative_mode"))
+        elif isinstance(plan, dict) and plan.get("narrative_mode"):
+            narrative_mode = str(plan.get("narrative_mode"))
+        bridges = annotate_reorder_bridges(
+            build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
+            narrative_mode=narrative_mode,
+        )
+        c.write_json("understanding/reorder_bridges.json", bridges)
+
         cov = (
             c.read_json("master/coverage_audit.json")
             if c.artifact_exists("master/coverage_audit.json")
@@ -189,16 +260,49 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             gap_report=gap if isinstance(gap, dict) else None,
             transitions=tr if isinstance(tr, dict) else None,
             nle_overlay_applied=nle_overlay,
+            hook_segment_id=str(hook_id) if hook_id else None,
         )
         c.write_json("master/story_health.json", health)
         if health.get("verdict") == "fail":
-            c.log(
-                f"story_health fail ({health.get('error_count')} issues) — "
-                "repair before delivery when possible",
-                level="warning",
-                stage="full_master_ranking",
-                detail=health.get("issues", [])[:6],
+            # Bounded app-base re-topo then re-score once
+            from interview_mux.selection_order_repair import repair_selection_order
+
+            repaired, notes = repair_selection_order(
+                artifacts, plan if isinstance(plan, dict) else None
             )
+            if notes:
+                artifacts = repaired
+                ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
+                bridges = annotate_reorder_bridges(
+                    build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
+                    narrative_mode=narrative_mode,
+                )
+                c.write_json("understanding/reorder_bridges.json", bridges)
+                health = evaluate_story_health(
+                    ordered=ordered,
+                    narrative_plan=plan if isinstance(plan, dict) else None,
+                    coverage_audit=cov if isinstance(cov, dict) else None,
+                    reorder_bridges=bridges,
+                    gap_report=gap if isinstance(gap, dict) else None,
+                    transitions=tr if isinstance(tr, dict) else None,
+                    nle_overlay_applied=nle_overlay,
+                    hook_segment_id=str(hook_id) if hook_id else None,
+                )
+                c.write_json("master/story_health.json", health)
+                c.log(
+                    f"story_health fail → topo re-pass ({len(notes)} notes); "
+                    f"verdict now {health.get('verdict')}",
+                    level="warning",
+                    stage="full_master_ranking",
+                )
+            if health.get("verdict") == "fail":
+                c.log(
+                    f"story_health fail ({health.get('error_count')} issues) — "
+                    "repair before delivery when possible",
+                    level="warning",
+                    stage="full_master_ranking",
+                    detail=health.get("issues", [])[:6],
+                )
         elif health.get("verdict") == "warn":
             c.log(
                 f"story_health warn — shipping with issues "
@@ -216,6 +320,11 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 level="warning",
                 stage="full_master_ranking",
             )
+
+        try:
+            clear_split_rerank_cascade(c)
+        except Exception:
+            pass
 
         write_validated_artifact(
             c,
@@ -247,6 +356,34 @@ def run_transitions(ctx: RunContext) -> None:
             "gap_report": c.read_json("understanding/gap_report.json"),
             "interviewer_sample_lines": interviewer_sample_lines(c),
         }
+        if c.artifact_exists("understanding/reorder_bridges.json"):
+            payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")
+        if c.artifact_exists("understanding/speaker_delivery_plan.json"):
+            try:
+                sdp = c.read_json("understanding/speaker_delivery_plan.json")
+                if isinstance(sdp, dict):
+                    payload["speaker_delivery_plan"] = {
+                        "clone_speaker_id": sdp.get("clone_speaker_id"),
+                        "insert_strategy": sdp.get("insert_strategy"),
+                        "address_mode": sdp.get("address_mode"),
+                        "group_label": sdp.get("group_label"),
+                    }
+                    payload["address_labels"] = sdp.get("address_labels") or {}
+            except Exception:
+                pass
+        else:
+            try:
+                from interview_mux.speaker_delivery_plan import build_speaker_delivery_plan
+
+                sdp = build_speaker_delivery_plan(c)
+                payload["address_labels"] = sdp.get("address_labels") or {}
+                payload["speaker_delivery_plan"] = {
+                    "clone_speaker_id": sdp.get("clone_speaker_id"),
+                    "insert_strategy": sdp.get("insert_strategy"),
+                    "group_label": sdp.get("group_label"),
+                }
+            except Exception:
+                pass
         from interview_mux.source_topology import attach_adaptation_to_payload
         from interview_mux.delivery_brief import attach_delivery_brief_to_payload
 

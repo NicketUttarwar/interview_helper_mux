@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "split_plan",
+  "type": "object",
+  "required": ["version", "proposals"],
+  "properties": {
+    "version": { "type": "integer" },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "segment_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "span_ms": { "type": "integer" },
+          "suggested_cut_ms": { "type": "array", "items": { "type": "integer" } },
+          "auto_apply": { "type": "boolean" }
+        }
+      }
+    },
+    "proposal_count": { "type": "integer" },
+    "auto_apply": { "type": "boolean" },
+    "applied": { "type": "boolean" },
+    "actions": { "type": "array" },
+    "boundary_count_before": { "type": "integer" },
+    "boundary_count_after": { "type": "integer" },
+    "max_segment_duration_ms": { "type": "integer" },
+    "skip_reason": { "type": "string" }
+  }
+}

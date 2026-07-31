@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "rank_candidates",
+  "type": "object",
+  "required": ["version", "candidates"],
+  "properties": {
+    "version": { "type": "integer" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "ordered_segment_ids": { "type": "array", "items": { "type": "string" } },
+          "score": { "type": "number" },
+          "story_health_verdict": { "type": "string" },
+          "bridge_count": { "type": "integer" }
+        }
+      }
+    },
+    "winner": { "type": ["string", "null"] },
+    "ordered_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "winner_score": { "type": "number" }
+  }
+}

@@ -7477,6 +7477,14 @@ button.pipeline-step-row:focus-visible,
   font-size: 1.1rem;
 }
 
+.phase-workbench-split-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin: 0.65rem 0 0.25rem;
+}
+
 .phase-workbench-lineage-warnings {
   margin-top: 0.75rem;
   padding: 0.65rem 0.85rem;

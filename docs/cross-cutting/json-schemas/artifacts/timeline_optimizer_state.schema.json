@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "timeline_optimizer_state",
+  "type": "object",
+  "required": ["version", "status"],
+  "properties": {
+    "version": { "type": "integer" },
+    "status": { "type": "string" },
+    "mode": { "type": "string" },
+    "mutation_surface": { "type": "string" },
+    "generation": { "type": "integer" },
+    "best_score": { "type": ["number", "null"] },
+    "best_candidate_id": { "type": ["string", "null"] },
+    "plateau_streak": { "type": "integer" },
+    "stop_requested": { "type": "boolean" },
+    "last_mutation": { "type": ["object", "null"] },
+    "promotions": { "type": "array" }
+  }
+}

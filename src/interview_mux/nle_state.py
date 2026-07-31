@@ -386,4 +386,10 @@ def split_segment_at_cuts(ctx: RunContext, segment_id: str, cut_ms: list[int]) -
     from interview_mux.artifact_repairs import propagate_nle_split_segment_refs
 
     propagate_nle_split_segment_refs(ctx, segment_id, child_ids)
+    try:
+        from interview_mux.split_plan import mark_split_rerank_cascade
+
+        mark_split_rerank_cascade(ctx, reason=f"nle_split:{segment_id}")
+    except Exception:
+        pass
     return nle

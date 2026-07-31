@@ -92,6 +92,8 @@ Chapters/acts/parts are **business logic and subtext only**. Synthetic VO and tr
 
 This workstream must not add spend / timeout / remint / attempt caps under `mastering.shape.*`. Soft-gate keys: `enable`, `mode`, `shadow_compare`, `consumers_bind`, `two_pass` only.
 
+**Hybrid Shape bind (per-run):** Shape synthesize/confirm dynamically emits `ordered_segment_ids` when ready. Global `consumers_bind` stays **false**; delivery prefers Shape order only when the emit is complete and `story_health` passes (`shape_order_bind.resolve_air_order`). Otherwise ranking wins.
+
 
 ## Degradation ladder
 

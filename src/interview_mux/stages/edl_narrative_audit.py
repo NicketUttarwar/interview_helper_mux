@@ -51,7 +51,13 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             c,
         )
 
-    persist = make_stage_persist("master/edl_narrative_audit.json", "edl_narrative_audit")
+    base_persist = make_stage_persist("master/edl_narrative_audit.json", "edl_narrative_audit")
+
+    def persist_with_repair(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.audit_repair_loop import maybe_repair_after_narrative_audit
+
+        repaired_artifacts = maybe_repair_after_narrative_audit(c, artifacts)
+        base_persist(c, repaired_artifacts)
 
     ctx.log(
         "Running EDL narrative audit with local volley framing before flagship review.",
@@ -64,5 +70,5 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             "edl_narrative_audit",
             prompt_variant("selection/edl-narrative-audit.system.txt", ctx),
             build_input,
-            persist,
+            persist_with_repair,
         )
