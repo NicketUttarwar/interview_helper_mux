@@ -33,6 +33,7 @@ def min_density_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "min_foley",
         "min_bed_coverage_ratio",
         "min_audible_bed_level_db",
+        "max_audible_bed_level_db",
         "min_audible_stinger_level_db",
     ):
         if creative.get(key) is not None:
@@ -41,20 +42,30 @@ def min_density_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    """Lift sparse/skip underscore and bed levels when creative delivery is required."""
+    """Speech-first mix: felt-not-heard beds and hard duck under dialogue."""
     if not creative_delivery_required():
         return contract
     out = dict(contract)
     underscore = str(out.get("underscore_policy") or "normal")
     if underscore in {"skip", "sparse_or_skip", "sparse"}:
         out["underscore_policy"] = "normal"
+    mins = min_density_cfg()
+    quiet_lo = float(mins.get("min_audible_bed_level_db", -28.0))
+    quiet_hi = float(mins.get("max_audible_bed_level_db", -26.0))
+    if quiet_lo > quiet_hi:
+        quiet_lo, quiet_hi = quiet_hi, quiet_lo
     bed_range = out.get("bed_level_db_range")
     if isinstance(bed_range, list) and len(bed_range) == 2:
         lo, hi = float(bed_range[0]), float(bed_range[1])
-        floor = float(min_density_cfg().get("min_audible_bed_level_db", -22.0))
-        out["bed_level_db_range"] = [max(lo, floor - 2.0), max(hi, floor)]
+        # Clamp into felt-not-heard band (−30…−26 typical).
+        out["bed_level_db_range"] = [min(lo, quiet_lo), min(hi, quiet_hi)]
+        if out["bed_level_db_range"][0] > out["bed_level_db_range"][1]:
+            out["bed_level_db_range"] = [quiet_lo, quiet_hi]
+    else:
+        out["bed_level_db_range"] = [quiet_lo, quiet_hi]
     duck = float(out.get("duck_under_speech_db") or 16.0)
-    out["duck_under_speech_db"] = min(duck, 14.0)
+    # Harder duck so conversation stays on top (plan: ≥18).
+    out["duck_under_speech_db"] = max(duck, 18.0)
     return out
 
 
@@ -247,12 +258,16 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
 
 
 def audibility_level_db(*, role: str, default: float) -> float:
-    """Floor mix levels so beds and stingers remain audible under speech."""
+    """Clamp mix levels: beds stay felt-not-heard; stingers remain audible."""
     if not creative_delivery_required():
         return default
     mins = min_density_cfg()
     if role == "bed":
-        return max(default, float(mins.get("min_audible_bed_level_db", -22.0)))
+        lo = float(mins.get("min_audible_bed_level_db", -28.0))
+        hi = float(mins.get("max_audible_bed_level_db", -26.0))
+        if lo > hi:
+            lo, hi = hi, lo
+        return max(lo, min(hi, float(default)))
     return max(default, float(mins.get("min_audible_stinger_level_db", -18.0)))
 
 
@@ -298,7 +313,29 @@ def enforce_creative_selection_edit(
             return 9999.0
 
     droppable = [sid for sid in ordered if sid not in critical]
-    droppable.sort(key=rank_of, reverse=True)
+    # Prefer dropping mid-monologue segments so I↔S turn boundaries survive denser volleys.
+    speaker_of: dict[str, str] = {}
+    try:
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    speaker_of[str(row["segment_id"])] = str(row.get("speaker_id") or "")
+    except Exception:
+        speaker_of = {}
+
+    def volley_drop_score(sid: str) -> tuple[float, float]:
+        try:
+            idx = ordered.index(sid)
+        except ValueError:
+            return (0.0, rank_of(sid))
+        spk = speaker_of.get(sid, "")
+        prev = speaker_of.get(ordered[idx - 1], "") if idx > 0 else ""
+        nxt = speaker_of.get(ordered[idx + 1], "") if idx + 1 < len(ordered) else ""
+        mid_mono = 1.0 if spk and spk == prev == nxt else 0.0
+        return (mid_mono, rank_of(sid))
+
+    droppable.sort(key=volley_drop_score, reverse=True)
     dropped: list[str] = []
     remaining = list(ordered)
     total_before = len(ordered)

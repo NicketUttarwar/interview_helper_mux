@@ -19,7 +19,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 
 DEFAULT_FRAME_RATE = 48_000
-MIN_DUCK_DB = 14.0
+MIN_DUCK_DB = 18.0
 
 
 def _mix_cfg() -> dict[str, Any]:
@@ -450,7 +450,7 @@ def flow1_overlays_from_sdp(
         asset = assets_by_id.get(asset_id, {})
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
-        level_db = float(cue.get("level_db", -24.0))
+        level_db = float(cue.get("level_db", -28.0))
         from interview_mux.creative_delivery import audibility_level_db
         from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
@@ -992,9 +992,9 @@ def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float
     pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
     if speech_active_ratio >= 0.75:
-        return min(default_level_db, -26.0)
+        return min(default_level_db, -30.0)
     if speech_active_ratio >= 0.6:
-        return min(default_level_db, -24.0)
+        return min(default_level_db, -28.0)
     return default_level_db
 
 

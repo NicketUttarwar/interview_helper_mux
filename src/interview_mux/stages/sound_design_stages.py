@@ -283,7 +283,7 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
         if not isinstance(prompts, list):
             raise ValueError("sfx_prompt_craft: missing artifacts.prompts list")
         sdp = _load_sound_design_plan(c)
-        normalized = _normalize_sfx_prompts(sdp, prompts)
+        normalized = _normalize_sfx_prompts(sdp, prompts, ctx=c)
         payload = {"prompts": normalized}
         schema_errors = validate_stage_artifacts("sfx_prompt_craft", payload)
         if schema_errors:
@@ -383,7 +383,7 @@ def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -
             merged = {**by_id.get(aid, {}), **row, "asset_id": aid}
             by_id[aid] = merged
         sdp = _load_sound_design_plan(c)
-        normalized = _normalize_sfx_prompts(sdp, list(by_id.values()))
+        normalized = _normalize_sfx_prompts(sdp, list(by_id.values()), ctx=c)
         payload = {"prompts": normalized}
         schema_errors = validate_stage_artifacts("sfx_prompt_craft", payload)
         if schema_errors:
@@ -530,8 +530,8 @@ def _validate_flow1_asset_links(plan: dict) -> None:
             f"cue_id(s) {missing}"
         )
 
-def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
-    """One crafted row per SDP asset; duration_seconds always from the plan asset."""
+def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | None = None) -> list[dict]:
+    """One crafted row per SDP asset; duration/role/prompt hygiene for theme lint."""
     assets = plan.get("assets")
     if not isinstance(assets, list) or not assets:
         raise ValueError(
@@ -545,6 +545,12 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
     if not assets_by_id:
         raise ValueError("sfx_prompt_craft: sound design plan assets lack asset_id values")
 
+    from interview_mux.artifact_repairs import heal_sfx_prompt_row, _sonic_keyword_tokens
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+    from interview_mux.mmaudio_runner import clamp_duration_seconds
+
+    sonic_kws = _sonic_keyword_tokens(ctx) if ctx is not None else []
+
     by_id: dict[str, dict] = {}
     for row in prompts:
         if not isinstance(row, dict):
@@ -553,12 +559,10 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
         if not aid or aid not in assets_by_id:
             continue
         merged = {**row, "asset_id": aid}
-        plan_duration = assets_by_id[aid].get("duration_seconds")
+        asset = assets_by_id[aid]
+        role = str(asset.get("role") or merged.get("role") or "")
+        plan_duration = asset.get("duration_seconds")
         if plan_duration is not None:
-            from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
-            from interview_mux.mmaudio_runner import clamp_duration_seconds
-
-            role = str(assets_by_id[aid].get("role") or merged.get("role") or "")
             band = ROLE_DURATION_BANDS.get(role)
             if band:
                 merged["duration_seconds"] = max(
@@ -569,6 +573,14 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict]) -> list[dict]:
                     float(plan_duration),
                     role=role,
                 )
+        heal_sfx_prompt_row(
+            merged,
+            role=role or "theme_underscore",
+            duration_seconds=float(merged["duration_seconds"])
+            if merged.get("duration_seconds") is not None
+            else (float(plan_duration) if plan_duration is not None else None),
+            sonic_keywords=sonic_kws,
+        )
         by_id[aid] = merged
 
     missing = sorted(set(assets_by_id) - set(by_id))

@@ -52,25 +52,30 @@ def clamp_music_duration(seconds: float, *, role: str | None = None) -> float:
 
 
 def _write_musical_stub_wav(path: Path, *, duration_sec: float, seed: int = 0) -> None:
-    """Deterministic multi-note stub (musical, not foley) when MusicGen weights unavailable."""
+    """Deterministic rhythmic multi-note stub when MusicGen weights unavailable."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rate = 48000
     n = max(1, int(duration_sec * rate))
-    # Pentatonic-ish motif frequencies
+    # Pentatonic-ish motif frequencies + pulse
     base = 220.0 + (seed % 7) * 8.0
     motif = [base, base * 1.25, base * 1.5, base * 1.33, base * 2.0]
+    bpm = 100 + (seed % 5) * 4
+    beat_len = max(1, int(rate * 60.0 / bpm))
     samples: list[float] = []
     note_len = max(1, n // len(motif))
     for i in range(n):
         ni = min(len(motif) - 1, i // note_len)
         f = motif[ni]
         t = i / rate
-        # Soft attack envelope per note
         local = (i % note_len) / note_len
         env = min(1.0, local * 8.0) * (1.0 - 0.35 * local)
-        # Fundamental + gentle fifth harmonic (musical undertone)
-        val = 0.22 * math.sin(2 * math.pi * f * t) * env
-        val += 0.08 * math.sin(2 * math.pi * f * 1.5 * t) * env
+        # Fundamental + fifth
+        val = 0.20 * math.sin(2 * math.pi * f * t) * env
+        val += 0.07 * math.sin(2 * math.pi * f * 1.5 * t) * env
+        # Audible rhythmic pulse (never pad-only)
+        beat_pos = (i % beat_len) / beat_len
+        pulse = math.exp(-beat_pos * 8.0) * 0.18
+        val += pulse * math.sin(2 * math.pi * (base * 0.5) * t)
         samples.append(max(-1.0, min(1.0, val)))
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(1)

@@ -99,10 +99,13 @@ def test_compile_musicgen_prompt_negatives() -> None:
             "narrative_spine": {"acts": []},
         }
     )
-    pos, neg = compile_musicgen_prompt(brief=brief, motif=motif, role="theme_underscore")
+    pos, neg = compile_musicgen_prompt(brief=brief, motif=motif, role="theme_underscore", wpm=140)
     assert "guitar" in pos.lower() or "motif" in pos.lower()
+    assert "pulse" in pos.lower() or "rhythmic" in pos.lower()
+    assert "100" in pos or "112" in pos or "BPM" in pos or "bpm" in pos.lower()
     assert "whoosh" in neg.lower()
     assert "foley" in neg.lower()
+    assert "pad-only" in neg.lower()
 
 
 def test_vo_density_floor_math() -> None:
@@ -145,3 +148,6 @@ def test_enforce_min_vo_insert_ratio_seeds() -> None:
     for ln in out["interviewer_lines"]:
         assert ln.get("delivery") == "synthesize"
         assert not asset_id_is_banned(str(ln.get("line_id") or ""))
+    cats = {str(ln.get("line_category")) for ln in out["interviewer_lines"]}
+    # Variety seeds should not be story_bridge-only
+    assert cats

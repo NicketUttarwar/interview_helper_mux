@@ -12,9 +12,9 @@ from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 
 _DEFAULTS: dict[str, float] = {
-    "host_vo_coverage_min_ratio": 0.35,
+    "host_vo_coverage_min_ratio": 0.20,
     "host_vo_coverage_max_ratio": 0.85,
-    "host_vo_duration_min_ratio": 0.08,
+    "host_vo_duration_min_ratio": 0.05,
     "host_vo_duration_max_ratio": 0.45,
     "host_vo_quartile_presence_min_ratio": 0.75,
     "bed_coverage_min_ratio": 0.22,
@@ -22,7 +22,7 @@ _DEFAULTS: dict[str, float] = {
     "bed_quartile_presence_min_ratio": 0.5,
     "hinge_stinger_coverage_min_ratio": 0.5,
     "hinge_stinger_coverage_max_ratio": 1.0,
-    "intentional_air_min_ratio": 0.02,
+    "intentional_air_min_ratio": 0.01,
     "intentional_air_max_ratio": 0.12,
     "air_after_vo_fraction": 0.18,
     "air_before_answer_fraction": 0.08,

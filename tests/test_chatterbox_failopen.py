@@ -31,6 +31,10 @@ def test_chatterbox_failure_uses_mlx(monkeypatch: pytest.MonkeyPatch, ctx: RunCo
         "interview_mux.chatterbox_runner.synthesize_line",
         lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("chatterbox down")),
     )
+    monkeypatch.setattr(
+        "interview_mux.s2s_runner.gap_vo_cfg",
+        lambda: {"fail_open": True, "fallback_backend": "mlx_audio"},
+    )
     monkeypatch.setattr("interview_mux.s2s_runner.s2s_enabled", lambda: True)
     monkeypatch.setattr("interview_mux.s2s_runner.resolve_reference_audio", lambda _c, _l: Path("/tmp/ref.wav"))
     monkeypatch.setattr("interview_mux.s2s_runner.context_clip_for_line", lambda *_a: None)

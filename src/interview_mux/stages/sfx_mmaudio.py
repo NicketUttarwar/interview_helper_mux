@@ -89,7 +89,7 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             asset_id = item["asset_id"]
             out_file = assets_dir / f"{asset_id}.wav"
             prompt_row = crafted.get(asset_id) if crafted else None
-            params = _resolve_generation_params(item, prompt_row)
+            params = _resolve_generation_params(item, prompt_row, ctx=ctx)
             sonic_hash = _sonic_context_hash(ctx)
             plan_hash = _hash_generation_plan(item, prompt_row, params, sonic_context_hash=sonic_hash)
             if _should_skip_generation(ctx, asset_id, plan_hash, out_file, regen_ids):
@@ -578,7 +578,7 @@ def _regenerate_assets_after_refine(
             continue
         out_file = assets_dir / f"{aid}.wav"
         prompt_row = crafted.get(aid)
-        params = _resolve_generation_params(item, prompt_row)
+        params = _resolve_generation_params(item, prompt_row, ctx=ctx)
         meta = generate_text_to_audio(
             prompt=params["prompt"],
             negative_prompt=params["negative_prompt"],
@@ -812,13 +812,18 @@ def _load_crafted_prompts(ctx: RunContext) -> dict[str, dict]:
 def _resolve_generation_params(
     cue: dict,
     prompt_row: dict | None,
+    *,
+    ctx: RunContext | None = None,
 ) -> dict[str, Any]:
     duration_seconds = _plan_duration_seconds(cue)
     role = cue.get("role") or "theme_underscore"
     influence = _ROLE_INFLUENCE.get(str(role), 0.35)
-    prompt = cue.get("description") or cue.get("mood") or "instrumental documentary motif, acoustic guitar and soft piano"
+    prompt = cue.get("description") or cue.get("mood") or (
+        "upbeat documentary motif with clear rhythmic pulse, acoustic guitar and piano"
+    )
     negative_prompt = (
-        "no vocals, no speech, no lyrics, no whoosh, no foley, no tick, no sound effects, no murmur"
+        "no vocals, no speech, no lyrics, no whoosh, no foley, no tick, no sound effects, "
+        "no murmur, no pad-only drone"
     )
     cfg_strength = None
     num_steps = None
@@ -837,6 +842,62 @@ def _resolve_generation_params(
         if prompt_row.get("seed") is not None:
             seed = int(prompt_row["seed"])
         variant = prompt_row.get("mmaudio_variant")
+
+    # Prefer motif-compiled MusicGen prompts with local speech-pace tempo.
+    if ctx is not None and is_theme_role(str(role)):
+        try:
+            from interview_mux.music_motif import (
+                compile_musicgen_prompt,
+                estimate_segment_wpm,
+            )
+
+            brief = (
+                ctx.read_json("understanding/music_brief.json")
+                if ctx.artifact_exists("understanding/music_brief.json")
+                else {}
+            )
+            plan = (
+                ctx.read_json("understanding/sound_design_plan.json")
+                if ctx.artifact_exists("understanding/sound_design_plan.json")
+                else {}
+            )
+            motif = plan.get("motif_family") if isinstance(plan, dict) else None
+            if not isinstance(motif, dict) and isinstance(brief, dict):
+                from interview_mux.music_motif import default_motif_family
+
+                motif = default_motif_family(brief)
+            wpm = None
+            if ctx.artifact_exists("understanding/sonic_acoustic_profile.json"):
+                sap = ctx.read_json("understanding/sonic_acoustic_profile.json")
+                pacing = sap.get("pacing") if isinstance(sap, dict) else {}
+                if isinstance(pacing, dict) and pacing.get("global_wpm") is not None:
+                    wpm = float(pacing["global_wpm"])
+            seg_id = str(cue.get("segment_id") or cue.get("under_segment") or "")
+            if seg_id and ctx.artifact_exists("segments/manifest.json"):
+                man = ctx.read_json("segments/manifest.json")
+                for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+                    if not isinstance(row, dict) or str(row.get("segment_id")) != seg_id:
+                        continue
+                    text = str(row.get("text") or row.get("transcript") or "")
+                    dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
+                    local = estimate_segment_wpm(text, dur)
+                    if local:
+                        wpm = local
+                    break
+            if isinstance(motif, dict) and isinstance(brief, dict):
+                pos, neg = compile_musicgen_prompt(
+                    brief=brief,
+                    motif=motif,
+                    role=str(role),
+                    wpm=wpm,
+                )
+                # Crafted prompt wins if present; else use motif compile.
+                if not (prompt_row and prompt_row.get("sfx_prompt")):
+                    prompt = pos
+                if not (prompt_row and prompt_row.get("negative_prompt")):
+                    negative_prompt = neg
+        except Exception:
+            pass
 
     return {
         "prompt": prompt,

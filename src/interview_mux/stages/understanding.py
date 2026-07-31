@@ -473,7 +473,7 @@ def _derive_mix_contract(pacing: dict[str, Any], source_music_risk: str) -> dict
         max_stingers = 3
     else:
         bed_range = [-30, -26]
-        duck = 16
+        duck = 18
         max_stingers = 2
 
     if source_music_risk == "high":

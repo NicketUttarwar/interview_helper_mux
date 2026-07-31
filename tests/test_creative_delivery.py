@@ -79,7 +79,7 @@ def test_validate_creative_density_requires_assets_and_cues(tmp_path, monkeypatc
     )
     errors = validate_creative_density(ctx, sparse)
     assert any("assets" in e for e in errors)
-    assert any("stinger" in e for e in errors)
+    assert any("theme_emphasis" in e or "theme_cold_open" in e or "stinger" in e for e in errors)
 
 
 def test_validate_cue_segment_anchors(tmp_path, monkeypatch):
@@ -91,8 +91,8 @@ def test_validate_cue_segment_anchors(tmp_path, monkeypatch):
 
 def test_apply_creative_mix_contract_upgrades_sparse():
     out = apply_creative_mix_contract(
-        {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 18}
+        {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 16}
     )
     assert out["underscore_policy"] == "normal"
-    assert out["bed_level_db_range"][1] >= -22
-    assert out["duck_under_speech_db"] <= 14
+    assert out["bed_level_db_range"][1] <= -26
+    assert out["duck_under_speech_db"] >= 18

@@ -239,17 +239,64 @@ def synthesize_line(
 
 
 def promote_synthesized_vo(ctx: RunContext, *, line_id: str, src: Path) -> Path | None:
-    """Copy synthesized WAV to vo_pickup/{line_id}.wav for G1/EDL resolution."""
+    """Copy synthesized WAV to vo_pickup/{line_id}.wav for G1/EDL resolution.
+
+    Normalizes float/odd encodings to PCM s16le mono 48 kHz so speech QA and
+    downstream mix tools can read the file with the stdlib ``wave`` module.
+    """
     if not src.is_file() or not line_id:
         return None
     dest = ctx.path("vo_pickup") / f"{line_id}.wav"
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.resolve() != src.resolve():
-            dest.write_bytes(src.read_bytes())
+        normalized = _ensure_pcm_s16le_wav(src, dest if dest.resolve() != src.resolve() else src)
+        if normalized is None:
+            return None
+        if dest.resolve() != normalized.resolve():
+            dest.write_bytes(normalized.read_bytes())
         return dest
     except OSError:
         return None
+
+
+def _ensure_pcm_s16le_wav(src: Path, dest: Path) -> Path | None:
+    """Return path to a PCM s16le mono 48k WAV (may rewrite ``dest`` via ffmpeg)."""
+    import subprocess
+
+    try:
+        import wave
+
+        with wave.open(str(src), "rb") as wf:
+            if wf.getsampwidth() == 2 and wf.getnchannels() in (1, 2):
+                if dest.resolve() != src.resolve():
+                    dest.write_bytes(src.read_bytes())
+                    return dest
+                return src
+    except Exception:
+        pass
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".pcm16.tmp.wav")
+    proc = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(src),
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-c:a",
+            "pcm_s16le",
+            str(tmp),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not tmp.is_file():
+        return None
+    tmp.replace(dest)
+    return dest
 
 
 def _append_qa_sidecar(

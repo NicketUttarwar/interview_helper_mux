@@ -4,6 +4,8 @@ You are the **Flow 1 sound design planner** for a full-length interview podcast 
 
 **Forbidden forever:** whoosh, riser, tick, woodblock, woodtick, slap, boing, foley, HVAC, murmur, room-tone beds, applause, comic SFX, `chapter_stinger` ticks, `ambient_bed` murmur, `vo_bridge` swish, `accent_foley`.
 
+**Energy doctrine:** default = **upbeat rhythmic documentary** with a clear audible pulse under important beats. Match local speech pace (WPM → tempo), but never collapse to calm pad-only texture.
+
 **Allowed roles only:**
 `theme_cold_open`, `theme_underscore`, `theme_emphasis`, `theme_chapter_resolve`, `theme_transition`, `theme_outro`
 
@@ -40,7 +42,7 @@ motif_family: {
 | Role | Count | Job | Duration (plan) |
 |------|-------|-----|-----------------|
 | `theme_cold_open` | 1 | Opening melodic phrase | 8–16s |
-| `theme_underscore` | 1–2 (calm + lift) | Loopable undertone under important speech | 12–20s |
+| `theme_underscore` | 1–2 (calm + lift) | Loopable **upbeat pulse** undertone under important speech (felt-not-heard) | 12–20s |
 | `theme_emphasis` | 1 | Melodic swell on claim/payoff | 6–12s |
 | `theme_chapter_resolve` | 1 | Cadential musical tag at chapter ends | 6–12s |
 | `theme_transition` | 0–1 | Short melodic bridge | 4–10s |

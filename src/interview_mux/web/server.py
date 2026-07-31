@@ -2865,6 +2865,12 @@ def create_app() -> FastAPI:
                     continue
                 lid = str(line.get("line_id") or "")
                 try:
+                    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+                    existing = resolve_vo_pickup_path(ctx, line)
+                    if existing is not None and existing.is_file():
+                        synthesized.append(lid)
+                        continue
                     s2s_runner.synthesize_line(ctx, line, mode="synthesize")
                     synthesized.append(lid)
                 except SynthesisFallbackToManual as fb:

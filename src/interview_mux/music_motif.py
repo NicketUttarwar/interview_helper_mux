@@ -247,15 +247,15 @@ def build_music_brief(ctx: RunContext) -> dict[str, Any]:
     profile = speakers.get("conversation_profile") if isinstance(speakers.get("conversation_profile"), dict) else {}
     tone = str(profile.get("tone_class_candidate") or "conversational")
 
-    genre_hint = "business documentary instrumental"
+    genre_hint = "upbeat business documentary instrumental"
     if any("sport" in t.lower() for t in topics):
-        genre_hint = "sports documentary instrumental"
+        genre_hint = "upbeat sports documentary instrumental"
     elif any(w in arc.lower() for w in ("family", "grief", "loss", "trauma")):
-        genre_hint = "intimate acoustic documentary"
+        genre_hint = "intimate rhythmic acoustic documentary"
 
-    instrumentation = ["warm acoustic guitar", "soft piano", "subtle low strings"]
+    instrumentation = ["bright acoustic guitar", "punchy piano", "light rhythmic pulse"]
     if "lift" in {a.get("energy") for a in acts}:
-        instrumentation.append("light brushed pulse")
+        instrumentation.append("driving brushed pulse")
 
     payoff_moments: list[dict[str, Any]] = []
     for ch in chapter_moods:
@@ -303,20 +303,25 @@ def build_music_brief(ctx: RunContext) -> dict[str, Any]:
 
 def default_motif_family(brief: dict[str, Any]) -> dict[str, Any]:
     ident = brief.get("show_identity") if isinstance(brief.get("show_identity"), dict) else {}
-    instruments = list(ident.get("instrumentation_prefs") or ["warm acoustic guitar", "soft piano"])
+    instruments = list(
+        ident.get("instrumentation_prefs")
+        or ["bright acoustic guitar", "punchy piano", "light rhythmic pulse"]
+    )
+    if "pulse" not in " ".join(instruments).lower() and "drum" not in " ".join(instruments).lower():
+        instruments = list(instruments) + ["light rhythmic pulse"]
     mood = str(ident.get("mood") or "determined")
-    genre = str(ident.get("genre_hint") or "documentary instrumental")
+    genre = str(ident.get("genre_hint") or "upbeat documentary instrumental")
     keywords = []
     seeds = brief.get("motif_seeds") if isinstance(brief.get("motif_seeds"), dict) else {}
     keywords = [str(k) for k in (seeds.get("keywords") or [])[:6]]
     topic_bit = (", ".join(keywords) if keywords else "founder's journey")
     motif_phrase = (
-        f"ascending four-note motif on {instruments[0]}, answered by soft "
-        f"{instruments[1] if len(instruments) > 1 else 'piano'} chords"
+        f"ascending four-note motif on {instruments[0]}, answered by "
+        f"{instruments[1] if len(instruments) > 1 else 'piano'} chords over a clear pulse"
     )
     prompt_dna = (
-        f"{genre}, {mood} mood, instrumental only, {motif_phrase}, "
-        f"themes of {topic_bit}, no vocals"
+        f"{genre}, {mood} mood, upbeat rhythmic instrumental only, {motif_phrase}, "
+        f"themes of {topic_bit}, audible pulse"
     )
     acts = []
     spine = brief.get("narrative_spine") if isinstance(brief.get("narrative_spine"), dict) else {}
@@ -326,16 +331,16 @@ def default_motif_family(brief: dict[str, Any]) -> dict[str, Any]:
                 {
                     "title": a.get("title"),
                     "mood": a.get("mood"),
-                    "energy": a.get("energy"),
+                    "energy": a.get("energy") or "lift",
                 }
             )
     return {
         "motif_id": "show_theme_v1",
         "genre_hint": genre,
         "instrumentation": instruments,
-        "scale_or_mode": "major_warm",
-        "tempo_bpm_feel": "mid_72_88",
-        "time_feel": "straight_gentle",
+        "scale_or_mode": "major_bright",
+        "tempo_bpm_feel": "upbeat_96_112",
+        "time_feel": "driving_pulse",
         "motif_phrase": motif_phrase,
         "mood": mood,
         "energy_curve_by_act": acts,
@@ -352,6 +357,27 @@ def default_motif_family(brief: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tempo_clause_for_wpm(wpm: float | None) -> str:
+    """Map local speech WPM → MusicGen tempo/feel (always upbeat pulse floor)."""
+    if wpm is None or wpm <= 0:
+        return "upbeat mid-tempo pulse around 100 BPM, clear rhythmic accompaniment"
+    if wpm < 120:
+        return "mid-upbeat groove around 92–100 BPM, clear pulse under speech"
+    if wpm < 150:
+        return "upbeat pulse around 100–112 BPM, energetic rhythmic bed"
+    return "driving rhythmic bed around 112–124 BPM, high-energy pulse"
+
+
+def estimate_segment_wpm(text: str, duration_ms: int) -> float | None:
+    words = [w for w in str(text or "").split() if w.strip()]
+    if not words or duration_ms <= 0:
+        return None
+    minutes = duration_ms / 60000.0
+    if minutes <= 0:
+        return None
+    return len(words) / minutes
+
+
 def compile_musicgen_prompt(
     *,
     brief: dict[str, Any],
@@ -359,21 +385,37 @@ def compile_musicgen_prompt(
     role: str,
     chapter_mood: str | None = None,
     extra_tags: list[str] | None = None,
+    wpm: float | None = None,
 ) -> tuple[str, str]:
     """Return (positive_prompt, negative_prompt) optimized for MusicGen."""
     dna = str(motif.get("prompt_dna") or "").strip()
     phrase = str(motif.get("motif_phrase") or "").strip()
     instruments = ", ".join(str(x) for x in (motif.get("instrumentation") or [])[:4])
+    # Always high-energy pulse under important beats — pace adjusts BPM, never pad-only.
     form = {
-        "theme_cold_open": "opening theme phrase, clear melodic introduction, full presence",
-        "theme_underscore": "loopable soft underscore bed under dialogue, gentle repeating motif, low dynamics",
-        "theme_underscore_calm": "calm looping underscore undertone, soft dynamics, speech-friendly",
-        "theme_underscore_lift": "slightly brighter underscore lift variant, still under dialogue",
-        "theme_emphasis": "short melodic swell phrase highlighting a key claim, not a sound effect",
-        "theme_chapter_resolve": "cadential resolving musical tag, gentle note phrase ending a section",
-        "theme_transition": "short melodic bridge of musical notes between sections, no whoosh",
-        "theme_outro": "soft resolving outro phrase fading out",
-    }.get(role, "instrumental musical phrase")
+        "theme_cold_open": (
+            "opening theme with clear melodic introduction and strong rhythmic pulse, full presence"
+        ),
+        "theme_underscore": (
+            "loopable upbeat rhythmic underscore under dialogue, audible pulse, motif repeating, low mix level"
+        ),
+        "theme_underscore_calm": (
+            "mid-upbeat looping underscore with clear pulse, dialogue-friendly dynamics, never pad-only"
+        ),
+        "theme_underscore_lift": (
+            "high-energy underscore lift with brighter pulse and motif, still under dialogue"
+        ),
+        "theme_emphasis": (
+            "short high-energy melodic swell with rhythmic punch highlighting a key claim, not a sound effect"
+        ),
+        "theme_chapter_resolve": (
+            "cadential resolving musical tag with rhythmic landing, note phrase ending a section"
+        ),
+        "theme_transition": (
+            "short rhythmic melodic bridge of musical notes between sections, no whoosh"
+        ),
+        "theme_outro": "resolving outro phrase with fading pulse",
+    }.get(role, "upbeat instrumental musical phrase with clear pulse")
 
     mood = chapter_mood or str(motif.get("mood") or "determined")
     tags = [str(t) for t in (extra_tags or []) if t][:4]
@@ -382,20 +424,32 @@ def compile_musicgen_prompt(
     if quotes and role in {"theme_emphasis", "theme_cold_open"}:
         quote_bit = f" evocative of: {quotes[0][:80]}"
 
+    tempo = tempo_clause_for_wpm(wpm)
+    # Scrub legacy "no vocals" / Avoid clauses from motif DNA — positives must stay clean for lint.
+    dna_clean = re.sub(r"\bno\s+vocals\b", "", dna, flags=re.I)
+    dna_clean = re.sub(r"\bavoid\s*:", "", dna_clean, flags=re.I)
+    dna_clean = re.sub(r"\s+", " ", dna_clean).strip(" ,.")
     positive = (
-        f"{dna}. Form: {form}. Instruments: {instruments}. "
-        f"Melodic contour: {phrase}. Mood: {mood}."
+        f"{dna_clean}. Form: {form}. Instruments: {instruments}. "
+        f"Melodic contour: {phrase}. Mood: {mood}. Tempo: {tempo}."
     )
     if tags:
         positive += f" Topics: {', '.join(tags)}."
     positive += quote_bit
-    positive += " Pure instrumental music, clear musical notes and phrases."
+    positive += (
+        " Pure instrumental music with clear musical notes, phrases, "
+        "and an audible rhythmic pulse — never ambient pad-only texture."
+    )
+    positive = re.sub(r"\bno\s+vocals\b", "", positive, flags=re.I)
+    positive = re.sub(r"\bavoid\s*:", "", positive, flags=re.I)
+    positive = re.sub(r"\s+", " ", positive).strip()
 
     negative = (
         "vocals, lyrics, speech, whispering, singing, choir, crowd, applause, "
         "whoosh, riser, trailer hit, foley, sound effects, sfx, woodblock, tick, "
         "click, slap, boing, HVAC hum, murmur, noise bed, room tone only, "
-        "comic cartoon sounds, footsteps, door slam"
+        "pad-only drone, texture without pulse, comic cartoon sounds, footsteps, door slam, "
+        "human voice, spoken word, rap, spoken narration"
     )
     return positive.strip(), negative
 

@@ -232,11 +232,11 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
         # Soft hint: prefer intact speaker volleys (conversation units) over max isolated clips.
         # See docs/cross-cutting/volley-glossary.md — not an LLM message-packet setting.
         "speaker_volley_density": {
-            # Soft: prefer shorter alternating turns; long-form keeps content.
+            # Soft: prefer shorter alternating I↔S turns; long-form keeps content.
             "prefer_intact": False,
-            "min_volleys": max(4, int(segs // 12) if segs else 4),
+            "min_volleys": max(6, int(segs // 8) if segs else 6),
             "soft": True,
-            "split_same_speaker_run_ms": 28000,
+            "split_same_speaker_run_ms": 25000,
         },
         "ranking_weights": dict(weights) if weights else {},
         "rationale": rationale,

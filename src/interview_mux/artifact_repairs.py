@@ -517,6 +517,58 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
                     applied.append({"action": "tiebreak_interviewer", "speaker_id": sid})
                 elif str(row.get("role") or "") == "interviewer":
                     row["role"] = "interviewee"
+    # Harden: dominant talker with low question density is never interviewer.
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("speaker_id") or row.get("id") or "")
+        role = str(row.get("role") or row.get("speaker_role") or "")
+        if role != "interviewer":
+            continue
+        talk = stats_by_id.get(sid) or {}
+        talk_ms = float(talk.get("talk_ms") or talk.get("total_ms") or 0)
+        others = [
+            float((stats_by_id.get(str(r.get("speaker_id") or r.get("id") or "")) or {}).get("talk_ms") or 0)
+            for r in rows
+            if isinstance(r, dict) and str(r.get("speaker_id") or r.get("id") or "") != sid
+        ]
+        other_max = max(others) if others else 0.0
+        inferred = _infer_speaker_role(ctx, sid)
+        if inferred == "interviewee" and talk_ms > 0 and talk_ms >= other_max * 1.35:
+            row["role"] = "interviewee"
+            applied.append(
+                {
+                    "action": "demote_dominant_talker_from_interviewer",
+                    "speaker_id": sid,
+                    "talk_ms": talk_ms,
+                }
+            )
+    # Ensure at least one interviewer remains when possible.
+    roles_final = [str(r.get("role") or "") for r in rows if isinstance(r, dict)]
+    if roles_final.count("interviewer") == 0 and len(rows) >= 2:
+        best_id = None
+        best_q = -1.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("speaker_id") or row.get("id") or "")
+            if _infer_speaker_role(ctx, sid) == "interviewer":
+                best_id = sid
+                break
+            talk = stats_by_id.get(sid) or {}
+            talk_ms = float(talk.get("talk_ms") or talk.get("total_ms") or 1e18)
+            score = 1.0 / max(1.0, talk_ms)
+            if score > best_q:
+                best_q = score
+                best_id = sid
+        if best_id:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("speaker_id") or row.get("id") or "")
+                if sid == best_id:
+                    row["role"] = "interviewer"
+                    applied.append({"action": "restore_interviewer_after_demote", "speaker_id": sid})
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -1057,14 +1109,14 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
             if spk and spk == run_spk:
                 run_ms += dur
             else:
-                if run_ms >= 28000 and run_start_idx < i:
+                if run_ms >= 25000 and run_start_idx < i:
                     mid = ordered[run_start_idx + (i - run_start_idx) // 2]
                     if mid not in covered:
                         mono_breaks.append(mid)
                 run_spk = spk
                 run_ms = dur
                 run_start_idx = i
-        if run_ms >= 28000 and run_start_idx < len(ordered):
+        if run_ms >= 25000 and run_start_idx < len(ordered):
             mid = ordered[run_start_idx + (len(ordered) - run_start_idx) // 2]
             if mid not in covered:
                 mono_breaks.append(mid)
@@ -1072,6 +1124,26 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
         mono_breaks = []
     stride = max(1, len(ordered) // max(1, floor))
     priority = list(dict.fromkeys(mono_breaks + [s for s in ordered if s in chapter_ends] + ordered))
+    # Variety mix ≈ 40% framing questions / 30% reactions / 20% bridges / 10% prefaces.
+    variety_cycle = (
+        [("framing_question", "Let me pause you there — what was the turning point in that stretch?")] * 4
+        + [
+            (
+                "story_bridge",
+                "That's a sharp point — hold onto that, because it sets up what comes next.",
+            )
+        ]
+        * 3
+        + [
+            (
+                "segment_summary",
+                "Here's the beat we're about to hear — the claim that matters for this chapter.",
+            )
+        ]
+        * 2
+        + [("episode_preface", "Coming up next — here's where this chapter leads.")]
+    )
+    seed_i = 0
     for i, sid in enumerate(priority):
         if len([ln for ln in lines if isinstance(ln, dict) and not ln.get("skipped_optional")]) >= floor:
             break
@@ -1086,14 +1158,13 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
             if oi % stride != 0:
                 continue
         covered.add(sid)
-        cat = "story_bridge"
-        text = "Before we go further — what should the listener hold onto from that beat?"
         if sid in mono_breaks:
-            cat = "framing_question"
-            text = "Let me pause you there — what was the turning point in that stretch?"
+            cat, text = "framing_question", "Let me pause you there — what was the turning point in that stretch?"
         elif sid in chapter_ends:
-            cat = "episode_preface"
-            text = "Coming up next — here's where this chapter leads."
+            cat, text = "episode_preface", "Coming up next — here's where this chapter leads."
+        else:
+            cat, text = variety_cycle[seed_i % len(variety_cycle)]
+            seed_i += 1
         lines.append(
             {
                 "line_id": f"vo_density_{sid}",
@@ -2339,49 +2410,184 @@ def apply_repairs_for_stage(
     return artifacts, []
 
 
+_DEFAULT_THEME_NEGATIVE = (
+    "vocals, lyrics, speech, whispering, singing, choir, crowd, applause, "
+    "whoosh, riser, trailer hit, foley, sound effects, sfx, woodblock, tick, "
+    "click, slap, boing, HVAC hum, murmur, noise bed, room tone only, "
+    "pad-only drone, texture without pulse, comic cartoon sounds, footsteps, door slam, "
+    "human voice, spoken word, rap, spoken narration"
+)
+
+
+def _sonic_keyword_tokens(ctx: Any) -> list[str]:
+    tokens: list[str] = []
+    try:
+        if not ctx.artifact_exists("understanding/sonic_context.json"):
+            return tokens
+        sonic = ctx.read_json("understanding/sonic_context.json")
+    except Exception:
+        return tokens
+    if not isinstance(sonic, dict):
+        return tokens
+    for row in sonic.get("tag_registry") or []:
+        if not isinstance(row, dict):
+            continue
+        for keyword in row.get("keywords") or []:
+            token = str(keyword or "").strip()
+            if not token:
+                continue
+            # Prefer compact mood/topic tokens that fit music prompts.
+            if len(token) > 40 or "_" in token and len(token) > 24:
+                continue
+            tokens.append(token)
+        if len(tokens) >= 8:
+            break
+    return tokens[:8]
+
+
+def heal_sfx_prompt_row(
+    row: dict[str, Any],
+    *,
+    role: str,
+    duration_seconds: float | None,
+    sonic_keywords: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Make one prompt row pass `_lint_sfx_prompt_craft` (role, duration, pos/neg hygiene)."""
+    import re
+
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+
+    applied: list[dict[str, Any]] = []
+    aid = row.get("asset_id")
+    if role and str(row.get("role") or "") != role:
+        row["role"] = role
+        applied.append({"action": "set_prompt_role", "asset_id": aid, "role": role})
+
+    band = ROLE_DURATION_BANDS.get(role)
+    if duration_seconds is not None:
+        dur = float(duration_seconds)
+        if band:
+            dur = max(float(band[0]), min(float(band[1]), dur))
+        if float(row.get("duration_seconds") or 0) != dur:
+            row["duration_seconds"] = dur
+            applied.append({"action": "clamp_prompt_duration", "asset_id": aid, "duration": dur})
+    elif band and float(row.get("duration_seconds") or 0):
+        dur = float(row["duration_seconds"])
+        clamped = max(float(band[0]), min(float(band[1]), dur))
+        if clamped != dur:
+            row["duration_seconds"] = clamped
+            applied.append({"action": "clamp_prompt_duration", "asset_id": aid, "duration": clamped})
+
+    pos = str(row.get("sfx_prompt") or "")
+    # Scrub lint-banned positive clauses and speech/lyrics patterns.
+    pos2 = re.sub(r"\bno\s+vocals\b", "", pos, flags=re.I)
+    pos2 = re.sub(r"\bavoid\s*:", " ", pos2, flags=re.I)
+    pos2 = re.sub(
+        r"\b(says|saying|spoken|narrator|voice over|lyrics?|verse|chorus)\b",
+        " ",
+        pos2,
+        flags=re.I,
+    )
+    pos2 = re.sub(r'"[^"]{8,}"', " ", pos2)
+    pos2 = re.sub(r"\s+", " ", pos2).strip(" ,.")
+    kws = [k for k in (sonic_keywords or []) if k]
+    if kws:
+        low = pos2.lower()
+        missing = [k for k in kws[:4] if k.lower() not in low and not any(
+            len(p) >= 4 and p in low for p in k.lower().replace("_", " ").split()
+        )]
+        if missing:
+            pos2 = (pos2 + " Topics: " + ", ".join(missing) + ".").strip()
+            applied.append({"action": "inject_sonic_keywords", "asset_id": aid, "keywords": missing})
+    while len(pos2.split()) < 40:
+        pos2 += (
+            " Bright rhythmic documentary instrumental accompaniment "
+            "with clear melodic motif and audible pulse."
+        )
+        applied.append({"action": "pad_positive_prompt", "asset_id": aid})
+    if pos2 != pos:
+        row["sfx_prompt"] = pos2
+        if not any(a.get("action") == "inject_sonic_keywords" for a in applied):
+            applied.append({"action": "scrub_positive_prompt", "asset_id": aid})
+
+    neg = str(row.get("negative_prompt") or "")
+    neg_words = len(neg.split())
+    neg_low = neg.lower()
+    needs_vocal_ban = not any(tok in neg_low for tok in ("vocal", "speech", "lyric"))
+    if neg_words < 12 or neg_words > 60 or needs_vocal_ban:
+        row["negative_prompt"] = _DEFAULT_THEME_NEGATIVE
+        applied.append({"action": "replace_theme_negative", "asset_id": aid})
+    return applied
+
+
 def repair_sfx_prompts(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Neutralize false-positive diegetic tokens in ambient beds when diegetic ambient is disabled."""
+    """Heal theme prompt lint failures + neutralize false-positive diegetic ambient tokens."""
     import re
 
     from interview_mux.config import merged_config
 
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
-    allow_diegetic = bool((merged_config().get("sound_design") or {}).get("allow_diegetic_ambient", False))
-    if allow_diegetic:
-        return out, applied
-    diegetic = re.compile(
-        r"\b(diegetic|street|traffic|crowd|cafe|restaurant|office chatter|sirens?)\b",
-        re.I,
-    )
     prompts = out.get("prompts")
     if not isinstance(prompts, list):
         return out, applied
+
+    assets_by_id: dict[str, dict[str, Any]] = {}
+    try:
+        if ctx.artifact_exists("understanding/sound_design_plan.json"):
+            plan = ctx.read_json("understanding/sound_design_plan.json")
+            if isinstance(plan, dict):
+                for item in plan.get("assets") or []:
+                    if isinstance(item, dict) and item.get("asset_id"):
+                        assets_by_id[str(item["asset_id"])] = item
+    except Exception:
+        assets_by_id = {}
+    sonic_kws = _sonic_keyword_tokens(ctx)
+
     for row in prompts:
         if not isinstance(row, dict):
             continue
-        if str(row.get("role") or "") != "ambient_bed":
-            continue
-        text = str(row.get("sfx_prompt") or "")
-        if not text or not diegetic.search(text):
-            continue
-        # Keep Forbidden lists but rewrite banned tokens so lint does not fire on them.
-        parts = re.split(r"(\b(?:Forbidden|Avoid)\s*:)", text, maxsplit=1, flags=re.I)
-        if len(parts) >= 3:
-            head, marker, tail = parts[0], parts[1], "".join(parts[2:])
-            head2 = diegetic.sub("ambience", head)
-            tail2 = diegetic.sub("group-noise", tail)
-            fixed = f"{head2}{marker}{tail2}"
-        else:
-            fixed = diegetic.sub("ambience", text)
-        if fixed != text:
-            row["sfx_prompt"] = fixed
-            applied.append(
-                {
-                    "action": "scrub_diegetic_ambient_tokens",
-                    "asset_id": row.get("asset_id"),
-                }
+        aid = str(row.get("asset_id") or "")
+        asset = assets_by_id.get(aid) or {}
+        role = str(asset.get("role") or row.get("role") or "theme_underscore")
+        dur = asset.get("duration_seconds")
+        applied.extend(
+            heal_sfx_prompt_row(
+                row,
+                role=role,
+                duration_seconds=float(dur) if dur is not None else None,
+                sonic_keywords=sonic_kws,
             )
+        )
+
+    allow_diegetic = bool((merged_config().get("sound_design") or {}).get("allow_diegetic_ambient", False))
+    if not allow_diegetic:
+        diegetic = re.compile(
+            r"\b(diegetic|street|traffic|crowd|cafe|restaurant|office chatter|sirens?)\b",
+            re.I,
+        )
+        for row in prompts:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("role") or "") != "ambient_bed":
+                continue
+            text = str(row.get("sfx_prompt") or "")
+            if not text or not diegetic.search(text):
+                continue
+            parts = re.split(r"(\b(?:Forbidden|Avoid)\s*:)", text, maxsplit=1, flags=re.I)
+            if len(parts) >= 3:
+                head, marker, tail = parts[0], parts[1], "".join(parts[2:])
+                fixed = f"{diegetic.sub('ambience', head)}{marker}{diegetic.sub('group-noise', tail)}"
+            else:
+                fixed = diegetic.sub("ambience", text)
+            if fixed != text:
+                row["sfx_prompt"] = fixed
+                applied.append(
+                    {
+                        "action": "scrub_diegetic_ambient_tokens",
+                        "asset_id": row.get("asset_id"),
+                    }
+                )
     out.pop("_meta", None)
     return out, applied
 

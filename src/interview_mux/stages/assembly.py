@@ -40,7 +40,10 @@ def _wav_duration_ms(path: Path) -> int:
 
 
 def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
-    """Resolve pickup WAV: matched → synthesized → clean → normalized → raw."""
+    """Resolve pickup WAV: matched → synthesized → clean → normalized → raw.
+
+    Rejects forbidden backends and speech-QA failures so tone stubs never enter the EDL.
+    """
     pickup = ctx.final_path("vo_pickup")
     matched = pickup / "matched"
     synthesized = pickup / "synthesized"
@@ -54,13 +57,26 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
             bases.append(candidate)
     if not bases:
         bases = [pickup]
+    from interview_mux.vo_speech_qa import backend_allowed_for_vo, vo_passes_speech_qa
+    from interview_mux.vo_synthesis_audit import synthesis_entry_for_line
+
     for base in bases:
         for key in (lid, seg):
             if not key:
                 continue
             candidate = base / f"{key}.wav"
-            if candidate.is_file():
-                return candidate
+            if not candidate.is_file():
+                continue
+            entry = synthesis_entry_for_line(ctx, str(lid or seg))
+            if isinstance(entry, dict):
+                backend = str(entry.get("backend") or "")
+                if backend and not backend_allowed_for_vo(backend):
+                    continue
+                if entry.get("qc_pass") is False:
+                    continue
+            if not vo_passes_speech_qa(candidate):
+                continue
+            return candidate
     return None
 
 
