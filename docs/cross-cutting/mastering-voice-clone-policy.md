@@ -2,7 +2,7 @@
 
 Authorization rules for synthetic voice in the master. Canon: [mastering-quality-hardening.md](./mastering-quality-hardening.md) · Narrative: [narrative-mode-and-montage.md](./narrative-mode-and-montage.md).
 
-**Principle:** Prefer **pickup / least-spoken** for new VO. Consent + approved reference + scope authorize cloning. **Any speaker on the recording is fair game when needed** (including guests) — ideally avoid non-pickup. Never invent unspoken interview dialogue; never clone people not on the tape.
+**Principle:** Prefer **pickup / least-spoken** for new VO when an interviewer/frame speaker is clear. Consent + approved reference + scope authorize cloning. **Any speaker on the recording is fair game when needed** (including guests) — ideally avoid non-pickup. **Monologue / no clear interviewer:** clone the sole or primary on-tape speaker for inserts (`understanding/speaker_delivery_plan.json`). Never invent unspoken interview dialogue; never clone people not on the tape.
 
 Artifact: `mastering/voice_clone_audit.json` · Gates: [`gap_vo_gates.py`](../../src/interview_mux/gap_vo_gates.py) · Code: [`mastering_voice_clone.py`](../../src/interview_mux/mastering_voice_clone.py)
 

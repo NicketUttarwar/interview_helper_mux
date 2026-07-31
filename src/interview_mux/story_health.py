@@ -1,0 +1,122 @@
+"""Deterministic story-health scorecard for master ordering."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from interview_mux.selection_order_repair import (
+    finale_tail_errors,
+    ordering_constraint_errors,
+)
+
+
+def evaluate_story_health(
+    *,
+    ordered: list[str],
+    narrative_plan: dict[str, Any] | None = None,
+    coverage_audit: dict[str, Any] | None = None,
+    reorder_bridges: dict[str, Any] | None = None,
+    gap_report: dict[str, Any] | None = None,
+    transitions: dict[str, Any] | None = None,
+    nle_overlay_applied: bool = False,
+    hook_segment_id: str | None = None,
+) -> dict[str, Any]:
+    """Return story_health document.
+
+    App-base failures → verdict ``fail`` (caller should repair).
+    Post-NLE-only chronology issues → ``warn`` when ``nle_overlay_applied`` (ship anyway).
+    """
+    issues: list[dict[str, Any]] = []
+    ordered_ids = [str(s) for s in ordered if s]
+
+    for msg in ordering_constraint_errors(ordered_ids, narrative_plan):
+        issues.append({"code": "ordering_constraint", "severity": "error", "message": msg})
+    for msg in finale_tail_errors(ordered_ids, narrative_plan):
+        issues.append({"code": "finale_tail", "severity": "error", "message": msg})
+
+    if ordered_ids and hook_segment_id and str(hook_segment_id) not in {
+        ordered_ids[0],
+        *(ordered_ids[:3] if len(ordered_ids) >= 3 else ordered_ids),
+    }:
+        # Soft: hook preferred early but not always seg_0
+        issues.append(
+            {
+                "code": "hook_not_early",
+                "severity": "warn",
+                "message": f"hook segment {hook_segment_id} not in first three air slots",
+            }
+        )
+
+    # Bridge completeness for declared reorder pairs
+    pairs = []
+    if isinstance(reorder_bridges, dict):
+        pairs = [p for p in (reorder_bridges.get("pairs") or []) if isinstance(p, dict)]
+    bridged: set[tuple[str, str]] = set()
+    if isinstance(gap_report, dict):
+        for ln in gap_report.get("interviewer_lines") or []:
+            if not isinstance(ln, dict):
+                continue
+            target = str(ln.get("targets_segment_id") or "")
+            # Treat before-placement as bridging into target from previous
+            if target:
+                bridged.add(("*", target))
+    if isinstance(transitions, dict):
+        for tr in transitions.get("transitions") or []:
+            if not isinstance(tr, dict):
+                continue
+            a = str(tr.get("after_segment_id") or "")
+            b = str(tr.get("before_segment_id") or "")
+            if a and b:
+                bridged.add((a, b))
+    for pair in pairs:
+        a = str(pair.get("after_id") or pair.get("after_segment_id") or "")
+        b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
+        if not a or not b:
+            continue
+        if (a, b) in bridged or ("*", b) in bridged:
+            continue
+        issues.append(
+            {
+                "code": "missing_reorder_bridge",
+                "severity": "error",
+                "message": f"missing bridge for reorder adjacency {a} -> {b}",
+            }
+        )
+
+    if isinstance(coverage_audit, dict):
+        orphans = coverage_audit.get("orphan_segment_ids") or []
+        if orphans and isinstance(orphans, list) and len(orphans) > 12:
+            issues.append(
+                {
+                    "code": "many_orphans",
+                    "severity": "warn",
+                    "message": f"coverage_audit lists {len(orphans)} orphan segments",
+                }
+            )
+
+    errors = [i for i in issues if i.get("severity") == "error"]
+    warns = [i for i in issues if i.get("severity") == "warn"]
+    if errors and nle_overlay_applied:
+        # Operator overlay chronology: warn and ship
+        verdict = "warn"
+        for i in errors:
+            i["severity"] = "warn"
+            i["nle_softened"] = True
+        warns = [i for i in issues if i.get("severity") == "warn"]
+        errors = []
+    elif errors:
+        verdict = "fail"
+    elif warns:
+        verdict = "warn"
+    else:
+        verdict = "pass"
+
+    return {
+        "version": 1,
+        "verdict": verdict,
+        "nle_overlay_applied": bool(nle_overlay_applied),
+        "ordered_segment_ids": ordered_ids,
+        "error_count": len(errors),
+        "warning_count": len(warns),
+        "issues": issues,
+    }

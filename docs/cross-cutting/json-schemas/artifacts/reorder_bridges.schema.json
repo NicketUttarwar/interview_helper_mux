@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reorder_bridges",
+  "type": "object",
+  "required": ["version", "pairs"],
+  "properties": {
+    "version": { "type": "integer" },
+    "count": { "type": "integer" },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["after_id", "before_id", "kind"],
+        "properties": {
+          "after_id": { "type": "string" },
+          "before_id": { "type": "string" },
+          "kind": { "type": "string" },
+          "suggested_line_category": { "type": "string" },
+          "suggested_pov": { "type": "string" },
+          "max_words": { "type": "integer" },
+          "source_gap_ms": { "type": ["integer", "null"] }
+        }
+      }
+    }
+  }
+}

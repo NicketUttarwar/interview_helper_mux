@@ -895,7 +895,32 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             row["segment_ids"] = ids
             new_chapters.append(row)
         leftovers = [sid for sid in ordered if sid not in assigned]
-        if leftovers:
+        if leftovers and new_order:
+            # Never dump leftovers after the finale chapter — insert before last span.
+            insert_at = max(0, len(new_order) - max(1, len(new_chapters[-1].get("segment_ids") or []) if new_chapters else 1))
+            # Prefer: attach leftovers to the last-but-one chapter block when present.
+            if len(new_chapters) >= 2:
+                prev_ids = list(new_chapters[-2].get("segment_ids") or [])
+                # Rebuild new_order without a finale-tail append
+                rebuilt: list[str] = []
+                for i, ch in enumerate(new_chapters):
+                    ids = list(ch.get("segment_ids") or [])
+                    if i == len(new_chapters) - 2:
+                        ids = ids + [s for s in leftovers if s not in ids]
+                        ch["segment_ids"] = ids
+                    rebuilt.extend(ids)
+                new_order = rebuilt
+            else:
+                new_order[insert_at:insert_at] = leftovers
+            changed = True
+            applied.append(
+                {
+                    "action": "insert_chapter_leftovers_before_finale",
+                    "count": len(leftovers),
+                    "ids": leftovers[:12],
+                }
+            )
+        elif leftovers:
             new_order.extend(leftovers)
             changed = True
         if new_order != ordered:
@@ -907,6 +932,21 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                     "count": len(new_order),
                 }
             )
+        # Topo-satisfy narrative_plan constraints after contiguity regroup
+        if ctx.artifact_exists("master/narrative_plan.json"):
+            try:
+                from interview_mux.selection_order_repair import repair_selection_order
+
+                plan_doc = ctx.read_json("master/narrative_plan.json")
+                repaired, topo_applied = repair_selection_order(out, plan_doc if isinstance(plan_doc, dict) else None)
+                if topo_applied:
+                    out["ordered_segment_ids"] = repaired.get("ordered_segment_ids") or out.get(
+                        "ordered_segment_ids"
+                    )
+                    applied.extend(topo_applied)
+                    changed = True
+            except Exception:
+                pass
         if changed:
             out["chapters"] = new_chapters
             applied.append(
@@ -1693,6 +1733,73 @@ def propagate_nle_split_segment_refs(
                 enriched = enrich_narrative_plan_for_persist(ctx, plan)
                 ctx.write_json("master/narrative_plan.json", enriched, skip_handoff=True)
                 updated.append("master/narrative_plan.json")
+
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            changed = False
+            ordered = sel.get("ordered_segment_ids")
+            if isinstance(ordered, list) and parent_id in [str(x) for x in ordered]:
+                sel["ordered_segment_ids"] = _rewrite_segment_id_list(ordered, parent_id, child_ids)
+                changed = True
+            for ch in sel.get("chapters") or []:
+                if not isinstance(ch, dict):
+                    continue
+                segs = ch.get("segment_ids")
+                if isinstance(segs, list) and parent_id in [str(x) for x in segs]:
+                    ch["segment_ids"] = _rewrite_segment_id_list(segs, parent_id, child_ids)
+                    changed = True
+            if changed:
+                ctx.write_json("master/selection.json", sel, skip_handoff=True)
+                updated.append("master/selection.json")
+
+    if ctx.artifact_exists("master/transitions.json"):
+        tr = ctx.read_json("master/transitions.json")
+        if isinstance(tr, dict):
+            changed = False
+            for row in tr.get("transitions") or []:
+                if not isinstance(row, dict):
+                    continue
+                for key in ("after_segment_id", "before_segment_id"):
+                    if str(row.get(key) or "") == parent_id:
+                        row[key] = child_ids[0]
+                        changed = True
+            if changed:
+                ctx.write_json("master/transitions.json", tr, skip_handoff=True)
+                updated.append("master/transitions.json")
+
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        gap = ctx.read_json("understanding/gap_report.json")
+        if isinstance(gap, dict):
+            changed = False
+            for ln in gap.get("interviewer_lines") or []:
+                if not isinstance(ln, dict):
+                    continue
+                if str(ln.get("targets_segment_id") or "") == parent_id:
+                    ln["targets_segment_id"] = child_ids[0]
+                    changed = True
+                for key in ("supports_segment_ids", "replaces_source_segments"):
+                    val = ln.get(key)
+                    if isinstance(val, list) and parent_id in [str(x) for x in val]:
+                        ln[key] = _rewrite_segment_id_list(val, parent_id, child_ids)
+                        changed = True
+            if changed:
+                ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+                updated.append("understanding/gap_report.json")
+
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        ge = ctx.read_json("understanding/gap_evaluations.json")
+        if isinstance(ge, dict):
+            changed = False
+            for row in ge.get("evaluations") or []:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("segment_id") or "") == parent_id:
+                    row["segment_id"] = child_ids[0]
+                    changed = True
+            if changed:
+                ctx.write_json("understanding/gap_evaluations.json", ge, skip_handoff=True)
+                updated.append("understanding/gap_evaluations.json")
 
     return updated
 

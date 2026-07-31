@@ -959,7 +959,7 @@
         "brisk"
       ],
       "default_granularity": "fine",
-      "max_segment_duration_ms": null,
+      "max_segment_duration_ms": 60000,
       "min_segment_duration_ms": 4000,
       "split_backchannels": true,
       "backchannel_max_words": 8,

@@ -181,38 +181,81 @@ def apply_nle_to_selection(
             excluded.append({"segment_id": seg_id, "reason": "nle_operator"})
             excluded_ids.add(seg_id)
 
-    ordered = list(result.get("ordered_segment_ids") or [])
+    # App auto arrangement is the base; NLE overlays user-touched moves only.
+    base_order = [str(s) for s in (result.get("ordered_segment_ids") or []) if s]
     for sid in excluded_ids:
-        while sid in ordered:
-            ordered.remove(sid)
+        while sid in base_order:
+            base_order.remove(sid)
 
-    if order:
-        active: list[str] = []
-        for sid in order:
-            ov = overrides.get(sid, {})
-            if ov.get("excluded") or sid in excluded_ids:
+    operator_moved = [
+        str(s)
+        for s in order
+        if s
+        and s not in excluded_ids
+        and not (overrides.get(s) or {}).get("excluded")
+        and (segments_by_id is None or s in segments_by_id or s in overrides)
+    ]
+
+    if operator_moved:
+        # Overlay: keep app relative order for untouched ids; splice operator
+        # sequence as an ordered block at the first operator-touched index in base,
+        # or append block positionally by walking operator list as locks.
+        locked = [s for s in operator_moved if s not in excluded_ids]
+        locked_set = set(locked)
+        untouched = [s for s in base_order if s not in locked_set and s not in excluded_ids]
+        # Place locked ids in operator order; fill gaps with untouched in app order.
+        # Strategy: start from untouched app spine; insert each locked id at the
+        # index of its nearest preceding base neighbor that remains, else at end.
+        merged: list[str] = list(untouched)
+        for sid in locked:
+            if sid in merged:
                 continue
-            if segments_by_id is not None and sid not in segments_by_id:
+            # Prefer position after previous locked peer if that peer is present
+            prev_locked = None
+            for cand in locked:
+                if cand == sid:
+                    break
+                prev_locked = cand
+            if prev_locked and prev_locked in merged:
+                merged.insert(merged.index(prev_locked) + 1, sid)
                 continue
-            if sid not in active:
-                active.append(sid)
-        nle_set = set(active)
-        rest = [
-            s
-            for s in ordered
-            if s not in nle_set and s not in excluded_ids
-            and (segments_by_id is None or s in segments_by_id)
-        ]
-        ordered = active + rest
+            # Else: position relative to original base neighbors
+            if sid in base_order:
+                bi = base_order.index(sid)
+                # find nearest earlier base id still in merged
+                placed = False
+                for j in range(bi - 1, -1, -1):
+                    neighbor = base_order[j]
+                    if neighbor in merged:
+                        merged.insert(merged.index(neighbor) + 1, sid)
+                        placed = True
+                        break
+                if not placed:
+                    merged.insert(0, sid)
+            else:
+                # Split child / new id — after parent if present, else end
+                parent = str((overrides.get(sid) or {}).get("parent_id") or "")
+                if parent and parent in merged:
+                    merged.insert(merged.index(parent) + 1, sid)
+                else:
+                    merged.append(sid)
+        ordered = merged
     else:
-        ordered = [s for s in ordered if s not in excluded_ids]
+        ordered = [s for s in base_order if s not in excluded_ids]
 
     # Drop stale parent ids replaced by splits (children already in order).
     for seg_id, ov in overrides.items():
-        for child in ov.get("split_into") or []:
-            if seg_id in ordered and child in ordered:
+        children = [str(c) for c in (ov.get("split_into") or []) if c]
+        if not children:
+            continue
+        if seg_id in ordered and any(c in ordered for c in children):
+            while seg_id in ordered:
                 ordered.remove(seg_id)
-                break
+            # Ensure children appear (replace parent slot with children order)
+            # If children missing from ordered, insert at parent former neighbors
+            for child in children:
+                if child not in ordered and child not in excluded_ids:
+                    ordered.append(child)
 
     seen_order: set[str] = set()
     deduped: list[str] = []
@@ -225,6 +268,11 @@ def apply_nle_to_selection(
     result["ordered_segment_ids"] = deduped
     result["excluded_segment_ids"] = excluded
     result["nle_applied"] = True
+    result["nle_merge"] = {
+        "mode": "app_base_plus_operator_overlay",
+        "operator_moved_ids": operator_moved,
+        "excluded_ids": sorted(excluded_ids),
+    }
     return result
 
 
@@ -285,7 +333,26 @@ def apply_segments_with_nle(segments: list[dict[str, Any]], nle: dict[str, Any])
     return [s for s in by_id.values() if not s.get("_excluded")]
 
 
+def _child_suffix(index: int) -> str:
+    """0 -> a, 25 -> z, 26 -> aa (vernacular-style)."""
+    if index < 0:
+        raise ValueError("index must be >= 0")
+    n = index
+    chars: list[str] = []
+    while True:
+        chars.append(chr(ord("a") + (n % 26)))
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return "".join(reversed(chars))
+
+
 def split_segment_at(ctx: RunContext, segment_id: str, at_ms: int) -> dict[str, Any]:
+    return split_segment_at_cuts(ctx, segment_id, [at_ms])
+
+
+def split_segment_at_cuts(ctx: RunContext, segment_id: str, cut_ms: list[int]) -> dict[str, Any]:
+    """N-way split at sorted cut points (exclusive end boundaries)."""
     nle = load_nle(ctx)
     manifest = ctx.read_json("segments/manifest.json")
     segments = manifest.get("segments") or []
@@ -294,31 +361,29 @@ def split_segment_at(ctx: RunContext, segment_id: str, at_ms: int) -> dict[str, 
         raise ValueError(f"Segment not found: {segment_id}")
     start = int(target["start_ms"])
     end = int(target["end_ms"])
-    if at_ms <= start or at_ms >= end:
-        raise ValueError("Split point must be inside the segment.")
-    left_id = f"{segment_id}a"
-    right_id = f"{segment_id}b"
+    cuts = sorted({int(c) for c in cut_ms if start < int(c) < end})
+    if not cuts:
+        raise ValueError("Split point(s) must be inside the segment.")
+    bounds = [start, *cuts, end]
+    child_ids: list[str] = []
     overrides = nle.setdefault("segment_overrides", {})
-    overrides[segment_id] = {"excluded": True, "split_into": [left_id, right_id]}
-    overrides[left_id] = {
-        "start_ms": start,
-        "end_ms": at_ms,
-        "label": f"{segment_id} (part 1)",
-        "parent_id": segment_id,
-    }
-    overrides[right_id] = {
-        "start_ms": at_ms,
-        "end_ms": end,
-        "label": f"{segment_id} (part 2)",
-        "parent_id": segment_id,
-    }
+    for i in range(len(bounds) - 1):
+        cid = f"{segment_id}{_child_suffix(i)}"
+        child_ids.append(cid)
+        overrides[cid] = {
+            "start_ms": bounds[i],
+            "end_ms": bounds[i + 1],
+            "label": f"{segment_id} (part {i + 1})",
+            "parent_id": segment_id,
+        }
+    overrides[segment_id] = {"excluded": True, "split_into": child_ids}
     order = nle.get("sequence_order") or [s.get("segment_id") for s in segments]
     if segment_id in order:
         idx = order.index(segment_id)
-        order[idx:idx + 1] = [left_id, right_id]
+        order[idx : idx + 1] = child_ids
     nle["sequence_order"] = order
     save_nle(ctx, nle)
     from interview_mux.artifact_repairs import propagate_nle_split_segment_refs
 
-    propagate_nle_split_segment_refs(ctx, segment_id, [left_id, right_id])
+    propagate_nle_split_segment_refs(ctx, segment_id, child_ids)
     return nle

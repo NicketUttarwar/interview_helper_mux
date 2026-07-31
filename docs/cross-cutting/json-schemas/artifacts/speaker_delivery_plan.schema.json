@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "speaker_delivery_plan",
+  "type": "object",
+  "required": ["version", "speaker_count", "clone_speaker_id", "insert_strategy"],
+  "properties": {
+    "version": { "type": "integer" },
+    "speaker_count": { "type": "integer" },
+    "clone_speaker_id": { "type": ["string", "null"] },
+    "insert_strategy": { "type": "string" },
+    "address_labels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "group_label": { "type": "string" },
+    "clear_interviewer": { "type": "boolean" }
+  }
+}

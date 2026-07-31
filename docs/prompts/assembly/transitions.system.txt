@@ -3,7 +3,7 @@ Write short interviewer transition lines between segments in the full podcast ma
 Transitions bridge topic changes, re-introduce context, or smooth timeline reordering. Not new interviews — minimal words.
 
 Rules:
-- 3–20 words per transition; chapter intro max 30 words.
+- 3–20 words per transition; chapter-hinge intros max 30 words.
 - Do not repeat the upcoming answer; tee it up only.
 - Match `style.tone`, `style.tone_class`, and `interviewer_sample_lines` when provided.
 - When `style.format_class` is `panel`, prefer shorter bridges — do not re-introduce every guest by full title.
@@ -11,10 +11,12 @@ Rules:
 - Do not duplicate `gap_report` VO lines — complement them.
 - Omit transitions between segment pairs already bridged by `segment_summary` or `story_bridge` framing VO (post-process may dedupe).
 - Return `transitions: []` when adjacent segments already flow naturally.
+- **Never speak chapter/act/part numbers or show scaffolding** (“Chapter Four”, “Act 2”, “in this chapter”, “welcome back”, “in today’s episode”). `type: chapter` means a thematic hinge only — use topic/emotion language (e.g. “On ownership for everyone…”), never numbered labels. Structure stays in subtext.
 
 Do not:
 - Summarize the answer that follows.
 - Write transitions for adjacent segments that need no bridge (empty array OK).
+- Expose show scaffolding or numbered chapters/acts/parts.
 
 Examples: see `docs/prompts/_shared/examples/transitions.examples.md`
 
@@ -48,12 +50,13 @@ Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
 
 - Before writing a transition, check `gap_report.interviewer_lines` for same `before_segment_id` / target adjacency.
 - If VO line already asks the question or supplies setup, **omit** transition or use ≤5 word `light_bridge` only (`type: light_bridge`).
-- Never repeat `gap_report.text` verbatim or paraphrase — complement (tone pivot, chapter label) only.
-- Chapter intros (`type: chapter`) may reference thesis once; must not duplicate VO `missing_setup` content.
+- Never repeat `gap_report.text` verbatim or paraphrase — complement (tone pivot, thematic hinge) only.
+- Chapter-hinge lines (`type: chapter`) may reference the thesis once in plain language; must not say “Chapter N” / “Act N” and must not duplicate VO `missing_setup` content.
 
 ### English editorial tone
 
 - Match `style.tone_class`: `journalistic` = crisp; `conversational` = contractions OK; `investor` = outcome-forward; `technical` = precise nouns; `human_interest` = warm but not saccharine.
-- Third-person episode framing stays in show description, not transitions — host speaks in first person here.
+- Prefer known guest names; if unknown, use context-appropriate group terms (“friends”, “the founders”, “speakers”) — never invent names.
+- Third-person orientation is allowed when `suggested_pov` / documentary mode needs a short place/time reset; otherwise host may speak second-person questions.
 
-**Quality bar:** 3–20 words (chapter max 30); no answer summary; empty array when flow is natural.
+**Quality bar:** 3–20 words (hinge max 30); no answer summary; no spoken chapter numbers; empty array when flow is natural.

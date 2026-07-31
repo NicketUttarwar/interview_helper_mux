@@ -80,12 +80,33 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
+        # App-base topo repair BEFORE NLE overlay (NLE is overlay-only).
+        plan = (
+            c.read_json("master/narrative_plan.json")
+            if c.artifact_exists("master/narrative_plan.json")
+            else None
+        )
+        from interview_mux.selection_order_repair import repair_selection_order
+
+        artifacts, topo_notes = repair_selection_order(
+            artifacts, plan if isinstance(plan, dict) else None
+        )
+        if topo_notes:
+            c.log(
+                f"selection topo repair: {len(topo_notes)} action(s)",
+                level="info",
+                stage="full_master_ranking",
+                detail=topo_notes[:8],
+            )
+
         nle = load_nle(c)
+        nle_overlay = False
         if nle_has_operator_edits(nle):
             by_id = segments_by_id_with_nle(c)
             artifacts = apply_nle_to_selection(
                 artifacts, nle, segments_by_id=by_id
             )
+            nle_overlay = True
             _log_nle_apply(c, stage="full_master_ranking", selection=artifacts)
         from interview_mux.creative_delivery import enforce_creative_selection_edit
         from interview_mux.selection_auto_pack import auto_pack_selection_to_brief
@@ -95,6 +116,107 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.framing_coverage_guard import enforce_framing_ranking
 
         artifacts = enforce_framing_ranking(c, artifacts)
+
+        # Dual-candidate stub: keep committed order + pre-NLE snapshot when present
+        ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
+        c.write_json(
+            "master/rank_candidates.json",
+            {
+                "version": 1,
+                "candidates": [{"source": "committed", "ordered_segment_ids": ordered}],
+                "winner": "committed",
+            },
+        )
+
+        from interview_mux.story_health import evaluate_story_health
+        from interview_mux.reorder_bridges import build_reorder_bridges
+        from interview_mux.bridge_voice_policy import annotate_reorder_bridges
+        from interview_mux.speaker_delivery_plan import write_speaker_delivery_plan
+
+        by_id = segments_by_id_with_nle(c) if nle_overlay else {}
+        if not by_id and c.artifact_exists("segments/manifest.json"):
+            man = c.read_json("segments/manifest.json")
+            by_id = {
+                str(s["segment_id"]): s
+                for s in (man.get("segments") or [])
+                if isinstance(s, dict) and s.get("segment_id")
+            }
+        chapter_ends: set[str] = set()
+        if isinstance(plan, dict):
+            for ch in plan.get("chapters") or []:
+                if isinstance(ch, dict):
+                    ids = [str(x) for x in (ch.get("segment_ids") or []) if x]
+                    if ids:
+                        chapter_ends.add(ids[-1])
+        bridges = annotate_reorder_bridges(
+            build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
+            narrative_mode=str((plan or {}).get("narrative_mode") or "")
+            if isinstance(plan, dict)
+            else None,
+        )
+        # Prefer mastering_plan narrative_mode when present
+        if c.artifact_exists("mastering/mastering_plan.json"):
+            try:
+                mp = c.read_json("mastering/mastering_plan.json")
+                if isinstance(mp, dict) and mp.get("narrative_mode"):
+                    bridges = annotate_reorder_bridges(
+                        bridges, narrative_mode=str(mp.get("narrative_mode"))
+                    )
+            except Exception:
+                pass
+        c.write_json("understanding/reorder_bridges.json", bridges)
+
+        gap = (
+            c.read_json("understanding/gap_report.json")
+            if c.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        tr = (
+            c.read_json("master/transitions.json")
+            if c.artifact_exists("master/transitions.json")
+            else None
+        )
+        cov = (
+            c.read_json("master/coverage_audit.json")
+            if c.artifact_exists("master/coverage_audit.json")
+            else None
+        )
+        health = evaluate_story_health(
+            ordered=ordered,
+            narrative_plan=plan if isinstance(plan, dict) else None,
+            coverage_audit=cov if isinstance(cov, dict) else None,
+            reorder_bridges=bridges,
+            gap_report=gap if isinstance(gap, dict) else None,
+            transitions=tr if isinstance(tr, dict) else None,
+            nle_overlay_applied=nle_overlay,
+        )
+        c.write_json("master/story_health.json", health)
+        if health.get("verdict") == "fail":
+            c.log(
+                f"story_health fail ({health.get('error_count')} issues) — "
+                "repair before delivery when possible",
+                level="warning",
+                stage="full_master_ranking",
+                detail=health.get("issues", [])[:6],
+            )
+        elif health.get("verdict") == "warn":
+            c.log(
+                f"story_health warn — shipping with issues "
+                f"(nle_overlay={nle_overlay})",
+                level="warning",
+                stage="full_master_ranking",
+                detail=health.get("issues", [])[:6],
+            )
+
+        try:
+            write_speaker_delivery_plan(c)
+        except Exception as exc:
+            c.log(
+                f"speaker_delivery_plan skipped: {exc}",
+                level="warning",
+                stage="full_master_ranking",
+            )
+
         write_validated_artifact(
             c,
             "master/selection.json",

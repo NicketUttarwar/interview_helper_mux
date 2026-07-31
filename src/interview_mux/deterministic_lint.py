@@ -620,12 +620,15 @@ def _lint_transitions(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
         if words > 30:
             errors.append(f"transition exceeds 30 words ({words})")
     errors.extend(transition_gap_overlap_errors(transitions, ctx))
+    from interview_mux.spoken_meta_lint import lint_transitions_doc
+
+    errors.extend(lint_transitions_doc(transitions))
     return errors
 
 
 def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     errors: list[str] = []
-    ordered = artifacts.get("ordered_segment_ids") or []
+    ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
     manifest_ids = _manifest_ids(ctx)
     if manifest_ids:
         for sid in ordered:
@@ -645,6 +648,20 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
     from interview_mux.framing_coverage_guard import validate_framing_ranking
 
     errors.extend(validate_framing_ranking(ctx, artifacts))
+    # Enforce narrative_plan ordering_constraints at ranking commit (app base).
+    if ordered and ctx.artifact_exists("master/narrative_plan.json"):
+        try:
+            plan = ctx.read_json("master/narrative_plan.json")
+        except Exception:
+            plan = None
+        if isinstance(plan, dict):
+            from interview_mux.selection_order_repair import (
+                finale_tail_errors,
+                ordering_constraint_errors,
+            )
+
+            errors.extend(ordering_constraint_errors(ordered, plan))
+            errors.extend(finale_tail_errors(ordered, plan))
     return errors
 
 
@@ -695,6 +712,9 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
     from interview_mux.gap_framing import validate_line_word_limits
 
     errors.extend(validate_line_word_limits(lines))
+    from interview_mux.spoken_meta_lint import lint_gap_report_lines
+
+    errors.extend(lint_gap_report_lines({"interviewer_lines": lines}))
     return errors
 
 
@@ -761,11 +781,35 @@ def _lint_narrative_arc_plan(artifacts: dict[str, Any], ctx: RunContext) -> list
             if manifest_ids and str(sid) not in manifest_ids:
                 errors.append(f"chapter segment {sid} not in manifest")
                 break
-    for constraint in artifacts.get("ordering_constraints") or []:
+    for index, constraint in enumerate(artifacts.get("ordering_constraints") or []):
         if not isinstance(constraint, dict):
             continue
-        for sid in constraint.get("segment_ids") or constraint.get("ordered_segment_ids") or []:
-            if manifest_ids and str(sid) not in manifest_ids:
+        before = str(
+            constraint.get("before_segment_id")
+            or constraint.get("before")
+            or constraint.get("setup_segment_id")
+            or ""
+        ).strip()
+        after = str(
+            constraint.get("after_segment_id")
+            or constraint.get("after")
+            or constraint.get("payoff_segment_id")
+            or ""
+        ).strip()
+        # Legacy mistaken keys still checked for orphan refs
+        legacy_ids = [
+            str(s)
+            for s in (constraint.get("segment_ids") or constraint.get("ordered_segment_ids") or [])
+            if s
+        ]
+        check_ids = [s for s in (before, after, *legacy_ids) if s]
+        if not before or not after:
+            if not legacy_ids:
+                errors.append(
+                    f"ordering_constraints[{index}] missing before_segment_id/after_segment_id"
+                )
+        for sid in check_ids:
+            if manifest_ids and sid not in manifest_ids:
                 errors.append(f"ordering_constraint segment {sid} not in manifest")
                 break
     errors.extend(_lint_tbiy_narrative_conformance(artifacts, ctx))

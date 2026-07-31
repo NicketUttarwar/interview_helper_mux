@@ -84,9 +84,14 @@ Research dossier (`mastering/research_dossier.json`) is the primary Shape eviden
 
 Critics, `mode_consistency` QC, `listen_delight_audit`, and the human listen rubric are **always advisory** — never block `master_finalize`.
 
+## Spoken structure (never air chapter numbers)
+
+Chapters/acts/parts are **business logic and subtext only**. Synthetic VO and transitions must never say “Chapter Four”, “Act 2”, “in this chapter”, or empty show scaffolding (“welcome back”, “in today’s episode”). Thematic hinges only. Enforced by prompts + `spoken_meta_lint` before synth.
+
 ## No caps
 
 This workstream must not add spend / timeout / remint / attempt caps under `mastering.shape.*`. Soft-gate keys: `enable`, `mode`, `shadow_compare`, `consumers_bind`, `two_pass` only.
+
 
 ## Degradation ladder
 

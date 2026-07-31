@@ -306,6 +306,35 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         edl_doc = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
         listen_report = evaluate_listenability(ctx, edl=edl_doc if isinstance(edl_doc, dict) else None, stage="mix")
         write_listenability_contract(ctx, listen_report)
+        try:
+            from interview_mux.listen_quality import evaluate_listen_critic
+
+            ordered = []
+            if isinstance(edl_doc, dict):
+                ordered = [str(s) for s in (edl_doc.get("ordered_segment_ids") or []) if s]
+            if not ordered and ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+            health = (
+                ctx.read_json("master/story_health.json")
+                if ctx.artifact_exists("master/story_health.json")
+                else None
+            )
+            critic = evaluate_listen_critic(
+                ordered=ordered,
+                edl=edl_doc if isinstance(edl_doc, dict) else None,
+                story_health=health if isinstance(health, dict) else None,
+            )
+            ctx.write_json("master/listen_critic.json", critic)
+            if critic.get("verdict") == "warn":
+                ctx.log(
+                    f"listen_critic warn: {critic.get('warning_count')} issue(s)",
+                    level="warning",
+                    stage="mix",
+                    detail=(critic.get("issues") or [])[:6],
+                )
+        except Exception as exc:
+            ctx.log(f"listen_critic skipped: {exc}", level="warning", stage="mix")
         if listen_report.get("verdict") == "fail":
             from interview_mux.creative_delivery import creative_delivery_required
 

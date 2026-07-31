@@ -8,14 +8,18 @@ Goals:
 - Satisfy every `ordering_constraints` entry from `narrative_plan`.
 - Cover every topic from `coverage_audit`; do not leave brief topics unrepresented without exclude rationale.
 - Preserve clarity: setup before payoff, definitions before jargon-heavy answers.
+- **Never park early-chapter / origin material after the finale** — every kept segment belongs inside its narrative span.
+- Prefer finishable, recommendable listens: cut redundant mid-sections when a shorter sibling + framing VO can carry the point.
 - Schedule `gap_report.interviewer_lines` implicitly (segments with VO stay in order; do not drop fixable answers).
 - **Succinct master (soft hint only):** `gap_framing_plan` and `framing_covered_segment_ids` describe the **draft** framing VO, not yet accepted. Do **not** exclude a segment with `reason: covered_by_framing_vo` here — that exclusion is applied deterministically later by Refinement Pass `selection_framing_apply`, only after the framing VO is recomposed against this exact kept order (`docs/cross-cutting/refinement-passes.md`). Excluding on the draft risks stranding a segment with no surviving VO if recompose later drops or rewrites that line. You may use `framing_covered_segment_ids` only as pacing/emphasis context (e.g. deprioritizing a redundant segment for other stated reasons such as `duplicate`), never as the sole rationale.
 - Trim asides only when they do not humanize the interviewee or support the thesis.
+- Prefer a strong early hook (best claim / tension) in the first few slots when evidence supports it — not merely earliest tape.
 - For shard/collate runs, merge chapter or batch rankings into one `ordered_segment_ids` list, dedupe segment IDs, preserve `narrative_plan.ordering_constraints`, and keep excluded entries as objects with reasons.
 
 Do not:
 - Drop thesis-supporting `interviewee_answer` without `excluded_segment_ids` entry.
 - Violate ordering_constraints.
+- Append leftover segments after the last act “because they did not fit a chapter.”
 - Output duplicate `segment_id`s in `ordered_segment_ids`.
 - Output bare strings in `excluded_segment_ids`; every exclusion must be an object with `segment_id` and `reason`.
 

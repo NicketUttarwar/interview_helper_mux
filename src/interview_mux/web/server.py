@@ -205,7 +205,8 @@ class NleSegmentBody(BaseModel):
 
 class SplitBody(BaseModel):
     segment_id: str
-    at_ms: int
+    at_ms: int | None = None
+    cut_ms: list[int] | None = None
 
 
 class SnapBoundaryBody(BaseModel):
@@ -1086,8 +1087,22 @@ def create_app() -> FastAPI:
     def nle_split(run_id: str, body: SplitBody) -> dict[str, Any]:
         with _guarded_run(run_id):
             ctx = _ctx(run_id)
-            nle = split_segment_at(ctx, body.segment_id, body.at_ms)
-            ctx.log(f"Split segment {body.segment_id} at {body.at_ms}ms.", level="info", stage="nle")
+            from interview_mux.nle_state import split_segment_at_cuts
+
+            cuts = list(body.cut_ms or [])
+            if body.at_ms is not None:
+                cuts.append(int(body.at_ms))
+            if not cuts:
+                raise HTTPException(400, {"errors": ["at_ms or cut_ms required"]})
+            if len(cuts) == 1:
+                nle = split_segment_at(ctx, body.segment_id, cuts[0])
+            else:
+                nle = split_segment_at_cuts(ctx, body.segment_id, cuts)
+            ctx.log(
+                f"Split segment {body.segment_id} at {cuts}ms.",
+                level="info",
+                stage="nle",
+            )
             return {"ok": True, "nle": nle}
 
     @app.post("/api/runs/{run_id}/nle/batch")

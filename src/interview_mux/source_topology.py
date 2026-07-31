@@ -311,6 +311,14 @@ def load_flow_adaptation(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def pickup_eligible_speaker_id(ctx: RunContext) -> str | None:
+    # Prefer dynamic speaker_delivery_plan clone (monologue self-clone / panel pickup)
+    if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
+        try:
+            plan = ctx.read_json("understanding/speaker_delivery_plan.json")
+            if isinstance(plan, dict) and plan.get("clone_speaker_id"):
+                return str(plan["clone_speaker_id"])
+        except Exception:
+            pass
     topo = load_topology(ctx)
     if isinstance(topo, dict) and topo.get("pickup_eligible_speaker_id"):
         return str(topo["pickup_eligible_speaker_id"])

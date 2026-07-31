@@ -39,8 +39,19 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
 
     from interview_mux.s2s_runner import synthesize_line
     from interview_mux.source_topology import pickup_eligible_speaker_id
+    from interview_mux.spoken_meta_lint import assert_speakable_or_raise
 
-    speaker_id = pickup_eligible_speaker_id(ctx) or ""
+    # Prefer speaker_delivery_plan clone when present
+    speaker_id = ""
+    if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
+        try:
+            sdp = ctx.read_json("understanding/speaker_delivery_plan.json")
+            if isinstance(sdp, dict):
+                speaker_id = str(sdp.get("clone_speaker_id") or "")
+        except Exception:
+            speaker_id = ""
+    if not speaker_id:
+        speaker_id = pickup_eligible_speaker_id(ctx) or ""
     results: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -48,6 +59,13 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
+        try:
+            assert_speakable_or_raise(text, context="transition")
+        except ValueError as exc:
+            raise ValueError(
+                f"transition text blocked by spoken_meta_lint "
+                f"({item.get('after_segment_id')}->{item.get('before_segment_id')}): {exc}"
+            ) from exc
         after_id = str(item.get("after_segment_id") or "")
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:

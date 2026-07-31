@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "story_health",
+  "type": "object",
+  "required": ["version", "verdict", "issues"],
+  "properties": {
+    "version": { "type": "integer" },
+    "verdict": { "type": "string", "enum": ["pass", "warn", "fail"] },
+    "nle_overlay_applied": { "type": "boolean" },
+    "ordered_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "error_count": { "type": "integer" },
+    "warning_count": { "type": "integer" },
+    "issues": { "type": "array", "items": { "type": "object" } }
+  }
+}
