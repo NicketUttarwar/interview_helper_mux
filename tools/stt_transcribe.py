@@ -127,18 +127,26 @@ def _words_from_whisper_segments(segments: list[Any]) -> list[dict[str, Any]]:
 def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
     import contextlib
     import io
+    import tempfile
 
     from mlx_audio.stt.generate import generate_transcription
 
     model_id = _fallback_whisper_model(model_id)
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-        result = generate_transcription(
-            model=model_id,
-            audio_path=str(audio),
-            verbose=False,
-            word_timestamps=True,
-        )
+    # mlx_audio always writes `{output_path}.txt`. Default output_path="" → repo-root
+    # `.txt` (see mlx_audio.stt.generate.save_as_txt). Pin a temp prefix so STT
+    # never pollutes the process cwd.
+    with tempfile.TemporaryDirectory(prefix="mux_stt_") as tmp:
+        out_prefix = str(Path(tmp) / "transcript")
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            result = generate_transcription(
+                model=model_id,
+                audio_path=str(audio),
+                output_path=out_prefix,
+                format="txt",
+                verbose=False,
+                word_timestamps=True,
+            )
     text = str(getattr(result, "text", result) or "").strip()
     segments = list(getattr(result, "segments", None) or [])
     words = _words_from_whisper_segments(segments)

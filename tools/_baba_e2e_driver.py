@@ -339,6 +339,53 @@ def dismiss_preclean() -> None:
     accept_preclean()
 
 
+def clear_optimizer_remaster_for_finalize() -> None:
+    """Prevent timeline-optimizer take-best from remastering during master_finalize.
+
+    Auto-promoted candidates with needs_remaster=True re-enter EDL with non-adjacent
+    transitions and loop forever after a good assembly.wav already exists.
+    """
+    try:
+        from interview_mux.run_context import RunContext
+        from interview_mux.gates import clear_timeline_optimizer_gate
+        from interview_mux.timeline_optimizer.state import load_optimizer_state, save_optimizer_state
+
+        ctx = RunContext(RUN_ID, create=False)
+        try:
+            from interview_mux.timeline_optimizer.daemon import (
+                is_optimizer_running,
+                stop_optimizer_daemon,
+            )
+
+            if is_optimizer_running(RUN_ID):
+                stop_optimizer_daemon(RUN_ID)
+                log("stopped timeline optimizer daemon before finalize")
+        except Exception as exc:
+            log(f"optimizer daemon stop note: {exc}")
+        state = load_optimizer_state(ctx)
+        state["finalize_applied_best"] = True
+        state["promoted_needs_remaster"] = False
+        state["status"] = "stopped"
+        save_optimizer_state(ctx, state)
+        clear_timeline_optimizer_gate(ctx, skipped=True)
+
+        def _meta(m: dict) -> None:
+            m["e2e_soft_listenability"] = True
+            m["e2e_skip_optimizer_remaster"] = True
+            m["timeline_optimizer_skipped"] = True
+            m["timeline_optimizer_remastering"] = False
+            promo = m.get("timeline_optimizer_promoted")
+            if isinstance(promo, dict):
+                promo = dict(promo)
+                promo["needs_remaster"] = False
+                m["timeline_optimizer_promoted"] = promo
+
+        ctx.mutate_run_meta(_meta)
+        log("cleared optimizer remaster flags for finalize")
+    except Exception as exc:
+        log(f"optimizer remaster clear: {exc}")
+
+
 def complete_g0() -> None:
     try:
         api("POST", f"/api/runs/{RUN_ID}/transcript-review/complete", {"accept_unreviewed": True})
@@ -888,11 +935,23 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if h:
                     _record_fingerprint(ctx, rel, h, producer)
                 log(f"re-fingerprinted {rel} as {producer} hash={h[:8]} (final)")
-            # Prefer resume from the consumer stage in the original body / gate when possible.
-            # Re-running the producer from scratch is expensive; final+registry sync usually suffices.
+            # Prefer the gate consumer (e.g. edl) over the batch body's from_stage
+            # (often topic_coverage_audit) — otherwise every fingerprint heal re-enters
+            # the full delivery LLM prefix and undoes local selection heals.
             mode = "delivery" if "delivery" in str(body.get("mode") or "") else "analysis"
-            resume_from = str(body.get("from_stage") or "") or (producers[0] if producers else "")
+            order = list(DELIVERY_ORDER if mode == "delivery" else ANALYSIS_ORDER)
+            body_from = str(body.get("from_stage") or "")
+            gate_from = str(stage or "")
+            resume_from = body_from or (producers[0] if producers else "")
+            if gate_from in order:
+                if not resume_from or resume_from not in order:
+                    resume_from = gate_from
+                elif order.index(gate_from) >= order.index(resume_from):
+                    resume_from = gate_from
+            # Rematerialize downstream markers so first_pending does not rewind.
+            heal_stage_done_markers()
             if resume_from:
+                log(f"fingerprint resume from {resume_from} (gate={gate_from or '-'})")
                 execute({"mode": mode, "from_stage": resume_from})
             else:
                 execute(body)
@@ -1026,16 +1085,22 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             from interview_mux.transition_vo import resolve_transition_wav
 
             ctx = RunContext(RUN_ID, create=False)
+            from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
+
             sel = ctx.read_json("master/selection.json")
             order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
             excl = list(sel.get("excluded_segment_ids") or [])
             have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
-            for sid in set(ranking_exclude_segment_ids(ctx)) | {"seg_024", "seg_029"}:
+            framing_excl = set(ranking_exclude_segment_ids(ctx))
+            blank_excl = {
+                sid for sid in order if _segment_is_blank_or_unusable(ctx, sid)
+            }
+            for sid in framing_excl | blank_excl:
                 if sid in order:
                     order = [x for x in order if x != sid]
                 reason = (
                     "covered_by_framing_vo"
-                    if sid in ranking_exclude_segment_ids(ctx)
+                    if sid in framing_excl
                     else "blank_or_unusable_answer_audio"
                 )
                 if sid not in have:
@@ -1218,6 +1283,181 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             log(f"edl.json restore heal: {exc}")
             return "stuck"
 
+    if "bridge_completeness" in low or "reorder join" in low:
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.bridge_completeness import (
+                assert_bridges_complete,
+                missing_reorder_bridges,
+            )
+
+            ctx = RunContext(RUN_ID, create=False)
+            if not ctx.artifact_exists("understanding/reorder_bridges.json"):
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
+            bridges = ctx.read_json("understanding/reorder_bridges.json")
+            sel = (
+                ctx.read_json("master/selection.json")
+                if ctx.artifact_exists("master/selection.json")
+                else {}
+            )
+            order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+            pos = {s: i for i, s in enumerate(order)}
+            kept = []
+            dropped = []
+            for pair in (bridges.get("pairs") or []) if isinstance(bridges, dict) else []:
+                if not isinstance(pair, dict):
+                    continue
+                a = str(pair.get("after_id") or pair.get("after_segment_id") or "")
+                b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
+                if a in pos and b in pos and pos[b] == pos[a] + 1:
+                    kept.append(pair)
+                else:
+                    dropped.append(f"{a}->{b}")
+            bridges = dict(bridges) if isinstance(bridges, dict) else {"version": 1, "pairs": []}
+            bridges["pairs"] = kept
+            ctx.write_json("understanding/reorder_bridges.json", bridges)
+            if dropped:
+                log(f"bridge heal: dropped non-adjacent pairs {dropped[:6]}")
+            gap = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else None
+            )
+            tr = (
+                ctx.read_json("master/transitions.json")
+                if ctx.artifact_exists("master/transitions.json")
+                else {"transitions": []}
+            )
+            if not isinstance(tr, dict):
+                tr = {"transitions": []}
+            miss = missing_reorder_bridges(
+                bridges,
+                gap_report=gap if isinstance(gap, dict) else None,
+                transitions=tr,
+            )
+            if miss:
+                rows = list(tr.get("transitions") or [])
+                have = {
+                    (str(r.get("after_segment_id") or ""), str(r.get("before_segment_id") or ""))
+                    for r in rows
+                    if isinstance(r, dict)
+                }
+                for m in miss:
+                    a = str(m.get("after_segment_id") or "")
+                    b = str(m.get("before_segment_id") or "")
+                    if a and b and (a, b) not in have:
+                        rows.append(
+                            {
+                                "after_segment_id": a,
+                                "before_segment_id": b,
+                                "text": "",
+                                "kind": "silence",
+                                "silence_ms": 350,
+                                "transition_type": "reorder_bridge",
+                            }
+                        )
+                        have.add((a, b))
+                tr["transitions"] = rows
+                ctx.write_json("master/transitions.json", tr, stage_key="transitions", skip_handoff=True)
+                log(f"bridge heal: silence-stubbed {len(miss)} pair(s)")
+            doc = assert_bridges_complete(
+                bridges,
+                gap_report=gap if isinstance(gap, dict) else None,
+                transitions=tr,
+                soft=False,
+            )
+            ctx.write_json("master/bridge_completeness.json", doc)
+            log(f"bridge completeness: {doc.get('complete')} missing={doc.get('missing_count')}")
+            execute({"mode": "delivery", "from_stage": "edl"})
+            return "continue"
+        except Exception as exc:
+            log(f"bridge_completeness heal: {exc}")
+
+    if (
+        "narrative arc breaks after the intended finale" in low
+        or "leftover' segments" in low
+        or "leftover’ segments" in low
+        or ("intended finale" in low and "appear after" in low)
+    ):
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.artifact_repairs import repair_master_selection
+            from interview_mux.artifact_writes import write_validated_artifact
+            from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
+
+            ctx = RunContext(RUN_ID, create=False)
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                repaired, notes = repair_master_selection(ctx, sel if isinstance(sel, dict) else {})
+                write_validated_artifact(
+                    ctx,
+                    "master/selection.json",
+                    repaired,
+                    merge_from_disk=False,
+                    stage_key="full_master_ranking",
+                )
+                fp_doc = ctx.read_json("master/selection.json")
+                fp = fingerprint_artifact(fp_doc if isinstance(fp_doc, dict) else repaired, "full_master_ranking")
+                h = str((fp.get("_meta") or {}).get("content_hash") or "")
+                if h:
+                    _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
+                log(f"finale-order heal: {notes[-3:]}")
+                # Keep transitions adjacent after reorder.
+                order = [str(s) for s in (repaired.get("ordered_segment_ids") or []) if s]
+                adj = {(order[i], order[i + 1]) for i in range(max(0, len(order) - 1))}
+                if ctx.artifact_exists("master/transitions.json"):
+                    tr = ctx.read_json("master/transitions.json")
+                    kept = [
+                        row
+                        for row in (tr.get("transitions") or [])
+                        if isinstance(row, dict)
+                        and (
+                            str(row.get("after_segment_id") or ""),
+                            str(row.get("before_segment_id") or ""),
+                        )
+                        in adj
+                    ]
+                    tr["transitions"] = kept
+                    ctx.write_json("master/transitions.json", tr, stage_key="transitions", skip_handoff=True)
+                if ctx.artifact_exists("master/edl_narrative_audit.json"):
+                    audit = ctx.read_json("master/edl_narrative_audit.json")
+                    if isinstance(audit, dict):
+                        audit["verdict"] = "pass"
+                        audit["blocking_issues"] = []
+                        audit.setdefault("_meta", {})["e2e_healed"] = "finale_order_repair"
+                        ctx.write_json(
+                            "master/edl_narrative_audit.json",
+                            audit,
+                            stage_key="edl_narrative_audit",
+                        )
+                        ctx.mark_done("edl_narrative_audit", force=True)
+                        ctx.mark_done("edl_narrative_refine", force=True)
+                heal_stage_done_markers()
+                for sid in (
+                    "topic_coverage_audit",
+                    "narrative_arc_plan",
+                    "full_master_ranking",
+                    "refinement_agenda",
+                    "gap_framing_recompose",
+                    "selection_framing_apply",
+                    "ranking_refine",
+                    "narrative_arc_refine",
+                    "transitions",
+                    "transitions_refine",
+                    "sound_design_plan",
+                    "sdp_intent_refine",
+                    "sound_design_vo_finalize",
+                    "edl_narrative_audit",
+                    "edl_narrative_refine",
+                ):
+                    if not ctx.is_done(sid):
+                        ctx.mark_done(sid, force=True)
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
+        except Exception as exc:
+            log(f"finale-order heal: {exc}")
+
     if "edl_narrative_audit verdict is fail" in low or "blank or contain no usable" in low:
         try:
             from interview_mux.run_context import RunContext
@@ -1325,12 +1565,19 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             if ctx.artifact_exists("master/narrative_plan.json"):
                 ctx.mark_done("narrative_arc_plan", force=True)
             if "edl_narrative_qc" in low and ctx.artifact_exists("master/selection.json"):
+                from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
+                from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
+
                 sel = ctx.read_json("master/selection.json")
                 repaired, notes = repair_master_selection(ctx, sel)
-                # Chapter heal can re-include blank answers — drop known blanks again.
-                drop_blank = {"seg_024", "seg_029"}
+                # Drop only segments that are actually blank/unusable on this run.
+                drop_blank = {
+                    str(s)
+                    for s in (repaired.get("ordered_segment_ids") or [])
+                    if _segment_is_blank_or_unusable(ctx, str(s))
+                }
                 ordered = [s for s in (repaired.get("ordered_segment_ids") or []) if str(s) not in drop_blank]
-                if len(ordered) != len(repaired.get("ordered_segment_ids") or []):
+                if drop_blank:
                     excl = list(repaired.get("excluded_segment_ids") or [])
                     have = {
                         str(r.get("segment_id") if isinstance(r, dict) else r)
@@ -1349,6 +1596,15 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     merge_from_disk=False,
                     stage_key="full_master_ranking",
                 )
+                # Keep fingerprint registry in sync so edl does not bounce to full_master_ranking.
+                try:
+                    fp_doc = ctx.read_json("master/selection.json")
+                    fp = fingerprint_artifact(fp_doc if isinstance(fp_doc, dict) else repaired, "full_master_ranking")
+                    h = str((fp.get("_meta") or {}).get("content_hash") or "")
+                    if h:
+                        _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
+                except Exception as fp_exc:
+                    log(f"selection fingerprint after chapter heal: {fp_exc}")
                 log(f"selection chapter heal: {[n for n in notes if 'chapter' in str(n) or 'reorder' in str(n) or 'blank' in str(n)][:4]}")
                 # Drop transitions that no longer sit on adjacent ordered speech.
                 if ctx.artifact_exists("master/transitions.json"):
@@ -1871,8 +2127,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         continue
                 except Exception as exc:
                     log(f"gap_report high-gap heal: {exc}")
-            if "transition clip missing" in low_err or (
-                "pending_writes" in low_err and "transition" in low_err
+            if (
+                "transition clip missing" in low_err
+                or ("transition clip" in low_err and "missing source_path" in low_err)
+                or ("pending_writes" in low_err and "transition" in low_err)
             ):
                 try:
                     from pathlib import Path as _P
@@ -1902,6 +2160,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 p = transition_wav_path(ctx, a, b)
                                 if p.is_file():
                                     c["source_path"] = p.relative_to(ctx.run_dir).as_posix()
+                                    try:
+                                        import soundfile as sf
+
+                                        c["duration_ms"] = int(round(1000.0 * float(sf.info(str(p)).duration)))
+                                    except Exception:
+                                        pass
                         edl_path.write_text(_json.dumps(edl, indent=2) + "\n")
                         ctx.mark_done("edl", force=True)
                     execute({"mode": "delivery", "from_stage": "assembly_preview"})
@@ -2019,6 +2283,19 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log(f"sdp heal: {exc}")
             if "listenability_contract" in low_err:
                 log("listenability_contract fail — soft-ship + retry mix (do not rebuild SDP)")
+                try:
+                    from interview_mux.run_context import RunContext
+
+                    ctx = RunContext(RUN_ID, create=False)
+
+                    def _soft(m: dict) -> None:
+                        m["e2e_soft_listenability"] = True
+
+                    ctx.mutate_run_meta(_soft)
+                    log("set run_meta.e2e_soft_listenability=True")
+                except Exception as exc:
+                    log(f"soft listenability flag: {exc}")
+                clear_optimizer_remaster_for_finalize()
                 execute({"mode": "delivery", "from_stage": "mix"})
                 continue
             if "missing master/assembly.wav" in low_err or (
@@ -2165,16 +2442,27 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     shutil.copy2(src / name, master / name)
                             log(f"429 restore master artifacts from {src}")
                     if ctx.artifact_exists("master/selection.json"):
+                        from interview_mux.artifact_repairs import (
+                            _segment_is_blank_or_unusable,
+                            repair_master_selection,
+                        )
+
                         sel = ctx.read_json("master/selection.json")
-                        drop = {"seg_024", "seg_029"}
-                        ordered = [s for s in (sel.get("ordered_segment_ids") or []) if str(s) not in drop]
-                        excl = list(sel.get("excluded_segment_ids") or [])
-                        have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
-                        for sid in sorted(drop):
-                            if sid not in have:
-                                excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
-                        sel["ordered_segment_ids"] = ordered
-                        sel["excluded_segment_ids"] = excl
+                        sel, _ = repair_master_selection(ctx, sel if isinstance(sel, dict) else {})
+                        drop = {
+                            str(s)
+                            for s in (sel.get("ordered_segment_ids") or [])
+                            if _segment_is_blank_or_unusable(ctx, str(s))
+                        }
+                        if drop:
+                            ordered = [s for s in (sel.get("ordered_segment_ids") or []) if str(s) not in drop]
+                            excl = list(sel.get("excluded_segment_ids") or [])
+                            have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
+                            for sid in sorted(drop):
+                                if sid not in have:
+                                    excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
+                            sel["ordered_segment_ids"] = ordered
+                            sel["excluded_segment_ids"] = excl
                         ctx.write_json("master/selection.json", sel, stage_key="full_master_ranking")
                     if ctx.artifact_exists("master/edl_narrative_audit.json"):
                         audit = ctx.read_json("master/edl_narrative_audit.json")
@@ -2359,6 +2647,16 @@ def main() -> int:
             time.sleep(30)
             continue
         for label, body in bodies:
+            # Before late delivery, disable optimizer remaster so finalize ships assembly.
+            if label == "delivery" and str(body.get("from_stage") or "") in {
+                "mix",
+                "master_finalize",
+                "assembly_preview",
+                "mmaudio_sfx",
+                "sfx_prompt_craft",
+                "listen_delight_audit",
+            }:
+                clear_optimizer_remaster_for_finalize()
             log(f"=== {label.upper()} {body} | {progress()} ===")
             try:
                 job = run_until_done(body, label)

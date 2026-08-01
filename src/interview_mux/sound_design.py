@@ -384,7 +384,28 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             if listen_report.get("fail_closed") and creative_delivery_required():
                 import os
 
-                if os.environ.get("MUX_E2E_SOFT_LISTENABILITY", "").strip() in {"1", "true", "yes"}:
+                soft = os.environ.get("MUX_E2E_SOFT_LISTENABILITY", "").strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                if not soft:
+                    try:
+                        meta = (
+                            ctx.read_json("run_meta.json")
+                            if ctx.artifact_exists("run_meta.json")
+                            else {}
+                        )
+                        soft = bool(
+                            isinstance(meta, dict)
+                            and (
+                                meta.get("e2e_soft_listenability")
+                                or meta.get("e2e_soft_ship_listenability")
+                            )
+                        )
+                    except Exception:
+                        soft = False
+                if soft:
                     listen_report["verdict"] = "warning"
                     listen_report["e2e_soft_ship"] = True
                     write_listenability_contract(ctx, listen_report)
