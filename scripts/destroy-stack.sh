@@ -61,6 +61,33 @@ tf_log "======== destroy-stack: tear down all Terraform-managed resources ======
 tf_log "Wrappers: tf-plan.sh (-destroy) → tf-apply.sh (saved plan)"
 tf_log "Plan file (gitignored): $PLAN_FILE"
 
+# Empty origin bucket first so destroy is not blocked by objects (even with force_destroy).
+OLD_BUCKET="$(
+  "$SCRIPT_DIR/tf-output.sh" -raw s3_bucket_id 2>/dev/null || true
+)"
+if [[ -n "${OLD_BUCKET}" ]]; then
+  tf_log "Emptying origin bucket before destroy: ${OLD_BUCKET}"
+  PYTHON="${REPO_ROOT}/.venv/bin/python"
+  if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="$(command -v python3)"
+  fi
+  (
+    cd "$REPO_ROOT"
+    export EMPTY_BUCKET_NAME="$OLD_BUCKET"
+    "$PYTHON" - <<'PY'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / "src"))
+from interview_mux.podcast_rss.s3_publish import empty_bucket
+from interview_mux.podcast_rss.settings import resolve_publish_targets
+bucket = os.environ["EMPTY_BUCKET_NAME"]
+region = resolve_publish_targets().get("region") or "us-east-1"
+n = empty_bucket(bucket, region=region)
+print(f"Deleted {n} object(s) from s3://{bucket}")
+PY
+  ) || tf_warn "Bucket empty step failed — continuing; force_destroy may still succeed"
+fi
+
 rm -f "$PLAN_FILE"
 
 tf_log "Step 1/2: Generating destroy plan (./scripts/tf-plan.sh -destroy -out=...)..."

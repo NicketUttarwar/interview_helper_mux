@@ -76,7 +76,9 @@ python scripts/seed_podcast_origin.py
 ./scripts/run.sh
 ```
 
-Finish a pipeline → **G-Publish** → run `podcast_publish`.
+Finish a pipeline → **G-Publish → Publish to RSS** (auto-runs episode package through `podcast_publish`).
+
+Manual CloudFront recovery (boto3, no AWS CLI): `./scripts/invalidate_podcast_cf.sh`
 
 ### D — Submit the feed
 
@@ -84,17 +86,20 @@ Open `PODCAST_FEED_BASE_URL/feed.xml` and submit that URL to Apple Podcasts Conn
 
 Full ops: [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md)
 
+AWS note: **Terraform** (`scripts/tf-*.sh`) owns the stack and updates `terraform/state/`. App uploads use **boto3** + `secrets.env`. Operators never need `aws login` or AWS CLI.
+
 ---
 
 ## Layout
 
 ```text
 scripts/bootstrap_venv.sh          # fresh env
-scripts/tf-*.sh                    # Terraform wrappers (podcast stack)
+scripts/tf-*.sh                    # Terraform wrappers (podcast stack; updates terraform/state/)
 scripts/sync_podcast_tf_secrets.sh # outputs → PODCAST_* in secrets.env
-scripts/seed_podcast_origin.py     # seed feed.xml + show art
+scripts/seed_podcast_origin.py     # seed feed.xml + show art (boto3)
+scripts/invalidate_podcast_cf.sh   # CloudFront invalidation (boto3; no AWS CLI)
 scripts/run.sh                     # launch
-terraform/                         # S3 + CloudFront OAC (state committed)
+terraform/                         # S3 + CloudFront OAC (state committed under state/)
 src/interview_mux/                 # pipeline + API
 frontend/                          # React GUI
 config/                            # defaults + secrets + podcast cover + tfvars.example

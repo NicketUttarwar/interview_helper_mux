@@ -1,4 +1,4 @@
-"""AWS transcribe contract shapes and re-transcribe invalidation."""
+"""Local STT contract shapes and re-transcribe invalidation."""
 
 from __future__ import annotations
 

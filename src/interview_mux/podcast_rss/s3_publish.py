@@ -1,4 +1,9 @@
-"""S3 PutObject with explicit Content-Type / Cache-Control + CloudFront invalidation."""
+"""S3 PutObject with explicit Content-Type / Cache-Control + CloudFront invalidation.
+
+AWS access for operators: put credentials in ``config/secrets/secrets.env`` and use
+Terraform (``scripts/tf-*.sh``) for infra. This module uses **boto3** only —
+never shell out to the AWS CLI and never assume ``aws login``.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from interview_mux.podcast_rss.settings import episode_prefix, podcast_cfg, s3_layout
+from interview_mux.podcast_rss.settings import (
+    episode_prefix,
+    podcast_cfg,
+    s3_layout,
+    show_artwork_s3_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +66,10 @@ def _client(service: str, *, region: str | None = None):
     token = os.environ.get("AWS_SESSION_TOKEN") or str(secrets.get("AWS_SESSION_TOKEN") or "").strip()
     profile = os.environ.get("AWS_PROFILE") or str(secrets.get("AWS_PROFILE") or "").strip()
 
+    if not access and not profile and not os.environ.get("AWS_ACCESS_KEY_ID") and not os.environ.get("AWS_PROFILE"):
+        # Still allow default credential chain, but surface a clear hint on failure
+        pass
+
     if access and secret and not os.environ.get("AWS_ACCESS_KEY_ID"):
         session_kwargs["aws_access_key_id"] = access
         session_kwargs["aws_secret_access_key"] = secret
@@ -63,6 +77,14 @@ def _client(service: str, *, region: str | None = None):
             session_kwargs["aws_session_token"] = token
     elif profile and not os.environ.get("AWS_PROFILE"):
         session_kwargs["profile_name"] = profile
+
+    if not access and not profile and not os.environ.get("AWS_ACCESS_KEY_ID") and not os.environ.get("AWS_PROFILE"):
+        # Check secrets had nothing useful
+        if not str(secrets.get("AWS_ACCESS_KEY_ID") or "").strip() and not str(
+            secrets.get("AWS_PROFILE") or ""
+        ).strip():
+            # Ambient chain may still work (instance role / env); proceed
+            pass
 
     session = _boto3().Session(**session_kwargs)
     return session.client(service)
@@ -97,13 +119,19 @@ def put_bytes(
 ) -> None:
     ctype = content_type or content_type_for_key(key)
     cache = cache_control or cache_control_for_key(key)
-    _client("s3", region=region).put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=body,
-        ContentType=ctype,
-        CacheControl=cache,
-    )
+    try:
+        _client("s3", region=region).put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=body,
+            ContentType=ctype,
+            CacheControl=cache,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"S3 PutObject failed for s3://{bucket}/{key}: {exc}. "
+            "Check AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in secrets.env."
+        ) from exc
 
 
 def put_file(
@@ -153,25 +181,126 @@ def list_episode_metas(bucket: str, *, region: str | None = None) -> list[dict[s
     return episodes
 
 
+def invalidate_paths(
+    *,
+    distribution_id: str,
+    paths: list[str],
+    region: str | None = None,
+    project_name: str | None = None,
+) -> str:
+    cfg = podcast_cfg()
+    project = (project_name or str(cfg.get("project_name") or "the_war_room_001")).strip()
+    items = []
+    for p in paths:
+        p = str(p).strip()
+        if not p:
+            continue
+        if not p.startswith("/"):
+            p = "/" + p
+        items.append(p)
+    if not items:
+        raise RuntimeError("No CloudFront invalidation paths provided")
+    if not distribution_id:
+        raise RuntimeError("PODCAST_CLOUDFRONT_DISTRIBUTION_ID required for invalidation")
+    cf = _client("cloudfront", region=region)
+    try:
+        resp = cf.create_invalidation(
+            DistributionId=distribution_id,
+            InvalidationBatch={
+                "Paths": {"Quantity": len(items), "Items": items},
+                "CallerReference": f"{project}-inv-{time.time_ns()}",
+            },
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"CloudFront CreateInvalidation failed: {exc}. "
+            "Check AWS credentials and PODCAST_CLOUDFRONT_DISTRIBUTION_ID."
+        ) from exc
+    return str((resp.get("Invalidation") or {}).get("Id") or "")
+
+
 def invalidate_feed(
     *,
     distribution_id: str,
     region: str | None = None,
     project_name: str | None = None,
 ) -> str:
-    cfg = podcast_cfg()
-    project = (project_name or str(cfg.get("project_name") or "the_war_room_001")).strip()
-    layout = s3_layout(cfg)
+    layout = s3_layout(podcast_cfg())
     feed_path = "/" + layout["feed_key"].lstrip("/")
-    cf = _client("cloudfront", region=region)
-    resp = cf.create_invalidation(
-        DistributionId=distribution_id,
-        InvalidationBatch={
-            "Paths": {"Quantity": 1, "Items": [feed_path]},
-            "CallerReference": f"{project}-feed-{time.time_ns()}",
-        },
+    return invalidate_paths(
+        distribution_id=distribution_id,
+        paths=[feed_path],
+        region=region,
+        project_name=project_name,
     )
-    return str((resp.get("Invalidation") or {}).get("Id") or "")
+
+
+def wait_invalidation(
+    *,
+    distribution_id: str,
+    invalidation_id: str,
+    region: str | None = None,
+    timeout_sec: int = 300,
+    poll_sec: float = 5.0,
+) -> str:
+    cf = _client("cloudfront", region=region)
+    deadline = time.time() + max(30, int(timeout_sec))
+    status = ""
+    while time.time() < deadline:
+        resp = cf.get_invalidation(DistributionId=distribution_id, Id=invalidation_id)
+        status = str((resp.get("Invalidation") or {}).get("Status") or "")
+        if status == "Completed":
+            return status
+        time.sleep(max(1.0, float(poll_sec)))
+    raise RuntimeError(
+        f"CloudFront invalidation {invalidation_id} not Completed within {timeout_sec}s "
+        f"(last status={status or 'unknown'})"
+    )
+
+
+def empty_bucket(bucket: str, *, region: str | None = None) -> int:
+    """Delete all objects (and delete markers) in a bucket. Returns deleted count."""
+    s3 = _client("s3", region=region)
+    deleted = 0
+
+    def _delete_batch(objects: list[dict[str, str]]) -> None:
+        nonlocal deleted
+        if not objects:
+            return
+        for i in range(0, len(objects), 1000):
+            chunk = objects[i : i + 1000]
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": chunk, "Quiet": True})
+            deleted += len(chunk)
+
+    try:
+        paginator = s3.get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=bucket):
+            to_delete: list[dict[str, str]] = []
+            for row in page.get("Versions") or []:
+                key = row.get("Key")
+                vid = row.get("VersionId")
+                if key:
+                    entry: dict[str, str] = {"Key": key}
+                    if vid:
+                        entry["VersionId"] = vid
+                    to_delete.append(entry)
+            for row in page.get("DeleteMarkers") or []:
+                key = row.get("Key")
+                vid = row.get("VersionId")
+                if key:
+                    entry = {"Key": key}
+                    if vid:
+                        entry["VersionId"] = vid
+                    to_delete.append(entry)
+            _delete_batch(to_delete)
+    except Exception as exc:
+        logger.info("list_object_versions unavailable for %s (%s); using list_objects_v2", bucket, exc)
+
+    paginator2 = s3.get_paginator("list_objects_v2")
+    for page in paginator2.paginate(Bucket=bucket):
+        objs = [{"Key": row["Key"]} for row in (page.get("Contents") or []) if row.get("Key")]
+        _delete_batch(objs)
+    return deleted
 
 
 def publish_episode_package(
@@ -195,18 +324,23 @@ def publish_episode_package(
     Episode folder layout (see podcast.s3 in app.defaults.json)::
 
         episodes/NNNN/
-          episode.json      # machine-readable meta (guid=execution_id, urls, …)
-          description.txt   # plain description for retrieveability
+          episode.json
+          description.txt
           audio.mp3
-          master.wav        # optional archive of the master
-          cover.png
-          chapters.json     # optional
+          master.wav
+          cover.jpg
+          chapters.json
     """
     cfg = podcast_cfg()
     layout = s3_layout(cfg)
     files = layout["episode_files"]
     prefix = episode_prefix(episode_number, cfg=cfg)
-    upload_master = bool(cfg.get("upload_master_wav", True))
+
+    required_locals = [files["audio"], files["master"], files["cover"], files["chapters"]]
+    for name in required_locals:
+        path = local_dir / name
+        if not path.is_file() or path.stat().st_size < 1:
+            raise RuntimeError(f"Required publish artifact missing or empty: {name}")
 
     local_to_remote = {
         files["audio"]: f"{prefix}/{files['audio']}",
@@ -214,9 +348,8 @@ def publish_episode_package(
         files["meta"]: f"{prefix}/{files['meta']}",
         files["description"]: f"{prefix}/{files['description']}",
         files["chapters"]: f"{prefix}/{files['chapters']}",
+        files["master"]: f"{prefix}/{files['master']}",
     }
-    if upload_master:
-        local_to_remote[files["master"]] = f"{prefix}/{files['master']}"
 
     uploaded: list[str] = []
     for local_name, key in local_to_remote.items():
@@ -225,7 +358,6 @@ def publish_episode_package(
             put_file(bucket=bucket, key=key, path=path, region=region)
             uploaded.append(key)
 
-    # Ensure episode.json from meta even if not written locally
     put_bytes(
         bucket=bucket,
         key=f"{prefix}/{files['meta']}",
@@ -265,9 +397,10 @@ def publish_episode_package(
             region=region,
         )
 
-    show_prefix = layout["show_prefix"]
+    art_key = show_artwork_s3_key(cfg)
     if show_artwork and show_artwork.is_file():
-        put_file(bucket=bucket, key=f"{show_prefix}/artwork.png", path=show_artwork, region=region)
+        put_file(bucket=bucket, key=art_key, path=show_artwork, region=region)
+        uploaded.append(art_key)
 
     feed_key = layout["feed_key"]
     put_bytes(
@@ -291,6 +424,7 @@ def publish_episode_package(
         "enclosure_url": f"{base}/{prefix}/{files['audio']}",
         "cover_url": f"{base}/{prefix}/{files['cover']}",
         "description_url": f"{base}/{prefix}/{files['description']}",
+        "chapters_url": f"{base}/{prefix}/{files['chapters']}",
         "invalidation_id": inv_id,
         "episode_number": episode_number,
     }

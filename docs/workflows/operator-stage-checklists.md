@@ -64,7 +64,7 @@ Use these after each automated stage (or before a gate) so the run stays **corre
 | Input audio | `ingest/normalized.wav` duration > 0, `ffprobe` sane | [ingest](../pipeline/ingest/README.md) |
 | Stage markers | `.stage_done/` matches what you think ran | [idempotent-runs.md](./idempotent-runs.md) |
 | Disk space | Enough room for `normalized.wav`, clips, SFX, masters | Free space check before long runs |
-| Secrets loaded | App sees `OPENAI_*`, `AWS_*`, `ELEVENLABS_*` as required by stage | [smoke-test.md](./smoke-test.md) |
+| Secrets loaded | App sees `OPENAI_*` (and podcast `AWS_*` / `PODCAST_*` only if publishing RSS) | [smoke-test.md](./smoke-test.md); [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) |
 | Toolchain lock | `./tools/check_prerequisites.sh` OK; `pip-audit` clean on lock | [anchored-toolchain.md](../cross-cutting/anchored-toolchain.md); refresh lock or accepted advisory |
 | Source audio hash | `run_meta.source_audio_hash` and `_short` set after run create; matches canonical pipeline WAV | Re-create run if hash missing on new-format id; compare **Executions** tab **Same audio** pill |
 | Stage reuse decision | When offers appear: accept (copy) or decline (run fresh) before execute proceeds | [stage-execution-reuse.md](./stage-execution-reuse.md); `run_meta.stage_reuse[stage_id]` |
@@ -444,7 +444,7 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 | Activity log | `gui_log.jsonl` filtered by stage | `substep_fail` detail with traceback on stage wrapper failures |
 | Background job file | `gui_job.json` | `last_error.message`, `error_class`, full `traceback` on disk |
 | API (run-scoped) | `gui_log.jsonl` `stage: api` | Unhandled **5xx** on `/api/runs/{id}/*` — global FastAPI handler in `server.py` |
-| LLM / cloud | `gui_log.jsonl` `level: error` on stage | OpenAI/AWS failures via `operator_trace.log_failure` / `log_api_call` |
+| LLM / cloud | `gui_log.jsonl` `level: error` on stage | OpenAI (or podcast boto3) failures via `operator_trace.log_failure` / `log_api_call` |
 | Local stacks | MMAudio / preclean stages | Retry warnings then hard-fail error lines before job `status: error` |
 
 **Tests:** `tests/test_stage_error_logging.py`, `tests/test_api_error_logging.py`, `tests/test_llm_runner_errors.py`, `tests/test_sfx_mmaudio_hard_fail.py`.

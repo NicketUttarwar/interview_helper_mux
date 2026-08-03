@@ -8,6 +8,7 @@ interface GPublishPayload {
   enabled?: boolean;
   show_title?: string;
   feed_url?: string | null;
+  feed_base_url?: string | null;
   skipped?: boolean;
   cleared?: boolean;
   publish_result?: Record<string, unknown>;
@@ -28,13 +29,18 @@ export function GPublishPanel() {
 
   if (!runId || !payload?.pending || payload.enabled === false) return null;
 
+  const feedUrl = payload.feed_url || null;
+  const result = payload.publish_result || {};
+
   const act = async (skipped: boolean) => {
     setBusy(true);
     try {
       const path = skipped ? "g-publish/skip" : "g-publish/continue";
-      await api(`/api/runs/${runId}/${path}`, { method: "POST" });
+      const res = await api<{ ok?: boolean; started?: boolean }>(`/api/runs/${runId}/${path}`, {
+        method: "POST",
+      });
       appendClientLog(
-        skipped ? "G-Publish skipped" : "G-Publish cleared — ready to upload",
+        skipped ? "G-Publish skipped" : "G-Publish cleared — publishing episode package",
         "action",
         "podcast_publish",
         skipped ? "gui.g_publish.skip" : "gui.g_publish.continue",
@@ -42,7 +48,12 @@ export function GPublishPanel() {
       await refreshRun();
       setPayload({ ...payload, pending: false, skipped, cleared: !skipped });
       if (!skipped) {
-        showToast("Publish cleared — run podcast_publish stage to upload", "success");
+        showToast(
+          res?.started
+            ? "Publishing to RSS — episode package running"
+            : "Publish cleared — episode package starting",
+          "success",
+        );
       }
     } catch (err) {
       showToast(String(err), "error");
@@ -55,8 +66,25 @@ export function GPublishPanel() {
     <GatePanelShell title="G-Publish — The War Room RSS">
       <p className="hint">
         Upload the mastered episode to {payload.show_title ?? "The War Room"} (S3 + CloudFront feed).
+        Continue clears the gate and runs the publish stages through upload.
       </p>
-      {payload.feed_url ? <p className="hint">Feed base: {payload.feed_url}</p> : null}
+      {feedUrl ? (
+        <p className="hint">
+          Feed URL:{" "}
+          <a href={feedUrl} target="_blank" rel="noreferrer">
+            {feedUrl}
+          </a>
+        </p>
+      ) : null}
+      {typeof result.enclosure_url === "string" ? (
+        <p className="hint">Last enclosure: {String(result.enclosure_url)}</p>
+      ) : null}
+      {typeof result.invalidation_id === "string" && result.invalidation_id ? (
+        <p className="hint">Last invalidation: {String(result.invalidation_id)}</p>
+      ) : null}
+      {typeof result.episode_number === "number" ? (
+        <p className="hint">Last episode #: {String(result.episode_number)}</p>
+      ) : null}
       <div className="gate-actions-row">
         <button
           type="button"

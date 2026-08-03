@@ -1,4 +1,4 @@
-"""Encode master.wav → podcast MP3 via ffmpeg."""
+"""Encode master.wav → podcast MP3 via ffmpeg (stereo by default)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ def encode_master_to_mp3(
     dest_mp3: Path,
     *,
     bitrate_k: int = 192,
+    channels: int = 2,
 ) -> Path:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -20,6 +21,7 @@ def encode_master_to_mp3(
         raise FileNotFoundError(master_wav)
     dest_mp3.parent.mkdir(parents=True, exist_ok=True)
     br = max(64, int(bitrate_k))
+    ac = 2 if int(channels) >= 2 else 1
     cmd = [
         ffmpeg,
         "-y",
@@ -32,7 +34,7 @@ def encode_master_to_mp3(
         "-ar",
         "44100",
         "-ac",
-        "1",
+        str(ac),
         str(dest_mp3),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)

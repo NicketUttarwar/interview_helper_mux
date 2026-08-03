@@ -42,5 +42,5 @@ variable "common_tags" {
 variable "cloudfront_price_class" {
   type        = string
   description = "CloudFront price class for the distribution."
-  default     = "PriceClass_100"
+  default     = "PriceClass_200"
 }

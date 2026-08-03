@@ -26,7 +26,7 @@
     },
     {
       "id": "aws_transcribe_baseline",
-      "label": "AWS Transcribe CLI + ingest normalize (current path)",
+      "label": "AWS Transcribe CLI + ingest normalize (heritage / removed path)",
       "scores": {
         "LEX-A": 3,
         "LEX-B": 4,

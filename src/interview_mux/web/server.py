@@ -1482,6 +1482,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         from interview_mux.config import load_secrets, merged_config
         from interview_mux.gates import check_g_publish_pending
+        from interview_mux.podcast_rss.settings import feed_url_from_base
 
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         secrets = load_secrets()
@@ -1491,11 +1492,13 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("publish/publish_result.json")
             else {}
         )
+        base = str(secrets.get("PODCAST_FEED_BASE_URL") or "").rstrip("/")
         return {
             "pending": check_g_publish_pending(ctx),
             "enabled": bool(podcast.get("enabled", True)),
             "show_title": podcast.get("show_title") or "The War Room",
-            "feed_url": secrets.get("PODCAST_FEED_BASE_URL"),
+            "feed_base_url": base or None,
+            "feed_url": feed_url_from_base(base) or None,
             "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
             "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
             "publish_result": result if isinstance(result, dict) else {},
@@ -1508,7 +1511,20 @@ def create_app() -> FastAPI:
             from interview_mux.gates import clear_g_publish
 
             clear_g_publish(ctx, skipped=False)
-            return {"ok": True, "cleared": True}
+            set_active_execution(run_id)
+            ctx.log(
+                "G-Publish cleared — starting episode package through podcast_publish",
+                level="action",
+                stage="podcast_publish",
+            )
+        # Outside lock: background job owns the run (same pattern as /execute)
+        job = runner.start(
+            run_id,
+            mode="stage",
+            from_stage="episode_meta_build",
+            until_stage="podcast_publish",
+        )
+        return {"ok": True, "cleared": True, "started": True, "job": job}
 
     @app.post("/api/runs/{run_id}/g-publish/skip")
     def g_publish_skip(run_id: str) -> dict[str, Any]:

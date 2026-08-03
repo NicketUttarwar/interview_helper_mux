@@ -1,8 +1,15 @@
 resource "aws_s3_bucket" "origin" {
-  bucket = local.s3_bucket_name
+  bucket        = local.s3_bucket_name
+  force_destroy = true
 
   tags = {
     Name = "${var.project_name}-rss"
+  }
+
+  # Allow bucket rename (new name first) so CloudFront can switch origins
+  # without destroying the distribution / changing the public feed URL.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 

@@ -21,13 +21,15 @@ Regardless of vendor, downstream stages expect something **like** today’s `tra
 
 ---
 
-## Implemented: Amazon Transcribe
+## Heritage (removed): Amazon Transcribe
 
-| Dimension | Notes |
+AWS Transcribe + AWS CLI were **removed**. The implemented path is local MLX STT (`transcribe_local.py`). Do **not** install AWS CLI for transcription. Catalog rows below remain for comparison only.
+
+| Dimension | Notes (historical) |
 |-----------|--------|
 | **Strengths** | Solid general-purpose ASR; built-in **diarization**; integrates with S3; predictable batch API. |
 | **Weaknesses** | Cloud-only; upload latency for huge files; diarization can confuse crosstalk; pricing per minute. |
-| **Ops** | Requires `aws` CLI, bucket, IAM, region — see [troubleshooting](../../workflows/troubleshooting.md#transcription-aws). |
+| **Ops (obsolete)** | Formerly required AWS CLI / bucket / IAM — **not used**. See [troubleshooting](../../workflows/troubleshooting.md) for local STT. |
 
 ---
 

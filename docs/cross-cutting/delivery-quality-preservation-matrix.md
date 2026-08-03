@@ -24,7 +24,7 @@ See also: [reliability-charter.md](./reliability-charter.md), [single-flow-renam
 |------------|------|--------------|-------------|-------------|--------------|----------------|-------|
 | audio_preclean | stage | pipeline.stage.audio_preclean; gui.preclean.* | integrity_only | no | no | — | Quality offer; never auto |
 | ingest | stage | pipeline.stage.ingest | integrity_only | no | no | — | Fingerprint / normalized.wav |
-| transcribe | stage | pipeline.stage.transcribe | integrity_only | no | no | — | AWS CLI STT |
+| transcribe | stage | pipeline.stage.transcribe | integrity_only | no | no | — | Local MLX STT |
 | transcript_review_build | stage | pipeline.stage.transcript_review_build | integrity_only | no | no | — | Builds G0 queue |
 | disfluency_extract | stage | pipeline.stage.disfluency_extract | removed | — | — | — | G0.5 cut |
 | source_acoustic_profile | stage | pipeline.stage.source_acoustic_profile | integrity_only | no | no | — | SAP for mix |

@@ -21,6 +21,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **Local audio** | DeepFilterNet + MMAudio in isolated ASSETS venvs — **`docs/cross-cutting/local-audio-stack.md`**. No cloud audio APIs. |
 | **LLM** | OpenAI artifacts via **`llm_simple.py`**; local MLX framer prep only (LX-01). Max 2 attempts per stage. |
 | **Secrets** | **`config/secrets/secrets.env`** only. |
+| **AWS (podcast)** | Infra via **Terraform** (`scripts/tf-*.sh` → `terraform/state/`). App S3/CF via **boto3** + secrets. Never AWS CLI / `aws login`. |
 | **Media** | Default **`./ASSETS/`** (gitignored). Runs under **`ASSETS/executions/`**. |
 | **Schemas** | Validate with **`prompt_validation`** + **`docs/cross-cutting/json-schemas/`**. |
 

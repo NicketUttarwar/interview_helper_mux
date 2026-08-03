@@ -44,7 +44,6 @@ from interview_mux.podcast_rss.s3_publish import (
 from interview_mux.podcast_rss.settings import (
     episode_prefix,
     podcast_cfg as _podcast_cfg,
-    resolve_publish_targets,
     s3_layout,
 )
 from interview_mux.run_context import RunContext
@@ -57,19 +56,50 @@ def _show_artwork_path() -> Path:
 
 
 def _copy_show_fallback(ctx: RunContext, dest: Path, *, reason: str) -> Path:
+    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
+
     src = _show_artwork_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_file():
-        shutil.copy2(src, dest)
-    else:
-        # Minimal 1x1 placeholder should not happen; raise for operator visibility
+    if not src.is_file():
         raise FileNotFoundError(f"Show artwork missing: {src}")
+    settings = resolve_cover_image_settings()
+    ensure_square_cover(
+        src,
+        min_size=int(settings.get("min_output_px") or 3000),
+        output_format=str(settings.get("output_format") or "jpeg"),
+        jpeg_quality=int(settings.get("jpeg_quality") or 90),
+        dest=dest,
+    )
     ctx.write_json(
         "publish/cover_meta.json",
         {"cover_source": "show_fallback", "reason": reason, "path": str(dest.name)},
     )
     return dest
 
+
+def _prepared_show_artwork_jpeg(ctx: RunContext | None = None) -> Path:
+    """Convert committed show PNG → 3000² JPEG for S3 show/artwork.jpg."""
+    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
+
+    src = _show_artwork_path()
+    if not src.is_file():
+        raise FileNotFoundError(f"Show artwork missing: {src}")
+    settings = resolve_cover_image_settings()
+    if ctx is not None:
+        dest = ctx.path("publish/show_artwork.jpg")
+    else:
+        dest = src.with_name("the-war-room-cover.prepared.jpg")
+        # Prefer ephemeral under ASSETS if available
+        assets = repo_root() / "ASSETS" / "podcast"
+        assets.mkdir(parents=True, exist_ok=True)
+        dest = assets / "show_artwork.jpg"
+    return ensure_square_cover(
+        src,
+        min_size=int(settings.get("min_output_px") or 3000),
+        output_format="jpeg",
+        jpeg_quality=int(settings.get("jpeg_quality") or 90),
+        dest=dest,
+    )
 
 def _probe_duration_seconds(path: Path) -> int:
     import json as _json
@@ -356,10 +386,14 @@ def run_podcast_encode_mp3(ctx: RunContext) -> None:
     if not master.is_file():
         raise FileNotFoundError("master/master.wav missing — run master_finalize first")
     bitrate = int(_podcast_cfg().get("mp3_bitrate_k") or 192)
+    channels = int(_podcast_cfg().get("mp3_channels") or 2)
     dest = ctx.path("publish/audio.mp3")
-    encode_master_to_mp3(master, dest, bitrate_k=bitrate)
+    encode_master_to_mp3(master, dest, bitrate_k=bitrate, channels=channels)
     shutil.copy2(master, ctx.path("publish/master.wav"))
-    ctx.log(f"Encoded podcast MP3 ({bitrate}k)", stage="podcast_encode_mp3")
+    ctx.log(
+        f"Encoded podcast MP3 ({bitrate}k, {channels}ch)",
+        stage="podcast_encode_mp3",
+    )
     ctx.mark_done("podcast_encode_mp3")
 
 
@@ -387,12 +421,13 @@ def _run_cover_candidate_batch(
     if dest_dir.is_dir():
         shutil.rmtree(dest_dir)
     paths = generate_cover_candidates(prompt=prompt, dest_dir=dest_dir, settings=settings)
-    # Also mirror flat 0..2 for stable paths
+    # Also mirror flat 0..n for stable paths
     flat = ctx.path("publish/cover_candidates")
     flat.mkdir(parents=True, exist_ok=True)
+    out_ext = ".jpg" if str(settings.get("output_format") or "jpeg").lower() in {"jpg", "jpeg"} else ".png"
     out: list[Path] = []
     for i, src in enumerate(paths):
-        dest = flat / f"{i}.png"
+        dest = flat / f"{i}{out_ext}"
         shutil.copy2(src, dest)
         out.append(dest)
     return out
@@ -417,7 +452,9 @@ def _all_hard_failed(pick: dict[str, Any], candidate_count: int) -> bool:
 
 def run_episode_cover_generate(ctx: RunContext) -> None:
     """OpenAI ×3 candidates + flagship vision pick (brilliance primary); fail-open show art."""
-    dest = ctx.path("publish/cover.png")
+    files = s3_layout().get("episode_files") or {}
+    cover_name = str(files.get("cover") or "cover.jpg")
+    dest = ctx.path(f"publish/{cover_name}")
     prompt_doc = (
         ctx.read_json("publish/cover_prompt.json")
         if ctx.artifact_exists("publish/cover_prompt.json")
@@ -435,7 +472,7 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
         return
 
     from interview_mux.podcast_rss.cover_vision import local_fallback_pick, pick_cover_winner
-    from interview_mux.podcast_rss.openai_cover import resolve_cover_image_settings
+    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
     settings = resolve_cover_image_settings()
     vp = _vision_pick_cfg()
@@ -494,16 +531,24 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
 
         winner_i = int(pick["winner_index"])
         winner_path = paths[winner_i]
-        shutil.copy2(winner_path, dest)
+        ensure_square_cover(
+            winner_path,
+            min_size=int(settings.get("min_output_px") or 3000),
+            output_format=str(settings.get("output_format") or "jpeg"),
+            jpeg_quality=int(settings.get("jpeg_quality") or 90),
+            dest=dest,
+        )
         ctx.write_json(
             "publish/cover_meta.json",
             {
                 "cover_source": "openai_generated",
-                "path": "cover.png",
+                "path": cover_name,
                 "provider": settings.get("provider") or "openai",
                 "model": settings.get("model"),
                 "size": settings.get("size"),
                 "quality": settings.get("quality"),
+                "min_output_px": settings.get("min_output_px"),
+                "output_format": settings.get("output_format") or "jpeg",
                 "candidate_count": len(paths),
                 "winner_index": winner_i,
                 "pick_model": pick.get("pick_model"),
@@ -518,27 +563,60 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
 
 
 def run_podcast_publish(ctx: RunContext) -> None:
+    from interview_mux.podcast_rss.chapters import build_timed_chapters
+    from interview_mux.podcast_rss.openai_cover import require_cover_min_size
+    from interview_mux.podcast_rss.settings import (
+        feed_url_from_base,
+        require_publish_ready,
+        show_artwork_s3_key,
+    )
+
     require_g_publish_clear(ctx, stage="podcast_publish")
-    targets = resolve_publish_targets()
+    layout = s3_layout()
+    files = layout["episode_files"]
+    catalog_prefix = layout["catalog_prefix"]
+
+    # Ensure cover.jpg exists (legacy cover.png → convert)
+    cover = ctx.path(f"publish/{files['cover']}")
+    if not cover.is_file():
+        legacy = ctx.path("publish/cover.png")
+        if legacy.is_file():
+            from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
+
+            settings = resolve_cover_image_settings()
+            ensure_square_cover(
+                legacy,
+                min_size=int(settings.get("min_output_px") or 3000),
+                output_format="jpeg",
+                jpeg_quality=int(settings.get("jpeg_quality") or 90),
+                dest=cover,
+            )
+        else:
+            _copy_show_fallback(ctx, cover, reason="missing_at_publish")
+
+    # Always write timed chapters + ensure master.wav present
+    chapters_doc = build_timed_chapters(ctx)
+    ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
+    master_pub = ctx.path(f"publish/{files['master']}")
+    if not master_pub.is_file():
+        master_src = ctx.path("master/master.wav")
+        if not master_src.is_file():
+            raise FileNotFoundError("master/master.wav missing — cannot publish archive copy")
+        shutil.copy2(master_src, master_pub)
+
+    targets = require_publish_ready(local_dir=ctx.path("publish"))
     bucket = targets["bucket"]
     dist_id = targets["distribution_id"]
     base = targets["feed_base_url"]
     region = targets["region"]
     project_name = targets["project_name"]
-    if not bucket or not dist_id or not base:
-        raise RuntimeError(
-            "Missing podcast.s3_bucket (app.defaults) and/or "
-            "PODCAST_CLOUDFRONT_DISTRIBUTION_ID / PODCAST_FEED_BASE_URL (secrets.env)"
-        )
-
-    layout = s3_layout()
-    files = layout["episode_files"]
-    catalog_prefix = layout["catalog_prefix"]
+    require_cover_min_size(cover, min_px=1400)
 
     meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     source_hash = str((run_meta or {}).get("source_audio_hash") or "")
     execution_id = str((run_meta or {}).get("execution_id") or ctx.run_id)
+    season = int(_podcast_cfg().get("season") or 1)
 
     sequence = get_json(bucket, f"{catalog_prefix}/sequence.json", region=region) or {
         "next_episode_number": 1
@@ -554,16 +632,8 @@ def run_podcast_publish(ctx: RunContext) -> None:
     prefix = episode_prefix(episode_number)
 
     mp3 = ctx.path(f"publish/{files['audio']}")
-    cover = ctx.path(f"publish/{files['cover']}")
-    if not mp3.is_file():
-        # Legacy local name during transition
-        mp3 = ctx.path("publish/audio.mp3")
     if not mp3.is_file():
         raise FileNotFoundError(f"publish/{files['audio']} missing")
-    if not cover.is_file():
-        cover = ctx.path("publish/cover.png")
-    if not cover.is_file():
-        _copy_show_fallback(ctx, cover, reason="missing_at_publish")
 
     duration = _probe_duration_seconds(mp3)
     published_at = datetime.now(timezone.utc).isoformat()
@@ -571,8 +641,10 @@ def run_podcast_publish(ctx: RunContext) -> None:
     enclosure_url = f"{base}/{prefix}/{files['audio']}"
     cover_url = f"{base}/{prefix}/{files['cover']}"
     description_url = f"{base}/{prefix}/{files['description']}"
+    chapters_url = f"{base}/{prefix}/{files['chapters']}"
     episode_doc = {
         "episode_number": episode_number,
+        "season": season,
         "title": title,
         "description": description,
         "guid": execution_id,
@@ -586,6 +658,8 @@ def run_podcast_publish(ctx: RunContext) -> None:
         "duration_seconds": duration,
         "cover_url": cover_url,
         "description_url": description_url,
+        "chapters_url": chapters_url,
+        "link": enclosure_url,
         "cover_source": (
             (ctx.read_json("publish/cover_meta.json") or {}).get("cover_source")
             if ctx.artifact_exists("publish/cover_meta.json")
@@ -594,13 +668,6 @@ def run_podcast_publish(ctx: RunContext) -> None:
     }
     ctx.write_json(f"publish/{files['meta']}", episode_doc)
     ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
-
-    # chapters optional
-    if ctx.artifact_exists("master/selection.json"):
-        sel = ctx.read_json("master/selection.json")
-        chapters = (sel or {}).get("chapters") if isinstance(sel, dict) else []
-        if chapters:
-            ctx.write_json(f"publish/{files['chapters']}", {"chapters": chapters})
 
     by_hash = record_publish(
         by_hash,
@@ -625,14 +692,16 @@ def run_podcast_publish(ctx: RunContext) -> None:
     existing = list_episode_metas(bucket, region=region)
     existing = [e for e in existing if str(e.get("guid")) != execution_id]
     feed_episodes = [episode_doc] + existing
+    art_key = show_artwork_s3_key()
     feed_xml = build_feed_xml(
         channel=channel,
-        feed_url=f"{base}/{layout['feed_key']}",
-        show_artwork_url=f"{base}/{layout['show_prefix']}/artwork.png",
+        feed_url=feed_url_from_base(base),
+        show_artwork_url=f"{base}/{art_key}",
         episodes=feed_episodes,
     )
     ctx.path("publish/feed.xml").write_text(feed_xml, encoding="utf-8")
 
+    show_art = _prepared_show_artwork_jpeg(ctx)
     result = publish_episode_package(
         bucket=bucket,
         feed_base_url=base,
@@ -644,7 +713,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
         sequence=sequence,
         by_source_hash=by_hash,
         by_execution_id=by_execution,
-        show_artwork=_show_artwork_path(),
+        show_artwork=show_art,
         region=region,
         project_name=project_name,
     )

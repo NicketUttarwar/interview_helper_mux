@@ -16,7 +16,7 @@ The delivery chain already handles mix mechanics well: crossfades, ducking, meas
 
 | Modality | Input → output | In repo today |
 |----------|----------------|---------------|
-| STT | audio → text | AWS CLI `transcribe` / local speech |
+| STT | audio → text | Local MLX speech (`ASSETS/local_speech`) |
 | TTS / clone synthesis | text + reference → new VO | Chatterbox + mlx-audio fail-open |
 | **DSP timbre match** | operator take + reference → matched take | **Shipped** — `timbre_match.match_vo_take` → `vo_pickup/matched/` |
 | **S2S / ML voice conversion** | audio + reference → identity-transformed audio | Not present (R&D) |
@@ -43,7 +43,7 @@ That architecture is appropriate for **open-ended speech assistants** (listen �
 | Cascade stage | Repo equivalent | Implication for gap VO |
 |---------------|-----------------|------------------------|
 | Silero VAD | Segment boundaries + `targets_segment_id` in `gap_report` | Boundaries are known; no VAD on pickup needed for synthesis |
-| Whisper-MLX STT | AWS CLI `transcribe` + **G0 transcript review** | Word truth is fixed before analysis; re-STT adds error surface |
+| Whisper-MLX STT | Local STT + **G0 transcript review** | Word truth is fixed before analysis; re-STT adds error surface |
 | Llama-3-8B LLM | Cloud `optimal_questions` / `missing_framing` (flagship LLM) | Gap **text** already in `gap_report.json` — local LLM would rewrite authoritative copy |
 | Kokoro-82M TTS | *(not shipped)* | Only the last hop is needed for audio — and it is the weakest link for **host matching** |
 

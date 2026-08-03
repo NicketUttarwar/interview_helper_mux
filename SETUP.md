@@ -9,14 +9,14 @@ cp config/templates/secrets.env.example config/secrets/secrets.env   # OPENAI_AP
 ./scripts/run.sh   # http://127.0.0.1:8765
 ```
 
-**Podcast RSS (Terraform)** — bucket/layout in `config/app.defaults.json` (`podcast`); AWS creds + CF/feed in `secrets.env`:
+**Podcast RSS (Terraform + boto3)** — bucket/layout in `config/app.defaults.json` (`podcast`); AWS creds + CF/feed in `secrets.env`. Infra via `scripts/tf-*.sh` (updates `terraform/state/`). App publish uses boto3 — **no AWS CLI / `aws login`**:
 
 ```bash
 # AWS_* + OPENAI in config/secrets/secrets.env; confirm podcast.s3_bucket in app.defaults
 ./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
 python scripts/seed_podcast_origin.py
-./scripts/bootstrap_venv.sh   # if .venv missing
 ./scripts/run.sh
+# Optional recovery: ./scripts/invalidate_podcast_cf.sh
 ```
 
 **North star:** [NORTH_STAR.md](NORTH_STAR.md) · RSS: [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md)

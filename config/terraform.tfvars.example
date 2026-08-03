@@ -5,11 +5,14 @@
 # (committed app config is the runtime source of truth for the bucket name).
 # Terraform state remains the infra inventory; secrets.env holds only AWS creds
 # + derived CloudFront ID / feed base URL.
+#
+# Migrating the bucket name updates the CloudFront origin but keeps the same
+# distribution domain (feed URL stays stable).
 
 project_name   = "the_war_room_001"
 show_title     = "The War Room"
 environment    = "prod"
-s3_bucket_name = "the-war-room-001-rss-374784"
+s3_bucket_name = "the-war-room-rss-001"
 
-# cloudfront_price_class = "PriceClass_100"
+cloudfront_price_class = "PriceClass_200"
 # common_tags = { Owner = "you" }

@@ -36,7 +36,7 @@ When transcript QC fails (no speakers, broken timestamps):
 python tools/run_analysis.py --from-stage transcribe
 ```
 
-Check AWS S3 upload and `aws transcribe` job status in logs.
+Check local STT logs under the run (`transcript/`) and `ASSETS/local_speech` runtime health — cloud `aws transcribe` / S3 upload for STT were removed.
 
 ## Word-level STT fixes (G0 dock)
 

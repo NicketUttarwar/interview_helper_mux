@@ -14,21 +14,24 @@ from interview_mux.podcast_rss.cover_prompt import cover_image_cfg
 
 logger = logging.getLogger(__name__)
 
-# Context7 pin (developers.openai.com Images API, 2026-08):
-# - Generations models: gpt-image-1, gpt-image-1.5, gpt-image-1-mini (non-mini flagship: gpt-image-1)
+# Context7 pin (developers.openai.com Images API):
+# - Generations models: gpt-image-1, gpt-image-1.5, gpt-image-1-mini
 # - quality: low | medium | high | auto — we lock high
-# - size: square practical default 1024x1024; upscale to min_output_px locally
-# - n: try n=candidate_count; fall back to sequential calls if unsupported
-# - edits + input_fidelity: low|high on gpt-image-1 family (not gpt-image-2)
+# - size: square 1024x1024 then LANCZOS upscale to min_output_px (Apple max preferred: 3000)
+# - output: JPEG for Apple/Spotify feed objects
 DEFAULT_COVER_IMAGE = {
     "provider": "openai",
     "model": "gpt-image-1",
     "size": "1024x1024",
     "quality": "high",
     "candidate_count": 3,
-    "min_output_px": 1400,
+    "min_output_px": 3000,
+    "output_format": "jpeg",
+    "jpeg_quality": 90,
     "prompt_max_chars": 32000,
 }
+
+APPLE_MIN_COVER_PX = 1400
 
 
 def _client() -> OpenAI:
@@ -48,23 +51,80 @@ def _decode_b64_to_path(b64: str, dest: Path) -> Path:
     return dest
 
 
-def ensure_square_min(path: Path, *, min_size: int) -> None:
+def ensure_square_cover(
+    path: Path,
+    *,
+    min_size: int,
+    output_format: str = "jpeg",
+    jpeg_quality: int = 90,
+    dest: Path | None = None,
+) -> Path:
+    """Crop square, upscale to min_size, save as JPEG (default) or PNG."""
+    out_path = dest or path
+    fmt = (output_format or "jpeg").lower()
+    if fmt in {"jpg", "jpeg"}:
+        if out_path.suffix.lower() not in {".jpg", ".jpeg"}:
+            out_path = out_path.with_suffix(".jpg")
+        save_format = "JPEG"
+    else:
+        if out_path.suffix.lower() != ".png":
+            out_path = out_path.with_suffix(".png")
+        save_format = "PNG"
+
     try:
         from PIL import Image
-
-        with Image.open(path) as im:
-            w, h = im.size
-            if w != h:
-                side = min(w, h)
-                left = (w - side) // 2
-                top = (h - side) // 2
-                im = im.crop((left, top, left + side, top + side))
-                w = h = side
-            if w < min_size:
-                im = im.resize((min_size, min_size), Image.Resampling.LANCZOS)
-            im.save(path, format="PNG")
     except ImportError:
         logger.warning("Pillow missing — skip cover upscale for %s", path)
+        if dest and dest != path and path.is_file():
+            dest.write_bytes(path.read_bytes())
+            return dest
+        return path
+
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        if w != h:
+            side = min(w, h)
+            left = (w - side) // 2
+            top = (h - side) // 2
+            im = im.crop((left, top, left + side, top + side))
+            w = h = side
+        target = max(int(min_size), APPLE_MIN_COVER_PX)
+        if w != target:
+            im = im.resize((target, target), Image.Resampling.LANCZOS)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if save_format == "JPEG":
+            q = max(60, min(95, int(jpeg_quality)))
+            im.save(out_path, format="JPEG", quality=q, optimize=True)
+        else:
+            im.save(out_path, format="PNG")
+    # Remove stale other-extension sibling when converting in place conceptually
+    if dest is None and path != out_path and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return out_path
+
+
+# Back-compat alias used by older call sites / tests
+def ensure_square_min(path: Path, *, min_size: int) -> None:
+    ensure_square_cover(path, min_size=min_size, output_format="png")
+
+
+def cover_dimensions(path: Path) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(path) as im:
+        return im.size
+
+
+def require_cover_min_size(path: Path, *, min_px: int = APPLE_MIN_COVER_PX) -> None:
+    w, h = cover_dimensions(path)
+    if w < min_px or h < min_px:
+        raise RuntimeError(
+            f"Cover art {path.name} is {w}x{h}; need at least {min_px}x{min_px} (Apple minimum)"
+        )
 
 
 def _style_ref_path(settings: dict[str, Any]) -> Path | None:
@@ -96,6 +156,9 @@ def _generate_one(
     ref = settings.get("style_reference") if isinstance(settings.get("style_reference"), dict) else {}
     use_edits = bool(style_path) and str(ref.get("mode") or "edits") == "edits"
 
+    # Generate to a temp PNG path then finalize to JPEG dest
+    raw_dest = dest.with_suffix(".png") if dest.suffix.lower() in {".jpg", ".jpeg"} else dest
+
     if use_edits and style_path is not None:
         kwargs: dict[str, Any] = {
             "model": model,
@@ -107,7 +170,6 @@ def _generate_one(
             ),
         }
         fidelity = str(ref.get("input_fidelity") or "low")
-        # gpt-image-1 family supports input_fidelity; ignore failures below.
         try:
             kwargs["input_fidelity"] = fidelity
             result = client.images.edit(**kwargs)
@@ -139,11 +201,25 @@ def _generate_one(
         raise RuntimeError("OpenAI Images returned no data")
     b64 = getattr(data[0], "b64_json", None)
     if not b64:
-        # URL-only responses — fetch not implemented; require b64
         raise RuntimeError("OpenAI Images response missing b64_json")
-    _decode_b64_to_path(b64, dest)
-    ensure_square_min(dest, min_size=int(settings.get("min_output_px") or 1400))
-    return dest
+    _decode_b64_to_path(b64, raw_dest)
+    finalized = ensure_square_cover(
+        raw_dest,
+        min_size=int(settings.get("min_output_px") or 3000),
+        output_format=str(settings.get("output_format") or "jpeg"),
+        jpeg_quality=int(settings.get("jpeg_quality") or 90),
+        dest=dest if dest.suffix.lower() in {".jpg", ".jpeg"} else None,
+    )
+    if finalized != dest and dest.suffix.lower() in {".jpg", ".jpeg"}:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(finalized.read_bytes())
+        if finalized.is_file() and finalized.resolve() != dest.resolve():
+            try:
+                finalized.unlink()
+            except OSError:
+                pass
+        return dest
+    return finalized
 
 
 def generate_cover_candidates(
@@ -165,6 +241,7 @@ def generate_cover_candidates(
     style_path = _style_ref_path(settings)
     ref = settings.get("style_reference") if isinstance(settings.get("style_reference"), dict) else {}
     use_edits = bool(style_path) and str(ref.get("mode") or "edits") == "edits"
+    out_ext = ".jpg" if str(settings.get("output_format") or "jpeg").lower() in {"jpg", "jpeg"} else ".png"
 
     paths: list[Path] = []
 
@@ -183,17 +260,23 @@ def generate_cover_candidates(
                     b64 = getattr(data[i], "b64_json", None)
                     if not b64:
                         raise RuntimeError(f"candidate {i} missing b64_json")
-                    dest = dest_dir / f"{i}.png"
-                    _decode_b64_to_path(b64, dest)
-                    ensure_square_min(dest, min_size=int(settings.get("min_output_px") or 1400))
-                    paths.append(dest)
+                    raw = dest_dir / f"{i}.png"
+                    _decode_b64_to_path(b64, raw)
+                    finalized = ensure_square_cover(
+                        raw,
+                        min_size=int(settings.get("min_output_px") or 3000),
+                        output_format=str(settings.get("output_format") or "jpeg"),
+                        jpeg_quality=int(settings.get("jpeg_quality") or 90),
+                        dest=dest_dir / f"{i}{out_ext}",
+                    )
+                    paths.append(finalized)
                 return paths
         except Exception as exc:
             logger.info("images.generate n=%s unavailable (%s); sequential calls", n, exc)
 
-    # Sequential (edits path always sequential; also diversity seeds when n unsupported)
     for i in range(n):
-        dest = dest_dir / f"{i}.png"
-        _generate_one(client, prompt=prompt, settings=settings, dest=dest, seed=1000 + i)
-        paths.append(dest)
+        dest = dest_dir / f"{i}{out_ext}"
+        paths.append(
+            _generate_one(client, prompt=prompt, settings=settings, dest=dest, seed=1000 + i)
+        )
     return paths

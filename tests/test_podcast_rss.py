@@ -85,13 +85,19 @@ def test_feed_xml_contains_itunes_and_enclosure():
             "show_title": "The War Room",
             "show_author": "Nicket Uttarwar",
             "show_email": "contact.nicketuttarwar@gmail.com",
+            "show_website": "https://nicketuttarwar.com/",
             "category": "Business",
+            "subcategory": "Entrepreneurship",
+            "show_type": "episodic",
+            "season": 1,
+            "podcast_guid": "62b2d127-c0c7-5c4f-bc0e-a309f2e6de01",
+            "show_subtitle": "Business interviews",
         }
     )
     xml = build_feed_xml(
         channel=channel,
         feed_url="https://d111.cloudfront.net/feed.xml",
-        show_artwork_url="https://d111.cloudfront.net/show/artwork.png",
+        show_artwork_url="https://d111.cloudfront.net/show/artwork.jpg",
         episodes=[
             {
                 "title": "Ep One",
@@ -101,7 +107,11 @@ def test_feed_xml_contains_itunes_and_enclosure():
                 "enclosure_url": "https://d111.cloudfront.net/episodes/0001/audio.mp3",
                 "enclosure_length": 1234,
                 "duration_seconds": 125,
-                "cover_url": "https://d111.cloudfront.net/episodes/0001/cover.png",
+                "cover_url": "https://d111.cloudfront.net/episodes/0001/cover.jpg",
+                "episode_number": 1,
+                "season": 1,
+                "chapters_url": "https://d111.cloudfront.net/episodes/0001/chapters.json",
+                "link": "https://d111.cloudfront.net/episodes/0001/audio.mp3",
             }
         ],
     )
@@ -109,12 +119,21 @@ def test_feed_xml_contains_itunes_and_enclosure():
     assert 'type="audio/mpeg"' in xml
     assert "itunes:category" in xml
     assert "Business" in xml
+    assert "Entrepreneurship" in xml
+    assert "<itunes:type>episodic</itunes:type>" in xml
+    assert "<itunes:episode>1</itunes:episode>" in xml
+    assert "<itunes:season>1</itunes:season>" in xml
+    assert "podcast:guid" in xml
+    assert "podcast:chapters" in xml
+    assert "nicketuttarwar.com" in xml
+    assert "content:encoded" in xml
     assert "exec_1" in xml
 
 
 def test_content_types():
     assert content_type_for_key("feed.xml") == "application/rss+xml"
     assert content_type_for_key("episodes/0001/audio.mp3") == "audio/mpeg"
+    assert content_type_for_key("episodes/0001/cover.jpg") == "image/jpeg"
     assert content_type_for_key("episodes/0001/cover.png") == "image/png"
     assert content_type_for_key("episodes/0001/description.txt") == "text/plain; charset=utf-8"
     assert "max-age=0" in cache_control_for_key("feed.xml")
@@ -193,6 +212,41 @@ def test_openai_cover_settings_pin():
     assert s["model"] == "gpt-image-1"
     assert s["quality"] == "high"
     assert int(s["candidate_count"]) == 3
+    assert int(s["min_output_px"]) == 3000
+    assert str(s.get("output_format") or "").lower() in {"jpeg", "jpg"}
+
+
+def test_timed_chapters_from_edl(tmp_path: Path):
+    from interview_mux.podcast_rss.chapters import build_timed_chapters
+
+    class _Ctx:
+        def __init__(self):
+            self._data = {
+                "master/edl.json": {
+                    "clips": [
+                        {"type": "speech", "segment_id": "s1", "timeline_start_ms": 0},
+                        {"type": "speech", "segment_id": "s2", "timeline_start_ms": 125000},
+                    ]
+                },
+                "master/selection.json": {
+                    "chapters": [
+                        {"title": "Open", "segment_ids": ["s1"]},
+                        {"title": "Turn", "anchor_segment_id": "s2"},
+                    ]
+                },
+            }
+
+        def artifact_exists(self, rel: str) -> bool:
+            return rel in self._data
+
+        def read_json(self, rel: str):
+            return self._data[rel]
+
+    doc = build_timed_chapters(_Ctx())
+    assert doc["version"] == "1.2.0"
+    assert doc["chapters"][0]["startTime"] == 0
+    assert doc["chapters"][1]["startTime"] == 125.0
+    assert doc["chapters"][1]["title"] == "Turn"
 
 
 def test_generate_cover_candidates_n3_mock(tmp_path: Path):
@@ -210,17 +264,25 @@ def test_generate_cover_candidates_n3_mock(tmp_path: Path):
     client = MagicMock()
     client.images.generate.return_value = _Result()
 
+    def _fake_square(path: Path, *, min_size: int, output_format: str = "jpeg", jpeg_quality: int = 90, dest: Path | None = None):
+        out = dest or path.with_suffix(".jpg")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"fake-jpeg")
+        return out
+
     settings = {
         "model": "gpt-image-1",
         "size": "1024x1024",
         "quality": "high",
         "candidate_count": 3,
         "min_output_px": 64,
+        "output_format": "jpeg",
+        "jpeg_quality": 85,
         "style_reference": {"enabled": False},
     }
     with (
         patch("interview_mux.podcast_rss.openai_cover._client", return_value=client),
-        patch("interview_mux.podcast_rss.openai_cover.ensure_square_min"),
+        patch("interview_mux.podcast_rss.openai_cover.ensure_square_cover", side_effect=_fake_square),
     ):
         paths = generate_cover_candidates(
             prompt="test prompt cerulean crimson without letters",
@@ -229,6 +291,7 @@ def test_generate_cover_candidates_n3_mock(tmp_path: Path):
         )
     assert len(paths) == 3
     assert all(p.is_file() for p in paths)
+    assert all(p.suffix.lower() in {".jpg", ".jpeg"} for p in paths)
     client.images.generate.assert_called()
     call_kw = client.images.generate.call_args.kwargs
     assert call_kw.get("n") == 3

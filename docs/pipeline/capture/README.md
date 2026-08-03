@@ -1,6 +1,6 @@
 # Capture
 
-No pinned runtime beyond operator recording setup. Downstream stages use [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) (`ffmpeg`, AWS CLI, OpenAI, local MMAudio).
+No pinned runtime beyond operator recording setup. Downstream stages use [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) (`ffmpeg`, OpenAI, local MMAudio; optional Terraform + boto3 for RSS).
 
 Operator provides raw interview audio before any automated stage.
 

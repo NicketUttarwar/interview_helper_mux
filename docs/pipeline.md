@@ -1,6 +1,6 @@
 # Pipeline — three output flows
 
-**Toolchain:** Pinned Python packages, `ffmpeg`/`aws` CLI, and HTTP API paths — [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Implementers use **Context7** at those exact versions.
+**Toolchain:** Pinned Python packages, `ffmpeg`/`ffprobe`, OpenAI SDK, optional Terraform + boto3 for podcast RSS — [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Implementers use **Context7** at those exact versions. AWS infra is **Terraform-only** ([podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md)); never assume AWS CLI.
 
 One source interview session produces **three possible deliverables** (operator chooses after shared analysis). Early stages are shared; selection, publishing, and assembly diverge after **gate G2**.
 

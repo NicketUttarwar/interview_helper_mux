@@ -195,7 +195,7 @@ terraform_common_source_aws_env() {
       tf_log "AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}"
     fi
   else
-    tf_log "No config/secrets/secrets.env — using existing shell environment / instance role / SSO (if any)"
+    tf_log "No config/secrets/secrets.env — using existing process environment / instance role credentials (if any). Prefer secrets.env for AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (or AWS_PROFILE). Do not rely on aws login / AWS CLI."
   fi
   _TF_COMMON_AWS_ENV_SOURCED=1
 }

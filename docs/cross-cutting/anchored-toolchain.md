@@ -4,7 +4,7 @@
 **Scope:** Python runtime, pip packages, system binaries, external HTTP API surfaces, and optional research libraries.  
 **Not in scope:** Operator secrets, per-account OpenAI model availability, or removed cloud audio APIs (ElevenLabs removed; SFX is local MMAudio).
 
-**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt`, **`requirements.lock`**, `pip-audit` in `check_prerequisites.sh`)
+**Related:** [model-routing.md](./model-routing.md) (OpenAI model IDs) · [config-keys.md](./config-keys.md) · [smoke-test.md](../workflows/smoke-test.md) · BUILD-010 (`pyproject.toml`, `requirements.txt`, **`requirements.lock`**, `pip-audit` in `check_prerequisites.sh`) · [podcast-rss-hosting.md](./podcast-rss-hosting.md) (Terraform AWS)
 
 ---
 
@@ -16,8 +16,8 @@
 | **No drift in prose** | Docs list versions **only** in this file (or link here). Stage READMEs say *which* tool, not *which version*. |
 | **Vulnerability gate** | `./tools/check_prerequisites.sh` runs **`pip-audit`** against `requirements.lock` (and fails on known CVEs at or above configured severity). Re-run after any lock refresh. |
 | **Context7 for code** | Agents implementing or changing Python that calls third-party APIs/libraries **must** resolve docs via **Context7** using the **exact** package version from `requirements.lock` (see [Context7](#context7-for-implementers)). |
-| **AWS** | Application code uses **`aws` CLI subprocess only** — no boto3. Pin CLI major in docs; operators verify with `aws --version`. |
-| **Local audio** | SFX via **MMAudio** subprocess (`mmaudio_runner`); preclean via **DeepFilterNet** — no cloud audio REST in pipeline stages. |
+| **AWS** | **Terraform owns infra** (`terraform/` + committed `terraform/state/terraform.tfstate` via `scripts/tf-*.sh`). App publish/seed/invalidate uses **boto3** with credentials from `config/secrets/secrets.env`. **Never** require AWS CLI, `aws login`, or `aws configure` for operators. |
+| **Local audio** | SFX via **MMAudio** subprocess (`mmaudio_runner`); preclean via **DeepFilterNet** — no cloud audio REST in pipeline stages. STT is local MLX (`ASSETS/local_speech`), not cloud Transcribe. |
 
 When you change a pinned version, update **`requirements.lock`**, this doc’s `last_verified` date, and any Context7 library queries in the same PR.
 
@@ -28,10 +28,22 @@ When you change a pinned version, update **`requirements.lock`**, this doc’s `
 ```bash
 ./scripts/bootstrap_venv.sh    # creates .venv, installs from requirements.lock
 source .venv/bin/activate
-./tools/check_prerequisites.sh # ffmpeg, ffprobe, aws, Python, pip-audit, import smoke
+./tools/check_prerequisites.sh # ffmpeg, ffprobe, Python, pip-audit, import smoke
 ```
 
 `scripts/run.sh` must use the same lock install path (no unpinned `pip install -U` of app deps).
+
+### AWS / podcast hosting (optional Ship)
+
+```bash
+# Credentials in config/secrets/secrets.env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or AWS_PROFILE)
+# — no aws login / AWS CLI required
+./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh   # updates terraform/state/
+python scripts/seed_podcast_origin.py                                  # boto3 PutObject + invalidate
+./scripts/invalidate_podcast_cf.sh                                     # boto3 CreateInvalidation
+```
+
+See [podcast-rss-hosting.md](./podcast-rss-hosting.md).
 
 ### Vulnerability audit (setup gate)
 
@@ -61,7 +73,7 @@ Optional CI: same command on every PR that touches `requirements.txt` or `requir
 
 ## Python packages (application)
 
-Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.lock` at repo root. Table below mirrors lock as of **`last_verified: 2026-06-18`** — if lock and table disagree, **lock wins**.
+Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.lock` at repo root. Table below mirrors lock as of **`last_verified: 2026-08-03`** — if lock and table disagree, **lock wins**.
 
 | Package | Version | Purpose |
 |---------|---------|---------|
@@ -70,7 +82,7 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 | `uvicorn[standard]` | 0.47.0 | ASGI server for `serve` |
 | `starlette` | 1.3.1 | (transitive) ASGI stack |
 | `pydantic` | 2.13.4 | Request/response models |
-| `openai` | 2.38.0 | Chat Completions (`llm_runner.py`) |
+| `openai` | 2.38.0 | Chat Completions (`llm_runner.py`) + Images (covers) |
 | `typer` | 0.25.1 | CLI |
 | `rich` | 13.9.4 | CLI output |
 | `jsonschema` | 4.26.0 | Artifact validation (`prompt_validation.py`) |
@@ -80,6 +92,8 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 | `pyloudnorm` | 0.2.0 | Mastering-bus LUFS (BUILD-071); QA uses ffmpeg `loudnorm` (BUILD-070) |
 | `pydub` | 0.25.1 | Mix engine (`mix`, `REMOVED_mix_flow2` — BUILD-065, shipped) |
 | `soundfile` | 0.13.1 | WAV I/O helpers |
+| `boto3` | ≥1.35,&lt;2 (lock wins) | Podcast S3 PutObject + CloudFront invalidation (`podcast_rss/s3_publish.py`) |
+| `Pillow` | ≥10,&lt;12 (lock wins) | Cover JPEG 3000² upscale / dimension gates |
 | `ffmpeg-python` | 0.2.0 | Optional Python-side ffmpeg wrappers (prefer subprocess) |
 
 **Dev / QA only** (not required in production path):
@@ -93,8 +107,8 @@ Direct dependencies for `interview_mux`. **Authoritative pins:** `requirements.l
 
 | Package | Reason |
 |---------|--------|
-| `boto3`, `botocore` | AWS via CLI only |
 | `elevenlabs` (SDK) | Removed — was ElevenLabs REST; use local MMAudio |
+| AWS CLI as a required tool | Infra via Terraform; app AWS via boto3 + `secrets.env` |
 
 ---
 
@@ -104,11 +118,11 @@ Pin **minimum** versions; operators may run newer patch releases if `check_prere
 
 | Binary | Anchored minimum | Verified example | Used by |
 |--------|------------------|------------------|---------|
-| **ffmpeg** | **8.0** | 8.1.1 | ingest, assembly, transcript clips, MMAudio resample |
+| **ffmpeg** | **8.0** | 8.1.1 | ingest, assembly, transcript clips, MMAudio resample, podcast MP3 |
 | **ffprobe** | **8.0** (ships with ffmpeg) | 8.1.1 | `verify_master.py`, probing |
-| **aws** CLI | **2.30** | 2.34.18 | Transcribe, S3 upload/download |
+| **terraform** | **~> 1.14.7** | 1.14.7 | Podcast RSS stack (`scripts/tf-*.sh`) — optional until you publish |
 
-Install on macOS (example): `brew install ffmpeg awscli` — then confirm versions against this table.
+Install on macOS (example): `brew install ffmpeg` — then confirm versions against this table. Terraform: use `tfenv` / vendor install matching `terraform/versions.tf`. **Do not** install AWS CLI for this repo’s pipeline or publish path.
 
 ---
 
@@ -116,9 +130,10 @@ Install on macOS (example): `brew install ffmpeg awscli` — then confirm versio
 
 | Service | Anchored surface | Client in repo |
 |---------|------------------|----------------|
-| **OpenAI** | Chat Completions; model IDs in [model-routing.md](./model-routing.md#model-tier-registry) | `openai` SDK → `llm_runner.py` |
+| **OpenAI** | Chat Completions + Images; model IDs in [model-routing.md](./model-routing.md#model-tier-registry) | `openai` SDK → `llm_runner.py` / `podcast_rss/openai_cover.py` |
+| **AWS S3 / CloudFront** | PutObject + CreateInvalidation for podcast origin | `boto3` → `podcast_rss/s3_publish.py` (creds from `secrets.env`) |
 
-Local MMAudio and DeepFilterNet run as subprocesses in isolated venvs — see [local-audio-stack.md](./local-audio-stack.md). No ElevenLabs HTTP surface.
+Local MMAudio and DeepFilterNet run as subprocesses in isolated venvs — see [local-audio-stack.md](./local-audio-stack.md). No ElevenLabs HTTP surface. No Amazon Transcribe.
 
 ---
 
@@ -154,11 +169,12 @@ When generating or editing **Python** (or shell that calls library CLIs), use th
 |------|---------|--------------|
 | Web API | `fastapi` | 0.136.3 |
 | Server | `uvicorn` | 0.47.0 |
-| LLM | `openai` | 2.38.0 |
+| LLM / Images | `openai` | 2.38.0 |
 | Validation | `jsonschema` | 4.26.0 |
 | CLI | `typer` | 0.25.1 |
+| Podcast AWS SDK | `boto3` | from `requirements.lock` |
 
-For **ffmpeg** and **aws** CLI, use Context7 or vendor CLI reference for the **anchored major** in [System binaries](#system-binaries).
+For **ffmpeg**, use Context7 or vendor CLI reference for the **anchored major** in [System binaries](#system-binaries). For **Terraform / AWS provider**, use HashiCorp + AWS provider docs for the versions in `terraform/versions.tf` — not AWS CLI.
 
 ---
 
@@ -178,5 +194,6 @@ Any `docs/**/*.md` file that names a third-party product for **implementation** 
 
 1. Link to this file for versions: `[anchored-toolchain.md](./anchored-toolchain.md)` (adjust relative path), and  
 2. Avoid embedding floating ranges (`pip install foo>=1`) in prose — point to lock refresh process instead.
+3. For AWS hosting, link [podcast-rss-hosting.md](./podcast-rss-hosting.md) and describe **Terraform + state**, never AWS CLI as the operator path.
 
 Hub pages: [INDEX.md](../INDEX.md), [README.md](../README.md), [prompts/README.md](../prompts/README.md).
