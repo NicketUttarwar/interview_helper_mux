@@ -35,14 +35,28 @@ def min_density_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "min_audible_bed_level_db",
         "max_audible_bed_level_db",
         "min_audible_stinger_level_db",
+        "min_audible_cold_open_level_db",
+        "max_audible_cold_open_level_db",
+        "min_audible_emphasis_level_db",
+        "max_audible_emphasis_level_db",
     ):
         if creative.get(key) is not None:
             merged[key] = creative[key]
+    # Production profile can override bed/bookend audibility bands.
+    try:
+        from interview_mux.production_profile import get_profile
+
+        profile = get_profile()
+        ov = profile.get("soundscape_min_density_overrides")
+        if isinstance(ov, dict):
+            merged.update({k: v for k, v in ov.items() if v is not None})
+    except Exception:
+        pass
     return merged
 
 
 def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    """Speech-first mix: felt-not-heard beds and hard duck under dialogue."""
+    """Speech-first mix: audible beds under dialogue with hard duck; bookends hotter."""
     if not creative_delivery_required():
         return contract
     out = dict(contract)
@@ -50,19 +64,12 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
     if underscore in {"skip", "sparse_or_skip", "sparse"}:
         out["underscore_policy"] = "normal"
     mins = min_density_cfg()
-    quiet_lo = float(mins.get("min_audible_bed_level_db", -28.0))
-    quiet_hi = float(mins.get("max_audible_bed_level_db", -26.0))
+    quiet_lo = float(mins.get("min_audible_bed_level_db", -24.0))
+    quiet_hi = float(mins.get("max_audible_bed_level_db", -20.0))
     if quiet_lo > quiet_hi:
         quiet_lo, quiet_hi = quiet_hi, quiet_lo
-    bed_range = out.get("bed_level_db_range")
-    if isinstance(bed_range, list) and len(bed_range) == 2:
-        lo, hi = float(bed_range[0]), float(bed_range[1])
-        # Clamp into felt-not-heard band (−30…−26 typical).
-        out["bed_level_db_range"] = [min(lo, quiet_lo), min(hi, quiet_hi)]
-        if out["bed_level_db_range"][0] > out["bed_level_db_range"][1]:
-            out["bed_level_db_range"] = [quiet_lo, quiet_hi]
-    else:
-        out["bed_level_db_range"] = [quiet_lo, quiet_hi]
+    # Force beds into the configured audible band (raised vs legacy −28…−26).
+    out["bed_level_db_range"] = [quiet_lo, quiet_hi]
     duck = float(out.get("duck_under_speech_db") or 16.0)
     # Harder duck so conversation stays on top (plan: ≥18).
     out["duck_under_speech_db"] = max(duck, 18.0)
@@ -258,17 +265,31 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
 
 
 def audibility_level_db(*, role: str, default: float) -> float:
-    """Clamp mix levels: beds stay felt-not-heard; stingers remain audible."""
+    """Clamp mix levels: beds audible under dialogue; speech-free roles hotter."""
     if not creative_delivery_required():
         return default
     mins = min_density_cfg()
-    if role == "bed":
-        lo = float(mins.get("min_audible_bed_level_db", -28.0))
-        hi = float(mins.get("max_audible_bed_level_db", -26.0))
+    role_s = str(role or "")
+    if role_s == "bed" or role_s == "theme_underscore":
+        lo = float(mins.get("min_audible_bed_level_db", -24.0))
+        hi = float(mins.get("max_audible_bed_level_db", -20.0))
         if lo > hi:
             lo, hi = hi, lo
         return max(lo, min(hi, float(default)))
-    return max(default, float(mins.get("min_audible_stinger_level_db", -18.0)))
+    if role_s in {"theme_cold_open", "theme_outro", "cold_open"}:
+        lo = float(mins.get("min_audible_cold_open_level_db", -12.0))
+        hi = float(mins.get("max_audible_cold_open_level_db", -8.0))
+        if lo > hi:
+            lo, hi = hi, lo
+        return max(lo, min(hi, max(float(default), lo)))
+    if role_s in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}:
+        lo = float(mins.get("min_audible_emphasis_level_db", -16.0))
+        hi = float(mins.get("max_audible_emphasis_level_db", -12.0))
+        if lo > hi:
+            lo, hi = hi, lo
+        return max(lo, min(hi, max(float(default), lo)))
+    # Generic stinger floor
+    return max(default, float(mins.get("min_audible_stinger_level_db", -16.0)))
 
 
 def enforce_creative_selection_edit(

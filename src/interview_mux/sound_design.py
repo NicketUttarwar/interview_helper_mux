@@ -88,9 +88,12 @@ def _update_segment_timing(
 
 def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     """Build Flow 1 assembly: EDL speech + VO timeline with SDP overlays."""
+    from interview_mux.music_listen_review import require_music_listen_for_mix
     from interview_mux.placement_qa import maybe_run_placement_qa
     from interview_mux.soundscape_policy import soundscape_enabled
     from interview_mux.soundscape_verify import run_soundscape_verify
+
+    require_music_listen_for_mix(ctx)
 
     with logged_step("mix/placement_qa", ctx=ctx, stage="mix"):
         maybe_run_placement_qa(ctx)
@@ -589,11 +592,11 @@ def flow1_overlays_from_sdp(
         if placement == "under_segment" or asset_role_early in THEME_BED_ROLES:
             level_db = audibility_level_db(role="bed", default=level_db)
         elif is_theme_role(asset_role_early) or asset_role_early in THEME_PUNCTUATOR_ROLES:
-            # Cold open / resolve / emphasis slightly hotter than beds.
-            if asset_role_early in {"theme_cold_open", "theme_chapter_resolve", "theme_outro"}:
-                level_db = audibility_level_db(role="stinger", default=max(level_db, -14.0))
-            else:
-                level_db = audibility_level_db(role="stinger", default=level_db)
+            # Role-aware hotter bookends / accents.
+            level_db = audibility_level_db(
+                role=asset_role_early or "stinger",
+                default=max(level_db, -14.0 if asset_role_early in {"theme_cold_open", "theme_outro"} else -16.0),
+            )
         elif placement == "under_segment":
             level_db = audibility_level_db(role="bed", default=level_db)
         else:
@@ -664,6 +667,12 @@ def flow1_overlays_from_sdp(
 
         fade_in = int(cue.get("crossfade_ms") or 50)
         fade_out = int(cue.get("crossfade_ms") or 130)
+        presence = _music_presence_cfg()
+        if asset_role in {"theme_cold_open", "theme_outro"}:
+            fade_in = max(fade_in, int(presence.get("cold_open_lead_in_fade_ms") or 600))
+            base = enhance_speech_free_theme(base, role=asset_role)
+        elif asset_role in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}:
+            base = enhance_speech_free_theme(base, role=asset_role)
         cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
         cue_audio = apply_pan_position(cue_audio, cue.get("pan_position"))
         pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)
@@ -701,6 +710,17 @@ def flow1_overlays_from_sdp(
         else:
             role = "bridge" if placement == "before_segment" else "stinger"
         out.append({"audio": cue_audio, "position_ms": pos, "role": role})
+        # Chapter-hinge breathe: dry micro-gap after resolve before speech resumes.
+        if asset_role == "theme_chapter_resolve":
+            breathe_ms = int(presence.get("chapter_resolve_breathe_ms") or 220)
+            if breathe_ms > 0:
+                out.append(
+                    {
+                        "audio": AudioSegment.silent(duration=breathe_ms, frame_rate=DEFAULT_FRAME_RATE),
+                        "position_ms": int(pos) + len(cue_audio),
+                        "role": "breathe",
+                    }
+                )
 
     return out
 
@@ -1084,6 +1104,39 @@ def resolve_asset_path(ctx: RunContext, *, asset_id: str, generated: object) -> 
 def load_audio(path: Path) -> AudioSegment:
     seg = AudioSegment.from_file(path)
     return seg.set_channels(1).set_frame_rate(DEFAULT_FRAME_RATE)
+
+
+def _music_presence_cfg() -> dict[str, Any]:
+    raw = (_mix_cfg().get("music_presence") or {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def enhance_speech_free_theme(segment: AudioSegment, *, role: str) -> AudioSegment:
+    """Stereo width + gentle high shelf for cold open / outro / accents (beds stay mono)."""
+    from interview_mux.music_motif import THEME_BED_ROLES, is_theme_role
+
+    role_s = str(role or "")
+    if role_s in THEME_BED_ROLES or role_s == "theme_underscore":
+        return segment.set_channels(1)
+    if not is_theme_role(role_s) and role_s not in {"theme_cold_open", "theme_outro", "theme_emphasis", "theme_chapter_resolve", "theme_transition"}:
+        return segment
+    cfg = _music_presence_cfg()
+    width = float(cfg.get("speech_free_stereo_width") or 0.35)
+    shelf_db = float(cfg.get("speech_free_high_shelf_db") or 1.5)
+    # Mild presence EQ via high-pass residual blend (pydub-safe, no extra deps).
+    bright = segment.high_pass_filter(int(cfg.get("speech_free_high_shelf_hz") or 6000)).apply_gain(shelf_db)
+    mixed = segment.overlay(bright)
+    # Pseudo-stereo: duplicate with slight delay/pan.
+    if width > 0.01:
+        delay_ms = max(8, int(18 * width))
+        left = mixed
+        right = AudioSegment.silent(duration=delay_ms, frame_rate=mixed.frame_rate) + mixed
+        right = right[: len(left)]
+        if len(right) < len(left):
+            right = right + AudioSegment.silent(duration=len(left) - len(right), frame_rate=mixed.frame_rate)
+        stereo = AudioSegment.from_mono_audiosegments(left, right)
+        return stereo
+    return mixed.set_channels(1)
 
 
 def loop_to_duration(segment: AudioSegment, duration_ms: int) -> AudioSegment:

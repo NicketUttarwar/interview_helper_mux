@@ -26,16 +26,22 @@ def sidechain_duck_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         import interview_mux.config as mux_config
 
         cfg = mux_config.merged_config()
-    mix = cfg.get("mix") or {}
-    raw = mix.get("sidechain_duck") if isinstance(mix, dict) else None
-    raw = raw if isinstance(raw, dict) else {}
+    mix = dict(cfg.get("mix") or {})
+    try:
+        from interview_mux.production_profile import mix_rules
+
+        mix.update(mix_rules())
+    except Exception:
+        pass
+    raw = mix.get("sidechain_duck") if isinstance(mix.get("sidechain_duck"), dict) else {}
+    pause = raw.get("pause_ride_db", mix.get("pause_ride_db", 8.0))
     return {
         "enabled": bool(raw.get("enabled", True)),
         "attack_ms": int(raw.get("attack_ms", DEFAULT_ATTACK_MS)),
         "release_ms": int(raw.get("release_ms", DEFAULT_RELEASE_MS)),
         "hop_ms": int(raw.get("hop_ms", DEFAULT_HOP_MS)),
         # Raise underscore in intentional air / post-VO gaps (music-only pause-ride).
-        "pause_ride_db": float(raw.get("pause_ride_db", 4.5)),
+        "pause_ride_db": float(pause),
     }
 
 

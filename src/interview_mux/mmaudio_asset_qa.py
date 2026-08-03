@@ -58,6 +58,46 @@ def _peak_density(samples: list[float], rate: int, *, window_ms: int = 20) -> fl
     return hot / count if count else 0.0
 
 
+def _musicality_checks(samples: list[float], rate: int) -> dict[str, Any]:
+    """Reject thin sine-like / no-onset / missing-bass theme stems."""
+    fail: list[str] = []
+    warn: list[str] = []
+    if not samples or rate <= 0:
+        return {"fail_reasons": ["musicality_empty"], "warn_reasons": []}
+    # Onset / energy variability: flat sine stubs have near-constant RMS windows.
+    window = max(1, int(rate * 0.05))
+    rms_vals: list[float] = []
+    for i in range(0, len(samples) - window, window):
+        rms_vals.append(_rms(samples[i : i + window]))
+    if rms_vals:
+        mean_r = sum(rms_vals) / len(rms_vals)
+        var = sum((r - mean_r) ** 2 for r in rms_vals) / len(rms_vals)
+        if mean_r > 1e-6 and var / (mean_r * mean_r) < 0.02:
+            fail.append("musicality_no_onset_structure")
+    # Low-end energy proxy via long-window zero-crossing (too many ZC ⇒ thin/high-only).
+    zc = sum(1 for a, b in zip(samples[::4], samples[4::4]) if a * b < 0)
+    zc_rate = zc * 4 / max(1, len(samples) / rate) if samples else 0.0
+    # Extremely high average ZC rate with low variance ⇒ sine-like tone.
+    if zc_rate > 800 and len(rms_vals) > 4:
+        # Estimate spectral flatness via peak/rms of whole clip.
+        peak = max(abs(s) for s in samples) or 1e-8
+        rms = _rms(samples) or 1e-8
+        if peak / rms < 2.2:
+            fail.append("musicality_sine_like_spectrum")
+    # Missing low-end: downsample RMS of heavily low-passed proxy (moving average).
+    ma = 0.0
+    alpha = min(0.05, 200.0 / max(rate, 1))
+    low_acc = 0.0
+    for s in samples[::8]:
+        ma = (1 - alpha) * ma + alpha * s
+        low_acc += ma * ma
+    low_rms = math.sqrt(low_acc / max(1, len(samples[::8])))
+    total = _rms(samples) or 1e-8
+    if low_rms / total < 0.08:
+        warn.append("musicality_missing_low_end")
+    return {"fail_reasons": fail, "warn_reasons": warn, "zc_rate": round(zc_rate, 2)}
+
+
 def _band_energy_ratio(samples: list[float], rate: int, low_hz: float, high_hz: float) -> float:
     """Crude speech-band ratio via windowed RMS on band-limited proxy (zero-crossing gate)."""
     if not samples or rate <= 0:
@@ -167,12 +207,35 @@ def analyze_asset_wav(
         row["recommended_action"] = "regenerate"
         return row
 
+    gen_meta_path = path.with_suffix(".gen.json")
+    if gen_meta_path.is_file():
+        try:
+            gmeta = json.loads(gen_meta_path.read_text(encoding="utf-8"))
+            row["generation_backend"] = gmeta.get("backend")
+            row["generation_seed"] = gmeta.get("seed")
+            row["prompt_hash"] = gmeta.get("prompt_hash")
+            if gmeta.get("backend") == "musical_stub":
+                from interview_mux.musicgen_runner import fail_closed_on_stub
+
+                if fail_closed_on_stub():
+                    row["verdict"] = "fail"
+                    row["reasons"].append("musical_stub_backend")
+                    row["action"] = "regenerate"
+                    row["recommended_action"] = "regenerate"
+                    return row
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
     stinger_roles = {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"} | set(
         THEME_PUNCTUATOR_ROLES
     )
     if role in stinger_roles or role in {"ambient_bed", "theme_underscore"} or is_theme_role(role):
         role_min_peak = min_peak
-        if role in stinger_roles or role in THEME_PUNCTUATOR_ROLES:
+        if role in {"theme_cold_open", "theme_outro"}:
+            role_min_peak = float(
+                mm_cfg.get("min_cold_open_peak_dbfs", mm_cfg.get("min_stinger_peak_dbfs", min_peak))
+            )
+        elif role in stinger_roles or role in THEME_PUNCTUATOR_ROLES:
             role_min_peak = float(mm_cfg.get("min_stinger_peak_dbfs", min_peak))
         if peak_dbfs < role_min_peak or rms_dbfs < min_rms:
             row["verdict"] = "fail"
@@ -180,6 +243,19 @@ def analyze_asset_wav(
             row["action"] = "regenerate"
             row["recommended_action"] = "regenerate"
             row["suggested_level_db_delta"] = max(0.0, role_min_peak - peak_dbfs + 3.0)
+
+    if bool(mm_cfg.get("musicality_qa_enabled", True)) and is_theme_role(role):
+        musicality = _musicality_checks(samples, rate)
+        row["musicality"] = musicality
+        for reason in musicality.get("fail_reasons") or []:
+            row["verdict"] = "fail"
+            row["reasons"].append(reason)
+            row["action"] = "regenerate"
+            row["recommended_action"] = "regenerate"
+        for reason in musicality.get("warn_reasons") or []:
+            if row["verdict"] == "pass":
+                row["verdict"] = "warn"
+            row["reasons"].append(reason)
 
     if role in {"chapter_stinger", "transition_stinger", "cold_open", "accent_foley"} | set(THEME_PUNCTUATOR_ROLES):
         tail_n = int(rate * 0.2)

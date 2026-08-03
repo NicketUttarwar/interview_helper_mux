@@ -701,16 +701,93 @@ def _generate_with_retry(
                 melody = cand
                 break
         seed = params.get("seed")
-        meta = generate_music_clip(
-            prompt=str(params.get("prompt") or ""),
-            negative_prompt=str(params.get("negative_prompt") or ""),
-            duration_sec=float(params.get("duration_seconds") or 12.0),
-            out_wav=out_file,
-            role=role or "theme_underscore",
-            seed=int(seed) if seed is not None else None,
-            melody_wav=melody,
-        )
-        return meta
+        from interview_mux.musicgen_runner import best_of_n_for_role
+
+        n = best_of_n_for_role(role)
+        # Apply production-profile musicgen overrides when present.
+        try:
+            from interview_mux.production_profile import get_profile
+
+            ov = (get_profile(ctx) or {}).get("musicgen_overrides") or {}
+            if isinstance(ov, dict):
+                if "underscore" in str(role or "") and ov.get("best_of_n_underscore") is not None:
+                    n = max(1, int(ov["best_of_n_underscore"]))
+                elif ov.get("best_of_n_speech_free") is not None and "underscore" not in str(role or ""):
+                    n = max(1, int(ov["best_of_n_speech_free"]))
+        except Exception:
+            pass
+
+        if n <= 1:
+            meta = generate_music_clip(
+                prompt=str(params.get("prompt") or ""),
+                negative_prompt=str(params.get("negative_prompt") or ""),
+                duration_sec=float(params.get("duration_seconds") or 12.0),
+                out_wav=out_file,
+                role=role or "theme_underscore",
+                seed=int(seed) if seed is not None else None,
+                melody_wav=melody,
+            )
+            return meta
+
+        from interview_mux.config import merged_config
+        from interview_mux.mmaudio_asset_qa import analyze_asset_wav
+
+        keep = bool((merged_config().get("musicgen") or {}).get("keep_candidates", False))
+        base_seed = int(seed) if seed is not None else abs(hash(asset_id)) % 10_000_000
+        best_score = -1e9
+        best_meta: dict[str, Any] = {}
+        cand_dir = assets_dir / "_candidates" / asset_id
+        if keep:
+            cand_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            cand_seed = base_seed + i * 9973
+            cand_path = (cand_dir / f"cand_{i}.wav") if keep else out_file.with_suffix(f".cand{i}.wav")
+            meta = generate_music_clip(
+                prompt=str(params.get("prompt") or ""),
+                negative_prompt=str(params.get("negative_prompt") or ""),
+                duration_sec=float(params.get("duration_seconds") or 12.0),
+                out_wav=cand_path,
+                role=role or "theme_underscore",
+                seed=cand_seed,
+                melody_wav=melody if i > 0 or melody else melody,
+            )
+            qa = analyze_asset_wav(
+                asset_id=asset_id,
+                path=cand_path,
+                plan_row={"role": role, "duration_seconds": params.get("duration_seconds")},
+            )
+            score = 0.0
+            if qa.get("verdict") == "pass":
+                score += 10.0
+            elif qa.get("verdict") == "warn":
+                score += 4.0
+            else:
+                score -= 5.0
+            score += float(qa.get("peak_dbfs") or -60) * 0.05
+            mus = qa.get("musicality") if isinstance(qa.get("musicality"), dict) else {}
+            score -= 3.0 * len(mus.get("fail_reasons") or [])
+            score -= 0.5 * len(mus.get("warn_reasons") or [])
+            if score > best_score and cand_path.is_file():
+                best_score = score
+                best_meta = {**meta, "best_of_n": n, "best_of_n_index": i, "best_of_n_score": score}
+                if cand_path != out_file:
+                    import shutil
+
+                    shutil.copy2(cand_path, out_file)
+            if not keep and cand_path != out_file and cand_path.is_file():
+                try:
+                    cand_path.unlink()
+                except OSError:
+                    pass
+                gen_side = cand_path.with_suffix(".gen.json")
+                if gen_side.is_file():
+                    try:
+                        gen_side.unlink()
+                    except OSError:
+                        pass
+        if not best_meta:
+            raise RuntimeError(f"best_of_n generation produced no candidates for {asset_id}")
+        return best_meta
 
     # Legacy MMAudio path — only if musicgen disabled (should not run for creative delivery).
     last_exc: Exception | None = None

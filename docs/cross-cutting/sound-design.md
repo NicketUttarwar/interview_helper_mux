@@ -1,6 +1,6 @@
 # Coherent sound design (shipped)
 
-**Status:** Wave 5 shipped — SDP palettes + flow plans, **music-only** theme stems via **MLX MusicGen** (`theme_*` roles), craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
+**Status:** Wave 5 shipped — SDP palettes + flow plans, **music-only** theme stems via **MusicGen-large** (`theme_*` roles), craft/generate per `asset_id`, and `mix`. **BUILD-SS soundscape policy** adds per-run `understanding/soundscape_policy.json`, cue slots, fitness remediation, and post-mix verify→remux — [soundscape-policy.md](./soundscape-policy.md).
 
 **Creative delivery (locked):** show audio is **instrumental music only** — underscore, cold open, emphasis, chapter resolve, transition phrases, outro. **Forbidden forever:** whoosh, tick/woodtick, foley, murmur/HVAC, or any SFX accent. MMAudio is **not** used for creative-delivery show audio (legacy/non-creative only).
 
@@ -244,7 +244,7 @@ For each unique `asset_id` referenced by active flow cues:
 
 ## Musical structure for MMAudio prompts
 
-Musical language in prompts must serve **speech-first podcast clarity**, not standalone music production.
+Musical language in prompts must serve **speech-first podcast clarity** under dialogue, while speech-free bookends (cold open / outro / emphasis) may be musically present and multi-instrument. MusicGen `theme_*` stems may use pulse and melody; beds duck under speech rather than being inaudible.
 
 ### musical_intent schema (craft stage)
 

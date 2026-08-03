@@ -115,7 +115,14 @@
       "attack_ms": 20,
       "release_ms": 200,
       "hop_ms": 10,
-      "pause_ride_db": 4.5
+      "pause_ride_db": 8.0
+    },
+    "music_presence": {
+      "cold_open_lead_in_fade_ms": 600,
+      "chapter_resolve_breathe_ms": 220,
+      "speech_free_stereo_width": 0.35,
+      "speech_free_high_shelf_db": 1.5,
+      "speech_free_high_shelf_hz": 6000
     },
     "tbiy_narrative": {
       "punctuator_pause_min_ms": 400,
@@ -181,9 +188,13 @@
       "min_stingers": 1,
       "min_foley": 0,
       "min_bed_coverage_ratio": 0.28,
-      "min_audible_bed_level_db": -28,
-      "max_audible_bed_level_db": -26,
-      "min_audible_stinger_level_db": -18
+      "min_audible_bed_level_db": -24,
+      "max_audible_bed_level_db": -20,
+      "min_audible_stinger_level_db": -16,
+      "min_audible_cold_open_level_db": -12,
+      "max_audible_cold_open_level_db": -8,
+      "min_audible_emphasis_level_db": -16,
+      "max_audible_emphasis_level_db": -12
     },
     "remediation": {
       "max_remux_cycles": 2,
@@ -237,10 +248,59 @@
       "max_punctuators": 24,
       "max_beds": 24,
       "max_foley": 12,
+      "music_preset": "music_forward_documentary",
       "mix_overrides": {
         "bed_under_dialogue_db": -20,
         "foley_under_dialogue_db": -20,
         "punctuator_peak_db": -12
+      }
+    },
+    "music_forward_documentary": {
+      "punctuators_enabled": true,
+      "max_assets_flow1": 24,
+      "max_punctuators": 24,
+      "max_beds": 24,
+      "max_foley": 12,
+      "music_preset": "music_forward_documentary",
+      "musicgen_overrides": {
+        "best_of_n_speech_free": 4,
+        "best_of_n_underscore": 2
+      },
+      "mix_overrides": {
+        "bed_under_dialogue_db": -20,
+        "foley_under_dialogue_db": -20,
+        "punctuator_peak_db": -10,
+        "pause_ride_db": 10.0
+      },
+      "soundscape_min_density_overrides": {
+        "min_audible_bed_level_db": -22,
+        "max_audible_bed_level_db": -18,
+        "min_audible_cold_open_level_db": -10,
+        "max_audible_cold_open_level_db": -6
+      }
+    },
+    "speech_maximal": {
+      "punctuators_enabled": true,
+      "max_assets_flow1": 24,
+      "max_punctuators": 24,
+      "max_beds": 24,
+      "max_foley": 12,
+      "music_preset": "speech_maximal",
+      "musicgen_overrides": {
+        "best_of_n_speech_free": 2,
+        "best_of_n_underscore": 1
+      },
+      "mix_overrides": {
+        "bed_under_dialogue_db": -26,
+        "foley_under_dialogue_db": -26,
+        "punctuator_peak_db": -14,
+        "pause_ride_db": 4.5
+      },
+      "soundscape_min_density_overrides": {
+        "min_audible_bed_level_db": -28,
+        "max_audible_bed_level_db": -26,
+        "min_audible_cold_open_level_db": -14,
+        "max_audible_cold_open_level_db": -10
       }
     },
     "tbiy_narrative": {
@@ -289,6 +349,7 @@
     "enabled": true
   },
   "g1_5_require_prompt_approval": true,
+  "g1_5_require_music_listen": true,
   "narrative_qc": {
     "strict": true
   },
@@ -525,8 +586,8 @@
     "max_duration_sec": 8.0,
     "duration_bands_by_role": {
       "theme_cold_open": [
-        8.0,
-        16.0
+        12.0,
+        20.0
       ],
       "theme_underscore": [
         12.0,
@@ -545,8 +606,8 @@
         10.0
       ],
       "theme_outro": [
-        8.0,
-        16.0
+        12.0,
+        20.0
       ],
       "ambient_bed": [
         5.0,
@@ -576,8 +637,10 @@
     "theme_fit_threshold": 0.6,
     "silence_rms_threshold": 0.001,
     "min_audible_peak_dbfs": -28.0,
-    "min_stinger_peak_dbfs": -24.0,
+    "min_stinger_peak_dbfs": -22.0,
+    "min_cold_open_peak_dbfs": -20.0,
     "min_audible_rms_dbfs": -40.0,
+    "musicality_qa_enabled": true,
     "semantic_qa_enabled": true,
     "semantic_qa_threshold": 0.18,
     "semantic_qa_fail_on_low": true,
@@ -609,18 +672,27 @@
     "auto_refine_on_listen_fail": true,
     "auto_refine_on_trauma": true
   },
-  "_comment_musicgen": "Local MLX MusicGen for music-only theme stems (no whoosh/tick/foley)",
+  "_comment_musicgen": "Local MusicGen for music-only theme stems (no whoosh/tick/foley)",
   "musicgen": {
     "enabled": true,
-    "model_id": "facebook/musicgen-medium",
+    "model_id": "facebook/musicgen-large",
+    "melody_model_id": "facebook/musicgen-melody-large",
     "device": "auto",
     "request_timeout_sec": 1200,
     "default_duration_sec": 12.0,
     "min_duration_sec": 4.0,
     "max_duration_sec": 20.0,
     "use_melody_conditioning": true,
+    "fail_closed_on_stub": true,
+    "best_of_n_speech_free": 3,
+    "best_of_n_underscore": 2,
+    "keep_candidates": false,
     "max_regen_per_asset": 3,
-    "semantic_qa_fail_on_low": true
+    "semantic_qa_fail_on_low": true,
+    "prefetch_models": [
+      "facebook/musicgen-large",
+      "facebook/musicgen-melody-large"
+    ]
   },
   "_comment_web": "GUI server port and operator console",
   "web_port": 8765,

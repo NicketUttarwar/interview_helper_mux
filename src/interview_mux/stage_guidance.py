@@ -719,6 +719,39 @@ def _stage_actions(
                     kind="listen",
                 )
             )
+            from interview_mux.music_listen_review import music_listen_required, music_listen_status
+
+            if music_listen_required():
+                st = music_listen_status(ctx)
+                actions.append(
+                    _guidance_item(
+                        "approve_music_listen",
+                        "Listen to cold open + one underscore bed, then approve before mix",
+                        "done" if st.get("approved") else "todo",
+                        kind="music_listen",
+                    )
+                )
+        return actions
+
+    if stage_id == "mix" and status == "pending":
+        from interview_mux.music_listen_review import can_run_mix_after_music_listen, music_listen_required
+
+        if music_listen_required():
+            ok, msg = can_run_mix_after_music_listen(ctx)
+            if not ok:
+                actions.append(
+                    _guidance_item(
+                        "approve_music_listen",
+                        msg or "Approve music listen before mix",
+                        "blocked",
+                        kind="music_listen",
+                    )
+                )
+                return actions
+        if not blocked:
+            actions.append(
+                _guidance_item("run", "Run this step", "todo", action="run", kind="run")
+            )
         return actions
 
     if stage_id in LLM_HANDOFF_STAGES:

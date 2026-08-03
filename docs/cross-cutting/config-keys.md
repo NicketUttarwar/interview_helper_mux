@@ -87,6 +87,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
 | `autopilot_enabled` / `operator.autopilot_enabled` | — | **Inert.** Autopilot removed; no code reads these keys |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
+| `g1_5_require_music_listen` | `music_listen_review`, `mix`, GUI music listen | When `true`, blocks mix until operator listens to cold open + one underscore bed |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
@@ -929,11 +930,19 @@ Retired for War Room episode covers (OpenAI Images only). Keys retained so orpha
 
 ## `musicgen`
 
-Local MusicGen theme beds (optional). See local audio stack docs.
+Local MusicGen theme beds for creative-delivery `theme_*` stems. See [local-audio-stack.md](./local-audio-stack.md).
 
 | Key | Default | Role |
 |-----|---------|------|
-| `enabled` | (see defaults) | Theme bed generation |
+| `enabled` | `true` | Theme bed generation |
+| `model_id` | `facebook/musicgen-large` | Text-to-music model |
+| `melody_model_id` | `facebook/musicgen-melody-large` | Melody-conditioned model when cold-open WAV exists |
+| `fail_closed_on_stub` | `true` | Refuse sine stubs; fail stage if MusicGen unavailable |
+| `best_of_n_speech_free` | `3` | Candidates for cold open / outro / accents |
+| `best_of_n_underscore` | `2` | Candidates for underscore beds |
+| `use_melody_conditioning` | `true` | Condition later stems on cold-open melody |
+| `prefetch_models` | large + melody-large | Bootstrap cache list |
+| `keep_candidates` | `false` | Keep losing best-of-N WAVs under `_candidates/` |
 
 ---
 

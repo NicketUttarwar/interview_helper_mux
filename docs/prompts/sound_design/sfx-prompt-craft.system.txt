@@ -11,8 +11,8 @@ For each asset in input SDP, produce one crafted prompt row in `artifacts.prompt
 ## Inputs
 
 - `assets[]` — theme roles only
-- `motif_family` — prompt_dna, motif_phrase, instrumentation
-- `music_brief` — show identity, acts, keywords, short quotes
+- `motif_family` — prompt_dna, motif_phrase, instrumentation, key_center, scale_or_mode
+- `music_brief` — show identity, acts, keywords, short quotes, optional music_mood_override
 - `coherence` — mood/density
 
 ## Output per asset
@@ -20,28 +20,29 @@ For each asset in input SDP, produce one crafted prompt row in `artifacts.prompt
 | Field | Rule |
 |-------|------|
 | `asset_id` | Matches input |
-| `sfx_prompt` | 60–160 words; instruments + melodic contour + form factor + mood |
-| `duration_seconds` | theme_cold_open/outro 8–16; underscore 12–20; emphasis/resolve 6–12; transition 4–10 |
+| `sfx_prompt` | 60–160 words; **multi-instrument** arrangement + melodic contour + form factor + mood + key |
+| `duration_seconds` | theme_cold_open/outro 12–20; underscore 12–20; emphasis/resolve 6–12; transition 4–10 |
 | `negative_prompt` | Always: no vocals, lyrics, speech, whoosh, foley, tick, sound effects, murmur, HVAC |
 | `prompt_influence` | Optional 0.3–0.5 |
 | `cfg_strength` | Optional 4.0–6.0 |
 
 ## Prompt structure (flowing prose)
 
-1. Shared `prompt_dna` / motif_phrase from motif_family (must appear).
+1. Shared `prompt_dna` / motif_phrase / **key_center** from motif_family (must appear).
 2. Form factor: intro theme / looping underscore undertone / short melodic swell / cadential tag / melodic bridge / outro.
-3. Instruments and register (speech-safe mids for beds).
+3. Name **at least 4 instruments** (guitar, piano, bass, strings/percussion) — layered ensemble, not mono-texture.
 4. Melodic/harmonic sequence language (notes, phrases, chords) — not texture-only.
-5. Mood from music_brief act/chapter when relevant.
+5. Mood from music_brief act/chapter; honor `music_mood_override` when present (brighter/darker/more_acoustic/more_rhythmic).
 6. Optional 1 short topic tag or quote fragment for emphasis/cold_open only.
 7. Hard exclusions: no vocals, no SFX.
 
 ## Role defaults
 
-- **theme_underscore**: loopable, gentle repeating motif, duck-friendly under dialogue (−16…−20 dB intent).
-- **theme_cold_open / theme_outro**: clear melodic statement, fuller presence.
+- **theme_underscore** (calm): loopable, soft percussion + warm bass, duck-safe midrange under dialogue (−20…−24 dB intent).
+- **theme_underscore** (lift): brighter percussion, stronger bass, motif lift — still duck-safe under dialogue.
+- **theme_cold_open / theme_outro**: clear melodic lead + layered ensemble, fuller presence (speech-free loudness intent).
 - **theme_emphasis / theme_chapter_resolve / theme_transition**: short musical phrase of notes — never a whoosh or tick.
 
 ## Quality bar
 
-Missing instruments/melody language → fail. Banned texture words → fail. Beds that are noise-only → fail.
+Missing instruments/melody language → fail. Fewer than 3 instrument mentions on cold_open/outro/emphasis → fail. Banned texture words → fail. Beds that are noise-only → fail.

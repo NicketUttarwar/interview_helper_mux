@@ -42,7 +42,7 @@ _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_who
 
 _MIN_BED_SEGMENT_MS = 12_000
 _MIN_BED_SEGMENT_MS_FINE = 6_000
-_DEFAULT_BED_LEVEL = -28.0
+_DEFAULT_BED_LEVEL = -22.0
 
 
 def _min_bed_segment_ms(cfg: dict[str, Any] | None = None) -> int:
@@ -152,9 +152,12 @@ def _standards_for_pace(pace: str, underscore: str) -> dict[str, Any]:
         min_rel = 10.0
     coverage = 0.4
     if underscore == "sparse":
-        coverage = 0.25
-    if underscore in {"skip", "sparse_or_skip"} or pace == "dense":
-        coverage = 0.0 if underscore in {"skip", "sparse_or_skip"} else 0.15
+        coverage = 0.28
+    if underscore in {"skip", "sparse_or_skip"}:
+        coverage = 0.0
+    elif pace == "dense":
+        # Creative delivery still wants audible beds under dense talk (~28–40%).
+        coverage = 0.28
     return {
         "min_speech_relative_db": min_rel,
         "max_midrange_overlap_score": 0.35,
@@ -205,10 +208,11 @@ def score_cue_slots(
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     sap = load_profile(ctx) or {}
     music_risk = str(sap.get("source_music_risk") or "low")
-    bed_range = mix_contract.get("bed_level_db_range") or [-30.0, -26.0]
+    bed_range = mix_contract.get("bed_level_db_range") or [-24.0, -20.0]
     bed_level = float(bed_range[0] + bed_range[-1]) / 2.0 if isinstance(bed_range, list) and len(bed_range) == 2 else _DEFAULT_BED_LEVEL
     if pace in {"brisk", "dense"}:
-        bed_level = min(bed_level, -30.0)
+        # At most 1 dB quieter than conversational mid — do not bury to −30.
+        bed_level = min(bed_level, -21.0)
 
     sdp = {}
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -265,7 +269,7 @@ def score_cue_slots(
             theme_bonus = 0.25 if sid in theme_segs else 0.0
             priority = min(1.0, 0.45 + theme_bonus + min(0.2, dur / 120_000))
             if pace == "dense":
-                priority *= 0.5
+                priority *= 0.85
             if priority >= 0.4:
                 slots.append(
                     {
@@ -339,16 +343,16 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         or sap_mix.get("stinger_max_per_minute")
         or 4
     )
-    bed_range = sap_mix.get("bed_level_db_range") or [-30.0, -26.0]
+    bed_range = sap_mix.get("bed_level_db_range") or [-24.0, -20.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
-        bed_range = [-30.0, -26.0]
+        bed_range = [-24.0, -20.0]
     coverage = 0.4
     if underscore == "sparse":
-        coverage = 0.25
+        coverage = 0.28
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
-        coverage = 0.15
+        coverage = 0.28
 
     mix = {
         "bed_level_db_range": [float(bed_range[0]), float(bed_range[1])],

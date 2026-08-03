@@ -76,7 +76,18 @@ def mix_rules(ctx: RunContext | None = None) -> dict[str, Any]:
         mix = {**mix, **tbiy_mix}
     profile = get_profile(ctx)
     mix.update(profile.get("mix_overrides") or {})
+    # Profile may set pause_ride_db at top of mix_overrides — nest into sidechain_duck.
+    if "pause_ride_db" in (profile.get("mix_overrides") or {}):
+        sc = dict(mix.get("sidechain_duck") or {})
+        sc["pause_ride_db"] = float(profile["mix_overrides"]["pause_ride_db"])
+        mix["sidechain_duck"] = sc
     return mix
+
+
+def musicgen_profile_overrides(ctx: RunContext | None = None) -> dict[str, Any]:
+    profile = get_profile(ctx)
+    raw = profile.get("musicgen_overrides") or {}
+    return dict(raw) if isinstance(raw, dict) else {}
 
 
 def sfx_caps(ctx: RunContext | None = None) -> dict[str, int]:

@@ -15,15 +15,15 @@ def test_collect_generation_items_uses_unique_plan_asset_ids(tmp_path, monkeypat
             "palettes": [],
             "assets": [
                 {
-                    "asset_id": "bed_a",
-                    "role": "ambient_bed",
-                    "description": "Ambient bed A",
+                    "asset_id": "theme_underscore_a",
+                    "role": "theme_underscore",
+                    "description": "Warm guitar piano bass underscore",
                     "duration_seconds": 6.0,
                 },
                 {
-                    "asset_id": "sting_b",
-                    "role": "chapter_stinger",
-                    "description": "Stinger B",
+                    "asset_id": "theme_chapter_resolve_b",
+                    "role": "theme_chapter_resolve",
+                    "description": "Cadential resolve motif",
                     "duration_seconds": 1.4,
                 },
             ],
@@ -31,9 +31,9 @@ def test_collect_generation_items_uses_unique_plan_asset_ids(tmp_path, monkeypat
                 "podcast": {
                     "profile": "podcast",
                     "cues": [
-                        {"cue_id": "c1", "asset_id": "bed_a", "placement": "under_segment"},
-                        {"cue_id": "c2", "asset_id": "bed_a", "placement": "under_segment"},
-                        {"cue_id": "c3", "asset_id": "sting_b", "placement": "after_segment"},
+                        {"cue_id": "c1", "asset_id": "theme_underscore_a", "placement": "under_segment"},
+                        {"cue_id": "c2", "asset_id": "theme_underscore_a", "placement": "under_segment"},
+                        {"cue_id": "c3", "asset_id": "theme_chapter_resolve_b", "placement": "after_segment"},
                     ],
                 },
                 "flow2": {"profile": "montage", "cues": []},
@@ -47,7 +47,7 @@ def test_collect_generation_items_uses_unique_plan_asset_ids(tmp_path, monkeypat
         profile="podcast",
         fallback_cues=[{"asset_id": "fallback"}],
     )
-    assert [row["asset_id"] for row in items] == ["bed_a", "sting_b"]
+    assert [row["asset_id"] for row in items] == ["theme_underscore_a", "theme_chapter_resolve_b"]
 
 
 def test_resolve_generation_params_uses_plan_duration_not_crafted():
@@ -77,16 +77,16 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
             "palettes": [],
             "assets": [
                 {
-                    "asset_id": "sting_a",
-                    "role": "chapter_stinger",
-                    "description": "Stinger",
+                    "asset_id": "theme_emphasis_a",
+                    "role": "theme_emphasis",
+                    "description": "Melodic emphasis swell guitar piano",
                     "duration_seconds": 1.6,
                 }
             ],
             "flow_plans": {
                 "podcast": {
                     "profile": "podcast",
-                    "cues": [{"cue_id": "c1", "asset_id": "sting_a", "placement": "after_segment"}],
+                    "cues": [{"cue_id": "c1", "asset_id": "theme_emphasis_a", "placement": "after_segment"}],
                 },
                 "flow2": {"profile": "montage", "cues": []},
             },
@@ -98,8 +98,8 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
         {
             "prompts": [
                 {
-                    "asset_id": "sting_a",
-                    "sfx_prompt": "Warm stinger, no vocals.",
+                    "asset_id": "theme_emphasis_a",
+                    "sfx_prompt": "Warm melodic emphasis with guitar and piano, no vocals.",
                     "duration_seconds": 9.0,
                     "negative_prompt": "no vocals",
                 }
@@ -109,15 +109,17 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
 
     calls: list[float] = []
 
-    def fake_generate(**kwargs):
-        calls.append(kwargs["duration_seconds"])
-        out = kwargs["output_wav"]
+    def fake_music(**kwargs):
+        calls.append(kwargs["duration_sec"])
+        out = kwargs["out_wav"]
         out.write_bytes(b"RIFF" + b"\x00" * 32)
-        return {"duration_seconds": kwargs["duration_seconds"]}
+        return {"backend": "musicgen", "duration_sec": kwargs["duration_sec"]}
 
-    monkeypatch.setattr(sfx_mmaudio, "generate_text_to_audio", fake_generate)
+    monkeypatch.setattr(sfx_mmaudio, "generate_music_clip", fake_music)
+    monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: True)
     monkeypatch.setattr(sfx_mmaudio, "run_mmaudio_asset_qa", lambda ctx: {"assets": []})
     monkeypatch.setattr(sfx_mmaudio, "maybe_auto_refine", lambda *a, **k: None)
+    monkeypatch.setattr(sfx_mmaudio, "execute_fitness_remediation", lambda *a, **k: None)
     monkeypatch.setattr(
         sfx_mmaudio,
         "_trim_wav_to_duration",
@@ -132,11 +134,15 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
         "_should_skip_generation",
         lambda *_a, **_k: False,
     )
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner.best_of_n_for_role",
+        lambda *_a, **_k: 1,
+    )
 
     sfx_mmaudio.run_sfx_generation(ctx, profile="podcast")
 
-    asset_wav = ctx.path("sound_design", "assets", "sting_a.wav")
-    flow_wav = ctx.path("master", "sfx", "sting_a.wav")
+    asset_wav = ctx.path("sound_design", "assets", "theme_emphasis_a.wav")
+    flow_wav = ctx.path("master", "sfx", "theme_emphasis_a.wav")
     assert asset_wav.is_file()
     assert flow_wav.is_file()
     assert calls == [1.6]
@@ -176,11 +182,12 @@ def test_generate_with_retry_retries_once(tmp_path, monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(sfx_mmaudio, "generate_text_to_audio", flaky)
+    monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: False)
     meta = sfx_mmaudio._generate_with_retry(
         ctx=ctx,
         stage="mmaudio_sfx",
         asset_id="bed_a",
-        params={"prompt": "x", "negative_prompt": "", "duration_seconds": 2.0},
+        params={"prompt": "x", "negative_prompt": "", "duration_seconds": 2.0, "role": "ambient_bed"},
         out_file=out,
     )
     assert meta["ok"] is True

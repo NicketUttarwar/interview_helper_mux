@@ -2082,6 +2082,31 @@ def create_app() -> FastAPI:
             )
             return {"ok": True, "review": review, "asset_ids": asset_ids, "warnings": warnings}
 
+    @app.get("/api/runs/{run_id}/music-listen")
+    def get_music_listen(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.music_listen_review import music_listen_status
+
+            ctx = _ctx(run_id)
+            return {"ok": True, **music_listen_status(ctx)}
+
+    @app.post("/api/runs/{run_id}/music-listen/approve")
+    def approve_music_listen(run_id: str, body: SfxPromptApproveBody) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            from interview_mux.music_listen_review import set_music_listen_approved
+
+            ctx = _ctx(run_id)
+            review = set_music_listen_approved(
+                ctx, approved=True, approved_by=body.approved_by or "operator"
+            )
+            ctx.log(
+                "music_listen_approved",
+                level="success",
+                stage="mmaudio_sfx",
+                detail=str(review),
+            )
+            return {"ok": True, "review": review}
+
     @app.post("/api/runs/{run_id}/sfx-prompts/listen-result")
     def post_sfx_listen_result(run_id: str, body: SfxListenResultBody) -> dict[str, Any]:
         with _guarded_run(run_id):
