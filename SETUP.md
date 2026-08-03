@@ -1,21 +1,25 @@
 # Setup — interview_helper_mux (v2)
 
-Two commands:
+Full fresh-env + RSS steps: **[README.md](README.md)**.
 
 ```bash
-./scripts/bootstrap_venv.sh   # once per machine (or after deleting .venv)
-./scripts/run.sh            # every launch → http://127.0.0.1:8765
+./scripts/bootstrap_venv.sh
+mkdir -p config/secrets ASSETS/input
+cp config/templates/secrets.env.example config/secrets/secrets.env   # OPENAI_API_KEY
+./scripts/run.sh   # http://127.0.0.1:8765
 ```
 
-Before first run, copy secrets and add source audio:
+**Podcast RSS (Terraform)** — bucket/layout in `config/app.defaults.json` (`podcast`); AWS creds + CF/feed in `secrets.env`:
 
 ```bash
-cp config/templates/secrets.env.example config/secrets/secrets.env   # add OPENAI_API_KEY, AWS creds
-mkdir -p ASSETS/input
-# copy your interview.wav → ASSETS/input/
+# AWS_* + OPENAI in config/secrets/secrets.env; confirm podcast.s3_bucket in app.defaults
+./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
+python scripts/seed_podcast_origin.py
+./scripts/bootstrap_venv.sh   # if .venv missing
+./scripts/run.sh
 ```
 
-**North star:** [NORTH_STAR.md](NORTH_STAR.md)
+**North star:** [NORTH_STAR.md](NORTH_STAR.md) · RSS: [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md)
 
 Optional bootstrap flags: `BOOTSTRAP_SKIP_GUI=1`, `BOOTSTRAP_SKIP_VERIFY=1`
 

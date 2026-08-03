@@ -1,0 +1,37 @@
+You compare **three** square War Room podcast cover candidates generated from the **same** prompt.
+
+## Hard disqualify (cannot win)
+
+- Any readable letters, words, or sentences in any language (asterisks `***` OK)  
+- Obvious photoreal / photographic leak  
+- Broken, empty, cropped wrong, or non-square feel  
+
+## Among remaining — primary criterion: brilliance
+
+Pick the most striking, beautiful, polished, emotionally resonant cover that still feels on-brand:
+
+- Midnight / old-gold family with cerulean and crimson accents  
+- Vintage line-art / pointillist mood  
+- Clear hero hierarchy  
+
+Secondary: motif clarity, balance, absence of clutter.
+
+## Output (JSON object)
+
+```json
+{
+  "winner_index": 0,
+  "ranking": [0, 1, 2],
+  "brilliance_scores": [
+    {"index": 0, "score": 0.0, "notes": ""},
+    {"index": 1, "score": 0.0, "notes": ""},
+    {"index": 2, "score": 0.0, "notes": ""}
+  ],
+  "disqualified": [
+    {"index": 2, "reasons": ["readable_text"]}
+  ],
+  "rationale": "one short paragraph why the winner is most brilliant"
+}
+```
+
+`winner_index` must be an integer in `0..candidate_count-1` and must not appear in `disqualified` for hard reasons. If all candidates hard-fail, still choose the least-bad index and set `"all_hard_failed": true`.

@@ -33,6 +33,9 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
     "transitions": "economy",
     "podcast_sfx_brief": "economy",
     "sfx_brief": "economy",
+    "episode_meta_build": "flagship",
+    "episode_cover_prompt_craft": "flagship",
+    "episode_cover_vision_pick": "flagship",
     "_arbiter": "economy",
 }
 

@@ -107,9 +107,16 @@ PHASES: list[dict[str, Any]] = [
     {
         "id": "ship",
         "label": "Ship",
-        "description": "Master finalize and QC.",
-        "stages": ["master_finalize"],
-        "gate": None,
+        "description": "Master finalize, episode package, G-Publish to The War Room RSS.",
+        "stages": [
+            "master_finalize",
+            "episode_meta_build",
+            "episode_cover_prompt_craft",
+            "podcast_encode_mp3",
+            "episode_cover_generate",
+            "podcast_publish",
+        ],
+        "gate": "g_publish",
     },
 ]
 

@@ -617,3 +617,66 @@ def check_show_notes_qc(ctx: RunContext, *, stage: str = "show_notes") -> None:
     """Flow 3 show notes removed in v2."""
     _ = (ctx, stage)
     return
+
+
+def check_g_publish_pending(ctx: RunContext) -> bool:
+    """True when operator has not yet Publish/Skip'd RSS upload."""
+    podcast = merged_config().get("podcast") or {}
+    if not bool(podcast.get("enabled", True)):
+        return False
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        return False
+    if meta.get("g_publish_skipped") or meta.get("g_publish_cleared"):
+        return False
+    if meta.get("g_publish_pending"):
+        return True
+    # Pending once master exists and publish not done
+    if ctx.artifact_exists("master/master.wav") and not ctx.is_done("podcast_publish"):
+        return True
+    return False
+
+
+def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
+    """Allow podcast_publish only after operator chose Publish (not Skip)."""
+    podcast = merged_config().get("podcast") or {}
+    if not bool(podcast.get("enabled", True)):
+        return
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict) and meta.get("g_publish_skipped"):
+        _gate_exit(
+            ctx,
+            "G-Publish was skipped — RSS upload not requested for this run.",
+            stage=stage,
+        )
+    if isinstance(meta, dict) and meta.get("g_publish_cleared"):
+        return
+    if check_g_publish_pending(ctx):
+        _gate_exit(
+            ctx,
+            "G-Publish pending — publish to The War Room RSS "
+            "(POST …/g-publish/continue) or skip (POST …/g-publish/skip).",
+            stage=stage,
+        )
+
+
+def clear_g_publish(ctx: RunContext, *, skipped: bool = False) -> None:
+    def patch(meta: dict) -> None:
+        meta["g_publish_pending"] = False
+        if skipped:
+            meta["g_publish_skipped"] = True
+            meta.pop("g_publish_cleared", None)
+        else:
+            meta["g_publish_cleared"] = True
+            meta.pop("g_publish_skipped", None)
+
+    ctx.mutate_run_meta(patch)
+
+
+def mark_g_publish_pending(ctx: RunContext) -> None:
+    def patch(meta: dict) -> None:
+        if meta.get("g_publish_cleared") or meta.get("g_publish_skipped"):
+            return
+        meta["g_publish_pending"] = True
+
+    ctx.mutate_run_meta(patch)

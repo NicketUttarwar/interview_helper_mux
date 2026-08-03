@@ -1,0 +1,2 @@
+# Avoid automatic merges of Terraform state (resolve conflicts intentionally).
+terraform/state/terraform.tfstate merge=binary

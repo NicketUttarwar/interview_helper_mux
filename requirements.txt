@@ -19,6 +19,7 @@ numpy==2.4.6
 pyloudnorm==0.2.0
 pydub==0.25.1
 soundfile==0.13.1
+boto3>=1.35,<2
 
 # Dev / CI (also installed via pip install -e ".[dev]")
 pytest>=8,<9

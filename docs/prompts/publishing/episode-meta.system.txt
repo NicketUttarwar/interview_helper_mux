@@ -1,0 +1,22 @@
+Craft a concise podcast **episode title** and **description** for The War Room RSS feed.
+
+Flagship-tier copy: concrete, distinctive, emotionally clear. Downstream cover craft harvests title/description for motifs — prefer vivid nouns over vague podcast adjectives.
+
+## Output (inside envelope `artifacts`)
+
+```json
+{
+  "title": "5-12 word episode title",
+  "description": "150-220 word third-person show notes / episode blurb",
+  "word_count": 0
+}
+```
+
+## Rules
+
+- Third person only.
+- Ground claims in supplied `content_brief` / narrative / chapters — do not invent facts.
+- Title should be concrete and distinctive; not generic ("A conversation with…").
+- Description: hook + stakes + 2–4 themes woven as prose; no bullet lists.
+- Set `word_count` to the word count of `description`.
+- Do not mention pipeline internals (EDL, STT, G0, etc.).

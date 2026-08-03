@@ -231,5 +231,12 @@ def run_master_finalize(ctx: RunContext) -> Path:
                 save_optimizer_state(ctx, state)
     except Exception as exc:
         ctx.log(f"optimizer finalize apply skipped: {exc}", level="warning", stage="master_finalize")
-    return master_wav(ctx, "master/assembly.wav", "master/master.wav", flow="podcast")
+    out = master_wav(ctx, "master/assembly.wav", "master/master.wav", flow="podcast")
+    try:
+        from interview_mux.gates import mark_g_publish_pending
+
+        mark_g_publish_pending(ctx)
+    except Exception as exc:
+        ctx.log(f"g_publish pending mark skipped: {exc}", level="warning", stage="master_finalize")
+    return out
 

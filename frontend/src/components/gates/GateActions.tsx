@@ -14,6 +14,7 @@ import { ImpactBlockPreview } from "./ImpactBlockPreview";
 import { VoiceReferencePanel } from "./VoiceReferencePanel";
 import { GapDeliveryPanel } from "./GapDeliveryPanel";
 import { GListenPanel } from "./GListenPanel";
+import { GPublishPanel } from "./GPublishPanel";
 import { TimelineOptimizerPanel } from "./TimelineOptimizerPanel";
 import { PrecleanOfferCard } from "./PrecleanOfferCard";
 import { AcousticProfilePanel } from "./AcousticProfilePanel";
@@ -163,6 +164,12 @@ export function GateActions({ stage }: Props) {
                   <TimelineOptimizerPanel />
                   <GListenPanel />
                 </>
+              ) : null}
+
+              {stage.id === "master_finalize" ||
+              stage.id === "episode_cover_generate" ||
+              stage.id === "podcast_publish" ? (
+                <GPublishPanel />
               ) : null}
             </>
           ) : null}

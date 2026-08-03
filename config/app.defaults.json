@@ -79,6 +79,15 @@
       },
       "sfx_brief": {
         "tier": "flagship"
+      },
+      "episode_meta_build": {
+        "tier": "flagship"
+      },
+      "episode_cover_prompt_craft": {
+        "tier": "flagship"
+      },
+      "episode_cover_vision_pick": {
+        "tier": "flagship"
       }
     }
   },
@@ -367,6 +376,71 @@
     "chatterbox": {
       "venv_dir": "ASSETS/local_chatterbox/venv",
       "enabled": true
+    },
+    "image": {
+      "venv_dir": "ASSETS/local_image/venv",
+      "enabled": false
+    }
+  },
+  "_comment_local_image": "Retired for War Room covers (OpenAI Images only). Keep keys for orphan tooling; enabled=false.",
+  "local_image": {
+    "enabled": false,
+    "models_dir": "ASSETS/local_image/models",
+    "fail_open": true,
+    "request_timeout_sec": 600
+  },
+  "_comment_podcast": "The War Room RSS. Non-secret operator values live HERE (bucket, region, project, S3 layout, show meta). Gitignored secrets.env holds AWS credentials + AWS-derived CloudFront ID / feed base URL only (synced by tf-apply). Terraform state remains source of truth for infra inventory. Episode covers: OpenAI gpt-image ×3 + flagship vision pick (see podcast-cover-theme.md).",
+  "podcast": {
+    "enabled": true,
+    "project_name": "the_war_room_001",
+    "s3_bucket": "the-war-room-rss-001",
+    "aws_region": "us-east-1",
+    "show_title": "The War Room",
+    "show_author": "Nicket Uttarwar",
+    "show_email": "contact.nicketuttarwar@gmail.com",
+    "language": "en-us",
+    "category": "Business",
+    "explicit": "false",
+    "show_description": "The War Room — long-form interviews produced for podcast listening.",
+    "show_artwork_path": "config/podcast/the-war-room-cover.png",
+    "cover_theme_path": "config/podcast/cover_theme.json",
+    "cover_image": {
+      "provider": "openai",
+      "model": "gpt-image-1",
+      "size": "1024x1024",
+      "quality": "high",
+      "candidate_count": 3,
+      "min_output_px": 1400,
+      "prompt_max_chars": 32000,
+      "style_reference": {
+        "enabled": true,
+        "path": "config/podcast/the-war-room-cover.png",
+        "mode": "edits",
+        "input_fidelity": "low"
+      },
+      "vision_pick": {
+        "enabled": true,
+        "primary_criterion": "brilliance",
+        "max_rebatch": 1,
+        "on_final_fail": "show_fallback"
+      }
+    },
+    "mp3_bitrate_k": 192,
+    "enclosure_type": "audio/mpeg",
+    "upload_master_wav": true,
+    "s3": {
+      "feed_key": "feed.xml",
+      "show_prefix": "show",
+      "catalog_prefix": "catalog",
+      "episodes_prefix": "episodes",
+      "episode_files": {
+        "audio": "audio.mp3",
+        "master": "master.wav",
+        "cover": "cover.png",
+        "meta": "episode.json",
+        "description": "description.txt",
+        "chapters": "chapters.json"
+      }
     }
   },
   "_comment_local_chatterbox": "ResembleAI Chatterbox zero-shot clone for gap framing VO",
@@ -376,7 +450,7 @@
     "timeout_sec": 600,
     "fail_open": false
   },
-  "_comment_local_speech": "Local mlx-audio STT + S2S (Apple Silicon); replaces AWS Transcribe",
+  "_comment_local_speech": "Local mlx-audio STT + S2S (Apple Silicon); cloud STT removed",
   "local_speech": {
     "enabled": true,
     "models_dir": "ASSETS/local_speech/models",

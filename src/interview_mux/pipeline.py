@@ -39,6 +39,7 @@ from interview_mux.stages import sonic_context_stages
 from interview_mux.stages import sound_design_stages
 from interview_mux.stages import sound_design_vo_finalize
 from interview_mux.stages import sfx_mmaudio
+from interview_mux.stages import podcast_publish
 from interview_mux.stages import transcribe_local
 from interview_mux.stages import audio_probes
 from interview_mux.stages import transcript_review
@@ -151,6 +152,11 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "mmaudio_sfx": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
         "mix": lambda: assembly.run_mix(ctx),
         "master_finalize": lambda: mastering.run_master_finalize(ctx),
+        "episode_meta_build": lambda: podcast_publish.run_episode_meta_build(ctx),
+        "episode_cover_prompt_craft": lambda: podcast_publish.run_episode_cover_prompt_craft(ctx),
+        "podcast_encode_mp3": lambda: podcast_publish.run_podcast_encode_mp3(ctx),
+        "episode_cover_generate": lambda: podcast_publish.run_episode_cover_generate(ctx),
+        "podcast_publish": lambda: podcast_publish.run_podcast_publish(ctx),
     }
 
 

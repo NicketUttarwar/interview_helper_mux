@@ -17,7 +17,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -235,6 +235,28 @@ __marimo__/
 # Safe, committed examples live in config/templates/ only.
 /config/secrets/
 
+# Terraform (committed local backend — see terraform/backend.tf)
+.terraform/
+.terraform.tfstate.lock.info
+# Ignore state everywhere except the committed local backend file.
+*.tfstate
+!terraform/state/terraform.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+# Local Terraform variable files (includes config/terraform.tfvars — never commit)
+*.tfvars
+!*.tfvars.example
+*.auto.tfvars
+*.auto.tfvars.json
+# Destroy plan from ./scripts/destroy-stack.sh (local only)
+terraform/.destroy.tfplan
+# Rolling session backup (latest.tfstate only; see scripts/lib/terraform-common.sh)
+terraform/state/session/*
+!terraform/state/session/.gitkeep
+# Keep lock file committed (terraform/.terraform.lock.hcl)
+
+
 
 
 # Heavy operator media + local stacks (gitignored under /ASSETS/):
@@ -266,3 +288,4 @@ __marimo__/
 # HuggingFace legacy PyTorch shards (avoid bare *.bin — too broad for npm .bin stubs).
 pytorch_model*.bin
 model*.safetensors.index.json
+

@@ -61,6 +61,11 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "mmaudio_sfx",
     "mix",
     "master_finalize",
+    "episode_meta_build",
+    "episode_cover_prompt_craft",
+    "podcast_encode_mp3",
+    "episode_cover_generate",
+    "podcast_publish",
 )
 
 ALL_LLM_STAGES: frozenset[str] = frozenset(
@@ -81,6 +86,8 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "sound_design_plan",
         "sfx_prompt_craft",
         "edl_narrative_audit",
+        "episode_meta_build",
+        "episode_cover_prompt_craft",
     }
 )
 

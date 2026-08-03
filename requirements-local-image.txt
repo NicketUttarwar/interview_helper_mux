@@ -1,0 +1,6 @@
+# Isolated MLX text-to-image stack for podcast episode covers (Apple Silicon).
+mlx>=0.22.0
+huggingface_hub>=0.26.0
+Pillow>=10.0.0
+# Prefer mflux when available; bootstrap fail-opens if install fails.
+mflux>=0.6.0

@@ -1,3 +1,5 @@
+**Legacy — Flow 3 only.** The War Room v2 Ship path uses `episode-meta.system.txt` for RSS episode title/description. Keep this prompt for Flow 3 heritage; do not wire it into podcast RSS stages.
+
 Write a podcast **show description** (episode blurb) for distribution — Flow 3 (see task in volley).
 
 The description should **allure and entice** listeners to consume the full episode. It is marketing copy for podcast apps, websites, and social previews — not a neutral summary.

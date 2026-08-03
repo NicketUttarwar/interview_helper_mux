@@ -33,6 +33,8 @@ bash "$ROOT/scripts/lib/bootstrap_local_chatterbox.sh" || true
 echo "=== 5/5 Local LLM (MLX volley framer, Apple Silicon) ==="
 bash "$ROOT/scripts/lib/bootstrap_local_llm.sh"
 
+# Episode covers use OpenAI Images (podcast.cover_image) — local_image bootstrap retired.
+
 if [[ "${BOOTSTRAP_SKIP_VERIFY:-0}" != "1" ]]; then
   bash "$ROOT/scripts/verify_local_models.sh" \
     || echo "WARN: verify failed — fix before STT/SFX stages."

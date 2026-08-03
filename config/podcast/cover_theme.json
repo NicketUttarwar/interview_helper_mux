@@ -1,0 +1,88 @@
+{
+  "version": 2,
+  "show": "The War Room",
+  "palette": {
+    "midnight_charcoal": {
+      "hex": "#0B1220",
+      "role": "background"
+    },
+    "old_gold": {
+      "hex": "#C9A227",
+      "role": "primary_accent"
+    },
+    "map_sepia": {
+      "hex": "#D6C4A8",
+      "role": "warm_fill"
+    },
+    "map_ink": {
+      "hex": "#1A1A1A",
+      "role": "line_punch"
+    },
+    "cerulean": {
+      "hex": "#2A5C8A",
+      "role": "required_accent"
+    },
+    "crimson": {
+      "hex": "#8B1E3F",
+      "role": "required_accent"
+    },
+    "bone_white": {
+      "hex": "#E8E0D5",
+      "role": "aged_highlight"
+    },
+    "deep_black": {
+      "hex": "#050505",
+      "role": "void"
+    }
+  },
+  "required_accents": ["cerulean", "crimson"],
+  "composition": {
+    "format": "square_podcast_title_card",
+    "mood": "vintage_line_art_pointillist",
+    "hierarchy": "one_clear_hero_subject_plus_supporting_motifs",
+    "forbid_photorealism": true,
+    "forbid_default_props": ["war_room_map", "ribbon_microphone", "show_emblem"]
+  },
+  "brilliance": {
+    "primary_pick_criterion": true,
+    "checklist": [
+      "clear_focal_hero",
+      "cerulean_and_crimson_accents_visible",
+      "no_readable_letters_or_words",
+      "without_clauses_present",
+      "balanced_composition_not_cluttered",
+      "emotional_fit_to_episode_harvest"
+    ]
+  },
+  "text_policy": {
+    "depicted_text": "asterisks_only",
+    "example": "***",
+    "disqualify_readable_letters": true
+  },
+  "motif_sources": [
+    "publish/episode_meta.json",
+    "understanding/content_brief.json",
+    "understanding/narrative_arc.json",
+    "master/selection.json",
+    "analysis/analysis_state.json",
+    "understanding/speakers.json",
+    "creative/sound_design_plan.json",
+    "creative/sonic_mood.json"
+  ],
+  "prompt_anatomy": [
+    "hero_subject",
+    "supporting_motifs",
+    "composition",
+    "palette_locks",
+    "material_finish",
+    "lighting",
+    "asterisks_text_policy",
+    "without_clauses"
+  ],
+  "style_reference": {
+    "source": "show_artwork",
+    "use": "palette_grain_mood_only",
+    "input_fidelity": "low",
+    "never_copy": ["emblem", "lettering", "logo"]
+  }
+}

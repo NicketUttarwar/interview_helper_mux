@@ -13,7 +13,7 @@ from interview_mux.operator_trace import log_api_call, resolve_ctx, resolve_stag
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech", "chatterbox"})
+RUNTIME_IDS = frozenset({"deepfilter", "mmaudio", "mlx", "llm", "speech", "chatterbox", "image"})
 
 _RUNTIME_ALIASES = {"llm": "mlx"}
 
@@ -63,6 +63,7 @@ def resolve_venv_dir(runtime_id: str) -> Path:
             "llm": "ASSETS/local_llm/venv",
             "speech": "ASSETS/local_speech/venv",
             "chatterbox": "ASSETS/local_chatterbox/venv",
+            "image": "ASSETS/local_image/venv",
         }
         rel = defaults.get(rid, f"ASSETS/local_{rid}/venv")
     path = Path(str(rel))

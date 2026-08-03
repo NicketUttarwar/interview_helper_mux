@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from interview_mux.local_model_selection import build_speech_selection, speech_tier_for_ram
-from interview_mux.transcript_normalize import normalize_aws_transcript, normalize_local_stt
+from interview_mux.transcript_normalize import normalize_legacy_word_transcript, normalize_local_stt
 
 
 def test_normalize_local_stt_assigns_default_speaker():
@@ -13,7 +13,7 @@ def test_normalize_local_stt_assigns_default_speaker():
     assert speakers["speakers"][0]["id"] == "spk_0"
 
 
-def test_normalize_aws_transcript_words():
+def test_normalize_legacy_word_transcript_words():
     raw = {
         "results": {
             "transcripts": [{"transcript": "hi"}],
@@ -29,7 +29,7 @@ def test_normalize_aws_transcript_words():
             "speaker_labels": {"segments": []},
         }
     }
-    full, speakers = normalize_aws_transcript(raw)
+    full, speakers = normalize_legacy_word_transcript(raw)
     assert full["words"][0]["text"] == "hi"
     assert speakers["speakers"][0]["id"] == "spk_0"
 

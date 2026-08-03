@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 
-def normalize_aws_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def normalize_legacy_word_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Normalize legacy word-level transcript JSON (historical Transcribe-shaped payloads)."""
     results = raw.get("results") or {}
     items = results.get("items") or []
     segments = (results.get("speaker_labels") or {}).get("segments") or []
@@ -37,6 +38,10 @@ def normalize_aws_transcript(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[
         "words": words,
         "segments": segments,
     }, speakers
+
+
+# Backward-compatible alias
+normalize_aws_transcript = normalize_legacy_word_transcript
 
 
 def _infer_turn_speakers(words: list[dict[str, Any]], *, gap_ms: int = 700) -> None:

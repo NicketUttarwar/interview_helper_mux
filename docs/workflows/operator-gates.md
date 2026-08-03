@@ -22,6 +22,7 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 | Assembly preview listen | After `assembly_preview` | Soft milestone; does not block mix by default |
 | **G-Listen** | After `mix` when `master/listen_critic.json` recommends (`g_listen_recommended`) | Optional borderline quality review before `master_finalize`. Default `sound_design.g_listen_mode: warn` (advisory). Set `block` to hard-stop. Continue: `POST …/g-listen/continue`; skip: `POST …/g-listen/skip`. |
 | **Timeline optimizer** | Auto-starts after `mix` (defaults) | **Endless daemon (mode C)** permutes structure + glue + SDP + optional LLM proposals per run. GUI: Take best + remaster / Keep optimizing / Stop / Skip. Artifacts under `master/optimizer/`. Config: `mastering.timeline_optimizer`. |
+| **G-Publish** | After `master_finalize` (Ship) | Optional upload to The War Room RSS (S3 + CloudFront). Continue: `POST …/g-publish/continue` then run `podcast_publish`; skip: `POST …/g-publish/skip`. See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md). |
 
 ## Removed gates (v2)
 

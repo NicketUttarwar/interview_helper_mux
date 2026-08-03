@@ -1477,6 +1477,52 @@ def create_app() -> FastAPI:
             clear_g_listen(ctx, skipped=True)
             return {"ok": True, "skipped": True}
 
+    @app.get("/api/runs/{run_id}/g-publish")
+    def get_g_publish(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.config import load_secrets, merged_config
+        from interview_mux.gates import check_g_publish_pending
+
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        secrets = load_secrets()
+        podcast = merged_config().get("podcast") or {}
+        result = (
+            ctx.read_json("publish/publish_result.json")
+            if ctx.artifact_exists("publish/publish_result.json")
+            else {}
+        )
+        return {
+            "pending": check_g_publish_pending(ctx),
+            "enabled": bool(podcast.get("enabled", True)),
+            "show_title": podcast.get("show_title") or "The War Room",
+            "feed_url": secrets.get("PODCAST_FEED_BASE_URL"),
+            "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
+            "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
+            "publish_result": result if isinstance(result, dict) else {},
+        }
+
+    @app.post("/api/runs/{run_id}/g-publish/continue")
+    def g_publish_continue(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.gates import clear_g_publish
+
+            clear_g_publish(ctx, skipped=False)
+            return {"ok": True, "cleared": True}
+
+    @app.post("/api/runs/{run_id}/g-publish/skip")
+    def g_publish_skip(run_id: str) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.gates import clear_g_publish
+            from interview_mux.stages.podcast_publish import run_podcast_publish_skip
+
+            clear_g_publish(ctx, skipped=True)
+            run_podcast_publish_skip(ctx)
+            if not ctx.is_done("podcast_publish"):
+                ctx.mark_done("podcast_publish")
+            return {"ok": True, "skipped": True}
+
     @app.post("/api/runs/{run_id}/g1/skip-optional")
     def g1_skip_optional(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Mark non-blocking delivery:record gaps as skipped_optional and rebuild delivery_brief."""

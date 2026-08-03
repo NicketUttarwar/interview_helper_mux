@@ -71,7 +71,7 @@ def _speaker_turn_events(segments: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "time_ms": start_ms,
                 "type": "speaker_turn",
                 "confidence": 0.75,
-                "sources": ["aws_diarization"],
+                "sources": ["local_diarization"],
                 "window_ids": [],
             }
         )
