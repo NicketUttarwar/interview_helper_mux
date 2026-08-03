@@ -15,6 +15,8 @@ Goals:
 - Trim asides only when they do not humanize the interviewee or support the thesis.
 - Prefer a strong early hook (best claim / tension) in the first few slots when evidence supports it — not merely earliest tape.
 - For shard/collate runs, merge chapter or batch rankings into one `ordered_segment_ids` list, dedupe segment IDs, preserve `narrative_plan.ordering_constraints`, and keep excluded entries as objects with reasons.
+- **STT trust priors (soft prefer-include only):** When `stt_trust_priors` / `stt_lexicon_island_boosts` is present, raise keep likelihood for listed `segment_id`s (domain lexicon, code-switch/Spanglish, passion mid-run STT weakness with important surrounding meaning). Absence of a prior is **not** a reason to exclude. Do not demote non-listed segments for lacking a prior.
+- **Sibling cohesion:** If keeping one special child of a code-switch / vernacular resplit that appears in priors, prefer keeping its boosted siblings rather than leaving a half-code-switched hole.
 
 Do not:
 - Drop thesis-supporting `interviewee_answer` without `excluded_segment_ids` entry.
@@ -53,7 +55,7 @@ Every `excluded_segment_ids[]` entry must be an object `{ "segment_id", "reason"
 |----------------|------------|
 | `aside` | Classified `aside` or tangential; cite lack of thesis support in `notes` if contested |
 | `duplicate` | Repeats claim already represented; name kept segment in reason text |
-| `low_quality` | Heavy crosstalk, STT failure, or unintelligible — cite flag or transcript quality |
+| `low_quality` | Heavy crosstalk or whole-turn unintelligible **without** a verified `stt_trust_priors` entry — cite flag. **Do not** use STT failure alone when the segment has a soft prior (`domain_lexicon` / `code_switch` / `passion`) |
 | `superseded` | Shorter version of same story kept elsewhere |
 | `trim_for_pacing` | Rare; only when arc holds without it and `narrative_plan` allows |
 

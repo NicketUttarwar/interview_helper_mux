@@ -14,16 +14,19 @@ SPECIALIST_PROMPTS: dict[str, str] = {
     "comprehension_risk_blind": "_shared/specialists/comprehension-risk-blind.system.txt",
     "theme_coverage_pass": "_shared/specialists/theme-coverage-pass.system.txt",
     "emphasis_coverage_pass": "_shared/specialists/emphasis-coverage-pass.system.txt",
+    "stt_lexicon_island_verify": "_shared/specialists/stt-lexicon-island-verify.system.txt",
 }
 
 SPECIALIST_EXAMPLE_FILES: dict[str, str] = {
     "comprehension_risk_blind": "_shared/examples/specialists/comprehension-risk-blind.examples.md",
     "theme_coverage_pass": "_shared/examples/specialists/theme-coverage-pass.examples.md",
     "emphasis_coverage_pass": "_shared/examples/specialists/emphasis-coverage-pass.examples.md",
+    "stt_lexicon_island_verify": "_shared/examples/specialists/stt-lexicon-island-verify.examples.md",
 }
 
 PRE_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
     "missing_framing": ("comprehension_risk_blind",),
+    "full_master_ranking": ("stt_lexicon_island_verify",),
 }
 
 POST_STAGE_SPECIALISTS: dict[str, tuple[str, ...]] = {
@@ -298,6 +301,37 @@ def maybe_run_pre_stage_specialists(
                 stage=stage_key,
                 detail=json.dumps(
                     {"duration_ms": duration_ms, "risk_count": risk_count, "investigation_count": inv_count},
+                    ensure_ascii=False,
+                ),
+            )
+        elif spec_key == "stt_lexicon_island_verify":
+            verdict_count = len((env.get("artifacts") or {}).get("group_verdicts") or [])
+            try:
+                from interview_mux.stt_lexicon_islands import build_stt_trust_priors
+
+                boosts = build_stt_trust_priors(
+                    ctx,
+                    cfg=cfg,
+                    verdicts=(env.get("artifacts") or {}).get("group_verdicts") or [],
+                )
+                prior_count = len(boosts.get("priors") or [])
+            except Exception as exc:
+                prior_count = 0
+                ctx.log(
+                    f"stt_lexicon_island_verify boost fuse failed: {exc}",
+                    level="warning",
+                    stage=stage_key,
+                )
+            ctx.log(
+                f"Pre-stage specialist {spec_key}: {verdict_count} verdict(s), {prior_count} soft prior(s)",
+                level="info",
+                stage=stage_key,
+                detail=json.dumps(
+                    {
+                        "duration_ms": duration_ms,
+                        "verdict_count": verdict_count,
+                        "prior_count": prior_count,
+                    },
                     ensure_ascii=False,
                 ),
             )

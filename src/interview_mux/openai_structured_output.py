@@ -19,12 +19,14 @@ SPECIALIST_SCHEMA_FILES: dict[str, str] = {
     "comprehension_risk_blind": "specialists/comprehension_risk_blind.schema.json",
     "theme_coverage_pass": "specialists/theme_coverage_pass.schema.json",
     "emphasis_coverage_pass": "specialists/emphasis_coverage_pass.schema.json",
+    "stt_lexicon_island_verify": "specialists/stt_lexicon_island_verify.schema.json",
 }
 
 SPECIALIST_STAGE_SUFFIXES: dict[str, str] = {
     "comprehension_risk_blind": "comprehension_risk_blind",
     "theme_coverage_pass": "theme_coverage_pass",
     "emphasis_coverage_pass": "emphasis_coverage_pass",
+    "stt_lexicon_island_verify": "stt_lexicon_island_verify",
 }
 
 

@@ -41,6 +41,7 @@ SPECIALIST_IDS: dict[str, str] = {
     "comprehension_risk_blind": "OS-01",
     "theme_coverage_pass": "OS-02",
     "emphasis_coverage_pass": "OS-03",
+    "stt_lexicon_island_verify": "OS-04",
 }
 
 META_TASK_IDS: dict[str, str] = {
@@ -352,6 +353,7 @@ _OS_GOALS: dict[str, str] = {
     "comprehension_risk_blind": "Blind comprehension risk scores",
     "theme_coverage_pass": "Fix unmapped topic tags",
     "emphasis_coverage_pass": "Acoustic emphasis vs beats",
+    "stt_lexicon_island_verify": "Soft prefer-include for STT lexicon/code-switch/passion islands",
 }
 
 LLM_INTERACTION_REGISTRY: dict[str, dict[str, Any]] = _build_registry()

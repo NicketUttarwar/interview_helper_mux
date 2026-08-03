@@ -39,6 +39,12 @@ def _arc_critical_ids(ctx: RunContext) -> set[str]:
         ids |= authoritative_must_keep_ids(ctx)
     except Exception:
         pass
+    try:
+        from interview_mux.stt_lexicon_islands import soft_protect_segment_ids
+
+        ids |= soft_protect_segment_ids(ctx)
+    except Exception:
+        pass
     return ids
 
 
@@ -94,6 +100,20 @@ def auto_pack_selection_to_brief(
         return selection
 
     critical = _arc_critical_ids(ctx)
+    try:
+        from interview_mux.stt_lexicon_islands import soft_protect_segment_ids
+
+        stt_protected = soft_protect_segment_ids(ctx)
+        if stt_protected:
+            ctx.log(
+                f"STT island soft-protect: {len(stt_protected)} segment(s) treated as duration-critical",
+                level="info",
+                stage=stage,
+                action_id="stt_island.soft_protect",
+                detail={"segment_ids": sorted(stt_protected)[:20]},
+            )
+    except Exception:
+        pass
     ranks = selection.get("segment_ranks") or selection.get("ranks") or {}
     if not isinstance(ranks, dict):
         ranks = {}

@@ -34,7 +34,7 @@ Config: `analysis.structured_outputs`, `local_llm.structured_outputs` in `config
 | OA-07 | `missing_framing` | Per-segment gap eval |
 | OA-08 | `optimal_questions` | VO lines for record gaps |
 
-Post-hooks: OA-04 → OS-02; OA-07 / OF-03 → OS-01.
+Post-hooks: OA-04 → OS-02; OA-07 / OF-03 → OS-01; OF-03 pre → OS-04.
 
 ---
 
@@ -80,6 +80,7 @@ Schema: composed `analysis_envelope` + stage artifact (`docs/cross-cutting/json-
 | OS-01 | `comprehension_risk_blind` | `missing_framing`, `full_master_ranking` | `comprehension_risks[]` |
 | OS-02 | `theme_coverage_pass` | `segment_classification` | `segment_topic_patches[]` |
 | OS-03 | `emphasis_coverage_pass` | `topic_coverage_audit` | `emphasis_coverage` |
+| OS-04 | `stt_lexicon_island_verify` | `full_master_ranking` (pre) | `group_verdicts[]` → soft `stt_trust_priors` |
 
 ---
 

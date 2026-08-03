@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SttLexiconIslandVerifyArtifact",
+  "type": "object",
+  "required": ["group_verdicts"],
+  "properties": {
+    "group_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "group_id",
+          "segment_ids",
+          "fits_case",
+          "importance_score",
+          "boost_recommended",
+          "failure_mode",
+          "rationale"
+        ],
+        "properties": {
+          "group_id": { "type": "string" },
+          "segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "fits_case": { "type": "boolean" },
+          "importance_score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "boost_recommended": { "type": "boolean" },
+          "failure_mode": {
+            "type": "string",
+            "enum": ["domain_lexicon", "code_switch", "passion", "noise", "uncertain"]
+          },
+          "rationale": { "type": "string" }
+        }
+      }
+    }
+  }
+}

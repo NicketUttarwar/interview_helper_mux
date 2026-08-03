@@ -53,6 +53,18 @@ Prompts: [`docs/prompts/audio_probes/`](../prompts/audio_probes/). Registry: `sr
 
 Default `enforcement_mode` is `shadow`. Set `authoritative` to hard-block auto_pack drops.
 
+## STT lexicon-island soft ranking boost
+
+Separate from hard `must_keep`: before `full_master_ranking`, `stt_lexicon_islands.py` **evaluates segment groups** (turn windows, vernacular parent/siblings) for mid-run STT weakness caused by domain lexicon, code-switch/Spanglish, or passion. Fitting groups get a soft prefer-include prior via specialist OS-04 `stt_lexicon_island_verify`. Non-fitting groups stay neutral — this pass does **not** demote or systematically exclude other segments.
+
+| Layer | Role |
+|---|---|
+| G0 transcript review | Operator fixes text; islands scan post-G0 transcript |
+| Vernacular `must_keep` | Hard/shadow retention of special children |
+| STT island soft boost | Soft prefer-include + anti-false-exclude guards for verified groups |
+
+Config: `analysis.stt_lexicon_islands.*` — see [config-keys.md](./config-keys.md).
+
 ## Config
 
 See [config-keys.md](./config-keys.md) — `audio_probes.*`, `local_speech.interrogate_mode=stt_listen`.

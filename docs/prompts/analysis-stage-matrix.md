@@ -63,6 +63,7 @@ Timing: **pre** runs before the parent primary LLM call; **post** runs after the
 | Parent stage | Timing | Specialist | Output artifact | Investigation trigger |
 |--------------|--------|------------|-----------------|------------------------|
 | `missing_framing` | pre | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `gap_unresolved` |
+| `full_master_ranking` | pre | `stt_lexicon_island_verify` | `group_verdicts[]` → soft `stt_trust_priors` | Soft prefer-include only (no demotion) |
 | `segment_classification` | post | `theme_coverage_pass` | `segment_topic_patches[]` | Non-empty patches → `theme_unmapped` |
 | `topic_coverage_audit` | post | `emphasis_coverage_pass` | `emphasis_coverage.gaps[]` | Non-empty gaps → coverage re-audit |
 | `full_master_ranking` | post | `comprehension_risk_blind` | `comprehension_risks[]` | High `risk_score` → `comprehension_risk` / `gap_unresolved` |

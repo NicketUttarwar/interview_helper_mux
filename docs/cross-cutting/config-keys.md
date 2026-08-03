@@ -618,6 +618,30 @@ When `true` (shipped default), runs economy-tier specialist passes after `missin
 
 ---
 
+## `analysis.stt_lexicon_islands`
+
+Soft prefer-include for mid-run STT weakness (domain lexicon, code-switch/Spanglish, passion). Systematic group evaluation before `full_master_ranking`; **boost-only** (never demotes other segments). Module: `stt_lexicon_islands.py`.
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch for scan + pre-specialist + guards |
+| `low_confidence_threshold` | `0.85` | Word confidence below this starts an island (falls back to `audio_probes.low_confidence_threshold`) |
+| `high_confidence_threshold` | `0.9` | Pad words must meet this confidence |
+| `min_pad_words` | `3` | Bilateral high-conf pad length for lexicon islands |
+| `min_pad_words_passion` | `2` | Looser pad when passion/affect corroboration is present |
+| `max_pad_gap_ms` | `600` | Max gap between pad words |
+| `max_island_words` / `max_island_ms` | `12` / `8000` | Cap island size (avoid whole-turn boosts) |
+| `max_candidates_for_llm` | `40` | Cost cap for `stt_lexicon_island_verify` |
+| `verify_importance_min` | `0.65` | LLM `importance_score` floor before emitting a prior |
+| `soft_boost_strength` | `0.15` | Scales importance into soft_boost |
+| `auto_pack_protect_min_boost` | `0.65` | Importance floor for duration soft-protect |
+| `passion_boost_multiplier` / `vernacular_boost_multiplier` | `1.25` | Multipliers when probe class matches |
+| `sibling_cohesion_enabled` | `true` | Keep vernacular special siblings together when one is boosted |
+
+Artifacts: `analysis/stt_lexicon_islands.json`, `analysis/stt_lexicon_island_boosts.json`. Specialist: OS-04 `stt_lexicon_island_verify` (pre on `full_master_ranking`).
+
+---
+
 ## `analysis.prompt_examples`
 
 Few-shot example injection into system prompts via `stages/llm_runner.py` → `load_compact_examples()`.

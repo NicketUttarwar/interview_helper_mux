@@ -12,13 +12,19 @@ from interview_mux.nle_state import (
 )
 from interview_mux.gates import check_narrative_qc
 from interview_mux.production_profile import prompt_variant
-from interview_mux.llm_specialists import maybe_run_post_stage_specialists
+from interview_mux.llm_specialists import maybe_run_post_stage_specialists, maybe_run_pre_stage_specialists
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stage_enrichment import compact_manifest_for_volley
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
+from interview_mux.stt_lexicon_islands import (
+    enforce_stt_island_selection_guards,
+    load_stt_trust_priors,
+    scan_stt_lexicon_groups,
+    specialist_input_from_ctx,
+)
 
 
 def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
@@ -77,6 +83,10 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.gap_framing import attach_framing_to_ranking_payload
 
         payload = attach_framing_to_ranking_payload(c, payload)
+        priors = load_stt_trust_priors(c)
+        if priors:
+            payload["stt_trust_priors"] = priors
+            payload["stt_lexicon_island_boosts"] = priors
         return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
@@ -116,6 +126,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.framing_coverage_guard import enforce_framing_ranking
 
         artifacts = enforce_framing_ranking(c, artifacts)
+        artifacts = enforce_stt_island_selection_guards(c, artifacts, stage="full_master_ranking")
 
         from interview_mux.story_health import evaluate_story_health
         from interview_mux.reorder_bridges import build_reorder_bridges
@@ -333,6 +344,37 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="full_master_ranking",
         )
+
+    with logged_step("full_master_ranking/stt_lexicon_scan", ctx=ctx, stage="full_master_ranking"):
+        try:
+            scan = scan_stt_lexicon_groups(ctx)
+            ctx.log(
+                f"STT lexicon island scan: {scan.get('group_count', 0)} group(s), "
+                f"{scan.get('candidate_count', 0)} candidate(s)",
+                level="info",
+                stage="full_master_ranking",
+                action_id="stt_island.scan",
+                detail={
+                    "group_count": scan.get("group_count"),
+                    "candidate_count": scan.get("candidate_count"),
+                },
+            )
+        except Exception as exc:
+            ctx.log(
+                f"STT lexicon island scan failed (fail-open): {exc}",
+                level="warning",
+                stage="full_master_ranking",
+            )
+
+    with logged_step("full_master_ranking/pre_specialists", ctx=ctx, stage="full_master_ranking"):
+        try:
+            maybe_run_pre_stage_specialists(ctx, "full_master_ranking", specialist_input_from_ctx(ctx))
+        except Exception as exc:
+            ctx.log(
+                f"STT lexicon island pre-specialist failed (fail-open): {exc}",
+                level="warning",
+                stage="full_master_ranking",
+            )
 
     with logged_step("full_master_ranking/llm_stage", ctx=ctx, stage="full_master_ranking"):
         run_flow_llm_stage(
