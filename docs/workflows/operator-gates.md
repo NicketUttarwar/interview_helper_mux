@@ -22,7 +22,7 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 | Assembly preview listen | After `assembly_preview` | Soft milestone; does not block mix by default |
 | **G-Listen** | After `mix` when `master/listen_critic.json` recommends (`g_listen_recommended`) | Optional borderline quality review before `master_finalize`. Default `sound_design.g_listen_mode: warn` (advisory). Set `block` to hard-stop. Continue: `POST …/g-listen/continue`; skip: `POST …/g-listen/skip`. |
 | **Timeline optimizer** | Auto-starts after `mix` (defaults) | **Endless daemon (mode C)** permutes structure + glue + SDP + optional LLM proposals per run. GUI: Take best + remaster / Keep optimizing / Stop / Skip. Artifacts under `master/optimizer/`. Config: `mastering.timeline_optimizer`. |
-| **G-Publish** | After `master_finalize` (Ship) | Optional upload to The War Room RSS (S3 + CloudFront). Continue: `POST …/g-publish/continue` clears the gate and **auto-runs** `episode_meta_build`…`podcast_publish`; skip: `POST …/g-publish/skip`. See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md). |
+| **G-Publish** | After `master_finalize` (Ship) | Optional local episode package + separate ASSETS-wide S3 sync. **Prepare package for this run:** `POST …/g-publish/continue` runs `episode_meta_build`…`podcast_publish` locally (no S3). **Upload all ready packages:** `POST …/g-publish/sync` (or `python scripts/sync_podcast_episodes.py`) uploads complete `publish/` packages under `ASSETS/executions/` — skips known `execution_id`s, never deletes S3. **Skip:** `POST …/g-publish/skip`. See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md). |
 
 ## Removed gates (v2)
 

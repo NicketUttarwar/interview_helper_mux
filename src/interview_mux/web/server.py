@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import traceback
 from contextlib import contextmanager
 import mimetypes
@@ -1483,6 +1484,7 @@ def create_app() -> FastAPI:
         from interview_mux.config import load_secrets, merged_config
         from interview_mux.gates import check_g_publish_pending
         from interview_mux.podcast_rss.settings import feed_url_from_base
+        from interview_mux.podcast_rss.sync_assets import read_last_sync_result, sync_status_summary
 
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         secrets = load_secrets()
@@ -1492,7 +1494,13 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("publish/publish_result.json")
             else {}
         )
+        package_ready = (
+            ctx.read_json("publish/package_ready.json")
+            if ctx.artifact_exists("publish/package_ready.json")
+            else {}
+        )
         base = str(secrets.get("PODCAST_FEED_BASE_URL") or "").rstrip("/")
+        sync_summary = sync_status_summary()
         return {
             "pending": check_g_publish_pending(ctx),
             "enabled": bool(podcast.get("enabled", True)),
@@ -1501,7 +1509,14 @@ def create_app() -> FastAPI:
             "feed_url": feed_url_from_base(base) or None,
             "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
             "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
+            "package_ready": bool(isinstance(package_ready, dict) and package_ready.get("ready")),
+            "has_master": ctx.artifact_exists("master/master.wav"),
             "publish_result": result if isinstance(result, dict) else {},
+            "ready_package_count": int(sync_summary.get("ready_package_count") or 0),
+            "already_uploaded_count": int(sync_summary.get("already_uploaded_count") or 0),
+            "incomplete_count": int(sync_summary.get("incomplete_count") or 0),
+            "last_sync": sync_summary.get("last_sync") or read_last_sync_result(),
+            "sync_job": _read_podcast_sync_job(),
         }
 
     @app.post("/api/runs/{run_id}/g-publish/continue")
@@ -1513,7 +1528,7 @@ def create_app() -> FastAPI:
             clear_g_publish(ctx, skipped=False)
             set_active_execution(run_id)
             ctx.log(
-                "G-Publish cleared — starting episode package through podcast_publish",
+                "G-Publish cleared — preparing local episode package (no S3 upload)",
                 level="action",
                 stage="podcast_publish",
             )
@@ -1524,7 +1539,20 @@ def create_app() -> FastAPI:
             from_stage="episode_meta_build",
             until_stage="podcast_publish",
         )
-        return {"ok": True, "cleared": True, "started": True, "job": job}
+        return {"ok": True, "cleared": True, "started": True, "prepare_only": True, "job": job}
+
+    @app.post("/api/runs/{run_id}/g-publish/sync")
+    def g_publish_sync(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """ASSETS-wide upload of ready packages. Never deletes S3 objects."""
+        _ = _ctx(run_id)  # validate run exists
+        body = body or {}
+        dry_run = bool(body.get("dry_run"))
+        force_files = bool(body.get("force_files"))
+        existing = _read_podcast_sync_job()
+        if existing.get("status") == "running":
+            raise HTTPException(409, "Podcast sync already running")
+        job = _start_podcast_sync_job(dry_run=dry_run, force_files=force_files)
+        return {"ok": True, "started": True, "job": job}
 
     @app.post("/api/runs/{run_id}/g-publish/skip")
     def g_publish_skip(run_id: str) -> dict[str, Any]:
@@ -3575,6 +3603,76 @@ def _ctx(run_id: str) -> RunContext:
     if not RunContext.exists(run_id):
         raise HTTPException(404, f"Run not found: {run_id}")
     return RunContext(run_id, create=False)
+
+
+def _podcast_sync_job_path() -> Path:
+    return repo_root() / "ASSETS" / "podcast" / "sync_job.json"
+
+
+def _read_podcast_sync_job() -> dict[str, Any]:
+    path = _podcast_sync_job_path()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_podcast_sync_job(payload: dict[str, Any]) -> None:
+    path = _podcast_sync_job_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _start_podcast_sync_job(*, dry_run: bool = False, force_files: bool = False) -> dict[str, Any]:
+    """Spawn ASSETS-wide podcast sync in a daemon thread (never deletes S3)."""
+    started_at = datetime.now(timezone.utc).isoformat()
+    job: dict[str, Any] = {
+        "status": "running",
+        "dry_run": dry_run,
+        "force_files": force_files,
+        "started_at": started_at,
+        "message": "Syncing ready episode packages to S3",
+    }
+    _write_podcast_sync_job(job)
+
+    def _worker() -> None:
+        from interview_mux.podcast_rss.sync_assets import sync_ready_packages
+
+        try:
+            result = sync_ready_packages(dry_run=dry_run, force_files=force_files)
+            payload = {
+                "status": "error" if result.errors else "done",
+                "dry_run": dry_run,
+                "force_files": force_files,
+                "started_at": started_at,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "result": result.to_dict(),
+                "message": (
+                    f"Synced {len(result.uploaded)} package(s); "
+                    f"skipped {len(result.skipped_already_uploaded)} already uploaded"
+                    if not result.errors
+                    else f"Sync finished with {len(result.errors)} error(s)"
+                ),
+            }
+            _write_podcast_sync_job(payload)
+        except Exception as exc:
+            _write_podcast_sync_job(
+                {
+                    "status": "error",
+                    "dry_run": dry_run,
+                    "force_files": force_files,
+                    "started_at": started_at,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "message": str(exc),
+                    "error": str(exc),
+                }
+            )
+
+    threading.Thread(target=_worker, daemon=True, name="podcast-sync").start()
+    return job
 
 
 def _assert_asset_input_path(rel: str) -> None:

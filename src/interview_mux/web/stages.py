@@ -568,12 +568,12 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     ),
     StageInfo(
         "podcast_publish",
-        "Publish RSS",
-        "Upload episode package to S3, rebuild feed.xml, invalidate CloudFront (G-Publish).",
+        "Package episode",
+        "Finalize local publish/ package (meta, chapters, markers). S3 upload is a separate ASSETS sync.",
         "delivery",
-        ("publish/audio.mp3", "publish/cover.png", "publish/episode_meta.json"),
+        ("publish/audio.mp3", "publish/cover.jpg", "publish/episode_meta.json"),
         (),
-        ("publish/publish_result.json",),
+        ("publish/package_ready.json", "publish/publish_result.json"),
     ),
 )
 

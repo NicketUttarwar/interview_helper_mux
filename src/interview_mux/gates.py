@@ -620,7 +620,7 @@ def check_show_notes_qc(ctx: RunContext, *, stage: str = "show_notes") -> None:
 
 
 def check_g_publish_pending(ctx: RunContext) -> bool:
-    """True when operator has not yet Publish/Skip'd RSS upload."""
+    """True when operator has not yet Prepared/Skip'd local RSS packaging."""
     podcast = merged_config().get("podcast") or {}
     if not bool(podcast.get("enabled", True)):
         return False
@@ -631,14 +631,14 @@ def check_g_publish_pending(ctx: RunContext) -> bool:
         return False
     if meta.get("g_publish_pending"):
         return True
-    # Pending once master exists and publish not done
+    # Pending once master exists and local package not finalized
     if ctx.artifact_exists("master/master.wav") and not ctx.is_done("podcast_publish"):
         return True
     return False
 
 
 def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
-    """Allow podcast_publish only after operator chose Publish (not Skip)."""
+    """Allow gated packaging only after operator chose Prepare (not Skip)."""
     podcast = merged_config().get("podcast") or {}
     if not bool(podcast.get("enabled", True)):
         return
@@ -646,7 +646,7 @@ def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
     if isinstance(meta, dict) and meta.get("g_publish_skipped"):
         _gate_exit(
             ctx,
-            "G-Publish was skipped — RSS upload not requested for this run.",
+            "G-Publish was skipped — RSS package not requested for this run.",
             stage=stage,
         )
     if isinstance(meta, dict) and meta.get("g_publish_cleared"):
@@ -654,8 +654,9 @@ def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
     if check_g_publish_pending(ctx):
         _gate_exit(
             ctx,
-            "G-Publish pending — publish to The War Room RSS "
-            "(POST …/g-publish/continue) or skip (POST …/g-publish/skip).",
+            "G-Publish pending — prepare a local episode package "
+            "(POST …/g-publish/continue) or skip (POST …/g-publish/skip). "
+            "S3 upload is a separate sync (POST …/g-publish/sync).",
             stage=stage,
         )
 

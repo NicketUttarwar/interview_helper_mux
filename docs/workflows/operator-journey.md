@@ -16,7 +16,7 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 | 7 | Edit | Optional NLE (always-visible **Split segment** after segments exist); auto `segments/split_plan.json`; splits cascade re-rank |
 | 8 | Sound | SDP plan → VO finalize → SFX prompt craft |
 | 9 | Build | Narrative audit → EDL → preview → MMAudio → mix → **endless timeline optimizer** (auto) → listen critic |
-| 10 | Ship | Optional G-Listen → Take best / skip optimizer → `master_finalize` → optional **G-Publish** (The War Room RSS) → download `master.wav` |
+| 10 | Ship | Optional G-Listen → Take best / skip optimizer → `master_finalize` → optional **G-Publish** (prepare local package; sync ASSETS → S3 separately) → download `master.wav` |
 
 ## Removed from v2
 

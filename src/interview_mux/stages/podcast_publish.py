@@ -1,25 +1,18 @@
-"""Podcast publish stages: meta, cover prompt, MP3, cover art, S3 publish."""
+"""Podcast publish stages: meta, cover prompt, MP3, cover art, local package finalize.
+
+S3 / RSS upload is a separate ASSETS-wide sync (``podcast_rss.sync_assets`` /
+``scripts/sync_podcast_episodes.py``), not part of the per-run pipeline.
+"""
 
 from __future__ import annotations
 
 import json
 import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from interview_mux.config import repo_root
-from interview_mux.gates import require_g_publish_clear
 from interview_mux.llm_simple import run_llm_stage_simple
-from interview_mux.podcast_rss.catalog import (
-    allocate_episode_number,
-    apply_version_suffix,
-    episode_folder,
-    load_by_source_hash,
-    prior_publish_count,
-    record_execution,
-    record_publish,
-)
 from interview_mux.podcast_rss.cover_prompt import (
     BRILLIANT_EXEMPLAR,
     DISAMBIGUATION_VOLLEY,
@@ -35,14 +28,7 @@ from interview_mux.podcast_rss.cover_prompt import (
 )
 from interview_mux.stages.llm_runner import run_prompt_envelope
 from interview_mux.podcast_rss.encode import encode_master_to_mp3
-from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config, rfc2822
-from interview_mux.podcast_rss.s3_publish import (
-    get_json,
-    list_episode_metas,
-    publish_episode_package,
-)
 from interview_mux.podcast_rss.settings import (
-    episode_prefix,
     podcast_cfg as _podcast_cfg,
     s3_layout,
 )
@@ -75,60 +61,6 @@ def _copy_show_fallback(ctx: RunContext, dest: Path, *, reason: str) -> Path:
         {"cover_source": "show_fallback", "reason": reason, "path": str(dest.name)},
     )
     return dest
-
-
-def _prepared_show_artwork_jpeg(ctx: RunContext | None = None) -> Path:
-    """Convert committed show PNG → 3000² JPEG for S3 show/artwork.jpg."""
-    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
-
-    src = _show_artwork_path()
-    if not src.is_file():
-        raise FileNotFoundError(f"Show artwork missing: {src}")
-    settings = resolve_cover_image_settings()
-    if ctx is not None:
-        dest = ctx.path("publish/show_artwork.jpg")
-    else:
-        dest = src.with_name("the-war-room-cover.prepared.jpg")
-        # Prefer ephemeral under ASSETS if available
-        assets = repo_root() / "ASSETS" / "podcast"
-        assets.mkdir(parents=True, exist_ok=True)
-        dest = assets / "show_artwork.jpg"
-    return ensure_square_cover(
-        src,
-        min_size=int(settings.get("min_output_px") or 3000),
-        output_format="jpeg",
-        jpeg_quality=int(settings.get("jpeg_quality") or 90),
-        dest=dest,
-    )
-
-def _probe_duration_seconds(path: Path) -> int:
-    import json as _json
-    import shutil as _shutil
-    import subprocess
-
-    ffprobe = _shutil.which("ffprobe")
-    if not ffprobe or not path.is_file():
-        return 0
-    proc = subprocess.run(
-        [
-            ffprobe,
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return 0
-    try:
-        data = _json.loads(proc.stdout or "{}")
-        return int(float((data.get("format") or {}).get("duration") or 0))
-    except Exception:
-        return 0
 
 
 def _build_meta_input(ctx: RunContext) -> dict[str, Any]:
@@ -563,18 +495,18 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
 
 
 def run_podcast_publish(ctx: RunContext) -> None:
+    """Finalize a local episode package under publish/ — no S3 upload.
+
+    Upload is a separate ASSETS-wide sync (GUI G-Publish sync or
+    ``scripts/sync_podcast_episodes.py``).
+    """
+    from datetime import datetime, timezone
+
     from interview_mux.podcast_rss.chapters import build_timed_chapters
     from interview_mux.podcast_rss.openai_cover import require_cover_min_size
-    from interview_mux.podcast_rss.settings import (
-        feed_url_from_base,
-        require_publish_ready,
-        show_artwork_s3_key,
-    )
 
-    require_g_publish_clear(ctx, stage="podcast_publish")
     layout = s3_layout()
     files = layout["episode_files"]
-    catalog_prefix = layout["catalog_prefix"]
 
     # Ensure cover.jpg exists (legacy cover.png → convert)
     cover = ctx.path(f"publish/{files['cover']}")
@@ -594,139 +526,85 @@ def run_podcast_publish(ctx: RunContext) -> None:
         else:
             _copy_show_fallback(ctx, cover, reason="missing_at_publish")
 
-    # Always write timed chapters + ensure master.wav present
     chapters_doc = build_timed_chapters(ctx)
     ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
     master_pub = ctx.path(f"publish/{files['master']}")
     if not master_pub.is_file():
         master_src = ctx.path("master/master.wav")
         if not master_src.is_file():
-            raise FileNotFoundError("master/master.wav missing — cannot publish archive copy")
+            raise FileNotFoundError("master/master.wav missing — cannot package archive copy")
         shutil.copy2(master_src, master_pub)
 
-    targets = require_publish_ready(local_dir=ctx.path("publish"))
-    bucket = targets["bucket"]
-    dist_id = targets["distribution_id"]
-    base = targets["feed_base_url"]
-    region = targets["region"]
-    project_name = targets["project_name"]
     require_cover_min_size(cover, min_px=1400)
+
+    for key in ("audio", "master", "cover", "chapters"):
+        path = ctx.path(f"publish/{files[key]}")
+        if not path.is_file() or path.stat().st_size < 1:
+            raise FileNotFoundError(f"publish/{files[key]} missing or empty — cannot finalize package")
 
     meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     source_hash = str((run_meta or {}).get("source_audio_hash") or "")
     execution_id = str((run_meta or {}).get("execution_id") or ctx.run_id)
     season = int(_podcast_cfg().get("season") or 1)
+    title = str((meta or {}).get("title") or "Untitled Episode").strip() or "Untitled Episode"
+    description = str((meta or {}).get("description") or title).strip() or title
+    prepared_at = datetime.now(timezone.utc).isoformat()
 
-    sequence = get_json(bucket, f"{catalog_prefix}/sequence.json", region=region) or {
-        "next_episode_number": 1
-    }
-    by_hash_raw = get_json(bucket, f"{catalog_prefix}/by_source_hash.json", region=region) or {}
-    by_exec_raw = get_json(bucket, f"{catalog_prefix}/by_execution_id.json", region=region) or {}
-    by_hash = load_by_source_hash(by_hash_raw)
-    prior = prior_publish_count(by_hash, source_hash) if source_hash else 0
-    base_title = str((meta or {}).get("title") or "Untitled Episode")
-    title = apply_version_suffix(base_title, prior_count=prior)
-    episode_number, sequence = allocate_episode_number(sequence)
-    folder = episode_folder(episode_number)
-    prefix = episode_prefix(episode_number)
-
-    mp3 = ctx.path(f"publish/{files['audio']}")
-    if not mp3.is_file():
-        raise FileNotFoundError(f"publish/{files['audio']} missing")
-
-    duration = _probe_duration_seconds(mp3)
-    published_at = datetime.now(timezone.utc).isoformat()
-    description = str((meta or {}).get("description") or title)
-    enclosure_url = f"{base}/{prefix}/{files['audio']}"
-    cover_url = f"{base}/{prefix}/{files['cover']}"
-    description_url = f"{base}/{prefix}/{files['description']}"
-    chapters_url = f"{base}/{prefix}/{files['chapters']}"
-    episode_doc = {
-        "episode_number": episode_number,
+    episode_draft = {
         "season": season,
         "title": title,
         "description": description,
         "guid": execution_id,
         "execution_id": execution_id,
         "source_audio_hash": source_hash,
-        "s3_prefix": prefix,
-        "pub_date": rfc2822(),
-        "published_at": published_at,
-        "enclosure_url": enclosure_url,
-        "enclosure_length": mp3.stat().st_size,
-        "duration_seconds": duration,
-        "cover_url": cover_url,
-        "description_url": description_url,
-        "chapters_url": chapters_url,
-        "link": enclosure_url,
+        "prepared_at": prepared_at,
+        "package_status": "ready_local",
         "cover_source": (
             (ctx.read_json("publish/cover_meta.json") or {}).get("cover_source")
             if ctx.artifact_exists("publish/cover_meta.json")
             else "unknown"
         ),
     }
-    ctx.write_json(f"publish/{files['meta']}", episode_doc)
+    ctx.write_json(f"publish/{files['meta']}", episode_draft)
     ctx.path(f"publish/{files['description']}").write_text(description + "\n", encoding="utf-8")
-
-    by_hash = record_publish(
-        by_hash,
-        source_audio_hash=source_hash or execution_id,
-        episode_number=episode_number,
-        title=title,
-        execution_id=execution_id,
-        published_at=published_at,
-        s3_prefix=prefix,
+    ctx.write_json(
+        "publish/package_ready.json",
+        {
+            "ready": True,
+            "prepared_at": prepared_at,
+            "execution_id": execution_id,
+            "title": title,
+            "files": {
+                "audio": files["audio"],
+                "master": files["master"],
+                "cover": files["cover"],
+                "chapters": files["chapters"],
+                "meta": files["meta"],
+                "description": files["description"],
+            },
+        },
     )
-    by_execution = record_execution(
-        by_exec_raw if isinstance(by_exec_raw, dict) else {},
-        execution_id=execution_id,
-        episode_number=episode_number,
-        title=title,
-        source_audio_hash=source_hash,
-        published_at=published_at,
-        s3_prefix=prefix,
+    ctx.write_json(
+        "publish/publish_result.json",
+        {
+            "local_package": True,
+            "uploaded": False,
+            "execution_id": execution_id,
+            "title": title,
+            "prepared_at": prepared_at,
+            "hint": "Run scripts/sync_podcast_episodes.py or G-Publish → Upload all to push to S3",
+        },
     )
-
-    channel = channel_meta_from_config(_podcast_cfg())
-    existing = list_episode_metas(bucket, region=region)
-    existing = [e for e in existing if str(e.get("guid")) != execution_id]
-    feed_episodes = [episode_doc] + existing
-    art_key = show_artwork_s3_key()
-    feed_xml = build_feed_xml(
-        channel=channel,
-        feed_url=feed_url_from_base(base),
-        show_artwork_url=f"{base}/{art_key}",
-        episodes=feed_episodes,
-    )
-    ctx.path("publish/feed.xml").write_text(feed_xml, encoding="utf-8")
-
-    show_art = _prepared_show_artwork_jpeg(ctx)
-    result = publish_episode_package(
-        bucket=bucket,
-        feed_base_url=base,
-        distribution_id=dist_id,
-        episode_number=episode_number,
-        local_dir=ctx.path("publish"),
-        episode_meta=episode_doc,
-        feed_xml=feed_xml,
-        sequence=sequence,
-        by_source_hash=by_hash,
-        by_execution_id=by_execution,
-        show_artwork=show_art,
-        region=region,
-        project_name=project_name,
-    )
-    ctx.write_json("publish/publish_result.json", result)
     ctx.log(
-        f"Published episode {folder}: {result.get('enclosure_url')}",
+        f"Local episode package ready for {execution_id} — sync separately to upload",
         stage="podcast_publish",
     )
     ctx.mark_done("podcast_publish")
 
 
 def run_podcast_publish_skip(ctx: RunContext) -> None:
-    """Mark publish skipped without uploading."""
+    """Mark publish skipped without packaging or uploading."""
     from interview_mux.gates import clear_g_publish
 
     clear_g_publish(ctx, skipped=True)

@@ -14,7 +14,9 @@ from interview_mux.podcast_rss.s3_publish import (
     invalidate_feed,
     put_bytes,
     put_file,
+    put_file_if_changed,
     publish_episode_package,
+    upload_episode_files,
 )
 from interview_mux.podcast_rss.settings import (
     episode_prefix,
@@ -37,8 +39,10 @@ __all__ = [
     "publish_episode_package",
     "put_bytes",
     "put_file",
+    "put_file_if_changed",
     "record_execution",
     "record_publish",
     "resolve_publish_targets",
     "s3_layout",
+    "upload_episode_files",
 ]

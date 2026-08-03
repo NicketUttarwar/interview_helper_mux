@@ -8,7 +8,7 @@
 |---------|-----------|----------|
 | Create / change / destroy S3 + CloudFront | **Terraform** via [`scripts/tf-*.sh`](../../scripts/) — updates committed [`terraform/state/terraform.tfstate`](../../terraform/state/terraform.tfstate) | AWS Console click-ops, imperative setup scripts, AWS CLI |
 | Sync CF ID + feed base into secrets | `./scripts/tf-apply.sh` → [`sync_podcast_tf_secrets.sh`](../../scripts/sync_podcast_tf_secrets.sh) | Manual copy from Console |
-| Upload episode / seed / invalidate | **boto3** in Python (`podcast_rss/s3_publish.py`) using `config/secrets/secrets.env` | `aws s3`, `aws cloudfront`, `aws login` |
+| Upload episode / seed / invalidate / sync | **boto3** in Python (`podcast_rss/s3_publish.py`, `podcast_rss/sync_assets.py`) using `config/secrets/secrets.env` | `aws s3`, `aws cloudfront`, `aws login` |
 
 Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) in `secrets.env`. **Never** assume `aws login` or AWS CLI is installed.
 
@@ -102,7 +102,16 @@ python scripts/seed_podcast_origin.py   # uploads + invalidates /feed.xml
 ./scripts/run.sh
 ```
 
-Finish pipeline through master → **G-Publish → Publish to RSS** (clears the gate and **auto-runs** `episode_meta_build`…`podcast_publish`).
+Finish pipeline through master → **G-Publish**:
+
+1. **Prepare package for this run** — clears the gate and runs `episode_meta_build`…`podcast_publish` **locally** (writes `publish/package_ready.json`; no S3).
+2. **Upload all ready packages to S3** — ASSETS-wide sync of complete packages (GUI or script below). Never deletes S3 objects; skips `execution_id`s already in `catalog/by_execution_id.json`.
+3. **Skip** — decline packaging for this run.
+
+```bash
+python scripts/sync_podcast_episodes.py           # upload all ready packages
+python scripts/sync_podcast_episodes.py --dry-run # list would-upload / skip
+```
 
 ### 5 — Submit the feed (once)
 
@@ -129,9 +138,9 @@ Later episodes: directories poll the feed; no re-submit unless the feed URL chan
 | `episode_cover_prompt_craft` | `publish/cover_prompt.json` |
 | `podcast_encode_mp3` | stereo `publish/audio.mp3` + `publish/master.wav` |
 | `episode_cover_generate` | candidates + `publish/cover.jpg` (3000²) |
-| `podcast_publish` | S3 episode folder + catalogs + feed + invalidation |
+| `podcast_publish` | Local package finalize (`package_ready.json`) — **no S3** |
 
-Same `source_audio_hash` re-publish appends ` V2`, ` V3`, … Folder is always a **new** `episodes/NNNN/`.
+S3 upload is **not** a pipeline stage. Use `scripts/sync_podcast_episodes.py` or G-Publish → Upload all. Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
 
 ## Art style contract
 
@@ -156,5 +165,5 @@ See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summ
 |------|-------------|
 | `terraform/` + committed tfstate | Imperative setup scripts / `infra/` |
 | `podcast.*` in app.defaults for bucket + layout | Bucket name only in secrets |
-| `scripts/tf-*.sh`, `sync_podcast_tf_secrets.sh`, seed, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
+| `scripts/tf-*.sh`, `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
 | Same CloudFront distribution URL across bucket renames | Custom domain (out of scope) |

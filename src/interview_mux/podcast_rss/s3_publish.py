@@ -145,6 +145,47 @@ def put_file(
     put_bytes(bucket=bucket, key=key, body=data, region=region)
 
 
+def object_content_length(
+    bucket: str,
+    key: str,
+    *,
+    region: str | None = None,
+) -> int | None:
+    """Return remote ContentLength, or None if the object is missing."""
+    try:
+        resp = _client("s3", region=region).head_object(Bucket=bucket, Key=key)
+        return int(resp.get("ContentLength") or 0)
+    except Exception as exc:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", "") or "")
+        status = getattr(exc, "response", {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
+            return None
+        # Some endpoints surface 404 only in the message
+        if "404" in str(exc) and "Not Found" in str(exc):
+            return None
+        logger.warning("head_object %s/%s failed: %s", bucket, key, exc)
+        return None
+
+
+def put_file_if_changed(
+    *,
+    bucket: str,
+    key: str,
+    path: Path,
+    region: str | None = None,
+) -> bool:
+    """PutObject only when missing or size differs. Returns True if uploaded."""
+    if not path.is_file():
+        raise FileNotFoundError(f"Local file missing for upload: {path}")
+    local_size = path.stat().st_size
+    remote = object_content_length(bucket, key, region=region)
+    if remote is not None and remote == local_size:
+        logger.info("skip unchanged s3://%s/%s (%s bytes)", bucket, key, local_size)
+        return False
+    put_file(bucket=bucket, key=key, path=path, region=region)
+    return True
+
+
 def get_json(bucket: str, key: str, *, region: str | None = None) -> dict[str, Any]:
     try:
         obj = _client("s3", region=region).get_object(Bucket=bucket, Key=key)
@@ -303,6 +344,76 @@ def empty_bucket(bucket: str, *, region: str | None = None) -> int:
     return deleted
 
 
+def upload_episode_files(
+    *,
+    bucket: str,
+    episode_number: int,
+    local_dir: Path,
+    episode_meta: dict[str, Any],
+    region: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Upload one episode folder with size-based skip. Never deletes remote objects."""
+    cfg = podcast_cfg()
+    layout = s3_layout(cfg)
+    files = layout["episode_files"]
+    prefix = episode_prefix(episode_number, cfg=cfg)
+
+    required_locals = [files["audio"], files["master"], files["cover"], files["chapters"]]
+    for name in required_locals:
+        path = local_dir / name
+        if not path.is_file() or path.stat().st_size < 1:
+            raise RuntimeError(f"Required publish artifact missing or empty: {name}")
+
+    local_to_remote = {
+        files["audio"]: f"{prefix}/{files['audio']}",
+        files["cover"]: f"{prefix}/{files['cover']}",
+        files["chapters"]: f"{prefix}/{files['chapters']}",
+        files["master"]: f"{prefix}/{files['master']}",
+    }
+
+    uploaded: list[str] = []
+    skipped: list[str] = []
+    for local_name, key in local_to_remote.items():
+        path = local_dir / local_name
+        if not path.is_file():
+            continue
+        if force:
+            put_file(bucket=bucket, key=key, path=path, region=region)
+            uploaded.append(key)
+        elif put_file_if_changed(bucket=bucket, key=key, path=path, region=region):
+            uploaded.append(key)
+        else:
+            skipped.append(key)
+
+    meta_key = f"{prefix}/{files['meta']}"
+    put_bytes(
+        bucket=bucket,
+        key=meta_key,
+        body=json.dumps(episode_meta, indent=2).encode("utf-8"),
+        region=region,
+    )
+    uploaded.append(meta_key)
+
+    description = str(episode_meta.get("description") or episode_meta.get("title") or "").strip()
+    desc_key = f"{prefix}/{files['description']}"
+    put_bytes(
+        bucket=bucket,
+        key=desc_key,
+        body=(description + "\n").encode("utf-8"),
+        region=region,
+        content_type="text/plain; charset=utf-8",
+    )
+    uploaded.append(desc_key)
+
+    return {
+        "uploaded": uploaded,
+        "skipped_unchanged": skipped,
+        "s3_prefix": prefix,
+        "episode_number": episode_number,
+    }
+
+
 def publish_episode_package(
     *,
     bucket: str,
@@ -318,8 +429,11 @@ def publish_episode_package(
     show_artwork: Path | None = None,
     region: str | None = None,
     project_name: str | None = None,
+    write_feed: bool = True,
+    invalidate: bool = True,
+    force_files: bool = False,
 ) -> dict[str, Any]:
-    """Upload one episode folder + catalogs + feed.xml, then invalidate CloudFront.
+    """Upload one episode folder + catalogs (+ optional feed.xml / CloudFront invalidate).
 
     Episode folder layout (see podcast.s3 in app.defaults.json)::
 
@@ -330,51 +444,24 @@ def publish_episode_package(
           master.wav
           cover.jpg
           chapters.json
+
+    Never deletes remote objects.
     """
     cfg = podcast_cfg()
     layout = s3_layout(cfg)
     files = layout["episode_files"]
-    prefix = episode_prefix(episode_number, cfg=cfg)
 
-    required_locals = [files["audio"], files["master"], files["cover"], files["chapters"]]
-    for name in required_locals:
-        path = local_dir / name
-        if not path.is_file() or path.stat().st_size < 1:
-            raise RuntimeError(f"Required publish artifact missing or empty: {name}")
-
-    local_to_remote = {
-        files["audio"]: f"{prefix}/{files['audio']}",
-        files["cover"]: f"{prefix}/{files['cover']}",
-        files["meta"]: f"{prefix}/{files['meta']}",
-        files["description"]: f"{prefix}/{files['description']}",
-        files["chapters"]: f"{prefix}/{files['chapters']}",
-        files["master"]: f"{prefix}/{files['master']}",
-    }
-
-    uploaded: list[str] = []
-    for local_name, key in local_to_remote.items():
-        path = local_dir / local_name
-        if path.is_file():
-            put_file(bucket=bucket, key=key, path=path, region=region)
-            uploaded.append(key)
-
-    put_bytes(
+    file_result = upload_episode_files(
         bucket=bucket,
-        key=f"{prefix}/{files['meta']}",
-        body=json.dumps(episode_meta, indent=2).encode("utf-8"),
+        episode_number=episode_number,
+        local_dir=local_dir,
+        episode_meta=episode_meta,
         region=region,
+        force=force_files,
     )
-    uploaded.append(f"{prefix}/{files['meta']}")
-
-    description = str(episode_meta.get("description") or episode_meta.get("title") or "").strip()
-    put_bytes(
-        bucket=bucket,
-        key=f"{prefix}/{files['description']}",
-        body=(description + "\n").encode("utf-8"),
-        region=region,
-        content_type="text/plain; charset=utf-8",
-    )
-    uploaded.append(f"{prefix}/{files['description']}")
+    uploaded: list[str] = list(file_result["uploaded"])
+    skipped: list[str] = list(file_result.get("skipped_unchanged") or [])
+    prefix = str(file_result["s3_prefix"])
 
     catalog = layout["catalog_prefix"]
     put_bytes(
@@ -399,26 +486,35 @@ def publish_episode_package(
 
     art_key = show_artwork_s3_key(cfg)
     if show_artwork and show_artwork.is_file():
-        put_file(bucket=bucket, key=art_key, path=show_artwork, region=region)
-        uploaded.append(art_key)
+        if force_files:
+            put_file(bucket=bucket, key=art_key, path=show_artwork, region=region)
+            uploaded.append(art_key)
+        elif put_file_if_changed(bucket=bucket, key=art_key, path=show_artwork, region=region):
+            uploaded.append(art_key)
+        else:
+            skipped.append(art_key)
 
     feed_key = layout["feed_key"]
-    put_bytes(
-        bucket=bucket,
-        key=feed_key,
-        body=feed_xml.encode("utf-8"),
-        region=region,
-        content_type="application/rss+xml",
-        cache_control="max-age=0, must-revalidate",
-    )
-    inv_id = invalidate_feed(
-        distribution_id=distribution_id,
-        region=region,
-        project_name=project_name,
-    )
+    inv_id = ""
+    if write_feed:
+        put_bytes(
+            bucket=bucket,
+            key=feed_key,
+            body=feed_xml.encode("utf-8"),
+            region=region,
+            content_type="application/rss+xml",
+            cache_control="max-age=0, must-revalidate",
+        )
+    if invalidate:
+        inv_id = invalidate_feed(
+            distribution_id=distribution_id,
+            region=region,
+            project_name=project_name,
+        )
     base = feed_base_url.rstrip("/")
     return {
         "uploaded": uploaded,
+        "skipped_unchanged": skipped,
         "s3_prefix": prefix,
         "feed_url": f"{base}/{feed_key}" if not base.endswith(feed_key) else base,
         "enclosure_url": f"{base}/{prefix}/{files['audio']}",

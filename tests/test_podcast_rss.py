@@ -347,3 +347,129 @@ def test_vision_pick_brilliance_and_letter_disqualify(tmp_path: Path):
     assert pick["winner_index"] != 2
     assert pick["winner_index"] in (0, 1)
     assert pick["pick_model"] == "o3"
+
+
+def _write_ready_package(exec_dir: Path, *, title: str = "Ready Ep") -> Path:
+    publish = exec_dir / "publish"
+    publish.mkdir(parents=True, exist_ok=True)
+    for name in ("audio.mp3", "master.wav", "cover.jpg", "chapters.json"):
+        (publish / name).write_bytes(b"x" * 64)
+    (publish / "episode_meta.json").write_text(
+        __import__("json").dumps({"title": title, "description": "desc"}),
+        encoding="utf-8",
+    )
+    (publish / "package_ready.json").write_text(
+        __import__("json").dumps({"ready": True, "title": title}),
+        encoding="utf-8",
+    )
+    (exec_dir / "run_meta.json").write_text(
+        __import__("json").dumps(
+            {
+                "execution_id": exec_dir.name,
+                "source_audio_hash": "abc123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return publish
+
+
+def test_package_is_complete_and_discover(tmp_path: Path):
+    from interview_mux.podcast_rss.sync_assets import (
+        discover_ready_packages,
+        package_is_complete,
+    )
+
+    good = tmp_path / "exec_001_abcdefabcdef_20260101T000000Z"
+    _write_ready_package(good)
+    assert package_is_complete(good / "publish")
+
+    incomplete = tmp_path / "exec_002_abcdefabcdef_20260101T000001Z"
+    incomplete.mkdir()
+    (incomplete / "publish").mkdir()
+    (incomplete / "publish" / "audio.mp3").write_bytes(b"x")
+
+    ready, already, incomplete_ids = discover_ready_packages(
+        exec_root=tmp_path,
+        by_execution_id={},
+    )
+    assert [p.execution_id for p in ready] == [good.name]
+    assert incomplete.name in incomplete_ids
+    assert already == []
+
+    ready2, already2, _ = discover_ready_packages(
+        exec_root=tmp_path,
+        by_execution_id={good.name: {"s3_prefix": "episodes/0001"}},
+    )
+    assert ready2 == []
+    assert good.name in already2
+
+
+def test_put_file_if_changed_skips_matching_size(tmp_path: Path):
+    from interview_mux.podcast_rss import s3_publish
+
+    local = tmp_path / "audio.mp3"
+    local.write_bytes(b"0123456789")
+
+    with (
+        patch.object(s3_publish, "object_content_length", return_value=10),
+        patch.object(s3_publish, "put_file") as put,
+    ):
+        changed = s3_publish.put_file_if_changed(
+            bucket="b",
+            key="episodes/0001/audio.mp3",
+            path=local,
+        )
+    assert changed is False
+    put.assert_not_called()
+
+    with (
+        patch.object(s3_publish, "object_content_length", return_value=None),
+        patch.object(s3_publish, "put_file") as put2,
+    ):
+        changed2 = s3_publish.put_file_if_changed(
+            bucket="b",
+            key="episodes/0001/audio.mp3",
+            path=local,
+        )
+    assert changed2 is True
+    put2.assert_called_once()
+
+
+def test_sync_ready_packages_dry_run_skips_known_and_never_deletes(tmp_path: Path):
+    from interview_mux.podcast_rss import sync_assets
+
+    known = tmp_path / "exec_010_abcdefabcdef_20260101T000000Z"
+    fresh = tmp_path / "exec_011_abcdefabcdef_20260101T000001Z"
+    _write_ready_package(known, title="Known")
+    _write_ready_package(fresh, title="Fresh")
+
+    with (
+        patch.object(
+            sync_assets,
+            "require_publish_ready",
+            return_value={
+                "bucket": "b",
+                "region": "us-east-1",
+                "distribution_id": "E123",
+                "feed_base_url": "https://d.example",
+                "project_name": "the_war_room_001",
+            },
+        ),
+        patch.object(
+            sync_assets,
+            "get_json",
+            return_value={"exec_010_abcdefabcdef_20260101T000000Z": {"s3_prefix": "episodes/0001"}},
+        ),
+        patch.object(sync_assets, "write_last_sync_result"),
+        patch.object(sync_assets, "upload_episode_files") as upload,
+    ):
+        result = sync_assets.sync_ready_packages(dry_run=True, exec_root=tmp_path)
+
+    assert result.dry_run is True
+    assert result.ready == 1
+    assert result.uploaded[0]["execution_id"] == fresh.name
+    assert known.name in result.skipped_already_uploaded
+    upload.assert_not_called()
+    # sync_assets must never expose/call S3 delete helpers
+    assert not hasattr(sync_assets, "empty_bucket")
