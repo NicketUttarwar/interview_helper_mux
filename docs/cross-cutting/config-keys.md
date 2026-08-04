@@ -48,7 +48,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `master` | Final safety limiter before loudness normalization | Disabled or unsafe settings reduce peak protection |
 | `creative_delivery` | Selection trim requirements and exclusion floors | Selection can over-trim or retain low-value material |
 | `local_chatterbox` | Local Chatterbox VO runtime, model, timeout, fail-open | Gap VO synthesis unavailable or stalls |
-| `gui_job` | Background job stall thresholds (`stall_threshold_sec`, `subprocess_stall_threshold_sec`) | False stall warnings or late detection |
+| `gui_job` | Background job stall thresholds (`stall_threshold_sec` default **1200**, `subprocess_stall_threshold_sec` default **7200**) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel (→ Mastering Realization preview gate) | When `enabled`, blocks SFX until post-preview VO re-recorded |
 | `production_profiles` | `production_profile.py`, legacy TBIY/documentary profile (hints under Mastering Process) | Wrong profile → incorrect gate/lint until cutover |

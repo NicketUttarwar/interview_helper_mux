@@ -1287,6 +1287,29 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 if fixed.get(key) is None:
                     fixed.pop(key, None)
                     applied.append({"action": "drop_null", "path": key})
+            # Schema boolean fields — LLM often emits JSON null; coerce rather than drop so
+            # provenance keys remain present for downstream courtesy / density audits.
+            for bool_key in ("prior_impact_beat", "prior_complete_thought", "density_forced"):
+                if bool_key in fixed:
+                    fixed[bool_key] = bool(fixed.get(bool_key))
+                    applied.append({"action": "coerce_bool", "path": bool_key})
+            if "prior_segment_id" in fixed and fixed.get("prior_segment_id") is not None:
+                fixed["prior_segment_id"] = str(fixed.get("prior_segment_id") or "") or None
+            extracted = fixed.get("extracted_from")
+            if isinstance(extracted, dict):
+                cleaned_ex = {
+                    k: v
+                    for k, v in extracted.items()
+                    if v is not None and str(v).strip() != ""
+                }
+                if cleaned_ex:
+                    fixed["extracted_from"] = cleaned_ex
+                else:
+                    fixed.pop("extracted_from", None)
+                    applied.append({"action": "drop_null", "path": "extracted_from"})
+            elif extracted is None and "extracted_from" in fixed:
+                fixed.pop("extracted_from", None)
+                applied.append({"action": "drop_null", "path": "extracted_from"})
             # Schema requires arrays; LLMs often emit null for unused lists.
             for arr_key in ("replaces_source_segments", "supports_segment_ids"):
                 if arr_key in fixed and fixed.get(arr_key) is None:
@@ -1354,8 +1377,31 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                     }
                 )
             fixed_lines.append(line)
-        out["interviewer_lines"] = fixed_lines
-        write_gap_vo_context_audit(ctx, fixed_lines)
+        # Final coerce after stamp/rewrite — never leave JSON null on boolean schema fields.
+        coerced: list[dict[str, Any]] = []
+        for row in fixed_lines:
+            if not isinstance(row, dict):
+                continue
+            line = dict(row)
+            for bool_key in ("prior_impact_beat", "prior_complete_thought", "density_forced"):
+                if bool_key in line:
+                    line[bool_key] = bool(line.get(bool_key))
+            extracted = line.get("extracted_from")
+            if isinstance(extracted, dict):
+                cleaned_ex = {
+                    k: v
+                    for k, v in extracted.items()
+                    if v is not None and str(v).strip() != ""
+                }
+                if cleaned_ex:
+                    line["extracted_from"] = cleaned_ex
+                else:
+                    line.pop("extracted_from", None)
+            elif extracted is None and "extracted_from" in line:
+                line.pop("extracted_from", None)
+            coerced.append(line)
+        out["interviewer_lines"] = coerced
+        write_gap_vo_context_audit(ctx, coerced)
     except Exception:
         pass
     from interview_mux.gates import g1_vo_was_skipped_optional, vo_gap_line_effectively_optional

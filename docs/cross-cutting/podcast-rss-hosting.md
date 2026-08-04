@@ -2,6 +2,8 @@
 
 **North star still ends at** `master/master.wav`. RSS publish is an optional Ship step after master.
 
+**Terraform stack reference:** [`terraform/README.md`](../../terraform/README.md) — wrappers, state/session backup, variables, outputs, Apple Silicon notes.
+
 ## AWS management contract (repo-wide)
 
 | Concern | Mechanism | Not used |
@@ -18,7 +20,7 @@ Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) i
 - **CloudFront + OAC** is the only public origin (HTTP Range / seek works by default)
 - App uploads with explicit **Content-Type** and invalidates `/feed.xml` on every feed update (publish + seed)
 - Manual recovery: [`scripts/invalidate_podcast_cf.sh`](../../scripts/invalidate_podcast_cf.sh)
-- **Terraform** under [`terraform/`](../../terraform/) owns infra; **committed local state** is the inventory
+- **Terraform** under [`terraform/`](../../terraform/) owns infra; **committed local state** is the inventory (`state/session/latest.tfstate` is a rolling backup — restore with `--use-session` / `USE_LATEST_SESSION=1`)
 - Bucket renames update the CloudFront **origin** but keep the **same distribution URL**
 
 ## Where values live
@@ -85,9 +87,10 @@ cp config/terraform.tfvars.example config/terraform.tfvars   # keep s3_bucket_na
 ./scripts/tf-init.sh
 ./scripts/tf-plan.sh
 ./scripts/tf-apply.sh   # syncs CF ID + feed base URL into secrets.env
+# Optional: ./scripts/tf-plan.sh --use-session   # restore live state from session/latest.tfstate
 ```
 
-Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront **without** changing the distribution domain.
+Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront **without** changing the distribution domain. Full wrapper table: [terraform/README.md](../../terraform/README.md).
 
 ### 3 — Seed empty feed + show art
 
@@ -163,7 +166,7 @@ See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summ
 
 | Keep | Do not keep |
 |------|-------------|
-| `terraform/` + committed tfstate | Imperative setup scripts / `infra/` |
+| `terraform/` + committed tfstate + `terraform/README.md` | Imperative setup scripts / `infra/` |
 | `podcast.*` in app.defaults for bucket + layout | Bucket name only in secrets |
 | `scripts/tf-*.sh`, `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
 | Same CloudFront distribution URL across bucket renames | Custom domain (out of scope) |

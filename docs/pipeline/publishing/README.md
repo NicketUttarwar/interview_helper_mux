@@ -1,58 +1,48 @@
-# Publishing copy (Flow 3)
+# Publishing & RSS package (Ship)
 
-**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)
+**LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md)  
+**Hosting:** [podcast-rss-hosting.md](../../cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](../../../terraform/README.md)  
+**Covers:** [podcast-cover-theme.md](../../cross-cutting/podcast-cover-theme.md)
 
-Text deliverable for podcast distribution — no audio mux.
+Optional Ship path after `master_finalize`. North star remains `master/master.wav`. Flow 3 show-description pipeline was **removed** — see [v2/drop-manifest.md](../../v2/drop-manifest.md).
 
 ## Intent
 
-Produce a **~200-word, third-person show description** that hooks listeners and accurately reflects the interview. Output is for podcast apps, websites, newsletters, and social link previews.
+Build a **local episode package** (meta, cover, stereo MP3, chapters) under `publish/`, then optionally sync all ready packages from `ASSETS/executions/` to the private S3 origin (CloudFront serves the feed).
 
 ## When it runs
 
-After shared analysis and **gate G2** when `run_meta.json` has `REMOVED_selected_flow: flow3`. Does not require Flow 1 ranking or Flow 2 highlight selection.
+After `master_finalize`, operator chooses at **G-Publish**:
 
-**Recommended:** `understanding/analysis_state.json` with `meta.operator_verified: true` so themes and audience match operator intent — same guard as Flow 1 extended analysis.
+| Action | Effect |
+|--------|--------|
+| **Prepare package for this run** | Runs `episode_meta_build` … `podcast_publish` locally — writes `publish/package_ready.json`; **no S3** |
+| **Upload all ready packages** | ASSETS-wide sync (`POST …/g-publish/sync` or `python scripts/sync_podcast_episodes.py`) |
+| **Skip** | Decline packaging for this run |
+
+Gate copy: [operator-gates.md](../../workflows/operator-gates.md).
 
 ## Stage sequence
 
 | Order | Stage key | Model tier | Output |
 |-------|-----------|------------|--------|
-| 1 | `REMOVED_podcast_show_description` | **flagship** | `show_notes/show_description.json` |
-| 2 | `REMOVED_export_show_description` | — | `show_notes/show_description.md` (plain text export) |
+| 1 | `episode_meta_build` | **flagship** | `publish/episode_meta.json` |
+| 2 | `episode_cover_prompt_craft` | **flagship** | `publish/cover_prompt.json` |
+| 3 | `podcast_encode_mp3` | — | stereo `publish/audio.mp3` + `publish/master.wav` |
+| 4 | `episode_cover_generate` | Images + vision | candidates + `publish/cover.jpg` (3000²) |
+| 5 | `podcast_publish` | — | Local finalize (`package_ready.json`) — **no S3** |
 
-Single LLM stage; export mirrors JSON → plain text on disk without a model call. `show_description.json` is validated on write and supports gap-fill when re-run — [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md).
+Module: `src/interview_mux/stages/podcast_publish.py`.
 
-## Module
+## S3 sync (not a pipeline stage)
 
-- `src/interview_mux/stages/REMOVED_publishing_flow3.py` — `REMOVED_podcast_show_description` + `REMOVED_export_show_description`
-- `REMOVED_FLOW3_ORDER` in `pipeline.py`; `REMOVED_run_flow3` / `run_single_stage` branches
-- CLI/GUI: `tools/run_delivery.py --flow flow3`, `cli.flow_cmd`, `web/runner.py` (`mode: flow3`), `web/server.py` `FlowBody`, `web/stages.py` `FLOW3_STAGES`
+```bash
+python scripts/sync_podcast_episodes.py           # upload all ready packages
+python scripts/sync_podcast_episodes.py --dry-run
+```
 
-## Context volley
+Additive only — never deletes remote objects; skips known `execution_id`s. Same `source_audio_hash` re-publish appends ` V2`, ` V3`, ….
 
-Flow 3 uses a **rich `full` volley** — same pattern as flagship selection stages. Prior assistant turns should include:
+## Heritage (removed)
 
-- `content_context` — thesis, topics, claims, emotional beats
-- `speaker_roles` — who is interviewer vs interviewee
-- `segment_classification` — compact manifest slice with topic tags
-- `missing_framing` / `optimal_questions` — only if gaps affect how the story should be framed (optional summaries)
-- Operator profile slice — `themes`, `narrative`, `style`, `major_questions`, `entities`
-
-See [`analysis.context.*`](../../cross-cutting/config-keys.md#analysiscontext) and [podcast-show-description.system.txt](../../prompts/publishing/podcast-show-description.system.txt).
-
-## Operator checklist
-
-| Check | Pass |
-|-------|------|
-| `show_description.json` | `word_count` 150–250; third person (spot-check hook + body) |
-| Evidence | `evidence_segment_ids` non-empty; claims traceable to brief |
-| Export | `show_description.md` readable; no markdown artifacts in plain export if undesired |
-
-Full table: [operator-stage-checklists.md](../../workflows/operator-stage-checklists.md#flow-3--show-description).
-
-## Related
-
-- [pipeline.md](../../pipeline.md) — three flows overview
-- [artifact-layout.md](../../cross-cutting/artifact-layout.md) — `show_notes/`
-- [model-routing.md](../../cross-cutting/model-routing.md) — flagship for `REMOVED_podcast_show_description`
+Pre-v2 Flow 3 (`REMOVED_podcast_show_description` / `REMOVED_export_show_description`) produced a ~200-word show blurb. That pipeline and G2 flow picker are deleted. Episode titles/descriptions for RSS now come from `episode_meta_build` under G-Publish.

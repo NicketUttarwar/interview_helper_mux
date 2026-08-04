@@ -68,6 +68,6 @@ Bare “volley” is ambiguous — always qualify.
 
 ## Pipeline shape
 
-Research waves + two-pass Shape soft-gate + analysis/delivery stages → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
+Research waves + two-pass Shape soft-gate + analysis/delivery stages (**57** total) → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 See [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) and [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).

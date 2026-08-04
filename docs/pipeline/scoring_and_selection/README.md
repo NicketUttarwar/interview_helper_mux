@@ -2,9 +2,9 @@
 
 **LLM stack:** [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md) · [model-routing.md](../../cross-cutting/model-routing.md) · validated artifact writes — [artifact-generation-and-validation.md](../../cross-cutting/artifact-generation-and-validation.md)
 
-Branches after operator gate G2.
+Single delivery path after analysis (Flow 2 highlight selection and G2 were **removed** — [v2/drop-manifest.md](../../v2/drop-manifest.md)).
 
-## Flow 1 (extended)
+## Full master (live)
 
 | Ticket | Output | Prompt |
 |--------|--------|--------|
@@ -12,25 +12,15 @@ Branches after operator gate G2.
 | BUILD-030 | `narrative_plan.json` | narrative-arc-plan |
 | BUILD-031 | `selection.json` | full-master-ranking |
 
-**Goals:** Cover all interview topics; optimal podcast order (not chronological default).
-
-**Before extended Flow 1:** Operator should verify interview profile (`meta.operator_verified`) — see [operator-gates.md](../../workflows/operator-gates.md).
+**Goals:** Cover all interview topics; optimal podcast order (not chronological default). Followed by [Refinement Pass](../../cross-cutting/refinement-passes.md).
 
 **After ranking:** `assembly_preview.wav` for listen-before-SFX — see [stage-contracts/00-INDEX.md](../../cross-cutting/stage-contracts/00-INDEX.md) · [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
 
 **Narrative QC:** `python tools/validate_narrative.py --run-id <exec_id>` — topic coverage + non-empty chapters (`interview_mux/narrative_qc.py`). Pipeline warns before `full_master_ranking` / `edl`; `narrative_qc.strict: true` blocks.
 
-**Extended EDL narrative QC:** `edl_narrative_audit` runs after `sound_design_vo_finalize` with local LLM volley framing and flagship model review. `edl` then runs deterministic final-EDL checks (`interview_mux/edl_narrative_qc.py`) for selection parity, coverage survival, chapter continuity, ordering constraints, transition anchors, and gap placements. CLI: `python tools/validate_narrative.py --run-id <exec_id> --include-edl`.
+**Extended EDL narrative QC:** `edl_narrative_audit` runs after `sound_design_vo_finalize` with local LLM volley framing and flagship model review. `edl` then runs deterministic final-EDL checks (`interview_mux/edl_narrative_qc.py`). CLI: `python tools/validate_narrative.py --run-id <exec_id> --include-edl`.
 
 **NLE (BUILD-068):** GUI timeline edits in `segments/nle_edits.json` affect `selection.json` on `full_master_ranking` and `edl` re-run.
-
-## Flow 2
-
-| Ticket | Output | Prompt |
-|--------|--------|--------|
-| BUILD-040 | `selection.json` | highlight-selection |
-
-**Goals:** ≤5 non-overlapping, diverse, self-contained clips.
 
 ## Models
 
@@ -39,23 +29,8 @@ Branches after operator gate G2.
 | `topic_coverage_audit` | flagship | yes |
 | `narrative_arc_plan` | flagship | no |
 | `full_master_ranking` | flagship | yes |
-| `REMOVED_highlight_selection` | flagship | yes |
-| `REMOVED_podcast_show_description` | flagship | no |
+| `transitions` | economy / mid | no |
 
-## Flow 3 (publishing)
+## Heritage (removed)
 
-| Ticket | Output | Prompt |
-|--------|--------|--------|
-| BUILD-045 | `show_description.json` | podcast-show-description |
-| BUILD-046 | `show_description.md` | — (export) |
-
-**Goals:** ~200-word third-person blurb; rich context volley; flagship model. No selection or mux.
-
-See [publishing/README.md](../publishing/README.md).
-
-## Module
-
-- `analysis_extended.py`
-- `selection.py`
-- `REMOVED_selection_flow2.py`
-- `REMOVED_publishing_flow3.py`
+Flow 2 highlight selection (`REMOVED_highlight_selection`, `REMOVED_selection_flow2.py`) and Flow 3 publishing stages are deleted. Do not reintroduce G2.

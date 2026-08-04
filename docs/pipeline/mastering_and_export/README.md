@@ -1,10 +1,6 @@
 # Mastering and export
 
-Final loudness, limiting, and export.
-
-## Tickets
-
-BUILD-036 (Flow 1), BUILD-044 (Flow 2), BUILD-050 (shared module)
+Final loudness, limiting, and export for the **single** podcast master. Optional RSS packaging is separate — [publishing/README.md](../publishing/README.md).
 
 ## Tools
 
@@ -12,28 +8,33 @@ BUILD-036 (Flow 1), BUILD-044 (Flow 2), BUILD-050 (shared module)
 
 ## Targets
 
-| Flow | LUFS | Notes |
-|------|------|-------|
-| Flow 1 | −16 | Podcast standard |
-| Flow 2 | −14 | Slightly hotter for social |
+| Deliverable | LUFS | Notes |
+|-------------|------|-------|
+| `master/master.wav` | −16 | Podcast standard (`target_lufs` / `flow1_target_lufs`) |
 
 ## Outputs
 
 | Path | Description |
 |------|-------------|
-| `master/master.wav` | Full episode |
-| `REMOVED_flow2/master.wav` | Short reel |
-
-Flow 3 has **no mastering step** — text export only. See [publishing/README.md](../publishing/README.md).
+| `master/master.wav` | Full episode (north star) |
+| `publish/` | Optional G-Publish local package (mp3, cover, meta) — no S3 until sync |
 
 ## QA
 
-`python tools/verify_master.py <path> [--flow flow1|flow2]` — integrated LUFS and true peak per [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md) (BUILD-070). Infers flow from path (`master` / `flow_2_highlights`) or use `--flow`.
+```bash
+python tools/verify_master.py ASSETS/executions/<exec_id>/master/master.wav
+```
 
-If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclean/README.md) and re-run from mux/ingest per operator choice — see [podcast-quality-roadmap.md](../../cross-cutting/podcast-quality-roadmap.md).
+Enforces integrated LUFS −16 ±1, true peak ≤ −1 dBTP — [evaluation-metrics.md](../../cross-cutting/evaluation-metrics.md).
 
-## Module
+If the master sounds noisy after listen-test, offer [pre-clean](../audio_preclean/README.md) and re-run from mux/ingest per operator choice.
 
-`src/interview_mux/mastering_bus.py` — pyloudnorm assembly-bus measurement (BUILD-071)
+## Modules
 
-`src/interview_mux/stages/mastering.py` — assembly measure + ffmpeg true-peak limiter (BUILD-071); QA via BUILD-070
+- `src/interview_mux/mastering_bus.py` — pyloudnorm assembly-bus measurement
+- `src/interview_mux/stages/mastering.py` — `master_finalize` (limiter + loudness)
+- `src/interview_mux/junction_snip_qa.py` — pre-master junction repair
+
+## Heritage
+
+Flow 2 (−14 LUFS reel) and Flow 3 (text-only) mastering/export paths were removed.

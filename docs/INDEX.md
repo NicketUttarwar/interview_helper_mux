@@ -10,7 +10,7 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)
 - [workflows/smoke-test.md](./workflows/smoke-test.md)
 - [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md)
-- [v2/port-manifest.csv](./v2/port-manifest.csv) — 41 stage inventory (incl. Refinement Pass)
+- [v2/port-manifest.csv](./v2/port-manifest.csv) — 57-stage inventory + gates (incl. Mastering research/Shape, Refinement Pass, G-Publish)
 
 ## Core specs
 
@@ -38,6 +38,7 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) — pinned deps, CVE gate (AWS = Terraform + boto3, never AWS CLI)
 - [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) — DeepFilterNet + MMAudio + CLAP
 - [cross-cutting/podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md) — The War Room S3 + CloudFront RSS (Terraform state + boto3 publish)
+- [../terraform/README.md](../terraform/README.md) — Terraform wrappers, committed state, session backup
 - [cross-cutting/podcast-cover-theme.md](./cross-cutting/podcast-cover-theme.md) — OpenAI cover theme (3-candidate brilliance pick)
 - [cross-cutting/vernacular-evidence-covenant.md](./cross-cutting/vernacular-evidence-covenant.md) — audio probe platform + vernacular must_keep
 - [cross-cutting/multilingual-support.md](./cross-cutting/multilingual-support.md) — same-language master plan (broader)
@@ -70,3 +71,5 @@ Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
 - [pipeline/scoring_and_selection/README.md](./pipeline/scoring_and_selection/README.md)
 - [pipeline/audio_editing/README.md](./pipeline/audio_editing/README.md)
 - [pipeline/assembly_and_mux/README.md](./pipeline/assembly_and_mux/README.md)
+- [pipeline/mastering_and_export/README.md](./pipeline/mastering_and_export/README.md)
+- [pipeline/publishing/README.md](./pipeline/publishing/README.md) — G-Publish local package + S3 sync

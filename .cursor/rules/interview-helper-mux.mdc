@@ -21,7 +21,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **Local audio** | DeepFilterNet + MMAudio in isolated ASSETS venvs — **`docs/cross-cutting/local-audio-stack.md`**. No cloud audio APIs. |
 | **LLM** | OpenAI artifacts via **`llm_simple.py`**; local MLX framer prep only (LX-01). Max 2 attempts per stage. |
 | **Secrets** | **`config/secrets/secrets.env`** only. |
-| **AWS (podcast)** | Infra via **Terraform** (`scripts/tf-*.sh` → `terraform/state/`). App S3/CF via **boto3** + secrets. Never AWS CLI / `aws login`. |
+| **AWS (podcast)** | Infra via **Terraform** (`scripts/tf-*.sh` → `terraform/state/`). See **`terraform/README.md`**. App S3/CF via **boto3** + secrets. Never AWS CLI / `aws login`. |
 | **Media** | Default **`./ASSETS/`** (gitignored). Runs under **`ASSETS/executions/`**. |
 | **Schemas** | Validate with **`prompt_validation`** + **`docs/cross-cutting/json-schemas/`**. |
 
@@ -35,6 +35,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **G-Framing** | After topology (before gap LLM) | Required choice; recommended **Yes** + voice-cloned least-spoken host |
 | **G1** | After gap stages (optional) | Record/synthesize VO or skip |
 | **Preclean** | Checkpoint offer | Never auto-run |
+| **G-Publish** | After `master_finalize` (optional) | Prepare local package and/or sync ASSETS → S3 |
 
 Full copy: **`docs/workflows/operator-gates.md`**.
 
@@ -42,7 +43,7 @@ Full copy: **`docs/workflows/operator-gates.md`**.
 
 ## Pipeline
 
-- **32 stages:** 19 analysis + 13 delivery — orders in **`src/interview_mux/v2/config.py`**
+- **57 stages:** 29 analysis + 28 delivery — orders in **`src/interview_mux/v2/config.py`** · inventory **`docs/v2/port-manifest.csv`**
 - **Idempotency:** `.stage_done/<stage_id>`; **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**
 - **Artifacts:** writes via `ctx.path()` / `ctx.write_json()`; reads via `ctx.read_path()` / `ctx.read_json()` — see **`write_staging.py`**
 

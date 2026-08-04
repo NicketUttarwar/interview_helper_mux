@@ -157,7 +157,7 @@
   },
   "_comment_gui_job": "Background job polling and stall detection while a stage worker holds the run lock",
   "gui_job": {
-    "stall_threshold_sec": 180,
+    "stall_threshold_sec": 1200,
     "subprocess_stall_threshold_sec": 7200
   },
   "_comment_sound_design": "SDP soft guidance + post-generation placement QA (no hard unique-asset reject caps)",

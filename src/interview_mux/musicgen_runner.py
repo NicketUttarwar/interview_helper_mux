@@ -160,7 +160,7 @@ def generate_music_clip(
         }
         req = out_wav.with_suffix(".request.json")
         req.write_text(json.dumps(payload), encoding="utf-8")
-        timeout = int(musicgen_cfg().get("request_timeout_sec") or 1200)
+        timeout = int(musicgen_cfg().get("request_timeout_sec") or 3600)
         try:
             from interview_mux.operator_subprocess import touch_job_progress
             from interview_mux.run_context import RunContext

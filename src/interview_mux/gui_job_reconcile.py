@@ -317,6 +317,11 @@ def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
     if lock_held:
         if _live_worker(data):
             return False
+        # In-process pipeline holds .run.lock on the serve process while OpenAI/local
+        # stages run — activity heartbeats can lag for many minutes on o3 shards.
+        # Do not false-stall while the lock is still held.
+        if data.get("worker_kind") != "stage_subprocess":
+            return False
         activity = _job_activity_ts(ctx, data)
         if activity is not None:
             now = datetime.now(timezone.utc)
@@ -396,7 +401,14 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     if status in RUNNING_STATUSES:
         _reconcile_job_file(ctx, lock_held=lock_held)
         data = ctx.read_json("gui_job.json")
-    elif status in {"stalled", "interrupted"} and _live_worker(data):
+    elif status in {"stalled", "interrupted"} and (
+        _live_worker(data) or (lock_held and data.get("worker_kind") != "stage_subprocess")
+    ):
+        data = _revive_running_job(ctx, data)
+    elif status in {"stalled", "interrupted"} and not lock_held and _run_directory_lock_held(
+        ctx.run_dir
+    ):
+        # Another thread/process still holds the run lock — treat as live.
         data = _revive_running_job(ctx, data)
     sanitized = sanitize_gui_job(ctx, data)
     if sanitized is not data and sanitized != data:

@@ -27,7 +27,9 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to one 
 | [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) | Local DeepFilterNet + MMAudio stacks, isolation, MMAudio prompt tuning |
 | [prompts/_shared/examples/sfx-prompt-regression.md](./prompts/_shared/examples/sfx-prompt-regression.md) | Golden prompt regression QA |
 | [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
-| [cross-cutting/config-keys.md](./cross-cutting/config-keys.md) | `app.defaults.json` + secrets keys reference |
+| [cross-cutting/podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md) | The War Room S3 + CloudFront RSS (Terraform + boto3) |
+| [../terraform/README.md](../terraform/README.md) | Terraform wrappers, committed state, session backup |
+| [cross-cutting/podcast-cover-theme.md](./cross-cutting/podcast-cover-theme.md) | OpenAI cover theme (3-candidate brilliance pick) |
 | [workflows/](./workflows/) | Gates, idempotency, stage reuse, smoke test |
 | [workflows/stage-execution-reuse.md](./workflows/stage-execution-reuse.md) | Per-stage reuse from prior executions (source audio hash match) |
 | [workflows/gui-surface-map.md](./workflows/gui-surface-map.md) | GUI panels ↔ API ↔ logs ↔ artifacts |
@@ -49,4 +51,4 @@ Authoritative specs for **interview_helper_mux** — raw interview audio to one 
 
 There is a single delivery path. The highlight-reel and show-description flows (Flow 2 / Flow 3) and the G2 flow picker were removed — see [v2/drop-manifest.md](./v2/drop-manifest.md).
 
-Analysis runs via `tools/run_analysis.py`, delivery via `tools/run_delivery.py`. Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) and [v2/port-manifest.csv](./v2/port-manifest.csv). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+Analysis runs via `tools/run_analysis.py`, delivery via `tools/run_delivery.py`. Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**29 + 28 = 57 stages**) and [v2/port-manifest.csv](./v2/port-manifest.csv). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).

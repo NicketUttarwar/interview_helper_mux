@@ -408,12 +408,16 @@ def enrich_line_with_prior_context(
     """Stamp provenance fields onto an interviewer line from prior_native_context."""
     out = dict(line)
     if not isinstance(prior, dict):
+        # Still coerce nulls left by LLM merges when no prior packet is available.
+        for key in ("prior_impact_beat", "prior_complete_thought", "density_forced"):
+            if key in out:
+                out[key] = bool(out.get(key))
         return out
-    out["prior_segment_id"] = str(prior.get("segment_id") or "") or None
+    sid = str(prior.get("segment_id") or "").strip()
+    out["prior_segment_id"] = sid or None
     out["prior_impact_beat"] = bool(prior.get("prior_impact_beat"))
     out["prior_complete_thought"] = bool(prior.get("prior_complete_thought"))
-    if density_forced:
-        out["density_forced"] = True
+    out["density_forced"] = bool(density_forced or out.get("density_forced"))
     return out
 
 

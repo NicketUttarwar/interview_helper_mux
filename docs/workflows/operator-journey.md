@@ -9,14 +9,14 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 | 1 | Start | Select audio; optional preclean offer (accept/dismiss) |
 | 2 | Prepare | Automated: preclean → ingest → transcribe → review queue |
 | 3 | Fix transcript | **G0 mandatory** — correct STT in transcript review |
-| 4 | Understand | Automated analysis batch through `episode_structure_compose` |
-| 5 | Fill gaps | **Optional G1** — record pickup VO or **Skip — continue without gap VO** (after Pass 2 recompose or skip-copy) |
+| 4 | Understand | Automated analysis: speakers → segments → palettes → **Mastering research + Shape** → delivery brief → episode structure |
+| 5 | Fill gaps | **G-Framing ladder** (required choice; recommended Yes) then optional **G1** — record/synthesize pickup VO or skip |
 | 5b | Refine | **Pass 2** — L0 agenda + gap recompose / selection apply (full auto when gated) — [refinement-passes.md](../cross-cutting/refinement-passes.md) |
 | 6 | Plan & rank | Coverage → narrative → dual-candidate ranking → topo repair → `story_health` / `reorder_bridges` → transitions |
 | 7 | Edit | Optional NLE (always-visible **Split segment** after segments exist); auto `segments/split_plan.json`; splits cascade re-rank |
 | 8 | Sound | SDP plan → VO finalize → SFX prompt craft |
-| 9 | Build | Narrative audit → EDL → preview → MMAudio → mix → **endless timeline optimizer** (auto) → listen critic |
-| 10 | Ship | Optional G-Listen → Take best / skip optimizer → `master_finalize` → optional **G-Publish** (prepare local package; sync ASSETS → S3 separately) → download `master.wav` |
+| 9 | Build | Narrative audit → EDL → preview → listen delight (advisory) → MMAudio → mix → junction snip QA |
+| 10 | Ship | `master_finalize` → optional **G-Publish** (prepare local package; sync ASSETS → S3 separately) → download `master.wav` |
 
 ## Removed from v2
 

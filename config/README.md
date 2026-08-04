@@ -19,6 +19,6 @@ Resolution order (highest wins):
 | `podcast/` | yes | Show art + cover theme |
 
 Key-by-key semantics: [docs/cross-cutting/config-keys.md](../docs/cross-cutting/config-keys.md).  
-Podcast AWS: [docs/cross-cutting/podcast-rss-hosting.md](../docs/cross-cutting/podcast-rss-hosting.md) — **Terraform** updates `terraform/state/`; app uses **boto3** (never AWS CLI / `aws login`).
+Podcast AWS: [docs/cross-cutting/podcast-rss-hosting.md](../docs/cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](../terraform/README.md) — **Terraform** updates `terraform/state/`; app uses **boto3** (never AWS CLI / `aws login`).
 
 Secrets are loaded by Python into an isolated dict — not exported to `os.environ` globally (Terraform wrappers source `secrets.env` for provider auth only).

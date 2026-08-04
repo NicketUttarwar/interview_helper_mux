@@ -368,18 +368,22 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 
 ---
 
-## Flow 3 — show description
+## Flow 3 — show description (REMOVED)
 
-**Artifacts:** `show_notes/` — [artifact-layout](../cross-cutting/artifact-layout.md#flow-3--flow_3_description). **After G2** with `REMOVED_selected_flow: flow3`. Shared analysis complete; no Flow 1 ranking or Flow 2 highlights required.
+> **Heritage only.** Flow 3 and G2 are deleted. Live Ship packaging is [publishing/README.md](../pipeline/publishing/README.md) (G-Publish). Do not run these checks on current builds.
+
+**Artifacts (historical):** `show_notes/` — [artifact-layout](../cross-cutting/artifact-layout.md#flow-3--flow_3_description).
 
 | Check | Pass | If fail |
 |-------|------|--------|
-| G2 | `run_meta.json` → `REMOVED_selected_flow: flow3` | Complete [G2](#g2--flow-pick); `python tools/run_delivery.py --flow flow3` |
-| Profile (recommended) | `understanding/analysis_state.json` → `meta.operator_verified: true`, or you accept the unverified warning in `gui_log.jsonl` | [Profile gate](#profile-gate--flow-1-extended-build-081) (warn-only for Flow 3) |
-| `REMOVED_podcast_show_description` | `show_notes/show_description.json` exists; `word_count` 150–250; third person in `description_markdown` | `--from-stage REMOVED_podcast_show_description`; edit profile / `understanding/content_brief.json` |
-| Evidence | `evidence_segment_ids` populated; claims traceable to brief / manifest | Re-run `content_brief_reanchor` or fix brief |
-| `REMOVED_export_show_description` | `show_notes/show_description.md` exists; plain text (no `**` / `*` left from markdown strip) | `--from-stage REMOVED_export_show_description` after JSON stage |
-| No audio | No `master.wav` or `assembly.wav` under `show_notes/` | Select flow1/flow2 for audio deliverables — [publishing](../pipeline/publishing/README.md) |
+| G2 | `run_meta.json` → `REMOVED_selected_flow: flow3` | N/A — gate removed |
+| `REMOVED_podcast_show_description` | Historical `show_notes/show_description.json` | Use `episode_meta_build` under G-Publish instead |
+
+---
+
+## Flow 2 — highlights (REMOVED)
+
+> **Heritage only.** Highlight reel path deleted. Live path is full-master ranking → mix → `master_finalize`.
 
 ---
 
@@ -391,18 +395,7 @@ Cross-artifact gates run when `analysis.flow_hardening.cross_validate_enabled` i
 | SDP file | `understanding/sound_design_plan.json` validates; palettes present before flow plans | See [guardrails-and-edge-cases.md](../prompts/sound_design/guardrails-and-edge-cases.md) |
 | G1.5 (shipped; optional) | Operator approved prompt craft when `g1_5_require_prompt_approval` | Approve or edit prompts in GUI — [MMAudio pre-generation](#mmaudio-sfx--preclean) |
 | Post-gen placement | Beds/stingers placed after listen + theme check; review **Placement QA** panel on mix/SFX stages (`PlacementAdjustmentsPanel`) | [local-audio-stack.md](../cross-cutting/local-audio-stack.md) · `sound_design/placement_adjustments.json` |
-| Mix path | `mix` / `REMOVED_mix_flow2` ran; VO + SFX audible in `master.wav` | `--from-stage mix` or `REMOVED_mix_flow2`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-contracts](../cross-cutting/stage-contracts/00-INDEX.md) |
-
----
-
-## Flow 2 — highlights
-
-| Check | Pass | If fail |
-|-------|------|--------|
-| `selection.json` | ≤5 clips; non-overlapping `start_ms`/`end_ms` | `--from-stage REMOVED_highlight_selection` |
-| Self-contained | Each clip or ≤8s setup VO per spec | Edit selection or gap VO |
-| `REMOVED_sdp_flow2` | G2 `REMOVED_selected_flow` is `flow2`; SDP has `assets[]` (2–4 unique `asset_id`s) and `REMOVED_flow_plans_flow2.cues[]`; every cue `asset_id` appears in `assets[]`; one `transition_stinger` reused for all `between_clips` | `--from-stage REMOVED_sdp_flow2`; re-run `sound_design_palettes` if `coherence` / `palettes` empty — [sound-design.md](../cross-cutting/sound-design.md#flow-2-plan) |
-| `sfx_brief.json` | v1 montage brief (optional if SDP flow2 plan used) | `--from-stage sfx_brief` |
+| Mix path | `mix` ran; VO + SFX audible in `master.wav` | `--from-stage mix`; see [assembly_and_mux](../pipeline/assembly_and_mux/README.md) · [stage-contracts](../cross-cutting/stage-contracts/00-INDEX.md) |
 
 ---
 
@@ -420,7 +413,7 @@ Pipeline gates write pass/fail summaries to `run_meta.qc_summaries` and `gui_log
 | Key | Written at | Source |
 |-----|------------|--------|
 | `edl_qc` | `edl`, `mix` | `gates.check_edl_qc` |
-| `mix_intelligibility` | `mix`, `REMOVED_mix_flow2` | `master_qc.maybe_check_mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
+| `mix_intelligibility` | `mix` | `master_qc.maybe_check_mix_intelligibility` (when `mix.intelligibility_qc.enabled`) |
 
 ### Strict-gate recovery
 

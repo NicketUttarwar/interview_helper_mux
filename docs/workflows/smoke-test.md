@@ -157,3 +157,30 @@ The Stage panel should show **Coherence risks** when `gate.activated` is true.
 ## If something fails
 
 Use [troubleshooting.md](./troubleshooting.md) and [operator-stage-checklists.md](./operator-stage-checklists.md) to narrow the stage, then [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md) for `--from-stage` commands.
+
+## Podcast RSS / Terraform (optional)
+
+When validating Ship + feed hosting on a fresh machine:
+
+```bash
+# AWS_* in config/secrets/secrets.env; podcast.s3_bucket aligned with terraform.tfvars
+./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
+python scripts/seed_podcast_origin.py
+# After a master: G-Publish prepare, then
+python scripts/sync_podcast_episodes.py --dry-run
+```
+
+See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terraform/README.md](../../terraform/README.md). Session restore: `./scripts/tf-plan.sh --use-session`.
+
+## Detached e2e companion (optional)
+
+For unattended long runs against a live GUI server:
+
+```bash
+MUX_BABA_E2E=1 ./scripts/run.sh
+# or explicitly:
+python tools/baba_daemon_launch.py e2e --fresh
+python tools/baba_daemon_launch.py keepalive
+```
+
+`MUX_BABA_E2E=1` waits for `/api/health`, then detaches `tools/_baba_e2e_driver.py` + keepalive (`tools/baba_keepalive_loop.py`). Honors `MUX_RUN_ID` / `MUX_FRESH`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1` for gate defaults. Prefer `tools/e2e_pipeline_driver.py` for one-shot headless drivers.

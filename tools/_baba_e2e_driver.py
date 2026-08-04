@@ -71,6 +71,7 @@ DELIVERY_ORDER = (
     "sfx_prompt_craft",
     "mmaudio_sfx",
     "mix",
+    "junction_snip_qa",
     "master_finalize",
     "episode_meta_build",
     "episode_cover_prompt_craft",
@@ -189,11 +190,29 @@ def g0_complete() -> bool:
 def progress() -> str:
     st = stage_statuses()
     done = sum(1 for v in st.values() if v == "done")
-    return f"{done}/{len(st)} done; master={'yes' if MASTER.is_file() else 'no'}"
+    pub = "yes" if st.get("podcast_publish") == "done" else "no"
+    return (
+        f"{done}/{len(st)} done; master={'yes' if MASTER.is_file() else 'no'}; "
+        f"publish={pub}"
+    )
 
 
 def master_ready() -> bool:
     return MASTER.is_file() and MASTER.stat().st_size > 1000
+
+
+def pipeline_complete() -> bool:
+    """Full ship bar: master + cover + podcast_publish stage marker."""
+    if not master_ready():
+        return False
+    done_dir = MASTER.parent.parent / ".stage_done"
+    if not (done_dir / "podcast_publish").is_file():
+        return False
+    if not (done_dir / "episode_cover_generate").is_file():
+        return False
+    if not (done_dir / "junction_snip_qa").is_file():
+        return False
+    return True
 
 
 def assert_fresh_layer_contract() -> None:
@@ -265,8 +284,8 @@ def wait_job(label: str = "") -> dict[str, Any]:
     deadline = time.time() + MAX_WAIT_SEC
     last = ""
     while time.time() < deadline:
-        if master_ready():
-            return {"status": "complete", "message": "master.wav present"}
+        if pipeline_complete():
+            return {"status": "complete", "message": "pipeline complete (master+cover+publish)"}
         job = api("GET", f"/api/runs/{RUN_ID}/job")
         status = job.get("status") or "idle"
         msg = str(job.get("message") or "")
@@ -289,7 +308,7 @@ def wait_job(label: str = "") -> dict[str, Any]:
 
 def execute(body: dict[str, Any]) -> None:
     body = {**body, "api_consents": {"local": True, "openai": True}}
-    for attempt in range(8):
+    for attempt in range(24):
         try:
             api("POST", f"/api/runs/{RUN_ID}/execute", body)
             return
@@ -297,10 +316,12 @@ def execute(body: dict[str, Any]) -> None:
             text = str(exc).lower()
             if "409" in str(exc) or "busy" in text or "already" in text:
                 log(f"execute busy (attempt {attempt + 1}): waiting")
-                time.sleep(20 + attempt * 5)
+                time.sleep(20 + min(attempt, 12) * 5)
                 job = api("GET", f"/api/runs/{RUN_ID}/job")
-                if (job.get("status") or "") == "running":
-                    log("worker already running — joining")
+                st = str(job.get("status") or "")
+                # Lock held by in-process LLM/audio work — join, do not fight.
+                if st in {"running", "stalled", "gate", "needs_operator"}:
+                    log(f"worker active ({st}) — joining")
                     return
                 continue
             raise
@@ -2024,7 +2045,7 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
     delivery_from = first_pending(DELIVERY_ORDER)
     if delivery_from:
         steps.append(("delivery", {"mode": "delivery", "from_stage": delivery_from}))
-    elif not master_ready():
+    elif not pipeline_complete():
         steps.append(("delivery", {"mode": "delivery"}))
     return steps
 
@@ -2043,8 +2064,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
     gate_retries = 0
     error_retries: dict[str, int] = {}
     while True:
-        if master_ready():
-            return {"status": "complete", "message": "master ready"}
+        if pipeline_complete():
+            return {"status": "complete", "message": "pipeline complete"}
         job = wait_job(label)
         status = job.get("status")
         if status == "complete":
@@ -2776,8 +2797,25 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
         if status == "stalled":
             stage = str(job.get("stage") or job.get("current_stage") or "")
             log(f"stalled {stage} — waiting before re-execute")
-            # MusicGen / MMAudio can look stalled for many minutes while progress heartbeats lag.
-            stall_wait = 600 if stage in {"mmaudio_sfx", "mix", "master_finalize"} else 120
+            # Long LLM (o3 shards) / MusicGen / MMAudio look stalled while lock is held.
+            long_stages = {
+                "transcribe",
+                "segment_classification",
+                "content_context",
+                "boundary_detection",
+                "full_master_ranking",
+                "sound_design_plan",
+                "mmaudio_sfx",
+                "mix",
+                "junction_snip_qa",
+                "master_finalize",
+                "episode_cover_generate",
+                "podcast_publish",
+                "gap_framing_compose",
+                "mastering_research_waves",
+                "mastering_shape_candidates",
+            }
+            stall_wait = 600 if stage in long_stages else 180
             time.sleep(stall_wait)
             job2 = api("GET", f"/api/runs/{RUN_ID}/job")
             st2 = job2.get("status") or "idle"
@@ -2785,19 +2823,30 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             # If still "stalled" but a worker holds the lock, join instead of re-exec spam.
             if st2 == "stalled":
-                time.sleep(180 if stage in {"mmaudio_sfx", "mix", "master_finalize"} else 60)
+                time.sleep(300 if stage in long_stages else 90)
                 job3 = api("GET", f"/api/runs/{RUN_ID}/job")
                 st3 = job3.get("status") or "idle"
-                if st3 in {"running", "gate", "needs_operator", "complete", "stalled"}:
-                    # Join / keep polling — avoid competing execute while LLM is slow.
-                    if st3 == "running":
+                if st3 == "running":
+                    continue
+                if st3 in {"gate", "needs_operator", "complete"}:
+                    continue
+                if st3 == "stalled":
+                    if stage in long_stages:
+                        log(f"still stalled on {stage} — keep joining (no re-exec)")
                         continue
-                    if st3 == "stalled":
-                        # Prefer join over kill/restart for long local audio gens.
-                        if stage in {"mmaudio_sfx", "mix", "master_finalize"}:
-                            log(f"still stalled on {stage} — keep joining (no re-exec)")
+                    # Probe whether execute is still busy (lock held).
+                    try:
+                        api(
+                            "POST",
+                            f"/api/runs/{RUN_ID}/execute",
+                            {**body, "api_consents": {"local": True, "openai": True}},
+                        )
+                    except RuntimeError as busy_exc:
+                        if "409" in str(busy_exc) or "busy" in str(busy_exc).lower():
+                            log("execute still busy under stall — keep joining")
                             continue
-                        log("still stalled — one careful re-execute")
+                        raise
+                    log("still stalled — one careful re-execute")
             if stage:
                 execute({"mode": body.get("mode") or "analysis", "from_stage": stage})
             else:
@@ -2863,9 +2912,9 @@ def main() -> int:
     hard_fail_rounds = 0
 
     while True:
-        if master_ready():
+        if pipeline_complete():
             assert_fresh_layer_contract()
-            log(f"DONE master={MASTER} size={MASTER.stat().st_size}")
+            log(f"DONE master={MASTER} size={MASTER.stat().st_size} publish=yes")
             return 0
         try:
             heal_stage_done_markers()
@@ -2875,18 +2924,24 @@ def main() -> int:
             time.sleep(10)
             continue
         if not bodies:
-            log("no pending stages but no master — waiting")
+            log("no pending stages but pipeline incomplete — waiting")
             time.sleep(30)
             continue
         for label, body in bodies:
             # Before late delivery, disable optimizer remaster so finalize ships assembly.
             if label == "delivery" and str(body.get("from_stage") or "") in {
                 "mix",
+                "junction_snip_qa",
                 "master_finalize",
                 "assembly_preview",
                 "mmaudio_sfx",
                 "sfx_prompt_craft",
                 "listen_delight_audit",
+                "episode_meta_build",
+                "episode_cover_prompt_craft",
+                "podcast_encode_mp3",
+                "episode_cover_generate",
+                "podcast_publish",
             }:
                 clear_optimizer_remaster_for_finalize()
                 approve_music_listen()
@@ -2902,9 +2957,9 @@ def main() -> int:
                     complete_g0()
                 if g0_complete():
                     log("G0 confirmed — leaving prepare")
-            if master_ready():
+            if pipeline_complete():
                 assert_fresh_layer_contract()
-                log(f"DONE master={MASTER}")
+                log(f"DONE master={MASTER} publish=yes")
                 return 0
             if job.get("status") == "error":
                 msg = str(job.get("message") or job.get("error") or "")

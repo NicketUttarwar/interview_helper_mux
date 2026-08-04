@@ -11,7 +11,7 @@ import urllib.request
 from typing import Any
 
 BASE = "http://127.0.0.1:8765"
-INPUT_AUDIO = "ASSETS/notebooklm_original_interview_2024.wav"
+INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav")
 POLL_SEC = 15
 MAX_WAIT_SEC = 7200
 
@@ -422,6 +422,39 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "episode_structure_compose",
         ],
     )
+    delivery_from = first_pending(
+        run_id,
+        [
+            "topic_coverage_audit",
+            "narrative_arc_plan",
+            "full_master_ranking",
+            "refinement_agenda",
+            "gap_framing_recompose",
+            "selection_framing_apply",
+            "ranking_refine",
+            "narrative_arc_refine",
+            "transitions",
+            "transitions_refine",
+            "sound_design_plan",
+            "sdp_intent_refine",
+            "sound_design_vo_finalize",
+            "edl_narrative_audit",
+            "edl_narrative_refine",
+            "edl",
+            "assembly_preview",
+            "listen_delight_audit",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+            "mix",
+            "junction_snip_qa",
+            "master_finalize",
+            "episode_meta_build",
+            "episode_cover_prompt_craft",
+            "podcast_encode_mp3",
+            "episode_cover_generate",
+            "podcast_publish",
+        ],
+    )
     steps: list[tuple[str, dict[str, Any]]] = []
     if stage_statuses(run_id).get("ingest") != "done":
         steps.append(("ingest", {"mode": "stage", "stage": "ingest", "from_stage": "ingest"}))
@@ -431,7 +464,10 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
         )
     if analysis_from:
         steps.append(("analysis", {"mode": "analysis", "from_stage": analysis_from}))
-    steps.append(("delivery", {"mode": "delivery"}))
+    if delivery_from:
+        steps.append(("delivery", {"mode": "delivery", "from_stage": delivery_from}))
+    else:
+        steps.append(("delivery", {"mode": "delivery"}))
     return steps
 
 

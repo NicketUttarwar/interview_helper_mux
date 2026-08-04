@@ -9,6 +9,8 @@
 ./scripts/run.sh              # launch GUI
 ```
 
+**Pipeline size:** **57 stages** — 29 analysis + 28 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
+
 ## Read order
 
 1. [NORTH_STAR.md](NORTH_STAR.md)
@@ -20,8 +22,9 @@
 5. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md)
 6. [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv)
 7. [docs/cross-cutting/local-audio-stack.md](docs/cross-cutting/local-audio-stack.md)
-8. [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md) — The War Room S3 + CloudFront RSS (optional Ship; **Terraform** under `terraform/` with committed local state; app AWS via **boto3** + `secrets.env` — never AWS CLI / `aws login`)
-9. [docs/cross-cutting/podcast-cover-theme.md](docs/cross-cutting/podcast-cover-theme.md) — OpenAI cover cascade (3-candidate + vision brilliance pick)
-10. [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md) — pins; AWS = Terraform + boto3
-11. [docs/workflows/api-reference.md](docs/workflows/api-reference.md)
-12. [docs/cross-cutting/timeline-optimizer.md](docs/cross-cutting/timeline-optimizer.md) · [stage-volley-matrix.md](docs/cross-cutting/stage-volley-matrix.md) · [episode-architecture-spine.md](docs/cross-cutting/episode-architecture-spine.md)
+8. [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md) — The War Room S3 + CloudFront RSS (optional Ship)
+9. [terraform/README.md](terraform/README.md) — Terraform wrappers, committed state, session backup; app AWS via **boto3** + `secrets.env` — never AWS CLI / `aws login`
+10. [docs/cross-cutting/podcast-cover-theme.md](docs/cross-cutting/podcast-cover-theme.md) — OpenAI cover cascade (3-candidate + vision brilliance pick)
+11. [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md) — pins; AWS = Terraform + boto3
+12. [docs/workflows/api-reference.md](docs/workflows/api-reference.md)
+13. [docs/cross-cutting/timeline-optimizer.md](docs/cross-cutting/timeline-optimizer.md) · [stage-volley-matrix.md](docs/cross-cutting/stage-volley-matrix.md) · [episode-architecture-spine.md](docs/cross-cutting/episode-architecture-spine.md)

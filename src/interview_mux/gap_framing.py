@@ -149,6 +149,25 @@ def normalize_interviewer_line(line: dict[str, Any], *, eligible: str | None, de
     if not out.get("estimated_duration_sec"):
         wps = float(gap_framing_cfg().get("words_per_second_estimate", 2.5))
         out["estimated_duration_sec"] = round(_word_count(str(out.get("text") or "")) / max(wps, 0.5), 1)
+    # Coerce optional booleans — LLM/null merges must not write JSON null into boolean fields.
+    for key in ("prior_impact_beat", "prior_complete_thought", "density_forced", "blocking", "skipped_optional"):
+        if key in out:
+            out[key] = bool(out.get(key))
+    if "prior_segment_id" in out and out.get("prior_segment_id") is not None:
+        out["prior_segment_id"] = str(out.get("prior_segment_id") or "") or None
+    extracted = out.get("extracted_from")
+    if isinstance(extracted, dict):
+        cleaned = {
+            k: v
+            for k, v in extracted.items()
+            if v is not None and str(v).strip() != ""
+        }
+        if cleaned:
+            out["extracted_from"] = cleaned
+        else:
+            out.pop("extracted_from", None)
+    elif extracted is None and "extracted_from" in out:
+        out.pop("extracted_from", None)
     return out
 
 

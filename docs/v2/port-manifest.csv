@@ -2,43 +2,60 @@ stage_id,phase,kind,source_module,port,notes
 audio_preclean,prepare,non_llm,stages/audio_preclean.py,yes,optional quality offer
 ingest,prepare,non_llm,stages/ingest.py,yes,
 transcribe,prepare,non_llm,stages/transcribe_local.py,yes,Local MLX STT (mlx-audio)
+audio_probe_build,prepare,non_llm,stages/audio_probes.py,yes,audio probes + vernacular golden facts
 transcript_review_build,prepare,non_llm,stages/transcript_review.py,yes,builds G0 queue
-transcript_review,g0,gate,stages/transcript_review.py,yes,mandatory G0
+transcript_review,g0,gate,stages/transcript_review.py,yes,mandatory G0 (not in ANALYSIS_ORDER)
 source_acoustic_profile,understand,non_llm,stages/understanding.py,yes,SAP for mix
 interview_spine_build,understand,non_llm,stages/interview_spine_stage.py,yes,spine index
 speaker_roles,understand,llm,stages/understanding.py,yes,
-source_topology_build,understand,non_llm,source_topology.py,yes,source shape signals
+source_topology_build,understand,non_llm,source_topology.py,yes,source shape signals; G-Framing follows
 content_context,understand,llm,stages/understanding.py,yes,
 boundary_detection,understand,llm,stages/segmentation.py,yes,
 segment_classification,understand,llm,stages/segmentation.py,yes,
 content_brief_reanchor,understand,llm,stages/understanding.py,yes,
 boundary_topic_resplit,understand,llm,stages/segmentation.py,yes,splits overloaded segments
+vernacular_segment_sanitize,understand,non_llm,stages/audio_probes.py,yes,N-way vernacular sub-segmentation
 sonic_context_build,understand,non_llm,stages/sonic_context_stages.py,yes,
 sound_design_palettes,understand,llm,stages/sound_design_stages.py,yes,soft LLM
-missing_framing,gaps,llm,stages/gaps.py,yes,optional when G1 skipped
-gap_framing_compose,gaps,llm,stages/gaps.py,yes,optional when G1 skipped; legacy alias optimal_questions
+mastering_research_routing,understand,non_llm,mastering_research.py,yes,Mastering Process research lane
+mastering_research_waves,understand,llm,mastering_research.py,yes,8-wave research
+mastering_research_rollup,understand,non_llm,mastering_research.py,yes,research_dossier
+mastering_shape_agenda,understand,llm,mastering_shape_runtime.py,yes,Shape L0
+mastering_shape_candidates,understand,llm,mastering_shape_runtime.py,yes,Shape candidates
+mastering_plan_synthesize,understand,llm,mastering_shape_runtime.py,yes,mastering_plan provisional
+missing_framing,gaps,llm,stages/gaps.py,yes,when G-Framing Yes
+mastering_plan_confirm,understand,non_llm,mastering_shape_runtime.py,yes,confirm plan after framing context
+gap_framing_compose,gaps,llm,stages/gaps.py,yes,when G-Framing Yes; legacy alias optimal_questions
 delivery_brief_build,understand,non_llm,delivery_brief.py,yes,adaptive policy
 soundscape_policy_build,understand,non_llm,soundscape_policy.py,yes,
-episode_structure_compose,understand,non_llm,episode_structure.py,yes,
-g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording
-topic_coverage_audit,delivery,llm,stages/analysis_extended.py,yes,
-narrative_arc_plan,delivery,llm,stages/analysis_extended.py,yes,
-full_master_ranking,delivery,llm,stages/selection.py,yes,NLE overrides
-refinement_agenda,delivery,non_llm,refinement_agenda.py,yes,Refinement Pass L0 confirm (see refinement-passes.md)
-gap_framing_recompose,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — recompose or skip-copy draft gap_report
-selection_framing_apply,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — apply covered_by_framing_vo excludes
-ranking_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional when topic holes remain
-narrative_arc_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional narrative refine
-transitions,delivery,llm,stages/selection.py,yes,
-transitions_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional bridge dedupe
-sound_design_plan,delivery,llm,stages/sound_design_stages.py,yes,
-sdp_intent_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional SFX-restraint refine
-sound_design_vo_finalize,delivery,non_llm,stages/sound_design_vo_finalize.py,yes,
-edl_narrative_audit,delivery,llm,stages/edl_narrative_audit.py,yes,
-edl_narrative_refine,delivery,non_llm,refinement_passes.py,yes,Refinement Pass — optional pre-EDL sanity refine
-edl,delivery,non_llm,stages/assembly.py,yes,
-assembly_preview,delivery,non_llm,stages/assembly.py,yes,speech+VO preview
-sfx_prompt_craft,delivery,llm,stages/sound_design_stages.py,yes,soft LLM
-mmaudio_sfx,delivery,non_llm,stages/sfx_mmaudio.py,yes,
-mix,delivery,non_llm,stages/assembly.py,yes,
+episode_structure_compose,understand,non_llm,episode_structure.py,yes,end of ANALYSIS_ORDER
+g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording (not in DELIVERY_ORDER)
+topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,
+narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,
+full_master_ranking,plan_rank,llm,stages/selection.py,yes,NLE overrides
+refinement_agenda,plan_rank,non_llm,refinement_agenda.py,yes,Refinement Pass L0
+gap_framing_recompose,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
+selection_framing_apply,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
+ranking_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
+narrative_arc_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
+transitions,plan_rank,llm,stages/selection.py,yes,
+transitions_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
+sound_design_plan,sound,llm,stages/sound_design_stages.py,yes,
+sdp_intent_refine,sound,non_llm,refinement_passes.py,yes,Refinement Pass optional
+sound_design_vo_finalize,sound,non_llm,stages/sound_design_vo_finalize.py,yes,
+edl_narrative_audit,build,llm,stages/edl_narrative_audit.py,yes,
+edl_narrative_refine,build,non_llm,refinement_passes.py,yes,Refinement Pass optional
+edl,build,non_llm,stages/assembly.py,yes,
+assembly_preview,build,non_llm,stages/assembly.py,yes,speech+VO preview
+listen_delight_audit,build,non_llm,listen_delight.py,yes,advisory only
+sfx_prompt_craft,sound,llm,stages/sound_design_stages.py,yes,soft LLM; order after preview in DELIVERY_ORDER
+mmaudio_sfx,build,non_llm,stages/sfx_mmaudio.py,yes,
+mix,build,non_llm,stages/assembly.py,yes,
+junction_snip_qa,build,non_llm,junction_snip_qa.py,yes,mid-thought / VO-micro junction repair
 master_finalize,ship,non_llm,stages/mastering.py,yes,master.wav output
+episode_meta_build,ship,llm,stages/podcast_publish.py,yes,G-Publish prepare
+episode_cover_prompt_craft,ship,llm,stages/podcast_publish.py,yes,G-Publish prepare
+podcast_encode_mp3,ship,non_llm,stages/podcast_publish.py,yes,stereo mp3 + master copy
+episode_cover_generate,ship,non_llm,stages/podcast_publish.py,yes,OpenAI Images + vision pick
+podcast_publish,ship,non_llm,stages/podcast_publish.py,yes,local package_ready.json — no S3
+g_publish,ship,gate,web/server.py,yes,optional prepare/sync/skip (not a pipeline stage)

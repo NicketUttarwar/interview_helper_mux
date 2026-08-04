@@ -43,7 +43,7 @@ python scripts/seed_podcast_origin.py                                  # boto3 P
 ./scripts/invalidate_podcast_cf.sh                                     # boto3 CreateInvalidation
 ```
 
-See [podcast-rss-hosting.md](./podcast-rss-hosting.md).
+See [podcast-rss-hosting.md](./podcast-rss-hosting.md) · [terraform/README.md](../../terraform/README.md).
 
 ### Vulnerability audit (setup gate)
 

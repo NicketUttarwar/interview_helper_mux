@@ -2,7 +2,9 @@
 
 Turn a long-form interview recording into a **mastered podcast** (`master/master.wav`), with an optional **The War Room** RSS publish path (private S3 + CloudFront).
 
-Details: [NORTH_STAR.md](NORTH_STAR.md) · [SETUP.md](SETUP.md) · [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md)
+Details: [NORTH_STAR.md](NORTH_STAR.md) · [SETUP.md](SETUP.md) · [AGENTS.md](AGENTS.md) · [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](terraform/README.md)
+
+Pipeline: **57 stages** (29 analysis + 28 delivery) in [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 ---
 
@@ -45,14 +47,17 @@ Episode covers use OpenAI Images (`podcast.cover_image`) — see [docs/cross-cut
 | Launch GUI | `./scripts/run.sh` |
 | Headless | `./scripts/run.sh --cli` |
 | Rebuild GUI only | `MUX_REBUILD_GUI=1 ./scripts/run.sh` |
+| Detached e2e companion | `MUX_BABA_E2E=1 ./scripts/run.sh` (see [smoke-test](docs/workflows/smoke-test.md)) |
 
 Runs and artifacts: `ASSETS/executions/exec_*`
+
+Other run flags: `MUX_PRESERVE_SESSION=1`, `MUX_REFRESH_DEPS=1`, `MUX_SKIP_ASSETS_CLEANUP=1`, `MUX_NO_BROWSER=1`, `MUX_RUN_ID=…`, `MUX_FRESH=0`
 
 ---
 
 ## The War Room RSS (optional — Terraform)
 
-Infra lives under `terraform/` with **committed local state**. Bucket name and show/layout settings live in `config/app.defaults.json` → `podcast`. Credentials + CloudFront/feed URLs live in `config/secrets/secrets.env`. Default resource base: **`the_war_room_001`**.
+Infra lives under [`terraform/`](terraform/) with **committed local state** ([terraform/README.md](terraform/README.md)). Bucket name and show/layout settings live in `config/app.defaults.json` → `podcast`. Credentials + CloudFront/feed URLs live in `config/secrets/secrets.env`. Default resource base: **`the_war_room_001`**.
 
 ### A — Create podcast hosting (S3 + CloudFront OAC)
 
@@ -63,6 +68,8 @@ cp config/terraform.tfvars.example config/terraform.tfvars   # optional override
 ./scripts/tf-plan.sh
 ./scripts/tf-apply.sh   # also upserts PODCAST_* into secrets.env
 ```
+
+Session restore (if needed): `./scripts/tf-plan.sh --use-session` or `USE_LATEST_SESSION=1 ./scripts/tf-plan.sh`.
 
 ### B — Seed empty feed + show artwork
 
@@ -99,11 +106,11 @@ scripts/sync_podcast_tf_secrets.sh # outputs → PODCAST_* in secrets.env
 scripts/seed_podcast_origin.py     # seed feed.xml + show art (boto3)
 scripts/sync_podcast_episodes.py   # upload ready ASSETS packages (additive; no deletes)
 scripts/invalidate_podcast_cf.sh   # CloudFront invalidation (boto3; no AWS CLI)
-scripts/run.sh                     # launch
-terraform/                         # S3 + CloudFront OAC (state committed under state/)
+scripts/run.sh                     # launch (MUX_BABA_E2E=1 for detached e2e)
+terraform/                         # S3 + CloudFront OAC (README + committed state/)
 src/interview_mux/                 # pipeline + API
 frontend/                          # React GUI
 config/                            # defaults + secrets + podcast cover + tfvars.example
 docs/                              # specs and prompts
-tools/                             # CLI helpers
+tools/                             # CLI helpers + baba e2e launchers
 ```
