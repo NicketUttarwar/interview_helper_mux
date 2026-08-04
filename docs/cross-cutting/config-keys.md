@@ -11,7 +11,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | Variable | Default | Used by | If wrong |
 |----------|---------|---------|----------|
 | `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
-| `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, orphan non-`exec_*` dirs, stale locks) |
+| `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, stale locks inside exec_*; never deletes execution dirs) |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
 
 ---
@@ -755,6 +755,8 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 | `gap_eval_scored_min_ratio` | `0.95` | Scored gap evaluations completeness |
 | `fail_closed` | `true` | Mix raises on listenability fail |
 
+**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Artifact: `master/assembly_ledger.json`.
+
 ## `audio_preclean`
 
 | Key | Default | Meaning |
@@ -935,13 +937,14 @@ Local MusicGen theme beds for creative-delivery `theme_*` stems. See [local-audi
 | Key | Default | Role |
 |-----|---------|------|
 | `enabled` | `true` | Theme bed generation |
-| `model_id` | `facebook/musicgen-large` | Text-to-music model |
-| `melody_model_id` | `facebook/musicgen-melody-large` | Melody-conditioned model when cold-open WAV exists |
+| `model_id` | `facebook/musicgen-medium` | Text-to-music model (medium fits local MPS timeouts) |
+| `melody_model_id` | `facebook/musicgen-melody` | Melody-conditioned model when cold-open WAV exists |
 | `fail_closed_on_stub` | `true` | Refuse sine stubs; fail stage if MusicGen unavailable |
-| `best_of_n_speech_free` | `3` | Candidates for cold open / outro / accents |
-| `best_of_n_underscore` | `2` | Candidates for underscore beds |
-| `use_melody_conditioning` | `true` | Condition later stems on cold-open melody |
-| `prefetch_models` | large + melody-large | Bootstrap cache list |
+| `best_of_n_speech_free` | `1` | Candidates for cold open / outro / accents |
+| `best_of_n_underscore` | `1` | Candidates for underscore beds |
+| `use_melody_conditioning` | `false` | Condition later stems on cold-open melody |
+| `request_timeout_sec` | `3600` | Per-clip subprocess timeout |
+| `prefetch_models` | medium | Bootstrap cache list |
 | `keep_candidates` | `false` | Keep losing best-of-N WAVs under `_candidates/` |
 
 ---
@@ -997,6 +1000,10 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
 | `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
 | `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls attenuation response and envelope resolution |
+| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~5; keep modest so adjacent VO stays on top) |
+| `mix.music_presence.cold_open_lead_in_fade_ms` | `sound_design.py` | Fade-in for speech-free cold open / outro bookends |
+| `mix.music_presence.cold_open_air_ms` | `sound_design.py` / `_cold_open_bridge_budget_ms` | Air reserved after preface VO for the cold-open bridge before the question |
+| `mix.music_presence.chapter_resolve_breathe_ms` | `sound_design.py` | Dry micro-gap after chapter resolve before speech resumes |
 | `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
 | `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
 | `mix.require_preclean_acknowledgment` | *(deprecated — unused)* | Formerly gated mix/master stages on mid-pipeline pre-clean ack; v1 offers only `before_ingest` and `g1_vo_pickup` (non-blocking) |

@@ -47,34 +47,16 @@ def evaluate_story_health(
             }
         )
 
-    # Bridge completeness for declared reorder pairs
-    pairs = []
-    if isinstance(reorder_bridges, dict):
-        pairs = [p for p in (reorder_bridges.get("pairs") or []) if isinstance(p, dict)]
-    bridged: set[tuple[str, str]] = set()
-    if isinstance(gap_report, dict):
-        for ln in gap_report.get("interviewer_lines") or []:
-            if not isinstance(ln, dict):
-                continue
-            target = str(ln.get("targets_segment_id") or "")
-            # Treat before-placement as bridging into target from previous
-            if target:
-                bridged.add(("*", target))
-    if isinstance(transitions, dict):
-        for tr in transitions.get("transitions") or []:
-            if not isinstance(tr, dict):
-                continue
-            a = str(tr.get("after_segment_id") or "")
-            b = str(tr.get("before_segment_id") or "")
-            if a and b:
-                bridged.add((a, b))
-    for pair in pairs:
-        a = str(pair.get("after_id") or pair.get("after_segment_id") or "")
-        b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
-        if not a or not b:
-            continue
-        if (a, b) in bridged or ("*", b) in bridged:
-            continue
+    # Bridge completeness for declared reorder pairs (pair-specific glue only)
+    from interview_mux.bridge_completeness import missing_reorder_bridges
+
+    for miss in missing_reorder_bridges(
+        reorder_bridges if isinstance(reorder_bridges, dict) else None,
+        gap_report=gap_report if isinstance(gap_report, dict) else None,
+        transitions=transitions if isinstance(transitions, dict) else None,
+    ):
+        a = miss.get("after_segment_id")
+        b = miss.get("before_segment_id")
         issues.append(
             {
                 "code": "missing_reorder_bridge",

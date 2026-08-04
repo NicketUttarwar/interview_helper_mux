@@ -44,7 +44,7 @@ See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) 
 
 **Refresh check:** with an active run, refresh the browser — same run, Pipeline tab, stage focus, and log tail should return without clicking Resume.
 
-**Fresh launch:** `./scripts/run.sh` clears ephemeral ASSETS state by default (session pointer, `.gui/sessions/*`, orphan non-`exec_*` dirs, stale locks); resume manually from **Executions → Resume**. Use `MUX_PRESERVE_SESSION=1` to keep the pointer across a launch. Durable `exec_*` runs are never auto-deleted.
+**Fresh launch:** `./scripts/run.sh` clears ephemeral ASSETS state by default (session pointer, `.gui/sessions/*`, stale locks inside exec_*); resume manually from **Executions → Resume**. Use `MUX_PRESERVE_SESSION=1` to keep the pointer across a launch. Directories under `ASSETS/executions/` are never auto-deleted.
 
 **Reuse check (optional):** start a second execution on the same WAV; confirm **Same audio** on Executions tab; at a pending stage, confirm **Previous execution reuse** offers the first run when that stage completed.
 

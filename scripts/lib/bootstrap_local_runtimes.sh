@@ -71,6 +71,8 @@ if [[ -d "$DF_REPO/pyDF" ]]; then
   if command -v rustc >/dev/null 2>&1; then
     maturin develop --release -m "$DF_REPO/pyDF/Cargo.toml"
     pip install -e "$DF_PY_PKG"
+    # Editable DF install can drop torchaudio — re-pin after package install.
+    pip install "torch==${DF_TORCH_PIN}" "torchaudio==${DF_TORCH_PIN}" --index-url "$TORCH_INDEX"
   else
     echo "SKIP DeepFilterNet maturin build (Rust not installed)." >&2
   fi

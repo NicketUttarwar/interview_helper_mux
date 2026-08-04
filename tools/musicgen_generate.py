@@ -53,6 +53,7 @@ def main() -> int:
             melody_model_id=melody_model_id,
             seed=seed,
             melody_wav=str(melody_wav) if use_melody else None,
+            device_pref=str(req.get("device") or "auto"),
         )
     except Exception as tf_exc:
         print(f"transformers_musicgen_unavailable: {tf_exc}", file=sys.stderr)
@@ -123,6 +124,23 @@ def _load_melody_mono(path: str, target_sr: int = 32000):
     return arr, int(sr)
 
 
+def _resolve_torch_device(requested: str | None = None):
+    import torch
+
+    pref = (requested or "auto").strip().lower()
+    if pref in {"", "auto"}:
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
+    if pref == "mps" and torch.backends.mps.is_available():
+        return torch.device("mps")
+    if pref in {"cuda", "gpu"} and torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def _generate_transformers(
     *,
     prompt: str,
@@ -132,6 +150,7 @@ def _generate_transformers(
     melody_model_id: str,
     seed: object,
     melody_wav: str | None,
+    device_pref: str | None = None,
 ) -> int:
     import torch
 
@@ -140,12 +159,26 @@ def _generate_transformers(
     if seed is not None:
         torch.manual_seed(int(seed))
 
+    if not device_pref:
+        try:
+            # Optional device hint from request sidecar written by musicgen_runner.
+            req_path = out_wav.with_suffix(".request.json")
+            if req_path.is_file():
+                device_pref = json.loads(req_path.read_text(encoding="utf-8")).get("device")
+        except Exception:
+            device_pref = None
+    device = _resolve_torch_device(str(device_pref) if device_pref else "auto")
+    dtype = torch.float16 if device.type in {"mps", "cuda"} else torch.float32
+    print(f"musicgen_device={device} dtype={dtype}", file=sys.stderr)
+
     if melody_wav:
         from transformers import AutoProcessor, MusicgenMelodyForConditionalGeneration
 
         mid = melody_model_id or "facebook/musicgen-melody-large"
         processor = AutoProcessor.from_pretrained(mid)
-        model = MusicgenMelodyForConditionalGeneration.from_pretrained(mid)
+        model = MusicgenMelodyForConditionalGeneration.from_pretrained(mid, torch_dtype=dtype)
+        model.to(device)
+        model.eval()
         audio, sr = _load_melody_mono(melody_wav)
         inputs = processor(
             audio=audio,
@@ -154,20 +187,24 @@ def _generate_transformers(
             padding=True,
             return_tensors="pt",
         )
+        inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
         with torch.no_grad():
             audio_values = model.generate(**inputs, do_sample=True, guidance_scale=3.0, max_new_tokens=max_new)
     else:
         from transformers import AutoProcessor, MusicgenForConditionalGeneration
 
         processor = AutoProcessor.from_pretrained(model_id)
-        model = MusicgenForConditionalGeneration.from_pretrained(model_id)
+        model = MusicgenForConditionalGeneration.from_pretrained(model_id, torch_dtype=dtype)
+        model.to(device)
+        model.eval()
         inputs = processor(text=[prompt], padding=True, return_tensors="pt")
+        inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
         with torch.no_grad():
             audio_values = model.generate(
                 **inputs, do_sample=True, guidance_scale=3.0, max_new_tokens=max_new
             )
 
-    data = audio_values[0, 0].cpu().numpy()
+    data = audio_values[0, 0].detach().to("cpu").float().numpy()
     sr = 32000
     try:
         enc = getattr(model.config, "audio_encoder", None)
@@ -176,6 +213,12 @@ def _generate_transformers(
     except Exception:
         pass
     _save_array_wav(data, out_wav, sr=sr)
+    # MPS/CUDA worker threads often hang in Py_Finalize; hard-exit after success.
+    if out_wav.is_file() and out_wav.stat().st_size > 1000:
+        print(f"musicgen_ok path={out_wav} bytes={out_wav.stat().st_size}", file=sys.stderr)
+        import os
+
+        os._exit(0)
     return 0
 
 

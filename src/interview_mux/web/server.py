@@ -3798,6 +3798,8 @@ def _build_stage_list(
     transcript_review_pending: bool,
     profile_verified: bool,
     profile_gate_pending: bool,
+    *,
+    reconcile_done_markers: bool = False,
 ) -> list[dict[str, Any]]:
     stages = all_stages_for_run(None)
     from interview_mux.stage_completion import reconcile_stage_done_marker
@@ -3820,8 +3822,11 @@ def _build_stage_list(
         if isinstance(p, dict) and p.get("pass_id")
     }
 
-    for s in stages:
-        reconcile_stage_done_marker(ctx, s["id"])
+    # Reconcile is expensive (schema/status per stage). Default off for GUI polls;
+    # enable only for rare explicit refresh paths.
+    if reconcile_done_markers:
+        for s in stages:
+            reconcile_stage_done_marker(ctx, s["id"])
     for s in stages:
         sid = s["id"]
         if sid == "transcript_review":

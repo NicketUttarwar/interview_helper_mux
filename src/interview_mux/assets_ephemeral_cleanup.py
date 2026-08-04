@@ -8,20 +8,22 @@ INVARIANT — stage execution reuse must never break:
   and all stage artifacts under each ``exec_*``) are durable and are
   **never** deleted or rewritten by this module.
 
+INVARIANT — executions/ directory contents are durable:
+  This module **never** deletes any directory under ``ASSETS/executions/``
+  (product ``exec_*``, legacy ``run_*``, or other workspace folders).
+  Operators keep prior runs across ``./scripts/run.sh`` and e2e launches.
+
 Durable (never deleted by launch cleanup):
   - Operator source audio under ASSETS/ (and ASSETS/input/)
   - Local ML runtimes: ASSETS/local_* (venvs, models, hf_cache, cloned repos)
-  - Pipeline workspaces: ASSETS/executions/exec_* matching EXEC_ID_RE
-    (including all stage outputs used by stage_execution_reuse)
+  - Everything under ASSETS/executions/ (all run workspaces + counter)
   - ASSETS/executions/.execution_counter
 
 Ephemeral (cleared on ./scripts/run.sh by default):
   - ASSETS/.gui session pointer files (unless MUX_PRESERVE_SESSION=1)
   - ASSETS/.gui/sessions/* (operator session bootstrap logs)
-  - Orphan dirs under executions/ that are not product exec_* folders
-    (pytest / tooling debris such as accept_*, cv_*, run_chunk_*)
   - Stale process locks only: ``.run.lock`` and top-level ``.write.lock``
-    under product exec_* (never artifact files)
+    under product exec_* (never artifact files, never whole run dirs)
   - Empty ``.pending_writes/`` trees (non-empty staging is left intact)
 
 Pipeline stage outputs live only under RunContext.run_dir (exec_*).
@@ -38,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, repo_root
-from interview_mux.run_context import EXEC_ID_RE
+from interview_mux.run_context import EXEC_ID_RE, LEGACY_RUN_RE
 
 _GUI_SESSION_FILES = (
     "application_state.json",
@@ -98,7 +100,7 @@ def gui_dir(cfg: dict[str, Any] | None = None) -> Path:
 
 def is_product_execution_dir(name: str) -> bool:
     """True for durable pipeline runs that participate in stage-reuse lookback."""
-    return bool(EXEC_ID_RE.match(name))
+    return bool(EXEC_ID_RE.match(name) or LEGACY_RUN_RE.match(name))
 
 
 def _unlink(path: Path) -> bool:
@@ -162,7 +164,12 @@ def _clear_gui_lock_files(root: Path, report: CleanupReport) -> None:
 
 
 def _clear_orphan_execution_dirs(exec_root: Path, report: CleanupReport) -> None:
-    """Remove non-product debris under executions/. Never touches EXEC_ID_RE dirs."""
+    """Never auto-delete directories under executions/.
+
+    Historical behavior removed debris (accept_*, cv_*, …). Operators require that
+    prior execution workspaces always survive launch; keep every directory.
+    Only strip stray top-level ``.DS_Store`` / loose ``*.lock`` files.
+    """
     if not exec_root.is_dir():
         return
     for child in list(exec_root.iterdir()):
@@ -171,12 +178,10 @@ def _clear_orphan_execution_dirs(exec_root: Path, report: CleanupReport) -> None
         if child.name == ".DS_Store":
             _unlink(child)
             continue
-        if child.is_dir() and is_product_execution_dir(child.name):
-            continue
         if child.is_dir():
-            if _rmtree(child):
-                report.removed_orphan_execution_dirs.append(child.name)
-        elif child.is_file() and child.name.endswith(".lock"):
+            # Never rmtree under executions/ — product, legacy, or debris.
+            continue
+        if child.is_file() and child.name.endswith(".lock"):
             if child.name not in _KEEP_EXECUTIONS_FILES and _unlink(child):
                 report.removed_stale_locks.append(child.name)
 
@@ -209,8 +214,7 @@ def cleanup_ephemeral_assets(
 ) -> CleanupReport:
     """Remove launch-ephemeral files under ASSETS/.
 
-    Never deletes product ``exec_*`` workspaces or their stage outputs — required
-    for the 5-execution stage-reuse lookback at every pipeline stage.
+    Never deletes directories under ``executions/`` (product ``exec_*`` or otherwise).
     """
     report = CleanupReport()
     gdir = gui_dir(cfg)
@@ -246,12 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     preserve = args.preserve_session or os.environ.get("MUX_PRESERVE_SESSION", "0") == "1"
     report = cleanup_ephemeral_assets(clear_gui_session=not preserve)
     if not args.quiet:
-        orphans = len(report.removed_orphan_execution_dirs)
         print(
             "assets ephemeral cleanup: "
             f"gui_files={len(report.cleared_gui_session_files)} "
             f"sessions={report.removed_operator_sessions} "
-            f"orphan_exec_dirs={orphans} "
+            f"orphan_exec_dirs={len(report.removed_orphan_execution_dirs)} "
             f"locks={len(report.removed_stale_locks)} "
             f"empty_pending={len(report.removed_empty_pending_writes)}"
         )

@@ -156,26 +156,62 @@ def generate_music_clip(
             "seed": seed,
             "melody_wav": str(melody_wav) if melody_wav and Path(melody_wav).is_file() else None,
             "use_melody_conditioning": use_melody,
+            "device": str(musicgen_cfg().get("device") or "auto"),
         }
         req = out_wav.with_suffix(".request.json")
         req.write_text(json.dumps(payload), encoding="utf-8")
         timeout = int(musicgen_cfg().get("request_timeout_sec") or 1200)
         try:
-            proc = subprocess.run(
+            from interview_mux.operator_subprocess import touch_job_progress
+            from interview_mux.run_context import RunContext
+
+            run_ctx = None
+            try:
+                parts = Path(out_wav).resolve().parts
+                if "executions" in parts:
+                    rid = parts[parts.index("executions") + 1]
+                    run_ctx = RunContext(rid, create=False)
+            except Exception:
+                run_ctx = None
+            proc_h = subprocess.Popen(
                 [str(py), str(script), str(req)],
                 cwd=str(repo_root()),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
-                check=False,
             )
-            if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 1000:
-                meta["backend"] = "musicgen"
-                meta["stdout_tail"] = (proc.stdout or "")[-400:]
-                _write_generation_meta(out_wav, meta)
-                return meta
-            meta["musicgen_stderr"] = (proc.stderr or "")[-800:]
-            meta["musicgen_returncode"] = proc.returncode
+            waited = 0
+            while proc_h.poll() is None and waited < timeout:
+                if run_ctx is not None:
+                    try:
+                        touch_job_progress(
+                            run_ctx,
+                            f"MusicGen generating ({role or 'theme'})… {waited}s",
+                            phase="musicgen",
+                        )
+                    except Exception:
+                        pass
+                try:
+                    proc_h.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    waited += 30
+                    continue
+            if proc_h.poll() is None:
+                proc_h.kill()
+                proc_h.wait(timeout=10)
+                meta["musicgen_error"] = f"timeout after {timeout}s"
+            else:
+                stdout, stderr = proc_h.communicate()
+                proc = subprocess.CompletedProcess(
+                    proc_h.args, proc_h.returncode, stdout or "", stderr or ""
+                )
+                if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 1000:
+                    meta["backend"] = "musicgen"
+                    meta["stdout_tail"] = (proc.stdout or "")[-400:]
+                    _write_generation_meta(out_wav, meta)
+                    return meta
+                meta["musicgen_stderr"] = (proc.stderr or "")[-800:]
+                meta["musicgen_returncode"] = proc.returncode
         except Exception as exc:
             meta["musicgen_error"] = str(exc)[:400]
 

@@ -591,6 +591,7 @@ def _stage_actions(
     stage_id: str,
     status: str,
     *,
+    ctx: Any,
     transcript_review_pending: bool,
     prerequisites: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -993,6 +994,7 @@ def build_stage_guidance(
     actions = _stage_actions(
         stage_id,
         _effective_stage_status(ctx, stage_id, status),
+        ctx=ctx,
         transcript_review_pending=tr_pending,
         prerequisites=prerequisites,
     )

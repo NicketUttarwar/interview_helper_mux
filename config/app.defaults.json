@@ -115,10 +115,11 @@
       "attack_ms": 20,
       "release_ms": 200,
       "hop_ms": 10,
-      "pause_ride_db": 8.0
+      "pause_ride_db": 5.0
     },
     "music_presence": {
       "cold_open_lead_in_fade_ms": 600,
+      "cold_open_air_ms": 400,
       "chapter_resolve_breathe_ms": 220,
       "speech_free_stereo_width": 0.35,
       "speech_free_high_shelf_db": 1.5,
@@ -188,8 +189,8 @@
       "min_stingers": 1,
       "min_foley": 0,
       "min_bed_coverage_ratio": 0.28,
-      "min_audible_bed_level_db": -24,
-      "max_audible_bed_level_db": -20,
+      "min_audible_bed_level_db": -26,
+      "max_audible_bed_level_db": -22,
       "min_audible_stinger_level_db": -16,
       "min_audible_cold_open_level_db": -12,
       "max_audible_cold_open_level_db": -8,
@@ -250,9 +251,16 @@
       "max_foley": 12,
       "music_preset": "music_forward_documentary",
       "mix_overrides": {
-        "bed_under_dialogue_db": -20,
-        "foley_under_dialogue_db": -20,
-        "punctuator_peak_db": -12
+        "bed_under_dialogue_db": -24,
+        "foley_under_dialogue_db": -24,
+        "punctuator_peak_db": -12,
+        "pause_ride_db": 4.5
+      },
+      "soundscape_min_density_overrides": {
+        "min_audible_bed_level_db": -26,
+        "max_audible_bed_level_db": -22,
+        "min_audible_cold_open_level_db": -12,
+        "max_audible_cold_open_level_db": -8
       }
     },
     "music_forward_documentary": {
@@ -263,18 +271,18 @@
       "max_foley": 12,
       "music_preset": "music_forward_documentary",
       "musicgen_overrides": {
-        "best_of_n_speech_free": 4,
-        "best_of_n_underscore": 2
+        "best_of_n_speech_free": 1,
+        "best_of_n_underscore": 1
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -20,
-        "foley_under_dialogue_db": -20,
+        "bed_under_dialogue_db": -24,
+        "foley_under_dialogue_db": -24,
         "punctuator_peak_db": -10,
-        "pause_ride_db": 10.0
+        "pause_ride_db": 4.5
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -22,
-        "max_audible_bed_level_db": -18,
+        "min_audible_bed_level_db": -26,
+        "max_audible_bed_level_db": -22,
         "min_audible_cold_open_level_db": -10,
         "max_audible_cold_open_level_db": -6
       }
@@ -287,7 +295,7 @@
       "max_foley": 12,
       "music_preset": "speech_maximal",
       "musicgen_overrides": {
-        "best_of_n_speech_free": 2,
+        "best_of_n_speech_free": 1,
         "best_of_n_underscore": 1
       },
       "mix_overrides": {
@@ -586,19 +594,19 @@
     "max_duration_sec": 8.0,
     "duration_bands_by_role": {
       "theme_cold_open": [
-        12.0,
-        20.0
+        8.0,
+        16.0
       ],
       "theme_underscore": [
-        12.0,
-        20.0
+        8.0,
+        16.0
       ],
       "theme_emphasis": [
-        6.0,
+        5.0,
         12.0
       ],
       "theme_chapter_resolve": [
-        6.0,
+        5.0,
         12.0
       ],
       "theme_transition": [
@@ -606,8 +614,8 @@
         10.0
       ],
       "theme_outro": [
-        12.0,
-        20.0
+        8.0,
+        16.0
       ],
       "ambient_bed": [
         5.0,
@@ -675,23 +683,22 @@
   "_comment_musicgen": "Local MusicGen for music-only theme stems (no whoosh/tick/foley)",
   "musicgen": {
     "enabled": true,
-    "model_id": "facebook/musicgen-large",
-    "melody_model_id": "facebook/musicgen-melody-large",
+    "model_id": "facebook/musicgen-medium",
+    "melody_model_id": "facebook/musicgen-melody",
     "device": "auto",
-    "request_timeout_sec": 1200,
-    "default_duration_sec": 12.0,
+    "request_timeout_sec": 3600,
+    "default_duration_sec": 10.0,
     "min_duration_sec": 4.0,
-    "max_duration_sec": 20.0,
-    "use_melody_conditioning": true,
+    "max_duration_sec": 16.0,
+    "use_melody_conditioning": false,
     "fail_closed_on_stub": true,
-    "best_of_n_speech_free": 3,
-    "best_of_n_underscore": 2,
+    "best_of_n_speech_free": 1,
+    "best_of_n_underscore": 1,
     "keep_candidates": false,
     "max_regen_per_asset": 3,
     "semantic_qa_fail_on_low": true,
     "prefetch_models": [
-      "facebook/musicgen-large",
-      "facebook/musicgen-melody-large"
+      "facebook/musicgen-medium"
     ]
   },
   "_comment_web": "GUI server port and operator console",

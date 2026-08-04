@@ -2476,6 +2476,94 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     except Exception as exc:
         applied.append({"action": "hydrate_cue_segments_skipped", "error": str(exc)[:160]})
 
+    # Bind emphasis/resolve/outro cues to matching theme assets; collapse same-window stacks.
+    try:
+        from interview_mux.music_lane import (
+            bind_cues_to_theme_assets,
+            collapse_duplicate_music_cues,
+            effective_cue_role,
+        )
+
+        podcast = ((out.get("flow_plans") or {}).get("podcast") or {}) if isinstance(out.get("flow_plans"), dict) else {}
+        cues = podcast.get("cues") if isinstance(podcast.get("cues"), list) else []
+        assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+        assets_by_id = {
+            str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
+        }
+        bound, bind_actions = bind_cues_to_theme_assets(cues, assets)
+        collapsed, collapse_actions = collapse_duplicate_music_cues(bound, assets_by_id)
+        # Keep a single non-skipped theme_cold_open.
+        cold_seen = False
+        deduped: list[dict[str, Any]] = []
+        for cue in collapsed:
+            if not isinstance(cue, dict):
+                continue
+            role = effective_cue_role(cue, assets_by_id.get(str(cue.get("asset_id") or "")))
+            if role == "theme_cold_open" and not cue.get("skip"):
+                if cold_seen:
+                    applied.append({"action": "drop_extra_theme_cold_open", "cue_id": cue.get("cue_id")})
+                    continue
+                cold_seen = True
+            deduped.append(cue)
+        if isinstance(podcast, dict):
+            podcast["cues"] = deduped
+        applied.extend(bind_actions)
+        applied.extend(collapse_actions)
+    except Exception as exc:
+        applied.append({"action": "music_lane_bind_skipped", "error": str(exc)[:160]})
+
+    # Ensure hinge stinger coverage for listenability (chapter resolves on chapter ends).
+    try:
+        from interview_mux.listenability_guards import hinge_ids, listenability_guards_cfg
+        from interview_mux.music_lane import asset_id_for_role
+
+        podcast = ((out.get("flow_plans") or {}).get("podcast") or {}) if isinstance(out.get("flow_plans"), dict) else {}
+        cues = podcast.get("cues") if isinstance(podcast.get("cues"), list) else []
+        assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+        resolve_aid = (
+            asset_id_for_role(assets, "theme_chapter_resolve")
+            or asset_id_for_role(assets, "theme_transition")
+            or asset_id_for_role(assets, "theme_emphasis")
+        )
+        hinges = hinge_ids(ctx)
+        guards = listenability_guards_cfg()
+        min_ratio = float(guards.get("hinge_stinger_coverage_min_ratio") or 0.5)
+        if resolve_aid and hinges and min_ratio > 0:
+            stung: set[str] = set()
+            for cue in cues:
+                if not isinstance(cue, dict) or cue.get("skip"):
+                    continue
+                if str(cue.get("placement") or "") not in {"after_segment", "before_segment"}:
+                    continue
+                for key in ("after_segment_id", "segment_id", "before_segment_id"):
+                    if cue.get(key):
+                        stung.add(str(cue[key]))
+            need = max(0, int(len(hinges) * min_ratio + 0.999) - sum(1 for h in hinges if h in stung))
+            seed_i = 0
+            for hid in hinges:
+                if need <= 0:
+                    break
+                if hid in stung:
+                    continue
+                seed_i += 1
+                cues.append(
+                    {
+                        "cue_id": f"hinge_resolve_seed_{seed_i}",
+                        "asset_id": resolve_aid,
+                        "role": "theme_chapter_resolve",
+                        "placement": "after_segment",
+                        "after_segment_id": hid,
+                        "segment_id": hid,
+                    }
+                )
+                stung.add(hid)
+                need -= 1
+                applied.append({"action": "seed_hinge_resolve", "segment_id": hid, "asset_id": resolve_aid})
+            if isinstance(podcast, dict):
+                podcast["cues"] = cues
+    except Exception as exc:
+        applied.append({"action": "hinge_resolve_seed_skipped", "error": str(exc)[:160]})
+
     # sound_design_plan.schema.json forbids root additionalProperties (_meta);
     # write_validated_artifact strips/restores _meta, but keep disk payload clean.
     out.pop("_meta", None)

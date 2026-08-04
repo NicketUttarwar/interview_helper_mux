@@ -465,13 +465,36 @@ def _lint_sound_design_plan(artifacts: dict[str, Any], ctx: RunContext) -> list[
     chapter_cues = [
         c for c in cues if isinstance(c, dict) and str(c.get("placement")) in {"after_segment", "before_segment"}
     ]
+    # Legacy SFX chapter stingers should reuse one asset; theme roles may each use a dedicated stem.
+    from interview_mux.music_lane import effective_cue_role
+    from interview_mux.music_motif import is_theme_role
+
+    assets_by_id = {
+        str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
+    }
+    legacy_chapter = []
+    for c in chapter_cues:
+        if not isinstance(c, dict):
+            continue
+        role = effective_cue_role(c, assets_by_id.get(str(c.get("asset_id") or "")))
+        if is_theme_role(role):
+            continue
+        legacy_chapter.append(c)
     chapter_assets = {
         str(c.get("asset_id"))
-        for c in chapter_cues
+        for c in legacy_chapter
         if isinstance(c, dict) and str(c.get("asset_id")) in asset_ids
     }
-    if len(chapter_cues) > 1 and len(chapter_assets) > 1:
+    if len(legacy_chapter) > 1 and len(chapter_assets) > 1:
         errors.append("chapter_stinger reuse expected: multiple chapter cues should share one stinger asset")
+    from interview_mux.music_lane import validate_music_cue_coherence
+
+    errors.extend(
+        validate_music_cue_coherence(
+            [c for c in cues if isinstance(c, dict)],
+            [a for a in assets if isinstance(a, dict)],
+        )
+    )
     return errors
 
 

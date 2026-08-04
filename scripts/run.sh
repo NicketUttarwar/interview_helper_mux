@@ -11,11 +11,12 @@
 #   MUX_REBUILD_GUI=1            Rebuild React bundle before serve
 #   MUX_REFRESH_DEPS=1           Re-pip core .venv after git pull
 #   MUX_SKIP_ASSETS_CLEANUP=1    Skip ephemeral ASSETS/ cleanup (debug)
+#   MUX_NO_BROWSER=1             Pass --no-browser to serve (headless / e2e)
 #
 # Fresh launch (default): clears ephemeral ASSETS/ state (.gui session,
-# operator session logs, orphan non-exec_* debris, stale locks). Durable
-# exec_* runs (and their stage outputs for 5-run reuse lookback), input
-# WAVs, and local_* runtimes are never deleted.
+# operator session logs, stale locks inside exec_*). Never deletes any
+# directory under ASSETS/executions/ (prior runs always kept). Input WAVs
+# and local_* runtimes are never deleted.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -47,6 +48,7 @@ Environment:
   MUX_REBUILD_GUI=1           npm build before serve
   MUX_REFRESH_DEPS=1          Refresh core .venv after git pull
   MUX_SKIP_ASSETS_CLEANUP=1   Skip ephemeral ASSETS/ cleanup
+  MUX_NO_BROWSER=1            Do not open a browser tab
 EOF
       exit 0
       ;;
@@ -56,6 +58,10 @@ EOF
       ;;
   esac
 done
+
+if [[ "${MUX_NO_BROWSER:-0}" == "1" ]]; then
+  SERVE_ARGS+=(--no-browser)
+fi
 
 # shellcheck source=scripts/lib/require_venv.sh
 source "$ROOT/scripts/lib/require_venv.sh"

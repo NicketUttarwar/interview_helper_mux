@@ -26,6 +26,27 @@ def _mix_cfg() -> dict[str, Any]:
     return merged_config().get("mix") or {}
 
 
+def _cold_open_bridge_budget_ms(ctx: RunContext) -> int:
+    """Silence to reserve after preface VO for a speech-free theme_cold_open bridge."""
+    presence = (_mix_cfg().get("music_presence") or {}) if isinstance(_mix_cfg(), dict) else {}
+    air = int(presence.get("cold_open_air_ms") or 400)
+    plan = load_sound_design_plan(ctx)
+    assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
+    dur_s = 0.0
+    for a in assets:
+        if isinstance(a, dict) and str(a.get("role") or "") == "theme_cold_open":
+            try:
+                dur_s = float(a.get("duration_seconds") or 0)
+            except (TypeError, ValueError):
+                dur_s = 0.0
+            if dur_s > 0:
+                break
+    if dur_s <= 0:
+        # Still reserve a short musical hinge when the asset list is incomplete.
+        dur_s = 8.0
+    return int(dur_s * 1000) + max(0, air)
+
+
 def _transcript_words(ctx: RunContext) -> list[dict[str, Any]]:
     if not ctx.artifact_exists("transcript/full.json"):
         return []
@@ -131,6 +152,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     vo_count = 0
     missing_vo: list[str] = []
     prev_speech_seg_id = ""
+    live_vo_windows: list[tuple[int, int]] = []
+    live_landmarks: dict[str, Any] = {
+        "preface_end_ms": None,
+        "first_question_start_ms": None,
+        "first_speech_start_ms": None,
+        "vo_windows": live_vo_windows,
+    }
+    cold_bridge_ms = _cold_open_bridge_budget_ms(ctx)
 
     with logged_step("mix/build_base_timeline", ctx=ctx, stage="mix"):
         from interview_mux.speaker_level_match import (
@@ -140,6 +169,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             speaker_id_for_segment,
             speaker_level_match_cfg,
         )
+        from interview_mux.music_lane import classify_vo_line
 
         speaker_gains = build_speaker_gains(ctx, source)
         if speaker_level_match_cfg().get("enabled") and speaker_gains:
@@ -152,8 +182,11 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     detail=nonzero,
                 )
 
-        for clip in edl.get("clips") or []:
+        clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+        last_vo_kind = ""
+        for idx, clip in enumerate(clips):
             ctype = str(clip.get("type") or "")
+            t_before = len(base)
             if ctype == "speech":
                 start = int(clip.get("source_start_ms", 0))
                 end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
@@ -161,9 +194,6 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 seg_id = str(clip.get("segment_id") or "")
                 spk = speaker_id_for_segment(ctx, seg_id) if seg_id else None
                 audio = apply_speaker_gain(audio, gain_db_for_speaker(speaker_gains, spk))
-                if seg_id:
-                    t0 = int(clip.get("timeline_start_ms", len(base)))
-                    _update_segment_timing(segment_timing, seg_id, t0, t0 + len(audio))
                 speech_count += 1
                 join_key = (prev_speech_seg_id, seg_id) if prev_speech_seg_id and seg_id else None
                 clip_crossfade = (
@@ -188,6 +218,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     missing_vo.append(line_id or "unknown")
                 vo_count += 1
                 clip_crossfade = crossfade_ms
+                last_vo_kind = classify_vo_line(line_id)
             elif ctype == "transition":
                 src_rel = clip.get("source_path")
                 if src_rel:
@@ -202,10 +233,22 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     continue
                 vo_count += 1
                 clip_crossfade = crossfade_ms
+                last_vo_kind = "other"
             elif ctype == "silence":
                 from pydub import AudioSegment as _AS
 
                 pad = max(0, int(clip.get("duration_ms") or 0))
+                # After show-open preface, reserve air for a speech-free cold-open bridge
+                # before the first question VO (hook → theme → question).
+                if last_vo_kind == "preface" and cold_bridge_ms > 0:
+                    nxt = clips[idx + 1] if idx + 1 < len(clips) else None
+                    nxt_kind = (
+                        classify_vo_line(str((nxt or {}).get("line_id") or ""))
+                        if isinstance(nxt, dict) and str((nxt or {}).get("type") or "") == "vo_pickup"
+                        else ""
+                    )
+                    if nxt_kind == "question":
+                        pad = max(pad, cold_bridge_ms)
                 if pad <= 0:
                     continue
                 audio = _AS.silent(duration=pad, frame_rate=getattr(base, "frame_rate", None) or 48000)
@@ -216,6 +259,22 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 base = audio
             else:
                 base = _append_mix_clip(base, audio, clip_crossfade)
+            t_start = t_before if t_before == 0 else max(0, t_before - int(clip_crossfade or 0))
+            t_end = len(base)
+            if ctype == "speech":
+                seg_id = str(clip.get("segment_id") or "")
+                if seg_id:
+                    _update_segment_timing(segment_timing, seg_id, t_start, t_end)
+                if live_landmarks.get("first_speech_start_ms") is None:
+                    live_landmarks["first_speech_start_ms"] = t_start
+            elif ctype == "vo_pickup":
+                live_vo_windows.append((t_start, t_end))
+                kind = classify_vo_line(str(clip.get("line_id") or ""))
+                if kind == "preface":
+                    pe = live_landmarks.get("preface_end_ms")
+                    live_landmarks["preface_end_ms"] = t_end if pe is None else max(int(pe), t_end)
+                elif kind == "question" and live_landmarks.get("first_question_start_ms") is None:
+                    live_landmarks["first_question_start_ms"] = t_start
 
         if missing_vo:
             ctx.log(
@@ -235,12 +294,16 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         )
 
     with logged_step("mix/apply_overlays", ctx=ctx, stage="mix"):
+        landmarks = live_landmarks
+        vo_excluded = list(landmarks.get("vo_windows") or [])
         overlays, overlay_stats = build_flow1_overlays(
             ctx,
             segment_timing=segment_timing,
             timeline_ms=len(base),
             contract=contract,
             speech_stem=base,
+            excluded_windows=vo_excluded,
+            vo_landmarks=landmarks,
         )
         mixed = base
         for cue in overlays:
@@ -474,6 +537,7 @@ def build_flow1_overlays(
     contract: dict[str, Any] | None = None,
     excluded_windows: list[tuple[int, int]] | None = None,
     speech_stem: AudioSegment | None = None,
+    vo_landmarks: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     contract = contract or mix_contract(ctx)
     overlays = flow1_overlays_from_sdp(
@@ -482,6 +546,7 @@ def build_flow1_overlays(
         contract=contract,
         excluded_windows=excluded_windows or [],
         speech_stem=speech_stem,
+        vo_landmarks=vo_landmarks,
     )
     stats = count_overlay_roles(overlays)
     if overlays:
@@ -536,9 +601,10 @@ def flow1_overlays_from_sdp(
     contract: dict[str, Any] | None = None,
     excluded_windows: list[tuple[int, int]] | None = None,
     speech_stem: AudioSegment | None = None,
+    vo_landmarks: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     contract = contract or mix_contract(ctx)
-    excluded = excluded_windows or []
+    excluded = list(excluded_windows or [])
     if contract.get("underscore_policy") == "skip":
         ctx.log("mix: underscore_skipped — no bed overlays", level="info", stage="mix")
         return []
@@ -550,12 +616,40 @@ def flow1_overlays_from_sdp(
         return []
     cues = _flow_plan_cues(plan)
     from interview_mux.placement_qa import apply_placement_adjustments
+    from interview_mux.music_lane import (
+        apply_music_lane_exclusivity,
+        bind_cues_to_theme_assets,
+        collapse_duplicate_music_cues,
+        cold_open_position_ms,
+        effective_cue_role,
+        music_lane_for_role,
+        vo_open_landmarks_from_edl,
+        LANE_PUNCTUATOR,
+    )
 
     cues = apply_placement_adjustments(ctx, [c for c in cues if isinstance(c, dict)])
     assets = plan.get("assets") if isinstance(plan.get("assets"), list) else []
+    cues, bind_actions = bind_cues_to_theme_assets(cues, [a for a in assets if isinstance(a, dict)])
     assets_by_id = {
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
     }
+    cues, collapse_actions = collapse_duplicate_music_cues(cues, assets_by_id)
+    if bind_actions or collapse_actions:
+        ctx.log(
+            f"mix: music_lane bind={len(bind_actions)} collapse={len(collapse_actions)}",
+            level="info",
+            stage="mix",
+        )
+    landmarks = vo_landmarks
+    if landmarks is None and ctx.artifact_exists("master/edl.json"):
+        try:
+            edl_doc = ctx.read_json("master/edl.json")
+            landmarks = vo_open_landmarks_from_edl(edl_doc if isinstance(edl_doc, dict) else None)
+        except (OSError, json.JSONDecodeError, TypeError):
+            landmarks = {}
+    landmarks = landmarks or {}
+    if not excluded and landmarks.get("vo_windows"):
+        excluded = list(landmarks["vo_windows"])
     out: list[dict[str, Any]] = []
     stinger_cap = int(contract.get("stinger_max_per_minute", 4))
     timeline_minutes = max(1, max((end for _s, end in segment_timing.values()), default=60000) // 60000)
@@ -588,7 +682,7 @@ def flow1_overlays_from_sdp(
         from interview_mux.creative_delivery import audibility_level_db
         from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
-        asset_role_early = str(asset.get("role") or cue.get("role") or "")
+        asset_role_early = effective_cue_role(cue, asset)
         if placement == "under_segment" or asset_role_early in THEME_BED_ROLES:
             level_db = audibility_level_db(role="bed", default=level_db)
         elif is_theme_role(asset_role_early) or asset_role_early in THEME_PUNCTUATOR_ROLES:
@@ -651,10 +745,18 @@ def flow1_overlays_from_sdp(
                 duck_db=duck_db,
             )
             bed = bed.fade_in(fade_in).fade_out(fade_out)
-            out.append({"audio": bed, "position_ms": start_ms, "role": "bed"})
+            out.append(
+                {
+                    "audio": bed,
+                    "position_ms": start_ms,
+                    "role": "bed",
+                    "music_role": "theme_underscore",
+                    "asset_id": asset_id,
+                }
+            )
             continue
 
-        asset_role = str(asset.get("role") or cue.get("role") or "")
+        asset_role = effective_cue_role(cue, asset)
         if _cue_uses_pause_alignment(cue, asset):
             if stinger_count >= max_stingers:
                 ctx.log(
@@ -675,13 +777,34 @@ def flow1_overlays_from_sdp(
             base = enhance_speech_free_theme(base, role=asset_role)
         cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
         cue_audio = apply_pan_position(cue_audio, cue.get("pan_position"))
-        pos = flow1_cue_position(cue=cue, segment_timing=segment_timing)
-        # Musical cold open: lead-in before first speech when no anchor resolved.
-        if asset_role == "theme_cold_open" and (pos is None or pos < 80):
-            pos = 0
+        pos = flow1_cue_position(
+            cue=cue,
+            segment_timing=segment_timing,
+            role=asset_role,
+            vo_landmarks=landmarks,
+            theme_duration_ms=len(cue_audio),
+        )
+        # Musical cold open: always prefer post-hook air gap placement.
+        if asset_role == "theme_cold_open":
+            air_ms = int(presence.get("cold_open_air_ms") or 400)
+            pe = landmarks.get("preface_end_ms")
+            qs = landmarks.get("first_question_start_ms")
+            # Fit theme into post-hook air when the gap is shorter than the full stem.
+            if pe is not None and qs is not None and int(qs) > int(pe):
+                gap = int(qs) - int(pe)
+                fit = max(800, gap - max(80, air_ms // 2))
+                if len(cue_audio) > fit:
+                    tail_fade = min(180, fit // 4)
+                    cue_audio = cue_audio[:fit].fade_out(tail_fade)
+            pos = cold_open_position_ms(
+                theme_duration_ms=len(cue_audio),
+                landmarks=landmarks,
+                segment_timing=segment_timing,
+                air_ms=air_ms,
+            )
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
-        if _cue_uses_pause_alignment(cue, asset):
+        if asset_role != "theme_cold_open" and _cue_uses_pause_alignment(cue, asset):
             dur_s = float(asset.get("duration_seconds") or 0.4)
             musical_punct = asset_role in THEME_PUNCTUATOR_ROLES or is_theme_role(asset_role)
             legacy_sting = asset_role in ("chapter_stinger", "transition_stinger", "transition_whoosh")
@@ -697,8 +820,12 @@ def flow1_overlays_from_sdp(
                 segments_by_id=segments_by_id,
                 segment_timing=segment_timing,
             )
-        if excluded and _overlaps_excluded(int(pos), len(cue_audio), excluded):
-            continue
+        lane = music_lane_for_role(asset_role)
+        # Punctuators must not start inside VO pickups (bookends may use post-hook air).
+        if lane == LANE_PUNCTUATOR and excluded:
+            attack_ms = min(len(cue_audio), 500)
+            if _overlaps_excluded(int(pos), attack_ms, excluded):
+                continue
         if asset_role == "rhetorical_punctuator":
             role = "punctuator"
         elif asset_role in THEME_BED_ROLES:
@@ -709,7 +836,15 @@ def flow1_overlays_from_sdp(
             role = "theme_punctuator"
         else:
             role = "bridge" if placement == "before_segment" else "stinger"
-        out.append({"audio": cue_audio, "position_ms": pos, "role": role})
+        out.append(
+            {
+                "audio": cue_audio,
+                "position_ms": pos,
+                "role": role,
+                "music_role": asset_role,
+                "asset_id": asset_id,
+            }
+        )
         # Chapter-hinge breathe: dry micro-gap after resolve before speech resumes.
         if asset_role == "theme_chapter_resolve":
             breathe_ms = int(presence.get("chapter_resolve_breathe_ms") or 220)
@@ -722,7 +857,7 @@ def flow1_overlays_from_sdp(
                     }
                 )
 
-    return out
+    return apply_music_lane_exclusivity(out)
 
 
 def flow1_overlays_legacy(
@@ -988,9 +1123,13 @@ def _stinger_segment_id(cue: dict[str, Any], placement: str) -> str:
 
 
 def _cue_uses_pause_alignment(cue: dict[str, Any], asset: dict[str, Any]) -> bool:
+    from interview_mux.music_lane import effective_cue_role
+
     if str(cue.get("trigger") or "") == "pause":
         return True
-    role = str(asset.get("role") or cue.get("role") or "")
+    role = effective_cue_role(cue, asset)
+    if role == "theme_cold_open":
+        return False
     return role in (
         "theme_emphasis",
         "theme_chapter_resolve",
@@ -1041,17 +1180,35 @@ def _align_stinger_to_pause_tail(
     return mapped
 
 
-def flow1_cue_position(*, cue: dict, segment_timing: dict[str, tuple[int, int]]) -> int | None:
+def flow1_cue_position(
+    *,
+    cue: dict,
+    segment_timing: dict[str, tuple[int, int]],
+    role: str | None = None,
+    vo_landmarks: dict[str, Any] | None = None,
+    theme_duration_ms: int | None = None,
+) -> int | None:
+    from interview_mux.music_lane import cold_open_position_ms, effective_cue_role
+
     placement = str(cue.get("placement") or "")
-    role = str(cue.get("role") or "")
-    # Cold open theme always leads the timeline when placement is ambiguous
-    if role == "theme_cold_open" or placement in {"cold_open", "show_open"}:
+    resolved_role = str(role or effective_cue_role(cue) or "")
+    # Cold open theme: post-hook air when landmarks exist; else timeline lead-in.
+    if resolved_role == "theme_cold_open" or placement in {"cold_open", "show_open"}:
+        if vo_landmarks and (
+            vo_landmarks.get("preface_end_ms") is not None
+            or vo_landmarks.get("first_question_start_ms") is not None
+        ):
+            return cold_open_position_ms(
+                theme_duration_ms=int(theme_duration_ms or 8000),
+                landmarks=vo_landmarks,
+                segment_timing=segment_timing,
+            )
         if segment_timing:
             first = min(v[0] for v in segment_timing.values())
             return max(0, first - 80)
         return 0
     # Chapter / hinge punctuators: prefer after_segment hinge, never spoken "Chapter N"
-    if role in {"theme_chapter_resolve", "theme_transition", "rhetorical_punctuator"}:
+    if resolved_role in {"theme_chapter_resolve", "theme_transition", "rhetorical_punctuator"}:
         after = str(cue.get("after_segment_id") or cue.get("segment_id") or "")
         before = str(cue.get("before_segment_id") or "")
         if after and after in segment_timing:

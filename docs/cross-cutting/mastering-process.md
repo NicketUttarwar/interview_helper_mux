@@ -125,10 +125,12 @@ SFX is an independent switch on any non-`none` option. Full catalog: [mastering-
 
 1. Render `cold_open` as leading EDL element(s)
 2. Ranking / EDL / transitions / SDP **bound to** `mastering_plan`
-3. Preview → optional post-preview pickup when plan requires
-4. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`)
-5. Flagship **audio-grounded** polish audit → bounded remux ([mastering-audition-loop.md](./mastering-audition-loop.md))
-6. `master_finalize` → `master/master.wav` (−16 LUFS)
+3. Before EDL write: rebuild `reorder_bridges` from the air order, **auto-mint pair-specific spoken transitions** for any naked reorder/chapter jump, synthesize audible WAVs, then hard-fail if glue is still missing (NLE soft only)
+4. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
+5. Preview → optional post-preview pickup when plan requires
+6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift
+7. Flagship **audio-grounded** polish audit → bounded remux ([mastering-audition-loop.md](./mastering-audition-loop.md))
+8. `master_finalize` → `master/master.wav` (−16 LUFS); blocks on naked seams / incomplete `bridge_completeness`
 
 Until cutover: if `mastering_plan` is missing, fall back to today’s ranking path (fail-open).
 
@@ -139,6 +141,7 @@ Until cutover: if `mastering_plan` is missing, fall back to today’s ranking pa
 - Prefer **pickup-eligible** speaker for new VO; **any on-tape speaker** allowed with consent when needed
 - Never invent unspoken dialogue / false attributed claims
 - Locked **speaker volleys** stay intact through EDL
+- **No naked reorder seams:** non-source-contiguous speech adjacencies require pair-specific audible glue (spoken transition or pair-bound gap VO); air-pad silence alone is never enough
 - Mechanical loudness QC unchanged (`verify_master`)
 - Voice cloning requires consent + approved reference + scope; off-tape cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
 - No candidate reaches synthesize while infeasible or carrying a critical semantic-integrity finding

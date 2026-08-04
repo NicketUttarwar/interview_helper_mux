@@ -123,14 +123,14 @@ Deleting an `exec_*` folder is the only supported way to discard a run; there is
 
 Each `./scripts/run.sh` (unless `MUX_SKIP_ASSETS_CLEANUP=1`) runs `python -m interview_mux.assets_ephemeral_cleanup`:
 
-| Cleared | Kept (required for stage reuse) |
+| Cleared | Kept |
 |---------|------|
 | `.gui` session pointer files (unless `MUX_PRESERVE_SESSION=1`) | `ASSETS/input/` and other operator WAVs |
 | `.gui/sessions/*` bootstrap logs | `ASSETS/local_*` venvs, models, caches |
-| Non-`exec_*` debris under `executions/` (test/tooling orphans) | **All product runs** matching `exec_NNN_…` — including `.stage_done/`, `run_meta.json`, and every stage artifact used by the **5-execution reuse lookback** at every stage ([stage-execution-reuse.md](../workflows/stage-execution-reuse.md)) |
-| Stale `.run.lock` / `.write.lock` and **empty** `.pending_writes/` under `exec_*` | Non-empty `.pending_writes/` (abandoned staging left intact); `.execution_counter` |
+| Stale `.run.lock` / `.write.lock` and **empty** `.pending_writes/` under product `exec_*` / legacy `run_*` | **Every directory under `ASSETS/executions/`** (product `exec_*`, legacy `run_*`, and any other workspace folders) — never auto-deleted. Includes `.stage_done/`, `run_meta.json`, and stage artifacts for the **5-execution reuse lookback** ([stage-execution-reuse.md](../workflows/stage-execution-reuse.md)) |
+| | Non-empty `.pending_writes/` (abandoned staging left intact); `.execution_counter` |
 
-**Never auto-deleted:** free execution outputs under durable `exec_*` folders. Cleanup must not break per-stage reuse offers.
+**Never auto-deleted:** any folder under `ASSETS/executions/`. Cleanup must not break prior runs or per-stage reuse offers.
 
 Implementation: [`src/interview_mux/assets_ephemeral_cleanup.py`](../../src/interview_mux/assets_ephemeral_cleanup.py).
 

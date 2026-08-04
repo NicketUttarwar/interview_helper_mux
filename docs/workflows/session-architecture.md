@@ -23,8 +23,8 @@ Legacy files (`active_execution.json`, `server_session.json`) are kept in sync f
 
 ## Bootstrap (`./scripts/run.sh`)
 
-- **Default:** `./scripts/run.sh` runs ephemeral ASSETS cleanup (`assets_ephemeral_cleanup`) before serve — clears `application_state.json` / legacy session files, `.gui/sessions/*`, orphan non-`exec_*` dirs under `executions/`, and stale locks
-- `MUX_PRESERVE_SESSION=1`: keep session pointer files across this launch (still clears operator session logs + orphans)
+- **Default:** `./scripts/run.sh` runs ephemeral ASSETS cleanup (`assets_ephemeral_cleanup`) before serve — clears `application_state.json` / legacy session files, `.gui/sessions/*`, and stale locks inside product exec dirs (never deletes any directory under `executions/`)
+- `MUX_PRESERVE_SESSION=1`: keep session pointer files across this launch (still clears operator session logs)
 - `MUX_SKIP_ASSETS_CLEANUP=1`: skip the cleanup entirely (debug)
 
 On `interview_mux serve` start, `on_server_start()` assigns a new `operator_session_id` and writes `ASSETS/.gui/sessions/<id>/bootstrap.log`.

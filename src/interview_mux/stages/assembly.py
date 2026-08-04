@@ -339,6 +339,7 @@ def run_edl(ctx: RunContext) -> None:
             )
     check_narrative_qc(ctx, stage="edl", require_selection=True)
 
+    soft = False
     with logged_step("edl/load_inputs", ctx=ctx, stage="edl"):
         selection = ctx.read_json("master/selection.json")
         nle = load_nle(ctx)
@@ -364,30 +365,33 @@ def run_edl(ctx: RunContext) -> None:
         transitions = (
             ctx.read_json("master/transitions.json")
             if ctx.artifact_exists("master/transitions.json")
-            else None
+            else {"transitions": []}
         )
-        # Hard bridge completeness before synth / EDL (softened only post-NLE via story_health)
-        if ctx.artifact_exists("understanding/reorder_bridges.json"):
-            from interview_mux.bridge_completeness import assert_bridges_complete
-            from interview_mux.nle_state import nle_has_operator_edits as _nle_ops
+        from interview_mux.nle_state import nle_has_operator_edits as _nle_ops
+        from interview_mux.order_hash import stamp_order_hash
+        from interview_mux.seam_glue import ensure_seam_glue
 
-            bridges = ctx.read_json("understanding/reorder_bridges.json")
-            soft = bool(_nle_ops(nle))
-            completeness = assert_bridges_complete(
-                bridges if isinstance(bridges, dict) else None,
-                gap_report=gap_report if isinstance(gap_report, dict) else None,
-                transitions=transitions if isinstance(transitions, dict) else None,
-                soft=soft,
+        ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+        selection = stamp_order_hash(selection)
+        ctx.write_json("master/selection.json", selection)
+
+        soft = bool(_nle_ops(nle))
+        _bridges, transitions, completeness = ensure_seam_glue(
+            ctx,
+            ordered=ordered,
+            segments_by_id=by_id,
+            gap_report=gap_report if isinstance(gap_report, dict) else None,
+            transitions=transitions if isinstance(transitions, dict) else None,
+            soft=soft,
+        )
+        if soft and not completeness.get("complete"):
+            ctx.log(
+                f"bridge_completeness soft (NLE overlay): "
+                f"{completeness.get('missing_count')} missing — shipping",
+                level="warning",
+                stage="edl",
+                detail=completeness.get("missing", [])[:6],
             )
-            ctx.write_json("master/bridge_completeness.json", completeness)
-            if soft and not completeness.get("complete"):
-                ctx.log(
-                    f"bridge_completeness soft (NLE overlay): "
-                    f"{completeness.get('missing_count')} missing — shipping",
-                    level="warning",
-                    stage="edl",
-                    detail=completeness.get("missing", [])[:6],
-                )
 
     with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
         from interview_mux.transition_vo import (
@@ -410,6 +414,8 @@ def run_edl(ctx: RunContext) -> None:
             assert_required_bridge_synth_ok(ctx, synth_rows)
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
+        from interview_mux.order_hash import stamp_order_hash
+
         edl = build_flow1_edl(
             selection=selection,
             segments_by_id=by_id,
@@ -419,6 +425,7 @@ def run_edl(ctx: RunContext) -> None:
             vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
             resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
         )
+        edl = stamp_order_hash(edl)
 
     warnings = edl.get("warnings") or {}
     if warnings.get("missing_segment_lookups"):
@@ -475,15 +482,48 @@ def run_edl(ctx: RunContext) -> None:
                 f"edl: edl.json failed schema validation ({len(edl_errors)} error(s))"
             )
         ctx.write_json("master/edl.json", edl)
+
+    with logged_step("edl/assembly_ledger", ctx=ctx, stage="edl"):
+        from interview_mux.assembly_ledger import (
+            assert_ledger_no_naked_seams,
+            write_assembly_ledger,
+        )
+
+        ledger = write_assembly_ledger(ctx, edl=edl)
+        if not soft:
+            assert_ledger_no_naked_seams(ledger)
+        elif ledger.get("naked_seam_count"):
+            ctx.log(
+                f"assembly_ledger: {ledger.get('naked_seam_count')} naked seam(s) "
+                "(NLE soft — operator must repair)",
+                level="warning",
+                stage="edl",
+            )
     ctx.mark_done("edl")
 
 
 def run_mix(ctx: RunContext) -> Path:
+    """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
     from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
+    from interview_mux.order_hash import order_hashes_match
+    from interview_mux.sound_design import mix
 
     require_spend_artifacts_complete(ctx, "mix")
-    """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
-    from interview_mux.sound_design import mix
+
+    if ctx.artifact_exists("master/selection.json") and ctx.artifact_exists("master/edl.json"):
+        sel = ctx.read_json("master/selection.json")
+        edl = ctx.read_json("master/edl.json")
+        if isinstance(sel, dict) and isinstance(edl, dict) and not order_hashes_match(sel, edl):
+            raise SystemExit(
+                "mix: selection ordered_segment_ids drifted from edl — "
+                "re-run edl (and remaster) before mix"
+            )
+    if ctx.artifact_exists("master/assembly_ledger.json"):
+        from interview_mux.assembly_ledger import assert_ledger_no_naked_seams
+
+        ledger = ctx.read_json("master/assembly_ledger.json")
+        if isinstance(ledger, dict):
+            assert_ledger_no_naked_seams(ledger)
 
     check_edl_qc(ctx, stage="mix", strict=False)
     with logged_step("mix/render", ctx=ctx, stage="mix"):

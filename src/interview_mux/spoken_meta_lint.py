@@ -24,7 +24,11 @@ _CHAPTER_NUM = re.compile(
     re.IGNORECASE,
 )
 _THIS_CHAPTER = re.compile(
-    r"\b(?:this|next|previous|our|the)\s+chapter\b",
+    r"\b(?:"
+    r"(?:this|our)\s+chapter|"
+    r"in\s+(?:this|the|our)\s+chapter|"
+    r"previous\s+chapter\s+(?:we|of\s+the\s+(?:show|podcast|episode))"
+    r")\b",
     re.IGNORECASE,
 )
 _SCAFFOLD = re.compile(

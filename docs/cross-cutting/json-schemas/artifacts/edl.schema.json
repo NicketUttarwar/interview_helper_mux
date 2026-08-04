@@ -226,6 +226,9 @@
     },
     "mux_scope": {
       "type": "string"
+    },
+    "order_content_hash": {
+      "type": "string"
     }
   }
 }

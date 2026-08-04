@@ -260,7 +260,9 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
         actions = apply_cheap_remediation(ctx)
         # If under-covered, seed more beds instead of only lowering levels.
         fails = " ".join(report.get("failures") or [])
-        if "bed_coverage" in fails and "< min" in fails:
+        if ("bed_coverage" in fails and "< min" in fails) or (
+            "hinge_stinger_coverage" in fails and "< min" in fails
+        ):
             try:
                 from interview_mux.artifact_repairs import repair_sound_design_plan
 
@@ -268,7 +270,7 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
                     sdp = ctx.read_json("understanding/sound_design_plan.json")
                     fixed, notes = repair_sound_design_plan(ctx, sdp if isinstance(sdp, dict) else {})
                     ctx.write_json("understanding/sound_design_plan.json", fixed)
-                    actions.extend([str(n.get("action") or n) for n in notes[-6:]])
+                    actions.extend([str(n.get("action") or n) for n in notes[-8:]])
             except Exception as exc:
                 actions.append(f"bed_seed_repair_failed:{exc}"[:120])
         report["remediation_actions"] = actions

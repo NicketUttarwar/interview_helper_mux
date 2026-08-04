@@ -176,6 +176,9 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
 
     errors.extend(validate_cue_segment_anchors(cues, selection_ids))
     errors.extend(validate_creative_density(ctx, sdp))
+    from interview_mux.music_lane import validate_music_cue_coherence
+
+    errors.extend(validate_music_cue_coherence(cues, [a for a in assets if isinstance(a, dict)]))
     return errors
 
 

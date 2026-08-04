@@ -64,11 +64,11 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
     if underscore in {"skip", "sparse_or_skip", "sparse"}:
         out["underscore_policy"] = "normal"
     mins = min_density_cfg()
-    quiet_lo = float(mins.get("min_audible_bed_level_db", -24.0))
-    quiet_hi = float(mins.get("max_audible_bed_level_db", -20.0))
+    quiet_lo = float(mins.get("min_audible_bed_level_db", -26.0))
+    quiet_hi = float(mins.get("max_audible_bed_level_db", -22.0))
     if quiet_lo > quiet_hi:
         quiet_lo, quiet_hi = quiet_hi, quiet_lo
-    # Force beds into the configured audible band (raised vs legacy −28…−26).
+    # Force beds into the configured audible band (speech-first documentary ≈ −26…−22).
     out["bed_level_db_range"] = [quiet_lo, quiet_hi]
     duck = float(out.get("duck_under_speech_db") or 16.0)
     # Harder duck so conversation stays on top (plan: ≥18).
@@ -271,8 +271,8 @@ def audibility_level_db(*, role: str, default: float) -> float:
     mins = min_density_cfg()
     role_s = str(role or "")
     if role_s == "bed" or role_s == "theme_underscore":
-        lo = float(mins.get("min_audible_bed_level_db", -24.0))
-        hi = float(mins.get("max_audible_bed_level_db", -20.0))
+        lo = float(mins.get("min_audible_bed_level_db", -26.0))
+        hi = float(mins.get("max_audible_bed_level_db", -22.0))
         if lo > hi:
             lo, hi = hi, lo
         return max(lo, min(hi, float(default)))

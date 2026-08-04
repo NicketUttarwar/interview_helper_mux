@@ -94,9 +94,9 @@ def test_apply_creative_mix_contract_upgrades_sparse():
         {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 16}
     )
     assert out["underscore_policy"] == "normal"
-    # Creative path forces audible bed band (−24…−20 by default).
-    assert out["bed_level_db_range"][0] >= -24
-    assert out["bed_level_db_range"][1] >= -20
+    # Creative path forces audible bed band (−26…−22 by default).
+    assert out["bed_level_db_range"][0] >= -26
+    assert out["bed_level_db_range"][1] >= -22
     assert out["duck_under_speech_db"] >= 18
 
 
@@ -104,7 +104,7 @@ def test_audibility_level_db_role_aware():
     from interview_mux.creative_delivery import audibility_level_db
 
     bed = audibility_level_db(role="bed", default=-30.0)
-    assert -24.0 <= bed <= -20.0
+    assert -26.0 <= bed <= -22.0
     cold = audibility_level_db(role="theme_cold_open", default=-20.0)
     assert cold >= -12.0
     emph = audibility_level_db(role="theme_emphasis", default=-20.0)

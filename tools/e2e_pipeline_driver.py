@@ -72,8 +72,18 @@ def grant_consent() -> None:
 
 
 def stage_statuses(run_id: str) -> dict[str, str]:
-    run = api("GET", f"/api/runs/{run_id}")
-    return {s["id"]: str(s.get("status") or "pending") for s in run.get("stages", [])}
+    """Prefer filesystem .stage_done markers — full GET /api/runs can hang under load."""
+    done_dir = EXEC_ROOT / run_id / ".stage_done"
+    # Keep in sync with interview_mux.v2.config orders when possible
+    try:
+        from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+        ids = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    except Exception:
+        ids = []
+        if done_dir.is_dir():
+            ids = [p.name for p in done_dir.iterdir()]
+    return {sid: ("done" if (done_dir / sid).is_file() else "pending") for sid in ids}
 
 
 from pathlib import Path
@@ -394,9 +404,18 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "boundary_detection",
             "segment_classification",
             "content_brief_reanchor",
+            "boundary_topic_resplit",
+            "vernacular_segment_sanitize",
             "sonic_context_build",
             "sound_design_palettes",
+            "mastering_research_routing",
+            "mastering_research_waves",
+            "mastering_research_rollup",
+            "mastering_shape_agenda",
+            "mastering_shape_candidates",
+            "mastering_plan_synthesize",
             "missing_framing",
+            "mastering_plan_confirm",
             "gap_framing_compose",
             "delivery_brief_build",
             "soundscape_policy_build",

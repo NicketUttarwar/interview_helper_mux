@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -10,13 +11,15 @@ import soundfile as sf
 DEFAULT_WINDOW_SEC = 0.4
 
 
-def energy_windows_from_path(
-    wav_path: Path,
-    *,
-    window_sec: float = DEFAULT_WINDOW_SEC,
-) -> tuple[np.ndarray, np.ndarray, float] | None:
-    """Return (rms_per_window, window_center_times_ms, peak) for mono WAV."""
-    if wav_path is None or not wav_path.is_file():
+@lru_cache(maxsize=8)
+def _energy_windows_cached(
+    resolved: str,
+    mtime_ns: int,
+    window_sec: float,
+) -> tuple[tuple[float, ...], tuple[float, ...], float] | None:
+    """Cache RMS windows by absolute path + mtime so multi-chunk stages don't re-read WAVs."""
+    wav_path = Path(resolved)
+    if not wav_path.is_file():
         return None
     audio, sample_rate = sf.read(str(wav_path), always_2d=True)
     mono = audio.mean(axis=1).astype(np.float64)
@@ -30,7 +33,28 @@ def energy_windows_from_path(
     windows = mono[:usable].reshape(-1, win_size)
     rms = np.sqrt(np.mean(np.square(windows), axis=1))
     times_ms = (np.arange(len(rms)) * win_size / float(sample_rate) * 1000.0).astype(np.float64)
-    return rms, times_ms, peak
+    # Store as tuples so the cache value is hashable/immutable.
+    return tuple(float(x) for x in rms), tuple(float(x) for x in times_ms), peak
+
+
+def energy_windows_from_path(
+    wav_path: Path,
+    *,
+    window_sec: float = DEFAULT_WINDOW_SEC,
+) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Return (rms_per_window, window_center_times_ms, peak) for mono WAV."""
+    if wav_path is None or not Path(wav_path).is_file():
+        return None
+    resolved = str(Path(wav_path).resolve())
+    try:
+        mtime_ns = Path(resolved).stat().st_mtime_ns
+    except OSError:
+        return None
+    packed = _energy_windows_cached(resolved, mtime_ns, float(window_sec))
+    if packed is None:
+        return None
+    rms_t, times_t, peak = packed
+    return np.asarray(rms_t, dtype=np.float64), np.asarray(times_t, dtype=np.float64), peak
 
 
 def find_silence_valley_ms(

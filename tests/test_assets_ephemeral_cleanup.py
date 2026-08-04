@@ -69,8 +69,9 @@ def test_cleanup_clears_gui_and_keeps_durable(tmp_path: Path) -> None:
     assert not (gui / "api_consent.json").exists()
     assert not (gui / "sessions" / "abc").exists()
     assert report.removed_operator_sessions == 1
-    assert "accept_clean" in report.removed_orphan_execution_dirs
-    assert not orphan.exists()
+    # Executions/ dirs are durable — orphans are never auto-deleted.
+    assert report.removed_orphan_execution_dirs == []
+    assert orphan.exists()
     assert durable.is_dir()
     assert (durable / "run_meta.json").is_file()
     assert not (durable / ".run.lock").exists()
@@ -81,7 +82,7 @@ def test_cleanup_clears_gui_and_keeps_durable(tmp_path: Path) -> None:
     assert venv_marker.is_file()
 
 
-def test_preserve_session_keeps_pointer_still_cleans_orphans(tmp_path: Path) -> None:
+def test_preserve_session_keeps_pointer_and_execution_dirs(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     assets = Path(cfg["assets_root"])
     gui = assets / ".gui"
@@ -96,7 +97,8 @@ def test_preserve_session_keeps_pointer_still_cleans_orphans(tmp_path: Path) -> 
     assert (gui / "application_state.json").is_file()
     assert report.cleared_gui_session_files == []
     assert not (gui / "sessions" / "old").exists()
-    assert not (executions / "cv_seg").exists()
+    assert (executions / "cv_seg").is_dir()
+    assert report.removed_orphan_execution_dirs == []
 
 
 def test_cleanup_preserves_stage_reuse_lookback_outputs(
@@ -164,8 +166,8 @@ def test_cleanup_preserves_stage_reuse_lookback_outputs(
     }
     report = cleanup_ephemeral_assets(clear_gui_session=True, cfg=cfg)
 
-    assert "cv_orphan_debris" in report.removed_orphan_execution_dirs
-    assert not (executions / "cv_orphan_debris").exists()
+    assert report.removed_orphan_execution_dirs == []
+    assert (executions / "cv_orphan_debris").is_dir()
     assert reusable.run_dir.is_dir()
     assert (reusable.run_dir / "transcript" / "full.json").is_file()
     assert (reusable.run_dir / ".stage_done" / "transcribe").is_file()

@@ -31,6 +31,10 @@
         }
       }
     },
-    "notes": { "type": "string" }
+    "notes": { "type": "string" },
+    "order_content_hash": { "type": "string" },
+    "order_authority": { "type": "string" },
+    "optimizer_candidate_id": { "type": "string" },
+    "optimizer_score": {}
   }
 }

@@ -1,4 +1,4 @@
-"""Hard-require a gap line or transition for every reorder_bridges adjacency."""
+"""Hard-require pair-specific gap VO or spoken transition for every reorder adjacency."""
 
 from __future__ import annotations
 
@@ -9,6 +9,11 @@ def _bridged_pairs(
     gap_report: dict[str, Any] | None,
     transitions: dict[str, Any] | None,
 ) -> set[tuple[str, str]]:
+    """Return (after, before) pairs that have intentional spoken/transition glue.
+
+    Silence-only markers and wildcard VO targeting are intentionally excluded —
+    reorder seams need pair-bound glue.
+    """
     bridged: set[tuple[str, str]] = set()
     if isinstance(gap_report, dict):
         for ln in gap_report.get("interviewer_lines") or []:
@@ -19,13 +24,17 @@ def _bridged_pairs(
             text = str(ln.get("text") or "").strip()
             if not text and not ln.get("audio_path") and not ln.get("wav_path"):
                 continue
-            target = str(ln.get("targets_segment_id") or "")
-            if target:
-                bridged.add(("*", target))
+            delivery = str(ln.get("delivery") or "").lower()
+            if delivery and delivery not in {"record", "synthesize"}:
+                continue
             after = str(ln.get("after_segment_id") or "")
-            before = str(ln.get("before_segment_id") or target)
+            before = str(ln.get("before_segment_id") or "")
+            target = str(ln.get("targets_segment_id") or "")
+            # Pair-specific only: require explicit after→before (or after→target).
             if after and before:
                 bridged.add((after, before))
+            elif after and target:
+                bridged.add((after, target))
     if isinstance(transitions, dict):
         for tr in transitions.get("transitions") or []:
             if not isinstance(tr, dict):
@@ -33,8 +42,8 @@ def _bridged_pairs(
             a = str(tr.get("after_segment_id") or "")
             b = str(tr.get("before_segment_id") or "")
             text = str(tr.get("text") or "").strip()
-            # Silence-only transitions still count as intentional glue
-            if a and b and (text or tr.get("kind") or tr.get("silence_ms")):
+            # Spoken text required — silence_ms alone is not audible glue.
+            if a and b and text:
                 bridged.add((a, b))
     return bridged
 
@@ -57,13 +66,14 @@ def missing_reorder_bridges(
         b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
         if not a or not b:
             continue
-        if (a, b) in bridged or ("*", b) in bridged:
+        if (a, b) in bridged:
             continue
         missing.append(
             {
                 "after_segment_id": a,
                 "before_segment_id": b,
                 "kind": pair.get("kind"),
+                "source_gap_ms": pair.get("source_gap_ms"),
                 "suggested_line_category": pair.get("suggested_line_category"),
                 "suggested_pov": pair.get("suggested_pov"),
                 "max_words": pair.get("max_words"),
@@ -88,14 +98,15 @@ def assert_bridges_complete(
         "complete": not missing,
         "missing_count": len(missing),
         "missing": missing,
+        "pair_specific": True,
     }
     if missing and not soft:
         sample = ", ".join(
             f"{m['after_segment_id']}->{m['before_segment_id']}" for m in missing[:6]
         )
         raise SystemExit(
-            f"bridge_completeness: {len(missing)} reorder join(s) lack gap/transition "
-            f"glue before EDL — fix transitions or gap_report ({sample})"
+            f"bridge_completeness: {len(missing)} reorder join(s) lack pair-specific "
+            f"gap/transition glue before EDL — fix transitions or gap_report ({sample})"
         )
     return doc
 

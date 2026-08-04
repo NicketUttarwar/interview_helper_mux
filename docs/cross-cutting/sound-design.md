@@ -41,6 +41,8 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 4. **Generate** one file per `asset_id` via local MusicGen (same WAV referenced by many cues).
 5. **Mix** with ducking, pause-ride in air, semantic placement, dense host VO bridges.
 
+**Open grammar (mix):** after show-open/hook VO, play a speech-free `theme_cold_open` bridge, then the interviewer question, then the answer (soft underscore under speech). Cue roles resolve from the asset when the cue omits `role`. Music lanes (`theme_bookend` / `theme_punctuator` / `theme_bed`) are exclusive beyond a short crossfade — no stacked cold_open + emphasis + bed at the same instant. Emphasis/resolve/outro cues must bind to matching `theme_*` assets (`music_lane.py` + SDP repair).
+
 Example: interview about **founders / ESOP** → motif family with warm acoustic + piano DNA → `theme_underscore` under important beats; `theme_chapter_resolve` cadences at chapter hinges — never woodtick/murmur.
 
 ---

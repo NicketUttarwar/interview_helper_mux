@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "assembly_ledger",
+  "type": "object",
+  "required": [
+    "version",
+    "ordered_segment_ids",
+    "atoms",
+    "seams",
+    "complete"
+  ],
+  "properties": {
+    "version": { "type": "integer" },
+    "order_content_hash": { "type": "string" },
+    "ordered_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timeline_duration_ms": { "type": "integer" },
+    "chapters": { "type": "array", "items": { "type": "object" } },
+    "talking_points": { "type": "array", "items": { "type": "object" } },
+    "atoms": { "type": "array", "items": { "type": "object" } },
+    "seams": { "type": "array", "items": { "type": "object" } },
+    "naked_seam_count": { "type": "integer" },
+    "complete": { "type": "boolean" },
+    "chapter_scale_gap_ms": { "type": "integer" }
+  }
+}

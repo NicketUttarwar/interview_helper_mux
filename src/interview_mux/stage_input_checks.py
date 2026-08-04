@@ -289,12 +289,53 @@ def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
     issue = _require_artifact(
         ctx,
         "master/assembly.wav",
         remediation="Run mix and approve assembly.wav.",
     )
-    return [issue] if issue else []
+    if issue:
+        issues.append(issue)
+    if ctx.artifact_exists("master/selection.json") and ctx.artifact_exists("master/edl.json"):
+        from interview_mux.order_hash import order_hashes_match
+
+        sel = ctx.read_json("master/selection.json")
+        edl = ctx.read_json("master/edl.json")
+        if isinstance(sel, dict) and isinstance(edl, dict) and not order_hashes_match(sel, edl):
+            issues.append(
+                StageInputIssue(
+                    "selection order drifted from edl",
+                    "Re-run edl after order changes, then mix before master_finalize.",
+                )
+            )
+    if ctx.artifact_exists("master/assembly_ledger.json"):
+        ledger = ctx.read_json("master/assembly_ledger.json")
+        if isinstance(ledger, dict) and not ledger.get("complete", True):
+            n = int(ledger.get("naked_seam_count") or 0)
+            issues.append(
+                StageInputIssue(
+                    f"assembly_ledger has {n} naked seam(s)",
+                    "Rebuild edl so every reorder join has audible VO/transition glue.",
+                )
+            )
+    elif ctx.artifact_exists("master/edl.json"):
+        issues.append(
+            StageInputIssue(
+                "master/assembly_ledger.json missing",
+                "Re-run edl to emit the assembly ledger.",
+            )
+        )
+    if ctx.artifact_exists("master/bridge_completeness.json"):
+        bc = ctx.read_json("master/bridge_completeness.json")
+        if isinstance(bc, dict) and not bc.get("complete", True):
+            issues.append(
+                StageInputIssue(
+                    "bridge_completeness incomplete",
+                    "Mint pair-specific transitions for reorder joins, then re-run edl.",
+                )
+            )
+    return issues
 
 
 def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
