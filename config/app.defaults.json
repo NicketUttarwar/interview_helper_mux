@@ -984,7 +984,19 @@
       "never_exclude_primary_impact": true,
       "require_topic_survival": true,
       "require_framing_before_impact": true,
-      "words_per_second_estimate": 2.5
+      "words_per_second_estimate": 2.5,
+      "prior_native_context": {
+        "enabled": true,
+        "volley_turns_enabled": true,
+        "end_window_chars": 420,
+        "full_text_max_chars": 900,
+        "micro_max_ms": 2000,
+        "micro_max_words": 4,
+        "impact_min_words": 18,
+        "impact_min_duration_ms": 8000,
+        "rewrite_density_seeds": true,
+        "relocate_micro_targets": true
+      }
     },
     "gap_vo": {
       "default_delivery": "chatterbox",

@@ -39,6 +39,21 @@ Map `gap_type` from evaluations to category when appropriate. Prefer **segment_s
 - Set `estimated_duration_sec` roughly from word count ÷ 2.5.
 - Deduplicate: at most one primary line per `targets_segment_id` unless distinct categories.
 
+## Prior native context (required)
+
+Stage input includes `prior_native_contexts` (keyed by `targets_segment_id`) and `prior_native_context_policy`.
+
+For **every** interviewer line targeting segment `S`:
+- Read `prior_native_contexts[S]` — the **immediate prior ordered native segment** (text, end quote, impact/complete flags, chapter).
+- Condition wording on that prior beat. Optional provenance fields: `prior_segment_id`, `prior_impact_beat`.
+
+When `prior_impact_beat` is true **or** the prior close is a complete strong statement:
+- **Forbid** interruptive openers: “Let me pause you there”, “Hold on”, “Stop right there”, “Wait”, “Hang on”.
+- Prefer brief acknowledge, soft bridge, or a question that clearly follows from what was just said.
+- Do **not** aim framing questions at micro backchannels (e.g. “Okay.”) — target the next substantive answer.
+
+Density floor still applies (`vo_line_budget.min`), but **courtesy and prior context override stock interruptive fillers**.
+
 ## Inputs
 
 - `vo_line_budget` — `{min, ideal, max}` density contract
@@ -47,12 +62,14 @@ Map `gap_type` from evaluations to category when appropriate. Prefer **segment_s
 - `segments` manifest
 - `episode_structure` / narrative chapters when present — act boundaries for prefaces
 - `gap_framing_policy` word limits from stage input
+- `prior_native_contexts` / `prior_native_context_policy` / `prior_impact_highlights` — prior ordered native beats for VO conditioning
 
 Do not:
 - Write leading or sensational copy.
 - Exceed per-category word limits.
 - Put words in the interviewee's mouth.
 - Default to sparse “four lines total” when `vo_line_budget.min` is higher.
+- Interrupt a complete mic-drop prior beat with pause-you-there stock.
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/gap_report.schema.json` plus `gap_framing_plan`:
 

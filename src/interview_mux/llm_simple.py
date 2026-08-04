@@ -107,6 +107,23 @@ def run_llm_stage_simple(
         volley_messages: list[dict[str, str]] = []
         if framing and framing.used_local and framing.volley_turns:
             volley_messages = list(framing.volley_turns)
+        # Plan 1: sequential prior-native-beat turns for gap framing compose/related.
+        try:
+            from interview_mux.gap_vo_prior_context import (
+                GAP_FRAMING_PRIOR_STAGES,
+                build_prior_context_volley_turns,
+            )
+
+            if stage_key in GAP_FRAMING_PRIOR_STAGES and isinstance(base_input, dict):
+                prior_turns = build_prior_context_volley_turns(base_input)
+                if prior_turns:
+                    volley_messages = [*volley_messages, *prior_turns]
+        except Exception as exc:
+            ctx.log(
+                f"Prior-native volley turns skipped for {stage_key}: {exc}",
+                level="warning",
+                stage=stage_key,
+            )
         messages = [*volley_messages, {"role": "user", "content": user_content}]
         try:
             envelope = run_prompt_envelope(

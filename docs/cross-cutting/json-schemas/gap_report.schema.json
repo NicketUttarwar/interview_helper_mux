@@ -53,7 +53,11 @@
             "enum": ["low", "medium", "high", "critical"]
           },
           "blocking": { "type": "boolean" },
-          "skipped_optional": { "type": "boolean" }
+          "skipped_optional": { "type": "boolean" },
+          "prior_segment_id": { "type": ["string", "null"] },
+          "prior_impact_beat": { "type": "boolean" },
+          "prior_complete_thought": { "type": "boolean" },
+          "density_forced": { "type": "boolean" }
         }
       }
     }

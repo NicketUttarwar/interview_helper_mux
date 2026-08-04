@@ -1165,8 +1165,9 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
     stride = max(1, len(ordered) // max(1, floor))
     priority = list(dict.fromkeys(mono_breaks + [s for s in ordered if s in chapter_ends] + ordered))
     # Variety mix ≈ 40% framing questions / 30% reactions / 20% bridges / 10% prefaces.
+    # Stock openers are courteous defaults; prior-context rewrite may replace them.
     variety_cycle = (
-        [("framing_question", "Let me pause you there — what was the turning point in that stretch?")] * 4
+        [("framing_question", "What was the turning point in that stretch?")] * 4
         + [
             (
                 "story_bridge",
@@ -1183,6 +1184,8 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
         * 2
         + [("episode_preface", "Coming up next — here's where this chapter leads.")]
     )
+    from interview_mux.gap_vo_prior_context import apply_prior_context_to_density_seed
+
     seed_i = 0
     for i, sid in enumerate(priority):
         if len([ln for ln in lines if isinstance(ln, dict) and not ln.get("skipped_optional")]) >= floor:
@@ -1197,32 +1200,68 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
                 continue
             if oi % stride != 0:
                 continue
-        covered.add(sid)
         if sid in mono_breaks:
-            cat, text = "framing_question", "Let me pause you there — what was the turning point in that stretch?"
+            cat, text = "framing_question", "What was the turning point in that stretch?"
         elif sid in chapter_ends:
             cat, text = "episode_preface", "Coming up next — here's where this chapter leads."
         else:
             cat, text = variety_cycle[seed_i % len(variety_cycle)]
             seed_i += 1
-        lines.append(
-            {
-                "line_id": f"vo_density_{sid}",
-                "gap_type": "missing_followup",
-                "line_category": cat,
-                "text": text,
-                "targets_segment_id": sid,
-                "placement": "before",
-                "delivery": "synthesize",
-                "rationale": f"Density floor seed (min_vo_insert_ratio={ratio})",
-                "supports_segment_ids": [sid],
-                "replaces_source_segments": [],
-                "estimated_duration_sec": 5,
-                "severity": "medium",
-                "suggested_tone": "neutral",
-            }
+        final_sid, final_text, _prior, prov = apply_prior_context_to_density_seed(
+            ctx, target_segment_id=sid, category=cat, text=text
         )
-        applied.append({"action": "seed_vo_density_floor", "segment_id": sid, "category": cat})
+        if final_sid in covered and final_sid != sid:
+            # Relocated onto an already-covered substantive target — skip duplicate.
+            covered.add(sid)
+            continue
+        covered.add(sid)
+        covered.add(final_sid)
+        line = {
+            "line_id": f"vo_density_{final_sid}",
+            "gap_type": "missing_followup",
+            "line_category": cat,
+            "text": final_text,
+            "targets_segment_id": final_sid,
+            "placement": "before",
+            "delivery": "synthesize",
+            "rationale": f"Density floor seed (min_vo_insert_ratio={ratio})",
+            "supports_segment_ids": [final_sid],
+            "replaces_source_segments": [],
+            "estimated_duration_sec": 5,
+            "severity": "medium",
+            "suggested_tone": "neutral",
+            "density_forced": True,
+        }
+        if prov.get("prior_segment_id"):
+            line["prior_segment_id"] = prov.get("prior_segment_id")
+        if prov.get("prior_impact_beat") is not None:
+            line["prior_impact_beat"] = bool(prov.get("prior_impact_beat"))
+        if prov.get("prior_complete_thought") is not None:
+            line["prior_complete_thought"] = bool(prov.get("prior_complete_thought"))
+        if final_sid != sid:
+            line["rationale"] = (
+                f"Density floor seed (min_vo_insert_ratio={ratio}; "
+                f"relocated from micro {sid} → {final_sid})"
+            )
+            applied.append(
+                {
+                    "action": "seed_vo_density_floor_relocated",
+                    "from_segment_id": sid,
+                    "segment_id": final_sid,
+                    "category": cat,
+                    "prior_impact_beat": bool(line.get("prior_impact_beat")),
+                }
+            )
+        else:
+            applied.append(
+                {
+                    "action": "seed_vo_density_floor",
+                    "segment_id": final_sid,
+                    "category": cat,
+                    "prior_impact_beat": bool(line.get("prior_impact_beat")),
+                }
+            )
+        lines.append(line)
 
 def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
@@ -1277,6 +1316,48 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         ctx, out, manifest_ids=set(manifest_ids or ()), applied=applied
     )
     _enforce_min_vo_insert_ratio(ctx, out, applied=applied)
+    # Stamp prior-native provenance + rewrite leftover interruptive openers after impact.
+    try:
+        from interview_mux.gap_vo_prior_context import (
+            build_prior_native_context,
+            courtesy_seed_text,
+            is_interruptive_opener,
+            load_ordered_and_segments,
+            prior_context_cfg,
+            stamp_lines_prior_provenance,
+            write_gap_vo_context_audit,
+        )
+
+        stamped = stamp_lines_prior_provenance(ctx, list(out.get("interviewer_lines") or []))
+        ordered, by_id, chapters = load_ordered_and_segments(ctx)
+        settings = prior_context_cfg()
+        fixed_lines: list[dict[str, Any]] = []
+        for row in stamped:
+            if not isinstance(row, dict):
+                continue
+            line = dict(row)
+            if line.get("prior_impact_beat") and is_interruptive_opener(str(line.get("text") or "")):
+                cat = str(line.get("line_category") or "framing_question")
+                prior = build_prior_native_context(
+                    target_segment_id=str(line.get("targets_segment_id") or ""),
+                    ordered_ids=ordered,
+                    segments_by_id=by_id,
+                    chapters=chapters,
+                    cfg=settings,
+                )
+                line["text"] = courtesy_seed_text(prior, category=cat)
+                applied.append(
+                    {
+                        "action": "rewrite_interruptive_after_impact",
+                        "line_id": line.get("line_id"),
+                        "prior_segment_id": line.get("prior_segment_id"),
+                    }
+                )
+            fixed_lines.append(line)
+        out["interviewer_lines"] = fixed_lines
+        write_gap_vo_context_audit(ctx, fixed_lines)
+    except Exception:
+        pass
     from interview_mux.gates import g1_vo_was_skipped_optional, vo_gap_line_effectively_optional
     from interview_mux.v2.config import v2_g1_optional
 

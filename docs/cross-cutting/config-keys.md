@@ -97,6 +97,10 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.max_exclusion_ratio` | `framing_coverage_guard` | Cap on framing-driven exclusions vs manifest size (default **0.15**) |
 | `analysis.gap_framing.never_exclude_primary_impact` | `framing_coverage_guard` | Block excluding sole primary impact segment (default **true**) |
 | `analysis.gap_framing.require_topic_survival` | `framing_coverage_guard` | Block exclusions that zero out a brief topic (default **true**) |
+| `analysis.gap_framing.prior_native_context.enabled` | `gap_vo_prior_context`, compose/recompose, density seeds | Attach prior ordered native segment to VO LLM inputs (default **true**) |
+| `analysis.gap_framing.prior_native_context.volley_turns_enabled` | `llm_simple` + `gap_vo_prior_context` | Prepend sequential user/assistant prior-beat turns before gap framing compose (default **true**) |
+| `analysis.gap_framing.prior_native_context.rewrite_density_seeds` | `artifact_repairs._enforce_min_vo_insert_ratio` | Rewrite interruptive density stock using prior beat (default **true**) |
+| `analysis.gap_framing.prior_native_context.relocate_micro_targets` | `gap_vo_prior_context` | Move density VO off micro backchannels onto next substantive segment (default **true**) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |

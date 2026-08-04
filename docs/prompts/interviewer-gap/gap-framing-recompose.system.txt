@@ -6,6 +6,17 @@ Rewrite interviewer framing for the **kept** show order after ranking.
 
 Best listener outcome: honor the **VO density floor** from `vo_line_budget.min` (and aim toward `ideal`). Only drop orphans/duplicates **if replaced** with another line that preserves coverage. Prefer stronger wording, not fewer lines.
 
+## Prior native context
+
+When rewriting lines, honor the **immediate prior ordered native segment** for each target (`prior_native_contexts` / line `prior_segment_id` / `prior_impact_beat` when present).
+
+After a mic-drop or complete impactful native close:
+- Forbid interruptive openers (“Let me pause you there”, “Hold on”, “Stop right there”).
+- Prefer courteous acknowledge / soft bridge / follow-from-what-was-said.
+- Do not retarget framing questions onto micro backchannels (“Okay.”).
+
+Density floor still applies, but courtesy after impact beats is non-negotiable.
+
 ## Rules
 
 - Only support `supports_segment_ids` / `targets_segment_id` in `selection.ordered_segment_ids` (except episode_preface / cold_open).

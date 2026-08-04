@@ -134,6 +134,42 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             decisions.extend(list(sr.get("decisions") or []))
 
     candidate["interviewer_lines"] = kept_lines
+    try:
+        from interview_mux.gap_vo_prior_context import (
+            stamp_lines_prior_provenance,
+            write_gap_vo_context_audit,
+            courtesy_seed_text,
+            is_interruptive_opener,
+            build_prior_native_context,
+            load_ordered_and_segments,
+            prior_context_cfg,
+        )
+
+        stamped = stamp_lines_prior_provenance(ctx, kept_lines)
+        ordered, by_id, chapters = load_ordered_and_segments(ctx)
+        settings = prior_context_cfg()
+        cleaned: list[dict] = []
+        for row in stamped:
+            if not isinstance(row, dict):
+                continue
+            line = dict(row)
+            if line.get("prior_impact_beat") and is_interruptive_opener(str(line.get("text") or "")):
+                prior = build_prior_native_context(
+                    target_segment_id=str(line.get("targets_segment_id") or ""),
+                    ordered_ids=ordered,
+                    segments_by_id=by_id,
+                    chapters=chapters,
+                    cfg=settings,
+                )
+                line["text"] = courtesy_seed_text(
+                    prior, category=str(line.get("line_category") or "framing_question")
+                )
+            cleaned.append(line)
+        kept_lines = cleaned
+        candidate["interviewer_lines"] = kept_lines
+        write_gap_vo_context_audit(ctx, kept_lines)
+    except Exception:
+        pass
     candidate["_meta"] = {
         "producer": "gap_framing_recompose",
         "producer_stage": "gap_framing_recompose",

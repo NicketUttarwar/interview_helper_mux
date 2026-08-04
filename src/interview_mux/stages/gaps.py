@@ -146,7 +146,9 @@ def run_missing_framing(ctx: RunContext) -> None:
                 payload["narrative_mode_priors"] = nm
         except Exception:
             pass
-        return payload
+        from interview_mux.gap_vo_prior_context import attach_prior_native_contexts_to_payload
+
+        return attach_prior_native_contexts_to_payload(c, payload)
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
 
@@ -304,15 +306,25 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             pass
         if c.artifact_exists("understanding/reorder_bridges.json"):
             payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")
-        return payload
+        from interview_mux.gap_vo_prior_context import attach_prior_native_contexts_to_payload
+
+        return attach_prior_native_contexts_to_payload(c, payload)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         from interview_mux.artifact_repairs import repair_gap_report
         from interview_mux.artifact_writes import write_validated_artifact
         from interview_mux.gap_framing import persist_gap_framing_companion_artifacts
+        from interview_mux.gap_vo_prior_context import (
+            stamp_lines_prior_provenance,
+            write_gap_vo_context_audit,
+        )
 
         plan = artifacts.pop("gap_framing_plan", None)
         repaired, _ = repair_gap_report(c, artifacts)
+        lines = repaired.get("interviewer_lines")
+        if isinstance(lines, list):
+            repaired["interviewer_lines"] = stamp_lines_prior_provenance(c, lines)
+            write_gap_vo_context_audit(c, repaired["interviewer_lines"])
         persist_gap_framing_companion_artifacts(c, repaired)
         if isinstance(plan, dict):
             c.write_json("understanding/gap_framing_plan.json", plan)

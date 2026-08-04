@@ -53,6 +53,18 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "require_topic_survival": True,
         "require_framing_before_impact": True,
         "words_per_second_estimate": 2.5,
+        "prior_native_context": {
+            "enabled": True,
+            "volley_turns_enabled": True,
+            "end_window_chars": 420,
+            "full_text_max_chars": 900,
+            "micro_max_ms": 2000,
+            "micro_max_words": 4,
+            "impact_min_words": 18,
+            "impact_min_duration_ms": 8000,
+            "rewrite_density_seeds": True,
+            "relocate_micro_targets": True,
+        },
     }
     if isinstance(raw, dict):
         return {**defaults, **raw}
