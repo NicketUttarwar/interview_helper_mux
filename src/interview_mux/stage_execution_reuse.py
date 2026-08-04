@@ -143,6 +143,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "glob:master/sfx/*.wav",
     ),
     "mix": ("master/assembly.wav",),
+    "junction_snip_qa": ("master/junction_snip_qa.json", "master/junction_feel_audit.json"),
     "master_finalize": ("master/master.wav",),
     "transcript_review": (
         "transcript/corrections.json",

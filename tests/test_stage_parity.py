@@ -68,10 +68,16 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "edl": ["test_assembly.py", "test_edl_qc.py", "test_pipeline.py"],
     "assembly_preview": ["test_assembly.py", "test_sound_design_crossfade.py", "test_pipeline.py"],
     "listen_delight_audit": ["test_pipeline.py", "test_master_qc.py"],
+    "junction_snip_qa": ["test_junction_snip_qa.py", "test_pipeline.py"],
     "sfx_prompt_craft": ["test_sound_design_stages.py", "test_g1_5_prompt_review.py", "test_sfx_gates.py", "test_pipeline.py"],
     "mmaudio_sfx": ["test_sfx_mmaudio.py", "test_sfx_gates.py", "test_pipeline.py"],
     "mix": ["test_mix_engine.py", "test_mix_completeness.py", "test_sfx_gates.py", "test_pipeline.py"],
     "master_finalize": ["test_mastering.py", "test_master_qc.py", "test_pipeline.py"],
+    "episode_meta_build": ["test_podcast_rss.py", "test_pipeline.py"],
+    "episode_cover_prompt_craft": ["test_podcast_rss.py", "test_pipeline.py"],
+    "podcast_encode_mp3": ["test_podcast_rss.py", "test_pipeline.py"],
+    "episode_cover_generate": ["test_podcast_rss.py", "test_pipeline.py"],
+    "podcast_publish": ["test_podcast_rss.py", "test_pipeline.py"],
 }
 
 def test_operator_linear_stage_order() -> None:

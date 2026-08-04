@@ -61,6 +61,10 @@ flowchart TB
 
 The live mastering ids are enumerated in [llm-interaction-catalog.md](./llm-interaction-catalog.md) and enforced by `tests/test_llm_interaction_registry_complete.py`.
 
+### Realization junction layer (post-mix)
+
+Separate from Shape gates: delivery stage **`junction_snip_qa`** (after `mix`, before `master_finalize`) runs **deterministic** start/end snip + music-transition repairs on every junction, then **one** feel-audit LLM (`OH-J1`). Config: `mastering.junction_snip_qa.*`. Never per-edge OpenAI. Remaster ≤2. Artifacts: `master/junction_snip_qa.json`, `master/junction_feel_audit.json`.
+
 ---
 
 ## Why each gate exists

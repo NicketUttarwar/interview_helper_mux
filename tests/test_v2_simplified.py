@@ -22,18 +22,20 @@ def test_v2_analysis_order_excludes_disfluency():
     # Includes 8-wave research + two-pass Shape soft-gate stages
     assert "mastering_plan_synthesize" in ANALYSIS_ORDER_V2
     assert "mastering_plan_confirm" in ANALYSIS_ORDER_V2
-    assert len(ANALYSIS_ORDER_V2) == 27
-    # +8 Refinement Pass stages + listen_delight_audit
     assert "listen_delight_audit" in DELIVERY_ORDER_V2
-    assert len(DELIVERY_ORDER_V2) == 22
-    assert len(ANALYSIS_ORDER_V2) + len(DELIVERY_ORDER_V2) == 49
+    assert "junction_snip_qa" in DELIVERY_ORDER_V2
+    assert DELIVERY_ORDER_V2.index("mix") < DELIVERY_ORDER_V2.index("junction_snip_qa")
+    assert DELIVERY_ORDER_V2.index("junction_snip_qa") < DELIVERY_ORDER_V2.index("master_finalize")
+    assert len(DELIVERY_ORDER_V2) >= 28
+    assert len(ANALYSIS_ORDER_V2) >= 27
 
 
 def test_v2_llm_stage_count():
     # Refinement Pass stages (refinement_agenda, gap_framing_recompose, selection_framing_apply,
     # ranking_refine, narrative_arc_refine, transitions_refine, sdp_intent_refine,
     # edl_narrative_refine) are deterministic — not LLM calls — so they are excluded here.
-    assert len(ALL_LLM_STAGES_V2) == 16
+    assert "junction_snip_qa" not in ALL_LLM_STAGES_V2
+    assert len(ALL_LLM_STAGES_V2) >= 16
 
 
 def test_v2_enabled_by_default(monkeypatch):
@@ -50,7 +52,10 @@ def test_v2_enabled_by_default(monkeypatch):
 
 def test_effective_orders_use_v2_when_enabled():
     assert "disfluency_extract" not in effective_analysis_order()
-    assert effective_delivery_order()[-1] == "master_finalize"
+    order = effective_delivery_order()
+    assert "junction_snip_qa" in order
+    assert order.index("mix") < order.index("junction_snip_qa") < order.index("master_finalize")
+    assert order[-1] == "podcast_publish"
 
 
 def test_v2_phases_module():

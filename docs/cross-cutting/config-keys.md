@@ -832,6 +832,16 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.quality_hardening.polish.mode` | `advisory` | Closed-loop polish | `authoritative` blocks `master_finalize` on a failing audit |
 | `mastering.quality_hardening.polish.audio_grounded` | `true` | Audit scores rendered audio, not plan text | `false` reverts to the weaker text-only audit |
 | `mastering.quality_hardening.polish.max_remux_rounds` | `2` | Bounded remux budget | `0` disables repair; high values loop on marginal issues |
+| `mastering.junction_snip_qa.mode` | `advisory` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | `off` skips; repairs still fail-open and never block finalize by default |
+| `mastering.junction_snip_qa.micro_nudge_ms` | `2500` | Energy/word micro search window (scaled by pace) | Too small misses valleys; too large over-trims |
+| `mastering.junction_snip_qa.phrase_extend_max_ms` | `8000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search |
+| `mastering.junction_snip_qa.impact_hold_ms_min` / `max` | `1200` / `3500` | Music-only sit after impact native close | Scaled by pace class |
+| `mastering.junction_snip_qa.feel_audit_enabled` | `true` | One OH-J1 feel LLM after deterministic repairs | `false` skips LLM entirely |
+| `mastering.junction_snip_qa.max_remaster_rounds` | `2` | Cap remasters (deterministic + feel) | Hard ceiling 2 |
+| `mastering.junction_snip_qa.apply_repairs` | `true` | Apply NLE/EDL/placement repairs | `false` detect-only |
+| `mastering.junction_snip_qa.music_soft_crossfade_ms` | `180` | Suggested bed/theme crossfade when hard | Transition-only — never recreates stems |
+| `mastering.junction_snip_qa.dead_air_clamp_ms` | `2500` | Clamp non-impact silence pads | Does not steal `impact_hold` |
+| `mastering.junction_snip_qa.pace_multipliers` | sparse/fireside/… | Scales holds/nudges per source pace | Keeps policy dynamic across source types |
 
 ---
 

@@ -288,6 +288,18 @@ def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
+def _check_junction_snip_qa(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    for rel, remediation in (
+        ("master/edl.json", "Run edl then mix before junction_snip_qa."),
+        ("master/assembly.wav", "Run mix before junction_snip_qa."),
+    ):
+        issue = _require_artifact(ctx, rel, remediation=remediation)
+        if issue:
+            issues.append(issue)
+    return issues
+
+
 def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issue = _require_artifact(
@@ -572,6 +584,7 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "sound_design_plan": _check_sound_design_plan,
     "assembly_preview": _check_assembly_preview,
     "mix": _check_mix,
+    "junction_snip_qa": _check_junction_snip_qa,
     "master_finalize": _check_master_finalize,
     "mmaudio_sfx": _check_mmaudio_sfx,
     "edl": _check_edl,

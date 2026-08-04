@@ -60,6 +60,7 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "sfx_prompt_craft",
     "mmaudio_sfx",
     "mix",
+    "junction_snip_qa",
     "master_finalize",
     "episode_meta_build",
     "episode_cover_prompt_craft",

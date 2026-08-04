@@ -63,6 +63,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "sfx_prompt_craft": "polish",
     "mmaudio_sfx": "polish",
     "mix": "polish",
+    "junction_snip_qa": "polish",
     "mux_flow1": "polish",
     "podcast_sfx_brief": "polish",
     "master_finalize": "ship",

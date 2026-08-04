@@ -17,7 +17,8 @@ Runtime (future): prepend `_shared/analysis-preamble.system.txt` when wired into
 | `shape-l5-convergence.system.txt` | L5 seed | standard |
 | `capability-cold-open.system.txt` | Cold-open module seed | standard |
 | `flagship-synthesize.system.txt` | Authoritative mastering_plan | flagship |
-| `polish-audit.system.txt` | Audio-grounded post-mix polish + bounded remux | flagship |
+| `polish-audit.system.txt` | Audio-grounded post-mix polish + bounded remux (heritage; OH-P1 dropped) | flagship |
+| `junction-feel-audit.system.txt` | Single post-mix feel audit of junctions (`OH-J1`) — never per-edge | standard |
 
 North-star pillars must appear in every shape-related mint/edit.
 

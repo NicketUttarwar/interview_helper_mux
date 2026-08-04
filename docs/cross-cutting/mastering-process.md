@@ -129,7 +129,7 @@ SFX is an independent switch on any non-`none` option. Full catalog: [mastering-
 4. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
 5. Preview → optional post-preview pickup when plan requires
 6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift
-7. Flagship **audio-grounded** polish audit → bounded remux ([mastering-audition-loop.md](./mastering-audition-loop.md))
+7. **Junction snip QA** (`junction_snip_qa`) — deterministic start/end snip + music-transition repairs on every junction, then **one** feel-audit LLM (`OH-J1`); remaster ≤2
 8. `master_finalize` → `master/master.wav` (−16 LUFS); blocks on naked seams / incomplete `bridge_completeness`
 
 Until cutover: if `mastering_plan` is missing, fall back to today’s ranking path (fail-open).
@@ -170,10 +170,18 @@ mastering/
   voice_clone_audit.json
   prompt_edit_log.json
   mastering_plan.json
-  polish_audit.json
+  polish_audit.json   # heritage; closed-loop polish dropped in v2
 ```
 
-Schemas: `docs/cross-cutting/json-schemas/artifacts/mastering_*.schema.json`  
+Also written by delivery realization:
+
+```
+master/
+  junction_snip_qa.json
+  junction_feel_audit.json
+```
+
+Schemas: `docs/cross-cutting/json-schemas/artifacts/mastering_*.schema.json`, `junction_snip_qa.schema.json`, `junction_feel_audit.schema.json`  
 Prompts: `docs/prompts/mastering/`
 
 ---

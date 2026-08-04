@@ -151,6 +151,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
         "mmaudio_sfx": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
         "mix": lambda: assembly.run_mix(ctx),
+        "junction_snip_qa": lambda: __import__(
+            "interview_mux.junction_snip_qa", fromlist=["run_junction_snip_qa"]
+        ).run_junction_snip_qa(ctx),
         "master_finalize": lambda: mastering.run_master_finalize(ctx),
         "episode_meta_build": lambda: podcast_publish.run_episode_meta_build(ctx),
         "episode_cover_prompt_craft": lambda: podcast_publish.run_episode_cover_prompt_craft(ctx),

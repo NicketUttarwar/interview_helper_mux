@@ -94,7 +94,8 @@ def _last_token(text: str) -> str:
     return words[-1].lower() if words else ""
 
 
-def _ends_complete_thought(text: str) -> bool:
+def ends_complete_thought(text: str) -> bool:
+    """True when text ends on terminal punctuation or a non-hanging content word."""
     stripped = (text or "").strip()
     if not stripped:
         return False
@@ -104,7 +105,11 @@ def _ends_complete_thought(text: str) -> bool:
     return _last_token(stripped) not in _INCOMPLETE_TAIL_TOKENS
 
 
-def _is_micro_segment(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
+# Backward-compatible private alias
+_ends_complete_thought = ends_complete_thought
+
+
+def is_micro_segment(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
     if not isinstance(seg, dict):
         return False
     text = str(seg.get("text") or "").strip()
@@ -117,7 +122,10 @@ def _is_micro_segment(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> boo
     return False
 
 
-def _looks_like_impact_beat(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
+_is_micro_segment = is_micro_segment
+
+
+def looks_like_impact_beat(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
     if not isinstance(seg, dict):
         return False
     text = str(seg.get("text") or "").strip()
@@ -138,6 +146,9 @@ def _looks_like_impact_beat(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) 
     if _word_count(last_sentence) >= 8 and words >= int(cfg.get("impact_min_words") or 18):
         return True
     return False
+
+
+_looks_like_impact_beat = looks_like_impact_beat
 
 
 def _chapter_title_for(segment_id: str, chapters: list[dict[str, Any]] | None) -> str | None:

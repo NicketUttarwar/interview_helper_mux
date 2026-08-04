@@ -105,8 +105,9 @@ Only entrypoint: `local_volley_framer.prepare_volley_for_llm` (fail-open).
 | OH-03 | `semantic_integrity_confirm` | `mastering_semantic_integrity.merge_llm_findings` |
 | OH-C1–C6 | L4 critic panel | `mastering_critics.build_critic_packets` |
 | OH-A1 | `l4_arbiter` | `mastering_critics.merge_panel` |
+| OH-J1 | `junction_feel_audit` | `junction_snip_qa.run_junction_feel_audit` |
 
-Gate status: [mastering-quality-hardening.md](./mastering-quality-hardening.md). **Dropped in v2:** OH-01 (`research_router`) and OH-P1 (`polish_audit_audio`).
+Gate status: [mastering-quality-hardening.md](./mastering-quality-hardening.md). **Dropped in v2:** OH-01 (`research_router`) and OH-P1 (`polish_audit_audio`). Junction snip QA itself is mostly deterministic; OH-J1 is the single feel-audit LLM (never per-edge).
 
 ---
 

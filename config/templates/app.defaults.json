@@ -412,6 +412,12 @@
       "critics": { "mode": "advisory" },
       "pareto": { "mode": "advisory" },
       "polish": { "mode": "advisory", "max_remux_rounds": 2 }
+    },
+    "junction_snip_qa": {
+      "mode": "advisory",
+      "feel_audit_enabled": true,
+      "max_remaster_rounds": 2,
+      "apply_repairs": true
     }
   }
 }

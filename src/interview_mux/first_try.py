@@ -51,6 +51,7 @@ DELIVERY_PHASE_STAGES = frozenset(
         "sfx_prompt_craft",
         "mmaudio_sfx",
         "mix",
+        "junction_snip_qa",
         "master_finalize",
     }
 )

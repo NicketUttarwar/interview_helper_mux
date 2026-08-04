@@ -39,7 +39,7 @@ def test_registry_has_all_catalog_ids():
         "OM-01", "OM-F01",
         "OS-01", "OS-02", "OS-03", "OS-04",
         "LX-01", "LX-01a", "LX-01b", "LX-01c", "LX-01d",
-        "OH-02", "OH-03", "OH-A1",
+        "OH-02", "OH-03", "OH-A1", "OH-J1",
         "OH-C1", "OH-C2", "OH-C3", "OH-C4", "OH-C5", "OH-C6",
     }
     assert expected.issubset(registry_ids())

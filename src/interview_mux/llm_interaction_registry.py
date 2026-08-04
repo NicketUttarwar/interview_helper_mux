@@ -321,6 +321,14 @@ _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
         "Merge the critic panel; enforce integrity kills",
         "l4_arbiter",
     ),
+    "OH-J1": (
+        "junction_snip_qa.run_junction_feel_audit",
+        "mastering/junction-feel-audit.system.txt",
+        "junction_feel_audit.schema.json",
+        "standard",
+        "Single final feel audit of assembled master junctions",
+        "junction_feel_audit",
+    ),
 }
 
 _OA_GOALS: dict[str, str] = {
@@ -404,6 +412,9 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "llm_specialists",
             "llm_runner",
             "llm_simple",
+            "junction_snip_qa",
+            "podcast_publish",
+            "timeline_optimizer",
         ),
         "generate_local_chat": (
             "local_volley_framer",

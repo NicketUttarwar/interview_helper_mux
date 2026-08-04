@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JunctionFeelAudit",
+  "type": "object",
+  "required": ["version", "generated_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "soft_pass", "fail", "remux_suggested"]
+    },
+    "skipped": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "directives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "nudge_source_bounds",
+              "insert_impact_hold",
+              "clamp_air",
+              "adjust_music_fade",
+              "adjust_crossfade",
+              "exclude_micro",
+              "retarget_vo_anchor"
+            ]
+          },
+          "segment_id": { "type": ["string", "null"] },
+          "clip_index": { "type": ["integer", "null"] },
+          "severity": { "type": "string" },
+          "evidence": { "type": "string" },
+          "detail": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      }
+    },
+    "applied_directives": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "llm_calls": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "remaster_round": { "type": "integer", "minimum": 0 },
+    "error": { "type": ["string", "null"] },
+    "generated_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

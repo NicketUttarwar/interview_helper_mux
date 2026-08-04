@@ -63,6 +63,14 @@ def _speech_slice_end_ms(ctx: RunContext, end_ms: int, words: list[dict[str, Any
     return snap_cut_to_word_boundary(end_ms, words, margin_ms=margin, max_shift_ms=max_shift)
 
 
+def _speech_slice_start_ms(ctx: RunContext, start_ms: int, words: list[dict[str, Any]]) -> int:
+    """Snap speech slice starts to word boundaries (mirrors end snap)."""
+    if not bool(_mix_cfg().get("word_boundary_cuts", True)):
+        return start_ms
+    max_shift = int(_mix_cfg().get("word_boundary_max_shift_ms", 400))
+    return snap_cut_to_word_boundary(start_ms, words, margin_ms=0, max_shift_ms=max_shift)
+
+
 def _append_mix_clip(
     base: AudioSegment,
     clip: AudioSegment,
@@ -188,8 +196,10 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             ctype = str(clip.get("type") or "")
             t_before = len(base)
             if ctype == "speech":
-                start = int(clip.get("source_start_ms", 0))
+                start = _speech_slice_start_ms(ctx, int(clip.get("source_start_ms", 0)), words)
                 end = _speech_slice_end_ms(ctx, int(clip.get("source_end_ms", start)), words)
+                if end < start:
+                    end = start
                 audio = source[max(0, start) : max(start, end)]
                 seg_id = str(clip.get("segment_id") or "")
                 spk = speaker_id_for_segment(ctx, seg_id) if seg_id else None

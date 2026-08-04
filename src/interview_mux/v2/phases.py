@@ -101,7 +101,15 @@ PHASES: list[dict[str, Any]] = [
         "id": "build",
         "label": "Build",
         "description": "EDL narrative (+ refine), EDL, assembly preview, MMAudio SFX, mix.",
-        "stages": ["edl_narrative_audit", "edl_narrative_refine", "edl", "assembly_preview", "mmaudio_sfx", "mix"],
+        "stages": [
+            "edl_narrative_audit",
+            "edl_narrative_refine",
+            "edl",
+            "assembly_preview",
+            "mmaudio_sfx",
+            "mix",
+            "junction_snip_qa",
+        ],
         "gate": None,
     },
     {

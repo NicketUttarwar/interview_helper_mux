@@ -30,9 +30,12 @@ def remaster_sync(ctx: RunContext, *, until_mix: bool = True) -> None:
             "sfx_prompt_craft",
             "mmaudio_sfx",
             "mix",
+            "junction_snip_qa",
         }:
             continue
         if sid == "mix" and not until_mix:
+            break
+        if sid == "junction_snip_qa" and not until_mix:
             break
         marker = ctx.final_path(".stage_done", sid)
         if marker.is_file():

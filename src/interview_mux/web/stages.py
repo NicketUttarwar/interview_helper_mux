@@ -522,6 +522,15 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         ("master/assembly.wav",),
     ),
     StageInfo(
+        "junction_snip_qa",
+        "Junction snip QA",
+        "Deterministic start/end snip QA on every junction, then one feel audit; remaster when repairs apply.",
+        "delivery",
+        ("master/edl.json", "master/assembly.wav"),
+        (),
+        ("master/junction_snip_qa.json", "master/junction_feel_audit.json"),
+    ),
+    StageInfo(
         "master_finalize",
         "Master export",
         "Apply loudness mastering (−16 LUFS) and export the final podcast.",
@@ -757,6 +766,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "sfx_prompt_craft",
         "mmaudio_sfx",
         "mix",
+        "junction_snip_qa",
         "master_finalize",
         "episode_meta_build",
         "episode_cover_prompt_craft",

@@ -112,7 +112,7 @@ After delivery reaches polish with sound design enabled:
 3. GUI post-listen pass/fail; optional refine (`POST /sfx-prompts/refine`) and per-asset regenerate.
 4. When `sound_design.post_listen_gate_mode` is `block`, confirm mix is blocked after a deliberate listen fail (`Mix gate: post_listen_gate_mode=block` in log).
 5. When `mix.intelligibility_qc.enabled`, confirm `QcSummaryCard` shows `mix_intelligibility` on mix/master stages after `mix`.
-6. `mix` → `master_finalize`; listen master under speech.
+6. `mix` → `junction_snip_qa` → `master_finalize`; listen master under speech (junction QA should clear mid-thought chops / VO-micros when enabled).
 
 See [mmaudio-prompt-tuning.md](../cross-cutting/mmaudio-prompt-tuning.md).
 

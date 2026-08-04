@@ -319,10 +319,20 @@ def validate_refinement_plan(data: dict[str, Any]) -> list[str]:
     """Validate `understanding/refinement_plan.json` (L1 gate decisions)."""
     return _validate_by_artifact_schema("refinement_plan.schema.json", data)
 
+def validate_junction_snip_qa(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("junction_snip_qa.schema.json", data)
+
+
+def validate_junction_feel_audit(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("junction_feel_audit.schema.json", data)
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "master/edl.json": validate_edl,
+    "master/junction_snip_qa.json": validate_junction_snip_qa,
+    "master/junction_feel_audit.json": validate_junction_feel_audit,
     "master/edl_narrative_audit.json": validate_edl_narrative_audit,
     "master/selection.json": validate_master_selection,
     "master/coverage_audit.json": validate_coverage_audit,
