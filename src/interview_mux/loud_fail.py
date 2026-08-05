@@ -55,6 +55,16 @@ def raise_loud_failure(
         detail=payload,
         origin="pipeline",
     )
+    # Every hard stop must leave a structured, machine-actionable review.
+    # Recovery loops write richer run-indexed reviews; this best-effort record
+    # covers failures that happen before those loops can start.
+    try:
+        from interview_mux.failure_recovery import record_loud_failure
+
+        record_loud_failure(ctx, stage=stage, reason=reason, detail=payload)
+    except Exception:
+        # Never mask the original hard-stop exception.
+        pass
     # Extra stderr line even when mirror is off — irreparable failures must be visible.
     import sys
 

@@ -105,6 +105,19 @@
     "word_boundary_margin_ms": 50,
     "word_boundary_max_shift_ms": 400,
     "normalize_vo_pickup": true,
+    "vo_adjacent_level_match": {
+      "enabled": true,
+      "max_gain_db": 8,
+      "reference_window_ms": 4000
+    },
+    "junction_crossfades": {
+      "speech_to_speech": 100,
+      "speech_to_vo": 80,
+      "vo_to_speech": 100,
+      "vo_to_vo": 80,
+      "music_to_speech": 180,
+      "speech_to_music": 180
+    },
     "per_speaker_level_match": {
       "enabled": true,
       "max_gain_db": 6,
@@ -166,7 +179,7 @@
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "block_mix",
     "g_listen_enabled": true,
-    "g_listen_mode": "warn",
+    "g_listen_mode": "block",
     "max_palettes": 6,
     "max_assets": 24,
     "max_assets_flow1": 24,
@@ -209,13 +222,13 @@
     "min_trim_segments": 1,
     "min_excluded_ratio": 0.05,
     "listenability_guards": {
-      "host_vo_coverage_min_ratio": 0.20,
+      "host_vo_coverage_min_ratio": 0.12,
       "host_vo_coverage_max_ratio": 0.85,
-      "host_vo_duration_min_ratio": 0.05,
+      "host_vo_duration_min_ratio": 0.04,
       "host_vo_duration_max_ratio": 0.45,
-      "host_vo_quartile_presence_min_ratio": 0.75,
+      "host_vo_quartile_presence_min_ratio": 0.5,
       "bed_coverage_min_ratio": 0.28,
-      "bed_coverage_max_ratio": 0.40,
+      "bed_coverage_max_ratio": 0.55,
       "bed_quartile_presence_min_ratio": 0.5,
       "hinge_stinger_coverage_min_ratio": 0.5,
       "hinge_stinger_coverage_max_ratio": 1.0,
@@ -1161,7 +1174,8 @@
       "prefer_topic_splits": true,
       "boundary_merge_threshold_ms": 200,
       "micro_segment_lint_max": 400,
-      "min_bed_segment_ms_fine": 6000
+      "min_bed_segment_ms_fine": 6000,
+      "reject_coarse_fallback": true
     }
   },
   "structure": {
@@ -1206,10 +1220,11 @@
       "plateau_gens": 6,
       "min_score_delta": 0.75,
       "auto_promote_on_plateau": true,
-      "auto_promote_remaster": false,
+      "auto_promote_remaster": true,
       "beam_width": 4,
       "archive_max": 24,
-      "block_finalize_until_take_or_skip": false,
+      "block_finalize_until_take_or_skip": true,
+      "always_auto_apply_best": true,
       "use_llm_proposer": true
     },
     "quality_hardening": {
@@ -1275,9 +1290,9 @@
       }
     },
     "junction_snip_qa": {
-      "mode": "advisory",
+      "mode": "authoritative",
       "micro_nudge_ms": 2500,
-      "phrase_extend_max_ms": 8000,
+      "phrase_extend_max_ms": 24000,
       "impact_hold_ms_min": 1200,
       "impact_hold_ms_max": 3500,
       "feel_audit_enabled": true,
@@ -1292,6 +1307,47 @@
         "dense": 0.85,
         "debate": 0.8
       }
+    },
+    "seam_autopsy": {
+      "enabled": true,
+      "commitment_blocks_finalize": true,
+      "synthetic_share_guide_min": 0.2,
+      "synthetic_share_guide_max": 0.8,
+      "synthetic_duration_ratio_min": 0.4,
+      "synthetic_duration_ratio_max": 2.0,
+      "prefer_contiguous_beds": true
+    },
+    "remediation": {
+      "enabled": true,
+      "auto_execute": true,
+      "max_runs": 2,
+      "learning_log_enabled": true,
+      "use_llm_planner": true
+    },
+    "post_master_quality": {
+      "never_skip": true,
+      "block_publish": true,
+      "listener_scorecard": true,
+      "block_on_feel_unavailable": true,
+      "overall_min": 0.90,
+      "dimension_floors": {
+        "flow": 0.90,
+        "clarity": 0.90,
+        "music_completeness": 0.90,
+        "synthetic_fit": 0.85,
+        "native_respect": 0.90
+      }
+    },
+    "synthetic_framing": {
+      "respect_native_speakers": true,
+      "allow_canned_bridge_fallback": false,
+      "duration_ratio_min": 0.4,
+      "duration_ratio_max": 2.0
+    },
+    "music_continuity": {
+      "prefer_contiguous_beds": true,
+      "scene_crossfade_ms": 1800,
+      "require_true_bookend_anchors": true
     }
   },
   "_comment_v2": "Greenfield simplified master podcast app \u2014 see NORTH_STAR.md",

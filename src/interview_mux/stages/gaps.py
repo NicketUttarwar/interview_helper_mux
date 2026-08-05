@@ -435,6 +435,10 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
     normalized = 0
     mix_cfg = merged_config().get("mix") or {}
     normalize = bool(mix_cfg.get("normalize_vo_pickup", True))
+    adjacent_match = mix_cfg.get("vo_adjacent_level_match") or {}
+    skip_absolute_loudnorm = bool(
+        isinstance(adjacent_match, dict) and adjacent_match.get("enabled", False)
+    )
     with logged_step("vo_ingest/validate_pickups", ctx=ctx, stage="vo_ingest"):
         from interview_mux.stages.assembly import resolve_vo_pickup_path
 
@@ -460,27 +464,52 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
                 out = norm_dir / found.name
                 from interview_mux.operator_subprocess import run_command
 
-                run_command(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        str(found),
-                        "-af",
-                        "loudnorm=I=-18:TP=-1.5:LRA=11",
-                        "-ar",
-                        "48000",
-                        "-ac",
-                        "1",
-                        "-c:a",
-                        "pcm_s16le",
-                        str(out),
-                    ],
-                    ctx=ctx,
-                    stage="vo_ingest",
-                    label=f"ffmpeg normalize pickup {found.name}",
-                    capture_output=True,
-                )
+                if skip_absolute_loudnorm:
+                    # Adjacent-native level match in mix owns loudness — only
+                    # peak-sanitize / resample / mono-copy here.
+                    run_command(
+                        [
+                            "ffmpeg",
+                            "-y",
+                            "-i",
+                            str(found),
+                            "-af",
+                            "aresample=48000,pan=mono|c0=c0",
+                            "-ar",
+                            "48000",
+                            "-ac",
+                            "1",
+                            "-c:a",
+                            "pcm_s16le",
+                            str(out),
+                        ],
+                        ctx=ctx,
+                        stage="vo_ingest",
+                        label=f"ffmpeg peak-sanitize pickup {found.name}",
+                        capture_output=True,
+                    )
+                else:
+                    run_command(
+                        [
+                            "ffmpeg",
+                            "-y",
+                            "-i",
+                            str(found),
+                            "-af",
+                            "loudnorm=I=-18:TP=-1.5:LRA=11",
+                            "-ar",
+                            "48000",
+                            "-ac",
+                            "1",
+                            "-c:a",
+                            "pcm_s16le",
+                            str(out),
+                        ],
+                        ctx=ctx,
+                        stage="vo_ingest",
+                        label=f"ffmpeg normalize pickup {found.name}",
+                        capture_output=True,
+                    )
                 normalized += 1
     if missing:
         raise RuntimeError(

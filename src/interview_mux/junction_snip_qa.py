@@ -43,9 +43,28 @@ ALLOWED_FEEL_ACTIONS = frozenset(
         "adjust_music_fade",
         "adjust_crossfade",
         "exclude_micro",
+        "merge_micro",
         "retarget_vo_anchor",
     }
 )
+
+_EDGE_ACTION_PRIORITY = {
+    "extend_later": 100,
+    "merge_micro": 90,
+    "cut_earlier": 80,
+    "exclude_micro": 70,
+    "nudge_source_bounds": 40,
+}
+_KIND_PRIORITY = {
+    "on_a_roll": 100,
+    "chapter_bleed_incomplete": 95,
+    "incomplete_clause": 90,
+    "vo_micro": 85,
+    "mid_word_start": 50,
+    "mid_word_end": 50,
+    "leading_silence": 20,
+    "trailing_silence": 20,
+}
 
 
 def _now() -> str:
@@ -125,7 +144,9 @@ def _text_in_window(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> 
     for w in words:
         ws = int(w.get("start_ms") or 0)
         we = int(w.get("end_ms") or 0)
-        if we < start_ms or ws > end_ms:
+        # Audio slices are [start_ms, end_ms); words touching only the boundary
+        # are not audible in the clip.
+        if we <= start_ms or ws >= end_ms:
             continue
         t = str(w.get("text") or w.get("word") or "").strip()
         if t:
@@ -150,12 +171,18 @@ def _speaker_of(seg: dict[str, Any] | None) -> str:
 
 
 def _clip_end_text(seg: dict[str, Any] | None, words: list[dict[str, Any]], end_ms: int) -> str:
+    # The EDL bound may have moved beyond the original segment boundary during
+    # remediation. Always evaluate the words actually audible at the current
+    # bound; static segment text would report the same incomplete clause forever.
+    audible = _text_in_window(words, max(0, end_ms - 4000), end_ms).strip()
+    if audible:
+        toks = audible.split()
+        return " ".join(toks[-12:]) if len(toks) > 12 else audible
     if isinstance(seg, dict) and str(seg.get("text") or "").strip():
         text = str(seg.get("text") or "").strip()
-        # Prefer last ~12 words of segment text for clause checks
         toks = text.split()
         return " ".join(toks[-12:]) if len(toks) > 12 else text
-    return _text_in_window(words, max(0, end_ms - 4000), end_ms)
+    return ""
 
 
 def _on_a_roll(
@@ -303,6 +330,92 @@ def _leading_trailing_silence(
     return new_start, new_end
 
 
+def _phrase_action_for_incomplete(
+    *,
+    can_extend: bool,
+    can_cut: bool,
+    can_merge: bool,
+    is_micro: bool,
+) -> str:
+    """Ladder: extend → merge → cut → exclude(micros) / residual critical."""
+    if can_extend:
+        return "extend_later"
+    if can_merge:
+        return "merge_micro"
+    if can_cut:
+        return "cut_earlier"
+    if is_micro:
+        return "exclude_micro"
+    return "cut_earlier"  # keep critical path; apply will skip without recommendation
+
+
+def _merge_candidate_for_clip(
+    *,
+    clips: list[dict[str, Any]],
+    index: int,
+    sid: str,
+    src_start: int,
+    src_end: int,
+    speaker: str | None,
+    chapter: str | None,
+    selection: dict[str, Any],
+    segs: dict[str, Any],
+    gap_max_ms: int = 450,
+) -> dict[str, Any] | None:
+    """Same-speaker adjacent speech within gap — prefer absorbing the micro."""
+    if not speaker:
+        return None
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for j in (index - 1, index + 1):
+        if j < 0 or j >= len(clips):
+            continue
+        other = clips[j]
+        if str(other.get("type") or "") != "speech":
+            continue
+        oid = str(other.get("segment_id") or "")
+        if not oid or oid == sid:
+            continue
+        oseg = segs.get(oid) or {}
+        if _speaker_of(oseg if isinstance(oseg, dict) else None) != speaker:
+            continue
+        och = _chapter_id_for(oid, selection)
+        if chapter and och and chapter != och:
+            continue
+        oss = int(other.get("source_start_ms") or 0)
+        ose = int(other.get("source_end_ms") or oss)
+        gap = min(abs(oss - src_end), abs(src_start - ose), abs(oss - src_start), abs(ose - src_end))
+        # Prefer chronological neighbors with small source gap.
+        if j == index + 1:
+            gap = max(0, oss - src_end)
+        elif j == index - 1:
+            gap = max(0, src_start - ose)
+        if gap > gap_max_ms:
+            continue
+        candidates.append((gap, other))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    other = candidates[0][1]
+    oid = str(other.get("segment_id") or "")
+    oss = int(other.get("source_start_ms") or 0)
+    ose = int(other.get("source_end_ms") or oss)
+    cur_dur = max(0, src_end - src_start)
+    oth_dur = max(0, ose - oss)
+    if cur_dur <= oth_dur:
+        drop_id, survivor_id = sid, oid
+        new_start, new_end = min(src_start, oss), max(src_end, ose)
+    else:
+        drop_id, survivor_id = oid, sid
+        new_start, new_end = min(src_start, oss), max(src_end, ose)
+    return {
+        "drop_segment_id": drop_id,
+        "survivor_segment_id": survivor_id,
+        "new_start_ms": new_start,
+        "new_end_ms": new_end,
+        "gap_ms": candidates[0][0],
+    }
+
+
 def detect_junction_findings(
     ctx: RunContext,
     edl: dict[str, Any],
@@ -318,6 +431,7 @@ def detect_junction_findings(
     hold_min = int(int(conf["impact_hold_ms_min"]) * mult)
     hold_max = int(int(conf["impact_hold_ms_max"]) * mult)
     dead_air_clamp = int(int(conf["dead_air_clamp_ms"]) * mult)
+    hyst_ms = max(40, int(0.15 * micro_nudge))
 
     segs = _segments_by_id(ctx)
     words = _transcript_words(ctx)
@@ -332,9 +446,26 @@ def detect_junction_findings(
     mix_cfg = merged_config().get("mix") or {}
     margin = int(mix_cfg.get("word_boundary_margin_ms", 50))
     max_shift = int(mix_cfg.get("word_boundary_max_shift_ms", 400))
+    nle = load_nle(ctx)
+    nudge_history = (
+        nle.get("junction_nudge_history")
+        if isinstance(nle.get("junction_nudge_history"), dict)
+        else {}
+    )
 
     clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
     findings: list[dict[str, Any]] = []
+    # One winner per (segment_id, edge) — incomplete/extend/cut > mid_word > silence.
+    edge_winners: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def _edge_key(segment_id: str | None, action: str, detail: dict[str, Any]) -> tuple[str, str] | None:
+        if not segment_id:
+            return None
+        if action in {"extend_later", "cut_earlier", "merge_micro", "exclude_micro"}:
+            return (segment_id, "end")
+        if action == "nudge_source_bounds":
+            return (segment_id, str(detail.get("edge") or "end"))
+        return None
 
     def add(
         kind: str,
@@ -346,17 +477,35 @@ def detect_junction_findings(
         detail: dict[str, Any] | None = None,
         evidence: str = "",
     ) -> None:
-        findings.append(
-            {
-                "kind": kind,
-                "severity": severity,
-                "segment_id": segment_id,
-                "clip_index": clip_index,
-                "action": action,
-                "detail": detail or {},
-                "evidence": evidence,
-            }
-        )
+        detail = dict(detail or {})
+        # Hysteresis: suppress re-fire unless delta large or valley moved.
+        if action == "nudge_source_bounds" and segment_id:
+            edge = str(detail.get("edge") or "end")
+            hist = nudge_history.get(f"{segment_id}:{edge}")
+            if isinstance(hist, dict) and detail.get("recommended_ms") is not None:
+                prev = hist.get("applied_ms")
+                if prev is not None and abs(int(detail["recommended_ms"]) - int(prev)) < hyst_ms:
+                    return
+        row = {
+            "kind": kind,
+            "severity": severity,
+            "segment_id": segment_id,
+            "clip_index": clip_index,
+            "action": action,
+            "detail": detail,
+            "evidence": evidence,
+        }
+        key = _edge_key(segment_id, action, detail)
+        if key is None:
+            findings.append(row)
+            return
+        score = _EDGE_ACTION_PRIORITY.get(action, 0) + _KIND_PRIORITY.get(kind, 0)
+        if severity == "critical":
+            score += 25
+        prev = edge_winners.get(key)
+        if prev is None or score > int(prev.get("_score") or 0):
+            row["_score"] = score
+            edge_winners[key] = row
 
     for i, clip in enumerate(clips):
         ctype = str(clip.get("type") or "")
@@ -404,14 +553,21 @@ def detect_junction_findings(
                     evidence=f"leading silence valley → {lead}",
                 )
             if trail is not None and trail < src_end - 40:
-                add(
-                    "trailing_silence",
-                    segment_id=sid,
-                    clip_index=i,
-                    action="nudge_source_bounds",
-                    detail={"edge": "end", "recommended_ms": trail},
-                    evidence=f"trailing silence valley → {trail}",
+                # Trailing silence must not create incomplete ends.
+                tentative_end_text = _clip_end_text(
+                    seg if isinstance(seg, dict) else None, words, trail
                 )
+                if tentative_end_text and not ends_complete_thought(tentative_end_text):
+                    pass
+                else:
+                    add(
+                        "trailing_silence",
+                        segment_id=sid,
+                        clip_index=i,
+                        action="nudge_source_bounds",
+                        detail={"edge": "end", "recommended_ms": trail},
+                        evidence=f"trailing silence valley → {trail}",
+                    )
 
             end_text = _clip_end_text(seg if isinstance(seg, dict) else None, words, src_end)
             incomplete = bool(end_text) and not ends_complete_thought(end_text)
@@ -429,37 +585,90 @@ def detect_junction_findings(
                     break
             next_ch = _chapter_id_for(next_sid, selection) if next_sid else None
             chapter_bleed = bool(incomplete and ch and next_ch and ch != next_ch)
+            speaker = _speaker_of(seg if isinstance(seg, dict) else None)
+            is_micro = bool(
+                is_micro_segment(seg if isinstance(seg, dict) else None, cfg=prior_cfg)
+                or _BACKCHANNEL_RE.match(str((seg or {}).get("text") or "").strip())
+            )
+            merge = None
+            if incomplete and not chapter_bleed:
+                merge = _merge_candidate_for_clip(
+                    clips=clips,
+                    index=i,
+                    sid=sid,
+                    src_start=src_start,
+                    src_end=src_end,
+                    speaker=speaker,
+                    chapter=ch,
+                    selection=selection,
+                    segs=segs,
+                )
 
             if on_roll and not chapter_bleed:
                 extended = _find_phrase_end_ms(
                     words,
                     src_end,
                     max_extend_ms=phrase_max,
-                    speaker=_speaker_of(seg if isinstance(seg, dict) else None),
+                    speaker=speaker,
                 )
+                earlier = (
+                    None
+                    if extended is not None
+                    else _find_last_complete_phrase_end(
+                        words, src_end, max_lookback_ms=min(phrase_max, 8000)
+                    )
+                )
+                can_cut = bool(
+                    earlier is not None
+                    and earlier > src_start + 300
+                    and earlier < src_end - 80
+                )
+                action = _phrase_action_for_incomplete(
+                    can_extend=extended is not None,
+                    can_cut=can_cut,
+                    can_merge=merge is not None,
+                    is_micro=is_micro,
+                )
+                recommended = extended if extended is not None else earlier
+                detail: dict[str, Any] = {
+                    "recommended_ms": recommended,
+                    "end_text": end_text[-80:],
+                    "unrecoverable_within_clip": (
+                        extended is None and not can_cut and merge is None and not is_micro
+                    ),
+                }
+                if action == "merge_micro" and merge:
+                    detail.update(merge)
                 add(
                     "on_a_roll",
                     severity="critical",
                     segment_id=sid,
                     clip_index=i,
-                    action="extend_later",
-                    detail={
-                        "recommended_ms": extended,
-                        "end_text": end_text[-80:],
-                    },
+                    action=action,
+                    detail=detail,
                     evidence=f"incomplete end {end_text[-40:]!r}; same-speaker continuum",
                 )
             elif incomplete and chapter_bleed:
                 earlier = _find_last_complete_phrase_end(
                     words, src_end, max_lookback_ms=phrase_max
                 )
+                can_cut = bool(
+                    earlier is not None
+                    and earlier > src_start + 300
+                    and earlier < src_end - 80
+                )
+                action = "cut_earlier" if can_cut else ("exclude_micro" if is_micro else "cut_earlier")
                 add(
                     "chapter_bleed_incomplete",
                     severity="critical",
                     segment_id=sid,
                     clip_index=i,
-                    action="cut_earlier",
-                    detail={"recommended_ms": earlier, "end_text": end_text[-80:]},
+                    action=action,
+                    detail={
+                        "recommended_ms": earlier,
+                        "end_text": end_text[-80:],
+                        "unrecoverable_within_clip": not can_cut and not is_micro,
+                    },
                     evidence=f"incomplete at chapter hinge: {end_text[-40:]!r}",
                 )
             elif incomplete:
@@ -467,31 +676,41 @@ def detect_junction_findings(
                     words,
                     src_end,
                     max_extend_ms=phrase_max,
-                    speaker=_speaker_of(seg if isinstance(seg, dict) else None),
+                    speaker=speaker,
                 )
                 earlier = _find_last_complete_phrase_end(
                     words, src_end, max_lookback_ms=min(phrase_max, 5000)
                 )
-                if extended:
-                    add(
-                        "incomplete_clause",
-                        severity="critical",
-                        segment_id=sid,
-                        clip_index=i,
-                        action="extend_later",
-                        detail={"recommended_ms": extended, "end_text": end_text[-80:]},
-                        evidence=f"incomplete clause: {end_text[-40:]!r}",
-                    )
-                elif earlier and earlier < src_end - 80:
-                    add(
-                        "incomplete_clause",
-                        severity="critical",
-                        segment_id=sid,
-                        clip_index=i,
-                        action="cut_earlier",
-                        detail={"recommended_ms": earlier, "end_text": end_text[-80:]},
-                        evidence=f"incomplete clause cut earlier: {end_text[-40:]!r}",
-                    )
+                can_cut = bool(
+                    earlier is not None
+                    and earlier > src_start + 300
+                    and earlier < src_end - 80
+                )
+                action = _phrase_action_for_incomplete(
+                    can_extend=extended is not None,
+                    can_cut=can_cut,
+                    can_merge=merge is not None,
+                    is_micro=is_micro,
+                )
+                recommended = extended if extended is not None else earlier
+                detail = {
+                    "recommended_ms": recommended,
+                    "end_text": end_text[-80:],
+                    "unrecoverable_within_clip": (
+                        extended is None and not can_cut and merge is None and not is_micro
+                    ),
+                }
+                if action == "merge_micro" and merge:
+                    detail.update(merge)
+                add(
+                    "incomplete_clause",
+                    severity="critical",
+                    segment_id=sid,
+                    clip_index=i,
+                    action=action,
+                    detail=detail,
+                    evidence=f"incomplete clause: {end_text[-40:]!r}",
+                )
 
             # Impact hold: impactful speech followed soon by VO without hold
             if looks_like_impact_beat(seg if isinstance(seg, dict) else None, cfg=prior_cfg):
@@ -520,9 +739,7 @@ def detect_junction_findings(
                     )
 
             # VO → micro
-            if is_micro_segment(seg if isinstance(seg, dict) else None, cfg=prior_cfg) or (
-                _BACKCHANNEL_RE.match(str((seg or {}).get("text") or "").strip())
-            ):
+            if is_micro:
                 prev_vo = False
                 for j in range(i - 1, max(-1, i - 5), -1):
                     pt = str(clips[j].get("type") or "")
@@ -554,6 +771,10 @@ def detect_junction_findings(
                     evidence=f"silence {air or 'pad'} {dur}ms > clamp {dead_air_clamp}",
                 )
 
+    for row in edge_winners.values():
+        row.pop("_score", None)
+        findings.append(row)
+
     # Music transition faults from SDP cues (hard cuts / missing soft fades)
     findings.extend(_detect_music_transition_findings(ctx, conf))
 
@@ -570,6 +791,8 @@ def _detect_music_transition_findings(
     if not isinstance(plan, dict):
         return out
     soft_xf = int(conf.get("music_soft_crossfade_ms") or 180)
+    music_cfg = (merged_config().get("mastering") or {}).get("music_continuity") or {}
+    require_bookends = bool(music_cfg.get("require_true_bookend_anchors", True))
     cues: list[dict[str, Any]] = []
     flow = (plan.get("flow_plans") or {}).get("podcast") or {}
     if isinstance(flow, dict):
@@ -578,22 +801,34 @@ def _detect_music_transition_findings(
             cues = [c for c in raw if isinstance(c, dict)]
     if not cues and isinstance(plan.get("cues"), list):
         cues = [c for c in plan["cues"] if isinstance(c, dict)]
+    from interview_mux.placement_qa import apply_placement_adjustments
+
+    cues = apply_placement_adjustments(ctx, cues)
+    # Contiguous under_segment_span beds already carry scene XF — skip spam.
     for cue in cues:
         aid = str(cue.get("asset_id") or "")
         if not aid:
             continue
         placement = str(cue.get("placement") or "")
-        xf = cue.get("crossfade_ms")
+        if placement == "under_segment_span":
+            continue
+        xf_raw = cue.get("crossfade_ms")
         role = str(cue.get("role") or "")
+        effective_xf = int(xf_raw) if xf_raw is not None else 0
         # Abrupt beds / bookends into speech
         if placement in {"under_segment", "after_segment", "before_segment"} or role.startswith(
             "theme_"
         ):
-            if xf is None or int(xf) < 80:
+            if effective_xf < soft_xf:
+                severity = "warn"
+                if require_bookends and (
+                    "cold_open" in role or "outro" in role or placement in {"before_segment", "after_segment"}
+                ):
+                    severity = "critical" if effective_xf <= 0 else "warn"
                 out.append(
                     {
                         "kind": "music_hard_transition",
-                        "severity": "warn",
+                        "severity": severity,
                         "segment_id": cue.get("segment_id"),
                         "clip_index": None,
                         "action": "adjust_music_fade",
@@ -601,8 +836,12 @@ def _detect_music_transition_findings(
                             "asset_id": aid,
                             "suggested_crossfade_ms": soft_xf,
                             "placement": placement,
+                            "effective_crossfade_ms": effective_xf,
                         },
-                        "evidence": f"music cue {aid} missing/soft crossfade ({xf})",
+                        "evidence": (
+                            f"music cue {aid} missing/soft crossfade "
+                            f"(effective={effective_xf}, need>={soft_xf})"
+                        ),
                     }
                 )
     return out
@@ -644,9 +883,15 @@ def apply_junction_repairs(
     clips = [dict(c) for c in (edl.get("clips") or []) if isinstance(c, dict)]
     nle = load_nle(ctx)
     overrides = dict(nle.get("segment_overrides") or {})
+    nudge_history = dict(
+        nle.get("junction_nudge_history")
+        if isinstance(nle.get("junction_nudge_history"), dict)
+        else {}
+    )
     applied: list[dict[str, Any]] = []
     music_adjs: list[dict[str, Any]] = []
     excluded: set[str] = set()
+    exclude_reasons: dict[str, str] = {}
     changed = False
 
     # Process excludes first
@@ -656,11 +901,14 @@ def apply_junction_repairs(
         sid = str(f.get("segment_id") or "")
         if not sid or sid in excluded:
             continue
+        kind = str(f.get("kind") or "exclude_micro")
+        reason = f"junction_snip_qa:{kind}"
         ov = dict(overrides.get(sid) or {})
         ov["excluded"] = True
-        ov["exclude_reason"] = "junction_snip_qa:vo_micro"
+        ov["exclude_reason"] = reason
         overrides[sid] = ov
         excluded.add(sid)
+        exclude_reasons[sid] = reason
         # Remove speech clip from EDL
         clips = [
             c
@@ -670,6 +918,47 @@ def apply_junction_repairs(
             )
         ]
         applied.append({**f, "status": "applied"})
+        changed = True
+
+    # Same-speaker micro merge (absorb drop into survivor bounds)
+    for f in findings:
+        if f.get("action") != "merge_micro":
+            continue
+        detail = f.get("detail") if isinstance(f.get("detail"), dict) else {}
+        drop_id = str(detail.get("drop_segment_id") or "")
+        survivor_id = str(detail.get("survivor_segment_id") or "")
+        if not drop_id or not survivor_id or drop_id in excluded:
+            continue
+        new_start = detail.get("new_start_ms")
+        new_end = detail.get("new_end_ms")
+        if new_start is None or new_end is None:
+            applied.append({**f, "status": "skipped_no_recommendation"})
+            continue
+        for c in clips:
+            if str(c.get("type") or "") != "speech" or str(c.get("segment_id") or "") != survivor_id:
+                continue
+            c["source_start_ms"] = int(new_start)
+            c["source_end_ms"] = int(new_end)
+            ov = dict(overrides.get(survivor_id) or {})
+            ov["start_ms"] = int(new_start)
+            ov["end_ms"] = int(new_end)
+            overrides[survivor_id] = ov
+            break
+        reason = f"junction_snip_qa:{f.get('kind') or 'merge_micro'}"
+        ov_drop = dict(overrides.get(drop_id) or {})
+        ov_drop["excluded"] = True
+        ov_drop["exclude_reason"] = reason
+        overrides[drop_id] = ov_drop
+        excluded.add(drop_id)
+        exclude_reasons[drop_id] = reason
+        clips = [
+            c
+            for c in clips
+            if not (
+                str(c.get("type") or "") == "speech" and str(c.get("segment_id") or "") == drop_id
+            )
+        ]
+        applied.append({**f, "status": "applied", "survivor_segment_id": survivor_id})
         changed = True
 
     # Bound nudges / extend / cut
@@ -725,7 +1014,18 @@ def apply_junction_repairs(
                     ov["start_ms"] = ss
                 ov["end_ms"] = new_se
                 overrides[sid] = ov
-            applied.append({**f, "status": "applied", "applied_ms": rec})
+            # Commit the *actual* written bound, not the uncapped recommendation.
+            written = (
+                int(c.get("source_start_ms") or 0)
+                if edge == "start"
+                else int(c.get("source_end_ms") or 0)
+            )
+            nudge_history[f"{sid}:{edge}"] = {
+                "applied_ms": written,
+                "kind": f.get("kind"),
+                "updated_at": _now(),
+            }
+            applied.append({**f, "status": "applied", "applied_ms": written, "edge": edge})
             changed = True
             break
 
@@ -821,9 +1121,12 @@ def apply_junction_repairs(
     if music_adjs:
         _merge_placement_adjustments(ctx, music_adjs)
 
-    if overrides != (nle.get("segment_overrides") or {}):
+    if overrides != (nle.get("segment_overrides") or {}) or nudge_history != (
+        nle.get("junction_nudge_history") or {}
+    ):
         nle = dict(nle)
         nle["segment_overrides"] = overrides
+        nle["junction_nudge_history"] = nudge_history
         # Mark junction provenance without forcing structural cascade
         nle["junction_snip_qa"] = {"updated_at": _now(), "override_count": len(overrides)}
         save_nle(ctx, nle)
@@ -845,16 +1148,29 @@ def apply_junction_repairs(
         from interview_mux.order_hash import stamp_order_hash
 
         new_edl = stamp_order_hash(new_edl)
-        _exclude_from_selection(ctx, excluded)
+        _exclude_from_selection(ctx, excluded, reasons=exclude_reasons)
         changed = True
 
     if changed:
-        ctx.write_json("master/edl.json", new_edl)
+        from interview_mux.write_staging import write_committed_json
+
+        # Persist bound repairs immediately — StageInfo does not claim edl/selection,
+        # so a normal flush would delete them and leave commitment diverged.
+        write_committed_json(ctx, "master/edl.json", new_edl, stage_key=STAGE_ID)
+        if excluded and ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                write_committed_json(ctx, "master/selection.json", sel, stage_key=STAGE_ID)
 
     return new_edl, applied, changed
 
 
-def _exclude_from_selection(ctx: RunContext, excluded: set[str]) -> None:
+def _exclude_from_selection(
+    ctx: RunContext,
+    excluded: set[str],
+    *,
+    reasons: dict[str, str] | None = None,
+) -> None:
     if not excluded or not ctx.artifact_exists("master/selection.json"):
         return
     sel = ctx.read_json("master/selection.json")
@@ -873,13 +1189,15 @@ def _exclude_from_selection(ctx: RunContext, excluded: set[str]) -> None:
     for sid in excluded:
         if sid in existing:
             continue
-        excl_list.append({"segment_id": sid, "reason": "junction_snip_qa:vo_micro"})
+        reason = (reasons or {}).get(sid) or "junction_snip_qa:exclude_micro"
+        excl_list.append({"segment_id": sid, "reason": reason})
     sel["excluded_segment_ids"] = excl_list
     ctx.write_json("master/selection.json", stamp_order_hash(sel))
 
 
 def _merge_placement_adjustments(ctx: RunContext, rows: list[dict[str, Any]]) -> None:
     from interview_mux.placement_qa import OUTPUT_PATH, load_placement_adjustments
+    from interview_mux.write_staging import write_committed_json
 
     doc = load_placement_adjustments(ctx)
     existing = [r for r in (doc.get("adjustments") or []) if isinstance(r, dict)]
@@ -890,14 +1208,71 @@ def _merge_placement_adjustments(ctx: RunContext, rows: list[dict[str, Any]]) ->
             continue
         prev = by_asset.get(aid, {})
         by_asset[aid] = {**prev, **row}
+        # Keep SDP podcast cues sticky so remasters see soft fades without
+        # re-depending solely on placement_adjustments flush timing.
+        xf = row.get("suggested_crossfade_ms")
+        if xf is not None:
+            _patch_sdp_cue_crossfade(ctx, aid, int(xf))
     out = {"version": int(doc.get("version") or 1), "adjustments": list(by_asset.values())}
-    ctx.write_json(OUTPUT_PATH, out)
+    write_committed_json(ctx, OUTPUT_PATH, out, stage_key=STAGE_ID)
+
+
+def _patch_sdp_cue_crossfade(ctx: RunContext, asset_id: str, crossfade_ms: int) -> None:
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return
+    plan = ctx.read_json("understanding/sound_design_plan.json")
+    if not isinstance(plan, dict):
+        return
+    changed = False
+
+    def _patch_list(cues: list[Any]) -> list[Any]:
+        nonlocal changed
+        out: list[Any] = []
+        for cue in cues:
+            if not isinstance(cue, dict):
+                out.append(cue)
+                continue
+            if str(cue.get("asset_id") or "") != asset_id:
+                out.append(cue)
+                continue
+            prev = int(cue.get("crossfade_ms") or 0)
+            if prev >= crossfade_ms:
+                out.append(cue)
+                continue
+            patched = dict(cue)
+            patched["crossfade_ms"] = crossfade_ms
+            out.append(patched)
+            changed = True
+        return out
+
+    flow_plans = plan.get("flow_plans") if isinstance(plan.get("flow_plans"), dict) else {}
+    podcast = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else None
+    if podcast and isinstance(podcast.get("cues"), list):
+        podcast = dict(podcast)
+        podcast["cues"] = _patch_list(list(podcast["cues"]))
+        flow_plans = dict(flow_plans)
+        flow_plans["podcast"] = podcast
+        plan = dict(plan)
+        plan["flow_plans"] = flow_plans
+    if isinstance(plan.get("cues"), list):
+        plan = dict(plan)
+        plan["cues"] = _patch_list(list(plan["cues"]))
+    if changed:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(
+            ctx,
+            "understanding/sound_design_plan.json",
+            plan,
+            stage_key=STAGE_ID,
+        )
 
 
 def remaster_mix_only(ctx: RunContext) -> None:
     """Rebuild mix from current EDL (and placement adjustments) without wiping EDL."""
     from interview_mux.assembly_ledger import write_assembly_ledger
     from interview_mux.stages import assembly
+    from interview_mux.write_staging import promote_staged_side_effects
 
     marker = ctx.final_path(".stage_done", "mix")
     if marker.is_file():
@@ -905,11 +1280,60 @@ def remaster_mix_only(ctx: RunContext) -> None:
             marker.unlink()
         except OSError:
             pass
-    try:
-        write_assembly_ledger(ctx)
-    except Exception as exc:
-        ctx.log(f"junction_snip_qa: ledger refresh skipped: {exc}", level="warning", stage=STAGE_ID)
+    ledger = write_assembly_ledger(ctx)
+    if not ledger.get("complete", True):
+        # Structural excludes can create new speech adjacencies. A mix-only
+        # rebuild would bypass seam_glue and ship a naked reorder seam.
+        assembly.run_edl(ctx)
+        ledger = write_assembly_ledger(ctx)
+        if not ledger.get("complete", True):
+            raise RuntimeError(
+                f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
+            )
     assembly.run_mix(ctx)
+    from interview_mux.seam_autopsy import write_render_ledger
+
+    write_render_ledger(ctx)
+    # EDL/assembly are owned by edl/mix for invalidation — promote as side effects
+    # so junction flush does not delete the remastered render.
+    promote_staged_side_effects(
+        ctx,
+        (
+            "master/edl.json",
+            "master/selection.json",
+            "master/assembly.wav",
+            "master/assembly_ledger.json",
+            "master/render_ledger.json",
+            "master/bridge_completeness.json",
+            "sound_design/placement_adjustments.json",
+            "understanding/sound_design_plan.json",
+        ),
+        stage_id=STAGE_ID,
+    )
+
+
+def _set_g_listen_pending_after_remaster(ctx: RunContext) -> None:
+    """Refresh listen critic and set g_listen_pending when recommended."""
+    try:
+        if not ctx.artifact_exists("master/listen_critic.json"):
+            return
+        critic = ctx.read_json("master/listen_critic.json")
+        if isinstance(critic, dict) and critic.get("g_listen_recommended"):
+
+            def _glisten(m: dict) -> None:
+                m["g_listen_pending"] = True
+                m.pop("g_listen_cleared", None)
+                m.pop("g_listen_skipped", None)
+                if critic.get("quality_score") is not None:
+                    m["g_listen_quality_score"] = critic.get("quality_score")
+
+            ctx.mutate_run_meta(_glisten)
+    except Exception as exc:
+        ctx.log(
+            f"junction remaster: could not refresh g_listen pending ({exc})",
+            level="warning",
+            stage=STAGE_ID,
+        )
 
 
 def build_feel_audit_context(
@@ -961,7 +1385,7 @@ def build_feel_audit_context(
         "deterministic_residuals": residuals,
         "timeline_duration_ms": edl.get("timeline_duration_ms") if isinstance(edl, dict) else None,
         "allowed_actions": sorted(ALLOWED_FEEL_ACTIONS),
-        "llm_budget": "single_call_only",
+        "llm_budget": "at_most_two_calls_primary_plus_retry",
     }
 
 
@@ -971,7 +1395,7 @@ def run_junction_feel_audit(
     *,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One LLM call judging final master feel. Fail-open on errors."""
+    """One LLM call judging final master feel. Retry once on schema/unavailable."""
     conf = cfg or junction_snip_cfg()
     if not bool(conf.get("feel_audit_enabled", True)):
         audit = {
@@ -989,42 +1413,34 @@ def run_junction_feel_audit(
     packet = build_feel_audit_context(ctx, snip_report)
     directives: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    verdict = "pass"
+    verdict = "unavailable"
     llm_calls = 0
     error: str | None = None
-    try:
-        from interview_mux.stages.llm_runner import run_prompt_envelope
+    allowed = {"pass", "soft_pass", "fail", "remux_suggested", "unavailable"}
 
-        user_content = json.dumps(packet, indent=2, ensure_ascii=False)
-        envelope = run_prompt_envelope(
-            FEEL_STAGE_KEY,
-            FEEL_PROMPT,
-            user_content,
-            ctx=ctx,
-            explicit_tier="standard",
-            record_stage_key=STAGE_ID,
-        )
-        llm_calls = 1
+    def _parse_feel_payload(envelope: Any) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], str | None]:
+        local_directives: list[dict[str, Any]] = []
+        local_findings: list[dict[str, Any]] = []
+        local_error: str | None = None
+        local_verdict = "unavailable"
         raw = envelope.get("parsed") if isinstance(envelope, dict) else None
         if not isinstance(raw, dict):
-            # Some envelopes nest under artifacts / content
             raw = envelope.get("artifacts") if isinstance(envelope, dict) else None
             if isinstance(raw, dict) and "junction_feel_audit" in raw:
                 raw = raw["junction_feel_audit"]
             elif isinstance(envelope, dict) and "verdict" in envelope:
                 raw = envelope
         if isinstance(raw, dict):
-            verdict = str(raw.get("verdict") or "pass")
+            local_verdict = str(raw.get("verdict") or "unavailable")
             for d in raw.get("directives") or []:
                 if not isinstance(d, dict):
                     continue
                 action = str(d.get("action") or "")
                 if action not in ALLOWED_FEEL_ACTIONS:
                     continue
-                directives.append(d)
-            findings = [f for f in (raw.get("findings") or []) if isinstance(f, dict)]
+                local_directives.append(d)
+            local_findings = [f for f in (raw.get("findings") or []) if isinstance(f, dict)]
         else:
-            # Try parse content string
             content = ""
             if isinstance(envelope, dict):
                 content = str(envelope.get("content") or envelope.get("text") or "")
@@ -1032,16 +1448,57 @@ def run_junction_feel_audit(
                 try:
                     parsed = json.loads(content)
                     if isinstance(parsed, dict):
-                        verdict = str(parsed.get("verdict") or "pass")
+                        local_verdict = str(parsed.get("verdict") or "unavailable")
                         for d in parsed.get("directives") or []:
                             if isinstance(d, dict) and str(d.get("action") or "") in ALLOWED_FEEL_ACTIONS:
-                                directives.append(d)
-                        findings = [f for f in (parsed.get("findings") or []) if isinstance(f, dict)]
+                                local_directives.append(d)
+                        local_findings = [
+                            f for f in (parsed.get("findings") or []) if isinstance(f, dict)
+                        ]
                 except json.JSONDecodeError:
-                    error = "feel_audit_unparseable"
-    except Exception as exc:
-        error = str(exc)[:240]
-        ctx.log(f"junction_feel_audit failed open: {exc}", level="warning", stage=STAGE_ID)
+                    local_error = "feel_audit_unparseable"
+            else:
+                local_error = "feel_audit_empty_payload"
+        if local_verdict not in allowed:
+            local_verdict = "unavailable"
+        return local_verdict, local_directives, local_findings, local_error
+
+    from interview_mux.stages.llm_runner import run_prompt_envelope
+
+    user_content = json.dumps(packet, indent=2, ensure_ascii=False)
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            envelope = run_prompt_envelope(
+                FEEL_STAGE_KEY,
+                FEEL_PROMPT,
+                user_content,
+                ctx=ctx,
+                explicit_tier="standard",
+                record_stage_key=FEEL_STAGE_KEY,
+            )
+            llm_calls += 1
+            verdict, directives, findings, error = _parse_feel_payload(envelope)
+            if verdict != "unavailable" and not error:
+                break
+            if attempt < max_attempts:
+                ctx.log(
+                    f"junction_feel_audit retry after unavailable/schema issue "
+                    f"(attempt {attempt}/{max_attempts})",
+                    level="warn",
+                    stage=STAGE_ID,
+                )
+                continue
+        except Exception as exc:
+            error = str(exc)[:240]
+            verdict = "unavailable"
+            ctx.log(f"junction_feel_audit unavailable: {exc}", level="error", stage=STAGE_ID)
+            if attempt < max_attempts:
+                continue
+            break
+
+    if error:
+        verdict = "unavailable"
 
     audit = {
         "version": 1,
@@ -1072,6 +1529,12 @@ def apply_feel_directives(
     if not isinstance(edl, dict):
         return False
     findings: list[dict[str, Any]] = []
+    nle = load_nle(ctx)
+    nudge_history = (
+        nle.get("junction_nudge_history")
+        if isinstance(nle.get("junction_nudge_history"), dict)
+        else {}
+    )
     for d in directives:
         action = str(d.get("action") or "")
         if action not in ALLOWED_FEEL_ACTIONS:
@@ -1081,10 +1544,17 @@ def apply_feel_directives(
             action = "adjust_music_fade"
             if "suggested_crossfade_ms" not in detail:
                 detail["suggested_crossfade_ms"] = int(conf.get("music_soft_crossfade_ms") or 180)
+        severity = str(d.get("severity") or "warn")
+        # Feel must not re-nudge edges already applied this stage unless critical.
+        if action == "nudge_source_bounds" and severity != "critical":
+            sid = str(d.get("segment_id") or "")
+            edge = str(detail.get("edge") or "end")
+            if sid and f"{sid}:{edge}" in nudge_history:
+                continue
         findings.append(
             {
                 "kind": f"feel_{action}",
-                "severity": str(d.get("severity") or "warn"),
+                "severity": severity,
                 "segment_id": d.get("segment_id"),
                 "clip_index": d.get("clip_index"),
                 "action": action if action != "retarget_vo_anchor" else "exclude_micro",
@@ -1145,15 +1615,133 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     findings = detect_junction_findings(ctx, edl, cfg=conf)
     remaster_rounds = 0
     applied: list[dict[str, Any]] = []
-
-    edl2, applied, needs = apply_junction_repairs(ctx, edl, findings, cfg=conf)
     max_rounds = min(2, int(conf.get("max_remaster_rounds") or 2))
-    if needs and remaster_rounds < max_rounds:
-        try:
-            remaster_mix_only(ctx)
+    residual_findings = list(findings)
+
+    # Two full repair runs maximum.  Each run detects the complete set first,
+    # applies every repair in one batch, remasters, and only then rescans.
+    from interview_mux.failure_recovery import identify_all_failures, plan_all_fixes
+
+    remediation_runs: list[dict[str, Any]] = []
+    current_edl = edl
+    prior_applied_sig: set[tuple[str, str, int]] | None = None
+    for run_index in range(1, max_rounds + 1):
+        if not residual_findings:
+            break
+        provisional = {
+            "version": 1,
+            "mode": mode,
+            "pace_class": _pace_class(ctx),
+            "findings": residual_findings,
+            "applied": [],
+            "remaster_rounds": remaster_rounds,
+            "llm_calls": 0,
+            "advisory": False,
+            "blocking": True,
+            "generated_at": _now(),
+        }
+        review = identify_all_failures(
+            ctx,
+            trigger="junction_quality",
+            snip_report=provisional,
+            run_index=run_index,
+        )
+        plan_all_fixes(ctx, review)
+        next_edl, run_applied, needs = apply_junction_repairs(
+            ctx, current_edl, residual_findings, cfg=conf
+        )
+        applied.extend(run_applied)
+        applied_sig = {
+            (
+                str(a.get("segment_id") or a.get("kind") or ""),
+                str(a.get("action") or ""),
+                int(round(int(a.get("applied_ms") or a.get("suggested_crossfade_ms") or 0) / 40.0) * 40),
+            )
+            for a in run_applied
+            if isinstance(a, dict) and a.get("status") == "applied"
+        }
+        if prior_applied_sig is not None and applied_sig and applied_sig == prior_applied_sig:
+            ctx.log(
+                "junction_snip_qa: oscillating repair signature — halt remaster thrash",
+                level="warning",
+                stage=STAGE_ID,
+            )
+            residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
+            break
+        prior_applied_sig = applied_sig
+        if needs:
+            try:
+                remaster_mix_only(ctx)
+            except Exception as exc:
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    f"Junction remediation run {run_index} could not remaster: {exc}",
+                    stage=STAGE_ID,
+                    reason="junction_remaster_failed",
+                    detail={"run_index": run_index, "piece_count": len(residual_findings)},
+                    cause=exc,
+                )
             remaster_rounds += 1
-        except Exception as exc:
-            ctx.log(f"junction_snip_qa remaster failed open: {exc}", level="warning", stage=STAGE_ID)
+            _set_g_listen_pending_after_remaster(ctx)
+        current_edl = (
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else next_edl
+        )
+        residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
+        critical_residuals = [
+            f for f in residual_findings if str(f.get("severity") or "") == "critical"
+        ]
+        pieces = [p for p in (review.get("broken_pieces") or []) if isinstance(p, dict)]
+        pieces_resolved = max(0, len(pieces) - len(critical_residuals))
+        actions_executed = [
+            str(a.get("action") or "")
+            for a in run_applied
+            if isinstance(a, dict) and a.get("status") == "applied"
+        ]
+        row = {
+            "run_index": run_index,
+            "pieces_targeted": len(pieces),
+            "pieces_resolved": pieces_resolved,
+            "actions_executed": actions_executed,
+            "residual_after": len(residual_findings),
+            "critical_residual_after": len(critical_residuals),
+            "completed_at": _now(),
+        }
+        remediation_runs.append(row)
+        from interview_mux.failure_recovery import append_learning
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(
+            ctx,
+            "master/remediation_run_log.json",
+            {
+                "version": 1,
+                "max_runs": 2,
+                "runs": remediation_runs,
+                "runs_used": len(remediation_runs),
+                "third_run_forbidden": True,
+            },
+        )
+        append_learning(
+            ctx,
+            {
+                "execution_id": ctx.run_id,
+                "source_audio_hash": (
+                    (ctx.read_json("run_meta.json") or {}).get("source_audio_hash")
+                    if ctx.artifact_exists("run_meta.json")
+                    else None
+                ),
+                "trigger": "junction_quality",
+                **row,
+                "failure_codes": sorted({str(p.get("kind") or "") for p in pieces}),
+                "succeeded": pieces_resolved >= len(pieces) and not critical_residuals,
+            },
+        )
+        if not critical_residuals:
+            break
 
     report = {
         "version": 1,
@@ -1161,10 +1749,12 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         "pace_class": _pace_class(ctx),
         "findings": findings,
         "applied": applied,
+        "residual_findings": residual_findings,
         "remaster_rounds": remaster_rounds,
+        "remediation_runs": remediation_runs,
         "llm_calls": 0,
         "advisory": mode != "authoritative",
-        "blocking": False,
+        "blocking": mode == "authoritative",
         "generated_at": _now(),
     }
     ctx.write_json(QA_REL, report)
@@ -1174,23 +1764,65 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     ctx.write_json(QA_REL, report)
 
     if report["llm_calls"] > 2:
-        # Hard invariant: O(1) LLM budget
-        ctx.log(
-            f"junction_snip_qa: unexpected llm_calls={report['llm_calls']}",
-            level="warning",
+        # Hard invariant: feel audit ≤2 attempts (primary + one schema/unavailable retry)
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            f"junction_snip_qa exceeded feel-audit budget: {report['llm_calls']}",
             stage=STAGE_ID,
+            reason="junction_llm_budget_exceeded",
         )
 
-    if remaster_rounds < max_rounds and apply_feel_directives(ctx, audit, cfg=conf):
+    if (
+        audit.get("verdict") != "unavailable"
+        and remaster_rounds < max_rounds
+        and apply_feel_directives(ctx, audit, cfg=conf)
+    ):
         try:
             remaster_mix_only(ctx)
             remaster_rounds += 1
+            _set_g_listen_pending_after_remaster(ctx)
             report["remaster_rounds"] = remaster_rounds
             ctx.write_json(QA_REL, report)
         except Exception as exc:
-            ctx.log(f"junction_feel remaster failed open: {exc}", level="warning", stage=STAGE_ID)
+            from interview_mux.loud_fail import raise_loud_failure
 
-    # Surface in run_meta without blocking
+            raise_loud_failure(
+                ctx,
+                f"Junction feel remediation could not remaster: {exc}",
+                stage=STAGE_ID,
+                reason="junction_feel_remaster_failed",
+                cause=exc,
+            )
+
+    from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
+
+    autopsy = build_autopsy(
+        ctx,
+        phase="post_junction",
+        snip_report=report,
+        edl=current_edl,
+    )
+    write_autopsy(ctx, autopsy)
+    enrich_ledger(ctx, autopsy)
+    commitment = autopsy.get("commitment") if isinstance(autopsy.get("commitment"), dict) else {}
+    critical_left = [
+        f for f in residual_findings if str(f.get("severity") or "") == "critical"
+    ]
+    blocking_reasons = list(commitment.get("reasons") or [])
+    if critical_left:
+        blocking_reasons.append("critical_junction_residuals_after_two_runs")
+    # unavailable after retry is a blocking quality signal.
+    if audit.get("verdict") == "unavailable":
+        report["feel_audit_unavailable"] = True
+        blocking_reasons.append("junction_feel_audit_unavailable")
+    enforce_block = mode == "authoritative"
+    report["commitment"] = commitment
+    report["blocking_reasons"] = sorted(set(blocking_reasons))
+    ctx.write_json(QA_REL, report)
+
+    # Surface the authoritative result in run_meta.
     meta: dict[str, Any]
     if ctx.artifact_exists("run_meta.json"):
         doc = ctx.read_json("run_meta.json")
@@ -1199,33 +1831,41 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         meta = {}
     qc = meta.get("qc_summaries") if isinstance(meta.get("qc_summaries"), dict) else {}
     qc["junction_snip_qa"] = {
-        "advisory": True,
-        "blocking": False,
+        "passed": not bool(blocking_reasons),
+        "advisory": False,
+        "blocking": bool(blocking_reasons) and enforce_block,
         "findings": len(findings),
         "applied": len(applied),
+        "residual_findings": len(residual_findings),
+        "critical_residuals": len(critical_left),
         "remaster_rounds": remaster_rounds,
         "llm_calls": report["llm_calls"],
         "feel_verdict": audit.get("verdict"),
+        "commitment_status": commitment.get("status"),
+        "blocking_reasons": sorted(set(blocking_reasons)),
+    }
+    qc["seam_autopsy"] = {
+        "passed": not bool(autopsy.get("blocking_reasons")),
+        "blocking": bool(autopsy.get("blocking_reasons")) and enforce_block,
+        "commitment_status": commitment.get("status"),
+        "continuity": (autopsy.get("scores") or {}).get("continuity"),
+        "worst_seam_count": len(autopsy.get("worst_seam_ids") or []),
     }
     meta["qc_summaries"] = qc
     ctx.write_json("run_meta.json", meta)
 
-    if mode == "authoritative":
-        critical_left = [
-            f
-            for f in findings
-            if f.get("severity") == "critical"
-            and not any(
-                a.get("kind") == f.get("kind")
-                and a.get("segment_id") == f.get("segment_id")
-                and a.get("status") == "applied"
-                for a in applied
-            )
-        ]
-        if critical_left:
-            ctx.log(
-                f"junction_snip_qa authoritative residuals: {len(critical_left)} "
-                "(advisory surface — does not block master_finalize)",
-                level="warning",
-                stage=STAGE_ID,
-            )
+    if blocking_reasons and enforce_block:
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Junction quality failed after the bounded remediation budget: "
+            + ", ".join(sorted(set(blocking_reasons))),
+            stage=STAGE_ID,
+            reason="junction_quality_blocked",
+            detail={
+                "remediation_runs_used": len(remediation_runs),
+                "critical_residuals": len(critical_left),
+                "blocking_reasons": sorted(set(blocking_reasons)),
+            },
+        )

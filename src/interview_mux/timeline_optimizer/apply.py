@@ -74,6 +74,7 @@ def take_best_candidate(
     if not isinstance(sel, dict):
         sel = {"version": 1}
     prev_order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    order_changed = prev_order != ordered
     sel = dict(sel)
     sel["ordered_segment_ids"] = ordered
     if best.get("excluded_segment_ids"):
@@ -99,6 +100,10 @@ def take_best_candidate(
         ctx.write_json(
             "understanding/sound_design_plan.json", best["sound_design_plan"]
         )
+    if order_changed:
+        from interview_mux.synthetic_framing import run_synthetic_framing_plan
+
+        run_synthetic_framing_plan(ctx, force=True)
 
     # Refresh bridges + health for promoted order
     try:
@@ -148,7 +153,6 @@ def take_best_candidate(
     )
     state["promotions"] = promotions[-20:]
     state["operator_took_best"] = True
-    order_changed = prev_order != ordered
     if order_changed:
         state["promoted_needs_remaster"] = True
     save_optimizer_state(ctx, state)
@@ -184,6 +188,7 @@ def take_best_candidate(
                     level="warning",
                     stage="timeline_optimizer",
                 )
+                raise RuntimeError("optimizer promoted order but could not start remaster") from exc
         else:
             try:
                 def _flag(m: dict) -> None:
@@ -192,6 +197,12 @@ def take_best_candidate(
                 ctx.mutate_run_meta(_flag)
                 remaster_sync(ctx, until_mix=True)
                 remaster_started = True
+                try:
+                    from interview_mux.junction_snip_qa import _set_g_listen_pending_after_remaster
+
+                    _set_g_listen_pending_after_remaster(ctx)
+                except Exception:
+                    pass
                 state = load_optimizer_state(ctx)
                 state["promoted_needs_remaster"] = False
                 save_optimizer_state(ctx, state)
@@ -201,6 +212,7 @@ def take_best_candidate(
                     level="warning",
                     stage="timeline_optimizer",
                 )
+                raise RuntimeError("optimizer promoted order but synchronous remaster failed") from exc
             finally:
                 def _clear(m: dict) -> None:
                     m["timeline_optimizer_remastering"] = False

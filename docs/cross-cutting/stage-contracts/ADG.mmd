@@ -80,8 +80,11 @@ flowchart LR
   content_context -->|R| speaker_roles
   delivery_brief_build -->|R| gap_framing_compose
   edl_narrative_audit -->|R| sound_design_plan
+  episode_cover_prompt_craft -->|R| episode_meta_build
   full_master_ranking -->|R| narrative_arc_plan
   gap_framing_compose -->|R| missing_framing
+  junction_feel_audit -->|R| junction_snip_qa
+  junction_feel_audit -->|R| edl
   missing_framing -->|R| boundary_topic_resplit
   narrative_arc_plan -->|R| topic_coverage_audit
   optimal_questions -->|R| missing_framing

@@ -196,6 +196,31 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                 stage="sound_design_plan",
                 detail={"actions": actions[:12]},
             )
+        # Bind bookends to the final selected air order and use musical,
+        # scene-length fades for beds.  A cue may not carry an old ranking
+        # anchor into the final master.
+        selection = c.read_json("master/selection.json")
+        ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
+        podcast = (
+            (sdp.get("flow_plans") or {}).get("podcast")
+            if isinstance(sdp.get("flow_plans"), dict)
+            else None
+        )
+        if isinstance(podcast, dict):
+            cues = [dict(x) for x in (podcast.get("cues") or []) if isinstance(x, dict)]
+            for cue in cues:
+                role = str(cue.get("role") or "")
+                if role == "theme_outro" and ordered:
+                    cue["placement"] = "after_segment"
+                    cue["after_segment_id"] = ordered[-1]
+                    cue.pop("before_segment_id", None)
+                elif role == "theme_cold_open" and ordered:
+                    cue["placement"] = "before_segment"
+                    cue["before_segment_id"] = ordered[0]
+                    cue.pop("after_segment_id", None)
+                if str(cue.get("placement") or "") == "under_segment":
+                    cue["crossfade_ms"] = max(1500, int(cue.get("crossfade_ms") or 0))
+            podcast["cues"] = cues
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
         write_validated_artifact(

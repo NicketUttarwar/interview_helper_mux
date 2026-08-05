@@ -1,0 +1,34 @@
+stage_id: junction_feel_audit
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: master/junction_feel_audit.json
+  schema: junction_feel_audit.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: master/junction_snip_qa.json
+    producer: junction_snip_qa
+  soft:
+  - path: master/edl.json
+    producer: edl
+sufficiency:
+- path: verdict
+  rule: non_empty_string
+  min_length: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- junction_snip_qa
+- master_finalize
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

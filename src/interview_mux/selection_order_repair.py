@@ -31,15 +31,16 @@ def ordering_constraint_errors(
     ordered: list[str],
     narrative_plan: dict[str, Any] | None,
 ) -> list[str]:
-    """Return human-readable constraint violations for an ordered id list."""
+    """Return human-readable constraint violations for an ordered id list.
+
+    Constraints that mention segments outside the current selection are ignored.
+    Selection is the air-order authority; narrative constraints cannot force
+    excluded material back into the episode.
+    """
     positions = {sid: idx for idx, sid in enumerate(ordered)}
     errors: list[str] = []
     for index, (before, after) in enumerate(constraint_pairs(narrative_plan)):
         if before not in positions or after not in positions:
-            missing = [s for s in (before, after) if s not in positions]
-            errors.append(
-                f"ordering_constraints[{index}] references missing segment(s): {missing}"
-            )
             continue
         if positions[before] >= positions[after]:
             errors.append(

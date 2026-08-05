@@ -127,6 +127,8 @@ def test_delivery_stage_fns_invoke_without_ctx_argument(tmp_path, monkeypatch):
     assert seen == ["topic_coverage_audit", "edl"]
 
 def test_run_delivery_smoke_uses_fixture_run_dir_without_external_calls(tmp_path, monkeypatch):
+    from interview_mux.v2.config import DELIVERY_ORDER
+
     ctx = ctx_from_fixture(tmp_path)
     called: list[str] = []
 
@@ -136,89 +138,17 @@ def test_run_delivery_smoke_uses_fixture_run_dir_without_external_calls(tmp_path
     monkeypatch.setattr("interview_mux.progression_readiness.assert_delivery_ready", lambda *_a, **_k: None)
     _bypass_stage_input_checks(monkeypatch)
     _bypass_upstream_llm_checks(monkeypatch)
+
+    stubbed = {name: _stub_stage(called, name) for name in DELIVERY_ORDER}
     monkeypatch.setattr(
-        pipeline.analysis_extended,
-        "run_topic_coverage",
-        _stub_stage(called, "topic_coverage_audit"),
-    )
-    monkeypatch.setattr(
-        pipeline.analysis_extended,
-        "run_narrative_arc",
-        _stub_stage(called, "narrative_arc_plan"),
-    )
-    monkeypatch.setattr(
-        pipeline.selection,
-        "run_full_master_ranking",
-        _stub_stage(called, "full_master_ranking"),
-    )
-    monkeypatch.setattr(
-        pipeline.selection,
-        "run_transitions",
-        _stub_stage(called, "transitions"),
-    )
-    monkeypatch.setattr(
-        pipeline.sound_design_stages,
-        "run_sound_design_plan",
-        _stub_stage(called, "sound_design_plan"),
-    )
-    monkeypatch.setattr(
-        pipeline.sound_design_vo_finalize,
-        "run_sound_design_vo_finalize",
-        _stub_stage(called, "sound_design_vo_finalize"),
-    )
-    monkeypatch.setattr(
-        pipeline.edl_narrative_audit,
-        "run_edl_narrative_audit",
-        _stub_stage(called, "edl_narrative_audit"),
-    )
-    monkeypatch.setattr(
-        pipeline.assembly,
-        "run_edl",
-        _stub_stage(called, "edl"),
-    )
-    monkeypatch.setattr(
-        pipeline.assembly,
-        "run_preview",
-        _stub_stage(called, "assembly_preview"),
-    )
-    monkeypatch.setattr(
-        pipeline.sound_design_stages,
-        "run_sfx_prompt_craft",
-        _stub_stage(called, "sfx_prompt_craft"),
-    )
-    monkeypatch.setattr(
-        pipeline.sfx_mmaudio,
-        "run_sfx_generation",
-        lambda _ctx, profile: called.append(f"mmaudio_sfx_{profile}"),
-    )
-    monkeypatch.setattr(
-        pipeline.assembly,
-        "run_mix",
-        _stub_stage(called, "mix"),
-    )
-    monkeypatch.setattr(
-        pipeline.mastering,
-        "run_master_finalize",
-        _stub_stage(called, "master_finalize"),
+        pipeline,
+        "_delivery_stage_fns",
+        lambda _ctx: stubbed,
     )
 
     pipeline.run_delivery(ctx)
 
-    assert called == [
-        "topic_coverage_audit",
-        "narrative_arc_plan",
-        "full_master_ranking",
-        "transitions",
-        "sound_design_plan",
-        "sound_design_vo_finalize",
-        "edl_narrative_audit",
-        "edl",
-        "assembly_preview",
-        "sfx_prompt_craft",
-        "mmaudio_sfx_podcast",
-        "mix",
-        "master_finalize",
-    ]
+    assert called == list(DELIVERY_ORDER)
 
 def test_sound_design_disabled_skips_spend_stages(tmp_path, monkeypatch):
     from interview_mux.stages import sound_design_stages

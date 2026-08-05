@@ -150,3 +150,12 @@ def test_normalize_envelope_preserves_null():
         {"status": "complete", "artifacts": {"thesis": "x", "audience": None}}
     )
     assert env["artifacts"]["audience"] is None
+
+
+def test_normalize_envelope_coerces_null_confidence():
+    env = llm_runner.normalize_envelope(
+        {"status": "complete", "artifacts": {"verdict": "pass"}, "confidence": None}
+    )
+    assert env["confidence"] == 0.0
+    flat = llm_runner.normalize_envelope({"verdict": "pass"})
+    assert flat["confidence"] == 0.0

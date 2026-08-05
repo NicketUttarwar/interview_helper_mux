@@ -10,6 +10,9 @@ SRC = REPO / "src" / "interview_mux"
 
 ALLOWED = {
     SRC / "stages" / "llm_runner.py",
+    # Podcast cover cascade (DALL·E + vision pick) — see docs/cross-cutting/podcast-cover-theme.md
+    SRC / "podcast_rss" / "openai_cover.py",
+    SRC / "podcast_rss" / "cover_vision.py",
 }
 
 PATTERNS = [

@@ -82,14 +82,35 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "full_master_ranking": [{"path": "ranked_segments", "rule": "min_rows", "min_count": 1}],
     "edl_narrative_audit": [{"path": "findings", "rule": "min_rows", "min_count": 1}],
     "transitions": [{"path": "transitions", "rule": "min_rows", "min_count": 1}],
+    "synthetic_framing_plan": [{"path": "lines", "rule": "min_rows", "min_count": 1}],
     "sound_design_plan": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
+    "episode_meta_build": [{"path": "title", "rule": "non_empty_string", "min_length": 1}],
+    "episode_cover_prompt_craft": [
+        {"path": "prompt", "rule": "non_empty_string", "min_length": 1}
+    ],
 }
 
 _GATES = {
     "transcript_review": {"tier": "gate", "gate_id": "G0"},
     "g1_vo_pickup": {"tier": "gate", "gate_id": "G1"},
+}
+
+_OUTPUT_PATH_OVERRIDES = {
+    # These flagship publish stages are validated by their own runtime builders
+    # rather than the analysis-envelope schema registry.
+    "episode_meta_build": "publish/episode_meta.json",
+    "episode_cover_prompt_craft": "publish/cover_prompt.json",
+}
+
+_CONSUMER_OVERRIDES = {
+    "episode_meta_build": [
+        "episode_cover_prompt_craft",
+        "episode_cover_generate",
+        "podcast_publish",
+    ],
+    "episode_cover_prompt_craft": ["episode_cover_generate"],
 }
 
 _PROCESS_STAGES = [
@@ -133,7 +154,13 @@ def _all_stage_ids() -> list[str]:
     for batch in (
         ANALYSIS_ORDER,
         DELIVERY_ORDER,
-        ["vo_ingest", "sound_design_plan_init", "sfx_prompt_refine", "_arbiter"],
+        [
+            "vo_ingest",
+            "sound_design_plan_init",
+            "sfx_prompt_refine",
+            "synthetic_framing_plan",
+            "_arbiter",
+        ],
     ):
         for s in batch:
             if s not in seen:
@@ -152,7 +179,7 @@ def _contract_for(stage_id: str) -> dict:
     else:
         tier = "process"
 
-    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id) or _OUTPUT_PATH_OVERRIDES.get(stage_id)
     schema_file = STAGE_ARTIFACT_SCHEMAS.get(stage_id)
 
     doc: dict = {
@@ -175,7 +202,10 @@ def _contract_for(stage_id: str) -> dict:
             _LLM_DEFAULT_SUFFICIENCY.get(stage_id, _PROCESS_SUFFICIENCY.get(stage_id, [])),
         ),
         "propagation": {"invalidates_stages": list(_PROPAGATION_SEEDS.get(stage_id, ()))},
-        "consumers": [c for c, paths in ARTIFACTS_REGISTRY.items() if rel in paths],
+        "consumers": _CONSUMER_OVERRIDES.get(
+            stage_id,
+            [c for c, paths in ARTIFACTS_REGISTRY.items() if rel in paths],
+        ),
         "remediation": {"strategies": ["volley_retry", "full_stage_rerun"]},
     }
 
@@ -190,7 +220,9 @@ def _contract_for(stage_id: str) -> dict:
 
     upstream = LLM_UPSTREAM_STAGE.get(stage_id)
     if upstream:
-        up_rel = STAGE_ARTIFACT_DISK_PATHS.get(upstream)
+        up_rel = STAGE_ARTIFACT_DISK_PATHS.get(upstream) or _OUTPUT_PATH_OVERRIDES.get(
+            upstream
+        )
         if up_rel:
             doc["inputs"]["hard"].append({"path": up_rel, "producer": upstream})
 

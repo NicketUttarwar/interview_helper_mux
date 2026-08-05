@@ -193,45 +193,48 @@ def run_master_finalize(ctx: RunContext) -> Path:
 
     require_timeline_optimizer_clear(ctx, stage="master_finalize")
     require_g_listen_clear(ctx, stage="master_finalize")
-    # Prefer promoted optimizer best if present and better / not yet applied
+    # The best optimizer take is always applied.  E2E/soft flags cannot bypass
+    # this quality decision, and a failed take-best remaster is a hard stop.
+    optimizer_applied = False
     try:
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        skip_remaster = bool(
-            isinstance(meta, dict)
-            and (
-                meta.get("timeline_optimizer_skipped")
-                or meta.get("e2e_soft_listenability")
-                or meta.get("e2e_skip_optimizer_remaster")
-            )
-        )
-        if skip_remaster:
-            ctx.log(
-                "master_finalize: skipping optimizer take-best remaster "
-                "(skipped/e2e soft flag)",
-                level="info",
-                stage="master_finalize",
-            )
-        else:
-            from interview_mux.timeline_optimizer.state import load_best, load_optimizer_state, save_optimizer_state
-            from interview_mux.timeline_optimizer.apply import take_best_candidate
+        from interview_mux.timeline_optimizer.state import load_best, load_optimizer_state, save_optimizer_state
+        from interview_mux.timeline_optimizer.apply import take_best_candidate
 
+        state = load_optimizer_state(ctx)
+        best = load_best(ctx)
+        if best and best.get("score") is not None and not state.get("finalize_applied_best"):
+            sel_order = []
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                sel_order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
+            best_order = [str(s) for s in (best.get("ordered_segment_ids") or []) if s]
+            needs = best_order and best_order != sel_order
+            if needs or state.get("promoted_needs_remaster"):
+                take_best_candidate(ctx, remaster=True, sync_remaster=True, runner=None)
+                optimizer_applied = True
             state = load_optimizer_state(ctx)
-            best = load_best(ctx)
-            if best and best.get("score") is not None and not state.get("finalize_applied_best"):
-                sel_order = []
-                if ctx.artifact_exists("master/selection.json"):
-                    sel = ctx.read_json("master/selection.json")
-                    sel_order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
-                best_order = [str(s) for s in (best.get("ordered_segment_ids") or []) if s]
-                needs = best_order and best_order != sel_order
-                if needs or state.get("promoted_needs_remaster"):
-                    take_best_candidate(ctx, remaster=True, sync_remaster=True, runner=None)
-                state = load_optimizer_state(ctx)
-                state["finalize_applied_best"] = True
-                save_optimizer_state(ctx, state)
+            state["finalize_applied_best"] = True
+            save_optimizer_state(ctx, state)
     except Exception as exc:
-        ctx.log(f"optimizer finalize apply skipped: {exc}", level="warning", stage="master_finalize")
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            f"Could not auto-apply the best timeline optimizer take: {exc}",
+            stage="master_finalize",
+            reason="optimizer_best_apply_failed",
+            cause=exc,
+        )
+    if optimizer_applied:
+        # Optimizer promotion changes final construction authority.  Re-run the
+        # complete seam commitment layer before creating the master.
+        from interview_mux.junction_snip_qa import run_junction_snip_qa
+
+        run_junction_snip_qa(ctx)
     out = master_wav(ctx, "master/assembly.wav", "master/master.wav", flow="podcast")
+    from interview_mux.post_master_quality import run_post_master_quality
+
+    run_post_master_quality(ctx, block=True)
     try:
         from interview_mux.gates import mark_g_publish_pending
 

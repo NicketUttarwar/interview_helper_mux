@@ -117,10 +117,20 @@ def test_discover_generated_wav_prefers_joined(tmp_path: Path) -> None:
 
 def test_resolve_vo_pickup_precedence_clean_before_normalized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     patch_executions_root(monkeypatch, tmp_path)
-    ctx = RunContext("exec_vo_prec", create=True)
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {"enabled": False, "speech_qa_enabled": False}
+                }
+            }
+        },
+    )
+    ctx = RunContext("exec_vo_prec_clean", create=True)
     init_run_meta_for_test(ctx)
     line = minimal_gap_line(line_id="line_001", targets_segment_id="seg_001")
-    pickup = ctx.path("vo_pickup")
+    pickup = ctx.final_path("vo_pickup")
     for sub in ("matched", "synthesized", "clean", "normalized"):
         (pickup / sub).mkdir(parents=True, exist_ok=True)
     (pickup / "normalized" / "line_001.wav").write_bytes(b"RIFF-norm")

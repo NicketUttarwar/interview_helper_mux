@@ -129,8 +129,9 @@ SFX is an independent switch on any non-`none` option. Full catalog: [mastering-
 4. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
 5. Preview → optional post-preview pickup when plan requires
 6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift
-7. **Junction snip QA** (`junction_snip_qa`) — deterministic start/end snip + music-transition repairs on every junction, then **one** feel-audit LLM (`OH-J1`); remaster ≤2
-8. `master_finalize` → `master/master.wav` (−16 LUFS); blocks on naked seams / incomplete `bridge_completeness`
+7. **Junction snip QA + [seam autopsy](./seam-autopsy.md)** — deterministic start/end snip + music-transition repairs on every junction, one feel-audit LLM (`OH-J1`), commitment proof, and at most **two full identify-all → fix-all remediation runs**
+8. `master_finalize` → `master/master.wav` (−16 LUFS) → always-on post-master quality + listener scorecard; blocks on naked seams, incomplete `bridge_completeness`, uncommitted repairs, unavailable feel audit, or critical residuals
+9. MP3 encoding / podcast package creation requires the same passing post-master quality artifact
 
 Until cutover: if `mastering_plan` is missing, fall back to today’s ranking path (fail-open).
 

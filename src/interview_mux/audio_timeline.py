@@ -11,6 +11,40 @@ from pydub import AudioSegment
 from interview_mux.operator_subprocess import run_command
 
 
+DEFAULT_JUNCTION_CROSSFADE_MS: dict[tuple[str, str], int] = {
+    ("speech", "speech"): 100,
+    ("speech", "vo"): 160,
+    ("vo", "speech"): 180,
+    ("vo", "vo"): 120,
+    ("music", "speech"): 180,
+    ("speech", "music"): 180,
+}
+
+
+def junction_crossfade_ms(
+    previous_kind: str | None,
+    current_kind: str | None,
+    *,
+    config: dict[str, Any] | None = None,
+    default_ms: int = 100,
+) -> int:
+    """Return a bounded crossfade for the audible junction type."""
+    previous = "vo" if str(previous_kind or "") in {"vo_pickup", "transition"} else str(
+        previous_kind or ""
+    )
+    current = "vo" if str(current_kind or "") in {"vo_pickup", "transition"} else str(
+        current_kind or ""
+    )
+    configured = config if isinstance(config, dict) else {}
+    key = f"{previous}_to_{current}"
+    fallback = DEFAULT_JUNCTION_CROSSFADE_MS.get((previous, current), int(default_ms))
+    try:
+        value = int(configured.get(key, fallback))
+    except (TypeError, ValueError):
+        value = fallback
+    return max(0, min(2500, value))
+
+
 def wav_duration_ms(path: Path) -> int:
     cmd = [
         "ffprobe",

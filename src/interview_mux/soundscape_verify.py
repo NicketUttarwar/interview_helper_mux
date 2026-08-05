@@ -25,7 +25,12 @@ def _estimate_bed_coverage(ctx: RunContext) -> float:
     flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
     flow = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
     cues = [c for c in (flow.get("cues") or []) if isinstance(c, dict)]
-    bed_cues = [c for c in cues if c.get("placement") == "under_segment" and not c.get("skip")]
+    bed_cues = [
+        c
+        for c in cues
+        if str(c.get("placement") or "") in {"under_segment", "under_segment_span"}
+        and not c.get("skip")
+    ]
     if not bed_cues:
         return 0.0
     manifest = {}
@@ -38,10 +43,19 @@ def _estimate_bed_coverage(ctx: RunContext) -> float:
         if isinstance(s, dict)
     }
     bed_ms = 0
+    seen: set[str] = set()
     for c in bed_cues:
-        sid = str(c.get("segment_id") or "")
-        seg = segs.get(sid) or {}
-        bed_ms += max(0, int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0))
+        ids = [str(x) for x in (c.get("segment_ids") or []) if x]
+        if not ids:
+            sid = str(c.get("segment_id") or "")
+            if sid:
+                ids = [sid]
+        for sid in ids:
+            if sid in seen:
+                continue
+            seen.add(sid)
+            seg = segs.get(sid) or {}
+            bed_ms += max(0, int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0))
     total_ms = 0
     if ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")
@@ -269,7 +283,14 @@ def run_soundscape_verify(ctx: RunContext, *, remux_cycle: int = 0) -> dict[str,
                 if ctx.artifact_exists("understanding/sound_design_plan.json"):
                     sdp = ctx.read_json("understanding/sound_design_plan.json")
                     fixed, notes = repair_sound_design_plan(ctx, sdp if isinstance(sdp, dict) else {})
-                    ctx.write_json("understanding/sound_design_plan.json", fixed)
+                    try:
+                        from interview_mux.write_staging import write_committed_json
+
+                        write_committed_json(
+                            ctx, "understanding/sound_design_plan.json", fixed
+                        )
+                    except Exception:
+                        ctx.write_json("understanding/sound_design_plan.json", fixed)
                     actions.extend([str(n.get("action") or n) for n in notes[-8:]])
             except Exception as exc:
                 actions.append(f"bed_seed_repair_failed:{exc}"[:120])

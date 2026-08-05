@@ -16,7 +16,11 @@
         "ordered_segment_ids",
         "chapters",
         "excluded_segment_ids",
-        "notes"
+        "notes",
+        "order_content_hash",
+        "order_authority",
+        "optimizer_candidate_id",
+        "optimizer_score"
       ],
       "properties": {
         "ordered_segment_ids": {
@@ -78,6 +82,30 @@
             "string",
             "null"
           ]
+        },
+        "order_content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order_authority": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "optimizer_candidate_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "optimizer_score": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

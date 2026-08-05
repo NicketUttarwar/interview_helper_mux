@@ -1,0 +1,200 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "selection_order_content_hash",
+        "strategy_summary",
+        "synthetic_input_share_estimate",
+        "lines"
+      ],
+      "properties": {
+        "selection_order_content_hash": {
+          "type": "string"
+        },
+        "strategy_summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "synthetic_input_share_estimate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "line_id",
+              "role",
+              "placement",
+              "anchor_segment_id",
+              "after_segment_id",
+              "before_segment_id",
+              "text",
+              "duration_ratio",
+              "target_duration_ms",
+              "comprehension_reason",
+              "native_respect_violation",
+              "speaker_policy"
+            ],
+            "properties": {
+              "line_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string"
+              },
+              "placement": {
+                "type": "string",
+                "enum": [
+                  "before_segment",
+                  "after_segment",
+                  "between_segments",
+                  "cold_open",
+                  "close"
+                ]
+              },
+              "anchor_segment_id": {
+                "type": "string"
+              },
+              "after_segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "before_segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "duration_ratio": {
+                "type": "number",
+                "minimum": 0.4,
+                "maximum": 2.0
+              },
+              "target_duration_ms": {
+                "type": "integer",
+                "minimum": 250
+              },
+              "comprehension_reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "native_respect_violation": {
+                "type": "boolean",
+                "const": false
+              },
+              "speaker_policy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

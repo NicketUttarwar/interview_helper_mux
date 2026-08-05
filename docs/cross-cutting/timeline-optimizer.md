@@ -11,7 +11,7 @@ Per-run **mode C** daemon: after the first shippable `mix`, keep permuting the t
 | `mutation_surface` | `maximum` | Structure + glue VO/transitions + SDP cues + LLM proposals |
 | `auto_start_after_mix` | `true` | Starts when mix completes |
 | `use_llm_proposer` | `true` | Every N gens, flagship proposes mutations |
-| `block_finalize_until_take_or_skip` | `false` | Advisory by default; finalize auto-applies best if order drifted |
+| `block_finalize_until_take_or_skip` | `true` | Finalize waits for optimizer authority | `false` permits finalize before take/skip |
 
 ## Mutation surface (maximum)
 

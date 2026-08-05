@@ -22,8 +22,23 @@ def _write_wav(path: Path, *, seconds: float = 0.1, sample_rate: int = 16000) ->
 
 
 def test_audio_preclean_skips_when_not_enabled(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
-    ctx = RunContext("run_700", create=True)
+    from run_fixtures import patch_executions_root, patch_merged_config
+
+    patch_executions_root(monkeypatch, tmp_path)
+    patch_merged_config(
+        monkeypatch,
+        {
+            "audio_preclean": {
+                "enabled": False,
+                "auto_run_before_ingest": False,
+                "default_action": "skip",
+            },
+            "assets_root": "ASSETS",
+            "executions_root": "ASSETS/executions",
+            "data_root": "data",
+        },
+    )
+    ctx = RunContext("run_700_preclean_off", create=True)
     src = tmp_path / "input.wav"
     _write_wav(src)
     ctx.init_run_meta(str(src))

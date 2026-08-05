@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from interview_mux.junction_snip_qa import (
+    _clip_end_text,
     apply_junction_repairs,
     detect_junction_findings,
     junction_snip_cfg,
@@ -10,6 +11,19 @@ from interview_mux.junction_snip_qa import (
 )
 from interview_mux.order_hash import stamp_order_hash
 from run_fixtures import isolated_run_ctx
+
+
+def test_clip_end_text_tracks_remediated_edl_bound_not_static_segment_text():
+    segment = {"text": "This static segment text ends if"}
+    words = [
+        {"text": "text", "start_ms": 800, "end_ms": 1000},
+        {"text": "ends", "start_ms": 1000, "end_ms": 1200},
+        {"text": "if", "start_ms": 1200, "end_ms": 1400},
+        {"text": "we", "start_ms": 1400, "end_ms": 1600},
+        {"text": "finish.", "start_ms": 1600, "end_ms": 1800},
+    ]
+    assert _clip_end_text(segment, words, 1400).endswith("if")
+    assert _clip_end_text(segment, words, 1800).endswith("finish.")
 
 
 def _seg(segment_id: str, *, start_ms: int, end_ms: int, text: str, speaker: str = "spk_0") -> dict:
@@ -453,6 +467,186 @@ def test_multi_speaker_incomplete_detection(tmp_path):
     findings = detect_junction_findings(ctx, edl)
     assert any(
         f.get("segment_id") == "seg_a"
-        and f.get("action") in {"extend_later", "cut_earlier"}
+        and f.get("action") in {"extend_later", "cut_earlier", "merge_micro"}
         for f in findings
     )
+
+
+def test_same_speaker_incomplete_prefers_merge_micro(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_merge")
+    segments = [
+        _seg("seg_a", start_ms=0, end_ms=4000, text="I think the real issue is if", speaker="spk_0"),
+        _seg("seg_b", start_ms=4200, end_ms=9000, text="we never shipped the release.", speaker="spk_0"),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
+    # Transcript has no extend room after the incomplete cut — forces merge ladder.
+    words = _words_from_segments([segments[0]])
+    ctx.write_json("transcript/full.json", {"words": words}, skip_handoff=True)
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_a", "seg_b"], "chapters": []}),
+        skip_handoff=True,
+    )
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_a", "seg_b"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_a",
+                    "source_start_ms": 0,
+                    "source_end_ms": 4000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 4000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_b",
+                    "source_start_ms": 4200,
+                    "source_end_ms": 9000,
+                    "timeline_start_ms": 4000,
+                    "duration_ms": 4800,
+                },
+            ],
+            "timeline_duration_ms": 8800,
+        }
+    )
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa._find_last_complete_phrase_end",
+        lambda *a, **k: None,
+    )
+    findings = detect_junction_findings(ctx, edl)
+    merge = [f for f in findings if f.get("action") == "merge_micro"]
+    assert merge, f"expected merge_micro, got {[f.get('action') for f in findings]}"
+    new_edl, applied, changed = apply_junction_repairs(ctx, edl, merge)
+    assert changed
+    assert any(a.get("status") == "applied" for a in applied)
+    speech_ids = [
+        str(c.get("segment_id"))
+        for c in (new_edl.get("clips") or [])
+        if str(c.get("type") or "") == "speech"
+    ]
+    assert len(speech_ids) == 1
+
+
+def test_exclude_reason_uses_finding_kind(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_excl_reason")
+    segments = [
+        _seg("seg_ok", start_ms=0, end_ms=5000, text="We shipped the release."),
+        _seg("seg_micro", start_ms=5000, end_ms=5200, text="Okay."),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": _words_from_segments(segments)},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_ok", "seg_micro"], "chapters": []}),
+        skip_handoff=True,
+    )
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_ok", "seg_micro"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_ok",
+                    "source_start_ms": 0,
+                    "source_end_ms": 5000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 5000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_micro",
+                    "source_start_ms": 5000,
+                    "source_end_ms": 5200,
+                    "timeline_start_ms": 5000,
+                    "duration_ms": 200,
+                },
+            ],
+            "timeline_duration_ms": 5200,
+        }
+    )
+    findings = [
+        {
+            "kind": "vo_micro",
+            "severity": "critical",
+            "segment_id": "seg_micro",
+            "action": "exclude_micro",
+            "detail": {},
+            "evidence": "test",
+        }
+    ]
+    apply_junction_repairs(ctx, edl, findings)
+    from interview_mux.nle_state import load_nle
+
+    nle = load_nle(ctx)
+    ov = (nle.get("segment_overrides") or {}).get("seg_micro") or {}
+    assert ov.get("exclude_reason") == "junction_snip_qa:vo_micro"
+
+
+def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_music_xf")
+    sdp_path = ctx.path("understanding", "sound_design_plan.json")
+    sdp_path.parent.mkdir(parents=True, exist_ok=True)
+    import json
+
+    sdp_path.write_text(
+        json.dumps(
+            {
+                "flow_plans": {
+                    "podcast": {
+                        "cues": [
+                            {
+                                "asset_id": "bed_a",
+                                "placement": "under_segment",
+                                "segment_id": "seg_1",
+                                "role": "theme_bed",
+                                "crossfade_ms": 0,
+                            }
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    conf = {"music_soft_crossfade_ms": 180}
+    from interview_mux.junction_snip_qa import _detect_music_transition_findings
+
+    first = _detect_music_transition_findings(ctx, conf)
+    assert any(f.get("kind") == "music_hard_transition" for f in first)
+
+    def _patch(ctx2, asset_id, crossfade_ms):
+        plan = json.loads(sdp_path.read_text(encoding="utf-8"))
+        cue = plan["flow_plans"]["podcast"]["cues"][0]
+        cue["crossfade_ms"] = max(int(cue.get("crossfade_ms") or 0), crossfade_ms)
+        sdp_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa._patch_sdp_cue_crossfade",
+        _patch,
+    )
+    from interview_mux.junction_snip_qa import _merge_placement_adjustments
+
+    _merge_placement_adjustments(
+        ctx,
+        [
+            {
+                "asset_id": "bed_a",
+                "action": "adjust_crossfade",
+                "suggested_crossfade_ms": 180,
+            }
+        ],
+    )
+    second = _detect_music_transition_findings(ctx, conf)
+    assert not any(f.get("kind") == "music_hard_transition" for f in second)
+    plan = json.loads(sdp_path.read_text(encoding="utf-8"))
+    cue = plan["flow_plans"]["podcast"]["cues"][0]
+    assert int(cue.get("crossfade_ms") or 0) >= 180
+    assert ctx.artifact_exists("sound_design/placement_adjustments.json")

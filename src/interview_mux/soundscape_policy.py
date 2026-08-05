@@ -520,7 +520,14 @@ def refresh_cue_slots(ctx: RunContext) -> dict[str, Any]:
         )
         policy["policy_hash"] = _policy_hash({k: v for k, v in policy.items() if k != "policy_hash"})
     policy = _annotate_slots_with_speaker_volleys(ctx, policy)
-    ctx.write_json(POLICY_PATH, policy)
+    # Commit even when called from sound_design_plan staging — that stage only
+    # flushes SDP, so a staged policy write would be discarded on approve.
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, POLICY_PATH, policy)
+    except Exception:
+        ctx.write_json(POLICY_PATH, policy)
     return policy
 
 

@@ -28,6 +28,7 @@ def optimizer_cfg() -> dict[str, Any]:
         "min_score_delta": float(cfg.get("min_score_delta") or 0.75),
         "auto_promote_on_plateau": bool(cfg.get("auto_promote_on_plateau", True)),
         "auto_promote_remaster": bool(cfg.get("auto_promote_remaster", True)),
+        "always_auto_apply_best": bool(cfg.get("always_auto_apply_best", True)),
         "beam_width": int(cfg.get("beam_width") or 4),
         "archive_max": int(cfg.get("archive_max") or 24),
         "block_finalize_until_take_or_skip": bool(

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PostMasterQuality",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "status",
+    "publish_allowed",
+    "checks",
+    "failed_checks",
+    "never_skipped"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "status": { "type": "string", "enum": ["pass", "fail"] },
+    "publish_allowed": { "type": "boolean" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_id", "passed"],
+        "additionalProperties": true
+      }
+    },
+    "failed_checks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "never_skipped": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": true
+}

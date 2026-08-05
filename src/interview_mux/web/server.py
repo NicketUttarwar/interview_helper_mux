@@ -1544,15 +1544,16 @@ def create_app() -> FastAPI:
     @app.post("/api/runs/{run_id}/g-publish/sync")
     def g_publish_sync(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """ASSETS-wide upload of ready packages. Never deletes S3 objects."""
-        _ = _ctx(run_id)  # validate run exists
-        body = body or {}
-        dry_run = bool(body.get("dry_run"))
-        force_files = bool(body.get("force_files"))
-        existing = _read_podcast_sync_job()
-        if existing.get("status") == "running":
-            raise HTTPException(409, "Podcast sync already running")
-        job = _start_podcast_sync_job(dry_run=dry_run, force_files=force_files)
-        return {"ok": True, "started": True, "job": job}
+        with _guarded_run(run_id):
+            _ = _ctx(run_id)  # validate run exists
+            body = body or {}
+            dry_run = bool(body.get("dry_run"))
+            force_files = bool(body.get("force_files"))
+            existing = _read_podcast_sync_job()
+            if existing.get("status") == "running":
+                raise HTTPException(409, "Podcast sync already running")
+            job = _start_podcast_sync_job(dry_run=dry_run, force_files=force_files)
+            return {"ok": True, "started": True, "job": job}
 
     @app.post("/api/runs/{run_id}/g-publish/skip")
     def g_publish_skip(run_id: str) -> dict[str, Any]:

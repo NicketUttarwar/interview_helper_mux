@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from interview_mux.timeline_optimizer.eval import score_candidate
+from interview_mux.timeline_optimizer.config import optimizer_cfg
 from interview_mux.timeline_optimizer.mutations import apply_mutation
 from interview_mux.timeline_optimizer.proposer import heuristic_proposals
 from interview_mux.timeline_optimizer.state import archive_add, empty_state
@@ -60,6 +61,23 @@ def test_empty_state_defaults():
     st = empty_state()
     assert st["status"] == "idle"
     assert st["mode"] == "endless_daemon"
+
+
+def test_optimizer_config_always_auto_applies_and_remasters(monkeypatch):
+    monkeypatch.setattr(
+        "interview_mux.timeline_optimizer.config.merged_config",
+        lambda: {
+            "mastering": {
+                "timeline_optimizer": {
+                    "always_auto_apply_best": True,
+                    "auto_promote_remaster": True,
+                }
+            }
+        },
+    )
+    cfg = optimizer_cfg()
+    assert cfg["always_auto_apply_best"] is True
+    assert cfg["auto_promote_remaster"] is True
 
 
 def test_heuristic_proposals_nonempty(tmp_path, monkeypatch):

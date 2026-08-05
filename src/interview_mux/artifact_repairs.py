@@ -826,7 +826,9 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
     elif out.get("excluded_segment_ids") and out.get("exclude_rationales") is None:
         out["exclude_rationales"] = {}
         applied.append({"action": "default_value", "path": "exclude_rationales"})
-    # Cross-validate requires narrative_plan chapter segments to appear in ordered_segment_ids.
+    # Selection is the air-order authority.  Narrative chapters may describe a
+    # wider candidate pool, but they must never force excluded material back
+    # into the episode (exec_1131 expanded a tight pack by 161 segments here).
     ordered = out.get("ordered_segment_ids")
     if isinstance(ordered, list) and ctx.artifact_exists("master/narrative_plan.json"):
         plan = ctx.read_json("master/narrative_plan.json")
@@ -842,42 +844,23 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             ordered_set = {str(s) for s in ordered}
             missing = [s for s in required if s not in ordered_set]
             if missing:
-                # Prepend missing chapter segments so narrative order stays front-loaded.
-                out["ordered_segment_ids"] = missing + [str(s) for s in ordered]
                 applied.append(
                     {
-                        "action": "include_narrative_chapter_segments",
+                        "action": "intersect_narrative_chapters_with_selection",
                         "count": len(missing),
+                        "ids": missing[:24],
+                        "reason": "selection_exclusions_are_authoritative",
                     }
                 )
-                # Drop them from exclusions if present.
-                excl = out.get("excluded_segment_ids")
-                if isinstance(excl, list):
-                    miss_set = set(missing)
-                    kept_ex = [
-                        row
-                        for row in excl
-                        if not (
-                            (isinstance(row, dict) and str(row.get("segment_id") or "") in miss_set)
-                            or (isinstance(row, str) and row in miss_set)
-                        )
-                    ]
-                    if len(kept_ex) != len(excl):
-                        out["excluded_segment_ids"] = kept_ex
-                        applied.append({"action": "unexclude_narrative_segments", "count": len(missing)})
-                rats = out.get("exclude_rationales")
-                if isinstance(rats, dict):
-                    for sid in missing:
-                        rats.pop(sid, None)
-    # EDL narrative QC requires selection chapters to be contiguous + non-overlapping
-    # in ordered_segment_ids. Ranking often interleaves chapter members — regroup.
+    # Normalize chapter membership *to* the selected order without mutating that
+    # order or dumping unassigned leftovers into a chapter.  Narrative repair
+    # may annotate; it may not reverse ranking/creative-pack decisions.
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     chapters = out.get("chapters")
     if isinstance(chapters, list) and ordered:
         order_set = set(ordered)
         pos = {sid: idx for idx, sid in enumerate(ordered)}
         assigned: set[str] = set()
-        new_order: list[str] = []
         new_chapters: list[dict[str, Any]] = []
         changed = False
         for ch in chapters:
@@ -890,74 +873,151 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 changed = True
             for sid in ids:
                 assigned.add(sid)
-                new_order.append(sid)
             row = dict(ch)
             row["segment_ids"] = ids
             new_chapters.append(row)
         leftovers = [sid for sid in ordered if sid not in assigned]
-        if leftovers and new_order:
-            # Never dump leftovers after the finale chapter — insert before last span.
-            insert_at = max(0, len(new_order) - max(1, len(new_chapters[-1].get("segment_ids") or []) if new_chapters else 1))
-            # Prefer: attach leftovers to the last-but-one chapter block when present.
-            if len(new_chapters) >= 2:
-                prev_ids = list(new_chapters[-2].get("segment_ids") or [])
-                # Rebuild new_order without a finale-tail append
-                rebuilt: list[str] = []
-                for i, ch in enumerate(new_chapters):
-                    ids = list(ch.get("segment_ids") or [])
-                    if i == len(new_chapters) - 2:
-                        ids = ids + [s for s in leftovers if s not in ids]
-                        ch["segment_ids"] = ids
-                    rebuilt.extend(ids)
-                new_order = rebuilt
-            else:
-                new_order[insert_at:insert_at] = leftovers
-            changed = True
+        if leftovers:
             applied.append(
                 {
-                    "action": "insert_chapter_leftovers_before_finale",
+                    "action": "preserve_unassigned_selected_segments",
                     "count": len(leftovers),
                     "ids": leftovers[:12],
+                    "reason": "do_not_mutate_selection_order_or_chapter_membership",
                 }
             )
-        elif leftovers:
-            new_order.extend(leftovers)
-            changed = True
-        if new_order != ordered:
-            out["ordered_segment_ids"] = new_order
+        # Drop empty chapter shells — narrative_qc treats them as hard errors and
+        # edl_narrative_audit LLMs then demand re-including excluded early acts.
+        nonempty = [ch for ch in new_chapters if ch.get("segment_ids")]
+        if len(nonempty) != len(new_chapters):
             changed = True
             applied.append(
                 {
-                    "action": "reorder_segments_by_chapter_contiguity",
-                    "count": len(new_order),
+                    "action": "drop_empty_selection_chapters",
+                    "removed": len(new_chapters) - len(nonempty),
                 }
             )
-        # Topo-satisfy narrative_plan constraints after contiguity regroup
-        if ctx.artifact_exists("master/narrative_plan.json"):
-            try:
-                from interview_mux.selection_order_repair import repair_selection_order
-
-                plan_doc = ctx.read_json("master/narrative_plan.json")
-                repaired, topo_applied = repair_selection_order(out, plan_doc if isinstance(plan_doc, dict) else None)
-                if topo_applied:
-                    out["ordered_segment_ids"] = repaired.get("ordered_segment_ids") or out.get(
-                        "ordered_segment_ids"
-                    )
-                    applied.extend(topo_applied)
-                    changed = True
-            except Exception:
-                pass
+            new_chapters = nonempty
         if changed:
             out["chapters"] = new_chapters
             applied.append(
                 {
-                    "action": "normalize_chapter_segment_contiguity",
+                    "action": "intersect_selection_chapters",
                     "count": len(new_chapters),
                 }
             )
+        # Keep narrative_plan chapter membership in sync with selection authority.
+        try:
+            align_notes = align_narrative_plan_to_selection(ctx, ordered_ids=ordered)
+            applied.extend(align_notes)
+        except Exception:
+            pass
+    from interview_mux.order_hash import stamp_order_hash
+
+    stamped = stamp_order_hash(out)
+    if stamped.get("order_content_hash") != out.get("order_content_hash"):
+        applied.append(
+            {
+                "action": "stamp_order_content_hash",
+                "order_content_hash": stamped.get("order_content_hash"),
+            }
+        )
+    out = stamped
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def align_narrative_plan_to_selection(
+    ctx: Any,
+    *,
+    ordered_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Rewrite narrative_plan chapters/constraints onto the selected air order.
+
+    Selection is authoritative. Empty early-act chapter shells after a tight
+    creative pack must be dropped — never used to force leftovers back in.
+    """
+    applied: list[dict[str, Any]] = []
+    if not ctx.artifact_exists("master/narrative_plan.json"):
+        return applied
+    if ordered_ids is None:
+        if not ctx.artifact_exists("master/selection.json"):
+            return applied
+        sel = ctx.read_json("master/selection.json")
+        ordered_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s] if isinstance(sel, dict) else []
+    order_set = {str(s) for s in (ordered_ids or []) if s}
+    if not order_set:
+        return applied
+    plan = ctx.read_json("master/narrative_plan.json")
+    if not isinstance(plan, dict):
+        return applied
+    out = copy.deepcopy(plan)
+    chapters = out.get("chapters")
+    if isinstance(chapters, list):
+        kept: list[dict[str, Any]] = []
+        dropped = 0
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            ids = [str(s) for s in (ch.get("segment_ids") or []) if str(s) in order_set]
+            if not ids:
+                dropped += 1
+                continue
+            row = dict(ch)
+            row["segment_ids"] = ids
+            open_id = str(row.get("suggested_open_segment_id") or "")
+            if open_id and open_id not in order_set:
+                row["suggested_open_segment_id"] = ids[0]
+            kept.append(row)
+        if dropped or kept != chapters:
+            out["chapters"] = kept
+            applied.append(
+                {
+                    "action": "align_narrative_chapters_to_selection",
+                    "kept": len(kept),
+                    "dropped_empty": dropped,
+                }
+            )
+    constraints = out.get("ordering_constraints")
+    if isinstance(constraints, list):
+        kept_c: list[Any] = []
+        dropped_c = 0
+        for row in constraints:
+            if not isinstance(row, dict):
+                continue
+            before = str(
+                row.get("before_segment_id")
+                or row.get("before")
+                or row.get("setup_segment_id")
+                or ""
+            )
+            after = str(
+                row.get("after_segment_id")
+                or row.get("after")
+                or row.get("payoff_segment_id")
+                or ""
+            )
+            if (before and before not in order_set) or (after and after not in order_set):
+                dropped_c += 1
+                continue
+            kept_c.append(row)
+        if dropped_c:
+            out["ordering_constraints"] = kept_c
+            applied.append(
+                {
+                    "action": "drop_narrative_constraints_outside_selection",
+                    "count": dropped_c,
+                }
+            )
+    if applied:
+        try:
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(ctx, "master/narrative_plan.json", out)
+        except Exception:
+            ctx.write_json("master/narrative_plan.json", out)
+    return applied
 
 
 def _seed_missing_high_gap_interviewer_lines(
@@ -1338,7 +1398,14 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     _seed_missing_high_gap_interviewer_lines(
         ctx, out, manifest_ids=set(manifest_ids or ()), applied=applied
     )
-    _enforce_min_vo_insert_ratio(ctx, out, applied=applied)
+    try:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        skip_density = gap_fill_was_skipped(ctx)
+    except Exception:
+        skip_density = False
+    if not skip_density:
+        _enforce_min_vo_insert_ratio(ctx, out, applied=applied)
     # Stamp prior-native provenance + rewrite leftover interruptive openers after impact.
     try:
         from interview_mux.gap_vo_prior_context import (
@@ -1934,6 +2001,13 @@ def propagate_nle_split_segment_refs(
 def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
+    # Selection is air-order authority — keep narrative chapters aligned before
+    # judging audit complaints about "missing" early-act material.
+    try:
+        align_notes = align_narrative_plan_to_selection(ctx)
+        applied.extend(align_notes)
+    except Exception:
+        pass
     manifest_ids, _ = _manifest_ids_and_tags(ctx)
     verdict = str(out.get("verdict") or "")
     if verdict and verdict not in ("pass", "warn", "fail"):
@@ -1982,6 +2056,41 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
             applied.append(
                 {"action": "demote_optional_vo_blocking", "count": len(demoted)}
             )
+            blocking = kept_blocking
+
+    # Demote "restore excluded / expand ranking" false fails. Creative packs may
+    # intentionally drop early-act chapters; selection exclusions are authoritative.
+    if isinstance(blocking, list) and blocking:
+        kept_blocking = []
+        demoted_sel: list[dict[str, Any]] = []
+        for row in blocking:
+            if isinstance(row, dict) and _edl_issue_demands_restore_excluded(row):
+                demoted_sel.append(row)
+                continue
+            if isinstance(row, dict):
+                kept_blocking.append(row)
+        if demoted_sel:
+            warnings = [
+                dict(row)
+                for row in (out.get("warnings") or [])
+                if isinstance(row, dict)
+            ]
+            for row in demoted_sel:
+                warning = dict(row)
+                warning["issue"] = (
+                    str(warning.get("issue") or "selection_exclusion")
+                    + " (demoted: selection is air-order authority)"
+                )
+                warnings.append(warning)
+            out["warnings"] = warnings
+            out["blocking_issues"] = kept_blocking
+            applied.append(
+                {
+                    "action": "demote_restore_excluded_blocking",
+                    "count": len(demoted_sel),
+                }
+            )
+
     if out.get("blocking_issues"):
         out["verdict"] = "fail"
     elif str(out.get("verdict") or "").lower() == "fail":
@@ -1990,6 +2099,50 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def _edl_issue_demands_restore_excluded(row: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(x)
+        for x in (
+            row.get("issue"),
+            row.get("detail"),
+            row.get("recommended_action"),
+            " ".join(str(e) for e in (row.get("evidence") or [])),
+        )
+        if x
+    ).lower()
+    restore_markers = (
+        "zero segments in selection",
+        "restore representative",
+        "reinstate the constrained",
+        "redo full_master_ranking",
+        "revisit selection to align with narrative_plan",
+        "were excluded",
+        "excluded_segment_ids",
+        "only act-",
+        "wiping out the set-up",
+        "source segments were dropped",
+    )
+    return any(m in text for m in restore_markers)
+
+
+def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:
+    """Commit soundscape policy even when another stage owns the write staging root.
+
+    ``sound_design_plan`` only flushes ``understanding/sound_design_plan.json``.
+    Cue-slot injections written via ``ctx.write_json`` would otherwise stay in
+    ``.pending_writes/`` and never reach post-commit validation.
+    """
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, "understanding/soundscape_policy.json", policy)
+    except Exception:
+        try:
+            ctx.write_json("understanding/soundscape_policy.json", policy)
+        except Exception:
+            pass
 
 
 def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -2120,6 +2273,38 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     bed_anchor_pool = [s for s in palette_seg_ids if not selection_set or s in selection_set]
     if not bed_anchor_pool:
         bed_anchor_pool = list(palette_seg_ids) or list(selection_ids)
+    # Contiguous music continuity: when coverage floors require more bed time than
+    # the thin palette allows, extend anchors across selection quartiles.
+    if selection_ids and len(bed_anchor_pool) < max(4, min(12, len(selection_ids) // 3 or 1)):
+        expanded: list[str] = list(bed_anchor_pool)
+        seen_anchor = set(expanded)
+        n = len(selection_ids)
+        for frac in (0.12, 0.37, 0.62, 0.87):
+            sid = selection_ids[min(n - 1, max(0, int(n * frac)))]
+            if sid not in seen_anchor:
+                expanded.append(sid)
+                seen_anchor.add(sid)
+        # Also take every ~Nth selected segment for denser contiguous coverage.
+        step = max(1, n // 8)
+        for sid in selection_ids[::step]:
+            if sid not in seen_anchor:
+                expanded.append(sid)
+                seen_anchor.add(sid)
+        if expanded != bed_anchor_pool:
+            pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
+            if pals and isinstance(pals[0], dict):
+                ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
+                for sid in expanded:
+                    if sid not in ids:
+                        ids.append(sid)
+                pals[0]["segment_ids"] = ids
+                applied.append(
+                    {
+                        "action": "expand_palette_for_contiguous_beds",
+                        "count": len(expanded) - len(bed_anchor_pool),
+                    }
+                )
+            bed_anchor_pool = expanded
     assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
     try:
         from interview_mux.music_motif import (
@@ -2335,12 +2520,28 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         bedded = {
             str(c.get("segment_id") or "")
             for c in cues
-            if isinstance(c, dict) and c.get("placement") == "under_segment" and not c.get("skip")
+            if isinstance(c, dict)
+            and str(c.get("placement") or "") in {"under_segment", "under_segment_span"}
+            and not c.get("skip")
         }
+        for c in cues:
+            if not isinstance(c, dict) or c.get("skip"):
+                continue
+            if str(c.get("placement") or "") != "under_segment_span":
+                continue
+            for sid in c.get("segment_ids") or []:
+                if sid:
+                    bedded.add(str(sid))
         bed_ms = sum(seg_durs.get(s, 0) for s in bedded)
         coverage = (bed_ms / total_ms) if total_ms > 0 else 0.0
         seed_i = 0
-        for sid in bed_anchor_pool:
+        # Prefer longer selected segments when seeding for coverage.
+        ranked_pool = sorted(
+            bed_anchor_pool,
+            key=lambda sid: seg_durs.get(sid, 0),
+            reverse=True,
+        )
+        for sid in ranked_pool:
             if coverage >= min_cov:
                 break
             if sid in bedded:
@@ -2362,6 +2563,33 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     "coverage": round(coverage, 4),
                 }
             )
+        # Quartile presence: ensure at least one bed in each half of the order.
+        if selection_ids and bed_asset:
+            n = len(selection_ids)
+            for label, idx in (("q1", n // 4), ("q3", (3 * n) // 4)):
+                sid = selection_ids[min(n - 1, max(0, idx))]
+                if sid in bedded:
+                    continue
+                seed_i += 1
+                _add_cue(
+                    cue_id=f"bed_quartile_seed_{label}",
+                    placement="under_segment",
+                    segment_id=sid,
+                    asset_id=bed_asset,
+                )
+                bedded.add(sid)
+                applied.append(
+                    {
+                        "action": "seed_bed_for_quartile",
+                        "segment_id": sid,
+                        "quartile": label,
+                    }
+                )
+                pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
+                if pals and isinstance(pals[0], dict):
+                    ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
+                    if sid not in ids:
+                        pals[0]["segment_ids"] = ids + [sid]
 
     # Align under_segment beds with soundscape cue_slots and enforce stinger rate.
     try:
@@ -2421,10 +2649,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         }
                     )
                     policy["cue_slots"] = slots
-                    try:
-                        ctx.write_json("understanding/soundscape_policy.json", policy)
-                    except Exception:
-                        pass
+                    _persist_soundscape_policy(ctx, policy)
                     amb_set.add(target)
                     applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": target})
                 preferred = [target]
@@ -2445,7 +2670,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                             pals[0]["segment_ids"] = ids + [seg]
                             palette_set.add(seg)
                             applied.append({"action": "extend_palette_for_bed_segment", "segment_id": seg})
-                    if amb_set and seg not in amb_set:
+                    if amb_set is not None and seg not in amb_set:
                         slots.append(
                             {
                                 "slot_id": f"bed_{seg}",
@@ -2459,29 +2684,18 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         amb_set.add(seg)
                         slots_changed = True
                         applied.append({"action": "inject_theme_underscore_cue_slot", "segment_id": seg})
-                    ok = (not amb_set or seg in amb_set) and (not palette_set or seg in palette_set)
-                    if ok:
-                        continue
-                    # Last resort remap only when segment is unusable.
-                    target = next(
-                        (s for s in preferred if (not amb_set or s in amb_set) and (not palette_set or s in palette_set)),
-                        preferred[0],
-                    )
-                    cue["segment_id"] = target
-                    applied.append(
-                        {
-                            "action": "remap_bed_to_cue_slot_segment",
-                            "cue_id": cue.get("cue_id"),
-                            "from": seg or None,
-                            "to": target,
-                        }
-                    )
+                    # Never remap beds onto a single preferred slot — that collapses
+                    # coverage seeding and contiguous music across the selection.
+                    if palette_set is not None and seg not in palette_set:
+                        if pals and isinstance(pals[0], dict):
+                            ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
+                            if seg not in ids:
+                                pals[0]["segment_ids"] = ids + [seg]
+                        palette_set.add(seg)
+                        applied.append({"action": "force_palette_for_bed_segment", "segment_id": seg})
                 if slots_changed:
                     policy["cue_slots"] = slots
-                    try:
-                        ctx.write_json("understanding/soundscape_policy.json", policy)
-                    except Exception:
-                        pass
+                    _persist_soundscape_policy(ctx, policy)
 
             # Drop cues anchored on segments no longer in the ranked selection.
             if selection_set:

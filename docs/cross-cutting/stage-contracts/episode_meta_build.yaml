@@ -1,0 +1,31 @@
+stage_id: episode_meta_build
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: publish/episode_meta.json
+  schema: null
+  staging: true
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: title
+  rule: non_empty_string
+  min_length: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- episode_cover_prompt_craft
+- episode_cover_generate
+- podcast_publish
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

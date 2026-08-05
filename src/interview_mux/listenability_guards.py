@@ -127,8 +127,12 @@ def bed_quartile_presence(ctx: RunContext) -> float:
             for c in flow.get("cues") or []:
                 if not isinstance(c, dict) or c.get("skip"):
                     continue
-                if c.get("placement") == "under_segment" and c.get("segment_id"):
-                    bedded.add(str(c["segment_id"]))
+                if str(c.get("placement") or "") not in {"under_segment", "under_segment_span"}:
+                    continue
+                ids = [str(x) for x in (c.get("segment_ids") or []) if x]
+                if not ids and c.get("segment_id"):
+                    ids = [str(c["segment_id"])]
+                bedded.update(ids)
     buckets = quartile_segment_buckets(order, durs)
     present = sum(1 for b in buckets if b and any(s in bedded for s in b))
     nonempty = sum(1 for b in buckets if b)
@@ -343,21 +347,38 @@ def gap_eval_scored_ratio(ctx: RunContext) -> float:
 
 
 def uncovered_high_gap_ratio(ctx: RunContext) -> float:
+    """Share of *selected* high-severity gaps still lacking host VO coverage.
+
+    Gaps on excluded segments are ignored — selection is air-order authority and
+    leftover reinclusion is banned.
+    """
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return 0.0
     evals = ctx.read_json("understanding/gap_evaluations.json")
     if not isinstance(evals, dict):
         return 0.0
+    selected: set[str] = set()
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            selected = {str(s) for s in (sel.get("ordered_segment_ids") or []) if s}
     highs = [
         str(r.get("segment_id") or "")
         for r in (evals.get("evaluations") or [])
         if isinstance(r, dict)
         and str(r.get("severity") or "").lower() == "high"
         and r.get("segment_id")
+        and (not selected or str(r.get("segment_id")) in selected)
     ]
     if not highs:
         return 0.0
     covered = _host_targets_from_gap(ctx)
+    # Pair-bound transitions also cover the following selected segment.
+    if ctx.artifact_exists("master/transitions.json"):
+        tr = ctx.read_json("master/transitions.json")
+        for row in (tr.get("transitions") or []) if isinstance(tr, dict) else []:
+            if isinstance(row, dict) and row.get("before_segment_id") and str(row.get("text") or "").strip():
+                covered.add(str(row["before_segment_id"]))
     missing = [s for s in highs if s not in covered]
     return len(missing) / len(highs)
 

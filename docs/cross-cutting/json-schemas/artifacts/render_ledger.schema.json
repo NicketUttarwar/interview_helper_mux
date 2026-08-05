@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RenderLedger",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "edl_hash",
+    "assembly",
+    "clips"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "edl_hash": { "type": "string" },
+    "order_content_hash": { "type": ["string", "null"] },
+    "assembly": {
+      "type": "object",
+      "required": ["exists", "size", "sha256_edges"],
+      "additionalProperties": true
+    },
+    "timeline_duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "clips": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": true
+}

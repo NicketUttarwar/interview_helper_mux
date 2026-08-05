@@ -1,0 +1,452 @@
+"""Seam-level decision and commitment integrity for the final podcast.
+
+The autopsy is deliberately deterministic.  It turns the current air order,
+EDL, assembly ledger, junction findings, and sound-design plan into decisions
+that downstream stages can consume.  It also proves that claimed junction
+repairs exist in the EDL and in a freshly rendered assembly.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from interview_mux.config import merged_config
+from interview_mux.order_hash import order_hashes_match
+from interview_mux.run_context import RunContext
+
+AUTOPSY_REL = "master/seam_autopsy.json"
+RENDER_LEDGER_REL = "master/render_ledger.json"
+VERSION = 1
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def seam_autopsy_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    master = (cfg or merged_config()).get("mastering") or {}
+    block = master.get("seam_autopsy") if isinstance(master.get("seam_autopsy"), dict) else {}
+    defaults = {
+        "enabled": True,
+        "commitment_blocks_finalize": True,
+        "synthetic_share_guide_min": 0.2,
+        "synthetic_share_guide_max": 0.8,
+        "synthetic_duration_ratio_min": 0.4,
+        "synthetic_duration_ratio_max": 2.0,
+        "prefer_contiguous_beds": True,
+    }
+    return {**defaults, **block}
+
+
+def _canonical_hash(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _file_fingerprint(path: Path) -> dict[str, Any]:
+    """Cheap stable fingerprint for large audio: size + first/last 1 MiB."""
+    if not path.is_file():
+        return {"exists": False, "size": 0, "sha256_edges": ""}
+    size = path.stat().st_size
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        h.update(fh.read(1 << 20))
+        if size > (1 << 20):
+            fh.seek(max(0, size - (1 << 20)))
+            h.update(fh.read(1 << 20))
+    h.update(str(size).encode())
+    return {
+        "exists": True,
+        "size": size,
+        "sha256_edges": h.hexdigest(),
+        "mtime_ns": path.stat().st_mtime_ns,
+    }
+
+
+def _pair_hash(after_id: str, before_id: str, order_hash: str) -> str:
+    return _canonical_hash([after_id, before_id, order_hash])[:16]
+
+
+def _pack_conflicts(selection: dict[str, Any]) -> list[dict[str, Any]]:
+    meta = selection.get("_meta") if isinstance(selection.get("_meta"), dict) else {}
+    repairs = [r for r in (meta.get("repairs") or []) if isinstance(r, dict)]
+    conflict_actions = {
+        "include_narrative_chapter_segments",
+        "unexclude_narrative_segments",
+        "insert_chapter_leftovers_before_finale",
+        "insert_leftovers_before_finale_span",
+    }
+    return [
+        {
+            "action": str(row.get("action") or ""),
+            "count": int(row.get("count") or 0),
+            "ids": [str(x) for x in (row.get("ids") or []) if x],
+            "risk_code": "plan_pack_conflict",
+        }
+        for row in repairs
+        if str(row.get("action") or "") in conflict_actions
+    ]
+
+
+def score_seam(seam: dict[str, Any], *, order_hash: str) -> dict[str, Any]:
+    """Return an actionable, stable decision for one speech-to-speech seam."""
+    after_id = str(seam.get("after_segment_id") or "")
+    before_id = str(seam.get("before_segment_id") or "")
+    risks: list[str] = []
+    if seam.get("naked"):
+        risks.append("naked_seam")
+    if seam.get("chapter_scale"):
+        risks.append("chapter_jump")
+    if str(seam.get("kind") or "") not in {"", "contiguous"}:
+        risks.append("source_reorder")
+    glue_ids = [str(x) for x in (seam.get("glue_piece_ids") or []) if x]
+    if len(glue_ids) > 1:
+        risks.append("synthetic_density")
+
+    try:
+        source_gap = abs(int(seam.get("source_gap_ms") or 0))
+    except (TypeError, ValueError):
+        source_gap = 0
+    contiguous = not seam.get("requires_glue") and source_gap <= 2500
+    if contiguous:
+        preferred = ["extend_native", "air_pad"]
+        synthetic_allowed = False
+    elif seam.get("chapter_scale"):
+        preferred = ["restore_native_setup", "bed_crossfade", "bespoke_spoken", "stinger"]
+        synthetic_allowed = True
+    else:
+        preferred = ["restore_native_setup", "extend_native", "bed_crossfade", "bespoke_spoken"]
+        synthetic_allowed = True
+
+    penalty = 0.0
+    penalty += 0.55 if seam.get("naked") else 0.0
+    penalty += 0.15 if "source_reorder" in risks else 0.0
+    penalty += 0.1 if "synthetic_density" in risks else 0.0
+    penalty += 0.08 if seam.get("chapter_scale") else 0.0
+    listen_score = round(max(0.0, min(1.0, 1.0 - penalty)), 4)
+    glue_ideal = 0 if contiguous else (1800 if seam.get("chapter_scale") else 900)
+    seam_id = f"{after_id}__{before_id}"
+    return {
+        "seam_id": seam_id,
+        "after_segment_id": after_id,
+        "before_segment_id": before_id,
+        "listen_score": listen_score,
+        "risk_codes": risks,
+        "glue_budget_ms": {
+            "min": 0 if contiguous else 300,
+            "ideal": glue_ideal,
+            "max": 4000 if seam.get("chapter_scale") else 2500,
+        },
+        "preferred_glue": preferred,
+        "music_hint": {
+            "continue_bed": contiguous,
+            "stinger": bool(seam.get("chapter_scale")),
+            "crossfade_ms": 1500 if contiguous else 2200,
+        },
+        "synthetic_voice_allowed": synthetic_allowed,
+        "necessity_score": round(max(0.0, 1.0 - listen_score), 4),
+        "pair_continuity_hash": _pair_hash(after_id, before_id, order_hash),
+        "block_reason": "naked_seam" if seam.get("naked") else None,
+    }
+
+
+def _speech_clips(edl: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(c.get("segment_id")): c
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "speech" and c.get("segment_id")
+    }
+
+
+def _has_impact_hold(edl: dict[str, Any], segment_id: str) -> bool:
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    for i, clip in enumerate(clips[:-1]):
+        if clip.get("type") == "speech" and str(clip.get("segment_id") or "") == segment_id:
+            nxt = clips[i + 1]
+            return nxt.get("type") == "silence" and nxt.get("air_kind") == "impact_hold"
+    return False
+
+
+def _bound_edge_for_applied(row: dict[str, Any]) -> str | None:
+    """Return start/end for bound-mutating repairs; None for non-bound actions."""
+    action = str(row.get("action") or "")
+    if action not in {"nudge_source_bounds", "extend_later", "cut_earlier"}:
+        return None
+    detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+    if action in {"extend_later", "cut_earlier"}:
+        return "end"
+    return str(detail.get("edge") or "end")
+
+
+def _applied_repairs_resolved(
+    edl: dict[str, Any], report: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    clips = _speech_clips(edl)
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    applied_rows = [
+        (index, row)
+        for index, row in enumerate(report.get("applied") or [])
+        if isinstance(row, dict) and row.get("status") in {"applied", "already_present"}
+    ]
+    # Two remediation runs often re-nudge the same edge.  Only the last write
+    # per (segment, edge) must match the final EDL; earlier claims are superseded.
+    latest_bound: dict[tuple[str, str], int] = {}
+    for index, row in applied_rows:
+        edge = _bound_edge_for_applied(row)
+        sid = str(row.get("segment_id") or "")
+        if edge and sid:
+            latest_bound[(sid, edge)] = index
+
+    for index, row in applied_rows:
+        action = str(row.get("action") or "")
+        sid = str(row.get("segment_id") or "")
+        key = f"{index}:{action}:{sid}"
+        edge = _bound_edge_for_applied(row)
+        if edge and sid and latest_bound.get((sid, edge)) != index:
+            resolved.append(key)
+            continue
+        ok = True
+        if action == "exclude_micro":
+            ok = sid not in clips
+        elif action in {"nudge_source_bounds", "extend_later", "cut_earlier"}:
+            clip = clips.get(sid)
+            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+            # Prefer the bound actually written into the EDL (capped apply), not the
+            # uncapped detector recommendation — otherwise commitment always diverges.
+            rec = row.get("applied_ms")
+            if rec is None:
+                rec = detail.get("recommended_ms")
+            if clip is None or rec is None:
+                ok = False
+            elif edge == "start":
+                ok = abs(int(clip.get("source_start_ms") or 0) - int(rec)) <= 40
+            else:
+                ok = abs(int(clip.get("source_end_ms") or 0) - int(rec)) <= 40
+        elif action == "insert_impact_hold":
+            ok = _has_impact_hold(edl, sid)
+        # Music adjustments are verified by the placement artifact/mix stamp,
+        # not by speech clips.  The fresh assembly fingerprint below covers them.
+        (resolved if ok else unresolved).append(key)
+    return resolved, unresolved
+
+
+def verify_commitment(
+    ctx: RunContext,
+    snip_report: dict[str, Any] | None = None,
+    *,
+    edl: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Prove claimed repairs, order authority, and a fresh assembly agree."""
+    edl_doc = edl if isinstance(edl, dict) else (
+        ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else {}
+    )
+    report = snip_report if isinstance(snip_report, dict) else (
+        ctx.read_json("master/junction_snip_qa.json")
+        if ctx.artifact_exists("master/junction_snip_qa.json")
+        else {}
+    )
+    selection = (
+        ctx.read_json("master/selection.json")
+        if ctx.artifact_exists("master/selection.json")
+        else {}
+    )
+    resolved, unresolved = _applied_repairs_resolved(edl_doc, report)
+    order_ok = bool(selection and edl_doc and order_hashes_match(selection, edl_doc))
+    assembly_path = ctx.read_path("master", "assembly.wav")
+    edl_path = ctx.read_path("master", "edl.json")
+    assembly_fp = _file_fingerprint(assembly_path)
+    fresh = bool(
+        assembly_fp.get("exists")
+        and edl_path.is_file()
+        and int(assembly_fp.get("mtime_ns") or 0) >= edl_path.stat().st_mtime_ns
+    )
+    reasons: list[str] = []
+    if unresolved:
+        reasons.append("claimed_repairs_missing_from_edl")
+    if selection and not order_ok:
+        reasons.append("selection_edl_order_drift")
+    if not fresh:
+        reasons.append("assembly_not_rendered_from_current_edl")
+    status = "committed" if not reasons else "diverged"
+    return {
+        "status": status,
+        "verified_at": _now(),
+        "edl_hash": _canonical_hash(edl_doc),
+        "assembly": assembly_fp,
+        "repairs_claimed": len(resolved) + len(unresolved),
+        "repairs_committed": len(resolved),
+        "resolved_repair_keys": resolved,
+        "unresolved_repair_keys": unresolved,
+        "order_hash_match": order_ok,
+        "assembly_fresh": fresh,
+        "reasons": reasons,
+    }
+
+
+def build_autopsy(
+    ctx: RunContext,
+    *,
+    phase: str,
+    snip_report: dict[str, Any] | None = None,
+    edl: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    selection = (
+        ctx.read_json("master/selection.json")
+        if ctx.artifact_exists("master/selection.json")
+        else {}
+    )
+    edl_doc = edl if isinstance(edl, dict) else (
+        ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else {}
+    )
+    ledger: dict[str, Any] = {}
+    if ctx.artifact_exists("master/assembly_ledger.json"):
+        loaded = ctx.read_json("master/assembly_ledger.json")
+        ledger = loaded if isinstance(loaded, dict) else {}
+    elif edl_doc:
+        from interview_mux.assembly_ledger import build_assembly_ledger
+
+        ledger = build_assembly_ledger(ctx, edl=edl_doc)
+
+    order_hash = str(
+        edl_doc.get("order_content_hash")
+        or selection.get("order_content_hash")
+        or ledger.get("order_content_hash")
+        or ""
+    )
+    seams = [
+        score_seam(s, order_hash=order_hash)
+        for s in (ledger.get("seams") or [])
+        if isinstance(s, dict)
+    ]
+    mean = sum(float(s["listen_score"]) for s in seams) / max(1, len(seams))
+    synthetic = sum(
+        1
+        for c in (edl_doc.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") in {"vo_pickup", "transition"}
+    )
+    speech = sum(
+        1
+        for c in (edl_doc.get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "speech"
+    )
+    synthetic_share = synthetic / max(1, synthetic + speech)
+    commitment = (
+        verify_commitment(ctx, snip_report, edl=edl_doc)
+        if phase in {"post_junction", "post_master"}
+        else {"status": "pending", "verified_at": _now()}
+    )
+    worst = sorted(seams, key=lambda s: float(s["listen_score"]))[:20]
+    return {
+        "version": VERSION,
+        "generated_at": _now(),
+        "phase": phase,
+        "order_content_hash": order_hash,
+        "commitment": commitment,
+        "scores": {
+            "continuity": round(mean, 4),
+            "finishability": round(max(0.0, mean - 0.05 * len(_pack_conflicts(selection))), 4),
+            "sonic_density_fit": round(max(0.0, 1.0 - abs(synthetic_share - 0.35)), 4),
+            "information_clarity": round(mean, 4),
+            "music_completeness": 1.0 if not any("music_hard_edge" in s["risk_codes"] for s in seams) else 0.5,
+        },
+        "guides": {
+            "synthetic_input_share": round(synthetic_share, 4),
+            "synthetic_share_min": seam_autopsy_cfg()["synthetic_share_guide_min"],
+            "synthetic_share_max": seam_autopsy_cfg()["synthetic_share_guide_max"],
+        },
+        "pack_conflicts": _pack_conflicts(selection),
+        "seams": seams,
+        "worst_seam_ids": [str(s["seam_id"]) for s in worst],
+        "blocking_reasons": sorted(
+            {str(s["block_reason"]) for s in seams if s.get("block_reason")}
+            | set(commitment.get("reasons") or [])
+        ),
+    }
+
+
+def write_autopsy(ctx: RunContext, doc: dict[str, Any]) -> dict[str, Any]:
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, AUTOPSY_REL, doc)
+    return doc
+
+
+def enrich_ledger(ctx: RunContext, autopsy: dict[str, Any]) -> dict[str, Any] | None:
+    if not ctx.artifact_exists("master/assembly_ledger.json"):
+        return None
+    ledger = ctx.read_json("master/assembly_ledger.json")
+    if not isinstance(ledger, dict):
+        return None
+    decisions = {
+        (str(s.get("after_segment_id") or ""), str(s.get("before_segment_id") or "")): s
+        for s in (autopsy.get("seams") or [])
+        if isinstance(s, dict)
+    }
+    seams: list[dict[str, Any]] = []
+    for seam in ledger.get("seams") or []:
+        if not isinstance(seam, dict):
+            continue
+        row = dict(seam)
+        key = (str(row.get("after_segment_id") or ""), str(row.get("before_segment_id") or ""))
+        decision = decisions.get(key)
+        if decision:
+            row["autopsy"] = {
+                k: decision.get(k)
+                for k in (
+                    "seam_id",
+                    "listen_score",
+                    "risk_codes",
+                    "glue_budget_ms",
+                    "preferred_glue",
+                    "music_hint",
+                    "synthetic_voice_allowed",
+                    "necessity_score",
+                    "pair_continuity_hash",
+                    "block_reason",
+                )
+            }
+        seams.append(row)
+    out = dict(ledger)
+    out["seams"] = seams
+    out["autopsy_version"] = VERSION
+    out["autopsy_generated_at"] = autopsy.get("generated_at")
+    out["seam_listen_score_mean"] = (autopsy.get("scores") or {}).get("continuity")
+    out["worst_seam_ids"] = autopsy.get("worst_seam_ids") or []
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, "master/assembly_ledger.json", out)
+    return out
+
+
+def write_render_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Stamp the realized mix against its EDL for later commitment checks."""
+    doc = edl if isinstance(edl, dict) else ctx.read_json("master/edl.json")
+    assembly = _file_fingerprint(ctx.read_path("master", "assembly.wav"))
+    clips = [c for c in (doc.get("clips") or []) if isinstance(c, dict)]
+    out = {
+        "version": 1,
+        "generated_at": _now(),
+        "edl_hash": _canonical_hash(doc),
+        "order_content_hash": doc.get("order_content_hash"),
+        "assembly": assembly,
+        "timeline_duration_ms": doc.get("timeline_duration_ms"),
+        "clips": [
+            {
+                "type": c.get("type"),
+                "segment_id": c.get("segment_id"),
+                "line_id": c.get("line_id"),
+                "timeline_start_ms": c.get("timeline_start_ms"),
+                "duration_ms": c.get("duration_ms"),
+            }
+            for c in clips
+        ],
+    }
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, RENDER_LEDGER_REL, out)
+    return out

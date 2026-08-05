@@ -45,4 +45,17 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
 }),
 }),
   "generated": z.record(z.string(), z.unknown()),
+  "motif_family": z.object({
+  "motif_id": z.string().optional(),
+  "genre_hint": z.string().optional(),
+  "instrumentation": z.array(z.string()).optional(),
+  "scale_or_mode": z.string().optional(),
+  "tempo_bpm_feel": z.string().optional(),
+  "time_feel": z.string().optional(),
+  "motif_phrase": z.string().optional(),
+  "mood": z.string().optional(),
+  "energy_curve_by_act": z.array(z.unknown()).optional(),
+  "prompt_dna": z.string().optional(),
+  "stems": z.array(z.string()).optional(),
+}).optional(),
 });

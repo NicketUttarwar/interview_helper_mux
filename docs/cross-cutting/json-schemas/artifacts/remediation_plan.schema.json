@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RemediationPlan",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "run_index",
+    "goal",
+    "source_review_piece_count",
+    "actions",
+    "execution_order",
+    "reentry_stage",
+    "covers_all_pieces"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "run_index": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "goal": { "type": "string", "minLength": 1 },
+    "source_review_piece_count": { "type": "integer", "minimum": 0 },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action_id",
+          "piece_id",
+          "action_type",
+          "target_ids",
+          "params",
+          "rationale",
+          "expected_listen_gain",
+          "depends_on",
+          "idempotent"
+        ],
+        "properties": {
+          "action_type": {
+            "type": "string",
+            "enum": [
+              "resnip_earlier",
+              "resnip_later",
+              "merge_micro",
+              "exclude_micro",
+              "rebuild_synthetic_plan",
+              "rewrite_vo_line",
+              "retarget_music_region",
+              "fix_music_fade",
+              "regen_sfx",
+              "reorder_pair",
+              "restore_native_setup",
+              "rebuild_edl",
+              "remaster_mix",
+              "rerun_from_stage"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "execution_order": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "reentry_stage": { "type": "string" },
+    "covers_all_pieces": { "type": "boolean", "const": true },
+    "planner": { "type": "string" }
+  },
+  "additionalProperties": true
+}

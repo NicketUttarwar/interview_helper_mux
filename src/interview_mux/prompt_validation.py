@@ -29,11 +29,13 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "full_master_ranking": "master_selection_artifact.schema.json",
     "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
+    "synthetic_framing_plan": "synthetic_framing_plan.schema.json",
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
     "sound_design_plan": "sound_design_plan_artifact.schema.json",
     "sfx_prompt_craft": "sfx_prompts_artifact.schema.json",
     "sfx_prompt_refine": "sfx_prompts_artifact.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
+    "junction_feel_audit": "junction_feel_audit.schema.json",
 }
 
 # stage_key -> on-disk relative path (under run dir)
@@ -68,10 +70,12 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "edl_narrative_audit": "master/edl_narrative_audit.json",
     "edl": "master/edl.json",
     "transitions": "master/transitions.json",
+    "synthetic_framing_plan": "understanding/synthetic_framing_plan.json",
     "podcast_sfx_brief": "master/podcast_sfx_brief.json",
     "sound_design_plan": "understanding/sound_design_plan.json",
     "sfx_prompt_craft": "sound_design/sfx_prompts.json",
     "sfx_prompt_refine": "sound_design/sfx_prompts.json",
+    "junction_feel_audit": "master/junction_feel_audit.json",
 }
 
 def _schemas_dir() -> Path:
@@ -328,12 +332,55 @@ def validate_junction_feel_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("junction_feel_audit.schema.json", data)
 
 
+def validate_seam_autopsy(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("seam_autopsy.schema.json", data)
+
+
+def validate_failure_review(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("failure_review.schema.json", data)
+
+
+def validate_remediation_plan(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("remediation_plan.schema.json", data)
+
+
+def validate_remediation_run_log(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("remediation_run_log.schema.json", data)
+
+
+def validate_post_master_quality(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("post_master_quality.schema.json", data)
+
+
+def validate_listener_scorecard(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("listener_scorecard.schema.json", data)
+
+
+def validate_synthetic_context_packet(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("synthetic_context_packet.schema.json", data)
+
+
+def validate_render_ledger(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("render_ledger.schema.json", data)
+
+
+def validate_synthetic_framing_plan(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("synthetic_framing_plan.schema.json", data)
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "master/edl.json": validate_edl,
     "master/junction_snip_qa.json": validate_junction_snip_qa,
     "master/junction_feel_audit.json": validate_junction_feel_audit,
+    "master/seam_autopsy.json": validate_seam_autopsy,
+    "master/failure_review.json": validate_failure_review,
+    "master/remediation_plan.json": validate_remediation_plan,
+    "master/remediation_run_log.json": validate_remediation_run_log,
+    "master/post_master_quality.json": validate_post_master_quality,
+    "master/listener_scorecard.json": validate_listener_scorecard,
+    "master/render_ledger.json": validate_render_ledger,
     "master/edl_narrative_audit.json": validate_edl_narrative_audit,
     "master/selection.json": validate_master_selection,
     "master/coverage_audit.json": validate_coverage_audit,
@@ -370,6 +417,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/refinement_agenda.json": validate_refinement_agenda,
     "understanding/refinement_ledger.json": validate_refinement_ledger,
     "understanding/refinement_plan.json": validate_refinement_plan,
+    "understanding/synthetic_context_packet.json": validate_synthetic_context_packet,
+    "understanding/synthetic_framing_plan.json": validate_synthetic_framing_plan,
 }
 
 def validate_artifact_write(rel_path: str, data: dict[str, Any]) -> list[str]:

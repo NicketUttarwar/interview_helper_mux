@@ -314,6 +314,9 @@ def run_episode_cover_prompt_craft(ctx: RunContext) -> None:
 
 
 def run_podcast_encode_mp3(ctx: RunContext) -> None:
+    from interview_mux.post_master_quality import require_publishable
+
+    require_publishable(ctx, stage="podcast_encode_mp3")
     # Read upstream master from final/prior path — ctx.path() is the active
     # staging root and would miss master/master.wav written by master_finalize.
     master = ctx.read_path("master/master.wav")
@@ -510,9 +513,11 @@ def run_podcast_publish(ctx: RunContext) -> None:
     """
     from datetime import datetime, timezone
 
+    from interview_mux.post_master_quality import require_publishable
     from interview_mux.podcast_rss.chapters import build_timed_chapters
     from interview_mux.podcast_rss.openai_cover import require_cover_min_size
 
+    require_publishable(ctx, stage="podcast_publish")
     layout = s3_layout()
     files = layout["episode_files"]
 

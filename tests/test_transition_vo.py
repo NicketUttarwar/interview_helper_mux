@@ -41,7 +41,13 @@ def test_build_flow1_edl_transition_duration_from_wav(tmp_path: Path, monkeypatc
     assert len(tr_clips) == 1
     assert tr_clips[0]["duration_ms"] == 1500
     assert tr_clips[0].get("source_path")
-    assert edl["timeline_duration_ms"] == 1000 + 1500 + 1000
+    # Speech + transition + optional air pads around the spoken hinge.
+    silence_ms = sum(
+        int(c.get("duration_ms") or 0)
+        for c in edl["clips"]
+        if c.get("type") == "silence"
+    )
+    assert edl["timeline_duration_ms"] == 1000 + 1500 + 1000 + silence_ms
 
 
 def test_assert_spoken_transitions_blocks_zero_duration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

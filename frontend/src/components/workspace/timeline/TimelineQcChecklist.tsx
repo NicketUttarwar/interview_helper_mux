@@ -93,6 +93,9 @@ export function TimelineQcChecklist({
     { key: "narrative_qc", label: "Narrative QC" },
     { key: "edl_narrative_qc", label: "EDL narrative QC" },
     { key: "edl_qc", label: "EDL timeline QC" },
+    { key: "junction_snip_qa", label: "Seam repairs" },
+    { key: "seam_autopsy", label: "Seam commitment" },
+    { key: "post_master_quality", label: "Final listener quality" },
   ].filter((b) => qc[b.key as keyof typeof qc]);
 
   if (!qcBlocks.length && !liveWarnings.length) return null;
@@ -118,11 +121,14 @@ export function TimelineQcChecklist({
       {qcBlocks.map((b) => {
         const summary = qc[b.key as keyof typeof qc] as {
           status?: string;
+          passed?: boolean;
           message?: string;
           errors?: string[];
+          failed_checks?: string[];
         };
-        const status = summary?.status || "unknown";
-        const errors = summary?.errors || [];
+        const status =
+          summary?.status || (summary?.passed === true ? "pass" : summary?.passed === false ? "fail" : "unknown");
+        const errors = summary?.errors || summary?.failed_checks || [];
         return (
           <div key={b.key} className={`qc-inline-card status-${status}`}>
             <strong>{b.label}</strong>

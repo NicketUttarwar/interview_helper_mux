@@ -210,7 +210,18 @@ def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
             and not state.get("auto_promoted_once")
         ):
             try:
-                take_best_candidate(ctx, remaster=False, runner=None)
+                # A promoted order is not live until its EDL and mix agree.
+                # The daemon has no JobRunner, so remaster synchronously.
+                result = take_best_candidate(
+                    ctx,
+                    remaster=bool(cfg.get("auto_promote_remaster", True)),
+                    sync_remaster=bool(cfg.get("always_auto_apply_best", True)),
+                    runner=None,
+                )
+                if not result.get("ok"):
+                    raise RuntimeError(str(result.get("error") or "take-best failed"))
+                if result.get("order_changed") and not result.get("remaster_started"):
+                    raise RuntimeError("promoted order was not remastered")
                 state = load_optimizer_state(ctx)
                 state["auto_promoted_once"] = True
                 # Reset soft counters so endless search continues exploring
@@ -221,7 +232,8 @@ def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
                 state["plateau_streak"] = 0
                 save_optimizer_state(ctx, state)
                 ctx.log(
-                    "timeline_optimizer auto-promoted best on plateau (daemon continues)",
+                    "timeline_optimizer auto-promoted and remastered best on plateau "
+                    "(daemon continues)",
                     level="info",
                     stage="timeline_optimizer",
                 )

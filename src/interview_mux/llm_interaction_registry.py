@@ -35,6 +35,7 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "podcast_sfx_brief": "OF-L1",
     "sfx_brief": "OF-L2",
     "sfx_prompt_refine": "OF-L3",
+    "junction_feel_audit": "OH-J1",
 }
 
 SPECIALIST_IDS: dict[str, str] = {

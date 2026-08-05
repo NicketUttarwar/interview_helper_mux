@@ -105,7 +105,7 @@ def test_wildcard_vo_does_not_cover_reorder_pair():
     assert missing[0]["after_segment_id"] == "seg_010"
 
 
-def test_pair_transition_covers_and_mints():
+def test_pair_transition_covers_and_mints(monkeypatch):
     bridges = {
         "pairs": [
             {
@@ -127,6 +127,13 @@ def test_pair_transition_covers_and_mints():
     import tempfile
     from pathlib import Path
 
+    from interview_mux.synthetic_framing import synthetic_framing_cfg
+
+    monkeypatch.setattr(
+        "interview_mux.synthetic_framing.synthetic_framing_cfg",
+        lambda cfg=None: {**synthetic_framing_cfg(), "allow_canned_bridge_fallback": True},
+    )
+
     with tempfile.TemporaryDirectory() as td:
         ctx = _FakeCtx(Path(td))
         doc = mint_missing_transitions(ctx, missing, transitions={"transitions": []})
@@ -134,6 +141,7 @@ def test_pair_transition_covers_and_mints():
             t.get("after_segment_id") == "seg_010"
             and t.get("before_segment_id") == "seg_002"
             and t.get("text")
+            and t.get("canned_bridge_fallback")
             for t in doc["transitions"]
         )
         still = missing_reorder_bridges(bridges, transitions=doc)

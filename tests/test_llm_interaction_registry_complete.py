@@ -91,9 +91,11 @@ def test_resolve_interaction_id_only_returns_registered_ids():
         {"stage_key": "content_context", "task_kind": "collate", "volley_retry_index": 1},
         {"stage_key": "content_context", "task_kind": "local_primary", "provider": "local_mlx"},
         {"stage_key": "content_context__itr", "task_kind": "itr", "provider": "local_mlx"},
+        {"stage_key": "junction_feel_audit", "task_kind": "primary"},
     ]
     for case in cases:
         assert resolve_interaction_id(**case) in ids, case
+    assert resolve_interaction_id(stage_key="junction_feel_audit", task_kind="primary") == "OH-J1"
 
 
 def test_run_prompt_envelope_sites_in_expected_modules():

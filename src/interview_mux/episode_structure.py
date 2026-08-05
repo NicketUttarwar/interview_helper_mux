@@ -726,6 +726,10 @@ def refresh_episode_structure(ctx: RunContext) -> dict[str, Any]:
 
 
 def run_episode_structure_compose(ctx: RunContext) -> None:
+    from interview_mux.stages.segmentation import _assert_boundary_quality
+
+    # Late drift hard-stop before delivery handoff.
+    _assert_boundary_quality(ctx)
     if not structure_enabled():
         ctx.log("episode_structure_compose skipped (structure.enabled=false)", level="info", stage="episode_structure_compose")
         ctx.mark_done("episode_structure_compose")

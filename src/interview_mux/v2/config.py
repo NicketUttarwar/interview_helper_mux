@@ -83,6 +83,7 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "synthetic_framing_plan",
         "transitions",
         "sound_design_plan",
         "sfx_prompt_craft",

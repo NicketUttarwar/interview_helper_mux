@@ -25,5 +25,9 @@ export const understanding_gap_report_jsonSchema = z.object({
   "severity": z.enum(["low", "medium", "high", "critical"]).optional(),
   "blocking": z.boolean().optional(),
   "skipped_optional": z.boolean().optional(),
+  "prior_segment_id": z.string().nullable().optional(),
+  "prior_impact_beat": z.boolean().optional(),
+  "prior_complete_thought": z.boolean().optional(),
+  "density_forced": z.boolean().optional(),
 })),
 });

@@ -7,7 +7,7 @@
     "version": { "type": "integer", "const": 1 },
     "verdict": {
       "type": "string",
-      "enum": ["pass", "soft_pass", "fail", "remux_suggested"]
+      "enum": ["pass", "soft_pass", "fail", "remux_suggested", "unavailable"]
     },
     "skipped": { "type": "boolean" },
     "reason": { "type": "string" },

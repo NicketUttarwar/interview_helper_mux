@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ListenerScorecard",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "overall",
+    "dimensions",
+    "quality_status",
+    "publish_allowed"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "overall": { "type": "number", "minimum": 0, "maximum": 1 },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "quality_status": { "type": "string", "enum": ["pass", "fail"] },
+    "publish_allowed": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

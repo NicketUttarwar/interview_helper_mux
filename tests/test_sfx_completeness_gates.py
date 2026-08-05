@@ -23,15 +23,30 @@ def test_collect_generation_items_includes_uncued_assets(tmp_path, monkeypatch):
             "coherence": {"sonic_identity": "", "primary_mood": "", "density": ""},
             "palettes": [],
             "assets": [
-                {"asset_id": "bed_a", "role": "ambient_bed", "description": "Bed", "duration_seconds": 6.0},
-                {"asset_id": "sting_b", "role": "chapter_stinger", "description": "Sting", "duration_seconds": 1.4},
-                {"asset_id": "foley_c", "role": "accent_foley", "description": "Foley", "duration_seconds": 2.0},
+                {
+                    "asset_id": "theme_a",
+                    "role": "theme_underscore",
+                    "description": "Bed",
+                    "duration_seconds": 6.0,
+                },
+                {
+                    "asset_id": "theme_b",
+                    "role": "theme_cold_open",
+                    "description": "Cold open",
+                    "duration_seconds": 4.0,
+                },
+                {
+                    "asset_id": "theme_c",
+                    "role": "theme_bookend",
+                    "description": "Bookend",
+                    "duration_seconds": 3.0,
+                },
             ],
             "flow_plans": {
                 "podcast": {
                     "profile": "podcast",
                     "cues": [
-                        {"cue_id": "c1", "asset_id": "bed_a", "placement": "under_segment"},
+                        {"cue_id": "c1", "asset_id": "theme_a", "placement": "under_segment"},
                     ],
                 },
                 "flow2": {"profile": "montage", "cues": []},
@@ -40,7 +55,7 @@ def test_collect_generation_items_includes_uncued_assets(tmp_path, monkeypatch):
         },
     )
     items = sfx_mmaudio._collect_generation_items(ctx=ctx, profile="podcast", fallback_cues=[])
-    assert [row["asset_id"] for row in items] == ["bed_a", "sting_b", "foley_c"]
+    assert [row["asset_id"] for row in items] == ["theme_a", "theme_b", "theme_c"]
 
 
 def test_mix_gate_enforced_under_soft_progression_when_creative(tmp_path, monkeypatch):

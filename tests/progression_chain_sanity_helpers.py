@@ -212,6 +212,16 @@ def write_stage_producer_artifact(
     elif stage_id == "boundary_detection":
         doc = _enrich_boundaries(fixtures.get("boundary_detection") or {"boundaries": []})
     elif stage_id == "content_brief_reanchor":
+        # Reanchor has its own authoritative fixture.  Reusing a prior sparse
+        # content_context artifact makes the full contract sanity test fail for
+        # reasons unrelated to the reanchor producer.
+        fixture_doc = fixtures.get("content_brief_reanchor")
+        if isinstance(fixture_doc, dict):
+            ctx.write_json(
+                "understanding/content_brief.json",
+                fixture_doc,
+                skip_handoff=True,
+            )
         sync_content_brief_topic_segment_ids(ctx)
         doc = ctx.read_json("understanding/content_brief.json")
     elif stage_id == "sonic_context_build":
@@ -497,6 +507,14 @@ def run_progression_chain_sanity(
         ctx.write_json("segments/manifest.json", manifest, skip_handoff=True)
         sync_content_brief_topic_segment_ids(ctx)
         ensure_reanchored_content_brief(ctx)
+        fixture_reanchor = fixtures.get("content_brief_reanchor")
+        if isinstance(fixture_reanchor, dict):
+            ctx.write_json(
+                "understanding/content_brief.json",
+                fixture_reanchor,
+                skip_handoff=True,
+            )
+            sync_content_brief_topic_segment_ids(ctx)
         ctx.mark_done("segment_classification", force=True)
         from interview_mux.write_staging import discard_stage_writes
 

@@ -567,7 +567,8 @@ def check_edl_narrative_qc(
 
             notes = repair_edl_narrative_selection(ctx)
             if notes:
-                errors = validate_flow1_edl_narrative(ctx, None)
+                # Keep validating the in-memory EDL — it is not on disk yet at this gate.
+                errors = validate_flow1_edl_narrative(ctx, edl)
                 ctx.log(
                     f"EDL narrative repair applied ({len(notes)} action(s))",
                     level="info",

@@ -153,14 +153,24 @@ def normalize_envelope(raw: dict[str, Any]) -> dict[str, Any]:
             legacy = {k: v for k, v in raw.items() if k not in ENVELOPE_KEYS}
             if legacy:
                 env["artifacts"] = legacy
+        conf = env.get("confidence")
+        try:
+            env["confidence"] = float(conf) if conf is not None else 0.0
+        except (TypeError, ValueError):
+            env["confidence"] = 0.0
         return env
+    conf_raw = raw.get("confidence") if isinstance(raw, dict) else None
+    try:
+        confidence = float(conf_raw) if conf_raw is not None else 0.0
+    except (TypeError, ValueError):
+        confidence = 0.0
     return {
         "status": "complete",
         "artifacts": raw,
         "memory_updates": {},
         "needs": [],
         "follow_up_investigations": [],
-        "confidence": None,
+        "confidence": confidence,
         "reasoning_summary": "",
     }
 

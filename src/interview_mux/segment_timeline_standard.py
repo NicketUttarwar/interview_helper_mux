@@ -34,6 +34,7 @@ def segmentation_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "boundary_merge_threshold_ms": 200,
         "micro_segment_lint_max": 400,
         "min_bed_segment_ms_fine": 6000,
+        "reject_coarse_fallback": True,
     }
     return {**defaults, **raw}
 

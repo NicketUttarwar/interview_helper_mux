@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SeamAutopsy",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "phase",
+    "commitment",
+    "scores",
+    "seams",
+    "blocking_reasons"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "phase": {
+      "type": "string",
+      "enum": ["pre_edl", "post_mix", "post_junction", "post_master"]
+    },
+    "order_content_hash": { "type": ["string", "null"] },
+    "commitment": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "committed", "diverged", "stale"]
+        },
+        "repairs_claimed": { "type": "integer", "minimum": 0 },
+        "repairs_committed": { "type": "integer", "minimum": 0 },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scores": {
+      "type": "object",
+      "required": [
+        "continuity",
+        "finishability",
+        "sonic_density_fit",
+        "information_clarity",
+        "music_completeness"
+      ],
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "guides": { "type": "object", "additionalProperties": true },
+    "pack_conflicts": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "seams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "seam_id",
+          "after_segment_id",
+          "before_segment_id",
+          "listen_score",
+          "risk_codes",
+          "preferred_glue",
+          "pair_continuity_hash"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "worst_seam_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "blocking_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

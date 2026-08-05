@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FailureReview",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "run_index",
+    "trigger",
+    "severity",
+    "broken_pieces",
+    "piece_count",
+    "complete_inventory"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "run_index": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "trigger": { "type": "string" },
+    "trigger_detail": { "type": "object", "additionalProperties": true },
+    "failed_check": { "type": "string" },
+    "severity": { "type": "string" },
+    "broken_pieces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "piece_id",
+          "kind",
+          "severity",
+          "owning_stage",
+          "target_ids",
+          "evidence",
+          "listener_impact"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "piece_count": { "type": "integer", "minimum": 0 },
+    "listener_impacts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "complete_inventory": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": true
+}

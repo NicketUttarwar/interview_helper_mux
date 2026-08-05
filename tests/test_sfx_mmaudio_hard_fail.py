@@ -17,6 +17,7 @@ def test_generate_with_retry_hard_fail_logs_and_raises(tmp_path, monkeypatch) ->
     def always_fail(**kwargs):
         raise sfx_mmaudio.MMAudioUnavailable("timeout")
 
+    monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: False)
     monkeypatch.setattr(sfx_mmaudio, "generate_text_to_audio", always_fail)
 
     with pytest.raises(sfx_mmaudio.MMAudioUnavailable, match="timeout"):

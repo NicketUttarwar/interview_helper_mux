@@ -311,6 +311,9 @@ def build_pre_audio_readiness_report(ctx: RunContext) -> dict[str, Any]:
     }
 
 def assert_delivery_ready(ctx: RunContext, *, target_stage: str = "topic_coverage_audit") -> None:
+    from interview_mux.stages.segmentation import _assert_boundary_quality
+
+    _assert_boundary_quality(ctx)
     report = build_delivery_readiness_report(ctx, target_stage=target_stage)
     if report["ready"]:
         return

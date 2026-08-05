@@ -578,7 +578,16 @@ export interface RunMeta {
   };
   qc_summaries?: Record<
     string,
-    { passed: boolean; strict?: boolean; errors?: string[] }
+    {
+      passed: boolean;
+      strict?: boolean;
+      status?: string;
+      errors?: string[];
+      failed_checks?: string[];
+      blocking?: boolean;
+      message?: string;
+      [key: string]: unknown;
+    }
   >;
   disfluency_restore?: { enabled?: boolean };
   sfx_listen_results?: SfxListenResult[];

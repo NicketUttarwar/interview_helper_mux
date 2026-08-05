@@ -259,6 +259,7 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
         if s
         not in {
             "audio_preclean",
+            "audio_probe_build",
             "speaker_roles",
             "boundary_detection",
             "segment_classification",
@@ -269,9 +270,17 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
             "missing_framing",
             "gap_framing_compose",
             "boundary_topic_resplit",
+            "vernacular_segment_sanitize",
             "delivery_brief_build",
             "soundscape_policy_build",
             "episode_structure_compose",
+            "mastering_research_routing",
+            "mastering_research_waves",
+            "mastering_research_rollup",
+            "mastering_shape_agenda",
+            "mastering_shape_candidates",
+            "mastering_plan_synthesize",
+            "mastering_plan_confirm",
         }
     }
     flow_with_inputs = {
@@ -295,8 +304,15 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
             "edl_narrative_audit",
             "edl_narrative_refine",
             "edl",
+            "listen_delight_audit",
             "sfx_prompt_craft",
             "mmaudio_sfx",
+            "junction_snip_qa",
+            "episode_meta_build",
+            "episode_cover_prompt_craft",
+            "podcast_encode_mp3",
+            "episode_cover_generate",
+            "podcast_publish",
         }
     }
     assert analysis_with_inputs <= covered

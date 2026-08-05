@@ -227,10 +227,12 @@ def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
 def test_analysis_order_places_sonic_context_and_palettes_after_content_brief_reanchor():
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
     resplit_idx = ANALYSIS_ORDER.index("boundary_topic_resplit")
+    vernacular_idx = ANALYSIS_ORDER.index("vernacular_segment_sanitize")
     sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert resplit_idx == reanchor_idx + 1
-    assert sonic_idx == resplit_idx + 1
+    assert vernacular_idx == resplit_idx + 1
+    assert sonic_idx == vernacular_idx + 1
     assert pal_idx == sonic_idx + 1
 
 

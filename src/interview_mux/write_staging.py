@@ -144,6 +144,40 @@ def write_mirrored_text(ctx: RunContext, rel: str, text: str) -> Path:
     return final
 
 
+def promote_staged_side_effects(
+    ctx: RunContext,
+    rels: list[str] | tuple[str, ...],
+    *,
+    stage_id: str | None = None,
+) -> list[str]:
+    """Commit staged paths that StageInfo does not claim (side-effect remasters).
+
+    Staging flush only promotes operator-visible StageInfo outputs, then deletes
+    the staging tree.  Junction remasters of EDL/assembly must land in the
+    committed run tree or the repairs vanish on stage completion.
+    """
+    sid = stage_id or _active_stage.get()
+    if not sid:
+        return []
+    root = staging_root(ctx, sid)
+    if not root.is_dir():
+        return []
+    from interview_mux.file_store import atomic_copy
+
+    flushed: list[str] = []
+    for rel in rels:
+        if not rel or rel.endswith("/"):
+            continue
+        src = root.joinpath(*rel.split("/"))
+        if not src.is_file():
+            continue
+        dest = ctx.final_path(*rel.split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        atomic_copy(src, dest)
+        flushed.append(rel)
+    return flushed
+
+
 def _transcript_has_operator_edits(doc: Any) -> bool:
     if not isinstance(doc, dict):
         return False

@@ -145,6 +145,16 @@
       ],
       "has_write_validator": true
     },
+    "master/edl.json": {
+      "schemas_by_producer": {
+        "edl": null
+      },
+      "producers": [
+        "edl"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "master/transitions.json": {
       "schemas_by_producer": {
         "transitions": "transitions_artifact.schema.json"
@@ -155,6 +165,16 @@
       "consumers": [
         "transitions"
       ],
+      "has_write_validator": true
+    },
+    "understanding/synthetic_framing_plan.json": {
+      "schemas_by_producer": {
+        "synthetic_framing_plan": "synthetic_framing_plan.schema.json"
+      },
+      "producers": [
+        "synthetic_framing_plan"
+      ],
+      "consumers": [],
       "has_write_validator": true
     },
     "master/podcast_sfx_brief.json": {
@@ -182,6 +202,16 @@
         "sfx_prompt_craft",
         "sfx_prompt_refine"
       ],
+      "has_write_validator": true
+    },
+    "master/junction_feel_audit.json": {
+      "schemas_by_producer": {
+        "junction_feel_audit": "junction_feel_audit.schema.json"
+      },
+      "producers": [
+        "junction_feel_audit"
+      ],
+      "consumers": [],
       "has_write_validator": true
     }
   }

@@ -13,15 +13,14 @@
   },
   "assembly": {
     "reads": [
+      "master/assembly_ledger.json",
       "master/edl.json",
       "master/edl_narrative_audit.json",
       "master/selection.json",
       "master/transitions.json",
-      "understanding/gap_report.json",
-      "understanding/reorder_bridges.json"
+      "understanding/gap_report.json"
     ],
     "writes": [
-      "master/bridge_completeness.json",
       "master/edl.json",
       "master/selection.json"
     ]
@@ -100,8 +99,29 @@
     "writes": []
   },
   "mastering": {
-    "reads": [],
+    "reads": [
+      "master/selection.json"
+    ],
     "writes": []
+  },
+  "podcast_publish": {
+    "reads": [
+      "master/narrative_plan.json",
+      "master/selection.json",
+      "publish/cover_meta.json",
+      "publish/cover_prompt.json",
+      "publish/episode_meta.json",
+      "run_meta.json",
+      "understanding/content_brief.json"
+    ],
+    "writes": [
+      "publish/cover_meta.json",
+      "publish/cover_pick.json",
+      "publish/cover_prompt.json",
+      "publish/episode_meta.json",
+      "publish/package_ready.json",
+      "publish/publish_result.json"
+    ]
   },
   "segmentation": {
     "reads": [

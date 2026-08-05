@@ -9,6 +9,9 @@ from interview_mux.run_context import RunContext
 # Chapter-scale source jump — spoken hinge required (and stinger when music on).
 CHAPTER_SCALE_GAP_MS = 60_000
 
+# Only used when mastering.synthetic_framing.allow_canned_bridge_fallback is on.
+CANNED_BRIDGE_TEXT = "There is more to that story."
+
 
 def _chapter_ends_from_plan(plan: dict[str, Any] | None) -> set[str]:
     ends: set[str] = set()
@@ -130,7 +133,21 @@ def mint_missing_transitions(
         for t in items
     }
 
+    synthetic_plan = (
+        ctx.read_json("understanding/synthetic_framing_plan.json")
+        if ctx.artifact_exists("understanding/synthetic_framing_plan.json")
+        else None
+    )
+    from interview_mux.synthetic_framing import (
+        planned_transition_for_pair,
+        synthetic_framing_cfg,
+    )
+
     minted = 0
+    unplanned: list[str] = []
+    allow_canned = bool(
+        synthetic_framing_cfg().get("allow_canned_bridge_fallback", False)
+    )
     for pair in missing:
         if not isinstance(pair, dict):
             continue
@@ -138,7 +155,30 @@ def mint_missing_transitions(
         b = str(pair.get("before_segment_id") or "")
         if not a or not b or (a, b) in existing:
             continue
-        text = default_bridge_text(pair)
+        planned = planned_transition_for_pair(synthetic_plan, a, b)
+        if not planned:
+            if not allow_canned:
+                unplanned.append(f"{a}->{b}")
+                continue
+            text = CANNED_BRIDGE_TEXT
+            assert_speakable_or_raise(text, context="transition")
+            tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
+            items.append(
+                {
+                    "after_segment_id": a,
+                    "before_segment_id": b,
+                    "text": text,
+                    "type": tr_type,
+                    "auto_minted": True,
+                    "canned_bridge_fallback": True,
+                    "kind": pair.get("kind") or "reorder",
+                    "source_gap_ms": pair.get("source_gap_ms"),
+                }
+            )
+            existing.add((a, b))
+            minted += 1
+            continue
+        text = str(planned.get("text") or "").strip()
         assert_speakable_or_raise(text, context="transition")
         tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
         items.append(
@@ -147,7 +187,10 @@ def mint_missing_transitions(
                 "before_segment_id": b,
                 "text": text,
                 "type": tr_type,
-                "auto_minted": True,
+                "auto_minted": False,
+                "synthetic_plan_line_id": planned.get("line_id"),
+                "target_duration_ms": planned.get("target_duration_ms"),
+                "comprehension_reason": planned.get("comprehension_reason"),
                 "kind": pair.get("kind") or "reorder",
                 "source_gap_ms": pair.get("source_gap_ms"),
             }
@@ -155,11 +198,22 @@ def mint_missing_transitions(
         existing.add((a, b))
         minted += 1
 
+    if unplanned:
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Synthetic framing plan did not cover every required reorder seam: "
+            + ", ".join(unplanned[:8]),
+            stage="edl",
+            reason="synthetic_plan_missing_required_seams",
+            detail={"missing_pairs": unplanned, "canned_fallback_disabled": True},
+        )
     doc["transitions"] = items
     if minted:
         ctx.write_json("master/transitions.json", doc)
         ctx.log(
-            f"seam_glue: auto-minted {minted} spoken transition(s) for naked reorder joins",
+            f"seam_glue: materialized {minted} planned spoken transition(s) for reorder joins",
             level="info",
             stage="edl",
             detail={"minted": minted},

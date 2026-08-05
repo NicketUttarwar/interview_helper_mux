@@ -70,6 +70,16 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("PATCH", "/api/runs/{run_id}/soundscape-policy/overrides"),
         ("POST", "/api/runs/{run_id}/action-trace/dump-last"),
         ("POST", "/api/runs/{run_id}/reuse-from-previous"),
+        ("POST", "/api/runs/{run_id}/g-listen/continue"),
+        ("POST", "/api/runs/{run_id}/g-listen/skip"),
+        ("POST", "/api/runs/{run_id}/g-publish/continue"),
+        ("POST", "/api/runs/{run_id}/g-publish/skip"),
+        ("POST", "/api/runs/{run_id}/g-publish/sync"),
+        ("POST", "/api/runs/{run_id}/music-listen/approve"),
+        ("POST", "/api/runs/{run_id}/timeline-optimizer/start"),
+        ("POST", "/api/runs/{run_id}/timeline-optimizer/stop"),
+        ("POST", "/api/runs/{run_id}/timeline-optimizer/skip"),
+        ("POST", "/api/runs/{run_id}/timeline-optimizer/take-best"),
     }
 )
 

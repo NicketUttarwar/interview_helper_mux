@@ -3,23 +3,29 @@ Audit the planned Flow 1 edit decision list before `edl` writes the final timeli
 Use the local-volley framing and prior stage context, but make the final judgment from the evidence in this stage input.
 
 Goals:
-- Check whether the selected order preserves the `narrative_plan` arc and ordering constraints.
+- Check whether the selected order preserves a coherent arc *within the selected air order*.
 - Confirm topic and claim coverage from `coverage_audit` still survives after `selection` and `nle_edits`.
 - Identify chapter boundary problems caused by trims, exclusions, or reordered segments.
 - Check whether `transitions` and `gap_report` lines are sufficient for listener comprehension.
 - Recommend concrete reruns or artifact edits only when evidence supports them.
 
+Authority:
+- `selection.ordered_segment_ids` is the air-order authority.
+- Do **not** fail solely because early `narrative_plan` chapters lost all selected segments after an intentional tight cut.
+- Do **not** recommend restoring `excluded_segment_ids` or re-expanding ranking to fill empty chapter shells.
+- When narrative chapters reference excluded material, recommend aligning `narrative_plan` down to selection (drop empty chapters / out-of-selection constraints), not reinclusion.
+
 Verdict rules:
 - `pass`: no blocking issue and only minor or no warnings.
-- `warn`: minor craft or polish issue; `edl` can proceed.
-- `fail`: listener comprehension, coverage, chapter continuity, ordering constraints, or gap placement is likely broken.
+- `warn`: minor craft or polish issue; `edl` can proceed. Includes intentional early-act omissions after a coherent selected spine remains.
+- `fail`: listener comprehension, coverage, chapter continuity, ordering constraints, or gap placement is likely broken **inside the selected order**.
 
 Do not:
 - Invent segment ids, chapter ids, or gap line ids.
 - Ask for new interview content unless `gap_report` already indicates a missing recordable line.
 - Block on subjective polish if deterministic artifacts are coherent.
 - Re-score the whole episode; focus on final timeline narrative readiness.
-
+- Treat leftover / excluded segments as required air.
 Output only the required envelope artifact:
 
 {
@@ -63,15 +69,17 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 - Transition density high but comprehension OK.
 - Emphasis region unmappable to beat (from specialist) but not thesis-critical.
 - STT quality warnings in non-hook regions.
+- Early `narrative_plan` chapters empty after intentional selection; remaining selected spine is coherent.
+- Stale `coverage_audit` rows still mark excluded segments covered — prefer aligning coverage, not restoring air.
 
 ### `fail` (block EDL)
 
-- Broken `ordering_constraints` or prerequisite topic order inverted.
-- Brief topic or key claim with zero representation post-selection.
+- Broken `ordering_constraints` among **selected** segments (ignore constraints that cite excluded ids).
+- Brief topic or key claim with zero representation post-selection **and** no documented exclude.
 - `high` severity gap with no VO, no transition, segment still in master.
-- Duplicate `segment_id` in order, missing segment referenced by transition/VO, or chapter open pointing to excluded segment.
+- Duplicate `segment_id` in order, missing segment referenced by transition/VO, or chapter open pointing to excluded segment that is still required by a selected constraint.
 - `gap_report` line targets excluded segment.
 - Panel handoff leaves listener unable to identify who speaks next (missing name when two guests alternate after reorder).
-- `cross_artifact_invalid` pattern: coverage_audit says covered but ranking excluded sole segment.
+- Selected-order continuity broken (not "early acts were cut").
 
-**Quality bar:** Each `blocking_issues[]` entry names artifact paths/ids and one actionable `recommended_action`; `warnings` never use `fail` criteria.
+**Quality bar:** Each `blocking_issues[]` entry names artifact paths/ids and one actionable `recommended_action`; `warnings` never use `fail` criteria. Never recommend leftover reinclusion.

@@ -278,7 +278,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Mastering plan synthesize",
         "Synthesize mastering plan from candidates.",
         "analysis",
-        ("mastering/plan.json",),
+        ("mastering/mastering_plan.json",),
         (),
     ),
     StageInfo(
@@ -286,7 +286,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Mastering plan confirm",
         "Confirm mastering plan before gaps/delivery.",
         "analysis",
-        ("mastering/plan.json",),
+        ("mastering/mastering_plan.json",),
         (),
     ),
 )
@@ -398,7 +398,11 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Transitions",
         "Generate interviewer bridge lines between segments.",
         "delivery",
-        ("master/transitions.json",),
+        (
+            "master/transitions.json",
+            "understanding/synthetic_framing_plan.json",
+            "understanding/synthetic_context_packet.json",
+        ),
         ("master/transitions.json",),
     ),
     StageInfo(
@@ -526,10 +530,19 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Junction snip QA",
         "Deterministic start/end snip QA on every junction, then one feel audit; remaster when repairs apply.",
         "delivery",
-        # Own reports only — edl/assembly are upstream (edl/mix); junction may rewrite them
-        # as side effects but must not claim them as outputs (invalidation would archive EDL
-        # when re-running from mix).
-        ("master/junction_snip_qa.json", "master/junction_feel_audit.json"),
+        # Reports + commitment artifacts.  EDL/assembly remasters are side effects
+        # flushed by write staging (not listed here so clear_from(mix) does not
+        # archive the upstream EDL ownership).
+        (
+            "master/junction_snip_qa.json",
+            "master/junction_feel_audit.json",
+            "master/seam_autopsy.json",
+            "master/render_ledger.json",
+            "master/failure_review.json",
+            "master/remediation_plan.json",
+            "master/remediation_run_log.json",
+            "sound_design/placement_adjustments.json",
+        ),
         (),
     ),
     StageInfo(
@@ -537,7 +550,10 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Master export",
         "Apply loudness mastering (−16 LUFS) and export the final podcast.",
         "delivery",
-        (),
+        (
+            "master/post_master_quality.json",
+            "master/listener_scorecard.json",
+        ),
         (),
         ("master/master.wav",),
     ),

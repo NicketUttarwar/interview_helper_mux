@@ -39,7 +39,11 @@
               "trim_hint_ms",
               "severity",
               "blocking",
-              "skipped_optional"
+              "skipped_optional",
+              "prior_segment_id",
+              "prior_impact_beat",
+              "prior_complete_thought",
+              "density_forced"
             ],
             "properties": {
               "line_id": {
@@ -188,6 +192,30 @@
                 ]
               },
               "skipped_optional": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "prior_segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prior_impact_beat": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "prior_complete_thought": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "density_forced": {
                 "type": [
                   "boolean",
                   "null"

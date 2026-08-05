@@ -10,9 +10,12 @@
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | — |
-| `edl` | process | — |
+| `edl` | process | master/edl.json |
 | `edl_narrative_audit` | llm_full | master/edl_narrative_audit.json |
 | `edl_narrative_refine` | deterministic | — |
+| `episode_cover_generate` | process | — |
+| `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |
+| `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | — |
 | `full_master_ranking` | llm_full | master/selection.json |
 | `g1_vo_pickup` | gate | — |
@@ -20,6 +23,8 @@
 | `gap_framing_recompose` | deterministic | — |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
+| `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
+| `junction_snip_qa` | process | — |
 | `listen_delight_audit` | process | — |
 | `master_finalize` | process | — |
 | `mastering_plan_confirm` | process | — |
@@ -35,6 +40,8 @@
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | deterministic | — |
 | `optimal_questions` | llm_full | understanding/gap_report.json |
+| `podcast_encode_mp3` | process | — |
+| `podcast_publish` | process | — |
 | `podcast_sfx_brief` | llm_full | master/podcast_sfx_brief.json |
 | `ranking_refine` | deterministic | — |
 | `refinement_agenda` | deterministic | — |
@@ -53,6 +60,7 @@
 | `source_acoustic_profile` | deterministic | — |
 | `source_topology_build` | process | — |
 | `speaker_roles` | llm_full | understanding/speakers.json |
+| `synthetic_framing_plan` | llm_full | understanding/synthetic_framing_plan.json |
 | `topic_coverage_audit` | llm_full | master/coverage_audit.json |
 | `transcribe` | process | — |
 | `transcript_review` | gate | — |

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SyntheticContextPacket",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "ordered_segment_ids",
+    "selected_native_segments",
+    "native_duration_ms",
+    "policy"
+  ],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "selection_order_content_hash": { "type": ["string", "null"] },
+    "ordered_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "selected_native_segments": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "native_duration_ms": { "type": "integer", "minimum": 0 },
+    "policy": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true
+}

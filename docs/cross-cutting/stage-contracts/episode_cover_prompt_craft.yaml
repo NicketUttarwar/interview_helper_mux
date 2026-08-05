@@ -1,0 +1,31 @@
+stage_id: episode_cover_prompt_craft
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: publish/cover_prompt.json
+  schema: null
+  staging: true
+inputs:
+  hard:
+  - path: publish/episode_meta.json
+    producer: episode_meta_build
+  soft: []
+sufficiency:
+- path: prompt
+  rule: non_empty_string
+  min_length: 1
+propagation:
+  invalidates_stages: []
+consumers:
+- episode_cover_generate
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

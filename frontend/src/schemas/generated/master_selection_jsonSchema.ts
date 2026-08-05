@@ -12,4 +12,8 @@ export const master_selection_jsonSchema = z.object({
   "reason": z.string(),
 })).optional(),
   "notes": z.string().optional(),
+  "order_content_hash": z.string().optional(),
+  "order_authority": z.string().optional(),
+  "optimizer_candidate_id": z.string().optional(),
+  "optimizer_score": z.unknown().optional(),
 });

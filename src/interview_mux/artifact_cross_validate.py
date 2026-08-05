@@ -735,6 +735,7 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
     verdict = _edl_audit_verdict(ctx)
     if verdict != "fail":
         return []
+    from interview_mux.artifact_repairs import _edl_issue_demands_restore_excluded
     from interview_mux.gates import audit_issue_covers_optional_vo_gap
     from interview_mux.v2.config import v2_g1_optional
 
@@ -753,6 +754,8 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
     remaining: list[dict] = []
     for item in issues:
         if not isinstance(item, dict):
+            continue
+        if _edl_issue_demands_restore_excluded(item):
             continue
         text = " ".join(
             str(x)

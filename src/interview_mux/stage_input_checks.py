@@ -347,6 +347,40 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
                     "Mint pair-specific transitions for reorder joins, then re-run edl.",
                 )
             )
+    if not ctx.artifact_exists("master/seam_autopsy.json"):
+        issues.append(
+            StageInputIssue(
+                "master/seam_autopsy.json missing",
+                "Re-run junction_snip_qa so seam decisions and commitment are verified.",
+            )
+        )
+    else:
+        autopsy = ctx.read_json("master/seam_autopsy.json")
+        commitment = autopsy.get("commitment") if isinstance(autopsy, dict) else {}
+        if not isinstance(commitment, dict) or commitment.get("status") != "committed":
+            issues.append(
+                StageInputIssue(
+                    "seam autopsy commitment is not committed",
+                    "Run the bounded junction remediation and remaster before master_finalize.",
+                )
+            )
+    if not ctx.artifact_exists("master/render_ledger.json"):
+        issues.append(
+            StageInputIssue(
+                "master/render_ledger.json missing",
+                "Re-run mix/junction so rendered timing is bound to the current EDL.",
+            )
+        )
+    if (
+        (ctx.is_done("mastering_plan_synthesize") or ctx.is_done("mastering_plan_confirm"))
+        and not ctx.artifact_exists("mastering/mastering_plan.json")
+    ):
+        issues.append(
+            StageInputIssue(
+                "mastering plan stage is complete but mastering/mastering_plan.json is missing",
+                "Re-run mastering_plan_synthesize and confirm the resulting plan.",
+            )
+        )
     return issues
 
 

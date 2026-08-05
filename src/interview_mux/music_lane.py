@@ -382,8 +382,9 @@ def apply_music_lane_exclusivity(
                 continue
             if {prev_lane, lane} == {LANE_BED, LANE_PUNCTUATOR}:
                 # Bed under dialogue + hinge punctuator may coexist; short edge trim only.
+                ps, pe = _overlay_window(prev)
+                overlap = min(end, pe) - max(start, ps)
                 if overlap <= xf * 2:
-                    bed = prev if prev_lane == LANE_BED else ov
                     other_start = start if lane == LANE_PUNCTUATOR else ps
                     if prev_lane == LANE_BED and pe > other_start:
                         _trim_overlay_end(prev, max(ps, other_start + xf))

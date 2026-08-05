@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RemediationRunLog",
+  "type": "object",
+  "required": ["version", "max_runs", "runs", "runs_used", "third_run_forbidden"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "max_runs": { "type": "integer", "const": 2 },
+    "runs": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "run_index",
+          "pieces_targeted",
+          "pieces_resolved",
+          "actions_executed",
+          "completed_at"
+        ],
+        "properties": {
+          "run_index": { "type": "integer", "minimum": 1, "maximum": 2 }
+        },
+        "additionalProperties": true
+      }
+    },
+    "runs_used": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "third_run_forbidden": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": true
+}

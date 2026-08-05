@@ -418,6 +418,12 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
 
 def run_transitions(ctx: RunContext) -> None:
+    # Synthetic framing is authoritative only after the native air order is
+    # stable.  This nested LLM stage builds the complete context packet first.
+    from interview_mux.synthetic_framing import run_synthetic_framing_plan
+
+    synthetic_plan = run_synthetic_framing_plan(ctx)
+
     def build_input(c: RunContext) -> dict:
         manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
         payload = {
@@ -426,6 +432,7 @@ def run_transitions(ctx: RunContext) -> None:
             "content_brief": c.read_json("understanding/content_brief.json"),
             "gap_report": c.read_json("understanding/gap_report.json"),
             "interviewer_sample_lines": interviewer_sample_lines(c),
+            "synthetic_framing_plan": synthetic_plan,
         }
         if c.artifact_exists("understanding/reorder_bridges.json"):
             payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")

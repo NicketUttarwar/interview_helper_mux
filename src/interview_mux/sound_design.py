@@ -10,7 +10,11 @@ from typing import Any
 from pydub import AudioSegment
 
 from interview_mux.acoustic_profile import load_profile, mix_contract, placement_hints
-from interview_mux.audio_timeline import append_with_crossfade, snap_cut_to_word_boundary
+from interview_mux.audio_timeline import (
+    append_with_crossfade,
+    junction_crossfade_ms,
+    snap_cut_to_word_boundary,
+)
 from interview_mux.config import merged_config
 from interview_mux.master_qc import maybe_check_mix_intelligibility
 from interview_mux.mix_completeness import enforce_mix_completeness
@@ -78,6 +82,42 @@ def _append_mix_clip(
 ) -> AudioSegment:
     adaptive = bool(_mix_cfg().get("adaptive_crossfade", True))
     return append_with_crossfade(base, clip, crossfade_ms, adaptive=adaptive)
+
+
+def _level_match_vo(
+    clip: AudioSegment,
+    *,
+    previous_native: AudioSegment | None = None,
+    next_native: AudioSegment | None = None,
+) -> AudioSegment:
+    """Match synthetic speech to adjacent native speech only, with safe clamps."""
+    if len(clip) <= 0:
+        return clip
+    raw = _mix_cfg().get("vo_adjacent_level_match")
+    settings = raw if isinstance(raw, dict) else {}
+    if not bool(settings.get("enabled", True)):
+        return clip
+    from interview_mux.speaker_level_match import apply_speaker_gain, measure_level_db
+
+    window_ms = max(250, int(settings.get("reference_window_ms") or 4000))
+    if previous_native is not None:
+        previous_native = previous_native[max(0, len(previous_native) - window_ms) :]
+    if next_native is not None:
+        next_native = next_native[:window_ms]
+    levels = [
+        level
+        for reference in (previous_native, next_native)
+        if reference is not None
+        for level in [measure_level_db(reference)]
+        if level is not None
+    ]
+    target = sum(levels) / len(levels) if levels else -20.0
+    current = measure_level_db(clip)
+    if current is None:
+        return clip
+    max_gain = abs(float(settings.get("max_gain_db") or 8.0))
+    gain = max(-max_gain, min(max_gain, target - current))
+    return apply_speaker_gain(clip, gain)
 
 
 def _disfluency_excluded_windows(edl: dict[str, Any]) -> list[tuple[int, int]]:
@@ -192,6 +232,35 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
 
         clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
         last_vo_kind = ""
+        previous_clip_kind = ""
+        previous_native: AudioSegment | None = None
+
+        def _next_native(start_index: int) -> AudioSegment | None:
+            for future in clips[start_index + 1 :]:
+                if str(future.get("type") or "") != "speech":
+                    continue
+                future_start = _speech_slice_start_ms(
+                    ctx, int(future.get("source_start_ms") or 0), words
+                )
+                future_end = _speech_slice_end_ms(
+                    ctx, int(future.get("source_end_ms") or future_start), words
+                )
+                if future_end <= future_start:
+                    return None
+                future_audio = source[future_start:future_end]
+                future_sid = str(future.get("segment_id") or "")
+                future_speaker = (
+                    speaker_id_for_segment(ctx, future_sid) if future_sid else None
+                )
+                return apply_speaker_gain(
+                    future_audio,
+                    gain_db_for_speaker(speaker_gains, future_speaker),
+                )
+            return None
+
+        junction_cfg = _mix_cfg().get("junction_crossfades")
+        if not isinstance(junction_cfg, dict):
+            junction_cfg = {}
         for idx, clip in enumerate(clips):
             ctype = str(clip.get("type") or "")
             t_before = len(base)
@@ -213,6 +282,14 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 )
                 if seg_id:
                     prev_speech_seg_id = seg_id
+                window_ms = max(
+                    250,
+                    int(
+                        ((_mix_cfg().get("vo_adjacent_level_match") or {}).get("reference_window_ms"))
+                        or 4000
+                    ),
+                )
+                previous_native = audio[max(0, len(audio) - window_ms) :]
             elif ctype == "vo_pickup":
                 src_rel = clip.get("source_path")
                 line_id = str(clip.get("line_id") or "")
@@ -265,10 +342,30 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 clip_crossfade = 0
             else:
                 continue
+            if ctype in {"vo_pickup", "transition"}:
+                audio = _level_match_vo(
+                    audio,
+                    previous_native=previous_native,
+                    next_native=_next_native(idx),
+                )
+            typed_crossfade = junction_crossfade_ms(
+                previous_clip_kind,
+                ctype,
+                config=junction_cfg,
+                default_ms=clip_crossfade,
+            )
+            if not (
+                ctype == "speech"
+                and previous_clip_kind == "speech"
+                and join_key
+                and join_key in speech_join_crossfades
+            ):
+                clip_crossfade = typed_crossfade
             if len(base) == 0:
                 base = audio
             else:
                 base = _append_mix_clip(base, audio, clip_crossfade)
+            previous_clip_kind = ctype
             t_start = t_before if t_before == 0 else max(0, t_before - int(clip_crossfade or 0))
             t_end = len(base)
             if ctype == "speech":
@@ -491,6 +588,12 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     raise RuntimeError(msg)
             else:
                 ctx.log(msg, level="warning", stage="mix")
+    try:
+        from interview_mux.seam_autopsy import write_render_ledger
+
+        write_render_ledger(ctx)
+    except Exception as exc:
+        ctx.log(f"render_ledger write skipped: {exc}", level="warning", stage="mix")
     ctx.mark_done("mix")
     # Mode C: endless per-run timeline optimizer (defaults auto-start)
     try:
@@ -681,7 +784,49 @@ def flow1_overlays_from_sdp(
         "tension_hold": duck_default + 2.0,
     }
 
-    for cue in cues:
+    # Consecutive per-segment beds using the same motif are one musical scene,
+    # not dozens of independently faded clips. Collapse them before rendering.
+    ordered_timing_ids = list(segment_timing.keys())
+    order_pos = {sid: i for i, sid in enumerate(ordered_timing_ids)}
+    rendered_cues: list[dict[str, Any]] = []
+    for raw_cue in cues:
+        if not isinstance(raw_cue, dict):
+            continue
+        cue = dict(raw_cue)
+        if str(cue.get("placement") or "") != "under_segment":
+            rendered_cues.append(cue)
+            continue
+        sid = str(cue.get("segment_id") or "")
+        if not sid:
+            rendered_cues.append(cue)
+            continue
+        if rendered_cues:
+            prev = rendered_cues[-1]
+            prev_ids = [str(x) for x in (prev.get("segment_ids") or []) if x]
+            prev_sid = prev_ids[-1] if prev_ids else str(prev.get("segment_id") or "")
+            contiguous = (
+                str(prev.get("placement") or "") in {"under_segment", "under_segment_span"}
+                and str(prev.get("asset_id") or "") == str(cue.get("asset_id") or "")
+                and prev_sid in order_pos
+                and sid in order_pos
+                and order_pos[sid] == order_pos[prev_sid] + 1
+            )
+            if contiguous:
+                music_cfg = (merged_config().get("mastering") or {}).get("music_continuity") or {}
+                scene_xf = int(music_cfg.get("scene_crossfade_ms") or 1800)
+                merged = dict(prev)
+                merged["placement"] = "under_segment_span"
+                merged["segment_ids"] = [*(prev_ids or [prev_sid]), sid]
+                merged["crossfade_ms"] = max(
+                    scene_xf,
+                    int(prev.get("crossfade_ms") or 0),
+                    int(cue.get("crossfade_ms") or 0),
+                )
+                rendered_cues[-1] = merged
+                continue
+        rendered_cues.append(cue)
+
+    for cue in rendered_cues:
         if not isinstance(cue, dict):
             continue
         asset_id = str(cue.get("asset_id") or "")
@@ -693,7 +838,7 @@ def flow1_overlays_from_sdp(
         from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
         asset_role_early = effective_cue_role(cue, asset)
-        if placement == "under_segment" or asset_role_early in THEME_BED_ROLES:
+        if placement in {"under_segment", "under_segment_span"} or asset_role_early in THEME_BED_ROLES:
             level_db = audibility_level_db(role="bed", default=level_db)
         elif is_theme_role(asset_role_early) or asset_role_early in THEME_PUNCTUATOR_ROLES:
             # Role-aware hotter bookends / accents.
@@ -721,14 +866,19 @@ def flow1_overlays_from_sdp(
         else:
             base = load_audio(wav)
 
-        if placement == "under_segment":
-            seg_id = str(cue.get("segment_id") or "")
-            timing = segment_timing.get(seg_id)
-            if not timing:
+        if placement in {"under_segment", "under_segment_span"}:
+            span_ids = [str(x) for x in (cue.get("segment_ids") or []) if x]
+            if not span_ids:
+                span_ids = [str(cue.get("segment_id") or "")]
+            timings = [segment_timing.get(sid) for sid in span_ids]
+            timings = [t for t in timings if t]
+            if not timings:
                 continue
+            seg_id = span_ids[0]
             if atlas_bucket == "panel" and seg_id in overlap_high:
                 continue
-            start_ms, end_ms = timing
+            start_ms = int(timings[0][0])
+            end_ms = int(timings[-1][1])
             dur = max(0, end_ms - start_ms)
             if dur <= 0:
                 continue
@@ -739,8 +889,27 @@ def flow1_overlays_from_sdp(
             if verb == "silence_as_transition":
                 continue
             duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
-            fade_in = int(cue.get("crossfade_ms") or 120)
-            fade_out = int(cue.get("crossfade_ms") or 150)
+            junction_cfg = _mix_cfg().get("junction_crossfades")
+            if not isinstance(junction_cfg, dict):
+                junction_cfg = {}
+            fade_default = (
+                1800
+                if placement == "under_segment_span"
+                else junction_crossfade_ms(
+                    "speech", "music", config=junction_cfg, default_ms=120
+                )
+            )
+            fade_in = int(cue.get("crossfade_ms") or fade_default)
+            fade_out = int(
+                cue.get("crossfade_ms")
+                or (
+                    2200
+                    if placement == "under_segment_span"
+                    else junction_crossfade_ms(
+                        "music", "speech", config=junction_cfg, default_ms=150
+                    )
+                )
+            )
             bed = loop_to_duration(base, dur)
             bed = apply_pan_position(bed, cue.get("pan_position"))
             speech_window = None

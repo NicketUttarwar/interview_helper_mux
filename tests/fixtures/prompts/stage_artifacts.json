@@ -266,6 +266,35 @@
       }
     ]
   },
+  "junction_feel_audit": {
+    "version": 1,
+    "generated_at": "2026-01-01T00:00:00+00:00",
+    "verdict": "pass",
+    "findings": [],
+    "directives": [],
+    "llm_calls": 1,
+    "remaster_round": 0
+  },
+  "synthetic_framing_plan": {
+    "selection_order_content_hash": "fixture-order-hash",
+    "strategy_summary": "Use one concise host bridge to restore comprehension.",
+    "synthetic_input_share_estimate": 0.05,
+    "lines": [
+      {
+        "line_id": "synthetic_bridge_001",
+        "role": "bridge",
+        "placement": "between_segments",
+        "anchor_segment_id": "seg_001",
+        "after_segment_id": "seg_001",
+        "before_segment_id": "seg_002",
+        "text": "That tension leads directly to the next decision.",
+        "duration_ratio": 1.0,
+        "target_duration_ms": 2200,
+        "comprehension_reason": "Connects the reordered ideas without replacing native speech.",
+        "native_respect_violation": false
+      }
+    ]
+  },
   "sfx_brief": {
     "transitions": []
   }

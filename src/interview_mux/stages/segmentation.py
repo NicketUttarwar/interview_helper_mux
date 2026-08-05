@@ -84,6 +84,49 @@ def run_boundaries(ctx: RunContext) -> None:
             build_input,
             persist,
         )
+    _assert_boundary_quality(ctx)
+
+
+def _assert_boundary_quality(ctx: RunContext) -> None:
+    """Reject coarse/mid-sentence fallback before it can contaminate delivery."""
+    if not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
+        return
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return
+    doc = ctx.read_json("segments/boundaries.json")
+    if not isinstance(doc, dict):
+        return
+    warnings = [str(x) for x in (doc.get("warnings") or [])]
+    bad = [
+        w
+        for w in warnings
+        if "coarse" in w.lower()
+        or "mid-sentence" in w.lower()
+        or "token limit" in w.lower()
+    ]
+    invalid_rows: list[str] = []
+    for row in doc.get("boundaries") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        start = int(row.get("start_ms") or 0)
+        end = int(row.get("end_ms") or start)
+        if end <= start:
+            invalid_rows.append(sid or f"{start}:{end}")
+    if bad or invalid_rows:
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Boundary detection produced unsafe cuts; delivery is blocked.",
+            stage="boundary_detection",
+            reason="coarse_or_invalid_segmentation",
+            detail={
+                "warnings": bad[:8],
+                "invalid_segment_ids": invalid_rows[:20],
+                "hint": "Re-run boundary detection with a smaller compact transcript / topic resplit.",
+            },
+        )
 
 
 def run_boundary_topic_resplit(ctx: RunContext) -> None:
@@ -208,6 +251,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
     except Exception as exc:
         ctx.log(f"split_plan skipped: {exc}", level="warning", stage="boundary_topic_resplit")
 
+    _assert_boundary_quality(ctx)
     ctx.mark_done("boundary_topic_resplit", force=True)
     # Stop this analysis pass — continuing would hit sonic_context without a fresh
     # manifest. The next execute must resume from segment_classification.

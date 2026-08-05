@@ -1,4 +1,9 @@
-"""Audit → topo repair → bounded re-rank loop for story-unsafe masters."""
+"""Audit → narrative alignment loop for story-unsafe masters.
+
+Selection is the air-order authority. When an EDL narrative audit fails because
+early-act chapters lost all selected segments, align ``narrative_plan`` down to
+the selection — never expand the selection back toward leftovers.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +19,7 @@ def _audit_fail(doc: dict[str, Any] | None) -> bool:
 
 
 def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any]) -> dict[str, Any]:
-    """If audit fails, topo-repair selection once and mark cascade for re-rank.
-
-    Does not invoke LLM here (caller may re-run ranking). Max one auto-repair
-    per run via run_meta flag.
-    """
+    """If audit fails, align narrative_plan to selection once (no leftover reinclusion)."""
     if not _audit_fail(artifacts):
         return artifacts
 
@@ -31,53 +32,48 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
         )
         return artifacts
 
-    plan = (
-        ctx.read_json("master/narrative_plan.json")
-        if ctx.artifact_exists("master/narrative_plan.json")
-        else None
-    )
     if not ctx.artifact_exists("master/selection.json"):
         return artifacts
 
-    from interview_mux.selection_order_repair import repair_selection_order
+    from interview_mux.artifact_repairs import (
+        align_narrative_plan_to_selection,
+        repair_edl_audit,
+        repair_master_selection,
+    )
     from interview_mux.artifact_writes import write_validated_artifact
 
     sel = ctx.read_json("master/selection.json")
-    if not isinstance(sel, dict):
-        return artifacts
-    repaired, notes = repair_selection_order(sel, plan if isinstance(plan, dict) else None)
-    if notes:
+    notes: list[dict[str, Any]] = []
+    if isinstance(sel, dict):
+        repaired_sel, sel_notes = repair_master_selection(ctx, sel)
+        notes.extend(sel_notes)
         write_validated_artifact(
             ctx,
             "master/selection.json",
-            repaired,
+            repaired_sel,
             merge_from_disk=False,
             stage_key="edl_narrative_audit_repair",
         )
-        ctx.log(
-            f"edl_narrative_audit fail → topo-repaired selection ({len(notes)} notes); "
-            "invalidate ranking for bounded re-rank",
-            level="warning",
-            stage="edl_narrative_audit",
-            detail=notes[:8],
-        )
+    notes.extend(align_narrative_plan_to_selection(ctx))
 
     def _mark(m: dict) -> None:
         m["edl_narrative_audit_repair_done"] = True
-        m["edl_narrative_audit_needs_rerank"] = True
+        # Do not force ranking redo — expanding selection undoes creative packs.
+        m.pop("edl_narrative_audit_needs_rerank", None)
 
     ctx.mutate_run_meta(_mark)
 
-    # Clear ranking + transitions done markers so delivery can re-pick order
-    for sid in ("full_master_ranking", "transitions"):
-        marker = ctx.final_path(".stage_done", sid)
-        if marker.is_file():
-            try:
-                marker.unlink()
-            except OSError:
-                pass
-
     out = dict(artifacts)
+    repaired_audit, audit_notes = repair_edl_audit(ctx, out)
+    notes.extend(audit_notes)
+    out = repaired_audit
     out["repair_attempted"] = True
-    out["repair_notes"] = notes[:12] if notes else []
+    out["repair_notes"] = notes[:12]
+    ctx.log(
+        f"edl_narrative_audit fail → aligned narrative to selection "
+        f"({len(notes)} notes); demoted restore-excluded false fails",
+        level="warning",
+        stage="edl_narrative_audit",
+        detail=notes[:8],
+    )
     return out

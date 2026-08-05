@@ -504,6 +504,7 @@ Timeline authority + boundary/classification hardening — `segment_timeline_sta
 | `boundary_merge_threshold_ms` | `200` | Micro-boundary merge floor in fine mode (via `boundary_collate_cfg`) |
 | `micro_segment_lint_max` | `400` | Base boundary-count lint ceiling (scales with duration on long interviews) |
 | `min_bed_segment_ms_fine` | `6000` | Minimum segment duration for ambient bed slots in fine mode |
+| `reject_coarse_fallback` | `true` | Hard-stop on coarse/mid-sentence boundary warnings before delivery |
 
 ## `analysis.duration_policy`
 
@@ -801,8 +802,10 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.timeline_optimizer.mode` | `endless_daemon` | Search lifecycle | Other modes unused; keep endless for defaults |
 | `mastering.timeline_optimizer.mutation_surface` | `maximum` | structure+glue+SDP+LLM | Narrower surfaces not plumbed yet |
 | `mastering.timeline_optimizer.auto_start_after_mix` | `true` | Full-auto path | `false` requires GUI Keep optimizing |
+| `mastering.timeline_optimizer.auto_promote_remaster` | `true` | Rebuild EDL and mix whenever plateau promotion changes order | `false` leaves promoted artifacts ahead of audible output |
+| `mastering.timeline_optimizer.always_auto_apply_best` | `true` | Forces synchronous take-best remaster in the daemon | `false` permits deferred audible application |
 | `mastering.timeline_optimizer.use_llm_proposer` | `true` | Periodic flagship mutation proposals | `false` = heuristics only |
-| `mastering.timeline_optimizer.block_finalize_until_take_or_skip` | `false` | Soft by default | `true` hard-stops finalize until take/skip |
+| `mastering.timeline_optimizer.block_finalize_until_take_or_skip` | `true` | Finalize waits for optimizer authority | `false` permits finalize before take/skip |
 | `mastering.quality_hardening.enabled` | `true` | Master switch for all gates below | `false` disables the whole layer regardless of per-gate modes |
 | `mastering.quality_hardening.context.mode` | `advisory` | `mastering_context_compiler` | `authoritative` enforces token budgets on every consumer |
 | `mastering.quality_hardening.context.default_max_tokens` | `24000` | Evidence packet budget | Too small truncates decisive evidence; too large overflows models |
@@ -832,9 +835,9 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.quality_hardening.polish.mode` | `advisory` | Closed-loop polish | `authoritative` blocks `master_finalize` on a failing audit |
 | `mastering.quality_hardening.polish.audio_grounded` | `true` | Audit scores rendered audio, not plan text | `false` reverts to the weaker text-only audit |
 | `mastering.quality_hardening.polish.max_remux_rounds` | `2` | Bounded remux budget | `0` disables repair; high values loop on marginal issues |
-| `mastering.junction_snip_qa.mode` | `advisory` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | `off` skips; repairs still fail-open and never block finalize by default |
+| `mastering.junction_snip_qa.mode` | `authoritative` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | Non-authoritative modes do not block finalize on unresolved critical joins |
 | `mastering.junction_snip_qa.micro_nudge_ms` | `2500` | Energy/word micro search window (scaled by pace) | Too small misses valleys; too large over-trims |
-| `mastering.junction_snip_qa.phrase_extend_max_ms` | `8000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search |
+| `mastering.junction_snip_qa.phrase_extend_max_ms` | `24000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search; unresolved critical clauses hard-stop after two runs |
 | `mastering.junction_snip_qa.impact_hold_ms_min` / `max` | `1200` / `3500` | Music-only sit after impact native close | Scaled by pace class |
 | `mastering.junction_snip_qa.feel_audit_enabled` | `true` | One OH-J1 feel LLM after deterministic repairs | `false` skips LLM entirely |
 | `mastering.junction_snip_qa.max_remaster_rounds` | `2` | Cap remasters (deterministic + feel) | Hard ceiling 2 |
@@ -842,6 +845,15 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.junction_snip_qa.music_soft_crossfade_ms` | `180` | Suggested bed/theme crossfade when hard | Transition-only — never recreates stems |
 | `mastering.junction_snip_qa.dead_air_clamp_ms` | `2500` | Clamp non-impact silence pads | Does not steal `impact_hold` |
 | `mastering.junction_snip_qa.pace_multipliers` | sparse/fireside/… | Scales holds/nudges per source pace | Keeps policy dynamic across source types |
+| `mastering.post_master_quality.never_skip` | `true` | Always write post-master quality after finalize | `false` would skip publish gate |
+| `mastering.post_master_quality.block_publish` | `true` | `require_publishable` / finalize | Softens publish gate when false |
+| `mastering.post_master_quality.block_on_feel_unavailable` | `true` | Fail publish when feel audit verdict is unavailable after retry | `false` ignores missing feel judgment |
+| `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
+| `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
+| `mastering.synthetic_framing.allow_canned_bridge_fallback` | `false` | `seam_glue.mint_missing_transitions`, `synthetic_framing.validate_synthetic_plan` | `true` mints marked `auto_minted` canned bridges and skips validate hard-stop for uncovered reorder seams; default loud-fails |
+| `mastering.music_continuity.prefer_contiguous_beds` | `true` | Mix contiguous under_segment merge | Scene beds instead of per-segment hard fades |
+| `mastering.music_continuity.scene_crossfade_ms` | `1800` | Contiguous bed XF floor | Too short → scene seams click |
+| `mastering.music_continuity.require_true_bookend_anchors` | `true` | Junction music detector | Escalates cold-open/outro missing XF severity |
 
 ---
 
@@ -976,7 +988,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `use_adaptive_caps` | `true` | `sound_design` planners + sonic context posture | Ignores scenario-based cap tuning when false |
 | `post_listen_gate_mode` | `warn` | post-listen QA UX/reporting | Unexpected hard-block vs advisory behavior |
 | `g_listen_enabled` | `true` | optional G-Listen offer after mix when listen_critic is borderline | Set false to hide |
-| `g_listen_mode` | `warn` | `warn` advisory; `block` / `block_mix` hard-stops master_finalize until continue/skip | Soft by default |
+| `g_listen_mode` | `block` | `warn` advisory; `block` / `block_mix` hard-stops master_finalize until continue/skip | Default blocks finalize until listen continue/skip |
 | `placement_qa_enabled` | `true` | `placement_qa.py` → `maybe_run_placement_qa` after `mmaudio_sfx_flow*` (and on mix refresh) | When `true`, writes `sound_design/placement_adjustments.json`; `apply_placement_adjustments` applies hints in `flow1_overlays_from_sdp` / Flow 2 overlay builder at mix |
 
 `placement_qa` is deterministic (no OpenAI) — reads SDP cues + `source_acoustic_profile` and logs hints via `ctx.log()`. With BUILD-SS-03, `execute_fitness_remediation` may action `regenerate` / `skip_cue` after MMAudio (capped); mix still applies placement adjustments.
@@ -1009,6 +1021,14 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.word_boundary_cuts` | `sound_design.py` EDL/highlight slices | When `true`, nudge slice ends to transcript word boundaries |
 | `mix.word_boundary_margin_ms` / `mix.word_boundary_max_shift_ms` | `audio_timeline.snap_cut_to_word_boundary` | Too small → mid-word cuts remain; too large → clips drift from EDL |
 | `mix.normalize_vo_pickup` | `gaps.ingest_vo_pickup` | When `true`, writes loudnorm copies under `vo_pickup/normalized/` |
+| `mix.vo_adjacent_level_match.enabled` | `sound_design._level_match_vo` | Matches synthetic VO to the mean level of adjacent native speech; `false` leaves only ingest loudnorm |
+| `mix.vo_adjacent_level_match.max_gain_db` / `reference_window_ms` | `sound_design._level_match_vo` | Bounds correction and the native speech windows used on each side |
+| `mix.junction_crossfades.speech_to_speech` | `100` | Speech↔speech join ms |
+| `mix.junction_crossfades.speech_to_vo` | `80` | Speech→VO join ms |
+| `mix.junction_crossfades.vo_to_speech` | `100` | VO→speech join ms |
+| `mix.junction_crossfades.vo_to_vo` | `80` | VO↔VO join ms |
+| `mix.junction_crossfades.music_to_speech` / `speech_to_music` | `180` | Music↔speech joins; SDP per-pair overrides still win when present |
+| `mix.junction_crossfades.*` | `audio_timeline.junction_crossfade_ms`, `sound_design.mix` | Type-specific speech↔VO and music↔speech joins; values are milliseconds |
 | `mix.per_speaker_level_match.enabled` | `speaker_level_match`, `sound_design.mix` | Matches dialogue speakers to the run median before assembly (default `true`) |
 | `mix.per_speaker_level_match.max_gain_db` | `speaker_level_match` | Caps per-speaker correction at ±6 dB by default |
 | `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
