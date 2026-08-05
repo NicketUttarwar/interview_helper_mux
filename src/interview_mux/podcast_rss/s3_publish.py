@@ -108,6 +108,45 @@ def cache_control_for_key(key: str) -> str:
     return "public, max-age=86400"
 
 
+def ensure_s3_prefixes(
+    *,
+    bucket: str,
+    prefixes: list[str],
+    region: str | None = None,
+) -> list[str]:
+    """Ensure console-visible zero-byte markers for logical S3 folders.
+
+    S3 accepts nested object keys without folders, but explicit markers make the
+    configured layout visible immediately and support S3-compatible tooling that
+    expects each parent prefix to exist. Returns the markers created.
+    """
+    s3 = _client("s3", region=region)
+    created: list[str] = []
+    for raw_prefix in prefixes:
+        prefix = str(raw_prefix or "").strip().strip("/")
+        if not prefix:
+            continue
+        marker = f"{prefix}/"
+        try:
+            response = s3.list_objects_v2(Bucket=bucket, Prefix=marker, MaxKeys=1)
+            if int(response.get("KeyCount") or 0) > 0:
+                continue
+            s3.put_object(
+                Bucket=bucket,
+                Key=marker,
+                Body=b"",
+                ContentType="application/x-directory",
+                CacheControl="max-age=0, must-revalidate",
+            )
+            created.append(marker)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to ensure S3 prefix s3://{bucket}/{marker}: {exc}. "
+                "Check S3 ListBucket and PutObject permissions."
+            ) from exc
+    return created
+
+
 def put_bytes(
     *,
     bucket: str,
@@ -310,12 +349,19 @@ def empty_bucket(bucket: str, *, region: str | None = None) -> int:
             return
         for i in range(0, len(objects), 1000):
             chunk = objects[i : i + 1000]
-            s3.delete_objects(Bucket=bucket, Delete={"Objects": chunk, "Quiet": True})
+            response = s3.delete_objects(Bucket=bucket, Delete={"Objects": chunk, "Quiet": True})
+            errors = response.get("Errors") or []
+            if errors:
+                details = ", ".join(
+                    f"{row.get('Key', '<unknown>')}: {row.get('Code', 'Error')}"
+                    for row in errors
+                )
+                raise RuntimeError(f"S3 rejected one or more deletes in {bucket}: {details}")
             deleted += len(chunk)
 
     try:
-        paginator = s3.get_paginator("list_object_versions")
-        for page in paginator.paginate(Bucket=bucket):
+        while True:
+            page = s3.list_object_versions(Bucket=bucket, MaxKeys=1000)
             to_delete: list[dict[str, str]] = []
             for row in page.get("Versions") or []:
                 key = row.get("Key")
@@ -334,13 +380,20 @@ def empty_bucket(bucket: str, *, region: str | None = None) -> int:
                         entry["VersionId"] = vid
                     to_delete.append(entry)
             _delete_batch(to_delete)
+            if not to_delete:
+                break
     except Exception as exc:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", "") or "")
+        if code not in {"AccessDenied", "NotImplemented", "InvalidRequest"}:
+            raise
         logger.info("list_object_versions unavailable for %s (%s); using list_objects_v2", bucket, exc)
 
-    paginator2 = s3.get_paginator("list_objects_v2")
-    for page in paginator2.paginate(Bucket=bucket):
+    while True:
+        page = s3.list_objects_v2(Bucket=bucket, MaxKeys=1000)
         objs = [{"Key": row["Key"]} for row in (page.get("Contents") or []) if row.get("Key")]
         _delete_batch(objs)
+        if not objs:
+            break
     return deleted
 
 
@@ -364,6 +417,12 @@ def upload_episode_files(
         path = local_dir / name
         if not path.is_file() or path.stat().st_size < 1:
             raise RuntimeError(f"Required publish artifact missing or empty: {name}")
+
+    ensure_s3_prefixes(
+        bucket=bucket,
+        prefixes=[layout["episodes_prefix"], prefix],
+        region=region,
+    )
 
     local_to_remote = {
         files["audio"]: f"{prefix}/{files['audio']}",

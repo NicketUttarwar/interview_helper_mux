@@ -19,6 +19,7 @@ Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) i
 - **Private S3** bucket holds `feed.xml`, `show/`, `catalog/`, `episodes/NNNN/`
 - **CloudFront + OAC** is the only public origin (HTTP Range / seek works by default)
 - App uploads with explicit **Content-Type** and invalidates `/feed.xml` on every feed update (publish + seed)
+- Before seed/sync PutObject, boto3 ensures logical prefixes (`show/`, `catalog/`, `episodes/`, and `episodes/NNNN/` when uploading) via zero-byte markers when empty
 - Manual recovery: [`scripts/invalidate_podcast_cf.sh`](../../scripts/invalidate_podcast_cf.sh)
 - **Terraform** under [`terraform/`](../../terraform/) owns infra; **committed local state** is the inventory (`state/session/latest.tfstate` is a rolling backup — restore with `--use-session` / `USE_LATEST_SESSION=1`)
 - Bucket renames update the CloudFront **origin** but keep the **same distribution URL**
@@ -133,6 +134,14 @@ Later episodes: directories poll the feed; no re-submit unless the feed URL chan
 ./scripts/invalidate_podcast_cf.sh --all-media  # feed + episodes/* + show/*
 ```
 
+## Recovery — empty S3 contents (keep infra)
+
+```bash
+./scripts/tf-empty-bucket.sh       # deletes all objects/versions; keeps bucket + CloudFront
+./scripts/tf-empty-bucket.sh --yes # skip confirmation
+python scripts/seed_podcast_origin.py   # re-seed feed/catalog/show after wipe
+```
+
 ## Pipeline stages (after `master_finalize`)
 
 | Stage | Output |
@@ -168,5 +177,5 @@ See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summ
 |------|-------------|
 | `terraform/` + committed tfstate + `terraform/README.md` | Imperative setup scripts / `infra/` |
 | `podcast.*` in app.defaults for bucket + layout | Bucket name only in secrets |
-| `scripts/tf-*.sh`, `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
+| `scripts/tf-*.sh` (incl. `tf-empty-bucket.sh`), `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
 | Same CloudFront distribution URL across bucket renames | Custom domain (out of scope) |

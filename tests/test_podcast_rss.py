@@ -451,6 +451,56 @@ def test_put_file_if_changed_skips_matching_size(tmp_path: Path):
     put2.assert_called_once()
 
 
+def test_ensure_s3_prefixes_creates_only_missing_markers():
+    from interview_mux.podcast_rss import s3_publish
+
+    s3 = MagicMock()
+    s3.list_objects_v2.side_effect = [
+        {"KeyCount": 1},
+        {"KeyCount": 0},
+    ]
+
+    with patch.object(s3_publish, "_client", return_value=s3):
+        created = s3_publish.ensure_s3_prefixes(
+            bucket="b",
+            prefixes=["show", "/catalog/"],
+            region="us-east-1",
+        )
+
+    assert created == ["catalog/"]
+    s3.put_object.assert_called_once_with(
+        Bucket="b",
+        Key="catalog/",
+        Body=b"",
+        ContentType="application/x-directory",
+        CacheControl="max-age=0, must-revalidate",
+    )
+
+
+def test_empty_bucket_deletes_versions_markers_and_current_objects():
+    from interview_mux.podcast_rss import s3_publish
+
+    s3 = MagicMock()
+    s3.list_object_versions.side_effect = [
+        {
+            "Versions": [{"Key": "feed.xml", "VersionId": "v1"}],
+            "DeleteMarkers": [{"Key": "old.xml", "VersionId": "d1"}],
+        },
+        {},
+    ]
+    s3.list_objects_v2.side_effect = [
+        {"Contents": [{"Key": "catalog/"}]},
+        {},
+    ]
+    s3.delete_objects.return_value = {}
+
+    with patch.object(s3_publish, "_client", return_value=s3):
+        deleted = s3_publish.empty_bucket("b", region="us-east-1")
+
+    assert deleted == 3
+    assert s3.delete_objects.call_count == 2
+
+
 def test_sync_ready_packages_dry_run_skips_known_and_never_deletes(tmp_path: Path):
     from interview_mux.podcast_rss import sync_assets
 

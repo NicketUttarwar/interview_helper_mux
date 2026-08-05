@@ -56,6 +56,9 @@ cp config/terraform.tfvars.example config/terraform.tfvars
 ./scripts/tf-apply.sh   # also upserts PODCAST_* into secrets.env
 
 python scripts/seed_podcast_origin.py
+
+# Destructive reset: remove every S3 object but preserve the bucket + CloudFront
+./scripts/tf-empty-bucket.sh
 ```
 
 Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront **without** changing the distribution domain (feed URL stays stable).
@@ -72,6 +75,7 @@ All wrappers source `scripts/lib/terraform-common.sh` (load `secrets.env`, optio
 | `tf-plan.sh` | Plan |
 | `tf-apply.sh` | Apply + `sync_podcast_tf_secrets.sh` |
 | `tf-destroy.sh` | Destroy |
+| `tf-empty-bucket.sh` | Delete all objects/versions from the managed S3 bucket; preserve infrastructure |
 | `tf-refresh.sh` | Refresh state from AWS |
 | `tf-output.sh` | Show outputs |
 | `tf-show.sh` | Show state / saved plan |

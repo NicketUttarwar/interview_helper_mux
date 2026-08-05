@@ -25,6 +25,7 @@ from interview_mux.podcast_rss.catalog import (
 )
 from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config, rfc2822
 from interview_mux.podcast_rss.s3_publish import (
+    ensure_s3_prefixes,
     get_json,
     invalidate_feed,
     list_episode_metas,
@@ -310,6 +311,16 @@ def sync_ready_packages(
     if not ready:
         write_last_sync_result(result)
         return result
+
+    ensure_s3_prefixes(
+        bucket=bucket,
+        prefixes=[
+            layout["show_prefix"],
+            catalog_prefix,
+            layout["episodes_prefix"],
+        ],
+        region=region,
+    )
 
     sequence = get_json(bucket, f"{catalog_prefix}/sequence.json", region=region) or {
         "next_episode_number": 1

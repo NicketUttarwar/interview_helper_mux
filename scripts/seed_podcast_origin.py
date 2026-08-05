@@ -18,7 +18,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from interview_mux.config import repo_root  # noqa: E402
 from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config  # noqa: E402
 from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings  # noqa: E402
-from interview_mux.podcast_rss.s3_publish import invalidate_feed, put_bytes, put_file  # noqa: E402
+from interview_mux.podcast_rss.s3_publish import (  # noqa: E402
+    ensure_s3_prefixes,
+    invalidate_feed,
+    put_bytes,
+    put_file,
+)
 from interview_mux.podcast_rss.settings import (  # noqa: E402
     feed_url_from_base,
     podcast_cfg,
@@ -70,6 +75,15 @@ def main() -> int:
         feed_url=feed_url,
         show_artwork_url=art_url,
         episodes=[],
+    )
+    ensure_s3_prefixes(
+        bucket=bucket,
+        prefixes=[
+            layout["show_prefix"],
+            catalog,
+            layout["episodes_prefix"],
+        ],
+        region=region,
     )
     put_file(bucket=bucket, key=art_key, path=art_jpg, region=region)
     put_bytes(
