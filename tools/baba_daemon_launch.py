@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
 VENV_PY = ROOT / ".venv" / "bin" / "python"
-RUN_ID_DEFAULT = "exec_1130_1311e28fffa1_20260804T193220Z"
+RUN_ID_DEFAULT = "exec_1131_1311e28fffa1_20260804T224432Z"
 
 
 def _popen(cmd: list[str], log_path: Path, env: dict[str, str] | None = None) -> int:

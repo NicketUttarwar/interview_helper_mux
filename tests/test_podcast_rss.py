@@ -174,6 +174,21 @@ def test_validate_prompt_rejects_realism_and_budget():
     assert any(e.startswith("over_budget") for e in errs)
 
 
+def test_validate_prompt_rejects_person_likeness():
+    refresh_style_head()
+    base = assemble_prompt(["sealed envelope constellation"])
+    assert validate_prompt(base) == []
+    assert "person_likeness" in validate_prompt(
+        base + " portrait of the founder"
+    )
+    # Missing dedicated no-person without-clause
+    stripped = base.replace(
+        "without any person likeness, human face, portrait, or identifiable people",
+        "",
+    )
+    assert "missing_no_person_without_clause" in validate_prompt(stripped)
+
+
 def test_prompt_max_chars_from_cover_image_config():
     assert prompt_max_chars() >= 1000
 

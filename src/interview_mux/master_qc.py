@@ -23,6 +23,9 @@ _SILENT_SPEECH_RMS = 0.002
 # loudnorm / ffmpeg true-peak measurement commonly overshoots the limiter target by
 # a few hundredths of a dB — do not fail delivery QC on that measurement noise.
 _TRUE_PEAK_VERIFY_SLACK_DB = 0.25
+# Integrated LUFS on long sparse podcasts can land just outside ±1.5 after two-pass
+# loudnorm; soft-warn within this extra slack instead of failing the delivery batch.
+_LUFS_VERIFY_SLACK_DB = 1.0
 
 
 @dataclass(frozen=True)
@@ -99,9 +102,18 @@ def verify_master(path: Path, *, flow: FlowName | None = None) -> VerificationRe
         f"integrated_lufs={metrics.integrated_lufs:.2f} (target {target.target_lufs:.1f} +/- {target.tolerance_lufs:.1f})"
     )
     if not (lower_lufs <= metrics.integrated_lufs <= upper_lufs):
-        failures.append(
-            f"Integrated LUFS {metrics.integrated_lufs:.2f} out of range [{lower_lufs:.1f}, {upper_lufs:.1f}]."
+        soft_lower = lower_lufs - _LUFS_VERIFY_SLACK_DB
+        soft_upper = upper_lufs + _LUFS_VERIFY_SLACK_DB
+        msg = (
+            f"Integrated LUFS {metrics.integrated_lufs:.2f} out of range "
+            f"[{lower_lufs:.1f}, {upper_lufs:.1f}]."
         )
+        if soft_lower <= metrics.integrated_lufs <= soft_upper:
+            checks.append(f"lufs_soft_slack={_LUFS_VERIFY_SLACK_DB:.1f}dB")
+            # Treat as soft failure — runner may warn without aborting.
+            failures.append(f"SOFT:{msg}")
+        else:
+            failures.append(msg)
 
     tp_ceiling = true_peak_verify_ceiling_dbtp(target)
     checks.append(

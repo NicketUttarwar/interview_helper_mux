@@ -48,7 +48,18 @@ def _order_containing(stage_id: str) -> list[str] | None:
 
 
 def _artifact_producer_stages(rel: str) -> list[str]:
-    return [sid for sid, path in STAGE_ARTIFACT_DISK_PATHS.items() if path == rel]
+    """Stages that own ``rel`` as a primary/committed output (not mere readers)."""
+    producers: list[str] = [
+        sid for sid, path in STAGE_ARTIFACT_DISK_PATHS.items() if path == rel
+    ]
+    seen = set(producers)
+    for sid, info in STAGE_BY_ID.items():
+        outs = list(info.artifacts) + list(info.audio_outputs)
+        outs.extend(stage_reuse_output_specs(sid))
+        if rel in outs and sid not in seen:
+            seen.add(sid)
+            producers.append(sid)
+    return producers
 
 
 def _preserve_cross_order_upstream_artifact(

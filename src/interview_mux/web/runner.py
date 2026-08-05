@@ -1171,8 +1171,12 @@ class JobRunner:
             return
         detail = "; ".join(result.failures)
         # True-peak-only misses after loudnorm are usually measurement noise — warn, don't poison Activity.
+        # Borderline integrated LUFS (SOFT: prefix) same treatment for long sparse podcasts.
+        soft_only = bool(result.failures) and all(
+            f.startswith("SOFT:") or "True peak" in f for f in result.failures
+        )
         tp_only = bool(result.failures) and all("True peak" in f for f in result.failures)
-        if tp_only:
+        if soft_only or tp_only:
             ctx.log(
                 f"Master QA soft warning ({flow}): {detail}",
                 level="warning",

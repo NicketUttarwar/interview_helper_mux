@@ -258,6 +258,14 @@ def _preflight_sfx_prompt_craft(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     if not ctx.artifact_exists("understanding/sound_design_plan.json"):
         return ["understanding/sound_design_plan.json missing"]
+    # Clamp durations to config/role bands *before* validation so LLM 12–20s
+    # theme stems do not block the stage when a repair can heal them.
+    try:
+        from interview_mux.stages.sound_design_stages import _repair_sdp_asset_durations
+
+        _repair_sdp_asset_durations(ctx)
+    except Exception:
+        pass
     sdp = ctx.read_json("understanding/sound_design_plan.json")
     assets = sdp.get("assets") or []
     if not assets:

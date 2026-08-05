@@ -66,6 +66,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "narrative_arc_plan": "master/narrative_plan.json",
     "full_master_ranking": "master/selection.json",
     "edl_narrative_audit": "master/edl_narrative_audit.json",
+    "edl": "master/edl.json",
     "transitions": "master/transitions.json",
     "podcast_sfx_brief": "master/podcast_sfx_brief.json",
     "sound_design_plan": "understanding/sound_design_plan.json",

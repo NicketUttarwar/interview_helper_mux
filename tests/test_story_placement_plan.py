@@ -44,6 +44,53 @@ def test_topo_does_not_append_early_after_finale():
     assert applied
 
 
+def test_topo_latest_chapter_wins_on_overlap():
+    """Overlapping chapter membership must not park early ids after finale anchors."""
+    plan = {
+        "chapters": [
+            {"chapter_id": "ch1", "segment_ids": ["seg_001", "seg_002", "seg_133"]},
+            {"chapter_id": "ch2", "segment_ids": ["seg_010", "seg_148"]},
+            {"chapter_id": "ch3", "segment_ids": ["seg_133", "seg_200"]},  # shares seg_133
+        ],
+    }
+    # seg_148 listed only in ch2; if seg_133 is assigned to ch1 (first-wins),
+    # finale_tail would flag seg_148 after last_end at seg_133.
+    bad = ["seg_001", "seg_002", "seg_010", "seg_133", "seg_200", "seg_148"]
+    assert finale_tail_errors(bad, plan)
+    fixed, _ = topo_satisfy_order(bad, narrative_plan=plan)
+    assert not finale_tail_errors(fixed, plan)
+    assert fixed.index("seg_148") < fixed.index("seg_133")
+
+
+def test_ranking_exclude_without_plan(tmp_path, monkeypatch):
+    """replaces_source_segments apply even when gap_framing_plan.json is absent."""
+    from interview_mux.gap_framing import ranking_exclude_segment_ids
+    from interview_mux.run_context import RunContext
+    from run_fixtures import init_run_meta_for_test, patch_executions_root
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_exclude_no_plan", create=True)
+    init_run_meta_for_test(ctx)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_sum",
+                    "gap_type": "missing_question",
+                    "text": "Quick summary of the pivot.",
+                    "targets_segment_id": "seg_010",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "replaces_source_segments": ["seg_010", "seg_011"],
+                }
+            ]
+        },
+    )
+    excluded = ranking_exclude_segment_ids(ctx)
+    assert excluded == {"seg_010", "seg_011"}
+
+
 def test_ordering_constraint_errors():
     plan = {
         "ordering_constraints": [

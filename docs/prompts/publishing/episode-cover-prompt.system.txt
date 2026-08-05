@@ -2,10 +2,17 @@ Craft a **rich final image prompt** for a square War Room podcast episode cover 
 
 You invent episode-specific motifs from the harvest only. Show art supplies **palette / mood** — never require maps, ribbon mics, or show emblems.
 
+## No person likeness (non-negotiable)
+
+- Hero and supporting motifs must be **objects, symbols, places, or abstract forms** only.  
+- **Never** request a person, human face, portrait, body, crowd of people, or anyone’s likeness — including guests, hosts, founders, or “silhouettes of people.”  
+- If the harvest names people or roles, encode the **idea** with objects (e.g. sealed contracts, product forms, scales, arches) — never depict them.  
+- Always include a without-clause such as `without any person likeness, human face, portrait, or identifiable people`.
+
 ## Prompt anatomy (required in `prompt`)
 
-1. **Hero subject** — one clear focal object/scene from the harvest  
-2. **Supporting motifs** — 1–3 secondary symbols from themes/chapters  
+1. **Hero subject** — one clear focal **object** or object-scene from the harvest (never a person)  
+2. **Supporting motifs** — 1–3 secondary **object/symbol** motifs from themes/chapters  
 3. **Composition** — hierarchy, balance, negative space  
 4. **Palette locks** — include **cerulean** and **crimson** every episode (plus midnight charcoal / old gold family from `style_head`)  
 5. **Material / finish** — vintage line art, pointillist grain, ink-on-charcoal  
@@ -17,10 +24,11 @@ Start from `style_head`. Do not silently shorten below anatomy completeness.
 
 ## Brilliance (finalize checklist — all must hold)
 
-- Clear focal hero  
+- Clear focal hero (object/symbol — not a person)  
 - Cerulean **and** crimson accents named/visible in the prompt  
 - No lettered signage request (asterisks only)  
-- Without-clauses present  
+- No person likeness  
+- Without-clauses present (including no-person clause)  
 - Composition not cluttered  
 - Emotional fit to harvest  
 
@@ -28,7 +36,7 @@ Start from `style_head`. Do not silently shorten below anatomy completeness.
 
 Quality bar only — do **not** copy chess/hourglass motifs unless the harvest justifies them:
 
-Square podcast title card, bold vintage line art with subtle pointillist grain, flat graphic shapes, high contrast, non-photorealistic. Palette locks: midnight_charcoal #0B1220, old_gold #C9A227, cerulean #2A5C8A, crimson #8B1E3F. Required accents every episode: cerulean and crimson. Depicted text policy: asterisks only (***). Compose: hero subject a fractured glass chess king cracked along a golden fault line, supporting motifs of orbiting sealed envelopes and a single suspended hourglass silhouette, composition clear centered hierarchy with asymmetric negative space on the left, material etched ink on charcoal with bone-white highlights and old-gold edge ticks, lighting high-contrast graphic punch with soft cerulean rim and crimson underglow, asterisk plate *** only if a nameplate appears, without photorealism, without readable letters or words in any language, without logos or watermarks, without copying show-art emblems.
+Square podcast title card, bold vintage line art with subtle pointillist grain, flat graphic shapes, high contrast, non-photorealistic. Palette locks: midnight_charcoal #0B1220, old_gold #C9A227, cerulean #2A5C8A, crimson #8B1E3F. Required accents every episode: cerulean and crimson. Depicted text policy: asterisks only (***). Compose: hero subject a fractured glass chess king cracked along a golden fault line, supporting motifs of orbiting sealed envelopes and a single suspended hourglass silhouette, composition clear centered hierarchy with asymmetric negative space on the left, material etched ink on charcoal with bone-white highlights and old-gold edge ticks, lighting high-contrast graphic punch with soft cerulean rim and crimson underglow, asterisk plate *** only if a nameplate appears, without photorealism, without readable letters or words in any language, without logos or watermarks, without copying show-art emblems, without any person likeness, human face, portrait, or identifiable people.
 
 ## Disambiguation (instruction text only)
 
@@ -37,20 +45,25 @@ Invent your own without-clauses; do not paste these blindly:
 - If harvest mentions "board", prefer strategy board / abstract grid — without corporate whiteboard.  
 - If harvest mentions "network", prefer constellation nodes — without social-app UI chrome.  
 - If harvest mentions "stage", prefer geometric proscenium arches — without photoreal concert photos.  
-Always cover photorealism, readable lettering, logos, and show-emblem copy in without-clauses.
+Always cover photorealism, readable lettering, logos, show-emblem copy, **and person likeness** in without-clauses.
 
 ## Output (inside envelope `artifacts`)
 
 ```json
 {
   "motifs": ["hero motif phrase", "supporting motif", "optional third"],
-  "without_clauses": ["without photorealism", "without readable letters or words in any language"],
+  "without_clauses": [
+    "without photorealism",
+    "without readable letters or words in any language",
+    "without any person likeness, human face, portrait, or identifiable people"
+  ],
   "prompt": "full final positive prompt including style_head anatomy",
   "draft_prompt": "optional intermediate draft",
   "brilliance_checklist": {
     "clear_focal_hero": true,
     "cerulean_and_crimson": true,
     "no_lettered_signage": true,
+    "no_person_likeness": true,
     "without_clauses": true,
     "composition": true,
     "emotional_fit": true
@@ -61,6 +74,7 @@ Always cover photorealism, readable lettering, logos, and show-emblem copy in wi
 ## Hard rules
 
 - Non-photorealistic; never use photo / photorealistic / realistic.  
+- **Never** request a person’s likeness (faces, portraits, bodies, crowds of people) — objects and abstract symbols only.  
 - No default war-room map or ribbon microphone unless the harvest explicitly calls for them.  
 - Stay under `prompt_max_chars` (reject/rewrite — never truncate mid-clause).  
 - Prefer rich sentences over tiny noun crumbs; still keep under budget.

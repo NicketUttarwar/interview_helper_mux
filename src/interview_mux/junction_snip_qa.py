@@ -834,14 +834,19 @@ def apply_junction_repairs(
     new_edl["clips"] = clips
     new_edl["timeline_duration_ms"] = timeline
     new_edl["silence_clip_count"] = sum(1 for c in clips if str(c.get("type") or "") == "silence")
-    # Drop excluded from ordered list if present
+    # Drop excluded from ordered list if present — always persist EDL when order
+    # changes even if clip/override mutations did not set ``changed`` (otherwise
+    # selection is updated and EDL on disk drifts).
     if excluded:
         ordered = [s for s in (new_edl.get("ordered_segment_ids") or []) if str(s) not in excluded]
+        if ordered != list(new_edl.get("ordered_segment_ids") or []):
+            changed = True
         new_edl["ordered_segment_ids"] = ordered
         from interview_mux.order_hash import stamp_order_hash
 
         new_edl = stamp_order_hash(new_edl)
         _exclude_from_selection(ctx, excluded)
+        changed = True
 
     if changed:
         ctx.write_json("master/edl.json", new_edl)

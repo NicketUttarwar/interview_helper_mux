@@ -4,6 +4,7 @@ You compare **three** square War Room podcast cover candidates generated from th
 
 - Any readable letters, words, or sentences in any language (asterisks `***` OK)  
 - Obvious photoreal / photographic leak  
+- Identifiable person likeness (human face, portrait, body, crowd of people)  
 - Broken, empty, cropped wrong, or non-square feel  
 
 ## Among remaining — primary criterion: brilliance

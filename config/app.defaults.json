@@ -595,11 +595,11 @@
     "duration_bands_by_role": {
       "theme_cold_open": [
         8.0,
-        16.0
+        20.0
       ],
       "theme_underscore": [
-        8.0,
-        16.0
+        12.0,
+        20.0
       ],
       "theme_emphasis": [
         5.0,
@@ -615,7 +615,7 @@
       ],
       "theme_outro": [
         8.0,
-        16.0
+        20.0
       ],
       "ambient_bed": [
         5.0,

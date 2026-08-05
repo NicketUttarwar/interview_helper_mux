@@ -299,23 +299,31 @@ def load_gap_framing_plan(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
-    """Segments that succinct-master framing replaces in ranking."""
+    """Segments that succinct-master framing replaces in ranking.
+
+    Always union gap_report ``replaces_source_segments`` even when
+    ``gap_framing_plan.json`` is missing — plan absence must not leave
+    replaced source audio in the ordered timeline.
+    """
     if not gap_framing_cfg().get("allow_replace_source_segments", True):
         return set()
-    plan = load_gap_framing_plan(ctx)
-    if not plan:
-        return set()
     out: set[str] = set()
-    for act in plan.get("acts") or []:
-        if not isinstance(act, dict):
-            continue
-        for block in act.get("impact_blocks") or []:
-            if not isinstance(block, dict):
+    plan = load_gap_framing_plan(ctx)
+    if isinstance(plan, dict):
+        for act in plan.get("acts") or []:
+            if not isinstance(act, dict):
                 continue
-            for sid in block.get("excluded_redundant_segment_ids") or []:
-                if sid:
-                    out.add(str(sid))
-    report = ctx.read_json("understanding/gap_report.json") if ctx.artifact_exists("understanding/gap_report.json") else {}
+            for block in act.get("impact_blocks") or []:
+                if not isinstance(block, dict):
+                    continue
+                for sid in block.get("excluded_redundant_segment_ids") or []:
+                    if sid:
+                        out.add(str(sid))
+    report = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else {}
+    )
     for line in (report.get("interviewer_lines") or []) if isinstance(report, dict) else []:
         if isinstance(line, dict):
             for sid in line.get("replaces_source_segments") or []:

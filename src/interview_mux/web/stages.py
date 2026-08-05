@@ -526,9 +526,11 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Junction snip QA",
         "Deterministic start/end snip QA on every junction, then one feel audit; remaster when repairs apply.",
         "delivery",
-        ("master/edl.json", "master/assembly.wav"),
-        (),
+        # Own reports only — edl/assembly are upstream (edl/mix); junction may rewrite them
+        # as side effects but must not claim them as outputs (invalidation would archive EDL
+        # when re-running from mix).
         ("master/junction_snip_qa.json", "master/junction_feel_audit.json"),
+        (),
     ),
     StageInfo(
         "master_finalize",
@@ -544,25 +546,23 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Episode title & description",
         "LLM episode title + show notes for The War Room RSS.",
         "delivery",
-        ("master/master.wav",),
-        (),
         ("publish/episode_meta.json",),
+        (),
     ),
     StageInfo(
         "episode_cover_prompt_craft",
         "Cover prompt",
         "Flagship craft: harvest motifs → rich gpt-image prompt (asterisks-only text, without-clauses).",
         "delivery",
-        ("publish/episode_meta.json",),
-        (),
         ("publish/cover_prompt.json",),
+        (),
     ),
     StageInfo(
         "podcast_encode_mp3",
         "Encode MP3",
         "Encode master.wav to podcast MP3 (audio/mpeg enclosure).",
         "delivery",
-        ("master/master.wav",),
+        ("publish/audio.mp3", "publish/master.wav"),
         (),
         ("publish/audio.mp3",),
     ),
@@ -571,18 +571,21 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Episode cover",
         "OpenAI gpt-image ×3 + flagship vision picks most brilliant (fail-open to show art).",
         "delivery",
-        ("publish/cover_prompt.json",),
+        ("publish/cover.jpg", "publish/cover_pick.json", "publish/cover_meta.json"),
         (),
-        ("publish/cover.png", "publish/cover_pick.json", "publish/cover_meta.json"),
+        ("publish/cover.jpg",),
     ),
     StageInfo(
         "podcast_publish",
         "Package episode",
         "Finalize local publish/ package (meta, chapters, markers). S3 upload is a separate ASSETS sync.",
         "delivery",
-        ("publish/audio.mp3", "publish/cover.jpg", "publish/episode_meta.json"),
+        (
+            "publish/package_ready.json",
+            "publish/publish_result.json",
+            "publish/chapters.json",
+        ),
         (),
-        ("publish/package_ready.json", "publish/publish_result.json"),
     ),
 )
 

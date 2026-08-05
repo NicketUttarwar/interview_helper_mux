@@ -213,12 +213,19 @@ def run_sound_design_plan(ctx: RunContext) -> None:
 
 
 def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
-    """Clamp SDP asset durations to role bands before prompt craft / generation."""
+    """Clamp SDP asset durations to role bands before prompt craft / generation.
+
+    Prefer ``mmaudio.duration_bands_by_role`` from config (same as preflight),
+    then fall back to ``ROLE_DURATION_BANDS`` / MMAudio global clamp.
+    """
+    from interview_mux.config import merged_config
     from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
     from interview_mux.mmaudio_runner import clamp_duration_seconds
 
     sdp = _load_sound_design_plan(ctx)
     assets = sdp.get("assets") or []
+    mcfg = merged_config().get("mmaudio") or {}
+    by_role = mcfg.get("duration_bands_by_role") if isinstance(mcfg.get("duration_bands_by_role"), dict) else {}
     changed = False
     for asset in assets:
         if not isinstance(asset, dict):
@@ -227,7 +234,12 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
         if dur is None:
             continue
         role = str(asset.get("role") or "")
-        band = ROLE_DURATION_BANDS.get(role)
+        band = None
+        cfg_band = by_role.get(role)
+        if isinstance(cfg_band, (list, tuple)) and len(cfg_band) >= 2:
+            band = (float(cfg_band[0]), float(cfg_band[1]))
+        elif role in ROLE_DURATION_BANDS:
+            band = ROLE_DURATION_BANDS.get(role)
         if band:
             clamped = max(float(band[0]), min(float(band[1]), float(dur)))
         else:

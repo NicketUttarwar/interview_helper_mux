@@ -41,6 +41,8 @@
     "mood": "vintage_line_art_pointillist",
     "hierarchy": "one_clear_hero_subject_plus_supporting_motifs",
     "forbid_photorealism": true,
+    "forbid_person_likeness": true,
+    "hero_must_be": "objects_symbols_places_or_abstract_forms",
     "forbid_default_props": ["war_room_map", "ribbon_microphone", "show_emblem"]
   },
   "brilliance": {
@@ -49,6 +51,7 @@
       "clear_focal_hero",
       "cerulean_and_crimson_accents_visible",
       "no_readable_letters_or_words",
+      "no_person_likeness",
       "without_clauses_present",
       "balanced_composition_not_cluttered",
       "emotional_fit_to_episode_harvest"

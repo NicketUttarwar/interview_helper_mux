@@ -337,6 +337,35 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         except Exception:
             pass
 
+        # Final topo repair after Shape/hook/story_health — order may have drifted.
+        from interview_mux.selection_order_repair import (
+            finale_tail_errors,
+            repair_selection_order,
+        )
+
+        artifacts, final_notes = repair_selection_order(
+            artifacts, plan if isinstance(plan, dict) else None
+        )
+        if final_notes:
+            c.log(
+                f"selection final topo repair: {len(final_notes)} action(s)",
+                level="info",
+                stage="full_master_ranking",
+                detail=final_notes[:8],
+            )
+        final_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
+        tail_errs = finale_tail_errors(final_ordered, plan if isinstance(plan, dict) else None)
+        if tail_errs:
+            # One more forced rebuild; still fail post-commit if unresolved.
+            artifacts, _ = repair_selection_order(
+                artifacts, plan if isinstance(plan, dict) else None
+            )
+            c.log(
+                f"selection finale-tail still present after repair: {tail_errs[:2]}",
+                level="warning",
+                stage="full_master_ranking",
+            )
+
         write_validated_artifact(
             c,
             "master/selection.json",

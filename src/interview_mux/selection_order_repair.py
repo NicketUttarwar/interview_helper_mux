@@ -52,20 +52,26 @@ def finale_tail_errors(
     ordered: list[str],
     narrative_plan: dict[str, Any] | None,
 ) -> list[str]:
-    """Flag early-chapter segments parked after the last act's members."""
+    """Flag early-chapter segments parked after the last act's members.
+
+    Overlapping chapter membership resolves to the *latest* chapter so shared
+    finale anchors are not treated as early-chapter ids.
+    """
     if not isinstance(narrative_plan, dict) or len(ordered) < 3:
         return []
     chapters = [c for c in (narrative_plan.get("chapters") or []) if isinstance(c, dict)]
     if len(chapters) < 2:
         return []
-    last = chapters[-1]
-    last_ids = {_as_id(s) for s in (last.get("segment_ids") or []) if _as_id(s)}
-    early: set[str] = set()
-    for ch in chapters[:-1]:
+    # Latest chapter wins on overlaps (finale membership takes priority).
+    latest_chapter: dict[str, int] = {}
+    for idx, ch in enumerate(chapters):
         for sid in ch.get("segment_ids") or []:
             s = _as_id(sid)
             if s:
-                early.add(s)
+                latest_chapter[s] = idx
+    last_idx = len(chapters) - 1
+    last_ids = {s for s, ci in latest_chapter.items() if ci == last_idx}
+    early = {s for s, ci in latest_chapter.items() if ci < last_idx}
     if not last_ids or not early:
         return []
     positions = {sid: idx for idx, sid in enumerate(ordered)}
@@ -90,23 +96,31 @@ def _chapter_member_lists(
     narrative_plan: dict[str, Any] | None,
     ordered_set: set[str],
 ) -> list[list[str]]:
-    out: list[list[str]] = []
+    """Build per-chapter id lists with latest-chapter-wins on overlaps."""
     if not isinstance(narrative_plan, dict):
-        return out
-    for ch in narrative_plan.get("chapters") or []:
-        if not isinstance(ch, dict):
-            continue
-        ids = [_as_id(s) for s in (ch.get("segment_ids") or []) if _as_id(s) in ordered_set]
-        # preserve first-seen order within chapter from plan listing
+        return []
+    raw_chapters = [c for c in (narrative_plan.get("chapters") or []) if isinstance(c, dict)]
+    if not raw_chapters:
+        return []
+    # Assign each segment to the latest chapter that lists it.
+    latest_chapter: dict[str, int] = {}
+    for idx, ch in enumerate(raw_chapters):
+        for sid in ch.get("segment_ids") or []:
+            s = _as_id(sid)
+            if s and s in ordered_set:
+                latest_chapter[s] = idx
+    out: list[list[str]] = [[] for _ in raw_chapters]
+    for idx, ch in enumerate(raw_chapters):
         seen: set[str] = set()
-        cleaned: list[str] = []
-        for sid in ids:
-            if sid not in seen:
-                seen.add(sid)
-                cleaned.append(sid)
-        if cleaned:
-            out.append(cleaned)
-    return out
+        for sid in ch.get("segment_ids") or []:
+            s = _as_id(sid)
+            if not s or s not in ordered_set or latest_chapter.get(s) != idx:
+                continue
+            if s in seen:
+                continue
+            seen.add(s)
+            out[idx].append(s)
+    return [block for block in out if block]
 
 
 def topo_satisfy_order(
@@ -164,9 +178,11 @@ def topo_satisfy_order(
 
     leftovers = [sid for sid in deduped if sid not in assigned]
     if leftovers and spans:
-        # Insert leftovers before the last span (never after finale)
-        insert_at = max(0, len(spans) - 1)
-        spans[insert_at] = spans[insert_at] + leftovers
+        # Insert a dedicated block *before* the finale span (never append onto it).
+        if len(spans) >= 2:
+            spans.insert(len(spans) - 1, leftovers)
+        else:
+            spans[0] = leftovers + spans[0]
         applied.append(
             {
                 "action": "insert_leftovers_before_finale_span",

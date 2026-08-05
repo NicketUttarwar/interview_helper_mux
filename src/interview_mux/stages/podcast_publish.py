@@ -314,7 +314,9 @@ def run_episode_cover_prompt_craft(ctx: RunContext) -> None:
 
 
 def run_podcast_encode_mp3(ctx: RunContext) -> None:
-    master = ctx.path("master/master.wav")
+    # Read upstream master from final/prior path — ctx.path() is the active
+    # staging root and would miss master/master.wav written by master_finalize.
+    master = ctx.read_path("master/master.wav")
     if not master.is_file():
         raise FileNotFoundError("master/master.wav missing — run master_finalize first")
     bitrate = int(_podcast_cfg().get("mp3_bitrate_k") or 192)
@@ -470,6 +472,12 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
             jpeg_quality=int(settings.get("jpeg_quality") or 90),
             dest=dest,
         )
+        # Mirror into the committed tree so encode/publish invalidation cannot
+        # lose the only copy that lived under .pending_writes/.
+        final_cover = ctx.final_path("publish", cover_name)
+        if dest.is_file() and dest.resolve() != final_cover.resolve():
+            final_cover.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dest, final_cover)
         ctx.write_json(
             "publish/cover_meta.json",
             {
@@ -508,10 +516,18 @@ def run_podcast_publish(ctx: RunContext) -> None:
     layout = s3_layout()
     files = layout["episode_files"]
 
+    def _existing_publish(rel: str) -> Path:
+        """Resolve a publish/ file for read: staging write if present, else prior final."""
+        staged = ctx.path(rel)
+        if staged.is_file() and staged.stat().st_size > 0:
+            return staged
+        return ctx.read_path(rel)
+
     # Ensure cover.jpg exists (legacy cover.png → convert)
-    cover = ctx.path(f"publish/{files['cover']}")
+    cover_rel = f"publish/{files['cover']}"
+    cover = ctx.path(cover_rel)
     if not cover.is_file():
-        legacy = ctx.path("publish/cover.png")
+        legacy = _existing_publish("publish/cover.png")
         if legacy.is_file():
             from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
@@ -530,17 +546,28 @@ def run_podcast_publish(ctx: RunContext) -> None:
     ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
     master_pub = ctx.path(f"publish/{files['master']}")
     if not master_pub.is_file():
-        master_src = ctx.path("master/master.wav")
-        if not master_src.is_file():
-            raise FileNotFoundError("master/master.wav missing — cannot package archive copy")
-        shutil.copy2(master_src, master_pub)
+        # Prefer encode's publish/master.wav copy; else master/master.wav.
+        prior = _existing_publish(f"publish/{files['master']}")
+        if prior.is_file() and prior.resolve() != master_pub.resolve():
+            shutil.copy2(prior, master_pub)
+        else:
+            master_src = ctx.read_path("master/master.wav")
+            if not master_src.is_file():
+                raise FileNotFoundError("master/master.wav missing — cannot package archive copy")
+            shutil.copy2(master_src, master_pub)
 
     require_cover_min_size(cover, min_px=1400)
 
     for key in ("audio", "master", "cover", "chapters"):
-        path = ctx.path(f"publish/{files[key]}")
+        rel = f"publish/{files[key]}"
+        path = _existing_publish(rel)
         if not path.is_file() or path.stat().st_size < 1:
-            raise FileNotFoundError(f"publish/{files[key]} missing or empty — cannot finalize package")
+            raise FileNotFoundError(f"{rel} missing or empty — cannot finalize package")
+        # Materialize upstream files into this stage's staging so commit is complete.
+        staged = ctx.path(rel)
+        if path.resolve() != staged.resolve():
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, staged)
 
     meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}

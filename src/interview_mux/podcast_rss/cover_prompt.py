@@ -23,7 +23,29 @@ _LETTERED_SIGNAGE_RE = re.compile(
     r"\b(text|letters?|typography|words?|caption|title|logo|watermark|signage|label)\b",
     re.I,
 )
+# Depiction language that asks for a person's likeness (objects/symbols remain OK).
+_PERSON_LIKENESS_RE = re.compile(
+    r"(?:"
+    r"\bportraits?\b|"
+    r"\bselfie\b|"
+    r"\blikeness\b|"
+    r"\b(human|person(?:'s)?|people|man(?:'s)?|woman(?:'s)?|girl(?:'s)?|boy(?:'s)?)\s+"
+    r"(face|faces|figure|figures|body|bodies|portrait|portraits)\b|"
+    r"\b(face|faces|figure|figures)\s+of\s+(a\s+)?(person|people|man|woman|founder|guest|host)\b|"
+    r"\b(crowd|crowds)\s+of\s+(people|faces)\b|"
+    r"\bsilhouettes?\s+of\s+(a\s+)?(person|people|man|woman|founder)\b|"
+    r"\bdepict(?:ing|s)?\s+(a\s+)?(person|people|man|woman|human)\b"
+    r")",
+    re.I,
+)
+_NO_PERSON_WITHOUT_RE = re.compile(
+    r"\bwithout\b[^.]*\b(person|people|portrait|likeness|human\s+face|identifiable\s+people)\b",
+    re.I,
+)
 _REQUIRED_ACCENT_NAMES = ("cerulean", "crimson")
+_DEFAULT_NO_PERSON_WITHOUT = (
+    "without any person likeness, human face, portrait, or identifiable people"
+)
 
 
 def cover_image_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -64,6 +86,11 @@ def _default_theme() -> dict[str, Any]:
             "crimson": {"hex": "#8B1E3F"},
         },
         "required_accents": list(_REQUIRED_ACCENT_NAMES),
+        "composition": {
+            "forbid_photorealism": True,
+            "forbid_person_likeness": True,
+            "hero_must_be": "objects_symbols_places_or_abstract_forms",
+        },
         "text_policy": {"depicted_text": "asterisks_only"},
         "prompt_anatomy": [
             "hero_subject",
@@ -177,6 +204,20 @@ def has_without_clauses(text: str) -> bool:
     return bool(re.search(r"\bwithout\b", text or "", re.I))
 
 
+def contains_person_likeness(text: str) -> bool:
+    """True when the prompt asks to depict a person / face / portrait likeness.
+
+    Avoidance ``without …`` clauses are stripped first so required no-person
+    without-clauses do not false-positive.
+    """
+    cleaned = re.sub(r"\bwithout\b[^.]*", " ", text or "", flags=re.I)
+    return bool(_PERSON_LIKENESS_RE.search(cleaned))
+
+
+def has_no_person_without_clause(text: str) -> bool:
+    return bool(_NO_PERSON_WITHOUT_RE.search(text or ""))
+
+
 def anatomy_coverage(prompt: str, theme: dict[str, Any] | None = None) -> list[str]:
     """Return missing anatomy keys (empty = ok). Soft checklist for validation."""
     theme = theme or load_cover_theme()
@@ -230,10 +271,14 @@ def validate_prompt(
         errors.append(f"over_budget:{len(p)}>{cap}")
     if contains_realism(p):
         errors.append("realism_language")
+    if contains_person_likeness(p):
+        errors.append("person_likeness")
     if not has_required_accents(p):
         errors.append("missing_required_accents")
     if not has_without_clauses(p):
         errors.append("missing_without_clauses")
+    if not has_no_person_without_clause(p):
+        errors.append("missing_no_person_without_clause")
     missing = anatomy_coverage(p, theme)
     if missing:
         errors.append("incomplete_anatomy:" + ",".join(missing))
@@ -259,6 +304,7 @@ def assemble_prompt(
         "without readable letters or words in any language",
         "without logos or watermarks",
         "without copying show-art emblems",
+        _DEFAULT_NO_PERSON_WITHOUT,
     ]
     without_text = ", ".join(w.strip() for w in without if w and str(w).strip())
     theme = theme or load_cover_theme()
@@ -396,8 +442,9 @@ def harvest_motif_context(ctx: Any) -> dict[str, Any]:
         "sonic_mood": _clip_str(mood, 200),
         "forbid_default_props": True,
         "note": (
-            "Invent motifs only from this harvest. Do not default to war-room maps, "
-            "ribbon mics, or show emblems."
+            "Invent motifs only from this harvest as objects/symbols. "
+            "Never depict a person, face, portrait, or anyone's likeness. "
+            "Do not default to war-room maps, ribbon mics, or show emblems."
         ),
     }
 
@@ -413,7 +460,8 @@ BRILLIANT_EXEMPLAR = (
     "material etched ink on charcoal with bone-white highlights and old-gold edge ticks, "
     "lighting high-contrast graphic punch with soft cerulean rim and crimson underglow, "
     "asterisk plate *** only if a nameplate appears, without photorealism, without readable "
-    "letters or words in any language, without logos or watermarks, without copying show-art emblems."
+    "letters or words in any language, without logos or watermarks, without copying show-art "
+    "emblems, without any person likeness, human face, portrait, or identifiable people."
 )
 
 DISAMBIGUATION_VOLLEY = (
@@ -421,5 +469,8 @@ DISAMBIGUATION_VOLLEY = (
     "- If harvest mentions 'board', prefer strategy board / abstract grid — without corporate whiteboard.\n"
     "- If harvest mentions 'network', prefer constellation nodes — without social-app UI chrome.\n"
     "- If harvest mentions 'stage', prefer geometric proscenium arches — without photoreal concert photos.\n"
-    "Always include without-clauses covering photorealism, readable lettering, logos, and show-emblem copy."
+    "- If harvest names people or roles, use objects that stand for the idea — without any person "
+    "likeness, human face, portrait, or identifiable people.\n"
+    "Always include without-clauses covering photorealism, readable lettering, logos, "
+    "show-emblem copy, and person likeness."
 )

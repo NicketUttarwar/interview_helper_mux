@@ -127,6 +127,36 @@ def test_clear_from_delivery_preserves_analysis_sound_design_plan(
     assert ctx.is_done("sound_design_palettes")
 
 
+def test_clear_from_mix_preserves_upstream_edl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """junction_snip_qa must not cause mix invalidation to archive master/edl.json."""
+    from interview_mux.pipeline import DELIVERY_ORDER
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    edl = ctx.final_path("master/edl.json")
+    edl.parent.mkdir(parents=True, exist_ok=True)
+    edl.write_text('{"clips":[]}', encoding="utf-8")
+    ctx.mark_done("edl", force=True)
+    assembly = ctx.final_path("master/assembly.wav")
+    assembly.parent.mkdir(parents=True, exist_ok=True)
+    assembly.write_bytes(b"RIFF")
+    ctx.mark_done("mix", force=True)
+    snip = ctx.final_path("master/junction_snip_qa.json")
+    snip.parent.mkdir(parents=True, exist_ok=True)
+    snip.write_text("{}", encoding="utf-8")
+    ctx.mark_done("junction_snip_qa", force=True)
+
+    ctx.clear_from("mix", DELIVERY_ORDER)
+
+    assert edl.is_file(), "EDL must survive clear_from(mix)"
+    assert ctx.is_done("edl")
+    assert not assembly.is_file()
+    assert not snip.is_file()
+    assert not ctx.is_done("mix")
+    assert not ctx.is_done("junction_snip_qa")
+
+
 def test_clear_from_stamps_stale_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
