@@ -33,18 +33,20 @@ def load_delivery_brief(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def _source_duration_ms(ctx: RunContext) -> int:
+    """Source length in ms — prefer transcript (incl. words), then ingest meta."""
+    from interview_mux.interview_duration_policy import transcript_duration_ms
+
+    duration = int(transcript_duration_ms(ctx) or 0)
+    if duration > 0:
+        return duration
+    # Extra transcript keys not covered by transcript_duration_ms.
     if ctx.artifact_exists("transcript/full.json"):
         doc = ctx.read_json("transcript/full.json")
         if isinstance(doc, dict):
-            for key in ("duration_ms", "audio_duration_ms"):
+            for key in ("audio_duration_ms", "duration_sec"):
                 val = doc.get(key)
                 if isinstance(val, (int, float)) and val > 0:
-                    return int(val)
-            items = doc.get("items") or []
-            if items and isinstance(items[-1], dict):
-                end = items[-1].get("end_ms") or items[-1].get("end")
-                if isinstance(end, (int, float)):
-                    return int(end)
+                    return int(val if key != "duration_sec" else val * 1000)
     if ctx.artifact_exists("ingest/checksums.json"):
         meta = ctx.read_json("ingest/checksums.json")
         if isinstance(meta, dict):

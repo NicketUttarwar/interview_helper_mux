@@ -1,5 +1,7 @@
 # Multilingual source audio — implementation plan
 
+**Essence pointer:** the product's job is unchanged by language — find the ideal way to communicate what was spoken, protect **idea transmission** for a first-time listener ([NORTH_STAR.md#essence](../../NORTH_STAR.md#essence)). Every workstream below exists so that promise holds in the source language, not just English; G0 remains the idea-transmission checkpoint, it just requires a reviewer who can actually understand that language (see [Product and operator policy](#1-product-and-operator-policy) below).
+
 ## Purpose
 
 This document describes what it would take for `interview_helper_mux` to accept interview **source audio in different languages** and produce a trustworthy `master/master.wav` **in the same language as that source**.

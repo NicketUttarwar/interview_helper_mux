@@ -11,6 +11,7 @@
     "Tone mismatch vs analysis_state style",
     "Transitions referencing unknown segment_ids",
     "Generic filler bridges with no editorial purpose",
+    "Stub bridge copy (e.g. \"let's move on\", \"moving on to our next topic\") reused across transitions with no segment-specific content",
     "Schema errors on required transition fields"
   ],
   "min_confidence_on_accept": 0.75,

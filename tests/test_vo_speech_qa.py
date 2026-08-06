@@ -13,7 +13,7 @@ from interview_mux.vo_speech_qa import (
     backend_allowed_for_vo,
     vo_passes_speech_qa,
 )
-from interview_mux.vo_synthesis_audit import record_synthesis
+from interview_mux.vo_synthesis_audit import record_recorded_vo, record_synthesis
 from interview_mux.run_context import RunContext
 from run_fixtures import patch_executions_root
 
@@ -86,3 +86,51 @@ def test_record_synthesis_rejects_tone_stub(tmp_path: Path, monkeypatch) -> None
         assert False, "expected ValueError"
     except ValueError as exc:
         assert "Forbidden" in str(exc)
+
+
+def test_record_synthesis_missing_output_logs_loud_warning(tmp_path: Path, monkeypatch) -> None:
+    """A fail-open synthesis backend that produced no file must not pass silently."""
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_vo_qa_missing", create=True)
+    out_wav = ctx.path("vo_pickup", "synthesized", "line_missing.wav")
+    # No file written at out_wav — simulates a fail-open Chatterbox call that
+    # produced no audio without itself raising.
+    entry = record_synthesis(ctx, {"line_id": "line_missing"}, backend="chatterbox", out_wav=out_wav)
+    assert entry["qc_pass"] is False
+    assert "missing_output_wav" in entry["qc_notes"]
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "VO synthesis QC failed" in log_text
+    assert "line_missing" in log_text
+
+
+def test_record_synthesis_stub_wav_logs_loud_warning(tmp_path: Path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_vo_qa_stub", create=True)
+    wav = ctx.path("vo_pickup", "synthesized", "line_stub.wav")
+    _write_sine(wav)
+    entry = record_synthesis(ctx, {"line_id": "line_stub"}, backend="chatterbox", out_wav=wav)
+    assert entry["qc_pass"] is False
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "VO synthesis QC failed" in log_text
+    assert "line_stub" in log_text
+
+
+def test_record_recorded_vo_missing_file_logs_loud_warning(tmp_path: Path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_vo_qa_record_missing", create=True)
+    out_wav = ctx.path("vo_pickup", "line_upload.wav")
+    record_recorded_vo(ctx, "line_upload", out_wav=out_wav, backend="upload")
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "VO recording missing" in log_text
+    assert "line_upload" in log_text
+
+
+def test_record_recorded_vo_stub_logs_loud_warning(tmp_path: Path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_vo_qa_record_stub", create=True)
+    out_wav = ctx.path("vo_pickup", "line_upload2.wav")
+    _write_sine(out_wav)
+    record_recorded_vo(ctx, "line_upload2", out_wav=out_wav, backend="upload")
+    log_text = ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "VO recording QC failed" in log_text
+    assert "line_upload2" in log_text

@@ -144,6 +144,10 @@ export function GateActions({ stage }: Props) {
           {SONIC_CONTEXT_STAGES.has(stage.id) ? <SonicContextPanel /> : null}
           {AUDIO_PROBES_STAGES.has(stage.id) ? <AudioProbesPanel /> : null}
 
+          {stage.id === "listen_delight_audit" ? (
+            <QcSummaryCard qcKey="listen_delight" stageId={stage.id} />
+          ) : null}
+
           {run.journey?.phase === "ship" ? (
             <>
               {stage.id === "full_master_ranking" || stage.id === "edl" ? (
@@ -155,7 +159,10 @@ export function GateActions({ stage }: Props) {
               ) : null}
 
               {stage.id === "master_finalize" ? (
-                <QcSummaryCard qcKey="show_notes_qc" stageId={stage.id} />
+                <>
+                  <QcSummaryCard qcKey="listen_delight" stageId={stage.id} />
+                  <QcSummaryCard qcKey="show_notes_qc" stageId={stage.id} />
+                </>
               ) : null}
 
               {MIX_INTELLIGIBILITY_STAGES.has(stage.id) ? (

@@ -1,10 +1,45 @@
 # North Star — interview_helper_mux v2
 
-> **Turn a long-form interview recording into a listener-ready mastered podcast (`master/master.wav`) the operator trusts — and a first-time listener would find coherent, compelling, worth finishing, and worth recommending.**
+> **Turn a messy long-form interview into a listener-ready `master/master.wav` the operator trusts — structured so a first-time listener can follow and retain the important ideas, finish the episode, and recommend it.**
+
+## Essence
+
+Every native source is a **mess**: overlapping words, speakers, noise, false starts, buried digressions, uneven communicative weight. Humans speak that way.
+
+**What this application is for:**
+
+1. Find the **ideal way to communicate** what was spoken on that tape.
+2. Find **golden nuggets** — passionate, information-dense native segments often drowned by surrounding talk.
+3. Find **ideal cut points** so each keep is listenability-optimal and idea-intact.
+4. Use spoken information **holistically** (including same-speaker concepts across time) to weave a **story**.
+5. Realize that story as a **conversation**: native clips ↔ grounded synthetic voice ↔ music / SFX / intentional air — mastered in harmony.
+
+**Editorial stance:** “Poorly spoken” means weak *idea weight*, not polishing guest filler. Synthetic inserts may **recombine concepts the same speaker already said**. Never invent unspoken claims or dialogue. Fight STT errors, Hinglish/Spanglish/code-switch, and domain nomenclature failures (G0 + lexicon/passion islands).
+
+## Story architecture (structure-first mastering)
+
+The product is not “glue leftover clips.” **Shape / Mastering Process** chooses storytelling architecture; then:
+
+| Part | Role |
+|------|------|
+| Native segments | Proof on tape — golden nuggets at ideal in/out points |
+| Synthetic voice | Conversational partners — orientation, bridges, grounded recombination |
+| Music / SFX / air | Scene support under that structure |
+
+**Combinations and mutations** (order, keeps, bridges, beds, duration toward soft ideal) exist to convey the **most information in the best manner**.
+
+**Retention policy:** soft target = delivery-brief **ideal** (~45% of source); **hard floor ~10%** catastrophe net only. Never a high retention lock (e.g. 35%) that blocks reshaping the episode.
+
+**Sonic coverage bands** (Shape-owned soft targets, not remux theater):
+
+| Band | Range |
+|------|-------|
+| Bed coverage | **0.28–0.88** |
+| Hinge stinger coverage | **0.3–1.0** |
 
 ## Master construction strategy
 
-Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-process.md)** — **8-wave research lane** → two-pass Shape Composition Engine → realization — producing a **bespoke** `mastering_plan` per podcast (no fixed five-act/TBIY template).
+Final shape is owned by the **[Mastering Process](docs/cross-cutting/mastering-process.md)** — **8-wave research** → Shape Composition Engine (mutation search over native/synthetic/sonic ensembles) → realization → `master/master.wav`.
 
 First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narrative-mode-and-montage.md](docs/cross-cutting/narrative-mode-and-montage.md)) — realized through gap VO, selection, EDL, and mode-aware **musical** sound design (MusicGen motif family; no whoosh/tick/foley). TBIY is historical inspiration only ([tbiy-production-profile.md](docs/cross-cutting/tbiy-production-profile.md)).
 
@@ -14,14 +49,15 @@ First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narra
 |-----------|----------------|
 | Master loudness | `-16 LUFS` integrated, true peak within bounds — `python tools/verify_master.py <path>/master/master.wav` |
 | Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix — bound to Mastering Process plan when present |
-| Listen delight | Shape critics + `mastering/listen_delight_audit.json` + **human listen rubric** (below) — **always advisory**; never blocks `master.wav` |
-| Operator friction | Hard stops for **G0 transcript fix** and **gap-framing gate ladder** (recommended Yes + voice clone; prefer least-spoken host, any on-tape speaker when needed); **G1 gap VO** remains skippable; preclean is an optional offer |
-| Refinement Pass | L0/L1 second analyses (gap recompose et al.); one second-run per function, never dead-ends G1/delivery — [refinement-passes.md](docs/cross-cutting/refinement-passes.md) |
+| Listen delight | `mastering/listen_delight_audit.json` + scorecard + human rubric — **authoritative ship gate** (blocks finalize quality + publish when floors fail) |
+| Idea transmission | First-time listener can retell thesis / main claims; nuggets audible; cuts do not shred meaning |
+| Operator friction | Hard stops for **G0 transcript fix** and **gap-framing gate ladder**; **G1 gap VO** remains skippable; preclean is an optional offer |
+| Refinement Pass | L0/L1 second analyses; one second-run per function, never dead-ends G1/delivery — [refinement-passes.md](docs/cross-cutting/refinement-passes.md) |
 | Research + Shape FT | `research_dossier` (or explicit partial/skip) + `mastering_plan` with `plan_status`; Shape failure degrades — never dead-ends G1 |
 
-### Human listen rubric (operational delight check)
+### Human listen rubric (ship checklist)
 
-Use in smoke-test / sign-off (pass/fail per item; failures are **warnings**, not hard stops):
+Use in smoke-test / sign-off. Machine delight floors mirror these; failures **block ship** when listen_delight mode is authoritative:
 
 1. Hook / intent clear in first ~30s (or intentional sparse open)
 2. Mode audible and coherent through the episode
@@ -30,6 +66,12 @@ Use in smoke-test / sign-off (pass/fail per item; failures are **warnings**, not
 5. Fatigue acceptable (would finish)
 6. Would recommend to a first-time listener
 7. Loudness/intelligibility acceptable (`verify_master` + ears)
+8. Golden nuggets not drowned; cut edges listenability-clean
+9. Grounded synthesis only (recombined same-speaker concepts attributable to tape)
+
+### Interim segment quality scale
+
+Until a unified density score lands, operable signals include: `self_explanatory` / segment flags · gap severity · ranking excludes · passion/lexicon STT priors · pack retention vs brief ideal · junction/seam autopsy · listener scorecard · **authoritative listen_delight** dims (`nugget_retention`, `cut_integrity`, `conversation_fit`, `sonic_weave`, `mode_coherence`, `finishability`, `recommendability`).
 
 ## Operator stops (only these)
 
@@ -54,8 +96,7 @@ All of the below are **deleted from the codebase**, not disabled. Inventory: [do
 - Per-stage write approval, handoff acks between stages
 - Debug / Story / Volley GUI tabs
 - Cloud STT (AWS Transcribe) and cloud audio APIs — STT, diarization, denoise, and SFX are local
-- New spend / timeout / remint / attempt caps for Shape excellence
-- Making listen delight / mode_consistency a hard mechanical blocker equal to `verify_master`
+- New spend / timeout / remint / attempt caps for Shape excellence without evidence
 
 ## Volley lexicon (required reading)
 
@@ -63,11 +104,16 @@ All of the below are **deleted from the codebase**, not disabled. Inventory: [do
 |------|---------|
 | **Speaker volley** | Conversation between speakers preserved in the final podcast timeline |
 | **LLM volley** | System/user/assistant message packet for one stage LLM call |
+| **Nugget** | High communicative-weight native span (passion and/or idea density) recoverable into the master or grounded synthetic framing |
 
 Bare “volley” is ambiguous — always qualify.
 
+## Quality spine (all hard)
+
+`verify_master` (−16 LUFS) · junction snip QA authoritative residuals · listener scorecard / post_master_quality · **listen_delight** (authoritative).
+
 ## Pipeline shape
 
-Research waves + two-pass Shape soft-gate + analysis/delivery stages (**57** total) → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
+Research waves + Shape + analysis/delivery stages (**57** total) → `master/master.wav`. Canonical order: [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 See [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv) and [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md).

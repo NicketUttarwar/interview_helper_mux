@@ -23,6 +23,8 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 
 **Preflight note:** G0 is enforced before first LLM stages via `check_transcript_review_pending` in `llm_preflight.py` (`speaker_roles`, `content_context`, …) — not a separate OpenAI preflight on `transcript_review` itself.
 
+**Upstream/ship framing:** `transcript_review` (G0) is the idea-transmission checkpoint every later row in this scorecard implicitly depends on — a wrong word there cannot be caught by any downstream lint/arbiter. `listen_delight_audit` (P4 row below) is the mirror at the other end: Ship is blocked on **hard delight** (authoritative floors) regardless of how clean every upstream stage's individual scorecard status is. See [operator-gates.md](../workflows/operator-gates.md).
+
 ---
 
 ## P0 — Foundation (errors poison downstream)
@@ -91,6 +93,7 @@ Living tracker for the [LLM guidance program](./llm-guidance-program.md). Each r
 | `source_acoustic_profile` | P4 | — | — | — | — | — | doc_only | — | shipped |
 | `sound_design_vo_finalize` | P4 | — | — | — | — | partial | doc_only | — | shipped |
 | `assembly_preview` | P4 | — | — | — | — | — | doc_only | — | shipped |
+| `listen_delight_audit` | P4 | — | — | — | — | — | doc_only | — | shipped |
 
 ---
 

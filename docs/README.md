@@ -1,6 +1,6 @@
 # Documentation
 
-Authoritative specs for **interview_helper_mux** — raw interview audio to one deliverable, `master/master.wav`.
+Authoritative specs for **interview_helper_mux** — messy interview audio → structured `master/master.wav` (golden nuggets, ideal cuts, native↔synthetic↔sonic conversation). Product compass: [NORTH_STAR.md](../NORTH_STAR.md) — **authoritative listen-delight** ship gate.
 
 **Toolchain versions:** All dependency pins, vulnerability setup gate, and Context7 rules live in [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Do not duplicate version numbers in other docs — link there.
 

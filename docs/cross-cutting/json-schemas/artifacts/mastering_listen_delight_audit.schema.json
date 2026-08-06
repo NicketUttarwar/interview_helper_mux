@@ -13,16 +13,49 @@
       "type": "integer",
       "const": 1
     },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "advisory",
+        "authoritative"
+      ]
+    },
     "advisory": {
-      "type": "boolean",
-      "const": true
+      "type": "boolean"
     },
     "blocking": {
-      "type": "boolean",
-      "const": false
+      "type": "boolean"
     },
     "narrative_mode": {
       "type": "string"
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "overall": {
+      "type": "number"
+    },
+    "overall_min": {
+      "type": "number"
+    },
+    "dimension_floors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "failed_dimensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "passed": {
+      "type": "boolean"
     },
     "finishability": {
       "type": "number"

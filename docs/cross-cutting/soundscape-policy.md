@@ -81,13 +81,38 @@ When `soundscape.strict_slots` is true (default), SDP cues must map to allowed s
 | `min_speech_relative_db` | Policy standards |
 | Intelligibility | Existing mix QC when required |
 
+**Bed coverage `0.28–0.88` and hinge-stinger coverage `0.3–1.0` are Shape-owned
+soft bands (Plan 4), not a remux-theater target.** They live in
+`listenability_guards._DEFAULTS` (`bed_coverage_min_ratio`/`max_ratio`,
+`hinge_stinger_coverage_min_ratio`/`max_ratio`) and describe the range a
+well-produced, Shape-driven master already falls into — see
+[config-keys.md](./config-keys.md#creative_deliverylistenability_guards) and
+[mix-house-chain.md](./mix-house-chain.md#bed-coverage--hinge-stinger--shape-owned-soft-bands-plan-4).
+`soundscape_verify._estimate_bed_coverage` measures the *actual* planned bed
+duration over actual selection duration — it never seeds or inflates cues
+itself; seeding only happens in the remediation ladder below, and only on
+real palette/quartile-mapped segments.
+
 ## Remediation ladder (capped)
 
 | Phase | Max | Actions |
 |-------|-----|---------|
-| Asset fitness (post-MMAudio) | 1 regen / `asset_id` | `adjust_level` → `regenerate` → `skip_cue` |
-| Post-mix verify | 1 remux | Lower beds, strengthen duck, drop lowest-priority cues |
-| Second verify fail | — | Warning ship if first-try / `fail_closed=false`; hard-fail if `soundscape.fail_closed` |
+| Asset fitness (post-MMAudio) | `soundscape.remediation.max_regen_per_asset` (default `2`) | `adjust_level` → `regenerate` → `skip_cue` |
+| Post-mix verify | `soundscape.remediation.max_remux_cycles` (default `2`) | Lower beds / strengthen duck / drop lowest-priority cue (over-coverage); or seed palette/quartile-anchored, contiguous-preferring beds via `artifact_repairs.repair_sound_design_plan` (under-coverage) |
+| Final verify fail | — | Warning ship if first-try / `fail_closed=false`, **or** if the only residual failure is a *minimum* bed/hinge coverage shortfall (never a max overshoot or intelligibility miss) — see "gaming guard" below; hard-fail (`fail_closed`) otherwise |
+
+**Gaming guard (Plan 4):** under-coverage remediation must not invent
+disconnected per-clip beds just to move the ratio. `repair_sound_design_plan`
+only anchors new beds on segments already reachable from the selected
+palettes/selection (never fabricated silence), and — when
+`mastering.music_continuity.prefer_contiguous_beds` is set (default) —
+prefers extending an already-bedded neighbor segment over starting a fresh
+island, so mix-time merging folds the result into one honest scene bed. If
+that honest ladder still can't clear the floor after `max_remux_cycles`,
+`soundscape_verify.run_soundscape_verify` reports a loud warning
+(`fail_closed_softened: true`) instead of `fail_closed` — the shortfall is
+real editorial signal (not enough legitimate bed opportunities), not
+something another remux pass should paper over by inventing more cues.
 
 ## Consumers (must honor)
 

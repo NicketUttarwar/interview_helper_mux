@@ -2,6 +2,8 @@
 
 Human checkpoint immediately after local MLX STT. Operators listen to **pre-cut clips** ranked by **communicative salience** (idea-break risk), correct text, then sign off before content understanding runs. Confidence-only ordering is available as a config fallback for A/B (`transcript_review.sort_mode: confidence`).
 
+**Why G0 is mandatory (not just quality polish):** this gate protects **idea transmission** ([NORTH_STAR.md#essence](../../../NORTH_STAR.md#essence)) — every downstream LLM stage (speaker roles, content understanding, gap detection, VO scripts) trusts `transcript/full.json` as ground truth. A wrong word or mis-heard clause here silently corrupts claims, gap analysis, and generated VO with no later chance to catch it against the source audio. See [operator-gates.md](../../workflows/operator-gates.md#hard-gates).
+
 ## Pipeline position
 
 ```mermaid

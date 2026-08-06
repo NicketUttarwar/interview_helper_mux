@@ -239,6 +239,36 @@ def normalize_synthetic_plan(
         and str(line.get("before_segment_id") or "")
         and str(line.get("text") or "").strip()
     }
+    from interview_mux.seam_glue import default_bridge_text
+
+    def _mint_seam(pair: dict[str, Any], a: str, b: str) -> None:
+        native = native_by_id.get(a) or native_by_id.get(b) or {}
+        native_ms = max(
+            250,
+            int(native.get("end_ms") or 0) - int(native.get("start_ms") or 0),
+        )
+        cleaned.append(
+            {
+                "line_id": f"syn_seam_{a}_{b}",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": a if a in ordered else b,
+                "after_segment_id": a,
+                "before_segment_id": b,
+                "text": default_bridge_text(pair),
+                "duration_ratio": 1.0,
+                "target_duration_ms": max(250, min(3500, int(native_ms * 0.6) or 1200)),
+                "comprehension_reason": (
+                    f"Required reorder seam {a}->{b}: orient the listener "
+                    f"across the selected continuity break."
+                ),
+                "native_respect_violation": False,
+                "auto_minted_seam": True,
+                "speaker_policy": "current_host_clone",
+            }
+        )
+        covered.add((a, b))
+
     for pair in required:
         if not isinstance(pair, dict):
             continue
@@ -246,12 +276,20 @@ def normalize_synthetic_plan(
         b = str(pair.get("before_segment_id") or "")
         if not a or not b or (a, b) in covered:
             continue
-        # Prefer an existing cleaned line that mentions this adjacency.
+        # Adopt only free lines — never rewrite a line that already covers a seam.
         adopted = False
         for line in cleaned:
             if str(line.get("anchor_segment_id") or "") not in {a, b}:
                 continue
             if not str(line.get("text") or "").strip():
+                continue
+            existing_after = str(line.get("after_segment_id") or "")
+            existing_before = str(line.get("before_segment_id") or "")
+            if (
+                str(line.get("placement") or "") == "between_segments"
+                and existing_after
+                and existing_before
+            ):
                 continue
             line["placement"] = "between_segments"
             line["after_segment_id"] = a
@@ -261,15 +299,38 @@ def normalize_synthetic_plan(
             adopted = True
             break
         if not adopted:
-            # Leave uncovered. validate_synthetic_plan fails loud unless
-            # mastering.synthetic_framing.allow_canned_bridge_fallback is on.
-            pass
+            _mint_seam(pair, a, b)
+
+    # Second pass: rebuild coverage from actual line fields, then remint gaps.
+    covered = {
+        (
+            str(line.get("after_segment_id") or ""),
+            str(line.get("before_segment_id") or ""),
+        )
+        for line in cleaned
+        if str(line.get("placement") or "") == "between_segments"
+        and str(line.get("after_segment_id") or "")
+        and str(line.get("before_segment_id") or "")
+        and str(line.get("text") or "").strip()
+    }
+    for pair in required:
+        if not isinstance(pair, dict):
+            continue
+        a = str(pair.get("after_segment_id") or "")
+        b = str(pair.get("before_segment_id") or "")
+        if not a or not b or (a, b) in covered:
+            continue
+        _mint_seam(pair, a, b)
+
     out["lines"] = cleaned
     return out
 
 
 def validate_synthetic_plan(
-    ctx: RunContext, plan: dict[str, Any]
+    ctx: RunContext,
+    plan: dict[str, Any],
+    *,
+    packet: dict[str, Any] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     conf = synthetic_framing_cfg()
@@ -303,11 +364,12 @@ def validate_synthetic_plan(
             errors.append(f"lines[{index}].comprehension_reason missing")
     # Required reorder seams must be covered by speakable between_segments lines.
     try:
-        packet = (
-            ctx.read_json(CONTEXT_REL)
-            if ctx.artifact_exists(CONTEXT_REL)
-            else build_context_packet(ctx)
-        )
+        if packet is None:
+            packet = (
+                ctx.read_json(CONTEXT_REL)
+                if ctx.artifact_exists(CONTEXT_REL)
+                else build_context_packet(ctx)
+            )
         required = packet.get("required_reorder_seams") or []
         covered = {
             (
@@ -339,7 +401,7 @@ def run_synthetic_framing_plan(ctx: RunContext, *, force: bool = False) -> dict[
     packet = build_context_packet(ctx)
     if not force and ctx.artifact_exists(PLAN_REL):
         prior = ctx.read_json(PLAN_REL)
-        if isinstance(prior, dict) and not validate_synthetic_plan(ctx, prior):
+        if isinstance(prior, dict) and not validate_synthetic_plan(ctx, prior, packet=packet):
             return prior
 
     persist_base = make_stage_persist(PLAN_REL, STAGE_ID)
@@ -348,8 +410,11 @@ def run_synthetic_framing_plan(ctx: RunContext, *, force: bool = False) -> dict[
         return packet
 
     def persist(c: RunContext, artifacts: dict[str, Any]) -> None:
+        # Always normalize + validate against the same in-memory packet. Reading
+        # CONTEXT_REL via resolve_read_path can return a stale staged copy with a
+        # different required_reorder_seams set, which made mint/validate diverge.
         doc = normalize_synthetic_plan(c, dict(artifacts), packet)
-        errors = validate_synthetic_plan(c, doc)
+        errors = validate_synthetic_plan(c, doc, packet=packet)
         if errors:
             raise ValueError("synthetic framing plan invalid: " + "; ".join(errors[:8]))
         persist_base(c, doc)

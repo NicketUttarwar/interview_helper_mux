@@ -1,6 +1,6 @@
 # Agent guide — interview_helper_mux (v2)
 
-**North star:** [NORTH_STAR.md](NORTH_STAR.md) — one interview → **`master/master.wav`**.
+**North star:** [NORTH_STAR.md](NORTH_STAR.md) — messy interview → structured **`master/master.wav`** (golden nuggets, ideal cuts, native↔synthetic↔sonic conversation; **authoritative listen-delight** ship gate).
 
 **Operator flow:**
 

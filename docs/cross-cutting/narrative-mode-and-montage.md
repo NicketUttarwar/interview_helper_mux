@@ -82,7 +82,7 @@ Research dossier (`mastering/research_dossier.json`) is the primary Shape eviden
 
 ## Listen delight
 
-Critics, `mode_consistency` QC, `listen_delight_audit`, and the human listen rubric are **always advisory** — never block `master_finalize`.
+Critics and the standalone `mode_consistency` QC summary remain **advisory** — never block `master_finalize` on their own. `listen_delight_audit` itself is the **authoritative ship gate** (`mastering.listen_delight.mode`, default `authoritative`): it folds `mode_consistency` into its `mode_coherence` dimension, and floor failures hard-stop `listen_delight_audit` and re-block at `post_master_quality`/publish. The human listen rubric mirrors the same floors at sign-off — see [NORTH_STAR.md](../../NORTH_STAR.md#human-listen-rubric-ship-checklist).
 
 ## Spoken structure (never air chapter numbers)
 

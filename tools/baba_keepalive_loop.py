@@ -13,13 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
 STATUS = ASSETS / "baba_status.json"
 LOG = ASSETS / "baba_watchdog.log"
+RUN_POINTER = ASSETS / "baba_current_run.txt"
 
 
 def log(msg: str) -> None:
-    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
-    print(line, flush=True)
-    with LOG.open("a") as f:
-        f.write(line + "\n")
+    # stdout is redirected to LOG by baba_daemon_launch; a second file write duplicates lines.
+    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}", flush=True)
 
 
 def launch(mode: str, *extra: str) -> None:
@@ -49,7 +48,12 @@ def e2e_alive() -> bool:
 
 
 def latest_run() -> str | None:
-    # Prefer explicit resume/create lines from the current driver.
+    # The driver writes this on bind — authoritative and race-free at fresh start.
+    if RUN_POINTER.is_file():
+        pointed = RUN_POINTER.read_text(encoding="utf-8").strip()
+        if pointed and (ASSETS / "executions" / pointed).is_dir():
+            return pointed
+    # Fall back to explicit resume/create lines from the current driver.
     console = ASSETS / "baba_e2e_console.log"
     if console.is_file():
         for line in reversed(console.read_text(errors="ignore").splitlines()):

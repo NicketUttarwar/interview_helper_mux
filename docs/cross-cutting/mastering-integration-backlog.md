@@ -119,6 +119,8 @@ Adds reliability gates on top of A–F. Canon: [mastering-quality-hardening.md](
 
 ### G-d. Runtime wiring (lands with Shape Engine runtime)
 
+**Plan 6 focus:** these six rows are the runtime pieces the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) needs to actually run its loop — rubric emission (G14) feeds critics/auditions their scoring axes, diversity/feasibility (G15–G16) bound the candidate pool before spend, auditions (G17) give the cheap per-mutation feedback signal, the critic+arbiter merge (G18) is the excellence filter, and Pareto-filtered synthesize (G19) is what carries survivors into the plan. Treat "Shape is the mutation engine" as the primary interpretation of this table going forward — routing/compiler details (G-a) exist to serve that loop, not the other way around. Plan 6 lands docs + soft-gate rubric/comment groundwork only; G14–G19 runtime wiring itself remains `pending-runtime`.
+
 | # | Touchpoint | Disposition | Notes |
 |---|------------|-------------|-------|
 | G14 | L0 emits `shape/eval_rubric.json` beside the agenda | pending-runtime | Every critic + polish scores against it |
@@ -172,7 +174,7 @@ Adds reliability gates on top of A–F. Canon: [mastering-quality-hardening.md](
 | H2 | 8-wave research runtime → `research_dossier.json` | landed | Fail-open thin fields; feeds Shape |
 | H3 | Stages: research + shape agenda/candidates/synthesize/confirm + listen_delight_audit | landed | `v2/config.py` + `pipeline.py` |
 | H4 | Voice clone any on-tape speaker | landed | Prefer pickup; guest allowed with consent |
-| H5 | Listen delight / mode_consistency | landed | **Always advisory** — never block master |
+| H5 | Listen delight / mode_consistency | landed | **Authoritative** listen_delight ship gate; mode_consistency alone advisory |
 | H6 | `mastering.shape.soft_gate.*` | landed | enable/mode/shadow_compare/consumers_bind/two_pass — **no timeout/spend caps** |
 | H7 | Consumers bind (`consumers_bind`) | soft | Default false/advisory; flip after shadow evidence |
 | H8 | TBIY demotion when plan present | migrate | Hint-only |

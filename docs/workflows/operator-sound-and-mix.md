@@ -17,3 +17,8 @@ How your interview’s pacing drives cohesive SFX — without reading the full S
 - Never skip **assembly preview** listen for Flow 1 unless you accept SFX spend risk.
 - Optional **G1.5:** approve prompts before generation (`g1_5_require_prompt_approval`).
 - SAP strip in GUI shows `pace_class`, `bed_density`, `stinger_policy` on sound stages.
+- **Bed coverage (0.28–0.88) and hinge stinger coverage (0.3–1.0) are soft bands, not targets to hit.** A run reporting near the low or high edge is not automatically broken — check `sound_design/soundscape_report.json` for the actual failures list, not just the verdict.
+- Ducking is **speech-wins** for any voice on the timeline (native or recorded VO) — beds should never fight either one; if a bed feels loud under a VO bridge, that is a mix bug worth flagging, not expected behavior.
+- If `soundscape_report.json` shows `fail_closed_softened: true`, mix chose to ship with a warning rather than force another remux to invent more beds — the run likely just doesn't have many legitimate bed opportunities (thin palette / short selection), which is a content signal, not a defect.
+
+See [mix-house-chain.md](../cross-cutting/mix-house-chain.md) for the full speech-wins / contiguous-beds / gaming-guard detail.

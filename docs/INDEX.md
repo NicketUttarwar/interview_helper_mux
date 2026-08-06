@@ -1,6 +1,6 @@
 # Documentation index
 
-Hub for **interview_helper_mux v2** — one interview → `master/master.wav`.
+Hub for **interview_helper_mux v2** — one messy interview → structured `master/master.wav` (golden nuggets, ideal cuts, native↔synthetic↔sonic conversation). Product Essence and **authoritative listen-delight** ship gate: [NORTH_STAR.md](../NORTH_STAR.md).
 
 ## Operator (start here)
 

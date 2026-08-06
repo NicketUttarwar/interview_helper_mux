@@ -14,6 +14,8 @@
 #   MUX_NO_BROWSER=1             Pass --no-browser to serve (headless / e2e)
 #   MUX_BABA_E2E=1               After serve, detach baba e2e + keepalive
 #                                (MUX_INPUT_AUDIO / MUX_FRESH / MUX_RUN_ID honored)
+#   MUX_DETACH_SERVE=1           Start serve in its own session and return
+#                                (unattended e2e: server survives parent shell exit)
 #
 # Fresh launch (default): clears ephemeral ASSETS/ state (.gui session,
 # operator session logs, stale locks inside exec_*). Never deletes any
@@ -52,6 +54,7 @@ Environment:
   MUX_SKIP_ASSETS_CLEANUP=1   Skip ephemeral ASSETS/ cleanup
   MUX_NO_BROWSER=1            Do not open a browser tab
   MUX_BABA_E2E=1              Detach baba e2e driver + keepalive after serve
+  MUX_DETACH_SERVE=1          Detach serve into its own session and return
 EOF
       exit 0
       ;;
@@ -130,19 +133,27 @@ if [[ "$CLI_MODE" == "1" ]]; then
   exec python -m interview_mux
 fi
 
+E2E_ARGS=(e2e keepalive)
+if [[ -n "${MUX_RUN_ID:-}" ]]; then
+  E2E_ARGS+=(--run-id "${MUX_RUN_ID}")
+elif [[ "${MUX_FRESH:-1}" == "1" ]]; then
+  E2E_ARGS+=(--fresh)
+fi
+
+# Unattended mode: serve runs in its own session so it outlives this shell.
+# Foreground `exec serve` dies with the parent (SIGHUP/process-group kill), which
+# interrupts in-flight stages, so e2e launches must use this path.
+if [[ "${MUX_DETACH_SERVE:-0}" == "1" ]]; then
+  python "$ROOT/tools/baba_daemon_launch.py" server
+  if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
+    python "$ROOT/tools/baba_daemon_launch.py" "${E2E_ARGS[@]}"
+  fi
+  echo "Web GUI → http://127.0.0.1:${WEB_PORT} (detached)"
+  exit 0
+fi
+
 if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
   # Detach durable e2e companion before serve (serve is exec'd and replaces this shell).
-  E2E_ARGS=(e2e keepalive)
-  if [[ -n "${MUX_RUN_ID:-}" ]]; then
-    E2E_ARGS+=(--run-id "${MUX_RUN_ID}")
-  elif [[ "${MUX_FRESH:-1}" == "1" ]]; then
-    E2E_ARGS+=(--fresh)
-  fi
-  # Serve must be up first — launch server via nohup companion, then e2e/keepalive,
-  # then fall through to foreground serve only when not already listening.
-  if ! curl -sf "http://127.0.0.1:${WEB_PORT}/api/health" >/dev/null 2>&1; then
-    :
-  fi
   # Start detached e2e after a short delay so serve binds first.
   (
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do

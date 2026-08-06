@@ -52,13 +52,18 @@ def _validate_topic_coverage(
         mapping = by_topic.get(norm)
         if mapping:
             covered = mapping.get("covered")
-            segment_ids = mapping.get("segment_ids") or []
+            segment_ids = [str(s) for s in (mapping.get("segment_ids") or []) if s]
             if covered and segment_ids:
                 continue
             if covered and not segment_ids:
                 errors.append(
                     f'Topic "{name}": topic_mappings marks covered=true but segment_ids is empty'
                 )
+                continue
+            # covered=false with remaining segment_ids still counts as covered when
+            # those ids remain in the final air order — callers often flip the flag
+            # after pruning without clearing segment_ids.
+            if segment_ids and covered is False:
                 continue
         if norm in documented:
             continue

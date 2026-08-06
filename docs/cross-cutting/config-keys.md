@@ -750,17 +750,21 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `host_vo_coverage_min_ratio` / `max` | `0.35` / `0.85` | Share of selected segments near a host VO/transition |
-| `host_vo_duration_min_ratio` / `max` | `0.08` / `0.45` | Host vs total speech duration |
-| `host_vo_quartile_presence_min_ratio` | `0.75` | Quartiles with host presence |
-| `bed_coverage_min_ratio` / `max` | `0.22` / `0.55` | Selection duration under beds |
+| `host_vo_coverage_min_ratio` / `max` | `0.12` / `0.85` | Share of selected segments near a host VO/transition |
+| `host_vo_duration_min_ratio` / `max` | `0.04` / `0.45` | Host vs total speech duration |
+| `host_vo_quartile_presence_min_ratio` | `0.5` | Quartiles with host presence |
+| `bed_coverage_min_ratio` / `max` | `0.28` / `0.88` | Selection duration under beds |
 | `bed_quartile_presence_min_ratio` | `0.5` | Quartiles with a bed |
-| `hinge_stinger_coverage_min_ratio` / `max` | `0.5` / `1.0` | Chapter/topic hinges with punctuator |
-| `intentional_air_min_ratio` / `max` | `0.02` / `0.12` | Explicit silence pads in EDL |
+| `hinge_stinger_coverage_min_ratio` / `max` | `0.3` / `1.0` | Chapter/topic hinges with punctuator |
+| `intentional_air_min_ratio` / `max` | `0.01` / `0.12` | Explicit silence pads in EDL |
 | `gap_eval_scored_min_ratio` | `0.95` | Scored gap evaluations completeness |
 | `fail_closed` | `true` | Mix raises on listenability fail |
 
-**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Artifact: `master/assembly_ledger.json`.
+`bed_coverage_max_ratio` (`0.88`) and `hinge_stinger_coverage_min_ratio` (`0.3`) were widened/loosened from earlier `0.55` / `0.5` — bed-heavy passages and lighter hinge-punctuation density are both legitimate, so the guard should not fail a well-produced master for being musically dense or for using restraint at minor hinges.
+
+**Retention / pack-to-target policy:** trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The only hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — a master should not compress below ~10% of source without an explicit override). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
+
+**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Bridge text is always pair-specific (`seam_glue.default_bridge_text`) — the optimizer no longer mints a repeated generic stub (e.g. the old hardcoded "Meanwhile—"). `bridge_completeness.stub_reorder_bridges` advisory-flags any bridge that still reads as canned filler (a known generic stub phrase, or verbatim text reused across ≥3 distinct seam pairs) without blocking completeness. Artifact: `master/assembly_ledger.json`.
 
 ## `audio_preclean`
 
@@ -795,6 +799,11 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 |-----|---------|---------|----------|
 | `mastering.prompt_edit.allow_global_promotion` | `false` | Shape Engine prompt edit loop | When `true`, a run-local prompt edit can become a global seed and silently degrade other source types |
 | `mastering.prompt_edit.require_operator_approval` | `true` | Promotion gate | When `false`, corpus pass alone promotes a prompt |
+| `mastering.shape.soft_gate.enable` | `true` | Two-pass Shape stages (`mastering_shape_runtime.py`) | `false` skips agenda/candidates/plan synthesis entirely — forced-sparse plan only |
+| `mastering.shape.soft_gate.mode` | `advisory` | Shape soft-gate blocking behavior | Reserved for future authoritative flip; no code currently branches on non-`advisory` values |
+| `mastering.shape.soft_gate.shadow_compare` | `true` | Writes `mastering/shadow_diff.json` comparing plan vs legacy structure proxy | `false` skips the observability diff — no behavior change |
+| `mastering.shape.soft_gate.consumers_bind` | `false` | Global switch downstream consumers would check before trusting Shape's emitted order | **Plan 6:** stays `false` until the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop (capability mutations → critics → auditions → Pareto → hard delight) end-to-end and `shape_order_bind.resolve_air_order` has shadow-compare evidence across a corpus. Per-run hybrid bind (`resolve_air_order`) already prefers Shape order when the plan is complete and `story_health` passes — this flag does not gate that; see `mastering-integration-backlog.md` H7 |
+| `mastering.shape.soft_gate.two_pass` | `true` | Pass1 provisional (pre-`missing_framing`) + Pass2 confirm (post-gap-eval) | `false` unused by current runtime; two-pass is the only shipped path |
 | `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
 | `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
 | `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |
@@ -850,8 +859,13 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.post_master_quality.block_on_feel_unavailable` | `true` | Fail publish when feel audit verdict is unavailable after retry | `false` ignores missing feel judgment |
 | `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
 | `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
+| `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | **Product flip (locked):** authoritative floor failures hard-stop `listen_delight_audit` and re-block at `post_master_quality`/publish; `advisory` writes the same scored artifact but never blocks |
+| `mastering.listen_delight.overall_min` | `0.90` | Mean of the seven delight dimensions | Lower allows a weaker overall listen to ship |
+| `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75` | Per-dimension ship floors | Missing floors skip that dimension |
+| `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |
+| `mastering.listen_delight.fail_early_at_audit_stage` | `true` | Hard-stop inside `listen_delight_audit` (before mix/junction/finalize) when floors fail | `false` only relies on the `post_master_quality` re-check before publish |
 | `mastering.synthetic_framing.allow_canned_bridge_fallback` | `false` | `seam_glue.mint_missing_transitions`, `synthetic_framing.validate_synthetic_plan` | `true` mints marked `auto_minted` canned bridges and skips validate hard-stop for uncovered reorder seams; default loud-fails |
-| `mastering.music_continuity.prefer_contiguous_beds` | `true` | Mix contiguous under_segment merge | Scene beds instead of per-segment hard fades |
+| `mastering.music_continuity.prefer_contiguous_beds` | `true` | `sound_design.py` contiguous under_segment merge; `seam_autopsy.score_seam` `continue_bed` hint | `false` forces per-segment hard fades / seam-level bed restarts instead of scene beds |
 | `mastering.music_continuity.scene_crossfade_ms` | `1800` | Contiguous bed XF floor | Too short → scene seams click |
 | `mastering.music_continuity.require_true_bookend_anchors` | `true` | Junction music detector | Escalates cold-open/outro missing XF severity |
 
@@ -1001,10 +1015,15 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 |-----|---------|---------|----------|
 | `soundscape.enabled` | `true` | `soundscape_policy_build`, mix verify | Disables policy stage + verify |
 | `soundscape.strict_slots` | `true` | `sdp_cross_validate.validate_post_sound_plan` | When true, beds must map to cue_slots |
-| `soundscape.fail_closed` | `false` | `soundscape_verify` after remux | When true, second verify fail hard-blocks mix |
-| `soundscape.fail_closed_default` | `false` | fail_closed fallback when key unset and not first-try | Production profiles may set true |
-| `soundscape.remediation.max_remux_cycles` | `1` | `soundscape_verify` / `mix` | Caps post-mix remux loops |
-| `soundscape.remediation.max_regen_per_asset` | `1` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
+| `soundscape.fail_closed` | `true` | `soundscape_verify` after remux | When true, a fail verdict after the remediation ladder is exhausted hard-blocks mix — **except** a residual failure that is *only* a `bed_coverage`/`hinge_stinger_coverage` **minimum** shortfall, which `run_soundscape_verify` downgrades to a warning (`fail_closed_softened: true` on the report) rather than forcing another remux pass to invent more per-clip beds; max-coverage overshoot and speech-intelligibility failures still hard-fail |
+| `soundscape.fail_closed_default` | `true` | fail_closed fallback when key unset and not first-try | `journey_ui.first_try_mode=true` runs default this to `false` regardless |
+| `soundscape.remediation.max_remux_cycles` | `2` | `soundscape_verify` / `mix` | Caps post-mix remux loops (honest, palette-anchored bed seeding only — see `soundscape_verify.run_soundscape_verify`) |
+| `soundscape.remediation.max_regen_per_asset` | `2` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
+| `soundscape.min_density.min_bed_coverage_ratio` | `0.28` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
+| `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `1` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
+| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-26` / `-22` | Bed level plausibility bounds | Loosely enforced audibility floor/ceiling |
+
+**Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.28`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
 ---
 
@@ -1167,6 +1186,7 @@ Optional lock files: `requirements-local-mlx.txt`, `requirements-local-deepfilte
 | Key | Used by | If wrong |
 |-----|---------|----------|
 | `nle_edits.strict` | `nle_state.save_nle`, GUI NLE PUT | When `true`, invalid `segments/nle_edits.json` raises HTTP 400 instead of warn-only |
+| `nle_edits.block_incomplete_ends` | `nle_state.save_nle` (`incomplete_trim_ends`) | Default `false`: an operator trim whose end lands mid-clause (`ends_complete_thought()` false) only logs a loud `warning` (`stage=full_master_ranking`) and still saves. `true` raises `ValueError` (soft-block, same mechanism as `strict`) instead of saving — protects idea transmission by refusing to persist a trim that chops a thought in half |
 
 ---
 

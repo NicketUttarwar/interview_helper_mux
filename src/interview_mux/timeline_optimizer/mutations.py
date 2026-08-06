@@ -99,6 +99,8 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
             notes.append({"op": op, "count": len(filtered)})
 
     elif op == "mint_bridge":
+        from interview_mux.seam_glue import default_bridge_text
+
         after = str(mutation.get("after_segment_id") or "")
         before = str(mutation.get("before_segment_id") or "")
         text = str(mutation.get("text") or "").strip()
@@ -113,12 +115,13 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
                 for t in items
             )
             if not exists:
+                # Pair-aware deterministic fallback — never a single repeated stub phrase.
+                fallback = str(mutation.get("suggested_text") or "").strip() or default_bridge_text(mutation)
                 items.append(
                     {
                         "after_segment_id": after,
                         "before_segment_id": before,
-                        "text": text
-                        or str(mutation.get("suggested_text") or "Meanwhile—"),
+                        "text": text or fallback,
                         "type": mutation.get("type") or "bridge",
                         "tone": mutation.get("tone") or "bridge",
                         "optimizer_minted": True,

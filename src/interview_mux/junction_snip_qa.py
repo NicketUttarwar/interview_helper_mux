@@ -30,6 +30,11 @@ STAGE_ID = "junction_snip_qa"
 FEEL_STAGE_KEY = "junction_feel_audit"
 FEEL_PROMPT = "mastering/junction-feel-audit.system.txt"
 
+
+def _canonical_edl_order(edl: dict[str, Any]) -> list[str]:
+    return [str(s) for s in (edl.get("ordered_segment_ids") or []) if s]
+
+
 _BACKCHANNEL_RE = re.compile(
     r"^(okay|ok|yeah|yep|uh.?huh|mm+|mhm|right|sure|got it|i see)[.!?,]*$",
     re.IGNORECASE,
@@ -1152,15 +1157,23 @@ def apply_junction_repairs(
         changed = True
 
     if changed:
+        from interview_mux.order_hash import stamp_order_hash, sync_selection_order_to_edl
         from interview_mux.write_staging import write_committed_json
 
         # Persist bound repairs immediately — StageInfo does not claim edl/selection,
         # so a normal flush would delete them and leave commitment diverged.
+        new_edl = stamp_order_hash(new_edl)
         write_committed_json(ctx, "master/edl.json", new_edl, stage_key=STAGE_ID)
-        if excluded and ctx.artifact_exists("master/selection.json"):
+        if ctx.artifact_exists("master/selection.json"):
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict):
-                write_committed_json(ctx, "master/selection.json", sel, stage_key=STAGE_ID)
+                # EDL air order is authoritative after junction repairs.
+                write_committed_json(
+                    ctx,
+                    "master/selection.json",
+                    sync_selection_order_to_edl(sel, new_edl),
+                    stage_key=STAGE_ID,
+                )
 
     return new_edl, applied, changed
 
@@ -1177,6 +1190,7 @@ def _exclude_from_selection(
     if not isinstance(sel, dict):
         return
     from interview_mux.order_hash import stamp_order_hash
+    from interview_mux.write_staging import write_committed_json
 
     ordered = [s for s in (sel.get("ordered_segment_ids") or []) if str(s) not in excluded]
     sel = dict(sel)
@@ -1192,7 +1206,9 @@ def _exclude_from_selection(
         reason = (reasons or {}).get(sid) or "junction_snip_qa:exclude_micro"
         excl_list.append({"segment_id": sid, "reason": reason})
     sel["excluded_segment_ids"] = excl_list
-    ctx.write_json("master/selection.json", stamp_order_hash(sel))
+    # Commit immediately — staging-only writes are invisible to commitment verify
+    # when StageInfo does not claim selection.json.
+    write_committed_json(ctx, "master/selection.json", stamp_order_hash(sel), stage_key=STAGE_ID)
 
 
 def _merge_placement_adjustments(ctx: RunContext, rows: list[dict[str, Any]]) -> None:
@@ -1797,6 +1813,74 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             )
 
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
+    from interview_mux.order_hash import order_hashes_match, stamp_order_hash, sync_selection_order_to_edl
+    from interview_mux.write_staging import write_committed_json
+
+    # Final air-order lock: selection must match EDL before commitment verify.
+    # Do not rewrite EDL when hashes already match — bumping edl.json mtime makes
+    # a valid assembly look stale (assembly_not_rendered_from_current_edl).
+    if isinstance(current_edl, dict):
+        current_edl = stamp_order_hash(current_edl)
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict) and not order_hashes_match(sel, current_edl):
+                ctx.log(
+                    "junction_snip_qa: syncing selection.ordered_segment_ids to EDL before autopsy",
+                    level="warning",
+                    stage=STAGE_ID,
+                )
+                write_committed_json(
+                    ctx,
+                    "master/selection.json",
+                    sync_selection_order_to_edl(sel, current_edl),
+                    stage_key=STAGE_ID,
+                )
+        # Persist in-memory EDL only when disk copy differs (repairs / order stamp).
+        disk_edl = (
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else None
+        )
+        if not isinstance(disk_edl, dict) or _canonical_edl_order(disk_edl) != _canonical_edl_order(
+            current_edl
+        ) or str(disk_edl.get("order_content_hash") or "") != str(
+            current_edl.get("order_content_hash") or ""
+        ):
+            write_committed_json(ctx, "master/edl.json", current_edl, stage_key=STAGE_ID)
+
+        # If assembly is older than the committed EDL (or missing), remaster once.
+        try:
+            asm_path = ctx.final_path("master", "assembly.wav")
+            edl_path = ctx.final_path("master", "edl.json")
+            needs_remaster = (not asm_path.is_file()) or (
+                edl_path.is_file()
+                and asm_path.is_file()
+                and asm_path.stat().st_mtime_ns < edl_path.stat().st_mtime_ns
+            )
+            if needs_remaster:
+                ctx.log(
+                    "junction_snip_qa: remastering mix so assembly matches current EDL",
+                    level="info",
+                    stage=STAGE_ID,
+                )
+                remaster_mix_only(ctx)
+                remaster_rounds += 1
+                report["remaster_rounds"] = remaster_rounds
+                ctx.write_json(QA_REL, report)
+                if ctx.artifact_exists("master/edl.json"):
+                    loaded = ctx.read_json("master/edl.json")
+                    if isinstance(loaded, dict):
+                        current_edl = loaded
+        except Exception as exc:
+            from interview_mux.loud_fail import raise_loud_failure
+
+            raise_loud_failure(
+                ctx,
+                f"Junction could not remaster assembly for commitment: {exc}",
+                stage=STAGE_ID,
+                reason="junction_commitment_remaster_failed",
+                cause=exc,
+            )
 
     autopsy = build_autopsy(
         ctx,

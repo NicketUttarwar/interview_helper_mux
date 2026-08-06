@@ -1,5 +1,7 @@
 # Logic tree — content understanding and interviewer gaps
 
+**Why:** This tree turns messy interview speech into selected, self-explanatory clips plus framing so the master communicates the ideas. Product Essence (golden nuggets, ideal cuts, native↔synthetic conversation, authoritative listen-delight): [NORTH_STAR.md](../NORTH_STAR.md).
+
 Decision logic the pipeline uses **before and during** assembly. Primary job: understand **what was said**, **who said it**, **how it segments**, and **what additional interviewer audio or text** is required so the final master tells a complete, compelling story.
 
 This tree is the spec for automated decisions; prompts in [prompts/](./prompts/) implement each node.

@@ -487,7 +487,7 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "Listen delight audit",
         "Score assembly listen delight before SFX generation.",
         "delivery",
-        ("master/listen_delight_audit.json",),
+        ("mastering/listen_delight_audit.json",),
         (),
     ),
     StageInfo(

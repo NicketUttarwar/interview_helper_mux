@@ -83,7 +83,7 @@ Expect under `ASSETS/executions/exec_001_…/` (legacy: `data/run_001/`):
 If G1 triggers, record VO to `vo_pickup/` and re-run with `--from-stage vo_ingest`.
 
 
-**Narrative excellence soft-gate:** After palettes / before gap framing, research + Shape stages write `mastering/research_dossier.json` and `mastering/mastering_plan.json` (`pass` provisional→confirmed). Listen delight audit after `assembly_preview` is **advisory only**. Human listen rubric: [NORTH_STAR.md](../../NORTH_STAR.md). Prefer/forbid: `docs/cross-cutting/narrative-mode-prefer-forbid.json`.
+**Narrative excellence soft-gate:** After palettes / before gap framing, research + Shape stages write `mastering/research_dossier.json` and `mastering/mastering_plan.json` (`pass` provisional→confirmed). Listen delight audit after `assembly_preview` is the **authoritative ship gate** by default (`mastering.listen_delight.mode: authoritative`) — floor failures hard-stop `listen_delight_audit` and re-block `post_master_quality`/publish; set `mode: advisory` to score without blocking. Human listen rubric: [NORTH_STAR.md](../../NORTH_STAR.md#human-listen-rubric-ship-checklist). Prefer/forbid: `docs/cross-cutting/narrative-mode-prefer-forbid.json`.
 
 **Gap framing path (recommended Yes):** After `source_topology_build` / before gap LLM stages, choose Yes/No in GUI (required). Yes → confirm least-spoken pickup speaker → approve voice reference → **grant clone consent with scopes** (cold open / bridges / outro) if Chatterbox is chosen → choose Chatterbox or record → `gap_framing_compose` → G1 synthesize/record. Unattended/E2E: set `analysis.gap_fill.auto_accept_defaults` or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1` (or use `tools/e2e_pipeline_driver.py`, which accepts the same defaults). Chatterbox verify in `./scripts/verify_local_models.sh` is **WARN** when venv missing (mlx-audio fallback). Audit: `vo_pickup/synthesis_report.json`. Consent audit: `mastering/voice_clone_audit.json`.
 
@@ -138,6 +138,7 @@ CI coverage (no network): `pytest tests/test_mastering_quality_*.py`.
 - No unhandled exceptions
 - Master WAV plays; duration > 0
 - `verify_master.py` exits 0 for `master/master.wav`
+- Ship is blocked on hard delight: `mastering/listen_delight_audit.json.passed == true` (authoritative mode, default) before `master_finalize` clears — see [operator-gates.md](./operator-gates.md#non-gates-optional-offers)
 - Before trusting E2E delivery: `./scripts/verify_local_models.sh` then
   `STRICT_LOCAL_SMOKE=1 python tools/smoke_local_runtimes.py --generate`
   (Chatterbox, S2S, MMAudio, CLAP, DeepFilter golden WAVs under `ASSETS/smoke/local_runtimes/`)

@@ -1886,7 +1886,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       void (async () => {
         try {
-          await refreshHome({ enrichRuns: true });
           if (gen !== bootGenRef.current) return;
           if (!restoreRunId) return;
           const stageId = serverRestarted ? null : (active?.selected_stage_id ?? null);
@@ -1937,7 +1936,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch {
           /* enrich/restore failures surface via toasts from openRun/refreshHome */
         } finally {
-          if (gen === bootGenRef.current) setSessionReady(true);
+          if (gen === bootGenRef.current) {
+            setSessionReady(true);
+            // Enriched runs list only feeds the Executions tab. Awaiting it here stalls
+            // the active-run restore for as long as /api/runs?enrich takes, which grows
+            // with the number of executions on disk.
+            void refreshHome({ enrichRuns: true });
+          }
         }
       })();
     })();

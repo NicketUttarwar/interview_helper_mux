@@ -28,3 +28,7 @@ See each `*.system.txt` for full rules. Brief:
 - **Prompt refine** — revise failed assets only; preserve duration and speech/vocal bans while fixing QA/listen regressions.
 
 Post-generation placement (duck, crossfade, overlap) is **not** fixed in plan stages — see [sound-design.md § Post-generation](../../cross-cutting/sound-design.md#post-generation-analysis-and-adaptive-placement).
+
+## Assets elevate structure, not coverage theater
+
+Every SFX/music asset here is a **mutation on the music/SFX/air axis** of the Shape mutation engine (soft bands: bed coverage 0.28–0.88, hinge stinger 0.3–1.0) — see [mastering-shape-engine.md § Shape as mutation engine](../../cross-cutting/mastering-shape-engine.md#shape-as-mutation-engine). A bed, stinger, or foley cue only earns its place if it makes the shape more legible (marks a hinge, fills a real dead-air gap, sells a payoff) — never to prove coverage of a checklist. Reject a plan asset that repeats the same gesture without new structural reason; that reads as `sfx_repetition`/`listener_fatigue` at the closed-loop polish and hard-delight (`sonic_weave`) stages downstream.

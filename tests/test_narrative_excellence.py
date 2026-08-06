@@ -115,12 +115,25 @@ def test_two_pass_shape_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert ctx.artifact_exists("mastering/mastering_plan.json")
     provisional = ctx.read_json("mastering/mastering_plan.json")
     assert provisional.get("pass") == "provisional"
+    # Plan 6: listener_outcome carries Essence mutation-space hints (native keep/order,
+    # synthetic+music/SFX/air) alongside the finishability/recommendability delight pair.
+    outcome = provisional.get("listener_outcome") or {}
+    assert outcome.get("nugget_density") == "optimize"
+    assert outcome.get("sonic_weave") == "optimize"
     run_mastering_plan_confirm(ctx)
     confirmed = ctx.read_json("mastering/mastering_plan.json")
     assert confirmed.get("pass") == "confirmed"
     assert confirmed.get("plan_status") in ("complete", "degraded", "forced_sparse")
+    # This test exercises the two-pass Shape mechanism, not delight scoring — force
+    # advisory mode so a sparse fixture run doesn't hit the authoritative ship gate
+    # (see tests/test_listen_delight.py for authoritative pass/fail coverage).
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"mode": "advisory"},
+    )
     run_listen_delight_audit(ctx)
     audit = ctx.read_json("mastering/listen_delight_audit.json")
+    assert audit["mode"] == "advisory"
     assert audit["advisory"] is True
     assert audit["blocking"] is False
 

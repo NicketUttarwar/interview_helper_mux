@@ -27,6 +27,58 @@ def load_nle(ctx: RunContext) -> dict[str, Any]:
     return base
 
 
+def _words_text_before_ms(
+    words: list[dict[str, Any]], end_ms: int, *, lookback_ms: int = 4000
+) -> str:
+    start_ms = max(0, end_ms - lookback_ms)
+    parts: list[str] = []
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        ws = int(w.get("start_ms") or 0)
+        we = int(w.get("end_ms") or 0)
+        if we <= start_ms or ws >= end_ms:
+            continue
+        t = str(w.get("text") or w.get("word") or "").strip()
+        if t:
+            parts.append(t)
+    return " ".join(parts)
+
+
+def incomplete_trim_ends(ctx: RunContext, data: dict[str, Any]) -> list[str]:
+    """Segment ids whose NLE trim end lands mid-clause per ``ends_complete_thought``.
+
+    Best-effort: returns ``[]`` when the transcript is unavailable so a missing
+    upstream artifact never blocks a save. Only overrides carrying an explicit
+    ``end_ms`` (an operator trim) are checked — full-segment excludes/reorders
+    are not clause boundaries.
+    """
+    overrides = data.get("segment_overrides") or {}
+    if not overrides or not ctx.artifact_exists("transcript/full.json"):
+        return []
+    try:
+        from interview_mux.gap_vo_prior_context import ends_complete_thought
+
+        transcript = ctx.read_json("transcript/full.json")
+    except Exception:
+        return []
+    words = [w for w in (transcript.get("words") or []) if isinstance(w, dict)]
+    if not words:
+        return []
+    flagged: list[str] = []
+    for seg_id, ov in overrides.items():
+        if not isinstance(ov, dict) or ov.get("excluded") or "end_ms" not in ov:
+            continue
+        try:
+            end_ms = int(ov["end_ms"])
+        except (TypeError, ValueError):
+            continue
+        text = _words_text_before_ms(words, end_ms)
+        if text and not ends_complete_thought(text):
+            flagged.append(str(seg_id))
+    return sorted(flagged)
+
+
 def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
     from interview_mux.config import merged_config
     from interview_mux.prompt_validation import validate_nle_edits
@@ -37,6 +89,19 @@ def save_nle(ctx: RunContext, data: dict[str, Any]) -> None:
         if strict:
             raise ValueError(f"nle_edits schema invalid: {'; '.join(errors[:4])}")
         ctx.log(f"nle_edits schema warnings: {errors[:2]}", level="warning", stage="full_master_ranking")
+
+    incomplete = incomplete_trim_ends(ctx, data)
+    if incomplete:
+        nle_cfg = merged_config().get("nle_edits") or {}
+        block = bool(nle_cfg.get("block_incomplete_ends"))
+        msg = (
+            "NLE trim end lands mid-clause (incomplete thought) for segment(s): "
+            f"{', '.join(incomplete[:6])}"
+        )
+        if block:
+            raise ValueError(msg)
+        ctx.log(msg, level="warning", stage="full_master_ranking", detail={"segment_ids": incomplete})
+
     ctx.write_json(NLE_REL, data, stage_key="full_master_ranking")
     from interview_mux.operator_snapshots import persist_operator_nle
 

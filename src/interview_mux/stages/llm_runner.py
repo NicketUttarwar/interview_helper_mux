@@ -143,6 +143,8 @@ def _default_response_format(
 def normalize_envelope(raw: dict[str, Any]) -> dict[str, Any]:
     """Accept full envelope or legacy flat stage JSON."""
     if "artifacts" in raw or "status" in raw:
+        from interview_mux.prompt_validation import coerce_envelope_status
+
         env = dict(raw)
         env.setdefault("status", "complete")
         env.setdefault("artifacts", raw.get("artifacts") or {})
@@ -158,7 +160,7 @@ def normalize_envelope(raw: dict[str, Any]) -> dict[str, Any]:
             env["confidence"] = float(conf) if conf is not None else 0.0
         except (TypeError, ValueError):
             env["confidence"] = 0.0
-        return env
+        return coerce_envelope_status(env)
     conf_raw = raw.get("confidence") if isinstance(raw, dict) else None
     try:
         confidence = float(conf_raw) if conf_raw is not None else 0.0

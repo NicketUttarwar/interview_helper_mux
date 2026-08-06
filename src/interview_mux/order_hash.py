@@ -30,8 +30,31 @@ def order_hashes_match(
         return False
     sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
     edl_ids = [str(s) for s in (edl.get("ordered_segment_ids") or []) if s]
+    # Air-order list equality is authoritative. Recompute hashes so a stale
+    # order_content_hash field cannot false-fail commitment checks.
     if sel_ids != edl_ids:
         return False
-    sel_h = str(selection.get("order_content_hash") or "") or ordered_segment_ids_hash(sel_ids)
-    edl_h = str(edl.get("order_content_hash") or "") or ordered_segment_ids_hash(edl_ids)
-    return sel_h == edl_h
+    return ordered_segment_ids_hash(sel_ids) == ordered_segment_ids_hash(edl_ids)
+
+
+def sync_selection_order_to_edl(selection: dict[str, Any], edl: dict[str, Any]) -> dict[str, Any]:
+    """Return selection copy whose ordered_segment_ids match EDL air order."""
+    edl_ids = [str(s) for s in (edl.get("ordered_segment_ids") or []) if s]
+    out = dict(selection) if isinstance(selection, dict) else {"version": 1}
+    prev = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    dropped = [s for s in prev if s not in set(edl_ids)]
+    if dropped:
+        excl_list = list(out.get("excluded_segment_ids") or [])
+        existing = {
+            (e if isinstance(e, str) else str((e or {}).get("segment_id") or ""))
+            for e in excl_list
+        }
+        for sid in dropped:
+            if sid in existing:
+                continue
+            excl_list.append(
+                {"segment_id": sid, "reason": "sync_selection_order_to_edl"}
+            )
+        out["excluded_segment_ids"] = excl_list
+    out["ordered_segment_ids"] = list(edl_ids)
+    return stamp_order_hash(out)

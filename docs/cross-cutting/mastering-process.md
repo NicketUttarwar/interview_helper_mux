@@ -4,9 +4,9 @@
 
 **TBIY heritage:** [tbiy-production-profile.md](./tbiy-production-profile.md) was the original Wondery-style compass. The Mastering Process **evolves past TBIY**. Five-act / moat / dual-voice are optional tools when evidence supports them — not an enforced compass. Useful TBIY discipline retained: **prefer pickup-eligible (least-spoken) voice for new VO** (any on-tape speaker allowed with consent when needed); never invent unspoken dialogue; speech-wins ducking under speaker volleys.
 
-**Reliability layer:** [mastering-quality-hardening.md](./mastering-quality-hardening.md) — routing, evidence packets, diversity, feasibility, semantic integrity, clone consent, auditions, multi-critic L4, Pareto, closed-loop polish. Gates default to `advisory` and fail open.
+**Reliability layer:** [mastering-quality-hardening.md](./mastering-quality-hardening.md) — routing, evidence packets, diversity, feasibility, semantic integrity, clone consent, auditions, multi-critic L4, Pareto, closed-loop polish. Shape hardening gates remain soft by default; **listen delight is an authoritative ship gate** (see [NORTH_STAR.md](../../NORTH_STAR.md)).
 
-**Narrative excellence:** [narrative-mode-and-montage.md](./narrative-mode-and-montage.md) — two-pass Shape (`narrative_mode` + `montage_grammar`), 8-wave research dossier, listen delight always advisory.
+**Narrative excellence:** [narrative-mode-and-montage.md](./narrative-mode-and-montage.md) — two-pass Shape (`narrative_mode` + `montage_grammar`), 8-wave research dossier. Listen delight is **authoritative** for ship (finalize quality + publish).
 
 **Related:** [mastering-research-fields.md](./mastering-research-fields.md) · [mastering-shape-engine.md](./mastering-shape-engine.md) · [mastering-construction-decisions.md](./mastering-construction-decisions.md) · [mastering-integration-backlog.md](./mastering-integration-backlog.md) · [mix-house-chain.md](./mix-house-chain.md) · [volley-glossary.md](./volley-glossary.md)
 
@@ -33,19 +33,21 @@ Research lane (8 waves / 38 fields, dynamically routed)
 
 ## North-star (every Shape Engine level)
 
-> Produce the **absolute best** final podcast construction for *this* tape — the most impressive, compelling, information-rich listen — as a **bespoke** combination of components, not a programmatic or repetitive template.
+> Produce the **absolute best** final podcast construction for *this* tape — the most impressive, compelling, information-rich listen — as a **bespoke** combination of **native nuggets + grounded synthetic conversation + musical/sonic scenes**, not a programmatic template.
+
+**Essence (structure-first):** Prefer golden nuggets over padded tape; cut for idea impact and listenability; weave native ↔ synthetic ↔ music/SFX/air as one conversation; mutate keep/order/bridges/beds toward the most information in the best manner. Soft duration ideal; hard floor ~10% of source only. Bed coverage **0.28–0.88**, hinge stinger **0.3–1.0** (Shape-owned soft bands).
 
 **System-instruction pillars** (every minted/edited shape prompt; L4 especially):
 
 1. Best final outcome for the listener
 2. Promote excellence (unequal options)
-3. Filter ruthlessly (kill dull / generic / padded)
+3. Filter ruthlessly (kill dull / generic / padded) — keep golden nuggets
 4. Bespoke, not programmatic
 5. Non-repetitive
-6. Best *ensemble* (cold open + body + VO/SFX + close)
+6. Best *ensemble* (cold open + body + VO/SFX + close) — native proof + grounded synthetic + sonic weave
 7. Convey real knowledge (no invented unspoken dialogue)
 8. Impressive when earned (restraint otherwise)
-9. **Worth finishing / lovable when earned** — finishability and recommendability (always advisory; never hard-block master)
+9. **Worth finishing / lovable** — finishability and recommendability are **hard ship criteria** via authoritative listen_delight (equal class to verify_master / scorecard)
 
 ---
 
@@ -146,7 +148,7 @@ Until cutover: if `mastering_plan` is missing, fall back to today’s ranking pa
 - Mechanical loudness QC unchanged (`verify_master`)
 - Voice cloning requires consent + approved reference + scope; off-tape cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
 - No candidate reaches synthesize while infeasible or carrying a critical semantic-integrity finding
-- Listen delight / mode_consistency never block `master_finalize`
+- Listen delight is an **authoritative ship gate** (floors in `mastering.listen_delight`); `mode_consistency` alone does not block — delight aggregate does
 
 ---
 

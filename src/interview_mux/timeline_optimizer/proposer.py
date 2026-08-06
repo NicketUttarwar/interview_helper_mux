@@ -54,6 +54,7 @@ def heuristic_proposals(
     if missing_n > 0 and ctx.artifact_exists("understanding/reorder_bridges.json"):
         try:
             from interview_mux.bridge_completeness import missing_reorder_bridges
+            from interview_mux.seam_glue import default_bridge_text
 
             bridges = ctx.read_json("understanding/reorder_bridges.json")
             # Rebuild against candidate order
@@ -83,7 +84,11 @@ def heuristic_proposals(
                         "op": "mint_bridge",
                         "after_segment_id": row["after_segment_id"],
                         "before_segment_id": row["before_segment_id"],
-                        "suggested_text": "Meanwhile—",
+                        "kind": row.get("kind"),
+                        "source_gap_ms": row.get("source_gap_ms"),
+                        "suggested_line_category": row.get("suggested_line_category"),
+                        # Pair-aware deterministic hinge — never a single repeated stub phrase.
+                        "suggested_text": default_bridge_text(row),
                         "type": "bridge",
                         "priority": 80,
                     }

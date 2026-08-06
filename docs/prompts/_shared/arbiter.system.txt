@@ -60,6 +60,8 @@ When stage expectations include arbiter rubrics (from `docs/prompts/_shared/arbi
 - Artifacts use stock phrases without segment citations ("passion for innovation", "unique journey", "deep dive" without substance).
 - Boundaries/classifications default everything to one type without evidence spread.
 - Sound design reads like default trailer/podcast template ignoring operator notes or sonic constitution.
+- Bridges/transitions are **stub placeholders** with no editorial purpose ("let's move on", "moving on to our next topic", generic connective tissue that could paste into any episode).
+- `montage_grammar` / `narrative_mode` defaults to a **thin `hook_montage`** (or any mode) without evidence in the plan/dossier justifying that choice for *this* tape — see [narrative-mode-and-montage.md](../../cross-cutting/narrative-mode-and-montage.md).
 
 Populate `gaps[]` with short strings naming which rubric field failed. `confidence` reflects verdict certainty, not interview quality.
 

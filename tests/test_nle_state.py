@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from interview_mux.nle_state import (
     apply_nle_to_selection,
     apply_segments_with_nle,
+    incomplete_trim_ends,
     nle_has_operator_edits,
+    save_nle,
 )
+from interview_mux.run_context import RunContext
+from run_fixtures import init_run_meta_for_test, patch_executions_root, patch_merged_config
 
 
 def _segments() -> list[dict]:
@@ -96,3 +104,91 @@ def test_apply_segments_trim_override() -> None:
     by_id = {s["segment_id"]: s for s in out}
     assert by_id["seg_a"]["start_ms"] == 500
     assert by_id["seg_a"]["end_ms"] == 8000
+
+
+def _words(*rows: tuple[int, int, str]) -> list[dict]:
+    return [{"start_ms": s, "end_ms": e, "text": t} for s, e, t in rows]
+
+
+@pytest.fixture
+def nle_ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
+    patch_executions_root(monkeypatch, tmp_path)
+    c = RunContext("exec_nle_incomplete", create=True)
+    init_run_meta_for_test(c)
+    c.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_a",
+                    "start_ms": 0,
+                    "end_ms": 10_000,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "text": "hello there and we shipped it",
+                    "topic_tags": [],
+                }
+            ]
+        },
+    )
+    c.write_json(
+        "transcript/full.json",
+        {
+            "text": "hello there and we shipped it",
+            "words": _words(
+                (0, 500, "hello"),
+                (500, 900, "there"),
+                (900, 1200, "and"),
+                (1200, 1500, "we"),
+                (1500, 2000, "shipped"),
+                (2000, 2300, "it."),
+            ),
+        },
+    )
+    c.write_json("segments/nle_edits.json", {"playhead_ms": 0})
+    return c
+
+
+def test_incomplete_trim_ends_flags_mid_clause(nle_ctx: RunContext) -> None:
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 1200}}}
+    assert incomplete_trim_ends(nle_ctx, nle) == ["seg_a"]
+
+
+def test_incomplete_trim_ends_allows_terminal_punctuation(nle_ctx: RunContext) -> None:
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 2300}}}
+    assert incomplete_trim_ends(nle_ctx, nle) == []
+
+
+def test_incomplete_trim_ends_skips_excluded_and_missing_transcript(
+    nle_ctx: RunContext,
+) -> None:
+    # Excluded overrides are not clause boundaries.
+    nle = {"segment_overrides": {"seg_a": {"excluded": True, "end_ms": 1200}}}
+    assert incomplete_trim_ends(nle_ctx, nle) == []
+    # No transcript at all — best-effort, never raises.
+    nle_ctx.path("transcript", "full.json").unlink()
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 1200}}}
+    assert incomplete_trim_ends(nle_ctx, nle) == []
+
+
+def test_save_nle_warns_on_incomplete_end_by_default(nle_ctx: RunContext) -> None:
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 1200}}}
+    save_nle(nle_ctx, nle)  # does not raise (soft warn is the default)
+    log_text = nle_ctx.path("gui_log.jsonl").read_text(encoding="utf-8")
+    assert "mid-clause" in log_text
+    assert "seg_a" in log_text
+
+
+def test_save_nle_blocks_incomplete_end_when_configured(
+    nle_ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.config import merged_config
+
+    patch_merged_config(
+        monkeypatch,
+        {**merged_config(), "nle_edits": {"strict": True, "block_incomplete_ends": True}},
+    )
+    nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 1200}}}
+    with pytest.raises(ValueError, match="mid-clause"):
+        save_nle(nle_ctx, nle)

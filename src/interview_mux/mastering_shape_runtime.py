@@ -1,5 +1,13 @@
 """Two-pass Shape soft-gate runtime → mastering_plan.json.
 
+Shape is a **mutation engine**, not a linear pass: candidates here are points
+in the Essence mutation space — native keep/order, synthetic inserts
+(cold open/VO/montage grammar), music/SFX/air (bed coverage, hinge stinger),
+and soft duration ideal — that capability modules, critics, and auditions
+mutate and re-score. See
+docs/cross-cutting/mastering-shape-engine.md#shape-as-mutation-engine and
+docs/cross-cutting/mastering-construction-decisions.md#decisions--essence-mutation-space.
+
 Pass1 provisional before missing_framing; Pass2 confirm after gap evals.
 Fail-open degradation ladder; no spend/timeout caps.
 """
@@ -103,6 +111,12 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                 {"axis": "narrative_mode_bias", "value": primary, "confidence": 0.6},
                 {"axis": "tone", "value": hints.get("tone_class") or "unknown", "confidence": 0.5},
             ],
+            # Each criterion below scores a candidate on one or more Essence mutation
+            # axes (native keep/order, synthetic inserts, music/SFX/air, soft duration
+            # ideal) — see mastering-shape-engine.md#shape-as-mutation-engine. Weight 0.0
+            # criteria (nugget_density, sonic_weave) are informational for this advisory
+            # L0 panel today; the authoritative hard-delight audit (listen_delight) is
+            # what actually forces a remutate loop or blocks on those axes downstream.
             "criteria": [
                 {
                     "criterion_id": "finishability",
@@ -132,6 +146,28 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                     "higher_is_better": True,
                     "owning_critics": ["narrative_editor", "integrity"],
                 },
+                {
+                    "criterion_id": "nugget_density",
+                    "description": (
+                        "Essence mutation axis — native keep/order (optional/informational): golden "
+                        "nuggets over padded tape, idea-per-minute density; hard floor is only "
+                        "~10% of source runtime, this criterion judges quality above that floor"
+                    ),
+                    "weight": 0.0,
+                    "higher_is_better": True,
+                    "owning_critics": ["narrative_editor", "engagement_listener"],
+                },
+                {
+                    "criterion_id": "sonic_weave",
+                    "description": (
+                        "Essence mutation axis — synthetic inserts + music/SFX/air (optional/"
+                        "informational): native + synthetic + music/SFX/air read as one "
+                        "conversation; soft bands are bed coverage 0.28-0.88, hinge stinger 0.3-1.0"
+                    ),
+                    "weight": 0.0,
+                    "higher_is_better": True,
+                    "owning_critics": ["audio_intelligibility", "style_fit"],
+                },
             ],
             "anti_patterns": [
                 {"id": "dull_template", "description": "Valid but dull checklist shape", "severity": "kill"},
@@ -141,7 +177,11 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                 "never_invent_unspoken_dialogue",
                 "consent_required_for_clone_voice",
             ],
-            "rationale": "Per-run delight rubric; always advisory for finishability/recommendability",
+            "rationale": (
+                "Per-run delight rubric for Shape candidates (this L0 panel stays advisory); "
+                "the actual ship gate for finishability/recommendability is the authoritative "
+                "mastering.listen_delight audit downstream, not this rubric"
+            ),
             "evidence_refs": ["mastering/evidence_packets/shape_agenda_pass1.json"],
             "generated_at": _now(),
         }
@@ -276,10 +316,15 @@ def _plan_from_candidate(
             }
         ],
         "bespoke_rationale": cand.get("rationale") or f"Selected {mode}",
+        # Essence mutation-space hints alongside the delight pair: nugget_density tracks
+        # the native keep/order axis, sonic_weave tracks synthetic+music/SFX/air. These
+        # stay advisory here — the authoritative scorer is mastering.listen_delight.
         "listener_outcome": {
             "finishability": "optimize",
             "recommendability": "optimize",
-            "rationale": "Advisory delight criteria",
+            "nugget_density": "optimize",
+            "sonic_weave": "optimize",
+            "rationale": "Advisory delight criteria; hard ship gate is mastering.listen_delight downstream",
         },
         "invariants": {
             "never_invent_unspoken_dialogue": True,

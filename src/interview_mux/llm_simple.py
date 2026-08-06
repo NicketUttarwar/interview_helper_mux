@@ -145,7 +145,31 @@ def run_llm_stage_simple(
         if str(envelope.get("status") or "").lower() != "complete":
             needs = envelope.get("needs") or []
             msg = f"LLM stage {stage_key} incomplete: status={envelope.get('status')} needs={needs[:3]}"
+            # Final attempt: accept when artifacts validate and every need is non-blocking.
+            # Long-tape boundary/detection often returns status=partial with a soft
+            # "rerun_stage" need even after producing usable segments.
             if attempt == 2:
+                artifacts = envelope.get("artifacts")
+                soft_needs = [
+                    n
+                    for n in needs
+                    if isinstance(n, dict) and n.get("blocking") is not False
+                ]
+                if isinstance(artifacts, dict) and not soft_needs:
+                    schema_errors = validate_stage_artifacts(stage_key, artifacts)
+                    if not schema_errors:
+                        ctx.log(
+                            f"{msg} — accepting non-blocking partial with valid artifacts",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                        _warn_only_lint(ctx, stage_key, envelope)
+                        persist_artifacts(ctx, artifacts)
+                        if sync_fn is not None:
+                            sync_fn(ctx, envelope)
+                        if auto_complete:
+                            ctx.mark_done(stage_key)
+                        return envelope
                 ctx.log(msg, level="error", stage=stage_key)
                 raise StageError(stage_key, msg)
             last_schema_errors = [msg]

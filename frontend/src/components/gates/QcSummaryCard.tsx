@@ -29,8 +29,15 @@ export function QcSummaryCard({
     edl_narrative_qc: "Flow 1 EDL narrative QC",
     show_notes_qc: "Show description QC",
     mix_intelligibility: "Mix intelligibility QC",
+    listen_delight: "Listen delight audit",
   };
   const label = labels[qcKey] || qcKey;
+
+  const failedDimensions = Array.isArray(summary.failed_dimensions)
+    ? (summary.failed_dimensions as unknown[]).map(String)
+    : [];
+  const overall = typeof summary.overall === "number" ? (summary.overall as number) : null;
+  const blocksShip = summary.blocking === true;
 
   const openActivity = () => {
     setActiveTab("pipeline");
@@ -69,6 +76,21 @@ export function QcSummaryCard({
             <li key={i}>{e}</li>
           ))}
         </ul>
+      ) : null}
+      {failedDimensions.length ? (
+        <ul>
+          {failedDimensions.slice(0, 7).map((dim, i) => (
+            <li key={i}>Below floor: {dim}</li>
+          ))}
+        </ul>
+      ) : null}
+      {overall !== null ? (
+        <p className="hint">
+          Overall {overall.toFixed(2)}
+          {blocksShip
+            ? " — this gate blocks Ship (master finalize + publish) when it fails."
+            : " — advisory only; does not block Ship."}
+        </p>
       ) : null}
       {!summary.passed ? (
         <p className="hint">

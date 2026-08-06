@@ -43,14 +43,27 @@ def transcript_duration_ms(ctx: RunContext | None) -> int:
     if ctx.artifact_exists("transcript/full.json"):
         doc = ctx.read_json("transcript/full.json")
         if isinstance(doc, dict):
-            if doc.get("duration_ms"):
-                return int(doc["duration_ms"])
+            for key in ("duration_ms", "audio_duration_ms"):
+                val = doc.get(key)
+                if isinstance(val, (int, float)) and val > 0:
+                    return int(val)
             words = doc.get("words")
             if isinstance(words, list) and words:
                 return max(int(w.get("end_ms") or 0) for w in words if isinstance(w, dict))
             items = doc.get("items")
             if isinstance(items, list) and items:
-                return max(int(it.get("end_ms") or 0) for it in items if isinstance(it, dict))
+                return max(
+                    int(it.get("end_ms") or it.get("end") or 0)
+                    for it in items
+                    if isinstance(it, dict)
+                )
+            segs = doc.get("segments")
+            if isinstance(segs, list) and segs:
+                return max(
+                    int(s.get("end_ms") or s.get("end") or 0)
+                    for s in segs
+                    if isinstance(s, dict)
+                )
     return 0
 
 

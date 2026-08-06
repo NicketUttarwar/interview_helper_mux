@@ -4,6 +4,26 @@ from __future__ import annotations
 
 from typing import Any
 
+# Known generic filler lines that satisfy "audible glue" but aren't pair-specific
+# (e.g. the timeline optimizer's retired "Meanwhile—" default, seam_glue's canned
+# fallback). Kept in sync manually — these are deliberately narrow, known stock
+# phrases rather than a broad style judgment.
+_GENERIC_STUB_PHRASES = frozenset(
+    {
+        "meanwhile—",
+        "meanwhile,",
+        "there is more to that story.",
+    }
+)
+
+# Verbatim bridge text reused across this many (or more) distinct pairs reads as
+# canned filler pasted everywhere, not glue written for that specific seam.
+_REPEATED_TEXT_STUB_THRESHOLD = 3
+
+
+def _normalize_bridge_text(text: str) -> str:
+    return " ".join(str(text or "").strip().lower().split())
+
 
 def _bridged_pairs(
     gap_report: dict[str, Any] | None,
@@ -82,6 +102,62 @@ def missing_reorder_bridges(
     return missing
 
 
+def stub_reorder_bridges(
+    gap_report: dict[str, Any] | None,
+    transitions: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Advisory (non-blocking): bridges that count as "bridged" but read as
+    canned filler rather than pair-specific glue — a known generic stub phrase,
+    or verbatim text pasted across several distinct pairs.
+    """
+    by_text: dict[str, list[tuple[str, str]]] = {}
+    stubs: list[dict[str, Any]] = []
+
+    def _scan(rows: Any) -> None:
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+            a = str(row.get("after_segment_id") or "")
+            b = str(row.get("before_segment_id") or "")
+            if not a or not b:
+                continue
+            norm = _normalize_bridge_text(text)
+            by_text.setdefault(norm, []).append((a, b))
+            if norm in _GENERIC_STUB_PHRASES:
+                stubs.append(
+                    {
+                        "after_segment_id": a,
+                        "before_segment_id": b,
+                        "reason": "generic_stub_phrase",
+                        "text": text,
+                    }
+                )
+
+    if isinstance(transitions, dict):
+        _scan(transitions.get("transitions"))
+    if isinstance(gap_report, dict):
+        _scan(gap_report.get("interviewer_lines"))
+
+    for norm, pairs in by_text.items():
+        if norm in _GENERIC_STUB_PHRASES:
+            continue
+        distinct = sorted(set(pairs))
+        if len(distinct) >= _REPEATED_TEXT_STUB_THRESHOLD:
+            for a, b in distinct:
+                stubs.append(
+                    {
+                        "after_segment_id": a,
+                        "before_segment_id": b,
+                        "reason": "repeated_verbatim_text",
+                        "text": norm,
+                    }
+                )
+    return stubs
+
+
 def assert_bridges_complete(
     reorder_bridges: dict[str, Any] | None,
     *,
@@ -93,12 +169,15 @@ def assert_bridges_complete(
     missing = missing_reorder_bridges(
         reorder_bridges, gap_report=gap_report, transitions=transitions
     )
+    stubs = stub_reorder_bridges(gap_report, transitions)
     doc = {
         "version": 1,
         "complete": not missing,
         "missing_count": len(missing),
         "missing": missing,
         "pair_specific": True,
+        "stub_count": len(stubs),
+        "stub_pairs": stubs,
     }
     if missing and not soft:
         sample = ", ".join(

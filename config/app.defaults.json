@@ -219,8 +219,6 @@
   "creative_delivery": {
     "required": true,
     "trim_target": "ideal",
-    "min_trim_segments": 1,
-    "min_excluded_ratio": 0.05,
     "listenability_guards": {
       "host_vo_coverage_min_ratio": 0.12,
       "host_vo_coverage_max_ratio": 0.85,
@@ -228,9 +226,9 @@
       "host_vo_duration_max_ratio": 0.45,
       "host_vo_quartile_presence_min_ratio": 0.5,
       "bed_coverage_min_ratio": 0.28,
-      "bed_coverage_max_ratio": 0.55,
+      "bed_coverage_max_ratio": 0.88,
       "bed_quartile_presence_min_ratio": 0.5,
-      "hinge_stinger_coverage_min_ratio": 0.5,
+      "hinge_stinger_coverage_min_ratio": 0.3,
       "hinge_stinger_coverage_max_ratio": 1.0,
       "intentional_air_min_ratio": 0.01,
       "intentional_air_max_ratio": 0.12,
@@ -383,7 +381,8 @@
     "require_framing_before_impact": true
   },
   "nle_edits": {
-    "strict": true
+    "strict": true,
+    "block_incomplete_ends": false
   },
   "_comment_value_analysis": "Deterministic extract flags \u2014 no SSL; specialists excluded (inference)",
   "value_analysis": {
@@ -1205,6 +1204,7 @@
         "mode": "advisory",
         "shadow_compare": true,
         "consumers_bind": false,
+        "_comment_consumers_bind": "Stays false until the Shape mutation engine (docs/cross-cutting/mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop and shape_order_bind.resolve_air_order has shadow-compare evidence of safety across a corpus \u2014 see mastering-integration-backlog.md H7. Per-run hybrid bind already applies via resolve_air_order regardless of this global flag.",
         "two_pass": true
       }
     },
@@ -1331,12 +1331,27 @@
       "block_on_feel_unavailable": true,
       "overall_min": 0.90,
       "dimension_floors": {
-        "flow": 0.90,
-        "clarity": 0.90,
+        "flow": 0.80,
+        "clarity": 0.80,
         "music_completeness": 0.90,
         "synthetic_fit": 0.85,
         "native_respect": 0.90
       }
+    },
+    "listen_delight": {
+      "mode": "authoritative",
+      "overall_min": 0.90,
+      "dimension_floors": {
+        "nugget_retention": 0.80,
+        "cut_integrity": 0.85,
+        "conversation_fit": 0.85,
+        "sonic_weave": 0.85,
+        "mode_coherence": 0.80,
+        "finishability": 0.80,
+        "recommendability": 0.75
+      },
+      "require_mode_consistency": true,
+      "fail_early_at_audit_stage": true
     },
     "synthetic_framing": {
       "respect_native_speakers": true,

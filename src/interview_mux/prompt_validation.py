@@ -106,11 +106,45 @@ def _load_schema(filename: str) -> dict[str, Any] | None:
 def _load_envelope_schema() -> dict[str, Any] | None:
     return _load_root_schema("analysis_envelope.schema.json")
 
+# Models often emit informal status tokens; coerce before schema validation.
+_ENVELOPE_STATUS_ALIASES = {
+    "ok": "complete",
+    "okay": "complete",
+    "success": "complete",
+    "succeeded": "complete",
+    "done": "complete",
+    "finished": "complete",
+    "pass": "complete",
+    "passed": "complete",
+    "error": "blocked",
+    "failed": "blocked",
+    "fail": "blocked",
+    "failure": "blocked",
+}
+
+
+def coerce_envelope_status(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Normalize informal envelope.status values to the schema enum (in place)."""
+    if not isinstance(envelope, dict):
+        return envelope
+    raw = str(envelope.get("status") or "").strip().lower()
+    if not raw:
+        return envelope
+    mapped = _ENVELOPE_STATUS_ALIASES.get(raw)
+    if mapped:
+        envelope["status"] = mapped
+    elif raw in {"complete", "partial", "needs_input", "blocked"}:
+        envelope["status"] = raw
+    return envelope
+
+
 def validate_envelope(envelope: dict[str, Any]) -> list[str]:
     """Validate analysis envelope shape before arbiter (BUILD-084)."""
     schema = _load_envelope_schema()
     if not schema:
         return []
+    if isinstance(envelope, dict):
+        coerce_envelope_status(envelope)
     return [f"envelope.{e}" for e in _validate_dict(envelope, schema)]
 
 def validate_investigation_queue(queue: dict[str, Any]) -> list[str]:

@@ -179,6 +179,8 @@ def mint_missing_transitions(
             minted += 1
             continue
         text = str(planned.get("text") or "").strip()
+        if not text:
+            text = default_bridge_text(pair)
         assert_speakable_or_raise(text, context="transition")
         tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
         items.append(

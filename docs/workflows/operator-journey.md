@@ -15,7 +15,7 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 | 6 | Plan & rank | Coverage → narrative → dual-candidate ranking → topo repair → `story_health` / `reorder_bridges` → transitions |
 | 7 | Edit | Optional NLE (always-visible **Split segment** after segments exist); auto `segments/split_plan.json`; splits cascade re-rank |
 | 8 | Sound | SDP plan → VO finalize → SFX prompt craft |
-| 9 | Build | Narrative audit → EDL → preview → listen delight (advisory) → MMAudio → mix → junction snip QA |
+| 9 | Build | Narrative audit → EDL → preview → listen delight (**authoritative** ship gate) → MMAudio → mix → junction snip QA |
 | 10 | Ship | `master_finalize` → optional **G-Publish** (prepare local package; sync ASSETS → S3 separately) → download `master.wav` |
 
 ## Removed from v2

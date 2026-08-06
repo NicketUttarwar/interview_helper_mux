@@ -101,6 +101,16 @@ If audit still fails after the last round, record `verdict=fail` with residual i
 
 ---
 
+## Auditions and hard delight
+
+Both loops judge against the same rubric: the [Essence mutation space](./mastering-shape-engine.md#shape-as-mutation-engine) (native keep/order, synthetic inserts, music/SFX/air, soft duration ideal), not an independent audio-quality checklist.
+
+- **Micro-render auditions** are the search's cheap feedback signal: acoustic features per window (speech-band ratio, bed-under-speech margin, transition jolt) let L4 critics judge a candidate's music/SFX/air and synthetic-insert mutations *before* spending a full mix.
+- **Closed-loop polish** dimensions (`speech_masking`, `transition_jolt`, `dead_air`, `sfx_repetition`, `listener_fatigue`, `cold_open_payoff`, `plan_adherence`) each map onto one or more Essence axes — e.g. `speech_masking`/`sfx_repetition` are music/SFX/air weave failures; `dead_air` is an air-budget failure; `cold_open_payoff` is a synthetic-insert failure.
+- **`mastering.listen_delight`** (see [listen_delight.py](../../src/interview_mux/listen_delight.py)) is the **terminal, authoritative judge** downstream of both loops — not merely an audio-quality pass. Its seven dimensions (`nugget_retention`, `cut_integrity`, `conversation_fit`, `sonic_weave`, `mode_coherence`, `finishability`, `recommendability`) each trace back to an Essence axis or its ensemble effect. A dimension below floor is a **remutate signal**: [mastering-shape-engine.md § Hard delight as the mutation forcing function](./mastering-shape-engine.md#hard-delight-as-the-mutation-forcing-function) names which capability module should re-enter the loop for that axis. When remutation isn't available, the authoritative floor failure blocks `master_finalize`/publish rather than shipping a plan the audit scored as undelightful.
+
+---
+
 ## Config
 
 ```

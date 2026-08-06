@@ -92,8 +92,11 @@ def _pack_conflicts(selection: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def score_seam(seam: dict[str, Any], *, order_hash: str) -> dict[str, Any]:
+def score_seam(
+    seam: dict[str, Any], *, order_hash: str, cfg: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Return an actionable, stable decision for one speech-to-speech seam."""
+    settings = cfg or seam_autopsy_cfg()
     after_id = str(seam.get("after_segment_id") or "")
     before_id = str(seam.get("before_segment_id") or "")
     risks: list[str] = []
@@ -112,6 +115,15 @@ def score_seam(seam: dict[str, Any], *, order_hash: str) -> dict[str, Any]:
     except (TypeError, ValueError):
         source_gap = 0
     contiguous = not seam.get("requires_glue") and source_gap <= 2500
+    continue_bed = contiguous and bool(settings.get("prefer_contiguous_beds", True))
+    # A genuinely contiguous source seam that will *not* carry its bed across
+    # (only possible when `prefer_contiguous_beds` is turned off) is an honest
+    # music_hard_edge risk: continuous speech audio would get an audible bed
+    # restart/cut. This keeps `music_completeness` (build_autopsy) and
+    # `listen_delight._sonic_weave` non-trivial instead of a hard-coded 1.0 —
+    # under the default (prefer_contiguous_beds=True) this never fires.
+    if contiguous and not continue_bed:
+        risks.append("music_hard_edge")
     if contiguous:
         preferred = ["extend_native", "air_pad"]
         synthetic_allowed = False
@@ -124,9 +136,13 @@ def score_seam(seam: dict[str, Any], *, order_hash: str) -> dict[str, Any]:
 
     penalty = 0.0
     penalty += 0.55 if seam.get("naked") else 0.0
-    penalty += 0.15 if "source_reorder" in risks else 0.0
+    # Glued reorders are expected on long-form masters — only lightly penalize when
+    # audible glue is present; keep the stronger hit for naked/unglued jumps.
+    if "source_reorder" in risks:
+        penalty += 0.05 if glue_ids else 0.15
     penalty += 0.1 if "synthetic_density" in risks else 0.0
     penalty += 0.08 if seam.get("chapter_scale") else 0.0
+    penalty += 0.05 if "music_hard_edge" in risks else 0.0
     listen_score = round(max(0.0, min(1.0, 1.0 - penalty)), 4)
     glue_ideal = 0 if contiguous else (1800 if seam.get("chapter_scale") else 900)
     seam_id = f"{after_id}__{before_id}"
@@ -143,9 +159,9 @@ def score_seam(seam: dict[str, Any], *, order_hash: str) -> dict[str, Any]:
         },
         "preferred_glue": preferred,
         "music_hint": {
-            "continue_bed": contiguous,
+            "continue_bed": continue_bed,
             "stinger": bool(seam.get("chapter_scale")),
-            "crossfade_ms": 1500 if contiguous else 2200,
+            "crossfade_ms": 1500 if continue_bed else 2200,
         },
         "synthetic_voice_allowed": synthetic_allowed,
         "necessity_score": round(max(0.0, 1.0 - listen_score), 4),
@@ -257,8 +273,10 @@ def verify_commitment(
     )
     resolved, unresolved = _applied_repairs_resolved(edl_doc, report)
     order_ok = bool(selection and edl_doc and order_hashes_match(selection, edl_doc))
-    assembly_path = ctx.read_path("master", "assembly.wav")
-    edl_path = ctx.read_path("master", "edl.json")
+    # Commitment freshness must use the committed run tree — a stale
+    # .pending_writes/*/master/assembly.wav must not shadow a remastered final.
+    assembly_path = ctx.final_path("master", "assembly.wav")
+    edl_path = ctx.final_path("master", "edl.json")
     assembly_fp = _file_fingerprint(assembly_path)
     fresh = bool(
         assembly_fp.get("exists")
@@ -374,6 +392,46 @@ def write_autopsy(ctx: RunContext, doc: dict[str, Any]) -> dict[str, Any]:
 
     write_committed_json(ctx, AUTOPSY_REL, doc)
     return doc
+
+
+def refresh_autopsy_commitment(ctx: RunContext) -> dict[str, Any] | None:
+    """Re-verify commitment against current EDL/assembly and rewrite autopsy.
+
+    Used when an archived autopsy still says ``diverged`` but the working tree
+    has since been remastered / order-synced.
+    """
+    if not ctx.artifact_exists(AUTOPSY_REL):
+        return None
+    autopsy = ctx.read_json(AUTOPSY_REL)
+    if not isinstance(autopsy, dict):
+        return None
+    snip = (
+        ctx.read_json("master/junction_snip_qa.json")
+        if ctx.artifact_exists("master/junction_snip_qa.json")
+        else None
+    )
+    edl = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
+    commitment = verify_commitment(
+        ctx,
+        snip if isinstance(snip, dict) else None,
+        edl=edl if isinstance(edl, dict) else None,
+    )
+    out = dict(autopsy)
+    out["commitment"] = commitment
+    out["generated_at"] = _now()
+    prior_blocks = {
+        str(x)
+        for x in (autopsy.get("blocking_reasons") or [])
+        if str(x)
+        not in {
+            "assembly_not_rendered_from_current_edl",
+            "selection_edl_order_drift",
+            "claimed_repairs_missing_from_edl",
+        }
+    }
+    out["blocking_reasons"] = sorted(prior_blocks | set(commitment.get("reasons") or []))
+    write_autopsy(ctx, out)
+    return out
 
 
 def enrich_ledger(ctx: RunContext, autopsy: dict[str, Any]) -> dict[str, Any] | None:

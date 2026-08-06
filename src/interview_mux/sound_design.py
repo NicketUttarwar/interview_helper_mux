@@ -801,18 +801,19 @@ def flow1_overlays_from_sdp(
             rendered_cues.append(cue)
             continue
         if rendered_cues:
+            music_cfg = (merged_config().get("mastering") or {}).get("music_continuity") or {}
             prev = rendered_cues[-1]
             prev_ids = [str(x) for x in (prev.get("segment_ids") or []) if x]
             prev_sid = prev_ids[-1] if prev_ids else str(prev.get("segment_id") or "")
             contiguous = (
-                str(prev.get("placement") or "") in {"under_segment", "under_segment_span"}
+                bool(music_cfg.get("prefer_contiguous_beds", True))
+                and str(prev.get("placement") or "") in {"under_segment", "under_segment_span"}
                 and str(prev.get("asset_id") or "") == str(cue.get("asset_id") or "")
                 and prev_sid in order_pos
                 and sid in order_pos
                 and order_pos[sid] == order_pos[prev_sid] + 1
             )
             if contiguous:
-                music_cfg = (merged_config().get("mastering") or {}).get("music_continuity") or {}
                 scene_xf = int(music_cfg.get("scene_crossfade_ms") or 1800)
                 merged = dict(prev)
                 merged["placement"] = "under_segment_span"

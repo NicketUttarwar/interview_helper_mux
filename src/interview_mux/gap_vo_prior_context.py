@@ -94,15 +94,31 @@ def _last_token(text: str) -> str:
     return words[-1].lower() if words else ""
 
 
-def ends_complete_thought(text: str) -> bool:
-    """True when text ends on terminal punctuation or a non-hanging content word."""
+DEFAULT_PAUSE_SPLIT_MS = 400
+
+
+def ends_complete_thought(
+    text: str,
+    *,
+    next_pause_ms: int | None = None,
+    pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+) -> bool:
+    """True when text ends on terminal punctuation, or on a non-hanging word
+    followed by a pause long enough to read as a finished thought.
+
+    Word choice alone (e.g. any noun/verb close) is no longer sufficient —
+    without terminal punctuation we require actual pause evidence
+    (``next_pause_ms >= pause_split_ms``) so mid-sentence commas/breaths
+    aren't mistaken for a complete thought.
+    """
     stripped = (text or "").strip()
     if not stripped:
         return False
     if stripped[-1] in ".!?…":
         return True
-    # Soft complete: ends on a content word, not a hanging conjunction/preposition.
-    return _last_token(stripped) not in _INCOMPLETE_TAIL_TOKENS
+    if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
+        return False
+    return next_pause_ms is not None and next_pause_ms >= pause_split_ms
 
 
 # Backward-compatible private alias
@@ -125,11 +141,16 @@ def is_micro_segment(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool
 _is_micro_segment = is_micro_segment
 
 
-def looks_like_impact_beat(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
+def looks_like_impact_beat(
+    seg: dict[str, Any] | None,
+    *,
+    cfg: dict[str, Any],
+    next_pause_ms: int | None = None,
+) -> bool:
     if not isinstance(seg, dict):
         return False
     text = str(seg.get("text") or "").strip()
-    if not text or not _ends_complete_thought(text):
+    if not text or not _ends_complete_thought(text, next_pause_ms=next_pause_ms):
         return False
     words = _word_count(text)
     dur = max(0, int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0))
@@ -183,6 +204,29 @@ def _quote_span(text: str, *, max_chars: int = 180) -> str:
     return last
 
 
+def _next_segment_pause_ms(
+    seg_id: str,
+    *,
+    ordered_ids: list[str],
+    segments_by_id: dict[str, dict[str, Any]],
+) -> int | None:
+    """Gap in ms between ``seg_id``'s end and the next ordered segment's start."""
+    if seg_id not in ordered_ids:
+        return None
+    idx = ordered_ids.index(seg_id)
+    if idx + 1 >= len(ordered_ids):
+        return None
+    seg = segments_by_id.get(seg_id)
+    nxt = segments_by_id.get(ordered_ids[idx + 1])
+    if not isinstance(seg, dict) or not isinstance(nxt, dict):
+        return None
+    try:
+        gap = int(nxt.get("start_ms") or 0) - int(seg.get("end_ms") or 0)
+    except (TypeError, ValueError):
+        return None
+    return max(0, gap)
+
+
 def build_prior_native_context(
     *,
     target_segment_id: str,
@@ -220,8 +264,11 @@ def build_prior_native_context(
     text = str(prior.get("text") or "").strip()
     full_max = int(settings.get("full_text_max_chars") or 900)
     end_max = int(settings.get("end_window_chars") or 420)
-    complete = _ends_complete_thought(text)
-    impact = _looks_like_impact_beat(prior, cfg=settings)
+    next_pause_ms = _next_segment_pause_ms(
+        prior_id, ordered_ids=ordered_ids, segments_by_id=segments_by_id
+    )
+    complete = _ends_complete_thought(text, next_pause_ms=next_pause_ms)
+    impact = _looks_like_impact_beat(prior, cfg=settings, next_pause_ms=next_pause_ms)
     return {
         "segment_id": prior_id,
         "speaker_role": str(prior.get("speaker_role") or prior.get("type") or "") or None,

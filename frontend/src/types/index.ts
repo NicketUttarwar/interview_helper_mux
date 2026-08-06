@@ -586,6 +586,9 @@ export interface RunMeta {
       failed_checks?: string[];
       blocking?: boolean;
       message?: string;
+      /** listen_delight shape */
+      overall?: number;
+      failed_dimensions?: string[];
       [key: string]: unknown;
     }
   >;

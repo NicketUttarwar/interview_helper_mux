@@ -1,4 +1,11 @@
-"""Deterministic selection trim to fit delivery_brief duration max."""
+"""Deterministic selection trim to fit delivery_brief duration targets.
+
+Single shared pack algorithm (``pack_selection_to_duration``) used by both the
+hard-budget safety net (``auto_pack_selection_to_brief`` → brief max) and the
+editorial soft-pack (``creative_delivery.enforce_creative_selection_edit`` →
+brief ideal) — previously two independent drop-loops that could drift out of
+sync. Both now share the same volley-intact drop preference.
+"""
 
 from __future__ import annotations
 
@@ -48,15 +55,19 @@ def _arc_critical_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
-def estimated_duration_sec(ctx: RunContext, ordered_ids: list[str]) -> float:
+def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
     if not ctx.artifact_exists("segments/manifest.json"):
-        return 0.0
+        return {}
     man = ctx.read_json("segments/manifest.json")
-    by_id = {
+    return {
         str(s.get("segment_id") or s.get("id") or ""): s
         for s in (man.get("segments") or [])
         if isinstance(s, dict)
     }
+
+
+def estimated_duration_sec(ctx: RunContext, ordered_ids: list[str]) -> float:
+    by_id = _segments_by_id(ctx)
     total_ms = 0
     for sid in ordered_ids:
         seg = by_id.get(str(sid))
@@ -65,38 +76,36 @@ def estimated_duration_sec(ctx: RunContext, ordered_ids: list[str]) -> float:
     return total_ms / 1000.0
 
 
-def auto_pack_selection_to_brief(
+def _speaker_of_map(ctx: RunContext) -> dict[str, str]:
+    try:
+        return {sid: str(seg.get("speaker_id") or "") for sid, seg in _segments_by_id(ctx).items()}
+    except Exception:
+        return {}
+
+
+def pack_selection_to_duration(
     ctx: RunContext,
     selection: dict[str, Any],
     *,
-    stage: str = "full_master_ranking",
+    target_sec: float,
+    stage: str,
+    meta_key: str,
+    action_id: str,
+    log_label: str,
+    prefer_volley_intact: bool = True,
 ) -> dict[str, Any]:
-    """Drop lowest-ranked non-arc-critical segments until within brief max duration.
+    """Drop lowest-ranked non-arc-critical segments until within ``target_sec``.
 
-    Returns updated selection (may be unchanged). Logs pipeline.selection.auto_pack.
+    Prefers dropping mid-monologue segments (same speaker before/after) first
+    so I<->S turn boundaries and speaker volleys survive denser trims — ties
+    broken by rank (worst first). Returns ``selection`` unchanged when already
+    within budget or nothing droppable remains.
     """
-    from interview_mux.delivery_brief import load_delivery_brief
-    from interview_mux.first_try import first_try_mode_enabled
-
-    if not first_try_mode_enabled():
-        return selection
-    brief = load_delivery_brief(ctx)
-    if not brief:
-        return selection
-    budget = brief.get("target_duration_sec") if isinstance(brief.get("target_duration_sec"), dict) else {}
-    max_sec = budget.get("max")
-    try:
-        max_sec_f = float(max_sec) if max_sec is not None else None
-    except (TypeError, ValueError):
-        max_sec_f = None
-    if max_sec_f is None or max_sec_f <= 0:
-        return selection
-
     ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
-    if not ordered:
+    if not ordered or target_sec is None or target_sec <= 0:
         return selection
     est = estimated_duration_sec(ctx, ordered)
-    if est <= max_sec_f:
+    if est <= target_sec:
         return selection
 
     critical = _arc_critical_ids(ctx)
@@ -114,6 +123,7 @@ def auto_pack_selection_to_brief(
             )
     except Exception:
         pass
+
     ranks = selection.get("segment_ranks") or selection.get("ranks") or {}
     if not isinstance(ranks, dict):
         ranks = {}
@@ -124,12 +134,24 @@ def auto_pack_selection_to_brief(
         except (TypeError, ValueError):
             return 9999.0
 
+    speaker_of = _speaker_of_map(ctx) if prefer_volley_intact else {}
+
+    def drop_score(sid: str) -> tuple[float, float]:
+        if not prefer_volley_intact:
+            return (0.0, rank_of(sid))
+        idx = ordered.index(sid)
+        spk = speaker_of.get(sid, "")
+        prev = speaker_of.get(ordered[idx - 1], "") if idx > 0 else ""
+        nxt = speaker_of.get(ordered[idx + 1], "") if idx + 1 < len(ordered) else ""
+        mid_mono = 1.0 if spk and spk == prev == nxt else 0.0
+        return (mid_mono, rank_of(sid))
+
     droppable = [sid for sid in ordered if sid not in critical]
-    droppable.sort(key=rank_of, reverse=True)  # drop worst ranks first
+    droppable.sort(key=drop_score, reverse=True)  # drop mid-monologue + worst ranks first
     dropped: list[str] = []
     remaining = list(ordered)
     for sid in droppable:
-        if estimated_duration_sec(ctx, remaining) <= max_sec_f:
+        if estimated_duration_sec(ctx, remaining) <= target_sec:
             break
         if len(remaining) <= max(1, len(critical) or 1):
             break
@@ -151,7 +173,7 @@ def auto_pack_selection_to_brief(
         shadow_vernacular = [sid for sid in dropped if sid in vernacular_ids]
         if shadow_vernacular and enforcement_mode_for_ctx(ctx) != "authoritative":
             ctx.log(
-                f"Shadow vernacular: auto_pack dropped {len(shadow_vernacular)} must_keep id(s)",
+                f"Shadow vernacular: {meta_key} dropped {len(shadow_vernacular)} must_keep id(s)",
                 level="warning",
                 stage=stage,
                 action_id="vernacular.shadow.would_keep",
@@ -171,27 +193,66 @@ def auto_pack_selection_to_brief(
         if sid not in excluded:
             excluded.append(sid)
     out["excluded_segment_ids"] = excluded
+    after_sec = round(estimated_duration_sec(ctx, remaining), 1)
     meta = dict(out.get("_meta") or {})
-    meta["auto_pack"] = {
+    meta[meta_key] = {
         "dropped": dropped,
         "before_sec": round(est, 1),
-        "after_sec": round(estimated_duration_sec(ctx, remaining), 1),
-        "max_sec": max_sec_f,
+        "after_sec": after_sec,
+        "target_sec": target_sec,
         "shadow_vernacular_dropped": shadow_vernacular,
     }
     out["_meta"] = meta
     ctx.log(
-        f"Selection auto-pack: dropped {len(dropped)} segment(s) to fit brief max {max_sec_f:.0f}s",
+        f"{log_label}: dropped {len(dropped)} segment(s) to fit {target_sec:.0f}s",
         level="info",
         stage=stage,
-        action_id="pipeline.selection.auto_pack",
+        action_id=action_id,
         detail={
-            "event": "selection_auto_pack",
+            "event": meta_key,
             "dropped": dropped[:20],
             "before_sec": est,
-            "after_sec": meta["auto_pack"]["after_sec"],
-            "max_sec": max_sec_f,
+            "after_sec": after_sec,
+            "target_sec": target_sec,
             "shadow_vernacular_dropped": shadow_vernacular[:20],
         },
     )
     return out
+
+
+def auto_pack_selection_to_brief(
+    ctx: RunContext,
+    selection: dict[str, Any],
+    *,
+    stage: str = "full_master_ranking",
+) -> dict[str, Any]:
+    """Hard-budget safety net: drop toward brief max duration (first_try mode only).
+
+    Returns updated selection (may be unchanged). Logs pipeline.selection.auto_pack.
+    """
+    from interview_mux.delivery_brief import load_delivery_brief
+    from interview_mux.first_try import first_try_mode_enabled
+
+    if not first_try_mode_enabled():
+        return selection
+    brief = load_delivery_brief(ctx)
+    if not brief:
+        return selection
+    budget = brief.get("target_duration_sec") if isinstance(brief.get("target_duration_sec"), dict) else {}
+    max_sec = budget.get("max")
+    try:
+        max_sec_f = float(max_sec) if max_sec is not None else None
+    except (TypeError, ValueError):
+        max_sec_f = None
+    if max_sec_f is None or max_sec_f <= 0:
+        return selection
+
+    return pack_selection_to_duration(
+        ctx,
+        selection,
+        target_sec=max_sec_f,
+        stage=stage,
+        meta_key="auto_pack",
+        action_id="pipeline.selection.auto_pack",
+        log_label="Selection auto-pack",
+    )

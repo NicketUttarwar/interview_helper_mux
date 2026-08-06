@@ -127,7 +127,13 @@ def record_synthesis(
     qc = post_synthesis_qc_cfg()
     reasons: list[str] = []
     speech_ok = True
-    if qc.get("enabled") and qc.get("speech_qa_enabled", True) and out_wav and out_wav.is_file():
+    if qc.get("enabled") and out_wav is not None and not out_wav.is_file():
+        # Chatterbox/mlx-audio produced no output at all — the loudest possible
+        # stub. Flag it exactly like a failed speech QA rather than silently
+        # skipping the check (previously fell through with no qc_pass at all).
+        speech_ok = False
+        reasons.append("missing_output_wav")
+    elif qc.get("enabled") and qc.get("speech_qa_enabled", True) and out_wav and out_wav.is_file():
         speech = analyze_vo_wav(out_wav, cfg=qc)
         entry["speech_qa"] = {
             "tonal_peak_ratio": speech.get("tonal_peak_ratio"),
@@ -155,6 +161,14 @@ def record_synthesis(
         if reasons:
             entry["qc_pass"] = False
             entry["qc_notes"] = "; ".join(reasons)
+            # Loud at synthesis time — don't wait for vo_ingest/edl to discover
+            # a stub VO line hours later in the run.
+            ctx.log(
+                f"VO synthesis QC failed for {line_id} (backend={backend}): {entry['qc_notes']}",
+                level="warning",
+                stage="g1_vo_pickup",
+                detail={"line_id": line_id, "backend": backend, "reasons": reasons},
+            )
         else:
             entry["qc_pass"] = True
             if duration_notes and "qc_notes_advisory" not in entry:
@@ -194,7 +208,16 @@ def record_recorded_vo(
         "duration_ms": _wav_duration_ms(out_wav),
     }
     qc = post_synthesis_qc_cfg()
-    if qc.get("enabled") and qc.get("speech_qa_enabled", True) and out_wav.is_file():
+    if qc.get("enabled") and not out_wav.is_file():
+        entry["qc_pass"] = False
+        entry["qc_notes"] = "missing_output_wav"
+        ctx.log(
+            f"VO recording missing for {line_id} (backend={backend}): no file at upload path",
+            level="warning",
+            stage="g1_vo_pickup",
+            detail={"line_id": line_id, "backend": backend},
+        )
+    elif qc.get("enabled") and qc.get("speech_qa_enabled", True) and out_wav.is_file():
         speech = analyze_vo_wav(out_wav, cfg=qc)
         entry["speech_qa"] = {
             "tonal_peak_ratio": speech.get("tonal_peak_ratio"),
@@ -204,6 +227,12 @@ def record_recorded_vo(
         entry["qc_pass"] = bool(speech.get("pass"))
         if not speech.get("pass"):
             entry["qc_notes"] = "; ".join(str(r) for r in (speech.get("reasons") or []))
+            ctx.log(
+                f"VO recording QC failed for {line_id} (backend={backend}): {entry['qc_notes']}",
+                level="warning",
+                stage="g1_vo_pickup",
+                detail={"line_id": line_id, "backend": backend, "reasons": speech.get("reasons")},
+            )
     entries.append(entry)
     _persist(ctx, entries)
 

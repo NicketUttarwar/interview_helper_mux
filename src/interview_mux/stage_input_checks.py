@@ -358,6 +358,19 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
         autopsy = ctx.read_json("master/seam_autopsy.json")
         commitment = autopsy.get("commitment") if isinstance(autopsy, dict) else {}
         if not isinstance(commitment, dict) or commitment.get("status") != "committed":
+            # Stale archived autopsy often says diverged after a later remaster.
+            try:
+                from interview_mux.seam_autopsy import refresh_autopsy_commitment
+
+                refreshed = refresh_autopsy_commitment(ctx)
+                commitment = (
+                    (refreshed or {}).get("commitment")
+                    if isinstance(refreshed, dict)
+                    else commitment
+                )
+            except Exception:
+                pass
+        if not isinstance(commitment, dict) or commitment.get("status") != "committed":
             issues.append(
                 StageInputIssue(
                     "seam autopsy commitment is not committed",

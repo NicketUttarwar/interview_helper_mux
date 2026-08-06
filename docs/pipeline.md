@@ -2,11 +2,11 @@
 
 **Toolchain:** Pinned Python packages, `ffmpeg`/`ffprobe`, OpenAI SDK, optional Terraform + boto3 for podcast RSS — [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md). Implementers use **Context7** at those exact versions. AWS infra is **Terraform-only** ([podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](../terraform/README.md)); never assume AWS CLI.
 
-One source interview → one deliverable: **`master/master.wav`**. Optional Ship packaging + ASSETS-wide S3 sync is separate from the north-star master.
+One source interview → one deliverable: **`master/master.wav`**. Product Essence: find golden nuggets, cut for listenability, weave native + grounded synthetic + music/SFX/air under Shape — [NORTH_STAR.md](../NORTH_STAR.md). Optional Ship packaging + ASSETS-wide S3 sync is separate from the north-star master.
 
 Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**29 analysis + 28 delivery = 57 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
 
-**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`).
+**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.28–0.88**, hinge stinger **0.3–1.0**.
 
 ```mermaid
 flowchart TB
@@ -65,7 +65,7 @@ Gates: [workflows/operator-gates.md](./workflows/operator-gates.md) · Journey: 
 2. **Refinement Pass** — L0 agenda + gap recompose / framing apply / optional refines — [refinement-passes.md](./cross-cutting/refinement-passes.md)  
 3. **Transitions** (+ optional refine)  
 4. **Sound design** — SDP → intent refine → VO finalize → SFX prompt craft  
-5. **EDL path** — narrative audit/refine → EDL → assembly preview → listen delight (advisory)  
+5. **EDL path** — narrative audit/refine → EDL → assembly preview → listen delight (**authoritative**)  
 6. **MMAudio + mix** — `mmaudio_sfx` → `mix` → `junction_snip_qa`  
 7. **Master** — `master_finalize` → −16 LUFS  
 8. **Optional G-Publish** — local `episode_meta_build` … `podcast_publish` (no S3); sync via GUI or `scripts/sync_podcast_episodes.py` — [podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md)

@@ -42,6 +42,26 @@ with fades only at scene boundaries. Cold-open and outro cues are rebound to the
 first and last selected native anchors. Music and punctuators cannot attack
 inside synthetic-voice windows.
 
+**`prefer_contiguous_beds` (`mastering.music_continuity.prefer_contiguous_beds`,
+default `true`)** is the single flag both the mix and the autopsy honor for
+"one scene bed, not a hard restart at every cut":
+
+- At mix time, `sound_design.flow1_overlays_from_sdp` merges adjacent
+  same-`asset_id` `under_segment` cues into one `under_segment_span` scene bed
+  crossfaded only at the span edges (`music_continuity.scene_crossfade_ms`).
+- At autopsy time, `seam_autopsy.score_seam` mirrors the flag onto
+  `music_hint.continue_bed` for every source-contiguous seam. When the flag is
+  off (or a contiguous seam otherwise won't carry its bed across), the seam
+  gets an honest `music_hard_edge` risk code — a real, non-decorative signal
+  that continuous speech audio will get an audible bed cut/restart, not a
+  hard-coded pass.
+- `music_hard_edge` feeds `scores.music_completeness` in `build_autopsy`
+  (`1.0` when no seam carries the risk, `0.5` otherwise) and, downstream,
+  `listen_delight._sonic_weave` (one of the seven ship-gating delight
+  dimensions — see below): both read the real risk-code list rather than
+  assuming continuity, so a config change that breaks contiguous-bed behavior
+  shows up as a lower score instead of being silently masked.
+
 ## Recovery lifecycle
 
 There are at most **two full remediation runs**:
@@ -75,3 +95,28 @@ repairs commit `sound_design/placement_adjustments.json` and patch SDP
 extend → same-speaker `merge_micro` → cut → exclude (true micros only).
 Learning rows in `ASSETS/remediation_learning.jsonl` bias the next
 `plan_all_fixes` action choice when the source hash or failure codes match.
+
+## Listen delight dimensions
+
+`listen_delight.run_listen_delight_audit` (`mastering/listen_delight_audit.json`)
+is the **authoritative ship gate** ahead of `post_master_quality` (config:
+`mastering.listen_delight`) — see NORTH_STAR.md. Its seven dimensions each read
+real artifacts already on disk, falling back to soft defaults only when an
+artifact is missing (never to mask a real signal that *is* present):
+
+| Dimension | Floor | Source signal |
+|-----------|-------|----------------|
+| `nugget_retention` | `0.80` | Selected duration vs `delivery_brief` ideal pack target |
+| `cut_integrity` | `0.85` | `junction_snip_qa.json` critical residual findings |
+| `conversation_fit` | `0.85` | `bridge_completeness.json` missing/stub bridge counts, else mode-consistency soft score |
+| `sonic_weave` | `0.85` | `seam_autopsy.json` `scores.music_completeness`, else a live count of `music_hard_edge` risk codes across seams |
+| `mode_coherence` | `0.80` | `mode_consistency_report.ok` (when `require_mode_consistency`) |
+| `finishability` | `0.80` | Mode consistency + gap-line presence + `cut_integrity` |
+| `recommendability` | `0.75` | Gap-line presence / narrative mode + mode consistency |
+
+`sonic_weave` is this module's direct downstream consumer: it is only as
+honest as `music_completeness`, which is only as honest as the
+`music_hard_edge` risk code documented under **Music** above. Overall floor
+`0.90` (mean of the seven); `authoritative` mode hard-stops both
+`listen_delight_audit` and the `post_master_quality` re-check on failure —
+`advisory` writes the same scored artifact without blocking.

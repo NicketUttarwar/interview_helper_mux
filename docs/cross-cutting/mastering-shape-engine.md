@@ -18,6 +18,52 @@ L4 is the **primary excellence filter**. All levels share the pillars via minted
 
 ---
 
+## Shape as mutation engine
+
+The Shape Engine is not a linear pipeline stage — it is a **mutation search** over the Essence space defined in [mastering-process.md](./mastering-process.md#north-star-every-shape-engine-level). Every level (L0–L5), capability module, critic, and audition exists to **propose, score, and prune mutations** of a candidate plan, not to fill in a fixed template one field at a time.
+
+### Mutation space
+
+A candidate is a point in a bounded search space, combining moves across four axes:
+
+| Axis | Mutations searched | Bound |
+|------|---------------------|-------|
+| Native keep/order | Which source segments survive; sequence; reprise | Soft: nugget density, pacing. **Hard floor ~10% of source runtime** — below that a candidate is infeasible no matter how compelling |
+| Synthetic inserts | Cold open / outro kind, VO bridge lines, clone vs pickup voice, montage grammar moves | Hard invariants only (pickup-preferred, no invented dialogue, consent for clone) — otherwise open |
+| Music / SFX / air | Bed coverage, stingers, hinge punctuation, silence/air budget | Soft bands: **bed coverage 0.28–0.88**, **hinge stinger 0.3–1.0** — Shape-owned, not fixed defaults |
+| Duration | Overall length vs delivery-brief target | **Soft ideal** (`delivery_brief.target_duration_sec.ideal`); the only hard constraint is the native-floor rule above |
+
+These bands are **soft — the space the search operates inside**, not literal defaults every plan must hit. A dense-dialogue candidate that never approaches 0.88 bed coverage is still valid; a candidate is only killed for violating a genuinely **hard** rule (native floor, invariants, infeasibility, critical semantic-integrity finding, or a hard listen-delight failure — below).
+
+### Engine loop
+
+```
+L0/L1 candidates (agenda + horizon risks)
+  → capability mutations (cold_open_hook, structure_candidates, inclusion_exclusion,
+     pacing_density, vo_sfx_components — each module mutates one or more Essence axes)
+  → hardening gates (diversity / feasibility / semantic integrity)
+  → L4 critics (six-critic panel + flagship arbiter, scored against eval_rubric.json)
+  → micro-render auditions (30–90 s excerpts, judged by acoustic features + Essence fit)
+  → Pareto frontier (survivors kept, not collapsed to one aggregate score)
+  → L5 convergence → flagship synthesize → mastering_plan.json
+  → Pass2 confirm (after gap evidence)
+  → hard delight audit (listen_delight) — pass ships; fail forces a remutate loop or blocks
+```
+
+Each pass through the loop is a **mutation round**: a capability module changes one or more Essence-axis values on a candidate (e.g. `vo_sfx_components` raises bed coverage from 0.4 to fill a dead-air gap the polish audit flagged, or `structure_candidates` trims native keep toward the 10% floor to cut padding), and the mutated candidate re-enters critique/audition rather than being hand-edited outside the loop.
+
+### Hard delight as the mutation forcing function
+
+`mastering.listen_delight` (see [mastering-audition-loop.md](./mastering-audition-loop.md#auditions-and-hard-delight)) is the **terminal judge** of the mutation search, not a separate polish afterthought. When `mastering.listen_delight.mode` is `authoritative` (default):
+
+- **Pass** — the candidate's current mutation state is accepted; Realization proceeds.
+- **Fail** — the failing dimensions name *which Essence axis* under-performed (e.g. `sonic_weave` below floor → weak music/SFX/air weave; `cut_integrity` below floor → native keep/order left an unresolved seam; `nugget_retention` below floor → duration/keep mutation over- or under-trimmed). That is a **remutate signal**: the engine re-enters capability mutation on the implicated axis rather than shipping a plan the audit scored as undelightful.
+- If remutation is unavailable or the agenda budget is exhausted, the failure **blocks** `master_finalize`/publish.
+
+Pareto survivors are candidates in the search; hard delight is the fitness function deciding whether a candidate's mutation state is good enough to leave the search and reach Realization.
+
+---
+
 ## Flow
 
 ```

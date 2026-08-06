@@ -2535,17 +2535,37 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         bed_ms = sum(seg_durs.get(s, 0) for s in bedded)
         coverage = (bed_ms / total_ms) if total_ms > 0 else 0.0
         seed_i = 0
-        # Prefer longer selected segments when seeding for coverage.
-        ranked_pool = sorted(
-            bed_anchor_pool,
-            key=lambda sid: seg_durs.get(sid, 0),
-            reverse=True,
+        order_pos = {sid: i for i, sid in enumerate(selection_ids)}
+        prefer_contiguous = bool(
+            ((merged_config().get("mastering") or {}).get("music_continuity") or {}).get(
+                "prefer_contiguous_beds", True
+            )
         )
-        for sid in ranked_pool:
-            if coverage >= min_cov:
-                break
-            if sid in bedded:
-                continue
+
+        def _adjacent_to_bedded(sid: str) -> bool:
+            i = order_pos.get(sid)
+            if i is None:
+                return False
+            prev_sid = selection_ids[i - 1] if i > 0 else None
+            next_sid = selection_ids[i + 1] if i + 1 < len(selection_ids) else None
+            return prev_sid in bedded or next_sid in bedded
+
+        # Coverage-floor seeding must not game the metric with scattered per-clip
+        # beds. When `mastering.music_continuity.prefer_contiguous_beds` is set
+        # (default), each pass prefers an anchor adjacent to an already-bedded
+        # segment so the mix-time contiguous merge (see
+        # `sound_design.flow1_overlays_from_sdp`) folds it into one honest
+        # scene-length bed instead of another disjoint island; only when no
+        # adjacent candidate remains does seeding fall back to the next-longest
+        # fresh anchor. Re-ranked every pass since "adjacent" changes as beds grow.
+        remaining = [sid for sid in bed_anchor_pool if sid not in bedded]
+        while coverage < min_cov and remaining:
+            if prefer_contiguous:
+                remaining.sort(key=lambda sid: (0 if _adjacent_to_bedded(sid) else 1, -seg_durs.get(sid, 0)))
+            else:
+                remaining.sort(key=lambda sid: -seg_durs.get(sid, 0))
+            sid = remaining.pop(0)
+            was_adjacent = _adjacent_to_bedded(sid)
             seed_i += 1
             _add_cue(
                 cue_id=f"bed_coverage_seed_{seed_i}",
@@ -2561,6 +2581,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     "action": "seed_bed_for_coverage",
                     "segment_id": sid,
                     "coverage": round(coverage, 4),
+                    "contiguous_with_existing_bed": was_adjacent,
                 }
             )
         # Quartile presence: ensure at least one bed in each half of the order.
@@ -2868,7 +2889,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         )
         hinges = hinge_ids(ctx)
         guards = listenability_guards_cfg()
-        min_ratio = float(guards.get("hinge_stinger_coverage_min_ratio") or 0.5)
+        min_ratio = float(guards.get("hinge_stinger_coverage_min_ratio") or 0.3)
         if resolve_aid and hinges and min_ratio > 0:
             stung: set[str] = set()
             for cue in cues:

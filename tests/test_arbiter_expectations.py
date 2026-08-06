@@ -65,6 +65,23 @@ def test_build_stage_expectations_includes_rubric_fields():
     assert exp.get("decompose_eligible") is False
 
 
+def test_transitions_rubric_rejects_stub_bridges():
+    """Plan 5: bridges/transitions must not be generic filler stubs."""
+    rubric = rubric_for_stage("transitions")
+    assert rubric is not None
+    patterns = " ".join(rubric.get("reject_patterns") or [])
+    assert "stub bridge" in patterns.lower() or "filler bridge" in patterns.lower()
+
+
+def test_arbiter_system_prompt_rejects_stub_bridges_and_thin_montage():
+    system_path = (
+        Path(__file__).resolve().parents[1] / "docs" / "prompts" / "_shared" / "arbiter.system.txt"
+    )
+    text = system_path.read_text(encoding="utf-8").lower()
+    assert "stub placeholders" in text
+    assert "thin `hook_montage`" in text or "thin hook_montage" in text
+
+
 def test_decompose_never_eligible():
     """v2 dropped shard/collate decomposition — no stage may opt back in."""
     for stage_key in ("content_context", "segment_classification", "sound_design_plan"):

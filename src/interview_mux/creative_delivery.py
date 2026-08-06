@@ -298,120 +298,23 @@ def enforce_creative_selection_edit(
     *,
     stage: str = "full_master_ranking",
 ) -> dict[str, Any]:
-    """Ensure selection is editorially shaped — trim toward ideal and drop low-value segments."""
+    """Editorial soft-pack toward the brief's ``trim_target`` (default: ideal).
+
+    Single pack pass — no forced minimum-trim on top of an already-tight
+    selection. Shares the volley-intact drop preference with
+    ``selection_auto_pack.auto_pack_selection_to_brief`` via
+    ``pack_selection_to_duration``.
+    """
     if not creative_delivery_required():
         return selection
     cfg = creative_delivery_cfg()
-    out = _pack_selection_to_target(
-        ctx,
-        selection,
-        target_key=str(cfg.get("trim_target", "ideal")),
-        stage=stage,
-    )
-    excluded = list(out.get("excluded_segment_ids") or [])
-    ordered = [str(x) for x in (out.get("ordered_segment_ids") or []) if x]
-    if excluded:
-        return out
-
-    min_trim = int(cfg.get("min_trim_segments", 1))
-    min_ratio = float(cfg.get("min_excluded_ratio", 0.05))
-    if min_trim <= 0 and min_ratio <= 0:
-        return out
-    if not ordered:
-        return out
-
-    from interview_mux.selection_auto_pack import _arc_critical_ids, estimated_duration_sec
-
-    critical = _arc_critical_ids(ctx)
-    ranks = out.get("segment_ranks") or out.get("ranks") or {}
-    if not isinstance(ranks, dict):
-        ranks = {}
-
-    def rank_of(sid: str) -> float:
-        try:
-            return float(ranks.get(sid, 9999))
-        except (TypeError, ValueError):
-            return 9999.0
-
-    droppable = [sid for sid in ordered if sid not in critical]
-    # Prefer dropping mid-monologue segments so I↔S turn boundaries survive denser volleys.
-    speaker_of: dict[str, str] = {}
-    try:
-        if ctx.artifact_exists("segments/manifest.json"):
-            man = ctx.read_json("segments/manifest.json")
-            for row in (man.get("segments") or []) if isinstance(man, dict) else []:
-                if isinstance(row, dict) and row.get("segment_id"):
-                    speaker_of[str(row["segment_id"])] = str(row.get("speaker_id") or "")
-    except Exception:
-        speaker_of = {}
-
-    def volley_drop_score(sid: str) -> tuple[float, float]:
-        try:
-            idx = ordered.index(sid)
-        except ValueError:
-            return (0.0, rank_of(sid))
-        spk = speaker_of.get(sid, "")
-        prev = speaker_of.get(ordered[idx - 1], "") if idx > 0 else ""
-        nxt = speaker_of.get(ordered[idx + 1], "") if idx + 1 < len(ordered) else ""
-        mid_mono = 1.0 if spk and spk == prev == nxt else 0.0
-        return (mid_mono, rank_of(sid))
-
-    droppable.sort(key=volley_drop_score, reverse=True)
-    dropped: list[str] = []
-    remaining = list(ordered)
-    total_before = len(ordered)
-    while droppable:
-        need_more = len(dropped) < min_trim or (len(dropped) / max(1, total_before)) < min_ratio
-        if not need_more:
-            break
-        if len(remaining) <= max(1, len(critical) or 1):
-            break
-        sid = droppable.pop(0)
-        if sid not in remaining:
-            continue
-        remaining = [x for x in remaining if x != sid]
-        dropped.append(sid)
-
-    if not dropped:
-        return out
-
-    result = dict(out)
-    result["ordered_segment_ids"] = remaining
-    ex = list(result.get("excluded_segment_ids") or [])
-    for sid in dropped:
-        if sid not in ex:
-            ex.append(sid)
-    result["excluded_segment_ids"] = ex
-    meta = dict(result.get("_meta") or {})
-    meta["creative_trim"] = {
-        "dropped": dropped,
-        "min_trim_segments": min_trim,
-        "min_excluded_ratio": min_ratio,
-    }
-    result["_meta"] = meta
-    ctx.log(
-        f"Creative selection trim: dropped {len(dropped)} low-value segment(s)",
-        level="info",
-        stage=stage,
-        action_id="pipeline.selection.creative_trim",
-        detail={"dropped": dropped[:20], "remaining": len(remaining)},
-    )
-    return result
-
-
-def _pack_selection_to_target(
-    ctx: RunContext,
-    selection: dict[str, Any],
-    *,
-    target_key: str,
-    stage: str,
-) -> dict[str, Any]:
     from interview_mux.delivery_brief import load_delivery_brief
-    from interview_mux.selection_auto_pack import _arc_critical_ids, estimated_duration_sec
+    from interview_mux.selection_auto_pack import pack_selection_to_duration
 
     brief = load_delivery_brief(ctx)
     if not brief:
         return selection
+    target_key = str(cfg.get("trim_target", "ideal"))
     budget = brief.get("target_duration_sec") if isinstance(brief.get("target_duration_sec"), dict) else {}
     target = budget.get(target_key)
     try:
@@ -421,59 +324,12 @@ def _pack_selection_to_target(
     if target_sec is None or target_sec <= 0:
         return selection
 
-    ordered = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
-    if not ordered:
-        return selection
-    est = estimated_duration_sec(ctx, ordered)
-    if est <= target_sec:
-        return selection
-
-    critical = _arc_critical_ids(ctx)
-    ranks = selection.get("segment_ranks") or selection.get("ranks") or {}
-    if not isinstance(ranks, dict):
-        ranks = {}
-
-    def rank_of(sid: str) -> float:
-        try:
-            return float(ranks.get(sid, 9999))
-        except (TypeError, ValueError):
-            return 9999.0
-
-    droppable = [sid for sid in ordered if sid not in critical]
-    droppable.sort(key=rank_of, reverse=True)
-    dropped: list[str] = []
-    remaining = list(ordered)
-    for sid in droppable:
-        if estimated_duration_sec(ctx, remaining) <= target_sec:
-            break
-        if len(remaining) <= max(1, len(critical) or 1):
-            break
-        remaining = [x for x in remaining if x != sid]
-        dropped.append(sid)
-
-    if not dropped:
-        return selection
-
-    out = dict(selection)
-    out["ordered_segment_ids"] = remaining
-    excluded = list(out.get("excluded_segment_ids") or [])
-    for sid in dropped:
-        if sid not in excluded:
-            excluded.append(sid)
-    out["excluded_segment_ids"] = excluded
-    meta = dict(out.get("_meta") or {})
-    meta["creative_pack"] = {
-        "dropped": dropped,
-        "before_sec": round(est, 1),
-        "after_sec": round(estimated_duration_sec(ctx, remaining), 1),
-        "target_sec": target_sec,
-        "target_key": target_key,
-    }
-    out["_meta"] = meta
-    ctx.log(
-        f"Creative pack to {target_key} {target_sec:.0f}s: dropped {len(dropped)} segment(s)",
-        level="info",
+    return pack_selection_to_duration(
+        ctx,
+        selection,
+        target_sec=target_sec,
         stage=stage,
+        meta_key="creative_pack",
         action_id="pipeline.selection.creative_pack",
+        log_label=f"Creative pack to {target_key}",
     )
-    return out

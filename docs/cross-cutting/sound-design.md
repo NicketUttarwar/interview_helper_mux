@@ -45,6 +45,8 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 
 Example: interview about **founders / ESOP** → motif family with warm acoustic + piano DNA → `theme_underscore` under important beats; `theme_chapter_resolve` cadences at chapter hinges — never woodtick/murmur.
 
+**Music elevates Shape structure, not coverage theater:** every `theme_*` cue is a mutation on the music/SFX/air axis of the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) (soft bands: bed coverage 0.28–0.88, hinge stinger 0.3–1.0). A cue earns its place by marking a real hinge, filling an actual dead-air gap, or selling a payoff the plan already decided on — never to check off "has music here." Mechanical, unmotivated cue placement shows up as `sonic_weave` degradation at the [hard-delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) downstream.
+
 ---
 
 ## Sound Design Plan (SDP)
@@ -349,6 +351,23 @@ Timeline order per `ordered_segment_ids`:
 4. Overlay `ambient_bed` assets (`pydub` loop + duck under speech).
 5. Chapter stinger (`after_segment`) — **same WAV each time**.
 6. VO after segment if `placement: after`.
+
+**Contiguous beds (Plan 4):** `flow1_overlays_from_sdp` merges consecutive
+per-segment `under_segment` cues that share an `asset_id` and sit on adjacent
+selected segments into one `under_segment_span` scene bed (fade only at the
+span edges) when `mastering.music_continuity.prefer_contiguous_beds` is set
+(default `true`) — see [mix-house-chain.md](./mix-house-chain.md#prefer_contiguous_beds-plan-4-wired)
+and [seam-autopsy.md](./seam-autopsy.md#music). Ducking (step 4's under-speech
+attenuation) is **speech-wins** regardless of whether the speech is native or a
+recorded VO pickup — same envelope-follower contract, see
+[mix-house-chain.md](./mix-house-chain.md#speech-wins-ducking--vonative-harmony-plan-4).
+
+Bed/hinge-stinger coverage floors are the same **Shape-owned soft bands**
+(`bed_coverage` `0.28–0.88`, `hinge_stinger_coverage` `0.3–1.0`) enforced by
+`soundscape_verify.py` post-mix — see [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
+Post-mix remediation for a low ratio only seeds beds on real
+palette/quartile-mapped segments, preferring to extend an already-bedded
+neighbor over scattering per-clip beds — it does not game the metric.
 
 ### Flow 2 (`REMOVED_mix_flow2`)
 

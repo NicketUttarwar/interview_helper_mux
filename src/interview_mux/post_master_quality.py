@@ -101,6 +101,49 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         {"failed_dimensions": failed_dims, "floors": floors, "dimensions": dims},
     )
 
+    # Listen delight (mastering.listen_delight) — authoritative by default: the master
+    # must clear its overall + per-dimension floors before it is publishable, even if
+    # the earlier listen_delight_audit stage ran in a config where fail-early was off.
+    from interview_mux.listen_delight import listen_delight_cfg
+
+    delight_cfg = listen_delight_cfg()
+    delight = (
+        ctx.read_json("mastering/listen_delight_audit.json")
+        if ctx.artifact_exists("mastering/listen_delight_audit.json")
+        else {}
+    )
+    delight = delight if isinstance(delight, dict) else {}
+    delight_authoritative = str(delight_cfg.get("mode") or "authoritative") == "authoritative" or bool(
+        delight.get("blocking")
+    )
+    if delight_authoritative:
+        delight_overall_min = float(delight_cfg.get("overall_min") or delight.get("overall_min") or 0.90)
+        delight_floors = (
+            delight_cfg.get("dimension_floors")
+            if isinstance(delight_cfg.get("dimension_floors"), dict)
+            else (delight.get("dimension_floors") if isinstance(delight.get("dimension_floors"), dict) else {})
+        )
+        delight_dims = delight.get("dimensions") if isinstance(delight.get("dimensions"), dict) else {}
+        delight_overall = float(delight.get("overall") or 0.0)
+        delight_failed = [
+            str(dim)
+            for dim, floor in (delight_floors or {}).items()
+            if float(delight_dims.get(dim) or 0.0) < float(floor or 0.0)
+        ]
+        delight_present = bool(delight)
+        add(
+            "listen_delight_floors",
+            delight_present and delight_overall >= delight_overall_min and not delight_failed,
+            {
+                "present": delight_present,
+                "overall": delight_overall,
+                "overall_min": delight_overall_min,
+                "failed_dimensions": delight_failed,
+                "dimensions": delight_dims,
+                "mode": delight.get("mode") or delight_cfg.get("mode"),
+            },
+        )
+
     passed = all(bool(c["passed"]) for c in checks)
     return {
         "version": 1,

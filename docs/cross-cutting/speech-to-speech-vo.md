@@ -10,6 +10,8 @@ This document describes speech-to-speech use cases that improve **gap VO** (G1) 
 
 ## Why S2S here
 
+**Essence + intelligibility pointer:** synthetic VO exists to serve **idea transmission** ([NORTH_STAR.md#essence](../../NORTH_STAR.md#essence)) — a bridge line only helps a first-time listener if it is heard and understood as the same trusted host, not a differently-timbred narrator breaking immersion. That is a floor, not a nice-to-have: `vo_speech_qa` rejects pure-tone/non-speech/near-silent stub WAVs before they can reach the EDL (see [Existing hooks](#existing-hooks-no-new-product-concepts) below), and any generated line must stay intelligible under the mix (`mix.intelligibility_qc`, `verify_master.py`). S2S's job is host-identity continuity on top of that floor, not a substitute for it.
+
 The delivery chain already handles mix mechanics well: crossfades, ducking, measured VO duration (`sound_design_vo_finalize`), SDP beds/stingers (MMAudio). What it cannot fix is the perceptual failure at VO splice points:
 
 > The host suddenly sounds like they were recorded in a different room, on a different day, with a different person.

@@ -88,7 +88,13 @@ def run_boundaries(ctx: RunContext) -> None:
 
 
 def _assert_boundary_quality(ctx: RunContext) -> None:
-    """Reject coarse/mid-sentence fallback before it can contaminate delivery."""
+    """Reject truly unsafe boundaries — judge metrics, not LLM warning prose.
+
+    Models often self-label fine-grained long-tape cuts as "coarse" / "token limit"
+    even when hundreds of valid edit blocks exist. Keyword-matching those warnings
+    falsely blocked a previously shippable baba run. Fail only on structural defects
+    or metric evidence of time-boxed coarse fallback.
+    """
     if not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
         return
     if not ctx.artifact_exists("segments/boundaries.json"):
@@ -96,24 +102,63 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
     doc = ctx.read_json("segments/boundaries.json")
     if not isinstance(doc, dict):
         return
-    warnings = [str(x) for x in (doc.get("warnings") or [])]
-    bad = [
-        w
-        for w in warnings
-        if "coarse" in w.lower()
-        or "mid-sentence" in w.lower()
-        or "token limit" in w.lower()
-    ]
+    rows = [r for r in (doc.get("boundaries") or []) if isinstance(r, dict)]
     invalid_rows: list[str] = []
-    for row in doc.get("boundaries") or []:
-        if not isinstance(row, dict):
-            continue
+    durs_ms: list[int] = []
+    last_end = 0
+    for row in rows:
         sid = str(row.get("segment_id") or "")
         start = int(row.get("start_ms") or 0)
         end = int(row.get("end_ms") or start)
         if end <= start:
             invalid_rows.append(sid or f"{start}:{end}")
-    if bad or invalid_rows:
+            continue
+        durs_ms.append(end - start)
+        last_end = max(last_end, end)
+
+    sc = segmentation_cfg()
+    max_ms = int(sc.get("max_segment_duration_ms") or 60_000)
+    over_max = [d for d in durs_ms if d > max_ms + 250]
+    mean_ms = (sum(durs_ms) / len(durs_ms)) if durs_ms else 0.0
+    # True coarse time-boxing: ~one block per max_ms with mean near the ceiling.
+    duration_ms = 0
+    try:
+        from interview_mux.interview_duration_policy import transcript_duration_ms
+
+        duration_ms = int(transcript_duration_ms(ctx) or 0)
+    except Exception:
+        duration_ms = 0
+    if duration_ms <= 0:
+        duration_ms = last_end
+    expected_min_segments = max(8, int(duration_ms / max(max_ms, 1)) + 1) if duration_ms else 0
+    coverage_ratio = (last_end / duration_ms) if duration_ms > 0 else 1.0
+    near_ceiling = sum(1 for d in durs_ms if d >= int(max_ms * 0.92))
+    near_ceiling_ratio = (near_ceiling / len(durs_ms)) if durs_ms else 0.0
+    is_metric_coarse = bool(
+        durs_ms
+        and expected_min_segments
+        and (
+            len(durs_ms) < max(8, int(expected_min_segments * 0.55))
+            or (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
+            or coverage_ratio < 0.85
+        )
+    )
+
+    warnings = [str(x) for x in (doc.get("warnings") or [])]
+    self_labeled = [
+        w
+        for w in warnings
+        if "coarse" in w.lower() or "mid-sentence" in w.lower() or "token limit" in w.lower()
+    ]
+    if self_labeled and not is_metric_coarse and not invalid_rows and not over_max:
+        ctx.log(
+            "Boundary warnings mention coarse/token-limit but metrics look fine "
+            f"(n={len(durs_ms)} mean_ms={mean_ms:.0f} coverage={coverage_ratio:.2f}) — accepting.",
+            level="warning",
+            stage="boundary_detection",
+        )
+
+    if invalid_rows or over_max or is_metric_coarse:
         from interview_mux.loud_fail import raise_loud_failure
 
         raise_loud_failure(
@@ -122,9 +167,15 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             stage="boundary_detection",
             reason="coarse_or_invalid_segmentation",
             detail={
-                "warnings": bad[:8],
                 "invalid_segment_ids": invalid_rows[:20],
-                "hint": "Re-run boundary detection with a smaller compact transcript / topic resplit.",
+                "over_max_count": len(over_max),
+                "segment_count": len(durs_ms),
+                "mean_ms": round(mean_ms),
+                "coverage_ratio": round(coverage_ratio, 3),
+                "near_ceiling_ratio": round(near_ceiling_ratio, 3),
+                "metric_coarse": is_metric_coarse,
+                "self_labeled_warnings": self_labeled[:4],
+                "hint": "Re-run boundary detection with sharded volleys / pause-ladder refine.",
             },
         )
 
