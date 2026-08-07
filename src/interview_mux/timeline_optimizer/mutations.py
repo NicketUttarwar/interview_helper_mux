@@ -99,7 +99,7 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
             notes.append({"op": op, "count": len(filtered)})
 
     elif op == "mint_bridge":
-        from interview_mux.seam_glue import default_bridge_text
+        from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
 
         after = str(mutation.get("after_segment_id") or "")
         before = str(mutation.get("before_segment_id") or "")
@@ -115,8 +115,11 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
                 for t in items
             )
             if not exists:
-                # Pair-aware deterministic fallback — never a single repeated stub phrase.
-                fallback = str(mutation.get("suggested_text") or "").strip() or default_bridge_text(mutation)
+                # Content-anchored hinge (excerpts on the mutation when present).
+                pair = enrich_bridge_pair_excerpts(mutation, None)
+                fallback = str(mutation.get("suggested_text") or "").strip() or default_bridge_text(
+                    pair
+                )
                 items.append(
                     {
                         "after_segment_id": after,

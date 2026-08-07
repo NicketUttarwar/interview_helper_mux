@@ -123,37 +123,48 @@ def test_decide_pass_blacklist_or_simple(ctx: RunContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Succession unlocks + mutex
+# Succession — slim Pass-2 (legacy unlocks opt-in)
 # ---------------------------------------------------------------------------
 
 
-def test_succession_locked_until_gap_recompose_done(ctx: RunContext) -> None:
+def test_slim_pass2_active_passes_unlocked(ctx: RunContext) -> None:
+    assert is_unlocked(ctx, "gap_framing_recompose")
+    assert is_unlocked(ctx, "selection_framing_apply")
+
+
+def test_mutex_inactive_without_legacy_rules(ctx: RunContext) -> None:
+    ctx.mark_done("narrative_arc_refine", force=True)
+    # Slim defaults have empty mutex — legacy refine stubs are not gated.
+    assert not mutex_blocked(ctx, "ranking_refine")
+
+
+def test_legacy_succession_injectable(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.refinement_succession.refinement_cfg",
+        lambda: {
+            "succession": {
+                "unlocks": [
+                    {
+                        "after_accept_or_skip_copy": "gap_framing_recompose",
+                        "unlock": "transitions_refine",
+                    }
+                ],
+                "mutex": [
+                    {
+                        "passes": ["narrative_arc_refine", "ranking_refine"],
+                        "when": "both_would_reorder",
+                    }
+                ],
+                "priority": ["gap_framing_recompose", "selection_framing_apply"],
+            }
+        },
+    )
     assert not is_unlocked(ctx, "transitions_refine")
     ctx.mark_done("gap_framing_recompose", force=True)
     assert is_unlocked(ctx, "transitions_refine")
-
-
-def test_succession_unlocked_via_skip_copy(ctx: RunContext) -> None:
-    assert not is_unlocked(ctx, "transitions_refine")
-    ctx.write_json("understanding/refinement_skip_copy.json", {"reason": "pass2_skipped"})
-    assert is_unlocked(ctx, "transitions_refine")
-
-
-def test_succession_unlock_ranking_refine_needs_topic_holes(ctx: RunContext) -> None:
-    assert not is_unlocked(ctx, "ranking_refine")
-    ctx.path("master").mkdir(parents=True, exist_ok=True)
-    ctx.path("master", "coverage_audit.json").write_text(
-        '{"uncovered_topics": ["topic_x"]}\n', encoding="utf-8"
-    )
-    assert is_unlocked(ctx, "ranking_refine")
-
-
-def test_mutex_blocks_ranking_after_narrative_done(ctx: RunContext) -> None:
     assert not mutex_blocked(ctx, "ranking_refine")
     ctx.mark_done("narrative_arc_refine", force=True)
     assert mutex_blocked(ctx, "ranking_refine")
-    # The pass that already ran is not blocked by itself.
-    assert not mutex_blocked(ctx, "narrative_arc_refine")
 
 
 # ---------------------------------------------------------------------------

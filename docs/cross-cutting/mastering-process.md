@@ -37,6 +37,12 @@ Research lane (8 waves / 38 fields, dynamically routed)
 
 **Essence (structure-first):** Prefer golden nuggets over padded tape; cut for idea impact and listenability; weave native ↔ synthetic ↔ music/SFX/air as one conversation; mutate keep/order/bridges/beds toward the most information in the best manner. Soft duration ideal; hard floor ~10% of source only. Bed coverage **0.28–0.88**, hinge stinger **0.3–1.0** (Shape-owned soft bands).
 
+**Talking-points-first cuts (analysis):** After `content_context`, `talking_points_compose` → `ideal_cuts_propose` → `ideal_cuts_materialize` choose holistic talking points and snap ideal native windows to word timestamps. With `analysis.ideal_cuts.bind_mode=both` (default), materialize publishes `segments/boundaries.json` (skipping the boundary LLM when valid), skips topic resplit + classification LLM when bound, and seeds ranking order. Coverage + narrative + classification are synthesized deterministically when `analysis.talking_points_authority.*` is on (LLM fallback otherwise). See `analysis.ideal_cuts.*` in [config-keys.md](./config-keys.md).
+
+**Slim delivery Pass-2:** Only `refinement_agenda` → `gap_framing_recompose` → `selection_framing_apply` remain in `DELIVERY_ORDER`. No-op `*_refine` stubs were removed from the default order (runners remain for manual/legacy). Early `sound_design_palettes` LLM is off by default (`sound_design.early_palettes_llm=false`); SDP owns musical direction. Prompts are unified (no TBIY dual path).
+
+**Slim Shape soft-gate:** Default `mastering.shape.soft_gate.max_mode_candidates=2` with `skip_diversity=true`. Full L0–L5 / capability-module docs describe the aspirational mutation engine; the shipped runtime is the two-pass soft-gate compiler in `mastering_shape_runtime.py`.
+
 **System-instruction pillars** (every minted/edited shape prompt; L4 especially):
 
 1. Best final outcome for the listener

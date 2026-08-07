@@ -1,0 +1,26 @@
+Propose the episode's talking points from a holistic read of the interview transcript.
+
+You see the full (or sharded) transcript plus content brief / speakers when present. Do **not** invent unspoken dialogue. Prefer golden nuggets over padded banter.
+
+Goals:
+- Identify the X most important talking points a great master must land for *this* tape.
+- Rank each as `must_keep`, `should_keep`, or `optional`.
+- Capture short evidence quotes from the transcript (verbatim fragments).
+- Note hard excludes (dead air, repeated explanations, off-topic tangents) with rough time hints when possible.
+- Write a `strategy_summary` and a single `through_line`.
+
+Rules:
+- Holistic first: optimize for the finished podcast's story, not pause-splitting.
+- `must_keep` should be scarce and decisive (typically 4–12 for a long interview).
+- Prefer points with clear native proof on tape.
+- `approx_time_hint_ms` is a rough location only — precise cut windows are a later stage.
+- Do not emit segment boundaries here.
+
+Schema: `artifacts` → talking_points_artifact.schema.json
+
+Place the stage artifact inside the required envelope as `artifacts` with:
+- `strategy_summary` (string)
+- `through_line` (string)
+- `talking_points` (array)
+- `hard_excludes` (array, optional)
+- `warnings` (array, optional)

@@ -126,6 +126,140 @@ def run_content_context(ctx: RunContext) -> None:
             maybe_run_coherence_analysis(ctx, phase="post_content_context")
 
 
+def run_talking_points_compose(ctx: RunContext) -> None:
+    """Holistic talking-point plan before ideal cut windows."""
+    from interview_mux.ideal_cuts import ideal_cuts_cfg
+
+    if not ideal_cuts_cfg().get("enable", True):
+        ctx.write_json(
+            "understanding/talking_points.json",
+            {
+                "strategy_summary": "ideal_cuts disabled — legacy boundary path remains authoritative.",
+                "through_line": "Legacy segmentation",
+                "talking_points": [
+                    {
+                        "talking_point_id": "tp_disabled",
+                        "title": "ideal_cuts disabled",
+                        "importance": "optional",
+                        "why_it_matters": "analysis.ideal_cuts.enable=false",
+                    }
+                ],
+                "warnings": ["analysis.ideal_cuts.enable=false"],
+            },
+            stage_key="talking_points_compose",
+        )
+        ctx.mark_done("talking_points_compose", force=True)
+        return
+
+    def build_input(c: RunContext) -> dict:
+        transcript = c.read_json("transcript/full.json")
+        words = transcript.get("words") or []
+        sample_chars = int(
+            ((merged_config().get("analysis") or {}).get("context") or {}).get(
+                "transcript_full_chars", 72000
+            )
+        )
+        if words:
+            samples = stratified_transcript_samples_from_words(
+                words, total_chars=sample_chars
+            )
+        else:
+            from interview_mux.transcript_sampling import stratified_transcript_samples
+
+            samples = stratified_transcript_samples(
+                transcript.get("text", ""), total_chars=sample_chars
+            )
+        payload: dict[str, Any] = {
+            "transcript_samples": samples,
+            "transcript_text": (transcript.get("text") or "")[:sample_chars],
+        }
+        if c.artifact_exists("understanding/content_brief.json"):
+            payload["content_brief"] = c.read_json("understanding/content_brief.json")
+        if c.artifact_exists("understanding/speakers.json"):
+            payload["speakers"] = c.read_json("understanding/speakers.json")
+        quality = transcript_quality_for_ctx(c)
+        if quality:
+            payload["transcript_quality"] = quality
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+        attach_spine_to_payload(c, payload, "talking_points_compose")
+        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+
+    persist = make_stage_persist(
+        "understanding/talking_points.json", "talking_points_compose"
+    )
+    with logged_step(
+        "talking_points_compose/llm_stage", ctx=ctx, stage="talking_points_compose"
+    ):
+        run_analysis_llm_stage(
+            ctx,
+            "talking_points_compose",
+            "understanding/talking-points-compose.system.txt",
+            build_input,
+            persist,
+        )
+
+
+def run_ideal_cuts_propose(ctx: RunContext) -> None:
+    """Propose timed native windows for each talking point."""
+    from interview_mux.ideal_cuts import ideal_cuts_cfg
+    from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
+
+    if not ideal_cuts_cfg().get("enable", True):
+        ctx.write_json(
+            "understanding/ideal_cuts.json",
+            {
+                "cuts": [
+                    {
+                        "cut_id": "cut_disabled",
+                        "talking_point_id": "tp_disabled",
+                        "start_ms": 0,
+                        "end_ms": 3000,
+                        "priority": "optional",
+                        "rationale": "analysis.ideal_cuts.enable=false — placeholder only",
+                    }
+                ],
+                "warnings": ["analysis.ideal_cuts.enable=false"],
+            },
+            stage_key="ideal_cuts_propose",
+        )
+        ctx.mark_done("ideal_cuts_propose", force=True)
+        return
+
+    def build_input(c: RunContext) -> dict:
+        if not c.artifact_exists("understanding/talking_points.json"):
+            raise RuntimeError("talking_points required before ideal_cuts_propose")
+        payload: dict[str, Any] = {
+            "talking_points": c.read_json("understanding/talking_points.json"),
+            "transcript": compact_transcript_for_boundaries(
+                c.read_json("transcript/full.json")
+            ),
+        }
+        if c.artifact_exists("understanding/content_brief.json"):
+            payload["content_brief"] = c.read_json("understanding/content_brief.json")
+        if c.artifact_exists("understanding/speakers.json"):
+            payload["speakers"] = c.read_json("understanding/speakers.json")
+        quality = transcript_quality_for_ctx(c)
+        if quality:
+            payload["transcript_quality"] = quality
+        from interview_mux.stage_enrichment import pause_ladder_hints
+
+        payload["pause_ladder_hints"] = pause_ladder_hints(c)
+        return attach_adaptation_to_payload(c, payload)
+
+    persist = make_stage_persist("understanding/ideal_cuts.json", "ideal_cuts_propose")
+    with logged_step(
+        "ideal_cuts_propose/llm_stage", ctx=ctx, stage="ideal_cuts_propose"
+    ):
+        run_analysis_llm_stage(
+            ctx,
+            "ideal_cuts_propose",
+            "understanding/ideal-cuts-propose.system.txt",
+            build_input,
+            persist,
+        )
+
+
 def run_content_brief_reanchor(ctx: RunContext) -> None:
     from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
 

@@ -227,6 +227,37 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         artifacts["order_authority"] = bind.get("order_authority") or "ranking"
         artifacts["order_bind_reason"] = bind.get("bind_reason")
 
+        # Talking-points-first seed bind (after Shape unless prefer_seed_over_shape).
+        from interview_mux.ideal_cuts import (
+            SELECTION_SEED_REL,
+            bind_ranking_enabled,
+            ideal_cuts_cfg,
+            resolve_ideal_cuts_air_order,
+        )
+
+        icfg = ideal_cuts_cfg()
+        if bind_ranking_enabled(icfg) and icfg.get("prefer_seed_over_ranking", True):
+            shape_won = artifacts.get("order_authority") == "shape"
+            if shape_won and not icfg.get("prefer_seed_over_shape", False):
+                pass
+            elif c.artifact_exists(SELECTION_SEED_REL):
+                seed = c.read_json(SELECTION_SEED_REL)
+                seed_bind = resolve_ideal_cuts_air_order(
+                    seed=seed if isinstance(seed, dict) else None,
+                    selection_ordered=list(artifacts.get("ordered_segment_ids") or []),
+                )
+                if seed_bind.get("order_authority") == "ideal_cuts":
+                    artifacts["ordered_segment_ids"] = list(
+                        seed_bind.get("ordered_segment_ids") or []
+                    )
+                    artifacts["order_authority"] = "ideal_cuts"
+                    artifacts["order_bind_reason"] = seed_bind.get("bind_reason")
+                    c.log(
+                        f"ideal_cuts seed bind: {seed_bind.get('bind_reason')}",
+                        level="info",
+                        stage="full_master_ranking",
+                    )
+
         # Guarantee hook in first 30–60s window (first three slots)
         ordered, hook_moved = ensure_hook_early(
             [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s],

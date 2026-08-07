@@ -17,36 +17,58 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 
 def run_topic_coverage(ctx: RunContext) -> None:
-    def build_input(c: RunContext) -> dict:
-        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
-        payload = {
-            "content_brief": c.read_json("understanding/content_brief.json"),
-            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
-            "emphasis_regions": emphasis_regions_for_segments(c),
-        }
-        vf = compact_value_features_summary(c)
-        if vf:
-            payload["value_features_summary"] = vf
-        from interview_mux.coherence import attach_coherence_summary
+    from interview_mux.talking_points_authority import try_deterministic_coverage
+    from interview_mux.artifact_writes import write_validated_artifact
 
-        attach_coherence_summary(payload, c, "topic_coverage_audit")
-        return attach_disfluency_context(
-            __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
-                c, attach_adaptation_to_payload(c, payload)
-            ),
-            c,
-        )
-
-    persist = make_stage_persist("master/coverage_audit.json", "topic_coverage_audit")
-
-    with logged_step("topic_coverage_audit/llm_stage", ctx=ctx, stage="topic_coverage_audit"):
-        run_flow_llm_stage(
+    det = try_deterministic_coverage(ctx)
+    if det is not None:
+        write_validated_artifact(
             ctx,
-            "topic_coverage_audit",
-            prompt_variant("selection/topic-coverage-audit.system.txt", ctx),
-            build_input,
-            persist,
+            "master/coverage_audit.json",
+            det,
+            merge_from_disk=False,
+            stage_key="topic_coverage_audit",
         )
+        ctx.log(
+            "topic_coverage_audit: deterministic from talking points + ideal cuts "
+            f"(score={det.get('coverage_score')})",
+            level="info",
+            stage="topic_coverage_audit",
+        )
+        if not ctx.is_done("topic_coverage_audit"):
+            ctx.mark_done("topic_coverage_audit", force=True)
+    else:
+
+        def build_input(c: RunContext) -> dict:
+            manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
+            payload = {
+                "content_brief": c.read_json("understanding/content_brief.json"),
+                "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
+                "emphasis_regions": emphasis_regions_for_segments(c),
+            }
+            vf = compact_value_features_summary(c)
+            if vf:
+                payload["value_features_summary"] = vf
+            from interview_mux.coherence import attach_coherence_summary
+
+            attach_coherence_summary(payload, c, "topic_coverage_audit")
+            return attach_disfluency_context(
+                __import__("interview_mux.delivery_brief", fromlist=["attach_delivery_brief_to_payload"]).attach_delivery_brief_to_payload(
+                    c, attach_adaptation_to_payload(c, payload)
+                ),
+                c,
+            )
+
+        persist = make_stage_persist("master/coverage_audit.json", "topic_coverage_audit")
+
+        with logged_step("topic_coverage_audit/llm_stage", ctx=ctx, stage="topic_coverage_audit"):
+            run_flow_llm_stage(
+                ctx,
+                "topic_coverage_audit",
+                prompt_variant("selection/topic-coverage-audit.system.txt", ctx),
+                build_input,
+                persist,
+            )
     if ctx.is_done("topic_coverage_audit"):
         regions = emphasis_regions_for_segments(ctx)
         ctx.log(
@@ -54,8 +76,20 @@ def run_topic_coverage(ctx: RunContext) -> None:
             level="info",
             stage="topic_coverage_audit",
         )
+
+    def _coverage_payload(c: RunContext) -> dict:
+        manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
+        payload = {
+            "content_brief": c.read_json("understanding/content_brief.json")
+            if c.artifact_exists("understanding/content_brief.json")
+            else {},
+            "segments": compact_manifest_for_volley(manifest if isinstance(manifest, dict) else {}, text_max=100),
+            "emphasis_regions": emphasis_regions_for_segments(c),
+        }
+        return payload
+
     with logged_step("topic_coverage_audit/post_specialists", ctx=ctx, stage="topic_coverage_audit"):
-        maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", build_input(ctx))
+        maybe_run_post_stage_specialists(ctx, "topic_coverage_audit", _coverage_payload(ctx))
     if ctx.is_done("topic_coverage_audit"):
         with logged_step("topic_coverage_audit/coherence", ctx=ctx, stage="topic_coverage_audit"):
             from interview_mux.coherence import maybe_run_coherence_analysis
@@ -64,6 +98,29 @@ def run_topic_coverage(ctx: RunContext) -> None:
 
 
 def run_narrative_arc(ctx: RunContext) -> None:
+    from interview_mux.talking_points_authority import try_deterministic_narrative
+    from interview_mux.artifact_writes import write_validated_artifact
+
+    det = try_deterministic_narrative(ctx)
+    if det is not None:
+        enriched = enrich_narrative_plan_for_persist(ctx, det)
+        write_validated_artifact(
+            ctx,
+            "master/narrative_plan.json",
+            enriched,
+            merge_from_disk=False,
+            stage_key="narrative_arc_plan",
+        )
+        ctx.log(
+            f"narrative_arc_plan: deterministic from talking points "
+            f"({len(enriched.get('chapters') or [])} chapters)",
+            level="info",
+            stage="narrative_arc_plan",
+        )
+        if not ctx.is_done("narrative_arc_plan"):
+            ctx.mark_done("narrative_arc_plan", force=True)
+        return
+
     def build_input(c: RunContext) -> dict:
         manifest = c.read_json("segments/manifest.json") if c.artifact_exists("segments/manifest.json") else {}
         payload = {

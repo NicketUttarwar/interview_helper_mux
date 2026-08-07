@@ -89,8 +89,19 @@ def test_boundary_topic_resplit_enriches_without_llm_when_resegment_disabled(
                     "fine_grained": True,
                     "resegment_pass": False,
                     "max_segment_duration_ms": 8_000,
+                    "reject_coarse_fallback": False,
                 }
             }
+        },
+    )
+    # segment_timeline_standard binds merged_config at import — patch the cfg helper directly.
+    monkeypatch.setattr(
+        "interview_mux.stages.segmentation.segmentation_cfg",
+        lambda: {
+            "fine_grained": True,
+            "resegment_pass": False,
+            "max_segment_duration_ms": 8_000,
+            "reject_coarse_fallback": False,
         },
     )
     ctx.write_json(
@@ -139,6 +150,7 @@ def test_boundary_topic_resplit_enriches_without_llm_when_resegment_disabled(
         skip_handoff=True,
     )
 
-    run_boundary_topic_resplit(ctx)
+    with pytest.raises(SystemExit, match="resume analysis from stage segment_classification"):
+        run_boundary_topic_resplit(ctx)
     assert ctx.is_done("boundary_topic_resplit")
     assert ctx.artifact_exists("segments/boundaries.json")

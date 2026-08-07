@@ -21,6 +21,8 @@
 | `g1_vo_pickup` | gate | — |
 | `gap_framing_compose` | llm_full | understanding/gap_report.json |
 | `gap_framing_recompose` | deterministic | — |
+| `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json |
+| `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
 | `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
@@ -61,6 +63,7 @@
 | `source_topology_build` | process | — |
 | `speaker_roles` | llm_full | understanding/speakers.json |
 | `synthetic_framing_plan` | llm_full | understanding/synthetic_framing_plan.json |
+| `talking_points_compose` | llm_full | understanding/talking_points.json |
 | `topic_coverage_audit` | llm_full | master/coverage_audit.json |
 | `transcribe` | process | — |
 | `transcript_review` | gate | — |

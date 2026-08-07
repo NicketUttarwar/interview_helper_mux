@@ -10,13 +10,16 @@ interview_spine_build,understand,non_llm,stages/interview_spine_stage.py,yes,spi
 speaker_roles,understand,llm,stages/understanding.py,yes,
 source_topology_build,understand,non_llm,source_topology.py,yes,source shape signals; G-Framing follows
 content_context,understand,llm,stages/understanding.py,yes,
-boundary_detection,understand,llm,stages/segmentation.py,yes,
-segment_classification,understand,llm,stages/segmentation.py,yes,
+talking_points_compose,understand,llm,stages/understanding.py,yes,talking-points-first
+ideal_cuts_propose,understand,llm,stages/understanding.py,yes,talking-points-first
+ideal_cuts_materialize,understand,process,ideal_cuts.py,yes,talking-points-first
+boundary_detection,understand,llm,stages/segmentation.py,yes,skipped when ideal-cuts bound
+segment_classification,understand,llm,stages/segmentation.py,yes,deterministic when ideal-cuts bound
 content_brief_reanchor,understand,llm,stages/understanding.py,yes,
-boundary_topic_resplit,understand,llm,stages/segmentation.py,yes,splits overloaded segments
+boundary_topic_resplit,understand,llm,stages/segmentation.py,yes,skipped when ideal-cuts bound
 vernacular_segment_sanitize,understand,non_llm,stages/audio_probes.py,yes,N-way vernacular sub-segmentation
 sonic_context_build,understand,non_llm,stages/sonic_context_stages.py,yes,
-sound_design_palettes,understand,llm,stages/sound_design_stages.py,yes,soft LLM
+sound_design_palettes,understand,llm,stages/sound_design_stages.py,yes,early LLM off by default (early_palettes_llm)
 mastering_research_routing,understand,non_llm,mastering_research.py,yes,Mastering Process research lane
 mastering_research_waves,understand,llm,mastering_research.py,yes,8-wave research
 mastering_research_rollup,understand,non_llm,mastering_research.py,yes,research_dossier
@@ -30,24 +33,24 @@ delivery_brief_build,understand,non_llm,delivery_brief.py,yes,adaptive policy
 soundscape_policy_build,understand,non_llm,soundscape_policy.py,yes,
 episode_structure_compose,understand,non_llm,episode_structure.py,yes,end of ANALYSIS_ORDER
 g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording (not in DELIVERY_ORDER)
-topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,
-narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,
+topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
+narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 full_master_ranking,plan_rank,llm,stages/selection.py,yes,NLE overrides
 refinement_agenda,plan_rank,non_llm,refinement_agenda.py,yes,Refinement Pass L0
 gap_framing_recompose,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
 selection_framing_apply,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
-ranking_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
-narrative_arc_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
+ranking_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER (no-op stub retained)
+narrative_arc_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 transitions,plan_rank,llm,stages/selection.py,yes,
-transitions_refine,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass optional
+transitions_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 sound_design_plan,sound,llm,stages/sound_design_stages.py,yes,
-sdp_intent_refine,sound,non_llm,refinement_passes.py,yes,Refinement Pass optional
+sdp_intent_refine,sound,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 sound_design_vo_finalize,sound,non_llm,stages/sound_design_vo_finalize.py,yes,
 edl_narrative_audit,build,llm,stages/edl_narrative_audit.py,yes,
-edl_narrative_refine,build,non_llm,refinement_passes.py,yes,Refinement Pass optional
+edl_narrative_refine,build,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 edl,build,non_llm,stages/assembly.py,yes,
 assembly_preview,build,non_llm,stages/assembly.py,yes,speech+VO preview
-listen_delight_audit,build,non_llm,listen_delight.py,yes,advisory only
+listen_delight_audit,build,non_llm,listen_delight.py,yes,authoritative ship gate
 sfx_prompt_craft,sound,llm,stages/sound_design_stages.py,yes,soft LLM; order after preview in DELIVERY_ORDER
 mmaudio_sfx,build,non_llm,stages/sfx_mmaudio.py,yes,
 mix,build,non_llm,stages/assembly.py,yes,

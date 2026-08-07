@@ -42,6 +42,30 @@ def _attach_segmentation_policy(payload: dict, ctx: RunContext) -> dict:
 
 
 def run_boundaries(ctx: RunContext) -> None:
+    from interview_mux.ideal_cuts import (
+        bind_boundaries_enabled,
+        boundaries_already_from_ideal_cuts,
+        ideal_cuts_cfg,
+    )
+
+    # Talking-points-first bind: skip LLM when materialize already published
+    # a valid boundary contract from ideal cuts.
+    conf = ideal_cuts_cfg()
+    if (
+        bind_boundaries_enabled(conf)
+        and conf.get("skip_boundary_llm_when_bound", True)
+        and boundaries_already_from_ideal_cuts(ctx)
+    ):
+        _assert_boundary_quality(ctx)
+        if not ctx.is_done("boundary_detection"):
+            ctx.mark_done("boundary_detection", force=True)
+        ctx.log(
+            "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries",
+            level="info",
+            stage="boundary_detection",
+        )
+        return
+
     def build_input(c: RunContext) -> dict:
         transcript = compact_transcript_for_boundaries(c.read_json("transcript/full.json"))
         payload = {
@@ -49,6 +73,14 @@ def run_boundaries(ctx: RunContext) -> None:
             "speakers": c.read_json("understanding/speakers.json"),
             "content_brief": c.read_json("understanding/content_brief.json"),
         }
+        if c.artifact_exists("understanding/talking_points.json"):
+            payload["talking_points"] = c.read_json("understanding/talking_points.json")
+        if c.artifact_exists("understanding/ideal_cuts.json"):
+            payload["ideal_cuts"] = c.read_json("understanding/ideal_cuts.json")
+        if c.artifact_exists("understanding/ideal_cuts_materialized.json"):
+            payload["ideal_cuts_materialized"] = c.read_json(
+                "understanding/ideal_cuts_materialized.json"
+            )
         quality = transcript_quality_for_ctx(c)
         if quality:
             payload["transcript_quality"] = quality
@@ -184,6 +216,10 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
     """Post-reanchor deterministic + optional LLM resplit for overloaded segments."""
     from interview_mux.boundary_collate import normalize_boundary_timeline
     from interview_mux.boundary_enrich import detect_overloaded_segment_ids, enrich_boundary_rows
+    from interview_mux.ideal_cuts import (
+        boundaries_already_from_ideal_cuts,
+        ideal_cuts_cfg,
+    )
     from interview_mux.stage_coupling import publish_boundary_contract
     from interview_mux.v2.config import ANALYSIS_ORDER
 
@@ -194,6 +230,25 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
     if isinstance(meta, dict) and meta.get("boundary_topic_resplit_cycle_done"):
         ctx.log(
             "boundary_topic_resplit cycle already completed this run — skipping re-invalidation",
+            level="info",
+            stage="boundary_topic_resplit",
+        )
+        ctx.mark_done("boundary_topic_resplit", force=True)
+        return
+
+    # Talking-points-first: ideal-cut windows are the keep authority — do not
+    # re-partition them via topic resplit unless explicitly re-enabled.
+    conf = ideal_cuts_cfg()
+    if (
+        conf.get("skip_topic_resplit_when_bound", True)
+        and boundaries_already_from_ideal_cuts(ctx)
+    ):
+        def _mark_cycle(m: dict) -> None:
+            m["boundary_topic_resplit_cycle_done"] = True
+
+        ctx.mutate_run_meta(_mark_cycle)
+        ctx.log(
+            "boundary_topic_resplit: skipped — ideal_cuts boundaries are authoritative",
             level="info",
             stage="boundary_topic_resplit",
         )
@@ -315,9 +370,30 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
 
 
 def run_classification(ctx: RunContext) -> None:
+    from interview_mux.artifact_writes import write_validated_artifact
     from interview_mux.classification_obligation import classification_context_cfg
     from interview_mux.llm_simple import StageError, run_llm_stage_simple
     from interview_mux.segmentation_input_resolver import build_classification_payload
+    from interview_mux.talking_points_authority import try_deterministic_classification
+
+    det = try_deterministic_classification(ctx)
+    if det is not None and (det.get("segments") or []):
+        write_validated_artifact(
+            ctx,
+            "segments/manifest.json",
+            det,
+            merge_from_disk=False,
+            stage_key="segment_classification",
+        )
+        ctx.log(
+            f"segment_classification: deterministic from ideal cuts "
+            f"({len(det.get('segments') or [])} segments)",
+            level="info",
+            stage="segment_classification",
+        )
+        if not ctx.is_done("segment_classification"):
+            ctx.mark_done("segment_classification", force=True)
+        return
 
     def build_input(c: RunContext) -> dict:
         return build_classification_payload(c)
@@ -452,4 +528,18 @@ def run_classification(ctx: RunContext) -> None:
                 level="info",
                 stage="segment_classification",
                 action_id="classification.topic_tag_bootstrap",
+            )
+    with logged_step(
+        "segment_classification/ideal_cuts_seed",
+        ctx=ctx,
+        stage="segment_classification",
+    ):
+        from interview_mux.ideal_cuts import refresh_selection_seed_from_boundaries
+
+        seed = refresh_selection_seed_from_boundaries(ctx)
+        if seed and seed.get("ordered_segment_ids"):
+            ctx.log(
+                f"ideal_cuts selection seed refreshed ({len(seed['ordered_segment_ids'])} ids)",
+                level="info",
+                stage="segment_classification",
             )

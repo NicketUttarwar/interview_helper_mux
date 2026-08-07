@@ -239,7 +239,7 @@ def normalize_synthetic_plan(
         and str(line.get("before_segment_id") or "")
         and str(line.get("text") or "").strip()
     }
-    from interview_mux.seam_glue import default_bridge_text
+    from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
 
     def _mint_seam(pair: dict[str, Any], a: str, b: str) -> None:
         native = native_by_id.get(a) or native_by_id.get(b) or {}
@@ -247,6 +247,7 @@ def normalize_synthetic_plan(
             250,
             int(native.get("end_ms") or 0) - int(native.get("start_ms") or 0),
         )
+        enriched = enrich_bridge_pair_excerpts(pair, native_by_id)
         cleaned.append(
             {
                 "line_id": f"syn_seam_{a}_{b}",
@@ -255,7 +256,7 @@ def normalize_synthetic_plan(
                 "anchor_segment_id": a if a in ordered else b,
                 "after_segment_id": a,
                 "before_segment_id": b,
-                "text": default_bridge_text(pair),
+                "text": default_bridge_text(enriched),
                 "duration_ratio": 1.0,
                 "target_duration_ms": max(250, min(3500, int(native_ms * 0.6) or 1200)),
                 "comprehension_reason": (

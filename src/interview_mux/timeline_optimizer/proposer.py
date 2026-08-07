@@ -54,7 +54,7 @@ def heuristic_proposals(
     if missing_n > 0 and ctx.artifact_exists("understanding/reorder_bridges.json"):
         try:
             from interview_mux.bridge_completeness import missing_reorder_bridges
-            from interview_mux.seam_glue import default_bridge_text
+            from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
 
             bridges = ctx.read_json("understanding/reorder_bridges.json")
             # Rebuild against candidate order
@@ -79,16 +79,19 @@ def heuristic_proposals(
                 if isinstance(candidate.get("transitions"), dict)
                 else None,
             )[:4]:
+                enriched = enrich_bridge_pair_excerpts(row, by_id)
                 props.append(
                     {
                         "op": "mint_bridge",
-                        "after_segment_id": row["after_segment_id"],
-                        "before_segment_id": row["before_segment_id"],
-                        "kind": row.get("kind"),
-                        "source_gap_ms": row.get("source_gap_ms"),
-                        "suggested_line_category": row.get("suggested_line_category"),
-                        # Pair-aware deterministic hinge — never a single repeated stub phrase.
-                        "suggested_text": default_bridge_text(row),
+                        "after_segment_id": enriched["after_segment_id"],
+                        "before_segment_id": enriched["before_segment_id"],
+                        "kind": enriched.get("kind"),
+                        "source_gap_ms": enriched.get("source_gap_ms"),
+                        "suggested_line_category": enriched.get("suggested_line_category"),
+                        "after_excerpt": enriched.get("after_excerpt"),
+                        "before_excerpt": enriched.get("before_excerpt"),
+                        # Content-anchored hinge — not a global stock stub.
+                        "suggested_text": default_bridge_text(enriched),
                         "type": "bridge",
                         "priority": 80,
                     }

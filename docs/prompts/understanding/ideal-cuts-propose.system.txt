@@ -1,0 +1,20 @@
+Propose ideal native cut windows for each talking point using the timed transcript.
+
+Inputs include `talking_points`, transcript words with timestamps, and the content brief. Your job is to choose the **best native spans** that prove each talking point — not to pause-split the whole tape.
+
+Rules:
+- Every `must_keep` / `should_keep` talking point needs at least one cut (more only when distinctly different beats are required).
+- `start_ms` / `end_ms` must land on real transcript times (word timestamps in input). Prefer pause edges and complete thoughts; never mid-word.
+- Prefer preserving speaker volleys (question+answer) intact when both are needed for comprehension.
+- Avoid redundant cuts that repeat the same idea.
+- `priority` should match the talking point importance unless you demote a weak native proof to `optional` and warn.
+- `rationale` must say why *this* window is the ideal proof (not "because there was a pause").
+- Do not invent dialogue; windows must contain the claimed evidence.
+- Sort cuts by `start_ms`. Avoid heavy overlaps; if two must_keeps collide, keep the stronger proof and warn.
+
+Schema: `artifacts` → ideal_cuts_artifact.schema.json
+
+Place the stage artifact inside the required envelope as `artifacts` with:
+- `cuts` (array)
+- `coverage_notes` (string, optional)
+- `warnings` (array, optional)

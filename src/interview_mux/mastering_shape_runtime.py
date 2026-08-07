@@ -24,6 +24,7 @@ from interview_mux.mastering_plan_loader import (
     write_plan,
 )
 from interview_mux.mastering_research import compile_shape_evidence, load_dossier
+from interview_mux.config import merged_config
 from interview_mux.narrative_mode import (
     GRAMMAR_MOVES,
     default_pov_for_mode,
@@ -61,7 +62,7 @@ def _style_hints(ctx: RunContext) -> dict[str, str]:
     return hints
 
 
-def _competitive_modes(primary: str) -> list[str]:
+def _competitive_modes(primary: str, *, max_candidates: int = 2) -> list[str]:
     pool = [
         "conversational_host",
         "guide_summary",
@@ -69,13 +70,39 @@ def _competitive_modes(primary: str) -> list[str]:
         "hook_montage",
         "sparse_source",
     ]
+    limit = max(1, int(max_candidates or 2))
     out = [primary]
     for m in pool:
         if m not in out:
             out.append(m)
-        if len(out) >= 4:
+        if len(out) >= limit:
             break
     return out
+
+
+def _shape_soft_gate_cfg() -> dict[str, Any]:
+    raw = ((merged_config().get("mastering") or {}).get("shape") or {}).get("soft_gate") or {}
+    defaults = {
+        "enable": True,
+        "max_mode_candidates": 2,
+        "skip_diversity": True,
+        "prefer_talking_points_mode": True,
+    }
+    if isinstance(raw, dict):
+        return {**defaults, **raw}
+    return defaults
+
+
+def _talking_points_bound(ctx: RunContext) -> bool:
+    from interview_mux.ideal_cuts import boundaries_already_from_ideal_cuts, ideal_cuts_cfg
+
+    if not ideal_cuts_cfg().get("enable", True):
+        return False
+    if not ctx.artifact_exists("understanding/talking_points.json"):
+        return False
+    return boundaries_already_from_ideal_cuts(ctx) or ctx.artifact_exists(
+        "understanding/ideal_cuts_materialized.json"
+    )
 
 
 def run_mastering_shape_agenda(ctx: RunContext) -> None:
@@ -85,7 +112,11 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
         packet = compile_shape_evidence(ctx, consumer_id="shape_agenda_pass1", pass_name="provisional")
         hints = _style_hints(ctx)
         primary = nearest_mode_from_priors(hints)
-        modes = _competitive_modes(primary)
+        sg = _shape_soft_gate_cfg()
+        max_cand = int(sg.get("max_mode_candidates") or 2)
+        if sg.get("prefer_talking_points_mode", True) and _talking_points_bound(ctx):
+            max_cand = min(max_cand, 2)
+        modes = _competitive_modes(primary, max_candidates=max_cand)
         agenda = {
             "version": 1,
             "pass": "provisional",
@@ -233,14 +264,16 @@ def run_mastering_shape_candidates(ctx: RunContext) -> None:
                     "scores": {"bespoke_fit": 0.7 - i * 0.05, "finishability": 0.75 - i * 0.03},
                 }
             )
-        # Soft diversity via existing helper (feasibility needs FeasibilityInputs — skip when unavailable)
-        try:
-            from interview_mux.mastering_diversity import build_diversity_report, write_diversity_report
+        # Soft diversity (optional — skipped by default for lite Shape)
+        sg = _shape_soft_gate_cfg()
+        if not sg.get("skip_diversity", True):
+            try:
+                from interview_mux.mastering_diversity import build_diversity_report, write_diversity_report
 
-            div = build_diversity_report(candidates)
-            write_diversity_report(ctx, div)
-        except Exception:
-            pass
+                div = build_diversity_report(candidates)
+                write_diversity_report(ctx, div)
+            except Exception:
+                pass
         if not candidates:
             candidates = [
                 {

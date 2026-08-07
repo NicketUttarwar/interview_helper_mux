@@ -17,6 +17,8 @@ Provider = Literal["openai", "local_mlx"]
 STAGE_PRIMARY_IDS: dict[str, str] = {
     "speaker_roles": "OA-01",
     "content_context": "OA-02",
+    "talking_points_compose": "OA-09",
+    "ideal_cuts_propose": "OA-10",
     "boundary_detection": "OA-03",
     "boundary_topic_resplit": "OA-03",
     "segment_classification": "OA-04",
@@ -96,6 +98,8 @@ def _build_registry() -> dict[str, dict[str, Any]]:
     _OA_META = {
         "speaker_roles": ("understanding.run_speaker_roles", "understanding/speaker-roles.system.txt", "full", "flagship"),
         "content_context": ("understanding.run_content_context", "understanding/content-context.system.txt", "full/shard/collate", "standard"),
+        "talking_points_compose": ("understanding.run_talking_points_compose", "understanding/talking-points-compose.system.txt", "full/shard/collate", "standard"),
+        "ideal_cuts_propose": ("understanding.run_ideal_cuts_propose", "understanding/ideal-cuts-propose.system.txt", "full/shard/collate", "standard"),
         "boundary_detection": ("segmentation.run_boundaries", "segmentation/boundary-detection.system.txt", "full/shard/collate", "standard"),
         "boundary_topic_resplit": ("segmentation.run_boundary_topic_resplit", "segmentation/boundary-detection-refine.system.txt", "full/shard/collate", "standard"),
         "segment_classification": ("segmentation.run_classification", "segmentation/segment-classification.system.txt", "full/shard/collate", "standard"),
@@ -335,6 +339,8 @@ _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
 _OA_GOALS: dict[str, str] = {
     "speaker_roles": "Map diarization IDs → interviewer/interviewee",
     "content_context": "Thesis, topics, key_claims",
+    "talking_points_compose": "Holistic must/should-keep talking points",
+    "ideal_cuts_propose": "Ideal native cut windows per talking point",
     "boundary_detection": "Non-overlapping segment timeline",
     "boundary_topic_resplit": "Topic-aligned resplit of overloaded segments",
     "segment_classification": "Type every required segment_id",

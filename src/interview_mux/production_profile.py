@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config, repo_root
-from interview_mux.prompt_examples import prompt_path
 from interview_mux.run_context import RunContext
 
 DEFAULT_STYLE = "documentary_interview"
@@ -56,15 +55,15 @@ def get_profile(ctx: RunContext | None = None) -> dict[str, Any]:
 
 
 def prompt_variant(rel_path: str, ctx: RunContext | None = None) -> str:
-    """Return tbiy prompt path when profile is tbiy and variant exists."""
-    if not is_tbiy(ctx):
-        return rel_path
+    """Return the canonical system prompt path.
+
+    TBIY dual prompts (``*.tbiy.system.txt``) are heritage-only. Stages use a
+    single base prompt; ``mastering_plan.narrative_mode`` / montage grammar
+    condition behavior via volley payload, not alternate prompt files.
+    """
+    _ = ctx  # retained for call-site compatibility
     if ".tbiy." in rel_path:
-        return rel_path
-    tbiy = rel_path.replace(".system.txt", ".tbiy.system.txt")
-    p = prompt_path(*tbiy.split("/"))
-    if p.is_file():
-        return tbiy
+        return rel_path.replace(".tbiy.system.txt", ".system.txt")
     return rel_path
 
 

@@ -266,7 +266,67 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
         brief = _apply_overrides(brief, merged_overrides)
         brief["rationale"].append("operator_overrides_applied")
 
-    return brief
+    return _overlay_mastering_plan(ctx, brief)
+
+
+def _overlay_mastering_plan(ctx: RunContext, brief: dict[str, Any]) -> dict[str, Any]:
+    """Thin wrapper: derive soft budgets from mastering_plan when authoritative."""
+    if not ctx.artifact_exists("mastering/mastering_plan.json"):
+        return brief
+    try:
+        plan = ctx.read_json("mastering/mastering_plan.json")
+    except Exception:
+        return brief
+    if not isinstance(plan, dict):
+        return brief
+    out = dict(brief)
+    rationale = list(out.get("rationale") or [])
+    decisions = plan.get("decisions") if isinstance(plan.get("decisions"), list) else []
+    duration_sec = None
+    chapter_ideal = None
+    for row in decisions:
+        if not isinstance(row, dict):
+            continue
+        decision = row.get("decision") if isinstance(row.get("decision"), dict) else {}
+        if duration_sec is None and decision.get("target_duration_sec") is not None:
+            try:
+                duration_sec = int(decision["target_duration_sec"])
+            except (TypeError, ValueError):
+                pass
+        if chapter_ideal is None and decision.get("chapter_count") is not None:
+            try:
+                chapter_ideal = int(decision["chapter_count"])
+            except (TypeError, ValueError):
+                pass
+    for key in ("target_duration_sec", "ideal_duration_sec"):
+        if duration_sec is None and plan.get(key) is not None:
+            try:
+                duration_sec = int(plan[key])
+            except (TypeError, ValueError):
+                pass
+    if duration_sec and duration_sec > 0:
+        base = dict(out.get("target_duration_sec") or {})
+        ideal = duration_sec
+        base["ideal"] = ideal
+        base["min"] = int(base.get("min") or max(1, int(ideal * 0.7)))
+        base["max"] = int(base.get("max") or max(ideal, int(ideal * 1.25)))
+        out["target_duration_sec"] = base
+        rationale.append(f"mastering_plan_duration_overlay={ideal}")
+    if chapter_ideal and chapter_ideal > 0:
+        ch = dict(out.get("chapter_budget") or {})
+        ch["ideal"] = chapter_ideal
+        ch["min"] = min(int(ch.get("min") or 1), chapter_ideal)
+        ch["max"] = max(int(ch.get("max") or chapter_ideal), chapter_ideal)
+        out["chapter_budget"] = ch
+        rationale.append(f"mastering_plan_chapter_overlay={chapter_ideal}")
+    mode = plan.get("confirmed_mode") or plan.get("narrative_mode") or plan.get("provisional_mode")
+    if mode:
+        out["narrative_mode_hint"] = str(mode)
+        rationale.append(f"mastering_plan_mode={mode}")
+        out["selection_mode"] = "plan_bound"
+    out["rationale"] = rationale
+    out["mastering_plan_bound"] = True
+    return out
 
 
 def _apply_overrides(brief: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:

@@ -774,12 +774,54 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
         ):
             if _transitions_match_selection_order(ctx):
                 continue
+        # LLM often flags replaces_source_segments / already-excluded anchors as
+        # "not in the final selected timeline". Heal targets onto selection, then
+        # drop the complaint when no off-timeline targets remain.
+        if (
+            "not in the final selected timeline" in text
+            or ("gap" in text and "vo" in text and "timeline" in text)
+            or ("gap / vo" in text and "reference" in text)
+        ):
+            if _gap_vo_targets_on_selection(ctx):
+                continue
         remaining.append(item)
     if not remaining:
         return []
     if remaining and isinstance(remaining[0], dict):
         return [str(remaining[0].get("issue", "edl narrative audit fail"))]
     return ["edl_narrative_audit verdict is fail"]
+
+
+def _gap_vo_targets_on_selection(ctx: RunContext) -> bool:
+    """True when every gap VO targets_segment_id is in selection (after optional rebase)."""
+    if not ctx.artifact_exists("master/selection.json"):
+        return True
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return True
+    sel = ctx.read_json("master/selection.json")
+    gr = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(sel, dict) or not isinstance(gr, dict):
+        return True
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
+    if not ordered:
+        return True
+    from interview_mux.gap_framing import rebase_gap_lines_to_selection
+
+    rebased, notes = rebase_gap_lines_to_selection(gr, ordered)
+    if notes:
+        try:
+            ctx.write_json("understanding/gap_report.json", rebased)
+        except Exception:
+            pass
+        gr = rebased
+    ordered_set = set(ordered)
+    for line in gr.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
+        if tid and tid not in ordered_set:
+            return False
+    return True
 
 
 def _transitions_match_selection_order(ctx: RunContext) -> bool:

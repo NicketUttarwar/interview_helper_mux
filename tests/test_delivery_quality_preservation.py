@@ -8,8 +8,8 @@ from interview_mux.web.stages import DELIVERY_STAGES, EXECUTABLE_ORDER
 
 
 def test_delivery_order_has_thirteen_stages() -> None:
-    # Keep in sync with v2 DELIVERY_ORDER (refinement + junction + publish tail).
-    assert len(pipeline.DELIVERY_ORDER) == 28
+    # Keep in sync with v2 DELIVERY_ORDER (slim Pass-2 + junction + publish tail).
+    assert len(pipeline.DELIVERY_ORDER) == 23
 
 
 def test_delivery_order_matches_gui_executable_order() -> None:

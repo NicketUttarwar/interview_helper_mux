@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdealCutsArtifact",
+  "type": "object",
+  "required": ["cuts"],
+  "properties": {
+    "cuts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["cut_id", "talking_point_id", "start_ms", "end_ms", "priority", "rationale"],
+        "properties": {
+          "cut_id": { "type": "string" },
+          "talking_point_id": { "type": "string" },
+          "start_ms": { "type": "integer", "minimum": 0 },
+          "end_ms": { "type": "integer", "minimum": 0 },
+          "priority": {
+            "type": "string",
+            "enum": ["must_keep", "should_keep", "optional"]
+          },
+          "rationale": { "type": "string" },
+          "speaker_id": { "type": "string" },
+          "text_excerpt": { "type": "string" },
+          "split_reason": { "type": "string" },
+          "includes_speaker_volley": { "type": "boolean" }
+        }
+      }
+    },
+    "coverage_notes": { "type": "string" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

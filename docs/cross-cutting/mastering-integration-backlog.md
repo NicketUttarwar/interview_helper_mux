@@ -13,7 +13,7 @@ Code cutover is **not** implied by this doc — implement per stage with fail-op
 | # | Touchpoint | Disposition | Notes |
 |---|------------|-------------|-------|
 | A1 | `production_style` dualism (`documentary_interview` / `tbiy_narrative`) | migrate | Operator hint only; Shape Engine owns structure |
-| A2 | [`production_profile.py`](../../src/interview_mux/production_profile.py) `is_tbiy` / `prompt_variant` | migrate | Prefer mastering-aware prompt selection when plan exists |
+| A2 | [`production_profile.py`](../../src/interview_mux/production_profile.py) `is_tbiy` / `prompt_variant` | **done (v2 slim)** | `prompt_variant` unified; `is_tbiy` remains for mix/conformance heritage only |
 | A3 | [`tbiy_conformance.py`](../../src/interview_mux/tbiy_conformance.py) | migrate | Fold into Wave-6/3 research signals (descriptive); remove five-act/moat *enforcement* |
 | A4 | [`tbiy_mix.py`](../../src/interview_mux/tbiy_mix.py) | rename | → mastering mix helpers; keep pan / duck / speech-wins |
 | A5 | [`gates_tbiy.py`](../../src/interview_mux/gates_tbiy.py) G1.5 | rename | Mastering Realization preview gate (not TBIY-branded) |
@@ -32,7 +32,7 @@ Code cutover is **not** implied by this doc — implement per stage with fail-op
 
 | # | Touchpoint | Disposition | Notes |
 |---|------------|-------------|-------|
-| C1–C13 | 13 `*.tbiy.system.txt` prompts | migrate | Retire “never leave TBIY compass”; follow `mastering_plan` when present |
+| C1–C13 | 13 `*.tbiy.system.txt` prompts | **done (v2 slim)** | `prompt_variant()` always returns canonical base prompt; TBIY files are heritage-only; plan conditions via volley payload |
 | C14 | [`llm_interaction_registry.py`](../../src/interview_mux/llm_interaction_registry.py) | migrate | Add research-field + Shape Engine + mint/edit/clarify IDs |
 | C15 | `models.tiers` / stage tier map in `app.defaults.json` | migrate | Economy/standard/flagship by Shape Engine role |
 | C16 | Clarifying-question API + GUI | migrate | Auto-resolve from artifacts first |

@@ -402,6 +402,9 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "speaker_roles",
             "source_topology_build",
             "content_context",
+            "talking_points_compose",
+            "ideal_cuts_propose",
+            "ideal_cuts_materialize",
             "boundary_detection",
             "segment_classification",
             "content_brief_reanchor",
@@ -432,15 +435,10 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "refinement_agenda",
             "gap_framing_recompose",
             "selection_framing_apply",
-            "ranking_refine",
-            "narrative_arc_refine",
             "transitions",
-            "transitions_refine",
             "sound_design_plan",
-            "sdp_intent_refine",
             "sound_design_vo_finalize",
             "edl_narrative_audit",
-            "edl_narrative_refine",
             "edl",
             "assembly_preview",
             "listen_delight_audit",
@@ -512,6 +510,33 @@ def main() -> int:
 
     run = api("GET", f"/api/runs/{run_id}")
     master = run.get("meta", {}).get("master_path") or "master/master.wav"
+    # Push local publish/ package to S3/RSS (same ship bar as baba e2e).
+    try:
+        from interview_mux.podcast_rss.sync_assets import sync_ready_packages
+
+        sync = sync_ready_packages(dry_run=False, force_files=False)
+        hits = [
+            row
+            for row in (sync.uploaded or [])
+            if isinstance(row, dict) and str(row.get("execution_id") or "") == run_id
+        ]
+        if hits:
+            print(
+                f"S3 sync uploaded {hits[0].get('s3_prefix')} "
+                f"enclosure={hits[0].get('enclosure_url')}",
+                flush=True,
+            )
+        elif run_id in (sync.skipped_already_uploaded or []):
+            print(f"S3 sync: {run_id} already uploaded", flush=True)
+        elif sync.errors:
+            print(f"S3 sync errors: {sync.errors[:2]}", flush=True)
+        else:
+            print(
+                f"S3 sync finished uploaded_count={sync.uploaded_count} feed={sync.feed_url}",
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"S3 sync after DONE failed: {exc}", flush=True)
     print(f"\nDONE — run {run_id} ({master})", flush=True)
     return 0
 

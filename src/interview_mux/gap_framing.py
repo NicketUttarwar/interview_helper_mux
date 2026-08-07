@@ -298,6 +298,130 @@ def load_gap_framing_plan(ctx: RunContext) -> dict[str, Any] | None:
     return doc if isinstance(doc, dict) else None
 
 
+def rebase_gap_lines_to_selection(
+    gap_report: dict[str, Any],
+    ordered_segment_ids: list[str] | set[str],
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Retarget or drop interviewer lines whose target is outside the final selection.
+
+    Framing VO may list excluded/replaced ids in ``replaces_source_segments``; those
+    are intentional. ``targets_segment_id`` must land on a surviving selected segment
+    so EDL/G1 placement stays on the air timeline.
+    """
+    ordered = {str(s) for s in ordered_segment_ids if str(s).strip()}
+    if not ordered or not isinstance(gap_report, dict):
+        return gap_report, []
+    notes: list[dict[str, str]] = []
+    kept: list[dict[str, Any]] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        row = dict(line)
+        tid = str(row.get("targets_segment_id") or row.get("segment_id") or "").strip()
+        if tid and tid not in ordered:
+            supports = [
+                str(s)
+                for s in (row.get("supports_segment_ids") or [])
+                if str(s).strip() and str(s) in ordered
+            ]
+            lid = str(row.get("line_id") or tid)
+            if supports:
+                old = tid
+                row["targets_segment_id"] = supports[0]
+                reps = [str(x) for x in (row.get("replaces_source_segments") or []) if x]
+                if old not in reps:
+                    reps.append(old)
+                row["replaces_source_segments"] = reps
+                notes.append(
+                    {
+                        "action": "retarget_gap_line",
+                        "line_id": lid,
+                        "from": old,
+                        "to": supports[0],
+                    }
+                )
+                kept.append(row)
+            else:
+                notes.append({"action": "drop_gap_line_off_timeline", "line_id": lid, "from": tid})
+        else:
+            kept.append(row)
+    if not notes:
+        return gap_report, []
+    out = dict(gap_report)
+    out["interviewer_lines"] = kept
+    return out, notes
+
+
+# Source joins within this window are already continuous tape — a light-bridge
+# VO placed between them cuts mid-thought (audible as synthetic interrupting native).
+_CONTIGUOUS_LIGHT_BRIDGE_GAP_MS = 1500
+
+
+def drop_contiguous_light_bridge_lines(
+    gap_report: dict[str, Any],
+    segments_by_id: dict[str, dict[str, Any]] | None,
+    *,
+    ordered_segment_ids: list[str] | None = None,
+    contiguous_gap_ms: int = _CONTIGUOUS_LIGHT_BRIDGE_GAP_MS,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Drop ok_with_light_bridge VO that would split near-contiguous source speech."""
+    if not isinstance(gap_report, dict) or not isinstance(segments_by_id, dict):
+        return gap_report, []
+    order = [str(s) for s in (ordered_segment_ids or []) if str(s).strip()]
+    pred: dict[str, str] = {}
+    for i in range(1, len(order)):
+        pred[order[i]] = order[i - 1]
+
+    def _times(sid: str) -> tuple[int, int] | None:
+        seg = segments_by_id.get(sid)
+        if not isinstance(seg, dict):
+            return None
+        try:
+            start = int(seg.get("start_ms") or seg.get("source_start_ms") or 0)
+            end = int(seg.get("end_ms") or seg.get("source_end_ms") or start)
+        except (TypeError, ValueError):
+            return None
+        return start, end
+
+    notes: list[dict[str, str]] = []
+    kept: list[dict[str, Any]] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        row = dict(line)
+        gap_type = str(row.get("gap_type") or "")
+        if gap_type != "ok_with_light_bridge":
+            kept.append(row)
+            continue
+        tid = str(row.get("targets_segment_id") or "").strip()
+        prior = str(row.get("prior_segment_id") or pred.get(tid) or "").strip()
+        if not tid or not prior:
+            kept.append(row)
+            continue
+        ta = _times(prior)
+        tb = _times(tid)
+        if ta is None or tb is None:
+            kept.append(row)
+            continue
+        source_gap = tb[0] - ta[1]
+        if abs(source_gap) <= contiguous_gap_ms:
+            notes.append(
+                {
+                    "action": "drop_contiguous_light_bridge",
+                    "line_id": str(row.get("line_id") or tid),
+                    "from": prior,
+                    "to": tid,
+                }
+            )
+            continue
+        kept.append(row)
+    if not notes:
+        return gap_report, []
+    out = dict(gap_report)
+    out["interviewer_lines"] = kept
+    return out, notes
+
+
 def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
     """Segments that succinct-master framing replaces in ranking.
 

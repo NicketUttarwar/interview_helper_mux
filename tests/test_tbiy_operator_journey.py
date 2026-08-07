@@ -182,10 +182,15 @@ def test_tbiy_gap_report_studio_crud(tmp_path: Path, monkeypatch) -> None:
     delete = client.delete(f"/api/runs/{run_id}/gap-report/lines/{line_id}")
     assert delete.status_code == 200
 
-def test_tbiy_prompt_variants_active(tmp_path: Path, monkeypatch) -> None:
+def test_tbiy_prompt_variants_unified(tmp_path: Path, monkeypatch) -> None:
+    """TBIY dual prompts retired — always return canonical system prompt paths."""
     _, ctx = _client_with_tbiy_run(tmp_path, monkeypatch)
     from interview_mux.production_profile import prompt_variant
 
     assert is_tbiy(ctx)
-    assert "tbiy" in prompt_variant("selection/narrative-arc-plan.system.txt", ctx)
-    assert "tbiy" in prompt_variant("sound_design/plan-flow1.system.txt", ctx)
+    assert prompt_variant("selection/narrative-arc-plan.system.txt", ctx) == (
+        "selection/narrative-arc-plan.system.txt"
+    )
+    assert prompt_variant("sound_design/plan-flow1.system.txt", ctx) == (
+        "sound_design/plan-flow1.system.txt"
+    )

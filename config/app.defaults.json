@@ -176,6 +176,7 @@
   "_comment_sound_design": "SDP soft guidance + post-generation placement QA (no hard unique-asset reject caps)",
   "sound_design": {
     "enabled": true,
+    "early_palettes_llm": false,
     "allow_diegetic_ambient": false,
     "post_listen_gate_mode": "block_mix",
     "g_listen_enabled": true,
@@ -821,6 +822,24 @@
       "per_segment_shard_max": 20,
       "proactive_decompose_segments": 40
     },
+    "ideal_cuts": {
+      "enable": true,
+      "bind_mode": "both",
+      "min_cut_ms": 2500,
+      "max_cut_ms": 180000,
+      "word_snap_margin_ms": 40,
+      "word_snap_max_shift_ms": 600,
+      "skip_boundary_llm_when_bound": true,
+      "skip_topic_resplit_when_bound": true,
+      "skip_classification_llm_when_bound": true,
+      "prefer_seed_over_ranking": true,
+      "prefer_seed_over_shape": true
+    },
+    "talking_points_authority": {
+      "deterministic_coverage": true,
+      "deterministic_narrative": true,
+      "deterministic_classification": true
+    },
     "segment_timeline": {
       "allow_overlap_ms": 0,
       "require_speaker_id": true,
@@ -945,22 +964,16 @@
       },
       "whitelist": {
         "pass_ids": [
-          "gap_framing_recompose", "selection_framing_apply", "narrative_arc_refine",
-          "ranking_refine", "transitions_refine", "sdp_intent_refine", "edl_narrative_refine"
+          "gap_framing_recompose",
+          "selection_framing_apply"
         ]
       },
       "succession": {
-        "unlocks": [
-          { "after_accept_or_skip_copy": "gap_framing_recompose", "unlock": "transitions_refine" },
-          { "after_accept_or_skip_copy": "gap_framing_recompose", "unlock": "sdp_intent_refine", "requires_frozen_vo": true },
-          { "after_signal": "post_gap_topic_holes", "unlock": "ranking_refine" }
-        ],
-        "mutex": [
-          { "passes": ["narrative_arc_refine", "ranking_refine"], "when": "both_would_reorder" }
-        ],
+        "unlocks": [],
+        "mutex": [],
         "priority": [
-          "gap_framing_recompose", "selection_framing_apply", "ranking_refine",
-          "narrative_arc_refine", "transitions_refine", "sdp_intent_refine", "edl_narrative_refine"
+          "gap_framing_recompose",
+          "selection_framing_apply"
         ]
       },
       "policy_packs": {
@@ -1204,8 +1217,11 @@
         "mode": "advisory",
         "shadow_compare": true,
         "consumers_bind": false,
-        "_comment_consumers_bind": "Stays false until the Shape mutation engine (docs/cross-cutting/mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop and shape_order_bind.resolve_air_order has shadow-compare evidence of safety across a corpus \u2014 see mastering-integration-backlog.md H7. Per-run hybrid bind already applies via resolve_air_order regardless of this global flag.",
-        "two_pass": true
+        "max_mode_candidates": 2,
+        "skip_diversity": true,
+        "prefer_talking_points_mode": true,
+        "two_pass": true,
+        "_comment_consumers_bind": "Stays false until Shape soft-gate has corpus evidence — see mastering-integration-backlog.md H7."
       }
     },
     "timeline_optimizer": {

@@ -617,6 +617,48 @@ def build_episode_structure(ctx: RunContext, *, refresh: bool = False) -> dict[s
         "occupancy": {"violations": occ_violations},
         "compact_digest": "",
     }
+    # Soft-bind Shape plan when present (mode / cold open / air order hints).
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        try:
+            plan = ctx.read_json("mastering/mastering_plan.json")
+        except Exception:
+            plan = None
+        if isinstance(plan, dict):
+            mode = str(
+                plan.get("confirmed_mode")
+                or plan.get("narrative_mode")
+                or plan.get("provisional_mode")
+                or ""
+            ).strip()
+            if mode:
+                axes = dict(doc.get("axes") or {})
+                axes["narrative_mode"] = mode
+                doc["axes"] = axes
+                doc["mastering_plan_bound"] = True
+                rationale.append(f"mastering_plan_mode={mode}")
+            cold = plan.get("cold_open") if isinstance(plan.get("cold_open"), dict) else {}
+            cold_seg = str(cold.get("segment_id") or "").strip()
+            if cold_seg and cold.get("kind") in {"segment_hook", "vo_plus_segment"}:
+                doc["hook_reel"] = {
+                    "segment_id": cold_seg,
+                    "repeat_allowed": True,
+                    "source": "mastering_plan_cold_open",
+                }
+                for s in doc.get("slot_plan") or []:
+                    if isinstance(s, dict) and s.get("component_id") == "STD_cold_open_slot":
+                        s["bound_segment_ids"] = [cold_seg]
+                        s["repeat_allowed"] = True
+                rationale.append(f"mastering_plan_cold_open={cold_seg}")
+            plan_order = [str(s) for s in (plan.get("ordered_segment_ids") or []) if s]
+            if plan_order:
+                # Prefer plan air order when it covers most current segments.
+                known = set(segment_order)
+                filtered = [s for s in plan_order if s in known]
+                if len(filtered) >= max(1, int(len(known) * 0.5)):
+                    missing = [s for s in segment_order if s not in set(filtered)]
+                    doc["segment_order"] = filtered + missing
+                    rationale.append("mastering_plan_segment_order")
+            doc["rationale"] = rationale[:40]
     doc["compact_digest"] = build_compact_digest(doc)
     doc["policy_hash"] = _policy_hash(doc)
     return doc

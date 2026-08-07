@@ -1,0 +1,33 @@
+stage_id: talking_points_compose
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/talking_points.json
+  schema: talking_points_artifact.schema.json
+  staging: true
+inputs:
+  hard: []
+  soft: []
+sufficiency:
+- path: strategy_summary
+  rule: non_empty_string
+  min_length: 8
+  blocking: progression
+- path: talking_points
+  rule: min_rows
+  min_count: 1
+  blocking: progression
+propagation:
+  invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

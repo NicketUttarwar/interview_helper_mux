@@ -6,13 +6,28 @@ from typing import Any
 
 # Known generic filler lines that satisfy "audible glue" but aren't pair-specific
 # (e.g. the timeline optimizer's retired "Meanwhile—" default, seam_glue's canned
-# fallback). Kept in sync manually — these are deliberately narrow, known stock
-# phrases rather than a broad style judgment.
+# fallback, and the old category-only default_bridge_text templates). Kept in sync
+# manually — these are deliberately narrow, known stock phrases rather than a
+# broad style judgment.
 _GENERIC_STUB_PHRASES = frozenset(
     {
         "meanwhile—",
         "meanwhile,",
+        "meanwhile…",
+        "meanwhile...",
         "there is more to that story.",
+        "and then—what happened next?",
+        "and then—what happened next",
+        "next, the focus shifts.",
+        "next, the focus shifts",
+        "that connects to something earlier.",
+        "that connects to something earlier",
+        "meanwhile, another thread opens.",
+        "meanwhile, another thread opens",
+        "stepping back—here's what led there.",
+        "stepping back—here's what led there",
+        "and then—into the next beat.",
+        "and then—into the next beat",
     }
 )
 
@@ -165,27 +180,42 @@ def assert_bridges_complete(
     transitions: dict[str, Any] | None = None,
     soft: bool = False,
 ) -> dict[str, Any]:
-    """Return completeness doc; raise SystemExit when incomplete and not soft."""
+    """Return completeness doc; raise SystemExit when incomplete and not soft.
+
+    Stub bridges (known stock phrases, or the same verbatim line pasted across
+    ≥3 distinct pairs) count as incomplete — they are audible filler, not
+    pair-specific glue.
+    """
     missing = missing_reorder_bridges(
         reorder_bridges, gap_report=gap_report, transitions=transitions
     )
     stubs = stub_reorder_bridges(gap_report, transitions)
     doc = {
         "version": 1,
-        "complete": not missing,
+        "complete": not missing and not stubs,
         "missing_count": len(missing),
         "missing": missing,
         "pair_specific": True,
         "stub_count": len(stubs),
         "stub_pairs": stubs,
     }
-    if missing and not soft:
+    if soft:
+        return doc
+    if missing:
         sample = ", ".join(
             f"{m['after_segment_id']}->{m['before_segment_id']}" for m in missing[:6]
         )
         raise SystemExit(
             f"bridge_completeness: {len(missing)} reorder join(s) lack pair-specific "
             f"gap/transition glue before EDL — fix transitions or gap_report ({sample})"
+        )
+    if stubs:
+        sample = ", ".join(
+            f"{s['after_segment_id']}->{s['before_segment_id']}" for s in stubs[:6]
+        )
+        raise SystemExit(
+            f"bridge_completeness: {len(stubs)} reorder join(s) use canned/repeated "
+            f"stub bridge text — rewrite with pair-specific glue ({sample})"
         )
     return doc
 

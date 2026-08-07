@@ -37,6 +37,13 @@ _SUFFICIENCY: dict[str, list[dict]] = {
         {"path": "thesis", "rule": "non_empty_string", "min_length": 8, "blocking": "progression"},
         {"path": "topics", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
     ],
+    "talking_points_compose": [
+        {"path": "strategy_summary", "rule": "non_empty_string", "min_length": 8, "blocking": "progression"},
+        {"path": "talking_points", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
+    "ideal_cuts_propose": [
+        {"path": "cuts", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
+    ],
     "boundary_detection": [
         {"path": "boundaries", "rule": "min_rows", "min_count": 1, "blocking": "progression"},
     ],

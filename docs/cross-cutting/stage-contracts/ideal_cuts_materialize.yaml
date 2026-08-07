@@ -1,0 +1,25 @@
+stage_id: ideal_cuts_materialize
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: understanding/ideal_cuts_materialized.json
+  schema: null
+  staging: false
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages: []
+consumers: []
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

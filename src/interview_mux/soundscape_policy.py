@@ -381,6 +381,40 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     if str(sap.get("source_music_risk") or "low") != "low":
         rationale.append(f"source_music_risk={sap.get('source_music_risk')}")
 
+    # Prefer Shape narrative_mode soft targets when plan is present.
+    plan_mode = None
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        try:
+            plan = ctx.read_json("mastering/mastering_plan.json")
+        except Exception:
+            plan = None
+        if isinstance(plan, dict):
+            plan_mode = str(
+                plan.get("confirmed_mode")
+                or plan.get("narrative_mode")
+                or plan.get("provisional_mode")
+                or ""
+            ).strip()
+            if plan_mode in {"sparse_source", "conversational_host"}:
+                underscore = "sparse"
+                dens = dict(dens)
+                dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
+                dens["max_foley"] = 0
+                coverage = min(coverage, 0.35)
+                mix["max_bed_coverage_ratio"] = coverage
+                mix["underscore_policy"] = underscore
+                standards["max_bed_coverage_ratio"] = coverage
+                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:sparse")
+            elif plan_mode in {"guide_summary", "documentary_bridge"}:
+                underscore = "normal" if underscore == "skip" else underscore
+                mix["underscore_policy"] = underscore
+                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:normal")
+            elif plan_mode == "hook_montage":
+                dens = dict(dens)
+                dens["max_punctuators"] = max(int(dens.get("max_punctuators") or 2), 3)
+                mix["stinger_max_per_minute"] = max(float(mix.get("stinger_max_per_minute") or 4), 5.0)
+                rationale.append(f"mastering_plan_mode_overlay={plan_mode}:stinger_bias")
+
     # Preserve prior operator overrides if rebuilding
     prior_overrides: dict[str, Any] = {}
     if ctx.artifact_exists(POLICY_PATH):
@@ -394,6 +428,7 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
             "source_acoustic_profile": bool(sap),
             "sonic_context": bool(sonic),
             "delivery_brief": bool(brief),
+            "mastering_plan": bool(plan_mode),
             "sonic_context_hash": (sonic or {}).get("sonic_context_hash"),
         },
         "underscore_policy": underscore if underscore != "sparse_or_skip" else "sparse",
@@ -405,6 +440,9 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         "operator_overrides": prior_overrides,
         "rationale": rationale,
     }
+    if plan_mode:
+        policy["narrative_mode_hint"] = plan_mode
+        policy["mastering_plan_bound"] = True
     policy = _apply_operator_overrides(policy)
     # Recompute dens beds if operator forced skip
     if policy["underscore_policy"] in {"skip", "sparse_or_skip"}:

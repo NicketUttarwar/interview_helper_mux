@@ -16,6 +16,8 @@ from interview_mux.schema_nullability import with_nullable_optional_leaves
 STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "speaker_roles": "speakers_artifact.schema.json",
     "content_context": "content_brief_artifact.schema.json",
+    "talking_points_compose": "talking_points_artifact.schema.json",
+    "ideal_cuts_propose": "ideal_cuts_artifact.schema.json",
     "content_brief_reanchor": "content_brief_artifact.schema.json",
     "boundary_detection": "boundaries_artifact.schema.json",
     "boundary_topic_resplit": "boundaries_artifact.schema.json",
@@ -56,6 +58,9 @@ PERSIST_ARTIFACT_JUNK_KEYS: frozenset[str] = frozenset(
 STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "speaker_roles": "understanding/speakers.json",
     "content_context": "understanding/content_brief.json",
+    "talking_points_compose": "understanding/talking_points.json",
+    "ideal_cuts_propose": "understanding/ideal_cuts.json",
+    "ideal_cuts_materialize": "understanding/ideal_cuts_materialized.json",
     "content_brief_reanchor": "understanding/content_brief.json",
     "boundary_detection": "segments/boundaries.json",
     "boundary_topic_resplit": "segments/boundaries.json",
@@ -402,6 +407,14 @@ def validate_synthetic_framing_plan(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("synthetic_framing_plan.schema.json", data)
 
 
+def validate_talking_points(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("talking_points_artifact.schema.json", data)
+
+
+def validate_ideal_cuts(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("ideal_cuts_artifact.schema.json", data)
+
+
 # Relative artifact paths validated on write (RunContext.write_json and GUI PUT).
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
@@ -429,6 +442,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/analysis_state.json": validate_analysis_state,
     "understanding/sound_design_plan.json": validate_sound_design_plan,
     "understanding/content_brief.json": validate_content_brief,
+    "understanding/talking_points.json": validate_talking_points,
+    "understanding/ideal_cuts.json": validate_ideal_cuts,
     "understanding/speakers.json": validate_speakers,
     "understanding/gap_evaluations.json": validate_gap_evaluations,
     "understanding/gap_report.json": validate_gap_report,

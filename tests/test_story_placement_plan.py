@@ -198,11 +198,38 @@ def test_bridge_completeness_hard_gate():
         assert_bridges_complete(bridges, soft=False)
     transitions = {
         "transitions": [
-            {"after_segment_id": "a", "before_segment_id": "b", "text": "Meanwhile…"},
+            {
+                "after_segment_id": "a",
+                "before_segment_id": "b",
+                "text": "Running low on personal funds, he finally eyes outside capital.",
+            },
         ]
     }
     doc = assert_bridges_complete(bridges, transitions=transitions, soft=False)
     assert doc["complete"] is True
+    assert doc["stub_count"] == 0
+
+
+def test_bridge_completeness_blocks_stock_stub():
+    bridges = {
+        "pairs": [
+            {"after_id": "a", "before_id": "b", "kind": "reorder"},
+        ]
+    }
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "a",
+                "before_segment_id": "b",
+                "text": "And then—what happened next?",
+            },
+        ]
+    }
+    with pytest.raises(SystemExit, match="stub bridge"):
+        assert_bridges_complete(bridges, transitions=transitions, soft=False)
+    soft = assert_bridges_complete(bridges, transitions=transitions, soft=True)
+    assert soft["complete"] is False
+    assert soft["stub_count"] >= 1
 
 
 def test_shape_hybrid_bind_requires_health():

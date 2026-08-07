@@ -74,13 +74,31 @@ def test_not_whitelisted_pass_is_skipped(ctx: RunContext, monkeypatch: pytest.Mo
     assert decision["reason_code"] == "not_whitelisted"
 
 
-def test_missing_required_artifacts_skips(ctx: RunContext) -> None:
+def test_missing_required_artifacts_skips(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     decision = decide_pass(ctx, "narrative_arc_refine")
     assert decision["status"] == "skip"
     assert decision["reason_code"] == "missing_artifacts"
 
 
-def test_activates_when_eligible_and_artifacts_present(ctx: RunContext) -> None:
+def test_activates_when_eligible_and_artifacts_present(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1", "seg_2"]})
     ctx.write_json(
@@ -103,7 +121,15 @@ def test_activates_when_eligible_and_artifacts_present(ctx: RunContext) -> None:
     assert decision["agenda_class"] == "narrative"
 
 
-def test_agenda_ineligible_class_skips(ctx: RunContext) -> None:
+def test_agenda_ineligible_class_skips(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
     ctx.write_json(
@@ -125,10 +151,18 @@ def test_agenda_ineligible_class_skips(ctx: RunContext) -> None:
     assert decision["gate"] == "agenda"
 
 
-def test_ledger_cap_skips_second_run(ctx: RunContext) -> None:
+def test_ledger_cap_skips_second_run(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
     from interview_mux.refinement_identity import cfi_for_pass
     from interview_mux.refinement_ledger import record_call
 
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
     cfi = cfi_for_pass("narrative_arc_refine")
@@ -150,16 +184,25 @@ def test_ledger_cap_skips_second_run(ctx: RunContext) -> None:
 
 def test_decide_pass_always_returns_activate_or_skip(ctx: RunContext) -> None:
     """Full auto: decide_pass must never return a pending/pause status."""
-    decision = decide_pass(ctx, "narrative_arc_refine")
+    decision = decide_pass(ctx, "gap_framing_recompose")
     assert decision["status"] in ("activate", "skip")
 
 
 def test_input_hash_skips_when_no_new_evidence_since_prior_snapshot(
     ctx: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pass already done with an unchanged input snapshot must skip as no_new_evidence."""
     from interview_mux.refinement_gate import freeze_inputs
 
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     req = ["master/narrative_plan.json", "master/selection.json"]
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
@@ -176,10 +219,19 @@ def test_input_hash_skips_when_no_new_evidence_since_prior_snapshot(
 
 def test_input_hash_activates_again_when_inputs_change_after_prior_snapshot(
     ctx: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Changed required artifacts since the last snapshot must re-activate the pass."""
     from interview_mux.refinement_gate import freeze_inputs
 
+    _patch_refinement_cfg(
+        monkeypatch,
+        {
+            "enabled": True,
+            "blacklist": {"stage_ids": [], "cfi_ids": [], "module_path_prefixes": []},
+            "whitelist": {"pass_ids": ["narrative_arc_refine"]},
+        },
+    )
     req = ["master/narrative_plan.json", "master/selection.json"]
     _raw_write(ctx, "master/narrative_plan.json", {"acts": []})
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})

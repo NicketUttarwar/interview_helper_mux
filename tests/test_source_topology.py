@@ -34,17 +34,17 @@ def test_is_tbiy_false_by_default():
     assert is_tbiy(None) is False or get_production_style(None) == TBIY_STYLE
 
 
-def test_prompt_variant_documentary_unchanged():
+def test_prompt_variant_always_canonical():
     rel = "understanding/content-context.system.txt"
-    assert prompt_variant(rel, None) == rel or ".tbiy." in prompt_variant(rel, None)
+    assert prompt_variant(rel, None) == rel
 
 
-def test_prompt_variant_reanchor_tbiy(tmp_path: Path):
+def test_prompt_variant_strips_tbiy_suffix(tmp_path: Path):
     ctx = RunContext(str(tmp_path / "run"), create=True)
     meta = {"production_style": "tbiy_narrative"}
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
-    rel = "understanding/content-brief-reanchor.system.txt"
-    assert prompt_variant(rel, ctx) == "understanding/content-brief-reanchor.tbiy.system.txt"
+    rel = "understanding/content-brief-reanchor.tbiy.system.txt"
+    assert prompt_variant(rel, ctx) == "understanding/content-brief-reanchor.system.txt"
 
 
 def test_classify_monologue():

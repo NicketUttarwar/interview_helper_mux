@@ -17,6 +17,9 @@ ANALYSIS_ORDER: tuple[str, ...] = (
     "speaker_roles",
     "source_topology_build",
     "content_context",
+    "talking_points_compose",
+    "ideal_cuts_propose",
+    "ideal_cuts_materialize",
     "boundary_detection",
     "segment_classification",
     "content_brief_reanchor",
@@ -42,18 +45,14 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
-    "refinement_agenda",  # confirm L0 after ranking
-    "gap_framing_recompose",  # deterministic recompose/skip-copy — not an LLM call
+    # Slim Pass-2: agenda + gap recompose + framing apply only (no-op *_refine removed).
+    "refinement_agenda",
+    "gap_framing_recompose",
     "selection_framing_apply",
-    "ranking_refine",
-    "narrative_arc_refine",
     "transitions",
-    "transitions_refine",
     "sound_design_plan",
-    "sdp_intent_refine",
     "sound_design_vo_finalize",
     "edl_narrative_audit",
-    "edl_narrative_refine",
     "edl",
     "assembly_preview",
     "listen_delight_audit",
@@ -71,8 +70,11 @@ DELIVERY_ORDER: tuple[str, ...] = (
 
 ALL_LLM_STAGES: frozenset[str] = frozenset(
     {
+        # LLM-capable stages (many skip LLM when talking-points / ideal-cuts authority applies).
         "speaker_roles",
         "content_context",
+        "talking_points_compose",
+        "ideal_cuts_propose",
         "boundary_detection",
         "segment_classification",
         "content_brief_reanchor",

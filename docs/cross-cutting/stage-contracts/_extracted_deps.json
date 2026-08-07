@@ -131,8 +131,11 @@
       "transcript/full.json",
       "understanding/content_brief.json",
       "understanding/flow_adaptation.json",
+      "understanding/ideal_cuts.json",
+      "understanding/ideal_cuts_materialized.json",
       "understanding/source_acoustic_profile.json",
-      "understanding/speakers.json"
+      "understanding/speakers.json",
+      "understanding/talking_points.json"
     ],
     "writes": [
       "segments/boundaries.json"
@@ -227,10 +230,13 @@
       "transcript/speakers.json",
       "understanding/content_brief.json",
       "understanding/source_acoustic_profile.json",
-      "understanding/speakers.json"
+      "understanding/speakers.json",
+      "understanding/talking_points.json"
     ],
     "writes": [
-      "understanding/source_acoustic_profile.json"
+      "understanding/ideal_cuts.json",
+      "understanding/source_acoustic_profile.json",
+      "understanding/talking_points.json"
     ]
   }
 }

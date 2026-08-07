@@ -1,4 +1,10 @@
-"""Refinement stage runners — recompose, apply, and stub refine passes."""
+"""Slim Pass-2: L0 agenda + gap recompose + framing apply.
+
+No-op ``*_refine`` stubs remain callable for manual/legacy runs but are **removed
+from ``DELIVERY_ORDER``** — the default delivery path only runs:
+
+``refinement_agenda`` → ``gap_framing_recompose`` → ``selection_framing_apply``
+"""
 
 from __future__ import annotations
 
@@ -242,6 +248,40 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
         ]
         if not hard:
             ctx.write_json("master/selection.json", sel)
+
+    # Keep gap VO targets on the surviving air timeline after framing exclusions.
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        from interview_mux.gap_framing import (
+            drop_contiguous_light_bridge_lines,
+            rebase_gap_lines_to_selection,
+        )
+
+        final_ordered = [str(x) for x in (sel.get("ordered_segment_ids") or [])]
+        gr = ctx.read_json("understanding/gap_report.json")
+        if isinstance(gr, dict) and final_ordered:
+            rebased, notes = rebase_gap_lines_to_selection(gr, final_ordered)
+            by_id: dict[str, dict] = {}
+            if ctx.artifact_exists("segments/manifest.json"):
+                man = ctx.read_json("segments/manifest.json")
+                by_id = {
+                    str(s["segment_id"]): s
+                    for s in ((man or {}).get("segments") or [])
+                    if isinstance(s, dict) and s.get("segment_id")
+                }
+            cleaned, drop_notes = drop_contiguous_light_bridge_lines(
+                rebased if notes else gr,
+                by_id,
+                ordered_segment_ids=final_ordered,
+            )
+            all_notes = list(notes) + list(drop_notes)
+            if all_notes:
+                ctx.write_json("understanding/gap_report.json", cleaned)
+                ctx.log(
+                    f"selection_framing_apply adjusted {len(all_notes)} gap VO line(s) "
+                    f"(rebase={len(notes)}, drop_contiguous_light={len(drop_notes)})",
+                    level="info",
+                    stage="selection_framing_apply",
+                )
 
     if decision.get("status") == "activate":
         _record_refinement(ctx, "selection_framing_apply", "ok")

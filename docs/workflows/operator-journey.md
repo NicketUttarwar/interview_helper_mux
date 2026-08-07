@@ -9,10 +9,10 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 | 1 | Start | Select audio; optional preclean offer (accept/dismiss) |
 | 2 | Prepare | Automated: preclean → ingest → transcribe → review queue |
 | 3 | Fix transcript | **G0 mandatory** — correct STT in transcript review |
-| 4 | Understand | Automated analysis: speakers → segments → palettes → **Mastering research + Shape** → delivery brief → episode structure |
-| 5 | Fill gaps | **G-Framing ladder** (required choice; recommended Yes) then optional **G1** — record/synthesize pickup VO or skip |
-| 5b | Refine | **Pass 2** — L0 agenda + gap recompose / selection apply (full auto when gated) — [refinement-passes.md](../cross-cutting/refinement-passes.md) |
-| 6 | Plan & rank | Coverage → narrative → dual-candidate ranking → topo repair → `story_health` / `reorder_bridges` → transitions |
+| 4 | Understand | Automated analysis: speakers → talking-points/ideal cuts → segments → palettes stub → **Mastering research + Shape** |
+| 5 | Fill gaps | **G-Framing ladder** then optional **G1**; plan confirm + gap compose + delivery brief / soundscape / episode structure |
+| 5b | Refine | Slim Pass-2 — agenda + gap recompose / selection apply only — [refinement-passes.md](../cross-cutting/refinement-passes.md) |
+| 6 | Plan & rank | Deterministic coverage/narrative when cuts bound → ranking → transitions |
 | 7 | Edit | Optional NLE (always-visible **Split segment** after segments exist); auto `segments/split_plan.json`; splits cascade re-rank |
 | 8 | Sound | SDP plan → VO finalize → SFX prompt craft |
 | 9 | Build | Narrative audit → EDL → preview → listen delight (**authoritative** ship gate) → MMAudio → mix → junction snip QA |

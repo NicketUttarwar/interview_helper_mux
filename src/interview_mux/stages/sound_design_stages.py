@@ -29,6 +29,30 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
         _mark_skipped(ctx, "sound_design_palettes")
         return
 
+    # Simplification: defer palette inventing to sound_design_plan (single musical decision site).
+    sd_cfg = merged_config().get("sound_design") or {}
+    if not bool(sd_cfg.get("early_palettes_llm", False)):
+        sdp = _load_sound_design_plan(ctx)
+        if not isinstance(sdp.get("palettes"), list):
+            sdp["palettes"] = []
+        coherence = sdp.get("coherence") if isinstance(sdp.get("coherence"), dict) else {}
+        coherence.setdefault(
+            "notes",
+            "early palettes deferred — sound_design_plan owns musical direction",
+        )
+        sdp["coherence"] = coherence
+        _validate_sound_design_plan(sdp)
+        write_validated_artifact(
+            ctx, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_palettes"
+        )
+        ctx.log(
+            "sound_design_palettes: skipped early LLM (sound_design.early_palettes_llm=false)",
+            level="info",
+            stage="sound_design_palettes",
+        )
+        ctx.mark_done("sound_design_palettes", force=True)
+        return
+
     def build_input(c: RunContext) -> dict:
         manifest = c.read_json("segments/manifest.json")
         payload: dict = {

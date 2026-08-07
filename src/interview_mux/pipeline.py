@@ -80,6 +80,11 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             "interview_mux.source_topology", fromlist=["run_source_topology_build"]
         ).run_source_topology_build(ctx),
         "content_context": lambda: understanding.run_content_context(ctx),
+        "talking_points_compose": lambda: understanding.run_talking_points_compose(ctx),
+        "ideal_cuts_propose": lambda: understanding.run_ideal_cuts_propose(ctx),
+        "ideal_cuts_materialize": lambda: __import__(
+            "interview_mux.ideal_cuts", fromlist=["run_ideal_cuts_materialize"]
+        ).run_ideal_cuts_materialize(ctx),
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),
         "segment_classification": lambda: segmentation.run_classification(ctx),
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),

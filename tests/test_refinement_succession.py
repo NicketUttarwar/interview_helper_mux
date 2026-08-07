@@ -1,4 +1,4 @@
-"""Succession unlocks and mutual exclusion between refinement passes."""
+"""Succession unlocks — slim Pass-2 (gap recompose + framing apply only)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from interview_mux.refinement_succession import (
     priority_order,
 )
 from interview_mux.run_context import RunContext
-from run_fixtures import isolated_run_ctx, patch_executions_root
+from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config
 
 
 @pytest.fixture
@@ -25,33 +25,20 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 
 def _raw_write(ctx: RunContext, rel: str, data: dict[str, Any]) -> None:
-    """Write JSON straight to disk, bypassing schema validation for test fixtures."""
     path = ctx.path(*rel.split("/"))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_pass_with_no_unlock_rule_is_open_by_default(ctx: RunContext) -> None:
-    # gap_framing_recompose has no unlock rule targeting it — succession never locks it.
+def test_active_passes_are_open_by_default(ctx: RunContext) -> None:
     assert is_unlocked(ctx, "gap_framing_recompose") is True
-
-
-def test_transitions_refine_locked_until_gap_path_resolved(ctx: RunContext) -> None:
-    assert gap_path_resolved(ctx) is False
-    assert is_unlocked(ctx, "transitions_refine") is False
-
-
-def test_transitions_refine_unlocked_after_gap_framing_recompose_done(ctx: RunContext) -> None:
-    ctx.mark_done("gap_framing_recompose", force=True)
-    assert gap_path_resolved(ctx) is True
-    assert is_unlocked(ctx, "transitions_refine") is True
+    assert is_unlocked(ctx, "selection_framing_apply") is True
 
 
 def test_gap_path_resolved_via_gap_fill_skip_marker(ctx: RunContext) -> None:
     assert gap_path_resolved(ctx) is False
     _raw_write(ctx, "understanding/gap_fill_skip.json", {"reason": "not_eligible"})
     assert gap_path_resolved(ctx) is True
-    assert is_unlocked(ctx, "sdp_intent_refine") is True
 
 
 def test_gap_path_resolved_via_refinement_skip_copy_marker(ctx: RunContext) -> None:
@@ -60,51 +47,77 @@ def test_gap_path_resolved_via_refinement_skip_copy_marker(ctx: RunContext) -> N
     assert gap_path_resolved(ctx) is True
 
 
-def test_ranking_refine_unlocked_only_when_topic_holes_present(ctx: RunContext) -> None:
+def test_priority_order_slim_pass2(ctx: RunContext) -> None:
+    order = priority_order()
+    assert order[0] == "gap_framing_recompose"
+    assert order == ["gap_framing_recompose", "selection_framing_apply"]
+
+
+def test_legacy_unlock_rules_still_honored_when_configured(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Legacy *_refine stubs can still use succession if an operator re-enables them."""
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "refinement_passes": {
+                    "succession": {
+                        "unlocks": [
+                            {
+                                "after_accept_or_skip_copy": "gap_framing_recompose",
+                                "unlock": "transitions_refine",
+                            },
+                            {"after_signal": "post_gap_topic_holes", "unlock": "ranking_refine"},
+                        ],
+                        "mutex": [
+                            {
+                                "passes": ["narrative_arc_refine", "ranking_refine"],
+                                "when": "both_would_reorder",
+                            }
+                        ],
+                        "priority": [
+                            "gap_framing_recompose",
+                            "selection_framing_apply",
+                            "ranking_refine",
+                        ],
+                    }
+                }
+            }
+        },
+    )
+    # Re-import path reads patched config via interview_mux.config — also patch catalog module.
+    monkeypatch.setattr(
+        "interview_mux.refinement_succession.refinement_cfg",
+        lambda: {
+            "succession": {
+                "unlocks": [
+                    {
+                        "after_accept_or_skip_copy": "gap_framing_recompose",
+                        "unlock": "transitions_refine",
+                    },
+                    {"after_signal": "post_gap_topic_holes", "unlock": "ranking_refine"},
+                ],
+                "mutex": [
+                    {
+                        "passes": ["narrative_arc_refine", "ranking_refine"],
+                        "when": "both_would_reorder",
+                    }
+                ],
+                "priority": [
+                    "gap_framing_recompose",
+                    "selection_framing_apply",
+                    "ranking_refine",
+                ],
+            }
+        },
+    )
+    assert is_unlocked(ctx, "transitions_refine") is False
+    ctx.mark_done("gap_framing_recompose", force=True)
+    assert is_unlocked(ctx, "transitions_refine") is True
     assert is_unlocked(ctx, "ranking_refine") is False
     _raw_write(ctx, "master/coverage_audit.json", {"uncovered_topics": ["topic_1"]})
     assert is_unlocked(ctx, "ranking_refine") is True
-
-
-def test_ranking_refine_stays_locked_when_coverage_audit_has_no_holes(ctx: RunContext) -> None:
-    _raw_write(ctx, "master/coverage_audit.json", {"uncovered_topics": []})
-    assert is_unlocked(ctx, "ranking_refine") is False
-
-
-def test_mutex_blocks_narrative_arc_refine_when_ranking_refine_done(ctx: RunContext) -> None:
     assert mutex_blocked(ctx, "narrative_arc_refine") is False
     ctx.mark_done("ranking_refine", force=True)
     assert mutex_blocked(ctx, "narrative_arc_refine") is True
-
-
-def test_mutex_blocks_ranking_refine_when_narrative_arc_refine_activated_in_plan(
-    ctx: RunContext,
-) -> None:
-    ctx.write_json(
-        "understanding/refinement_plan.json",
-        {
-            "run_id": ctx.run_id,
-            "schema_version": 1,
-            "passes": [
-                {
-                    "pass_id": "narrative_arc_refine",
-                    "status": "activate",
-                    "cfi_id": "abc123",
-                    "agenda_class": "narrative",
-                }
-            ],
-        },
-    )
-    assert mutex_blocked(ctx, "ranking_refine") is True
-
-
-def test_mutex_does_not_block_unrelated_passes(ctx: RunContext) -> None:
-    ctx.mark_done("ranking_refine", force=True)
-    assert mutex_blocked(ctx, "transitions_refine") is False
-
-
-def test_priority_order_matches_config_default(ctx: RunContext) -> None:
-    order = priority_order()
-    assert order[0] == "gap_framing_recompose"
-    assert order.index("gap_framing_recompose") < order.index("transitions_refine")
-    assert "edl_narrative_refine" in order

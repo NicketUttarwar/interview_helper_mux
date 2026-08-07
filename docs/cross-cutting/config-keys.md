@@ -424,6 +424,32 @@ Consumed by `stage_input_helpers` context shaping. Defaults in `config/app.defau
 | `max_stage_data_chars` | Huge payloads rejected or truncated by model host |
 | `interviewer_sample_lines` | Transitions stage lacks tone reference |
 
+## `analysis.ideal_cuts.*`
+
+Talking-points-first cut authority — `ideal_cuts.py`, stages `talking_points_compose` → `ideal_cuts_propose` → `ideal_cuts_materialize`.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enable` | `true` | Run the holistic talking-points / ideal-cuts path |
+| `bind_mode` | `both` | `off` (artifacts only) · `seed_ranking` · `boundaries` · `both` |
+| `min_cut_ms` / `max_cut_ms` | `2500` / `180000` | Clamp snapped native windows |
+| `word_snap_margin_ms` / `word_snap_max_shift_ms` | `40` / `600` | Snap LLM times to transcript word edges |
+| `skip_boundary_llm_when_bound` | `true` | When materialize published boundaries, skip `boundary_detection` LLM |
+| `skip_topic_resplit_when_bound` | `true` | Skip `boundary_topic_resplit` when ideal-cuts boundaries are authoritative |
+| `skip_classification_llm_when_bound` | `true` | Skip `segment_classification` LLM; build manifest from cuts + speakers |
+| `prefer_seed_over_ranking` | `true` | Prefer ideal-cuts selection seed in `full_master_ranking` |
+| `prefer_seed_over_shape` | `true` | Ideal-cuts air order beats Shape segment order when both bind |
+
+## `analysis.talking_points_authority.*`
+
+Deterministic coverage / narrative / classification from talking points + ideal cuts (skip redundant LLMs).
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `deterministic_coverage` | `true` | Synthesize `master/coverage_audit.json` without LLM when cuts are bound |
+| `deterministic_narrative` | `true` | Synthesize `master/narrative_plan.json` without LLM when cuts are bound |
+| `deterministic_classification` | `true` | Synthesize `segments/manifest.json` without LLM when ideal-cut boundaries are bound |
+
 ## `analysis.truncation_integrity.*`
 
 Consumed by `truncation_policy` + LLM routing gateways. Defaults in `config/app.defaults.json`.
@@ -764,7 +790,7 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 
 **Retention / pack-to-target policy:** trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The only hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — a master should not compress below ~10% of source without an explicit override). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
 
-**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Bridge text is always pair-specific (`seam_glue.default_bridge_text`) — the optimizer no longer mints a repeated generic stub (e.g. the old hardcoded "Meanwhile—"). `bridge_completeness.stub_reorder_bridges` advisory-flags any bridge that still reads as canned filler (a known generic stub phrase, or verbatim text reused across ≥3 distinct seam pairs) without blocking completeness. Artifact: `master/assembly_ledger.json`.
+**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Fallback hinge text from `seam_glue.default_bridge_text` must be **content-anchored** (destination/source segment excerpts) — category-only stock lines such as "And then—what happened next?" are treated as stubs. `bridge_completeness.stub_reorder_bridges` flags known generic stub phrases **and** verbatim text reused across ≥3 distinct seam pairs; `assert_bridges_complete` **blocks** on stubs (not advisory-only). Artifact: `master/assembly_ledger.json`.
 
 ## `audio_preclean`
 
@@ -995,6 +1021,8 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
+| `enabled` | `true` | SDP / palettes / SFX craft stages | Disables sound-design lane |
+| `early_palettes_llm` | `false` | `sound_design_palettes` | When false, skips early palette LLM; `sound_design_plan` owns musical direction |
 | `max_assets` | `6` | SDP plan + `sdp_cross_validate` | Primary asset cap (prefers this over legacy keys) |
 | `max_assets_flow1` | `6` | legacy fallback for `max_assets` | Prefer `max_assets` |
 | `max_assets_flow2` | `4` | unused in single-delivery path | Kept for old runs only |

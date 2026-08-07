@@ -141,34 +141,13 @@ def refinement_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "cfi_ids": [],
             "module_path_prefixes": list(_DEFAULT_BLACKLIST_PREFIXES),
         },
-        "whitelist": {"pass_ids": list(_DEFAULT_WHITELIST)},
+        "whitelist": {"pass_ids": ["gap_framing_recompose", "selection_framing_apply"]},
         "succession": {
-            "unlocks": [
-                {
-                    "after_accept_or_skip_copy": "gap_framing_recompose",
-                    "unlock": "transitions_refine",
-                },
-                {
-                    "after_accept_or_skip_copy": "gap_framing_recompose",
-                    "unlock": "sdp_intent_refine",
-                    "requires_frozen_vo": True,
-                },
-                {"after_signal": "post_gap_topic_holes", "unlock": "ranking_refine"},
-            ],
-            "mutex": [
-                {
-                    "passes": ["narrative_arc_refine", "ranking_refine"],
-                    "when": "both_would_reorder",
-                }
-            ],
+            "unlocks": [],
+            "mutex": [],
             "priority": [
                 "gap_framing_recompose",
                 "selection_framing_apply",
-                "ranking_refine",
-                "narrative_arc_refine",
-                "transitions_refine",
-                "sdp_intent_refine",
-                "edl_narrative_refine",
             ],
         },
     }
