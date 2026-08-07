@@ -88,9 +88,9 @@ def test_ensure_motif_calm_lift_and_longer_bookends():
 
 def test_dense_pace_no_longer_buries_beds():
     dense = _derive_mix_contract({"pace_class": "dense"}, "low")
-    assert dense["bed_level_db_range"][0] >= -25
-    assert dense["bed_level_db_range"][1] >= -20
-    assert dense["duck_under_speech_db"] >= 18
+    assert dense["bed_level_db_range"][0] >= -28
+    assert dense["bed_level_db_range"][1] >= -24
+    assert dense["duck_under_speech_db"] >= 20
 
 
 def test_musicality_flags_flat_sine(tmp_path: Path):

@@ -12,7 +12,7 @@ PACE_CLASS_VALUES = frozenset({"calm", "conversational", "brisk", "dense"})
 UNDERSCORE_POLICY_VALUES = frozenset({"normal", "sparse", "skip"})
 
 _DEFAULT_MIX_CONTRACT: dict[str, Any] = {
-    "duck_under_speech_db": 18.0,
+    "duck_under_speech_db": 20.0,
     "underscore_policy": "normal",
     "stinger_max_per_minute": 4,
 }

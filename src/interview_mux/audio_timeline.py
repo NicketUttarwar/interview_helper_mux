@@ -16,9 +16,109 @@ DEFAULT_JUNCTION_CROSSFADE_MS: dict[tuple[str, str], int] = {
     ("speech", "vo"): 160,
     ("vo", "speech"): 180,
     ("vo", "vo"): 120,
-    ("music", "speech"): 180,
-    ("speech", "music"): 180,
+    ("music", "speech"): 900,
+    ("speech", "music"): 600,
 }
+
+
+def organic_fade_out(
+    seg: AudioSegment,
+    duration_ms: int,
+    *,
+    floor_db: float = -72.0,
+    curve: float = 1.8,
+) -> AudioSegment:
+    """Long tapered fade-out: linear-in-dB with a soft knee into silence.
+
+    ``curve`` > 1 keeps the bed present longer in the first half of the window,
+    then eases more gently toward silence than a linear amplitude fade.
+    """
+    if duration_ms <= 0 or len(seg) <= 0:
+        return seg
+    fade_ms = min(int(duration_ms), len(seg))
+    if fade_ms <= 0:
+        return seg
+    head = seg[: max(0, len(seg) - fade_ms)]
+    tail = seg[-fade_ms:]
+    samples = tail.get_array_of_samples()
+    if not samples:
+        return seg
+    import array
+
+    import numpy as np
+
+    arr = np.array(samples, dtype=np.float64)
+    channels = max(1, int(tail.channels))
+    if channels > 1:
+        arr = arr.reshape((-1, channels))
+    n_frames = arr.shape[0] if arr.ndim == 2 else len(arr)
+    if n_frames <= 1:
+        return seg[: max(0, len(seg) - fade_ms)]
+    t = np.linspace(0.0, 1.0, n_frames, dtype=np.float64)
+    power = max(1.0, float(curve))
+    # Slow early attenuation, soft landing into floor_db.
+    gain_db = float(floor_db) * (t**power)
+    frame_gain = np.power(10.0, gain_db / 20.0)
+    if arr.ndim == 2:
+        shaped = arr * frame_gain[:, None]
+        flat = shaped.reshape(-1)
+    else:
+        flat = arr * frame_gain
+    max_amp = float(1 << (8 * tail.sample_width - 1)) - 1.0
+    dtype = np.int16 if tail.sample_width == 2 else np.int32
+    clipped = np.clip(np.rint(flat), -max_amp, max_amp).astype(dtype, copy=False)
+    out_samples = array.array(tail.array_type)
+    out_samples.frombytes(clipped.tobytes())
+    faded = tail._spawn(out_samples)
+    return head + faded if len(head) > 0 else faded
+
+
+def organic_fade_in(
+    seg: AudioSegment,
+    duration_ms: int,
+    *,
+    floor_db: float = -72.0,
+    curve: float = 1.6,
+) -> AudioSegment:
+    """Tapered fade-in mirrored from :func:`organic_fade_out`."""
+    if duration_ms <= 0 or len(seg) <= 0:
+        return seg
+    fade_ms = min(int(duration_ms), len(seg))
+    if fade_ms <= 0:
+        return seg
+    head = seg[:fade_ms]
+    tail = seg[fade_ms:]
+    samples = head.get_array_of_samples()
+    if not samples:
+        return seg
+    import array
+
+    import numpy as np
+
+    arr = np.array(samples, dtype=np.float64)
+    channels = max(1, int(head.channels))
+    if channels > 1:
+        arr = arr.reshape((-1, channels))
+    n_frames = arr.shape[0] if arr.ndim == 2 else len(arr)
+    if n_frames <= 1:
+        return seg
+    t = np.linspace(0.0, 1.0, n_frames, dtype=np.float64)
+    power = max(1.0, float(curve))
+    # Start near floor_db and ease up (inverse of fade-out taper).
+    gain_db = float(floor_db) * ((1.0 - t) ** power)
+    frame_gain = np.power(10.0, gain_db / 20.0)
+    if arr.ndim == 2:
+        shaped = arr * frame_gain[:, None]
+        flat = shaped.reshape(-1)
+    else:
+        flat = arr * frame_gain
+    max_amp = float(1 << (8 * head.sample_width - 1)) - 1.0
+    dtype = np.int16 if head.sample_width == 2 else np.int32
+    clipped = np.clip(np.rint(flat), -max_amp, max_amp).astype(dtype, copy=False)
+    out_samples = array.array(head.array_type)
+    out_samples.frombytes(clipped.tobytes())
+    faded = head._spawn(out_samples)
+    return faded + tail if len(tail) > 0 else faded
 
 
 def junction_crossfade_ms(

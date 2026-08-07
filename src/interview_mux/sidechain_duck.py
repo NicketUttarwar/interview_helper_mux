@@ -14,8 +14,8 @@ from typing import Any
 import numpy as np
 from pydub import AudioSegment
 
-DEFAULT_ATTACK_MS = 20
-DEFAULT_RELEASE_MS = 200
+DEFAULT_ATTACK_MS = 15
+DEFAULT_RELEASE_MS = 480
 DEFAULT_HOP_MS = 10
 _SILENCE_DBFS = -55.0
 _FULL_SPEECH_DBFS = -22.0
@@ -34,13 +34,14 @@ def sidechain_duck_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     except Exception:
         pass
     raw = mix.get("sidechain_duck") if isinstance(mix.get("sidechain_duck"), dict) else {}
-    pause = raw.get("pause_ride_db", mix.get("pause_ride_db", 8.0))
+    pause = raw.get("pause_ride_db", mix.get("pause_ride_db", 2.5))
     return {
         "enabled": bool(raw.get("enabled", True)),
         "attack_ms": int(raw.get("attack_ms", DEFAULT_ATTACK_MS)),
         "release_ms": int(raw.get("release_ms", DEFAULT_RELEASE_MS)),
         "hop_ms": int(raw.get("hop_ms", DEFAULT_HOP_MS)),
         # Raise underscore in intentional air / post-VO gaps (music-only pause-ride).
+        # Keep modest so beds do not surge over adjacent native/synthetic speech.
         "pause_ride_db": float(pause),
     }
 

@@ -58,7 +58,7 @@ def tbiy_duck_db(ctx: Any, cue: dict[str, Any], default: float) -> float:
     if not is_tbiy(ctx):
         return default
     rules = mix_rules(ctx)
-    return max(6.0, float(cue.get("duck_under_speech_db", rules.get("bed_duck_db", default))))
+    return max(20.0, float(cue.get("duck_under_speech_db", rules.get("bed_duck_db", default))))
 
 
 def annotate_cue_speaker_volley(

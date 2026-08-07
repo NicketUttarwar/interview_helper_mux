@@ -13,6 +13,8 @@ from interview_mux.acoustic_profile import load_profile, mix_contract, placement
 from interview_mux.audio_timeline import (
     append_with_crossfade,
     junction_crossfade_ms,
+    organic_fade_in,
+    organic_fade_out,
     snap_cut_to_word_boundary,
 )
 from interview_mux.config import merged_config
@@ -23,11 +25,64 @@ from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 
 DEFAULT_FRAME_RATE = 48_000
-MIN_DUCK_DB = 18.0
+MIN_DUCK_DB = 20.0
 
 
 def _mix_cfg() -> dict[str, Any]:
     return merged_config().get("mix") or {}
+
+
+def _music_presence_cfg() -> dict[str, Any]:
+    raw = _mix_cfg().get("music_presence")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _bed_fade_ms(
+    *,
+    placement: str,
+    cue: dict[str, Any],
+    profile: dict[str, Any] | None,
+) -> tuple[int, int, float]:
+    """Return (fade_in_ms, fade_out_ms, curve) for under-segment beds.
+
+    Explicit ``fade_in_ms`` / ``fade_out_ms`` on the cue always win. Otherwise
+    ``crossfade_ms`` may only *lengthen* the organic speech-safe defaults —
+    short placement-QA crossfades must not chop music tails into hard cuts.
+    """
+    presence = _music_presence_cfg()
+    hints = placement_hints(profile)
+    is_span = placement == "under_segment_span"
+    default_in = int(
+        presence.get("bed_fade_in_ms")
+        or hints.get("bed_fade_in_ms")
+        or (900 if is_span else 700)
+    )
+    default_out = int(
+        presence.get("bed_span_fade_out_ms" if is_span else "bed_fade_out_ms")
+        or hints.get("bed_fade_out_ms")
+        or (3200 if is_span else 2200)
+    )
+    cue_xf = 0
+    try:
+        cue_xf = int(cue.get("crossfade_ms") or 0)
+    except (TypeError, ValueError):
+        cue_xf = 0
+    if cue.get("fade_in_ms") is not None:
+        try:
+            fade_in = max(0, int(cue["fade_in_ms"]))
+        except (TypeError, ValueError):
+            fade_in = max(default_in, cue_xf)
+    else:
+        fade_in = max(default_in, cue_xf)
+    if cue.get("fade_out_ms") is not None:
+        try:
+            fade_out = max(0, int(cue["fade_out_ms"]))
+        except (TypeError, ValueError):
+            fade_out = max(default_out, cue_xf)
+    else:
+        fade_out = max(default_out, cue_xf)
+    curve = float(presence.get("bed_fade_curve") or 1.8)
+    return fade_in, fade_out, curve
 
 
 def _cold_open_bridge_budget_ms(ctx: RunContext) -> int:
@@ -775,13 +830,14 @@ def flow1_overlays_from_sdp(
     segment_flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (segment_flags.get("overlap_high") or [])}
     # Soft map episode_structure music_transition verbs → duck / level nudge
+    # Speech (native + synthetic VO) always wins — deeper duck under dialogue/VO.
     _verb_duck = {
-        "under_speech": duck_default,
-        "into_speech": max(duck_default, 18.0),
-        "around_vo": max(duck_default, 20.0),
+        "under_speech": max(duck_default, MIN_DUCK_DB),
+        "into_speech": max(duck_default, MIN_DUCK_DB + 2.0),
+        "around_vo": max(duck_default, MIN_DUCK_DB + 4.0),
         "silence_as_transition": 99.0,
-        "resolve_swell": max(8.0, duck_default - 4.0),
-        "tension_hold": duck_default + 2.0,
+        "resolve_swell": max(MIN_DUCK_DB - 2.0, duck_default - 2.0),
+        "tension_hold": max(duck_default, MIN_DUCK_DB) + 2.0,
     }
 
     # Consecutive per-segment beds using the same motif are one musical scene,
@@ -890,27 +946,12 @@ def flow1_overlays_from_sdp(
             if verb == "silence_as_transition":
                 continue
             duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
-            junction_cfg = _mix_cfg().get("junction_crossfades")
-            if not isinstance(junction_cfg, dict):
-                junction_cfg = {}
-            fade_default = (
-                1800
-                if placement == "under_segment_span"
-                else junction_crossfade_ms(
-                    "speech", "music", config=junction_cfg, default_ms=120
-                )
+            fade_in, fade_out, fade_curve = _bed_fade_ms(
+                placement=placement, cue=cue, profile=profile if isinstance(profile, dict) else None
             )
-            fade_in = int(cue.get("crossfade_ms") or fade_default)
-            fade_out = int(
-                cue.get("crossfade_ms")
-                or (
-                    2200
-                    if placement == "under_segment_span"
-                    else junction_crossfade_ms(
-                        "music", "speech", config=junction_cfg, default_ms=150
-                    )
-                )
-            )
+            # Keep a little body when the bed is short; still prefer long tails.
+            fade_in = min(fade_in, max(40, dur // 3))
+            fade_out = min(fade_out, max(80, (dur * 2) // 3))
             bed = loop_to_duration(base, dur)
             bed = apply_pan_position(bed, cue.get("pan_position"))
             speech_window = None
@@ -924,7 +965,8 @@ def flow1_overlays_from_sdp(
                 level_db=level_db,
                 duck_db=duck_db,
             )
-            bed = bed.fade_in(fade_in).fade_out(fade_out)
+            bed = organic_fade_in(bed, fade_in, curve=fade_curve)
+            bed = organic_fade_out(bed, fade_out, curve=fade_curve)
             out.append(
                 {
                     "audio": bed,
@@ -947,15 +989,25 @@ def flow1_overlays_from_sdp(
                 continue
             stinger_count += 1
 
-        fade_in = int(cue.get("crossfade_ms") or 50)
-        fade_out = int(cue.get("crossfade_ms") or 130)
         presence = _music_presence_cfg()
+        fade_in = int(cue.get("crossfade_ms") or 80)
+        fade_out = max(
+            int(cue.get("crossfade_ms") or 0),
+            int(presence.get("stinger_fade_out_ms") or 350),
+        )
         if asset_role in {"theme_cold_open", "theme_outro"}:
-            fade_in = max(fade_in, int(presence.get("cold_open_lead_in_fade_ms") or 600))
+            fade_in = max(fade_in, int(presence.get("cold_open_lead_in_fade_ms") or 900))
+            fade_out = max(fade_out, int(presence.get("bookend_fade_out_ms") or 1800))
             base = enhance_speech_free_theme(base, role=asset_role)
         elif asset_role in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}:
+            fade_out = max(fade_out, int(presence.get("accent_fade_out_ms") or 600))
             base = enhance_speech_free_theme(base, role=asset_role)
-        cue_audio = base.apply_gain(level_db).fade_in(fade_in).fade_out(fade_out)
+        # Short punctuators must keep a body — don't let long organic tails eat the hit.
+        body_ms = max(1, len(base))
+        fade_in = min(fade_in, max(20, body_ms // 5))
+        fade_out = min(fade_out, max(40, body_ms // 3))
+        cue_audio = organic_fade_in(base.apply_gain(level_db), fade_in)
+        cue_audio = organic_fade_out(cue_audio, fade_out)
         cue_audio = apply_pan_position(cue_audio, cue.get("pan_position"))
         pos = flow1_cue_position(
             cue=cue,
@@ -974,8 +1026,8 @@ def flow1_overlays_from_sdp(
                 gap = int(qs) - int(pe)
                 fit = max(800, gap - max(80, air_ms // 2))
                 if len(cue_audio) > fit:
-                    tail_fade = min(180, fit // 4)
-                    cue_audio = cue_audio[:fit].fade_out(tail_fade)
+                    tail_fade = min(max(400, fit // 3), fit)
+                    cue_audio = organic_fade_out(cue_audio[:fit], tail_fade)
             pos = cold_open_position_ms(
                 theme_duration_ms=len(cue_audio),
                 landmarks=landmarks,
@@ -1053,7 +1105,16 @@ def flow1_overlays_legacy(
     ordered_seg_ids = sorted(segment_timing.keys(), key=lambda sid: segment_timing[sid][0])
     out: list[dict[str, Any]] = []
     bed = loop_to_duration(load_audio(sfx_files[0]), timeline_ms)
-    out.append({"audio": bed.apply_gain(-36.0).fade_in(200).fade_out(250), "position_ms": 0, "role": "bed"})
+    out.append(
+        {
+            "audio": organic_fade_out(
+                organic_fade_in(bed.apply_gain(-36.0), 400),
+                900,
+            ),
+            "position_ms": 0,
+            "role": "bed",
+        }
+    )
     segment_ends = sorted(end for _start, end in segment_timing.values())
     for i, path in enumerate(sfx_files[1:]):
         pos = segment_ends[min(i, max(0, len(segment_ends) - 1))] if segment_ends else 0
@@ -1077,7 +1138,10 @@ def flow1_overlays_legacy(
                         level="info",
                         stage="mix",
                     )
-        sting = load_audio(path).apply_gain(-16.0).fade_in(40).fade_out(180)
+        sting = organic_fade_out(
+            organic_fade_in(load_audio(path).apply_gain(-18.0), 60),
+            350,
+        )
         out.append({"audio": sting, "position_ms": aligned, "role": "stinger"})
     return out
 
@@ -1443,11 +1507,6 @@ def load_audio(path: Path) -> AudioSegment:
     return seg.set_channels(1).set_frame_rate(DEFAULT_FRAME_RATE)
 
 
-def _music_presence_cfg() -> dict[str, Any]:
-    raw = (_mix_cfg().get("music_presence") or {})
-    return raw if isinstance(raw, dict) else {}
-
-
 def enhance_speech_free_theme(segment: AudioSegment, *, role: str) -> AudioSegment:
     """Stereo width + gentle high shelf for cold open / outro / accents (beds stay mono)."""
     from interview_mux.music_motif import THEME_BED_ROLES, is_theme_role
@@ -1520,17 +1579,17 @@ def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float
     from interview_mux.creative_delivery import audibility_level_db, creative_delivery_required
 
     default_level_db = audibility_level_db(role="bed", default=default_level_db)
-    if creative_delivery_required():
-        return default_level_db
+    # Always prefer quieter beds under dense speech — creative delivery still
+    # stays inside the audible band, but never hotter than speech can carry.
     profile = load_profile(ctx)
     if not isinstance(profile, dict):
         return default_level_db
     pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
     if speech_active_ratio >= 0.75:
-        return min(default_level_db, -30.0)
+        return min(default_level_db, -28.0 if creative_delivery_required() else -30.0)
     if speech_active_ratio >= 0.6:
-        return min(default_level_db, -28.0)
+        return min(default_level_db, -26.0 if creative_delivery_required() else -28.0)
     return default_level_db
 
 

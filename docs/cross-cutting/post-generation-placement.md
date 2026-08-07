@@ -67,8 +67,8 @@ When `sound_design.placement_qa_enabled: true`, `run_placement_qa()` may emit `s
 
 | Consumer | Field used | Fallback |
 |----------|------------|----------|
-| Flow 1 beds (`under_segment`) | `cue.crossfade_ms` for `fade_in` / `fade_out` | 120 / 150 ms |
-| Flow 1 stingers / bridges | `cue.crossfade_ms` for overlay fades | 50 / 130 ms |
+| Flow 1 beds (`under_segment`) | organic `bed_fade_*` (cue `fade_out_ms` / `crossfade_ms` may only lengthen) | **700 / 2200 ms** (span beds ~3200 ms out) |
+| Flow 1 stingers / bridges | organic edge fades capped to ~1/3 of clip | 80 / 350 ms defaults |
 | Flow 1 speech joins | `crossfade_ms` on `after_segment` / `before_segment` transition cues | `mix_engine.crossfade_ms_flow1` (100 ms) |
 | Flow 2 highlight joins | `between_clips` cue `crossfade_ms` via `resolve_between_clip_transition()` | `mix_engine.crossfade_ms_flow2` (120 ms) |
 
@@ -94,8 +94,8 @@ When enabled (default), `flow1_overlays_from_sdp()` adjusts bed `level_db` via `
 
 | SAP `speech_active_ratio` | Effective bed ceiling |
 |---------------------------|------------------------|
-| ≥ 0.75 | `min(default_level_db, -26 dB)` |
-| ≥ 0.60 | `min(default_level_db, -24 dB)` |
+| ≥ 0.75 | `min(default_level_db, -28 dB)` |
+| ≥ 0.60 | `min(default_level_db, -26 dB)` |
 | else | `default_level_db` from SDP cue |
 
 Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech-first default; extra −2 dB for `panel`, `trauma_adjacent`, `noisy_room` buckets).

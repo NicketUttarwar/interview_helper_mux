@@ -42,7 +42,7 @@ _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_who
 
 _MIN_BED_SEGMENT_MS = 12_000
 _MIN_BED_SEGMENT_MS_FINE = 6_000
-_DEFAULT_BED_LEVEL = -22.0
+_DEFAULT_BED_LEVEL = -26.0
 
 
 def _min_bed_segment_ms(cfg: dict[str, Any] | None = None) -> int:
@@ -208,11 +208,11 @@ def score_cue_slots(
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     sap = load_profile(ctx) or {}
     music_risk = str(sap.get("source_music_risk") or "low")
-    bed_range = mix_contract.get("bed_level_db_range") or [-24.0, -20.0]
+    bed_range = mix_contract.get("bed_level_db_range") or [-28.0, -24.0]
     bed_level = float(bed_range[0] + bed_range[-1]) / 2.0 if isinstance(bed_range, list) and len(bed_range) == 2 else _DEFAULT_BED_LEVEL
     if pace in {"brisk", "dense"}:
-        # At most 1 dB quieter than conversational mid — do not bury to −30.
-        bed_level = min(bed_level, -21.0)
+        # Prefer quieter beds under dense dialogue — never hotter than −25.
+        bed_level = min(bed_level, -25.0)
 
     sdp = {}
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -337,15 +337,15 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
 
     duck = float(sap_mix.get("duck_under_speech_db") or 16.0)
     if pace in {"brisk", "dense"}:
-        duck = max(duck, 18.0)
+        duck = max(duck, 20.0)
     stinger_cap = float(
         sonic_mix.get("stinger_cap_per_minute")
         or sap_mix.get("stinger_max_per_minute")
         or 4
     )
-    bed_range = sap_mix.get("bed_level_db_range") or [-24.0, -20.0]
+    bed_range = sap_mix.get("bed_level_db_range") or [-28.0, -24.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
-        bed_range = [-24.0, -20.0]
+        bed_range = [-28.0, -24.0]
     coverage = 0.4
     if underscore == "sparse":
         coverage = 0.28

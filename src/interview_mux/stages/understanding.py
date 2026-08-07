@@ -593,22 +593,22 @@ def _derive_source_music_risk(pacing: dict[str, Any], energy: dict[str, Any]) ->
 
 def _derive_mix_contract(pacing: dict[str, Any], source_music_risk: str) -> dict[str, Any]:
     pace = pacing.get("pace_class", "conversational")
-    # Audible beds under dialogue (including dense) — presence via level + duck, not −32 bury.
+    # Audible beds under dialogue — presence via level + hard duck, never drowning speech.
     if pace == "dense":
-        bed_range = [-24, -20]
-        duck = 20
+        bed_range = [-28, -24]
+        duck = 22
         max_stingers = 1
     elif pace == "brisk":
-        bed_range = [-24, -20]
-        duck = 18
+        bed_range = [-28, -24]
+        duck = 20
         max_stingers = 2
     elif pace == "calm":
-        bed_range = [-24, -20]
-        duck = 14
+        bed_range = [-28, -24]
+        duck = 18
         max_stingers = 3
     else:
-        bed_range = [-25, -21]
-        duck = 18
+        bed_range = [-28, -24]
+        duck = 20
         max_stingers = 2
 
     if source_music_risk == "high":
@@ -704,8 +704,8 @@ def _placement_hints(pacing: dict[str, Any]) -> dict[str, Any]:
         base_pause = 320
     return {
         "stinger_min_pause_after_speech_ms": base_pause,
-        "bed_fade_in_ms": 300,
-        "bed_fade_out_ms": 500,
+        "bed_fade_in_ms": 700,
+        "bed_fade_out_ms": 2200,
         "prefer_stinger_after_pause_tail": True,
     }
 

@@ -270,6 +270,8 @@ def test_sidechain_bed_under_speech_quieter_than_silence(tmp_path: Path, monkeyp
                             "segment_id": "seg_a",
                             "level_db": -12.0,
                             "duck_under_speech_db": 16.0,
+                            "fade_in_ms": 20,
+                            "fade_out_ms": 20,
                             "crossfade_ms": 0,
                         }
                     ],
@@ -353,5 +355,8 @@ def test_stingers_not_sidechain_ducked(tmp_path: Path, monkeypatch) -> None:
     assert stats["stingers"] + stats["bridges"] >= 1
     cue_audio = overlays[0]["audio"]
     assert isinstance(cue_audio, AudioSegment)
-    # Stinger at level_db 0 should remain near source loudness (no duck depth)
-    assert abs(cue_audio.dBFS - sting.dBFS) < 2.0
+    # Stinger at level_db 0 should keep body loudness (no duck depth); organic
+    # edge fades may trim tips but the mid-body stays near source.
+    mid = cue_audio[len(cue_audio) // 3 : (2 * len(cue_audio)) // 3]
+    src_mid = sting[len(sting) // 3 : (2 * len(sting)) // 3]
+    assert abs(mid.dBFS - src_mid.dBFS) < 2.0

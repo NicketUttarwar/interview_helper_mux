@@ -1049,7 +1049,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `soundscape.remediation.max_regen_per_asset` | `2` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
 | `soundscape.min_density.min_bed_coverage_ratio` | `0.28` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
 | `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `1` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
-| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-26` / `-22` | Bed level plausibility bounds | Loosely enforced audibility floor/ceiling |
+| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-28` / `-24` | Bed level plausibility bounds | Speech-first audible band — beds stay present but must not drown native/synthetic dialogue |
 
 **Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.28`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
@@ -1074,17 +1074,19 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.junction_crossfades.speech_to_vo` | `80` | Speech→VO join ms |
 | `mix.junction_crossfades.vo_to_speech` | `100` | VO→speech join ms |
 | `mix.junction_crossfades.vo_to_vo` | `80` | VO↔VO join ms |
-| `mix.junction_crossfades.music_to_speech` / `speech_to_music` | `180` | Music↔speech joins; SDP per-pair overrides still win when present |
+| `mix.junction_crossfades.music_to_speech` / `speech_to_music` | `900` / `600` | Music↔speech joins; SDP per-pair overrides still win when present |
 | `mix.junction_crossfades.*` | `audio_timeline.junction_crossfade_ms`, `sound_design.mix` | Type-specific speech↔VO and music↔speech joins; values are milliseconds |
 | `mix.per_speaker_level_match.enabled` | `speaker_level_match`, `sound_design.mix` | Matches dialogue speakers to the run median before assembly (default `true`) |
 | `mix.per_speaker_level_match.max_gain_db` | `speaker_level_match` | Caps per-speaker correction at ±6 dB by default |
 | `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
 | `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
-| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls attenuation response and envelope resolution |
-| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~5; keep modest so adjacent VO stays on top) |
+| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls attenuation response and envelope resolution (defaults ~15 / 480 / 10) |
+| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~2.5; keep modest so adjacent VO stays on top) |
 | `mix.music_presence.cold_open_lead_in_fade_ms` | `sound_design.py` | Fade-in for speech-free cold open / outro bookends |
 | `mix.music_presence.cold_open_air_ms` | `sound_design.py` / `_cold_open_bridge_budget_ms` | Air reserved after preface VO for the cold-open bridge before the question |
 | `mix.music_presence.chapter_resolve_breathe_ms` | `sound_design.py` | Dry micro-gap after chapter resolve before speech resumes |
+| `mix.music_presence.bed_fade_in_ms` / `bed_fade_out_ms` / `bed_span_fade_out_ms` | `sound_design._bed_fade_ms` | Organic under-segment bed fades (defaults ~700 / 2200 / 3200); cue crossfades may only lengthen |
+| `mix.music_presence.bed_fade_curve` | `audio_timeline.organic_fade_*` | Taper power (>1 keeps beds present longer then soft-lands into silence) |
 | `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
 | `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
 | `mix.require_preclean_acknowledgment` | *(deprecated — unused)* | Formerly gated mix/master stages on mid-pipeline pre-clean ack; v1 offers only `before_ingest` and `g1_vo_pickup` (non-blocking) |
