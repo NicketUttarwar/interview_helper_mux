@@ -738,6 +738,20 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
     from interview_mux.spoken_meta_lint import lint_gap_report_lines
 
     errors.extend(lint_gap_report_lines({"interviewer_lines": lines}))
+    try:
+        from interview_mux.gap_vo_prior_context import vo_value_violations
+
+        segs_by_id: dict[str, dict[str, Any]] = {}
+        if ctx.artifact_exists("segments/manifest.json"):
+            man = ctx.read_json("segments/manifest.json")
+            if isinstance(man, dict):
+                for row in man.get("segments") or []:
+                    if isinstance(row, dict) and row.get("segment_id"):
+                        segs_by_id[str(row["segment_id"])] = row
+        # Prefer richer target text from compose packet when audit was stamped.
+        errors.extend(vo_value_violations(lines if isinstance(lines, list) else [], segments_by_id=segs_by_id))
+    except Exception as exc:
+        errors.append(f"vo_value_gate failed: {exc}")
     return errors
 
 

@@ -2,6 +2,25 @@ Write interviewer **framing audio** lines for a long-form podcast master (see ta
 
 Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so host VO breaks long monologues and orients the listener.
 
+## Conversation partner (required)
+
+Each synthetic line is a **value-adding conversation partner turn** — like a real interviewer who earns their place in the dialogue. Native clips stay intact; your VO must unlock listener understanding the next clip does **not** already carry.
+
+Required moves (pick what the seam needs):
+- Unlock stakes / why this beat matters now
+- Ask a real follow-up that clearly follows from the prior native beat
+- Define assumed knowledge (`extracted_context`)
+- Soft react / acknowledge then bridge
+- Bridge topics without replaying old audio
+
+**Never** paraphrase or restate the next native clip’s claim. Read `target_native_contexts[S]` to know what the upcoming clip already says — complement it, do not summarize it back at the listener (except intentional `segment_summary` when replacing redundant source setup via `replaces_source_segments`).
+
+Every line needs a non-empty `rationale` stating the conversational value (mission accomplished).
+
+POV may be host first person, second person (addressing guest/listener), or expository third person — jump person when bridging vs addressing needs it. Honor `mastering_plan_summary.pov` / narrative mode when present.
+
+Honor `vo_missions[S].mission` and talking-point titles when present.
+
 ## Density north star (required)
 
 When `vo_line_budget` is present in stage input:
@@ -39,13 +58,15 @@ Map `gap_type` from evaluations to category when appropriate. Prefer **segment_s
 - Set `estimated_duration_sec` roughly from word count ÷ 2.5.
 - Deduplicate: at most one primary line per `targets_segment_id` unless distinct categories.
 
-## Prior native context (required)
+## Prior + target native context (required)
 
-Stage input includes `prior_native_contexts` (keyed by `targets_segment_id`) and `prior_native_context_policy`.
+Stage input includes `prior_native_contexts`, `target_native_contexts`, `vo_missions`, and `prior_native_context_policy` / `vo_partner_policy`.
 
 For **every** interviewer line targeting segment `S`:
-- Read `prior_native_contexts[S]` — the **immediate prior ordered native segment** (text, end quote, impact/complete flags, chapter).
-- Condition wording on that prior beat. Optional provenance fields: `prior_segment_id`, `prior_impact_beat`.
+- Read `prior_native_contexts[S]` — the **immediate prior ordered native segment**.
+- Read `target_native_contexts[S]` — the **upcoming** native clip (do not restate it).
+- Honor `vo_missions[S]` — the job this line must do.
+- Condition wording on prior **and** next. Optional provenance: `prior_segment_id`, `prior_impact_beat`.
 
 When `prior_impact_beat` is true **or** the prior close is a complete strong statement:
 - **Forbid** interruptive openers: “Let me pause you there”, “Hold on”, “Stop right there”, “Wait”, “Hang on”.
@@ -59,10 +80,12 @@ Density floor still applies (`vo_line_budget.min`), but **courtesy and prior con
 - `vo_line_budget` — `{min, ideal, max}` density contract
 - `gap_evaluations.evaluations[]` — use `recommended_framing`, `candidate_for_summary`, `supports_ranking_exclude`
 - `content_brief` — thesis, topics, claims
+- `talking_points` — must/should keep spine (when present)
 - `segments` manifest
 - `episode_structure` / narrative chapters when present — act boundaries for prefaces
 - `gap_framing_policy` word limits from stage input
-- `prior_native_contexts` / `prior_native_context_policy` / `prior_impact_highlights` — prior ordered native beats for VO conditioning
+- `prior_native_contexts` / `target_native_contexts` / `vo_missions` / partner + prior policies
+- `prior_impact_highlights` — prior ordered native beats for VO conditioning
 
 Do not:
 - Write leading or sensational copy.
@@ -70,6 +93,7 @@ Do not:
 - Put words in the interviewee's mouth.
 - Default to sparse “four lines total” when `vo_line_budget.min` is higher.
 - Interrupt a complete mic-drop prior beat with pause-you-there stock.
+- Restate or paraphrase the next native clip.
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/gap_report.schema.json` plus `gap_framing_plan`:
 

@@ -88,35 +88,128 @@ def run_speaker_roles(ctx: RunContext) -> None:
         )
 
 
-def run_content_context(ctx: RunContext) -> None:
-    def build_input(c: RunContext) -> dict:
-        transcript = c.read_json("transcript/full.json")
-        payload: dict = {"transcript": transcript.get("text", "")}
-        if c.artifact_exists("understanding/speakers.json"):
-            payload["speakers"] = c.read_json("understanding/speakers.json")
-        quality = transcript_quality_for_ctx(c)
-        if quality:
-            payload["transcript_quality"] = quality
-        profile = load_profile(c)
-        if profile:
-            payload["source_acoustic_pacing"] = pacing_one_liner(profile)
-        from interview_mux.interview_spine.compact import attach_spine_to_payload
+def _content_context_base_payload(c: RunContext, transcript_text: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {"transcript": transcript_text}
+    if c.artifact_exists("understanding/speakers.json"):
+        payload["speakers"] = c.read_json("understanding/speakers.json")
+    quality = transcript_quality_for_ctx(c)
+    if quality:
+        payload["transcript_quality"] = quality
+    profile = load_profile(c)
+    if profile:
+        payload["source_acoustic_pacing"] = pacing_one_liner(profile)
+    from interview_mux.interview_spine.compact import attach_spine_to_payload
 
-        attach_spine_to_payload(c, payload, "content_context")
-        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+    attach_spine_to_payload(c, payload, "content_context")
+    return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+
+
+def _talking_points_base_payload(c: RunContext, transcript_text: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "transcript_text": transcript_text,
+        "transcript_samples": {"opening": transcript_text},
+    }
+    if c.artifact_exists("understanding/content_brief.json"):
+        payload["content_brief"] = c.read_json("understanding/content_brief.json")
+    if c.artifact_exists("understanding/speakers.json"):
+        payload["speakers"] = c.read_json("understanding/speakers.json")
+    quality = transcript_quality_for_ctx(c)
+    if quality:
+        payload["transcript_quality"] = quality
+    from interview_mux.interview_spine.compact import attach_spine_to_payload
+
+    attach_spine_to_payload(c, payload, "talking_points_compose")
+    return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
+
+
+def run_content_context(ctx: RunContext) -> None:
+    from interview_mux.llm_simple import run_llm_stage_simple
+    from interview_mux.transcript_shards import (
+        build_transcript_shards,
+        merge_content_brief_artifacts,
+        needs_transcript_sharding,
+    )
 
     persist = make_stage_persist("understanding/content_brief.json", "content_context")
     prompt_rel = prompt_variant("understanding/content-context.system.txt", ctx)
 
+    transcript = ctx.read_json("transcript/full.json")
+    full_text = str(transcript.get("text") or "")
+    words = [w for w in (transcript.get("words") or []) if isinstance(w, dict)]
+
     with logged_step("content_context/llm_stage", ctx=ctx, stage="content_context"):
-        run_analysis_llm_stage(
-            ctx,
-            "content_context",
-            prompt_rel,
-            build_input,
-            persist,
-            sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
-        )
+        if not needs_transcript_sharding(full_text):
+
+            def build_input(c: RunContext) -> dict:
+                t = c.read_json("transcript/full.json")
+                return _content_context_base_payload(c, str(t.get("text") or ""))
+
+            run_analysis_llm_stage(
+                ctx,
+                "content_context",
+                prompt_rel,
+                build_input,
+                persist,
+                sync_fn=lambda c, a: sync_content_brief_to_state(c, a),
+            )
+        else:
+            shards = build_transcript_shards(full_text, words=words or None)
+            ctx.log(
+                f"content_context proactive batch: {len(full_text)} chars → "
+                f"{len(shards)} shard(s)",
+                level="info",
+                stage="content_context",
+                action_id="content_context.proactive_batch",
+                detail={"chars": len(full_text), "shards": len(shards)},
+            )
+
+            def _noop_persist(_c: RunContext, _artifacts: dict) -> None:
+                return None
+
+            parts: list[dict[str, Any]] = []
+            for shard in shards:
+
+                def build_batch(
+                    c: RunContext,
+                    *,
+                    _shard=shard,
+                ) -> dict:
+                    payload = _content_context_base_payload(c, _shard.text)
+                    payload["_transcript_shard"] = _shard.meta()
+                    return payload
+
+                ctx.log(
+                    f"content_context shard {shard.shard_index}/{shard.shard_total} "
+                    f"({len(shard.text)} chars)",
+                    level="action",
+                    stage="content_context",
+                    action_id="content_context.shard",
+                )
+                envelope = run_llm_stage_simple(
+                    ctx,
+                    "content_context",
+                    prompt_rel,
+                    build_batch,
+                    _noop_persist,
+                    auto_complete=False,
+                )
+                arts = envelope.get("artifacts") if isinstance(envelope.get("artifacts"), dict) else {}
+                if isinstance(arts, dict) and arts:
+                    parts.append(arts)
+
+            if not parts:
+                raise RuntimeError("content_context proactive batch produced no shard artifacts")
+            merged = merge_content_brief_artifacts(parts)
+            persist(ctx, merged)
+            sync_content_brief_to_state(ctx, merged)
+            ctx.mark_done("content_context")
+            ctx.log(
+                f"content_context batched complete ({len(parts)} shards merged)",
+                level="success",
+                stage="content_context",
+                action_id="content_context.proactive_batch_complete",
+            )
+
     if ctx.is_done("content_context"):
         with logged_step("content_context/post_hooks", ctx=ctx, stage="content_context"):
             maybe_auto_extract_value_features(ctx)
@@ -129,6 +222,12 @@ def run_content_context(ctx: RunContext) -> None:
 def run_talking_points_compose(ctx: RunContext) -> None:
     """Holistic talking-point plan before ideal cut windows."""
     from interview_mux.ideal_cuts import ideal_cuts_cfg
+    from interview_mux.llm_simple import run_llm_stage_simple
+    from interview_mux.transcript_shards import (
+        build_transcript_shards,
+        merge_talking_points_artifacts,
+        needs_transcript_sharding,
+    )
 
     if not ideal_cuts_cfg().get("enable", True):
         ctx.write_json(
@@ -151,53 +250,89 @@ def run_talking_points_compose(ctx: RunContext) -> None:
         ctx.mark_done("talking_points_compose", force=True)
         return
 
-    def build_input(c: RunContext) -> dict:
-        transcript = c.read_json("transcript/full.json")
-        words = transcript.get("words") or []
-        sample_chars = int(
-            ((merged_config().get("analysis") or {}).get("context") or {}).get(
-                "transcript_full_chars", 72000
-            )
-        )
-        if words:
-            samples = stratified_transcript_samples_from_words(
-                words, total_chars=sample_chars
-            )
-        else:
-            from interview_mux.transcript_sampling import stratified_transcript_samples
-
-            samples = stratified_transcript_samples(
-                transcript.get("text", ""), total_chars=sample_chars
-            )
-        payload: dict[str, Any] = {
-            "transcript_samples": samples,
-            "transcript_text": (transcript.get("text") or "")[:sample_chars],
-        }
-        if c.artifact_exists("understanding/content_brief.json"):
-            payload["content_brief"] = c.read_json("understanding/content_brief.json")
-        if c.artifact_exists("understanding/speakers.json"):
-            payload["speakers"] = c.read_json("understanding/speakers.json")
-        quality = transcript_quality_for_ctx(c)
-        if quality:
-            payload["transcript_quality"] = quality
-        from interview_mux.interview_spine.compact import attach_spine_to_payload
-
-        attach_spine_to_payload(c, payload, "talking_points_compose")
-        return attach_disfluency_context(attach_adaptation_to_payload(c, payload), c)
-
     persist = make_stage_persist(
         "understanding/talking_points.json", "talking_points_compose"
     )
+    prompt_rel = "understanding/talking-points-compose.system.txt"
+    transcript = ctx.read_json("transcript/full.json")
+    full_text = str(transcript.get("text") or "")
+    words = [w for w in (transcript.get("words") or []) if isinstance(w, dict)]
+
     with logged_step(
         "talking_points_compose/llm_stage", ctx=ctx, stage="talking_points_compose"
     ):
-        run_analysis_llm_stage(
-            ctx,
-            "talking_points_compose",
-            "understanding/talking-points-compose.system.txt",
-            build_input,
-            persist,
-        )
+        if not needs_transcript_sharding(full_text):
+
+            def build_input(c: RunContext) -> dict:
+                t = c.read_json("transcript/full.json")
+                return _talking_points_base_payload(c, str(t.get("text") or ""))
+
+            run_analysis_llm_stage(
+                ctx,
+                "talking_points_compose",
+                prompt_rel,
+                build_input,
+                persist,
+            )
+        else:
+            shards = build_transcript_shards(full_text, words=words or None)
+            ctx.log(
+                f"talking_points_compose proactive batch: {len(full_text)} chars → "
+                f"{len(shards)} shard(s)",
+                level="info",
+                stage="talking_points_compose",
+                action_id="talking_points.proactive_batch",
+                detail={"chars": len(full_text), "shards": len(shards)},
+            )
+
+            def _noop_persist(_c: RunContext, _artifacts: dict) -> None:
+                return None
+
+            parts: list[dict[str, Any]] = []
+            for shard in shards:
+
+                def build_batch(
+                    c: RunContext,
+                    *,
+                    _shard=shard,
+                ) -> dict:
+                    payload = _talking_points_base_payload(c, _shard.text)
+                    payload["_transcript_shard"] = _shard.meta()
+                    return payload
+
+                ctx.log(
+                    f"talking_points_compose shard {shard.shard_index}/{shard.shard_total} "
+                    f"({len(shard.text)} chars)",
+                    level="action",
+                    stage="talking_points_compose",
+                    action_id="talking_points.shard",
+                )
+                envelope = run_llm_stage_simple(
+                    ctx,
+                    "talking_points_compose",
+                    prompt_rel,
+                    build_batch,
+                    _noop_persist,
+                    auto_complete=False,
+                )
+                arts = envelope.get("artifacts") if isinstance(envelope.get("artifacts"), dict) else {}
+                if isinstance(arts, dict) and arts:
+                    parts.append(arts)
+
+            if not parts:
+                raise RuntimeError(
+                    "talking_points_compose proactive batch produced no shard artifacts"
+                )
+            merged = merge_talking_points_artifacts(parts)
+            persist(ctx, merged)
+            ctx.mark_done("talking_points_compose")
+            ctx.log(
+                f"talking_points_compose batched complete ({len(parts)} shards, "
+                f"{len(merged.get('talking_points') or [])} points)",
+                level="success",
+                stage="talking_points_compose",
+                action_id="talking_points.proactive_batch_complete",
+            )
 
 
 def run_ideal_cuts_propose(ctx: RunContext) -> None:

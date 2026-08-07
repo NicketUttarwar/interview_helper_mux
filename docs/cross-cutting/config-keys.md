@@ -101,6 +101,9 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.prior_native_context.volley_turns_enabled` | `llm_simple` + `gap_vo_prior_context` | Prepend sequential user/assistant prior-beat turns before gap framing compose (default **true**) |
 | `analysis.gap_framing.prior_native_context.rewrite_density_seeds` | `artifact_repairs._enforce_min_vo_insert_ratio` | Rewrite interruptive density stock using prior beat (default **true**) |
 | `analysis.gap_framing.prior_native_context.relocate_micro_targets` | `gap_vo_prior_context` | Move density VO off micro backchannels onto next substantive segment (default **true**) |
+| `analysis.gap_framing.vo_value_gate.enabled` | `vo_value_violations`, `deterministic_lint` | Enforce conversation-partner VO quality (rationale + no-restate) (default **true**) |
+| `analysis.gap_framing.vo_value_gate.restate_overlap_max` | `vo_value_violations` | Max VO↔next-clip content-token overlap before fail (default **0.42**) |
+| `analysis.gap_framing.vo_value_gate.require_rationale` | `vo_value_violations` | Require non-empty `rationale` on each interviewer line (default **true**) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
@@ -406,20 +409,22 @@ These configured the pre-v2 orchestrator loop, volley retries, and investigation
 
 ## `analysis.context.*`
 
-Consumed by `stage_input_helpers` context shaping. Defaults in `config/app.defaults.json` (shipped: `transcript_full_chars` 72000, `max_stage_data_chars` 64000, `max_segments_in_context` 100). See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
+Consumed by analysis stage builders and `transcript_shards` proactive batching. Defaults in `config/app.defaults.json` (shipped: `proactive_decompose_chars` 72000, `segment_text_max_chars` 400). See [long-interview-chunking.md](../workflows/long-interview-chunking.md).
 
 | Key | If wrong |
 |-----|----------|
-| `transcript_excerpt_chars` | Legacy excerpt fallback truncated in mid-pipeline stages |
-| `transcript_full_chars` | Early understanding/segmentation blind past cutoff |
+| `transcript_excerpt_chars` | Legacy / unused in v2 builders |
+| `transcript_full_chars` | Legacy alias; prefer `proactive_decompose_chars` for full-tape shard threshold |
 | `speaker_roles_sample_chars` | Speaker role inference sees too little of long interviews |
 | `max_transcript_shards` | Long transcripts split into too few/many shard calls |
 | `max_shard_batches` | Legacy alias — prefer `analysis.coverage_limits.shard_batch_ceiling` |
 | `content_brief_reanchor_min_coverage_ratio` | Legacy alias — prefer `analysis.coverage_limits.reanchor_min_coverage_ratio` |
-| `proactive_decompose_chars` | `content_context` single-pass vs shard/collate threshold |
-| `segment_text_max_chars` | Gap text unreadable / over-truncated |
-| `max_segments_in_context` | Tail segments invisible to ranking-like stages |
-| `max_segments_in_gap_pass` | Gap pass misses part of timeline |
+| `proactive_decompose_chars` | `content_context` / `talking_points_compose` stay single-pass too long (context blow) or shard too early |
+| `transcript_shard_overlap_ratio` | Boundary talking points / topics lost between shards (too low) or duplicate spend (too high) |
+| `segment_text_max_chars` | Gap / compact manifest text unreadable / over-truncated |
+| `max_segments_in_context` | Documented ceiling; not all stages wire this selector |
+| `max_segments_in_gap_pass` | Soft ceiling; prefer `proactive_decompose_gap_segments` for batch size |
+| `proactive_decompose_gap_segments` | `missing_framing` batches too large (context blow) or too many shard calls |
 | `max_gap_evaluations` | Some segments never evaluated in one pass |
 | `max_stage_data_chars` | Huge payloads rejected or truncated by model host |
 | `interviewer_sample_lines` | Transitions stage lacks tone reference |

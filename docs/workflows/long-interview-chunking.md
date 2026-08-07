@@ -1,12 +1,10 @@
 # Long interviews — context caps and chunking policy
 
-When a recording is **long or dense**, LLM stages may hit **token / character caps** defined in `config/app.defaults.json` → `analysis.context` and injected into the volley builder (`src/interview_mux/stage_input_helpers.py`).
+When a recording is **long or dense**, LLM stages may hit **token / character caps** defined in `config/app.defaults.json` → `analysis.context`.
 
 This document is the **policy** for operators and implementers: what to expect, what breaks, and how to recover **without** silently losing fidelity.
 
-**Shard → collate (BUILD-073/084, shipped):** when the arbiter returns `decompose` for eligible stages, the runner shards evidence and collates — eligibility per [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md).
-
-**Proactive decompose (`content_context`):** when transcript length exceeds `proactive_decompose_chars` (default 72k, aligned with `transcript_full_chars`), the runner skips the single primary pass and goes straight to shard/collate before the arbiter.
+**v2 proactive batching (shipped):** when transcript length exceeds `proactive_decompose_chars` (default 72k), `content_context` and `talking_points_compose` run **contiguous overlapping shards** and merge artifacts (`transcript_shards.py`). `missing_framing` batches by segment IDs when count exceeds `proactive_decompose_gap_segments` (default 40), with per-segment text from `segment_text_max_chars` (default 400). This is **deterministic classification-style batching** — not the deleted LLM-arbiter shard/collate product path.
 
 **H-ORC-03 coherence (30m+):** when interview duration ≥ `coherence.min_duration_ms` (default 30 minutes), the coherence layer activates — drift/contradiction/callback risks are scored and padded into coverage/arc volleys. See [coherence-orc03.md](../cross-cutting/coherence-orc03.md).
 
@@ -16,14 +14,16 @@ This document is the **policy** for operators and implementers: what to expect, 
 
 | Key | Role | If too low / mis-set |
 |-----|------|----------------------|
-| `transcript_excerpt_chars` | Legacy single-excerpt fallback for `speaker_roles` | Truncated evidence in mid-pipeline stages |
-| `transcript_full_chars` | Full transcript cap for `content_context` / `boundary_detection` | Boundary/content passes truncated; wrong splits |
+| `transcript_excerpt_chars` | Legacy (unused in v2 builders) | — |
+| `transcript_full_chars` | Legacy alias for older sample caps | Prefer `proactive_decompose_chars` |
 | `speaker_roles_sample_chars` | Total budget for opening/middle/closing `transcript_samples` | Role inversion on long interviews |
-| `max_transcript_shards` | Max shard calls per transcript or segment batch | Tail of long interviews still blind |
-| `proactive_decompose_chars` | Auto shard/collate threshold for `content_context` | Very long interviews hit single-pass truncation |
-| `segment_text_max_chars` | Per-segment text in compact lists | Gap pass blind to long answers |
-| `max_segments_in_context` | Max segments passed into some stages (default **200** for fine granularity) | Tail segments never scored in that call |
-| `max_segments_in_gap_pass` | Gap evaluation window (default **100**) | Far-end gaps skipped in one pass |
+| `max_transcript_shards` | Max shard calls per transcript | Tail of long interviews still blind |
+| `proactive_decompose_chars` | Auto multi-pass threshold for `content_context` / `talking_points_compose` | Very long interviews hit single-pass context limits |
+| `transcript_shard_overlap_ratio` | Overlap between contiguous transcript shards (default 0.08) | Lost boundary topics or duplicate spend |
+| `segment_text_max_chars` | Per-segment text in compact manifests (wired) | Gap pass blind to long answers |
+| `max_segments_in_context` | Documented ceiling for some stages | Tail segments never scored in that call |
+| `max_segments_in_gap_pass` | Soft gap window ceiling | Prefer `proactive_decompose_gap_segments` |
+| `proactive_decompose_gap_segments` | `missing_framing` batch size (default 40) | Incomplete gap evals or oversized volleys |
 | `max_gap_evaluations` | Rows in missing-framing batch | Some segments not evaluated until re-run |
 | `max_stage_data_chars` | Total JSON payload to model | Envelope truncated / validation odd |
 | `interviewer_sample_lines` | Lines fed into transitions stage | Weaker bridge tone match |
@@ -32,71 +32,28 @@ This document is the **policy** for operators and implementers: what to expect, 
 
 ---
 
-## Decompose-eligible stages (shipped)
+## Full-tape coverage stages (shipped)
 
 | Stage | Shard strategy |
 |-------|----------------|
-| `content_context` | Transcript text chunks (proactive when over `proactive_decompose_chars`) |
-| `boundary_detection` | Time batches or segment batches |
-| `segment_classification` | Segment batches |
-| `content_brief_reanchor` | Segment batches |
-| `missing_framing` | Gap segment batches |
-| `topic_coverage_audit` | Segment batches |
-| `full_master_ranking` | Chapter or segment batches |
-| `REMOVED_highlight_selection` | Candidate segment batches |
+| `content_context` | Contiguous transcript char/word windows when over `proactive_decompose_chars`; merge brief fields |
+| `talking_points_compose` | Same; merge talking points by title (prefer higher importance) |
+| `missing_framing` | Segment-ID batches of ≤`proactive_decompose_gap_segments` with fuller `segment_text_max_chars` excerpts |
+| `segment_classification` | Segment-ID batches (`per_segment_shard_max` / `proactive_decompose_segments`) |
+| `boundary_detection` | Full text + turns via `compact_transcript_for_boundaries` (words dropped only when huge) |
 
 ---
 
-## Operator expectations (honest)
+## VO conversation partner
 
-1. **Shard/collate (BUILD-073 + BUILD-084):** When the arbiter returns `decompose` on eligible stages (or proactive decompose fires for `content_context`), the runner runs sequential shard calls then one collate call. Memory and artifacts merge only after a successful collate (or arbiter `accept`). Rejected primaries do not pollute `analysis_state.json`.
-2. **Two-pass content brief:** `content_context` extracts thesis/topics/claims/hypotheses; `content_brief_reanchor` (after `segment_classification`) grounds `segment_ids` and `topic_relationships`. A **complete** `content_brief.json` after analysis requires both passes.
-3. **`investigation_queue.json` + `follow_up_investigations`** surface “we need another pass on region X” — watch for `theme_unmapped`, `segment_ambiguity`, `gap_unresolved`, `context_truncated`.
-4. **Profile verification** (`meta.operator_verified`) before Flow 1 extended reduces wasted extended passes on wrong themes — see [operator-gates.md](./operator-gates.md).
+Gap compose/recompose receive `prior_native_contexts`, `target_native_contexts`, `vo_missions`, and compact `talking_points`. Deterministic lint (`analysis.gap_framing.vo_value_gate`) requires rationale, blocks interruptive openers after impact, and fails high VO↔next-clip token overlap (north star: no VO that only restates the next clip).
 
 ---
 
-## Strategies (pick one or combine)
+## Operator recovery
 
-| Strategy | When | Rerun boundary | Tradeoff |
-|----------|------|----------------|----------|
-| **Raise caps in config** | You have model headroom + budget | None if still single pass | $$; may hit model max context |
-| **Re-run from a mid pipeline stage** | After fixing G0 / manifest / profile | `--from-stage` per [idempotent-runs.md](./idempotent-runs.md) | Downstream invalidated |
-| **Operator edits + targeted re-run** | A theme is wrong but transcript OK | e.g. `--from-stage segment_classification` | Fastest when root cause is classification |
-| **Split into two executions** (manual) | Two logical “halves” of same recording | Two `run_id`s; merge in NLE later (advanced) | Editorial burden outside tool |
-| **Shard/collate** | Arbiter `decompose` on eligible stages (or deterministic plan when truncated) | Same stage after collate | Eligibility: [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) |
+1. Re-run from the truncated stage (`--from-stage content_context` / `talking_points_compose` / `missing_framing`).
+2. If a single shard still fails context limits, lower `proactive_decompose_chars` or `proactive_decompose_gap_segments` so more, smaller batches run.
+3. Do **not** silently accept truncated LLM markers — truncation integrity fail-closes.
 
----
-
-## Rerun boundaries (minimal invalidation)
-
-| Goal | Typical `--from-stage` |
-|------|-------------------------|
-| Fix transcript only | Dock word edits (`PATCH …/transcript/words`) or G0 chunk queue; then `transcript_review` sign-off and `speaker_roles` or full `analysis` |
-| Fix semantic brief only | `content_context` (invalidates reanchor + downstream) |
-| Fix timeline anchors / topic links | `content_brief_reanchor` (after manifest exists) |
-| Fix segmentation only | `boundary_detection` (invalidates downstream) |
-| Fix gaps only | `missing_framing` after manifest stable |
-| Fix Flow 1 order only | `full_master_ranking` (requires upstream Flow 1 artifacts) |
-
-See [feedback-loops-and-reruns.md](./feedback-loops-and-reruns.md).
-
----
-
-## Red flags (investigate)
-
-- Coverage audit shows **systematic** `missing_coverage` for tail topics.
-- `max_segments_in_context` hit in logs (if logged) or obvious omission of high-`end_ms` segments in stage input.
-- Many `partial` envelopes with `reasoning_summary` citing “truncated input”.
-- `content_brief.json` complete after `content_context` but **partial** after full analysis — missing `topic_relationships` or `topics[].segment_ids` until `content_brief_reanchor` runs.
-
-**Action:** Increase relevant cap **or** split work / re-run with corrected upstream artifacts — do not only re-prompt.
-
----
-
-## Related
-
-- [`analysis.context.*`](../cross-cutting/config-keys.md#analysiscontext) — volley caps
-- [llm-stage-model-matrix.md](../cross-cutting/llm-stage-model-matrix.md) — decompose eligibility
-- [operator-stage-checklists.md](./operator-stage-checklists.md)
-- [gui-surface-map.md](./gui-surface-map.md)
+See also: [truncation-integrity.md](../cross-cutting/truncation-integrity.md) · [config-keys.md](../cross-cutting/config-keys.md).

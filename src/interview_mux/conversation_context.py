@@ -89,6 +89,7 @@ _GAP_NOTES: dict[str, str] = {
 _STAGES_GAP_SENSITIVITY = frozenset(
     {
         "missing_framing",
+        "gap_framing_compose",
         "optimal_questions",
         "full_master_ranking",
         "edl_narrative_audit",

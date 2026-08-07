@@ -379,9 +379,17 @@ def compact_value_features_summary(ctx: RunContext) -> dict[str, Any] | None:
 def compact_manifest_for_volley(
     manifest: dict[str, Any] | None,
     *,
-    text_max: int = 180,
+    text_max: int | None = None,
 ) -> dict[str, Any]:
-    """Drop bulky segment fields so post-vernacular manifests fit model context."""
+    """Drop bulky segment fields so post-vernacular manifests fit model context.
+
+    Default ``text_max`` comes from ``analysis.context.segment_text_max_chars`` (400).
+    """
+    if text_max is None:
+        from interview_mux.transcript_shards import segment_text_max_chars
+
+        text_max = segment_text_max_chars()
+    limit = max(40, int(text_max))
     rows_in = manifest.get("segments") if isinstance(manifest, dict) else None
     if not isinstance(rows_in, list):
         return manifest if isinstance(manifest, dict) else {"segments": []}
@@ -390,8 +398,8 @@ def compact_manifest_for_volley(
         if not isinstance(row, dict):
             continue
         text = str(row.get("text") or row.get("text_excerpt") or "")
-        if len(text) > text_max:
-            text = text[: max(0, text_max - 3)] + "..."
+        if len(text) > limit:
+            text = text[: max(0, limit - 3)] + "..."
         compact_rows.append(
             {
                 "segment_id": row.get("segment_id"),

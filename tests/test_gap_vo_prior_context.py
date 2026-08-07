@@ -205,3 +205,90 @@ def test_repair_gap_report_density_courtesy(
         audit = ctx.read_json("understanding/gap_vo_context_audit.json")
         assert isinstance(audit, dict)
         assert audit.get("lines")
+
+
+def test_attach_vo_partner_context_includes_targets_and_missions(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.gap_vo_prior_context import attach_vo_partner_context_to_payload
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "vo_partner")
+    _write_manifest(ctx)
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_004",
+                    "self_explanatory": False,
+                    "gap_type": "missing_setup",
+                    "severity": "high",
+                    "listener_confusion": "Listener lacks stakes before the limited-resources beat.",
+                    "recommended_framing": "question",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/talking_points.json",
+        {
+            "strategy_summary": "Cash crunch arc",
+            "through_line": "Resources",
+            "talking_points": [
+                {
+                    "talking_point_id": "tp_cash",
+                    "title": "Cash in Bham vs Mumbai",
+                    "importance": "must_keep",
+                    "why_it_matters": "Core impact",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    payload = attach_vo_partner_context_to_payload(ctx, {})
+    assert "target_native_contexts" in payload
+    assert "seg_004" in payload["target_native_contexts"]
+    assert "limited" in payload["target_native_contexts"]["seg_004"]["text"].lower()
+    assert payload["vo_missions"]["seg_004"]["mission"]
+    assert "talking_points" in payload
+    assert payload["vo_partner_policy"]["never_restate_next_clip"] is True
+
+
+def test_vo_value_gate_flags_restate_and_missing_rationale() -> None:
+    from interview_mux.gap_vo_prior_context import vo_value_violations
+
+    target = (
+        "Because everything was put back into the company. But those were limited "
+        "resources and we could do only so much in that."
+    )
+    segs = {"seg_004": {"segment_id": "seg_004", "text": target}}
+    restating = {
+        "line_id": "vo_bad",
+        "targets_segment_id": "seg_004",
+        "line_category": "story_bridge",
+        "text": (
+            "Because everything was put back into the company but those were limited "
+            "resources and we could do only so much in that."
+        ),
+        "rationale": "bridge",
+    }
+    good = {
+        "line_id": "vo_good",
+        "targets_segment_id": "seg_004",
+        "line_category": "framing_question",
+        "text": "What forced that cash crunch to become the turning point?",
+        "rationale": "Unlock stakes before the limited-resources proof.",
+    }
+    missing = {
+        "line_id": "vo_norat",
+        "targets_segment_id": "seg_004",
+        "line_category": "framing_question",
+        "text": "What came next for the team after that moment?",
+        "rationale": "",
+    }
+    errs = vo_value_violations([restating, good, missing], segments_by_id=segs)
+    assert any("restates next clip" in e for e in errs)
+    assert any("missing rationale" in e for e in errs)
+    assert not any("vo_good" in e for e in errs)

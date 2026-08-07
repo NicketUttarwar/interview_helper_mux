@@ -65,6 +65,14 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "rewrite_density_seeds": True,
             "relocate_micro_targets": True,
         },
+        "vo_value_gate": {
+            "enabled": True,
+            "require_rationale": True,
+            "restate_overlap_max": 0.42,
+            "restate_min_vo_tokens": 6,
+            "allow_summary_overlap_max": 0.62,
+            "enforce_courtesy": True,
+        },
     }
     if isinstance(raw, dict):
         return {**defaults, **raw}

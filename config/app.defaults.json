@@ -820,9 +820,11 @@
       "max_shard_batches": 12,
       "content_brief_reanchor_min_coverage_ratio": 0.55,
       "proactive_decompose_chars": 72000,
+      "transcript_shard_overlap_ratio": 0.08,
       "segment_text_max_chars": 400,
       "max_segments_in_context": 200,
       "max_segments_in_gap_pass": 500,
+      "proactive_decompose_gap_segments": 40,
       "max_gap_evaluations": 0,
       "max_stage_data_chars": 64000,
       "interviewer_sample_lines": 8,
@@ -1030,6 +1032,14 @@
         "impact_min_duration_ms": 8000,
         "rewrite_density_seeds": true,
         "relocate_micro_targets": true
+      },
+      "vo_value_gate": {
+        "enabled": true,
+        "require_rationale": true,
+        "restate_overlap_max": 0.42,
+        "restate_min_vo_tokens": 6,
+        "allow_summary_overlap_max": 0.62,
+        "enforce_courtesy": true
       }
     },
     "gap_vo": {

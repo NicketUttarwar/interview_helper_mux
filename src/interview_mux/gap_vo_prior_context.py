@@ -404,6 +404,271 @@ def attach_prior_native_contexts_to_payload(ctx: RunContext, payload: dict[str, 
     return payload
 
 
+def build_target_native_context(
+    *,
+    target_segment_id: str,
+    segments_by_id: dict[str, dict[str, Any]],
+    chapters: list[dict[str, Any]] | None = None,
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Upcoming native clip packet so VO can unlock it without restating it."""
+    settings = cfg or prior_context_cfg()
+    tid = str(target_segment_id or "").strip()
+    seg = segments_by_id.get(tid)
+    if not tid or not isinstance(seg, dict):
+        return None
+    text = str(seg.get("text") or seg.get("text_excerpt") or "").strip()
+    full_max = int(settings.get("full_text_max_chars") or 900)
+    return {
+        "segment_id": tid,
+        "speaker_role": str(seg.get("speaker_role") or seg.get("type") or "") or None,
+        "speaker_id": str(seg.get("speaker_id") or "") or None,
+        "type": seg.get("type"),
+        "text": text[:full_max] if text else "",
+        "start_ms": int(seg.get("start_ms") or 0),
+        "end_ms": int(seg.get("end_ms") or 0),
+        "chapter_title": _chapter_title_for(tid, chapters),
+        "quote_span": _quote_span(text, max_chars=160),
+    }
+
+
+def build_target_native_contexts_map(
+    ctx: RunContext,
+    *,
+    segment_ids: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    settings = prior_context_cfg()
+    ordered, by_id, chapters = load_ordered_and_segments(ctx)
+    ids = list(segment_ids) if segment_ids is not None else list(ordered)
+    out: dict[str, dict[str, Any]] = {}
+    for tid in ids:
+        pkt = build_target_native_context(
+            target_segment_id=str(tid),
+            segments_by_id=by_id,
+            chapters=chapters,
+            cfg=settings,
+        )
+        if pkt:
+            out[str(tid)] = pkt
+    return out
+
+
+def build_vo_missions_map(
+    ctx: RunContext,
+    *,
+    segment_ids: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Per-target mission: what the synthetic line must accomplish before the clip."""
+    evals_by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        doc = ctx.read_json("understanding/gap_evaluations.json")
+        if isinstance(doc, dict):
+            for row in doc.get("evaluations") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    evals_by_id[str(row["segment_id"])] = row
+
+    tp_titles: list[str] = []
+    if ctx.artifact_exists("understanding/talking_points.json"):
+        tp = ctx.read_json("understanding/talking_points.json")
+        if isinstance(tp, dict):
+            for row in tp.get("talking_points") or []:
+                if isinstance(row, dict) and row.get("title"):
+                    tp_titles.append(str(row["title"]))
+
+    ordered, _, _ = load_ordered_and_segments(ctx)
+    ids = list(segment_ids) if segment_ids is not None else list(ordered)
+    out: dict[str, dict[str, Any]] = {}
+    for tid in ids:
+        sid = str(tid)
+        ev = evals_by_id.get(sid) or {}
+        confusion = str(ev.get("listener_confusion") or "").strip()
+        gap_type = str(ev.get("gap_type") or "").strip()
+        recommended = str(ev.get("recommended_framing") or "").strip()
+        mission = recommended or confusion
+        if not mission:
+            if gap_type and gap_type not in ("ok_with_light_bridge", "none", "ok"):
+                mission = f"Orient the listener for gap_type={gap_type} before the next native beat."
+            else:
+                mission = "Add conversational value that unlocks the next native clip without restating it."
+        out[sid] = {
+            "segment_id": sid,
+            "gap_type": gap_type or None,
+            "severity": ev.get("severity"),
+            "listener_confusion": confusion or None,
+            "recommended_framing": recommended or None,
+            "mission": mission,
+            "related_talking_point_titles": tp_titles[:8] if tp_titles else [],
+        }
+    return out
+
+
+def attach_vo_partner_context_to_payload(
+    ctx: RunContext,
+    payload: dict[str, Any],
+    *,
+    segment_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Attach target clip text + VO missions so compose can act as a conversation partner."""
+    targets = build_target_native_contexts_map(ctx, segment_ids=segment_ids)
+    missions = build_vo_missions_map(ctx, segment_ids=segment_ids)
+    if targets:
+        payload["target_native_contexts"] = targets
+    if missions:
+        payload["vo_missions"] = missions
+    payload["vo_partner_policy"] = {
+        "must_add_conversational_value": True,
+        "never_restate_next_clip": True,
+        "require_rationale": True,
+        "allowed_pov": ["host_first_person", "host_second_person", "expository_third_person"],
+        "notes": (
+            "Each synthetic line is a conversation-partner turn: unlock stakes, ask a real "
+            "follow-up, define assumed knowledge, or bridge topics. Use target_native_contexts[S] "
+            "to know what the next clip already says — do not paraphrase it. Honor vo_missions[S]."
+        ),
+    }
+    if "talking_points" not in payload and ctx.artifact_exists("understanding/talking_points.json"):
+        tp = ctx.read_json("understanding/talking_points.json")
+        if isinstance(tp, dict):
+            payload["talking_points"] = {
+                "strategy_summary": tp.get("strategy_summary"),
+                "through_line": tp.get("through_line"),
+                "talking_points": [
+                    {
+                        "talking_point_id": row.get("talking_point_id"),
+                        "title": row.get("title"),
+                        "importance": row.get("importance"),
+                        "why_it_matters": row.get("why_it_matters"),
+                    }
+                    for row in (tp.get("talking_points") or [])
+                    if isinstance(row, dict)
+                ][:40],
+            }
+    return payload
+
+
+def vo_value_gate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = ((cfg or merged_config()).get("analysis") or {}).get("gap_framing") or {}
+    block = raw.get("vo_value_gate") if isinstance(raw.get("vo_value_gate"), dict) else {}
+    defaults = {
+        "enabled": True,
+        "require_rationale": True,
+        "restate_overlap_max": 0.42,
+        "restate_min_vo_tokens": 6,
+        "allow_summary_overlap_max": 0.62,
+        "enforce_courtesy": True,
+    }
+    return {**defaults, **block}
+
+
+def _tokenize_for_overlap(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", (text or "").lower())
+
+
+def vo_target_overlap_ratio(vo_text: str, target_text: str) -> float:
+    """Fraction of VO tokens that also appear in the target clip (content-word overlap)."""
+    vo_toks = _tokenize_for_overlap(vo_text)
+    tgt_toks = set(_tokenize_for_overlap(target_text))
+    if len(vo_toks) < 1 or not tgt_toks:
+        return 0.0
+    # Drop ultra-common stopwords from VO side so short bridges aren't false-positives.
+    stop = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "is",
+        "are",
+        "was",
+        "were",
+        "that",
+        "this",
+        "it",
+        "you",
+        "we",
+        "i",
+        "he",
+        "she",
+        "they",
+        "what",
+        "how",
+        "why",
+        "when",
+        "with",
+        "as",
+        "at",
+        "be",
+        "so",
+        "if",
+        "from",
+        "about",
+        "just",
+        "like",
+        "here",
+        "next",
+        "now",
+    }
+    content = [t for t in vo_toks if t not in stop]
+    if not content:
+        return 0.0
+    hits = sum(1 for t in content if t in tgt_toks)
+    return hits / len(content)
+
+
+def vo_value_violations(
+    lines: list[dict[str, Any]],
+    *,
+    segments_by_id: dict[str, dict[str, Any]] | None = None,
+    cfg: dict[str, Any] | None = None,
+) -> list[str]:
+    """Deterministic VO partner quality: rationale + no-restate + courtesy."""
+    settings = vo_value_gate_cfg(cfg)
+    if not settings.get("enabled", True):
+        return []
+    errs: list[str] = []
+    segs = segments_by_id or {}
+    overlap_max = float(settings.get("restate_overlap_max") or 0.42)
+    summary_max = float(settings.get("allow_summary_overlap_max") or 0.62)
+    min_toks = int(settings.get("restate_min_vo_tokens") or 6)
+
+    if settings.get("enforce_courtesy", True):
+        errs.extend(courtesy_violations(lines))
+
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        lid = str(line.get("line_id") or line.get("targets_segment_id") or "?")
+        text = str(line.get("text") or "").strip()
+        if settings.get("require_rationale", True):
+            rationale = str(line.get("rationale") or "").strip()
+            if text and not rationale:
+                errs.append(f"{lid}: missing rationale (conversation-partner value)")
+        tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
+        if not tid or not text:
+            continue
+        target = segs.get(tid) or {}
+        target_text = str(target.get("text") or target.get("text_excerpt") or "")
+        if not target_text:
+            continue
+        vo_toks = _tokenize_for_overlap(text)
+        if len(vo_toks) < min_toks:
+            continue
+        ratio = vo_target_overlap_ratio(text, target_text)
+        category = str(line.get("line_category") or "").strip().lower()
+        limit = summary_max if category == "segment_summary" else overlap_max
+        if ratio > limit:
+            errs.append(
+                f"{lid}: VO restates next clip (overlap={ratio:.2f} > {limit:.2f} for {category or 'line'})"
+            )
+    return errs
+
+
 def is_interruptive_opener(text: str) -> bool:
     return bool(INTERRUPTIVE_OPENER_RE.match(text or ""))
 
