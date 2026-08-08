@@ -13,6 +13,7 @@ Each rewritten line remains a **value-adding conversation partner turn**. Use `t
 - Unlock stakes, ask a real follow-up, define assumed knowledge, or bridge — never filler.
 - **Last sentence** must be a forward unlock into the next native/VO beat without restating it. Cold open / preface last sentence must cue the first native clip (`target_native_contexts[first]`), not a generic origin prompt.
 - **Must not** paraphrase/restate the next native clip’s claim (read `target_native_contexts[S]`).
+- Segment, line, clip, and turn IDs are edit metadata only. Never speak an ID or strip its prefix and speak its number. Orient with listener-clear facts and context; when context is unavailable, use a natural relative question such as “What happened next?”
 - Keep a non-empty `rationale` stating conversational value.
 - POV may be 1st / 2nd / 3rd person as narrative mode needs.
 

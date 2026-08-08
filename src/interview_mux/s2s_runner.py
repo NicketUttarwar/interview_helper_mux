@@ -120,6 +120,23 @@ def synthesize_line(
             raise FileNotFoundError("source_audio required for DSP timbre match (convert)")
         return match_vo_take(ctx, line, Path(source_audio))
 
+    from interview_mux.spoken_copy_guard import (
+        assert_guarded_spoken_copy,
+        evidence_for_line,
+    )
+    line = dict(line)
+    guarded = assert_guarded_spoken_copy(
+        str(line.get("text") or ""),
+        evidence=evidence_for_line(line),
+        purpose=f"vo[{line.get('line_id') or 'line'}]",
+    )
+    line["text"] = guarded["text"]
+    line["spoken_copy_guard"] = {
+        "action": guarded["action"],
+        "script_hash": guarded["script_hash"],
+        "context_hash": guarded["context_hash"],
+    }
+
     chatterbox_fallback = False
     if mode == "synthesize":
         from interview_mux.chatterbox_runner import should_use_chatterbox
@@ -190,6 +207,8 @@ def synthesize_line(
         "ref_audio": str(ref),
         "out_wav": str(out_wav),
         "tone": tone or line.get("suggested_tone"),
+        "script_hash": guarded["script_hash"],
+        "context_hash": guarded["context_hash"],
     }
     if context and context.is_file():
         payload["context_audio"] = str(context)
@@ -326,6 +345,8 @@ def _append_qa_sidecar(
             "tone": payload.get("tone"),
             "ref_audio": payload.get("ref_audio"),
             "context_audio": payload.get("context_audio"),
+            "script_hash": payload.get("script_hash"),
+            "context_hash": payload.get("context_hash"),
         }
     )
     ctx.write_json(rel, {"entries": rows})

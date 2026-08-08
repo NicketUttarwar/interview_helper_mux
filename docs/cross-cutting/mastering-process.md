@@ -147,6 +147,13 @@ Until cutover: if `mastering_plan` is missing, fall back to today’s ranking pa
 
 ## Hard invariants
 
+- Exactly one early synthetic episode orientation (guest, topic, stakes) whenever
+  framing is enabled: `native hook → music → orientation → body` for an explicit
+  native cold open, otherwise `orientation → music → body`
+- The orientation is selection-independent: reordering/exclusion retargets it
+  to the final opening instead of dropping it
+- Synthetic insertion never removes an approved music asset; a speech-safe,
+  sidechain-ducked bed may overlap the orientation when the sonic plan supports it
 - Prefer **pickup-eligible** speaker for new VO; **any on-tape speaker** allowed with consent when needed
 - Never invent unspoken dialogue / false attributed claims
 - Locked **speaker volleys** stay intact through EDL

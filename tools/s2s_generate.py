@@ -20,16 +20,6 @@ def _verify() -> int:
     return 0
 
 
-def _tone_prefix(tone: str | None) -> str:
-    tone = str(tone or "neutral").lower()
-    hints = {
-        "analytical": "Deliver in a thoughtful, analytical host tone: ",
-        "consumer": "Deliver in a warm, audience-facing consumer tone: ",
-        "neutral": "",
-    }
-    return hints.get(tone, "")
-
-
 def build_tts_argv(
     *,
     model_id: str,
@@ -127,7 +117,9 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "convert mode is not supported in s2s_generate; use DSP timbre_match for matched/"
         )
 
-    spoken = _tone_prefix(tone) + text if mode == "tone" else text
+    # Tone is orchestration metadata. Never prepend delivery instructions to
+    # --text: mlx-audio treats that argument as literal listener-facing speech.
+    spoken = text
     # context_audio is intentionally ignored (mlx-audio 0.2.10 has no --context).
     _run_tts(
         model_id=model_id,
@@ -140,6 +132,7 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "mode": mode,
         "out_wav": str(out_wav),
         "model_id": model_id,
+        "tone": tone,
     }
 
 

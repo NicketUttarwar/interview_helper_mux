@@ -16,14 +16,42 @@
           },
           "fallback_from": { "type": "string" },
           "fallback_reason": { "type": "string" },
-          "ref_audio": { "type": "string" },
-          "out_wav": { "type": "string" },
+          "legacy_backend": { "type": "string" },
+          "ref_audio": { "type": ["string", "null"] },
+          "out_wav": { "type": ["string", "null"] },
+          "normalized_script": { "type": "string" },
+          "script_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "context_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
           "duration_ms": { "type": "number" },
-          "estimated_duration_sec": { "type": "number" },
+          "estimated_duration_sec": { "type": ["number", "null"] },
           "qc_pass": { "type": "boolean" },
           "qc_notes": { "type": "string" },
-          "model_id": { "type": "string" }
+          "model_id": { "type": ["string", "null"] }
         },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "backend": { "not": { "const": "skipped" } }
+              },
+              "required": ["backend"]
+            },
+            "then": {
+              "required": [
+                "out_wav",
+                "normalized_script",
+                "script_hash",
+                "context_hash"
+              ]
+            }
+          }
+        ],
         "additionalProperties": true
       }
     }

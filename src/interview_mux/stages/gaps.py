@@ -912,11 +912,6 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
             lid = line.get("line_id", "")
             found = resolve_vo_pickup_path(ctx, line)
             if not found:
-                seg = line.get("targets_segment_id", "")
-                pickup = ctx.final_path("vo_pickup")
-                candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
-                found = next((p for p in candidates if p.is_file()), None)
-            if not found:
                 missing.append(lid or line.get("targets_segment_id", ""))
                 continue
             if normalize and found.parent == pickup:

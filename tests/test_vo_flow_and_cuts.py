@@ -320,6 +320,36 @@ def test_transition_skipped_when_before_vo_exists(tmp_path, monkeypatch) -> None
     assert "limited resources" not in text.lower()
 
 
+def test_default_bridge_never_speaks_internal_segment_ids() -> None:
+    pair = {
+        "after_segment_id": "seg_152",
+        "before_segment_id": "seg_153",
+        "kind": "reorder",
+        "source_gap_ms": 2_000,
+    }
+    text = default_bridge_text(pair)
+    assert text == ""
+    assert "152" not in text
+    assert "153" not in text
+    assert "seg_" not in text.lower()
+
+
+def test_default_bridge_uses_listener_facing_topics_not_ids() -> None:
+    text = default_bridge_text(
+        {
+            "after_segment_id": "seg_166",
+            "before_segment_id": "seg_167",
+            "after_topic": "fundraising constraints",
+            "before_topic": "the strategic sale",
+        }
+    )
+    assert text == (
+        "Moving from fundraising constraints to the strategic sale, what changed?"
+    )
+    assert "166" not in text
+    assert "167" not in text
+
+
 def test_cold_open_last_sentence_cues_first_native() -> None:
     line = {
         "line_id": "vo_q_seg_001",

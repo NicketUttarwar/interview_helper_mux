@@ -192,6 +192,12 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             )
     except Exception:
         pass
+    from interview_mux.opening_orientation import ensure_episode_orientation
+
+    candidate, opening_actions = ensure_episode_orientation(ctx, candidate, ordered)
+    if opening_actions:
+        decisions.extend(opening_actions)
+        kept_lines = list(candidate.get("interviewer_lines") or [])
     candidate["_meta"] = {
         "producer": "gap_framing_recompose",
         "producer_stage": "gap_framing_recompose",
@@ -289,7 +295,12 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 by_id,
                 ordered_segment_ids=final_ordered,
             )
-            all_notes = list(notes) + list(drop_notes)
+            from interview_mux.opening_orientation import ensure_episode_orientation
+
+            cleaned, opening_notes = ensure_episode_orientation(
+                ctx, cleaned, final_ordered
+            )
+            all_notes = list(notes) + list(drop_notes) + list(opening_notes)
             if all_notes:
                 ctx.write_json("understanding/gap_report.json", cleaned)
                 ctx.log(
@@ -352,6 +363,24 @@ def after_gap_compose_hook(ctx: RunContext) -> None:
 
 def after_gap_recompose_or_skip(ctx: RunContext) -> None:
     """Post gap-final hooks — cold-open audition plan when preface/open lines exist."""
+    if ctx.artifact_exists(FINAL_REL) and ctx.artifact_exists("master/selection.json"):
+        from interview_mux.opening_orientation import ensure_episode_orientation
+
+        report = ctx.read_json(FINAL_REL)
+        selection = ctx.read_json("master/selection.json")
+        ordered = [
+            str(x) for x in ((selection or {}).get("ordered_segment_ids") or []) if x
+        ]
+        if isinstance(report, dict) and ordered:
+            report, actions = ensure_episode_orientation(ctx, report, ordered)
+            if actions:
+                ctx.write_json(FINAL_REL, report)
+                ctx.log(
+                    f"opening orientation guard applied {len(actions)} action(s)",
+                    level="info",
+                    stage="gap_framing_recompose",
+                    detail=actions,
+                )
     from interview_mux.refinement_cold_open import build_cold_open_audition
 
     build_cold_open_audition(ctx)

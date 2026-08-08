@@ -74,6 +74,17 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
                     continue
                 if entry.get("qc_pass") is False:
                     continue
+                from interview_mux.vo_synthesis_audit import (
+                    synthesis_entry_matches_line,
+                )
+
+                matches, _reason = synthesis_entry_matches_line(ctx, line)
+                if not matches:
+                    continue
+            elif base.name in {"synthesized", "matched"}:
+                # Generated/matched audio without a script audit cannot prove it
+                # still corresponds to the current artifact text.
+                continue
             if not vo_passes_speech_qa(candidate):
                 continue
             return candidate
@@ -213,6 +224,39 @@ def build_flow1_edl(
         )
         timeline_ms += pad
 
+    def _is_orientation(line: dict) -> bool:
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        return is_episode_orientation(line)
+
+    def _copy_hashes(line: dict) -> dict[str, str]:
+        from interview_mux.spoken_copy_guard import (
+            context_hash,
+            evidence_for_line,
+            script_hash,
+        )
+
+        return {
+            "script_hash": script_hash(str(line.get("text") or "")),
+            "context_hash": context_hash(evidence_for_line(line)),
+        }
+
+    def _append_opening_music_marker(ref_dur: int) -> None:
+        nonlocal timeline_ms
+        from interview_mux.opening_orientation import OPENING_MUSIC_AIR_KIND
+
+        pad = air_pad_ms(ref_dur, kind="chapter_hinge", cfg=air_cfg)
+        clips.append(
+            {
+                "type": "silence",
+                "air_kind": OPENING_MUSIC_AIR_KIND,
+                "duration_ms": max(0, pad),
+                "timeline_start_ms": timeline_ms,
+                "preserve_planned_music": True,
+            }
+        )
+        timeline_ms += max(0, pad)
+
     if gap_report:
         for line in gap_report.get("interviewer_lines") or []:
             if line.get("skipped_optional"):
@@ -290,6 +334,11 @@ def build_flow1_edl(
                 "targets_segment_id": sid,
                 "placement": "before",
                 "gap_type": line.get("gap_type"),
+                "line_category": line.get("line_category"),
+                "episode_orientation": bool(line.get("episode_orientation")),
+                "opening_sequence": line.get("opening_sequence"),
+                "allow_music_bed_overlap": bool(line.get("allow_music_bed_overlap")),
+                **_copy_hashes(line),
                 "source_path": rel,
                 "duration_ms": dur,
                 "timeline_start_ms": timeline_ms,
@@ -305,7 +354,10 @@ def build_flow1_edl(
             )
             timeline_ms += dur
             if dur > 0:
-                _append_air("after_vo", dur)
+                if _is_orientation(line):
+                    _append_opening_music_marker(dur)
+                else:
+                    _append_air("after_vo", dur)
 
         speech_dur = int(seg["end_ms"]) - int(seg["start_ms"])
         if clips and str(clips[-1].get("type") or "") == "silence":
@@ -336,6 +388,10 @@ def build_flow1_edl(
             after_lines = []
 
         for line in after_lines:
+            if _is_orientation(line):
+                _append_opening_music_marker(
+                    int(line.get("estimated_duration_sec") or 1) * 1000
+                )
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel = None
             dur = 0
@@ -355,6 +411,11 @@ def build_flow1_edl(
                 "targets_segment_id": sid,
                 "placement": "after",
                 "gap_type": line.get("gap_type"),
+                "line_category": line.get("line_category"),
+                "episode_orientation": bool(line.get("episode_orientation")),
+                "opening_sequence": line.get("opening_sequence"),
+                "allow_music_bed_overlap": bool(line.get("allow_music_bed_overlap")),
+                **_copy_hashes(line),
                 "source_path": rel,
                 "duration_ms": dur,
                 "timeline_start_ms": timeline_ms,
@@ -384,6 +445,8 @@ def build_flow1_edl(
                     tr = None
             if tr:
                 text = str(tr.get("text") or "")
+                from interview_mux.spoken_copy_guard import script_hash
+
                 tr_path = (
                     resolve_transition_path(sid, nxt) if resolve_transition_path else None
                 )
@@ -404,6 +467,7 @@ def build_flow1_edl(
                         "source_path": tr_rel,
                         "duration_ms": tr_dur,
                         "timeline_start_ms": timeline_ms,
+                        "script_hash": script_hash(text),
                     }
                 )
                 timeline_ms += tr_dur
@@ -480,6 +544,22 @@ def run_edl(ctx: RunContext) -> None:
                 gap_report = repaired
             except Exception as exc:
                 ctx.log(f"edl: gap_report repair skipped: {exc}", level="warning", stage="edl")
+            from interview_mux.opening_orientation import ensure_episode_orientation
+
+            current_order = [
+                str(x) for x in (selection.get("ordered_segment_ids") or []) if x
+            ]
+            gap_report, opening_actions = ensure_episode_orientation(
+                ctx, gap_report, current_order
+            )
+            if opening_actions:
+                ctx.write_json("understanding/gap_report.json", gap_report)
+                ctx.log(
+                    f"edl: opening orientation guard applied {len(opening_actions)} action(s)",
+                    level="info",
+                    stage="edl",
+                    detail=opening_actions,
+                )
         transitions = (
             ctx.read_json("master/transitions.json")
             if ctx.artifact_exists("master/transitions.json")
@@ -544,6 +624,27 @@ def run_edl(ctx: RunContext) -> None:
             resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
         )
         edl = stamp_order_hash(edl)
+        try:
+            from interview_mux.gap_vo_gates import gap_framing_enabled
+            from interview_mux.opening_orientation import validate_opening_orientation
+
+            active_framing_lines = [
+                line
+                for line in ((gap_report or {}).get("interviewer_lines") or [])
+                if isinstance(line, dict) and not line.get("skipped_optional")
+            ]
+            if gap_framing_enabled(ctx) and active_framing_lines:
+                opening_errors = validate_opening_orientation(
+                    gap_report=gap_report if isinstance(gap_report, dict) else None,
+                    edl=edl,
+                )
+                if opening_errors:
+                    raise RuntimeError(
+                        "edl: opening orientation contract failed: "
+                        + "; ".join(opening_errors)
+                    )
+        except ImportError:
+            pass
 
     warnings = edl.get("warnings") or {}
     if warnings.get("missing_segment_lookups"):

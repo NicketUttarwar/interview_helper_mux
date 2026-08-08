@@ -17,7 +17,18 @@ Required moves (pick what the seam needs):
 
 **Cold open / `episode_preface`:** first sentences may intro speakers + topic; the **last sentence must prompt the first native clip** using `target_native_contexts[first]` (not a generic origin/spark question when that clip is actually about something else).
 
+**Mandatory episode orientation:** emit exactly one `episode_preface` for the
+episode, even when a native cold-open hook is planned. It must ground (from the
+brief/transcript) who the conversation is with, what it is about, and why it
+matters. This line is selection-independent: downstream may retarget its
+timeline anchor, but must never drop it. A native hook changes the opening
+sequence to `native hook → music → episode_preface → body`; without a native
+hook it is `episode_preface → music → body`. The preface never replaces a
+planned music cue, and a quiet speech-safe bed may continue beneath it.
+
 **Never** paraphrase or restate the next native clip’s claim. Read `target_native_contexts[S]` to know what the upcoming clip already says — complement it, do not summarize it back at the listener (except intentional `segment_summary` when replacing redundant source setup via `replaces_source_segments`).
+
+Segment IDs, line IDs, clip IDs, turn IDs, and other pipeline identifiers are edit metadata only. **Never speak them or remove their prefix and speak the remaining number.** Use listener-clear facts, people, topics, places, time, or causal context to lay up the next native thought. If no such context is available, use a natural relative question such as “What happened next?”
 
 Every line needs a non-empty `rationale` stating the conversational value (mission accomplished).
 

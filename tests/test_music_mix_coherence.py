@@ -16,7 +16,11 @@ from interview_mux.music_lane import (
     validate_music_cue_coherence,
     vo_open_landmarks_from_edl,
 )
-from interview_mux.sound_design import flow1_cue_position, flow1_overlays_from_sdp
+from interview_mux.sound_design import (
+    _filter_skipped_underscore_beds,
+    flow1_cue_position,
+    flow1_overlays_from_sdp,
+)
 from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment, sound_design_plan_with
 
 
@@ -55,6 +59,24 @@ def _theme_assets() -> list[dict]:
     ]
 
 
+def test_skip_underscore_preserves_bookends_and_punctuators() -> None:
+    assets = {
+        "bed": {"asset_id": "bed", "role": "ambient_bed"},
+        "open": {"asset_id": "open", "role": "theme_cold_open"},
+        "sting": {"asset_id": "sting", "role": "theme_transition"},
+    }
+    cues = [
+        {"asset_id": "bed", "placement": "under_segment"},
+        {"asset_id": "open", "placement": "cold_open"},
+        {"asset_id": "sting", "placement": "after_segment"},
+    ]
+    kept, skipped = _filter_skipped_underscore_beds(
+        cues, assets, underscore_policy="skip"
+    )
+    assert [cue["asset_id"] for cue in kept] == ["open", "sting"]
+    assert skipped == {"bed"}
+
+
 def test_effective_role_falls_back_to_asset():
     cue = {"cue_id": "cold_open", "asset_id": "show_theme_v1_cold_open", "placement": "before_segment"}
     asset = {"asset_id": "show_theme_v1_cold_open", "role": "theme_cold_open"}
@@ -75,6 +97,20 @@ def test_cold_open_position_between_preface_and_question():
     )
     assert 28000 <= pos < 45000
     assert pos + 8000 <= 45000
+
+
+def test_cold_open_position_prefers_protected_music_window():
+    pos = cold_open_position_ms(
+        theme_duration_ms=8000,
+        landmarks={
+            "opening_music_window": (12000, 20400),
+            "preface_end_ms": 30000,
+            "first_speech_start_ms": 0,
+        },
+        segment_timing={"seg_hook": (0, 12000), "seg_body": (30000, 60000)},
+        air_ms=400,
+    )
+    assert pos == 12000
 
 
 def test_flow1_cue_position_uses_asset_role_and_landmarks():

@@ -83,6 +83,27 @@ def _clip_excerpt(raw: Any, *, max_chars: int = 72) -> str:
     return text.rstrip(".,;:!—–- ").strip()
 
 
+def _listener_topic(segment: dict[str, Any]) -> str:
+    """Return a short listener-facing topic label, never an internal identifier."""
+    candidates: list[Any] = [
+        segment.get("topic"),
+        segment.get("topic_label"),
+        segment.get("title"),
+    ]
+    tags = segment.get("topic_tags")
+    if isinstance(tags, list):
+        candidates.extend(tags)
+    for raw in candidates:
+        text = _clip_excerpt(raw, max_chars=48)
+        if not text:
+            continue
+        low = text.lower()
+        if low.startswith(("seg_", "segment_", "segment ")):
+            continue
+        return text
+    return ""
+
+
 def _hinge_with_excerpt(lead_in: str, excerpt: str) -> str:
     """Join a short lead-in to an excerpt without doubled capitals after the dash."""
     ex = excerpt.strip()
@@ -110,35 +131,40 @@ def enrich_bridge_pair_excerpts(
         excerpt = _clip_excerpt(seg.get("text") or seg.get("text_excerpt") or "")
         if excerpt:
             out[key] = excerpt
+    for sid, key in ((after, "after_topic"), (before, "before_topic")):
+        if out.get(key) or not sid:
+            continue
+        seg = segments_by_id.get(sid) or {}
+        if not isinstance(seg, dict):
+            continue
+        topic = _listener_topic(seg)
+        if topic:
+            out[key] = topic
     return out
 
 
+def bridge_guard_evidence(pair: dict[str, Any]) -> dict[str, Any]:
+    """Map edit-side after/before fields to listener chronology for the guard."""
+    return {
+        **pair,
+        "before_topic": pair.get("after_topic"),
+        "after_topic": pair.get("before_topic"),
+        "before_excerpt": pair.get("after_excerpt"),
+        "after_excerpt": pair.get("before_excerpt"),
+        "strict_grounding": True,
+    }
+
+
 def default_bridge_text(pair: dict[str, Any]) -> str:
-    """Deterministic speakable hinge — invite the next beat without restating it.
+    """Deterministic listener-facing hinge with no internal metadata.
 
     Do **not** embed the next native excerpt ("And then—{before_excerpt}").
-    Pair uniqueness comes from after/before segment ids when no richer cue exists.
+    Prefer topic labels when available. Otherwise use a semantic relative hinge;
+    segment IDs are edit metadata and must never be spoken.
     """
-    kind = str(pair.get("kind") or "reorder")
-    try:
-        gap = int(pair.get("source_gap_ms")) if pair.get("source_gap_ms") is not None else 0
-    except (TypeError, ValueError):
-        gap = 0
-    category = str(pair.get("suggested_line_category") or "")
-    after = str(pair.get("after_segment_id") or pair.get("after_id") or "").strip()
-    before = str(pair.get("before_segment_id") or pair.get("before_id") or "").strip()
-    a = after.removeprefix("seg_") if after else "?"
-    b = before.removeprefix("seg_") if before else "?"
+    from interview_mux.spoken_copy_guard import grounded_fallback_for_evidence
 
-    if kind == "chapter_jump" or abs(gap) >= CHAPTER_SCALE_GAP_MS:
-        if gap < 0:
-            return f"Stepping back—what led into {b}?"
-        return f"That thread closes — where does {b} take this?"
-    if category == "extracted_context" or gap < 0:
-        return f"That connects here — how does {b} follow from {a}?"
-    if category == "story_bridge":
-        return f"Meanwhile — what opens on {b}?"
-    return f"And then — what happens as we get to {b}?"
+    return grounded_fallback_for_evidence(bridge_guard_evidence(pair))
 
 
 def is_chapter_scale_pair(pair: dict[str, Any]) -> bool:
@@ -162,7 +188,7 @@ def mint_missing_transitions(
 
     Returns the updated transitions document (also written to disk).
     """
-    from interview_mux.spoken_meta_lint import assert_speakable_or_raise
+    from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
     doc: dict[str, Any]
     if isinstance(transitions, dict):
@@ -235,7 +261,13 @@ def mint_missing_transitions(
                 text = default_bridge_text(pair)
                 canned = False
                 unplanned.append(f"{a}->{b}")
-            assert_speakable_or_raise(text, context="transition")
+            decision = assert_guarded_spoken_copy(
+                text,
+                evidence=bridge_guard_evidence(pair),
+                purpose=f"transition[{a}->{b}]",
+            )
+            text = str(decision["text"])
+            canned = bool(canned and decision["action"] == "allow")
             tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
             items.append(
                 {
@@ -246,6 +278,11 @@ def mint_missing_transitions(
                     "auto_minted": True,
                     "canned_bridge_fallback": canned,
                     "default_bridge_fallback": not canned,
+                    "spoken_copy_guard": {
+                        "action": decision["action"],
+                        "script_hash": decision["script_hash"],
+                        "context_hash": decision["context_hash"],
+                    },
                     "kind": pair.get("kind") or "reorder",
                     "source_gap_ms": pair.get("source_gap_ms"),
                 }
@@ -254,9 +291,12 @@ def mint_missing_transitions(
             minted += 1
             continue
         text = str(planned.get("text") or "").strip()
-        if not text:
-            text = default_bridge_text(pair)
-        assert_speakable_or_raise(text, context="transition")
+        decision = assert_guarded_spoken_copy(
+            text,
+            evidence=bridge_guard_evidence(pair),
+            purpose=f"transition[{a}->{b}]",
+        )
+        text = str(decision["text"])
         tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
         items.append(
             {
@@ -270,6 +310,11 @@ def mint_missing_transitions(
                 "comprehension_reason": planned.get("comprehension_reason"),
                 "kind": pair.get("kind") or "reorder",
                 "source_gap_ms": pair.get("source_gap_ms"),
+                "spoken_copy_guard": {
+                    "action": decision["action"],
+                    "script_hash": decision["script_hash"],
+                    "context_hash": decision["context_hash"],
+                },
             }
         )
         existing.add((a, b))

@@ -99,7 +99,11 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
             notes.append({"op": op, "count": len(filtered)})
 
     elif op == "mint_bridge":
-        from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
+        from interview_mux.seam_glue import (
+            bridge_guard_evidence,
+            default_bridge_text,
+            enrich_bridge_pair_excerpts,
+        )
 
         after = str(mutation.get("after_segment_id") or "")
         before = str(mutation.get("before_segment_id") or "")
@@ -120,14 +124,41 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
                 fallback = str(mutation.get("suggested_text") or "").strip() or default_bridge_text(
                     pair
                 )
+                from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+                guarded = guard_spoken_copy(
+                    text or fallback,
+                    evidence=bridge_guard_evidence(pair),
+                    required=True,
+                    purpose=f"optimizer_bridge[{after}->{before}]",
+                )
+                if guarded["action"] == "block":
+                    notes.append(
+                        {
+                            "op": op,
+                            "rejected": True,
+                            "reason": "unsafe_spoken_copy",
+                            "after": after,
+                            "before": before,
+                        }
+                    )
+                    out["ordered_segment_ids"] = ordered
+                    out["excluded_segment_ids"] = excluded
+                    out["mutations"] = notes
+                    return out
                 items.append(
                     {
                         "after_segment_id": after,
                         "before_segment_id": before,
-                        "text": text or fallback,
+                        "text": guarded["text"],
                         "type": mutation.get("type") or "bridge",
                         "tone": mutation.get("tone") or "bridge",
                         "optimizer_minted": True,
+                        "spoken_copy_guard": {
+                            "action": guarded["action"],
+                            "script_hash": guarded["script_hash"],
+                            "context_hash": guarded["context_hash"],
+                        },
                     }
                 )
                 tr["transitions"] = items
@@ -140,6 +171,29 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
         text = str(mutation.get("text") or "").strip()
         tr = out.get("transitions") if isinstance(out.get("transitions"), dict) else None
         if tr and text:
+            from interview_mux.spoken_copy_guard import guard_spoken_copy
+            from interview_mux.seam_glue import bridge_guard_evidence
+
+            guarded = guard_spoken_copy(
+                text,
+                evidence=bridge_guard_evidence(mutation),
+                required=True,
+                purpose=f"optimizer_rewrite[{after}->{before}]",
+            )
+            if guarded["action"] == "block":
+                notes.append(
+                    {
+                        "op": op,
+                        "rejected": True,
+                        "reason": "unsafe_spoken_copy",
+                        "after": after,
+                        "before": before,
+                    }
+                )
+                out["ordered_segment_ids"] = ordered
+                out["excluded_segment_ids"] = excluded
+                out["mutations"] = notes
+                return out
             tr = copy.deepcopy(tr)
             for t in tr.get("transitions") or []:
                 if (
@@ -147,8 +201,13 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
                     and str(t.get("after_segment_id")) == after
                     and str(t.get("before_segment_id")) == before
                 ):
-                    t["text"] = text
+                    t["text"] = guarded["text"]
                     t["optimizer_rewritten"] = True
+                    t["spoken_copy_guard"] = {
+                        "action": guarded["action"],
+                        "script_hash": guarded["script_hash"],
+                        "context_hash": guarded["context_hash"],
+                    }
                     notes.append({"op": op, "after": after, "before": before})
                     break
             out["transitions"] = tr
@@ -159,12 +218,33 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
         text = str(mutation.get("text") or "").strip()
         gap = out.get("gap_report") if isinstance(out.get("gap_report"), dict) else None
         if gap and target and text:
+            from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+            guarded = guard_spoken_copy(
+                text,
+                evidence=mutation,
+                required=False,
+                purpose=f"optimizer_gap_hint[{target}]",
+            )
+            if guarded["action"] == "omit":
+                notes.append(
+                    {
+                        "op": op,
+                        "rejected": True,
+                        "reason": "unsafe_spoken_copy",
+                        "targets_segment_id": target,
+                    }
+                )
+                out["ordered_segment_ids"] = ordered
+                out["excluded_segment_ids"] = excluded
+                out["mutations"] = notes
+                return out
             gap = copy.deepcopy(gap)
             for ln in gap.get("interviewer_lines") or []:
                 if isinstance(ln, dict) and str(ln.get("targets_segment_id")) == target:
-                    ln["optimizer_text_hint"] = text
-                    if mutation.get("replace") and text:
-                        ln["text"] = text
+                    ln["optimizer_text_hint"] = guarded["text"]
+                    if mutation.get("replace") and guarded["text"]:
+                        ln["text"] = guarded["text"]
                     notes.append({"op": op, "targets_segment_id": target})
                     break
             out["gap_report"] = gap

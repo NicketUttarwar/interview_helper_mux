@@ -24,6 +24,11 @@ Hard rules:
 - The 0.2..0.8 synthetic-input-share range is guidance, never a quota.
 - No canned phrases such as "Next, the focus shifts" or "what happened next."
 - Do not invent facts, dialogue, credentials, or claims.
+- Treat the single `episode_preface` in `prior_gap_report` as mandatory opening
+  orientation. Do not duplicate or replace it. Preserve this opening grammar:
+  native hook → music → preface → body when an explicit native cold open exists;
+  otherwise preface → music → body. Synthetic speech never consumes a planned
+  music cue; a quiet speech-safe bed may overlap the preface.
 
 Return the normal analysis envelope with status=complete and artifacts equal to
 one SyntheticFramingPlan object:
@@ -49,4 +54,5 @@ one SyntheticFramingPlan object:
   ]
 }
 
-The lines array may be empty when the native tape already gives the best listen.
+The lines array may be empty when the native tape already gives the best listen,
+but the mandatory `prior_gap_report` episode preface still remains in the EDL.

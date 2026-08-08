@@ -23,7 +23,46 @@ def resolve_transition_wav(
     ctx: RunContext, after_id: str, before_id: str
 ) -> Path | None:
     path = transition_wav_path(ctx, after_id, before_id)
-    return path if path.is_file() else None
+    if not path.is_file() or not ctx.artifact_exists("master/transitions.json"):
+        return None
+    doc = ctx.read_json("master/transitions.json")
+    item = next(
+        (
+            row
+            for row in ((doc or {}).get("transitions") or [])
+            if isinstance(row, dict)
+            and str(row.get("after_segment_id") or "") == str(after_id)
+            and str(row.get("before_segment_id") or "") == str(before_id)
+        ),
+        None,
+    )
+    if not isinstance(item, dict) or not str(item.get("text") or "").strip():
+        return None
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in ((manifest or {}).get("segments") or [])
+            if isinstance(row, dict) and row.get("segment_id")
+        }
+    line = {
+        "line_id": _transition_line_id(after_id, before_id),
+        "text": str(item.get("text") or ""),
+        "targets_segment_id": after_id,
+        "placement": "after",
+        "after_segment_id": after_id,
+        "before_segment_id": before_id,
+        "before_excerpt": (by_id.get(after_id) or {}).get("text"),
+        "after_excerpt": (by_id.get(before_id) or {}).get("text"),
+        "before_topic": (by_id.get(after_id) or {}).get("topic"),
+        "after_topic": (by_id.get(before_id) or {}).get("topic"),
+        "source_gap_ms": item.get("source_gap_ms"),
+    }
+    from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
+
+    matches, _reason = synthesis_entry_matches_line(ctx, line)
+    return path if matches else None
 
 
 def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
@@ -39,7 +78,8 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
 
     from interview_mux.s2s_runner import synthesize_line
     from interview_mux.source_topology import pickup_eligible_speaker_id
-    from interview_mux.spoken_meta_lint import assert_speakable_or_raise
+    from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
+    from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
 
     # Prefer speaker_delivery_plan clone when present
     speaker_id = ""
@@ -52,6 +92,14 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
             speaker_id = ""
     if not speaker_id:
         speaker_id = pickup_eligible_speaker_id(ctx) or ""
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in ((manifest or {}).get("segments") or [])
+            if isinstance(row, dict) and row.get("segment_id")
+        }
     results: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -59,37 +107,61 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        try:
-            assert_speakable_or_raise(text, context="transition")
-        except ValueError as exc:
-            raise ValueError(
-                f"transition text blocked by spoken_meta_lint "
-                f"({item.get('after_segment_id')}->{item.get('before_segment_id')}): {exc}"
-            ) from exc
         after_id = str(item.get("after_segment_id") or "")
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:
             continue
-        out = transition_wav_path(ctx, after_id, before_id)
-        if out.is_file() and out.stat().st_size > 1000:
-            results.append(
-                {
-                    "after_segment_id": after_id,
-                    "before_segment_id": before_id,
-                    "path": out.as_posix(),
-                    "skipped": True,
-                }
+        evidence = {
+            "before_excerpt": (by_id.get(after_id) or {}).get("text"),
+            "after_excerpt": (by_id.get(before_id) or {}).get("text"),
+            "before_topic": (by_id.get(after_id) or {}).get("topic"),
+            "after_topic": (by_id.get(before_id) or {}).get("topic"),
+            "source_gap_ms": item.get("source_gap_ms"),
+            "strict_grounding": True,
+        }
+        try:
+            guarded = assert_guarded_spoken_copy(
+                text,
+                evidence=evidence,
+                purpose=f"transition[{after_id}->{before_id}]",
             )
-            continue
+            text = str(guarded["text"])
+        except ValueError as exc:
+            raise ValueError(
+                f"transition text blocked before synthesis "
+                f"({after_id}->{before_id}): {exc}"
+            ) from exc
+        out = transition_wav_path(ctx, after_id, before_id)
         line = {
             "line_id": _transition_line_id(after_id, before_id),
             "text": text,
             "delivery": "synthesize",
             "targets_segment_id": after_id,
             "placement": "after",
+            "after_segment_id": after_id,
+            "before_segment_id": before_id,
             "voice_speaker_id": speaker_id or item.get("voice_speaker_id"),
             "suggested_tone": item.get("tone") or "bridge",
+            **evidence,
         }
+        audit_match, audit_reason = synthesis_entry_matches_line(ctx, line)
+        if out.is_file() and out.stat().st_size > 1000 and audit_match:
+            results.append(
+                {
+                    "after_segment_id": after_id,
+                    "before_segment_id": before_id,
+                    "path": out.as_posix(),
+                    "skipped": True,
+                    "script_hash_match": True,
+                }
+            )
+            continue
+        if out.is_file() and not audit_match:
+            ctx.log(
+                f"Transition WAV stale ({audit_reason}); regenerating {after_id}→{before_id}",
+                level="warning",
+                stage="edl",
+            )
         last_err: Exception | None = None
         wav = None
         for attempt in range(2):

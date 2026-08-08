@@ -296,8 +296,15 @@ def cold_open_position_ms(
     segment_timing: dict[str, tuple[int, int]],
     air_ms: int = 400,
 ) -> int:
-    """Place theme_cold_open after hook VO and before the first question VO when possible."""
+    """Place theme_cold_open inside the EDL's protected opening-music window."""
     landmarks = landmarks or {}
+    opening_window = landmarks.get("opening_music_window")
+    if (
+        isinstance(opening_window, (list, tuple))
+        and len(opening_window) == 2
+        and int(opening_window[1]) > int(opening_window[0])
+    ):
+        return max(0, int(opening_window[0]))
     preface_end = landmarks.get("preface_end_ms")
     q_start = landmarks.get("first_question_start_ms")
     first_speech = landmarks.get("first_speech_start_ms")

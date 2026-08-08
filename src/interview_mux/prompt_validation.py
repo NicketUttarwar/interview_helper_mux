@@ -236,6 +236,11 @@ def validate_edl(edl: dict[str, Any]) -> list[str]:
     """Validate `master/edl.json` against artifacts/edl.schema.json."""
     return _validate_dict(edl, _load_schema("edl.schema.json"))
 
+
+def validate_synthesis_report(report: dict[str, Any]) -> list[str]:
+    """Validate VO synthesis provenance and stale-audio hashes."""
+    return _validate_dict(report, _load_root_schema("synthesis_report.schema.json"))
+
 def validate_source_acoustic_profile(profile: dict[str, Any]) -> list[str]:
     """Validate `understanding/source_acoustic_profile.json`."""
     return _validate_dict(profile, _load_root_schema("source_acoustic_profile.schema.json"))
@@ -419,6 +424,7 @@ def validate_ideal_cuts(data: dict[str, Any]) -> list[str]:
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "master/edl.json": validate_edl,
+    "vo_pickup/synthesis_report.json": validate_synthesis_report,
     "master/junction_snip_qa.json": validate_junction_snip_qa,
     "master/junction_feel_audit.json": validate_junction_feel_audit,
     "master/seam_autopsy.json": validate_seam_autopsy,

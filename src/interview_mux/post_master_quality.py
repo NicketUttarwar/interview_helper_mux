@@ -200,17 +200,196 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     # Spoken VO must not be gap-eval QC prose.
     vo_ok = True
     vo_errs: list[str] = []
-    if ctx.artifact_exists("understanding/gap_report.json"):
-        try:
-            from interview_mux.spoken_meta_lint import lint_gap_report_lines
+    try:
+            from interview_mux.spoken_meta_lint import (
+                lint_gap_report_lines,
+                lint_transitions_doc,
+            )
 
-            gr = ctx.read_json("understanding/gap_report.json")
+            gr = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else {}
+            )
             vo_errs = lint_gap_report_lines(gr if isinstance(gr, dict) else None)
+            transitions = (
+                ctx.read_json("master/transitions.json")
+                if ctx.artifact_exists("master/transitions.json")
+                else {}
+            )
+            vo_errs.extend(
+                lint_transitions_doc(
+                    transitions if isinstance(transitions, dict) else None
+                )
+            )
+            from interview_mux.spoken_copy_guard import artifact_spoken_copy_errors
+
+            by_id: dict[str, dict[str, Any]] = {}
+            if ctx.artifact_exists("segments/manifest.json"):
+                manifest = ctx.read_json("segments/manifest.json")
+                by_id = {
+                    str(row.get("segment_id")): row
+                    for row in ((manifest or {}).get("segments") or [])
+                    if isinstance(row, dict) and row.get("segment_id")
+                }
+            vo_errs.extend(
+                artifact_spoken_copy_errors(
+                    gap_report=gr if isinstance(gr, dict) else None,
+                    transitions=transitions
+                    if isinstance(transitions, dict)
+                    else None,
+                    segments_by_id=by_id,
+                    grounding_context=(
+                        ctx.read_json("understanding/content_brief.json")
+                        if ctx.artifact_exists("understanding/content_brief.json")
+                        else None
+                    ),
+                )
+            )
+            vo_errs = list(dict.fromkeys(vo_errs))
             vo_ok = not vo_errs
-        except Exception as exc:
-            vo_ok = False
-            vo_errs = [str(exc)[:160]]
+    except Exception as exc:
+        vo_ok = False
+        vo_errs = [str(exc)[:160]]
     add("spoken_vo_speakable", vo_ok, {"errors": vo_errs[:8]})
+
+    audible_hash_errors: list[str] = []
+    try:
+        from interview_mux.vo_synthesis_audit import audible_script_hash_errors
+
+        edl_for_hash = (
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else {}
+        )
+        audible_hash_errors = audible_script_hash_errors(
+            ctx, edl_for_hash if isinstance(edl_for_hash, dict) else None
+        )
+    except Exception as exc:
+        audible_hash_errors = [str(exc)[:160]]
+    add(
+        "audible_script_hash_agreement",
+        not audible_hash_errors,
+        {"errors": audible_hash_errors[:8]},
+    )
+
+    # When framing is enabled, the final timeline must contain exactly one early
+    # episode orientation and a protected opening-music slot in the declared order.
+    opening_ok = True
+    opening_errors: list[str] = []
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+        from interview_mux.opening_orientation import validate_opening_orientation
+
+        if gap_framing_enabled(ctx):
+            gr = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else {}
+            )
+            edl = (
+                ctx.read_json("master/edl.json")
+                if ctx.artifact_exists("master/edl.json")
+                else {}
+            )
+            active_lines = [
+                line
+                for line in ((gr or {}).get("interviewer_lines") or [])
+                if isinstance(line, dict) and not line.get("skipped_optional")
+            ]
+            if active_lines:
+                opening_errors = validate_opening_orientation(
+                    gap_report=gr if isinstance(gr, dict) else None,
+                    edl=edl if isinstance(edl, dict) else None,
+                )
+                opening_ok = not opening_errors
+    except Exception as exc:
+        opening_ok = False
+        opening_errors = [str(exc)[:160]]
+    add(
+        "opening_orientation_contract",
+        opening_ok,
+        {"errors": opening_errors[:8]},
+    )
+
+    music_coverage_required = ctx.artifact_exists(
+        "understanding/sound_design_plan.json"
+    )
+    music_coverage = (
+        ctx.read_json("master/music_cue_coverage.json")
+        if ctx.artifact_exists("master/music_cue_coverage.json")
+        else {}
+    )
+    music_preserved = (
+        not music_coverage_required
+        or (
+            isinstance(music_coverage, dict)
+            and bool(music_coverage.get("preserved"))
+            and not (music_coverage.get("missing_asset_ids") or [])
+            and not (music_coverage.get("shortened_preserved_asset_ids") or [])
+        )
+    )
+    add(
+        "planned_music_preserved",
+        music_preserved,
+        music_coverage
+        if isinstance(music_coverage, dict)
+        else {"error": "invalid music_cue_coverage"},
+    )
+    opening_theme_ok = True
+    opening_theme_detail: dict[str, Any] = {"required": False}
+    try:
+        gr = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        orientation_active = any(
+            isinstance(line, dict)
+            and not line.get("skipped_optional")
+            and is_episode_orientation(line)
+            for line in ((gr or {}).get("interviewer_lines") or [])
+        )
+        if orientation_active:
+            from interview_mux.music_lane import effective_cue_role
+            from interview_mux.sound_design import load_sound_design_plan
+
+            plan = load_sound_design_plan(ctx)
+            assets = {
+                str(row.get("asset_id") or ""): row
+                for row in (plan.get("assets") or [])
+                if isinstance(row, dict)
+            }
+            opening_assets = {
+                str(cue.get("asset_id") or "")
+                for cue in (
+                    ((plan.get("flow_plans") or {}).get("podcast") or {}).get(
+                        "cues"
+                    )
+                    or []
+                )
+                if isinstance(cue, dict)
+                and not cue.get("skip")
+                and effective_cue_role(
+                    cue, assets.get(str(cue.get("asset_id") or ""), {})
+                )
+                == "theme_cold_open"
+            }
+            realized = set(
+                str(x) for x in ((music_coverage or {}).get("realized_asset_ids") or [])
+            )
+            opening_theme_ok = bool(opening_assets) and opening_assets.issubset(realized)
+            opening_theme_detail = {
+                "required": True,
+                "planned_opening_asset_ids": sorted(opening_assets),
+                "realized_asset_ids": sorted(realized),
+            }
+    except Exception as exc:
+        opening_theme_ok = False
+        opening_theme_detail = {"required": True, "error": str(exc)[:160]}
+    add("opening_music_preserved", opening_theme_ok, opening_theme_detail)
 
     # Listen delight (mastering.listen_delight) — authoritative by default: the master
     # must clear its overall + per-dimension floors before it is publishable, even if

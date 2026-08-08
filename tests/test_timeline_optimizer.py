@@ -22,7 +22,7 @@ def test_apply_swap_and_hook():
     assert "a" in out2["ordered_segment_ids"] and "c" in out2["ordered_segment_ids"]
 
 
-def test_mint_bridge():
+def test_mint_bridge_rejects_unsafe_no_context_copy():
     cand = {
         "ordered_segment_ids": ["a", "b"],
         "excluded_segment_ids": [],
@@ -39,7 +39,31 @@ def test_mint_bridge():
         },
     )
     tr = out["transitions"]["transitions"]
-    assert any(t.get("after_segment_id") == "a" and t.get("before_segment_id") == "b" for t in tr)
+    assert tr == []
+    assert any(m.get("reason") == "unsafe_spoken_copy" for m in out["mutations"])
+
+
+def test_mint_bridge_uses_grounded_fallback():
+    cand = {
+        "ordered_segment_ids": ["a", "b"],
+        "excluded_segment_ids": [],
+        "mutations": [],
+        "transitions": {"transitions": []},
+    }
+    out = apply_mutation(
+        cand,
+        {
+            "op": "mint_bridge",
+            "after_segment_id": "a",
+            "before_segment_id": "b",
+            "text": "Meanwhile—",
+            "after_topic": "fundraising constraints",
+            "before_topic": "the strategic sale",
+        },
+    )
+    assert out["transitions"]["transitions"][0]["text"] == (
+        "Moving from fundraising constraints to the strategic sale, what changed?"
+    )
 
 
 def test_archive_keeps_best_first():

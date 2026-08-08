@@ -151,9 +151,15 @@ def test_courtesy_seed_after_impact() -> None:
         "prior_complete_thought": True,
         "quote_span": "the cash in our Bham account was higher than cash in our Mumbai account.",
     }
-    text = courtesy_seed_text(prior, category="framing_question")
+    text = courtesy_seed_text(
+        prior,
+        category="framing_question",
+        target_segment_id="seg_167",
+    )
     assert not is_interruptive_opener(text)
     assert "pause you there" not in text.lower()
+    assert "167" not in text
+    assert "seg_" not in text.lower()
 
 
 def test_attach_prior_contexts_and_volley_turns(
@@ -195,8 +201,9 @@ def test_repair_gap_report_density_courtesy(
     doc = {"interviewer_lines": []}
     repaired, applied = repair_gap_report(ctx, doc)
     lines = repaired.get("interviewer_lines") or []
-    assert lines
     assert any(str(a.get("action") or "").startswith("seed_vo_density") for a in applied)
+    assert any(a.get("action") == "omit_unsafe_optional_vo" for a in applied)
+    assert lines == []
     for line in lines:
         assert "Let me pause you there" not in str(line.get("text") or "")
         if line.get("prior_impact_beat"):

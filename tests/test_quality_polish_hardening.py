@@ -152,10 +152,9 @@ _MISSING_PAIR = [
 ]
 
 
-def test_canned_bridge_disabled_hard_stops_unplanned_seam(
+def test_canned_bridge_disabled_uses_grounded_contextual_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from interview_mux.loud_fail import LoudStageFailure
     from interview_mux.seam_glue import mint_missing_transitions
 
     ctx = _reorder_ctx(tmp_path)
@@ -163,15 +162,17 @@ def test_canned_bridge_disabled_hard_stops_unplanned_seam(
         monkeypatch,
         {"mastering": {"synthetic_framing": {"allow_canned_bridge_fallback": False}}},
     )
-    with pytest.raises(LoudStageFailure) as excinfo:
-        mint_missing_transitions(ctx, _MISSING_PAIR, transitions={"transitions": []})
-    assert "seg_a->seg_b" in str(excinfo.value)
+    doc = mint_missing_transitions(
+        ctx, _MISSING_PAIR, transitions={"transitions": []}
+    )
+    assert doc["transitions"][0]["text"] == "What changed after that?"
+    assert doc["transitions"][0]["canned_bridge_fallback"] is False
 
 
-def test_canned_bridge_enabled_mints_marked_fallback(
+def test_canned_bridge_enabled_still_replaces_unsafe_canned_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from interview_mux.seam_glue import CANNED_BRIDGE_TEXT, mint_missing_transitions
+    from interview_mux.seam_glue import mint_missing_transitions
 
     ctx = _reorder_ctx(tmp_path)
     patch_merged_config(
@@ -179,9 +180,11 @@ def test_canned_bridge_enabled_mints_marked_fallback(
         {"mastering": {"synthetic_framing": {"allow_canned_bridge_fallback": True}}},
     )
     doc = mint_missing_transitions(ctx, _MISSING_PAIR, transitions={"transitions": []})
-    minted = [t for t in doc["transitions"] if t.get("canned_bridge_fallback")]
+    minted = list(doc["transitions"])
     assert len(minted) == 1
-    assert minted[0]["text"] == CANNED_BRIDGE_TEXT
+    assert minted[0]["text"] == "What changed after that?"
+    assert minted[0]["canned_bridge_fallback"] is False
+    assert minted[0]["spoken_copy_guard"]["action"] == "fallback"
     assert minted[0]["auto_minted"] is True
 
 

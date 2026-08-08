@@ -428,6 +428,13 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 level="warning",
                 stage="full_master_ranking",
             )
+        final_ordered = [
+            str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s
+        ]
+        if hook_id and final_ordered and str(hook_id) == final_ordered[0]:
+            artifacts["native_cold_open_segment_id"] = str(hook_id)
+        else:
+            artifacts.pop("native_cold_open_segment_id", None)
 
         write_validated_artifact(
             c,
@@ -537,6 +544,7 @@ def run_transitions(ctx: RunContext) -> None:
 
     def persist_with_framing_dedupe(c: RunContext, artifacts: dict) -> None:
         from interview_mux.gap_framing import dedupe_transitions_for_framing
+        from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
         gap_report = (
             c.read_json("understanding/gap_report.json")
@@ -544,6 +552,40 @@ def run_transitions(ctx: RunContext) -> None:
             else None
         )
         artifacts = dedupe_transitions_for_framing(gap_report, artifacts)
+        manifest = (
+            c.read_json("segments/manifest.json")
+            if c.artifact_exists("segments/manifest.json")
+            else {}
+        )
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in ((manifest or {}).get("segments") or [])
+            if isinstance(row, dict) and row.get("segment_id")
+        }
+        for row in artifacts.get("transitions") or []:
+            if not isinstance(row, dict) or not str(row.get("text") or "").strip():
+                continue
+            a = str(row.get("after_segment_id") or "")
+            b = str(row.get("before_segment_id") or "")
+            evidence = {
+                "before_excerpt": (by_id.get(a) or {}).get("text"),
+                "after_excerpt": (by_id.get(b) or {}).get("text"),
+                "before_topic": (by_id.get(a) or {}).get("topic"),
+                "after_topic": (by_id.get(b) or {}).get("topic"),
+                "source_gap_ms": row.get("source_gap_ms"),
+                "strict_grounding": True,
+            }
+            decision = assert_guarded_spoken_copy(
+                str(row.get("text") or ""),
+                evidence=evidence,
+                purpose=f"transition_plan[{a}->{b}]",
+            )
+            row["text"] = decision["text"]
+            row["spoken_copy_guard"] = {
+                "action": decision["action"],
+                "script_hash": decision["script_hash"],
+                "context_hash": decision["context_hash"],
+            }
         persist(c, artifacts)
 
     with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):

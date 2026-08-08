@@ -243,6 +243,20 @@
       ],
       "consumers": [],
       "has_write_validator": true
+    },
+    "vo_pickup/synthesis_report.json": {
+      "schemas_by_producer": {
+        "g1_vo_pickup": "synthesis_report.schema.json"
+      },
+      "producers": [
+        "g1_vo_pickup"
+      ],
+      "consumers": [
+        "vo_ingest",
+        "edl",
+        "post_master_quality"
+      ],
+      "has_write_validator": true
     }
   }
 }

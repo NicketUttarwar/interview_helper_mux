@@ -138,16 +138,8 @@ def test_pair_transition_covers_and_mints(monkeypatch):
 
     with tempfile.TemporaryDirectory() as td:
         ctx = _FakeCtx(Path(td))
-        doc = mint_missing_transitions(ctx, missing, transitions={"transitions": []})
-        assert any(
-            t.get("after_segment_id") == "seg_010"
-            and t.get("before_segment_id") == "seg_002"
-            and t.get("text")
-            and t.get("canned_bridge_fallback")
-            for t in doc["transitions"]
-        )
-        still = missing_reorder_bridges(bridges, transitions=doc)
-        assert still == []
+        with pytest.raises(ValueError, match="spoken_copy_guard"):
+            mint_missing_transitions(ctx, missing, transitions={"transitions": []})
 
 
 def test_edl_inserts_transition_between_jump():

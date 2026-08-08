@@ -102,10 +102,17 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
 
     def _fake_synth_transitions(ctx):
         from interview_mux.transition_vo import transition_wav_path
+        from interview_mux.vo_synthesis_audit import record_synthesis
 
         if not ctx.artifact_exists("master/transitions.json"):
             return []
         doc = ctx.read_json("master/transitions.json")
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in (manifest.get("segments") or [])
+            if isinstance(row, dict)
+        }
         rows = []
         for item in doc.get("transitions") or []:
             if not isinstance(item, dict):
@@ -117,6 +124,22 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
             out = transition_wav_path(ctx, after_id, before_id)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(_minimal_wav_bytes(duration_ms=800))
+            record_synthesis(
+                ctx,
+                {
+                    "line_id": f"tr_{after_id}_{before_id}",
+                    "text": str(item.get("text") or ""),
+                    "targets_segment_id": after_id,
+                    "placement": "after",
+                    "after_segment_id": after_id,
+                    "before_segment_id": before_id,
+                    "before_excerpt": (by_id.get(after_id) or {}).get("text"),
+                    "after_excerpt": (by_id.get(before_id) or {}).get("text"),
+                    "source_gap_ms": item.get("source_gap_ms"),
+                },
+                backend="mlx_audio",
+                out_wav=out,
+            )
             rows.append(
                 {
                     "after_segment_id": after_id,
@@ -188,6 +211,80 @@ def test_edl_skips_non_record_delivery() -> None:
     )
     assert edl["vo_pickup_clip_count"] == 0
     assert len(edl["clips"]) == 1
+
+
+def test_opening_orientation_precedes_music_without_native_hook(
+    tmp_path: Path,
+) -> None:
+    wav = tmp_path / "vo_preface.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "intro_music_body",
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "before",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+    )
+    assert [
+        (clip["type"], clip.get("air_kind"))
+        for clip in edl["clips"]
+    ][:3] == [
+        ("vo_pickup", None),
+        ("silence", "opening_music"),
+        ("speech", None),
+    ]
+
+
+def test_native_hook_precedes_music_and_orientation(tmp_path: Path) -> None:
+    wav = tmp_path / "vo_preface.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "native_hook_music_intro_body",
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "after",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+    )
+    assert [
+        (clip["type"], clip.get("air_kind"))
+        for clip in edl["clips"]
+    ][:4] == [
+        ("speech", None),
+        ("silence", "opening_music"),
+        ("vo_pickup", None),
+        ("silence", "after_vo"),
+    ]
+    assert edl["clips"][-1]["type"] == "speech"
 
 
 def _minimal_wav_bytes(*, duration_ms: int = 100) -> bytes:

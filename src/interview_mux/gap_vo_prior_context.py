@@ -706,11 +706,10 @@ def repair_last_sentence_layup(
     # If target looks like M&A / deal / exit, prefer that hinge over origin stock.
     tgt_l = str(target_text or "").lower()
     if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
-        tag = _seed_target_tag(target_segment_id)
         cue = (
-            f"What made that deal possible{f' as we get to {tag}' if tag else ''}?"
+            "What made that deal possible?"
             if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
-            else f"What was at stake in that exit{f' as we get to {tag}' if tag else ''}?"
+            else "What was at stake in that exit?"
         )
     if body:
         return f"{body} {cue}".strip()
@@ -784,21 +783,17 @@ def is_interruptive_opener(text: str) -> bool:
     return bool(INTERRUPTIVE_OPENER_RE.match(text or ""))
 
 
-def _seed_target_tag(target_segment_id: str | None) -> str:
-    sid = str(target_segment_id or "").strip()
-    if not sid:
-        return ""
-    short = sid.removeprefix("seg_").removeprefix("SEG_")
-    return short or sid
-
-
 def courtesy_seed_text(
     prior: dict[str, Any] | None,
     *,
     category: str,
     target_segment_id: str | None = None,
 ) -> str:
-    """Deterministic courteous density-seed copy — unique per target, no stock loops."""
+    """Deterministic courteous density-seed copy with no spoken edit metadata.
+
+    ``target_segment_id`` remains an anchoring input for callers, but is never
+    interpolated into listener-facing copy.
+    """
     quote = ""
     impact = False
     complete = False
@@ -809,45 +804,45 @@ def courtesy_seed_text(
     # Truncate quote for spoken VO length.
     if len(quote) > 110:
         quote = quote[:107].rstrip() + "…"
-    tag = _seed_target_tag(target_segment_id)
-
     if category == "episode_preface":
         if impact and quote:
-            return (
-                f"That landing stays with you — where does the next beat take us"
-                f"{f' on {tag}' if tag else ''}?"
-            )
-        if tag:
-            return f"Coming up — what opens as we get to {tag}?"
-        return "Coming up — where does this stretch lead?"
-
-    if category == "segment_summary":
+            candidate = "That landing stays with you — where does the next beat take us?"
+        else:
+            candidate = "Coming up — where does this stretch lead?"
+    elif category == "segment_summary":
         if quote:
-            return f"Keep that beat in mind — what claim follows{f' at {tag}' if tag else ''}?"
-        if tag:
-            return f"Here's the hinge into {tag} — what should we listen for?"
-        return "Here's the hinge — what should we listen for next?"
-
-    if category == "story_bridge":
+            candidate = "Keep that beat in mind — what claim follows?"
+        else:
+            candidate = "Here's the hinge — what should we listen for next?"
+    elif category == "story_bridge":
         if impact and quote:
-            return f"That's a sharp point — how does it set up{f' {tag}' if tag else ' what comes next'}?"
-        if complete and quote:
-            return f"That lands — what follows{f' at {tag}' if tag else ''}?"
-        if tag:
-            return f"Hold onto that — what opens at {tag}?"
-        return "Hold onto that — what comes next?"
+            candidate = "That's a sharp point — how does it set up what comes next?"
+        elif complete and quote:
+            candidate = "That lands — what follows?"
+        else:
+            candidate = "Hold onto that — what comes next?"
+    elif impact and quote:
+        candidate = "Given what you just said — how did that reshape what came next?"
+    elif complete and quote:
+        candidate = "Building on that — what changed next?"
+    else:
+        candidate = "What changed next in that stretch?"
 
-    # framing_question (default)
-    if impact and quote:
-        return (
-            f"Given what you just said — how did that reshape what came next"
-            f"{f' at {tag}' if tag else ''}?"
-        )
-    if complete and quote:
-        return f"Building on that — what changed next{f' at {tag}' if tag else ''}?"
-    if tag:
-        return f"What was the turning point as we get to {tag}?"
-    return "What changed next in that stretch?"
+    from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+    evidence = {
+        "before_excerpt": quote,
+        "source_gap_ms": prior.get("source_gap_ms")
+        if isinstance(prior, dict)
+        else None,
+    }
+    decision = guard_spoken_copy(
+        candidate,
+        evidence=evidence,
+        required=False,
+        purpose=f"gap_prior_fallback[{category}]",
+    )
+    return str(decision.get("text") or "")
 
 
 def enrich_line_with_prior_context(

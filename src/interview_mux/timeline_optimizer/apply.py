@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,82 @@ from interview_mux.timeline_optimizer.state import (
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _guard_candidate_spoken_copy(
+    ctx: RunContext, candidate: dict[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate optimizer-authored listener copy before any live artifact write."""
+    from interview_mux.opening_orientation import is_episode_orientation
+    from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+    out = copy.deepcopy(candidate)
+    errors: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in ((manifest or {}).get("segments") or [])
+            if isinstance(row, dict) and row.get("segment_id")
+        }
+
+    transitions = out.get("transitions")
+    if isinstance(transitions, dict):
+        for row in transitions.get("transitions") or []:
+            if not isinstance(row, dict) or not str(row.get("text") or "").strip():
+                continue
+            a = str(row.get("after_segment_id") or "")
+            b = str(row.get("before_segment_id") or "")
+            evidence = {
+                "before_excerpt": (by_id.get(a) or {}).get("text"),
+                "after_excerpt": (by_id.get(b) or {}).get("text"),
+                "before_topic": (by_id.get(a) or {}).get("topic"),
+                "after_topic": (by_id.get(b) or {}).get("topic"),
+                "source_gap_ms": row.get("source_gap_ms"),
+                "strict_grounding": True,
+            }
+            decision = guard_spoken_copy(
+                str(row.get("text") or ""),
+                evidence=evidence,
+                required=True,
+                purpose=f"optimizer_promote_transition[{a}->{b}]",
+            )
+            if decision["action"] == "block":
+                errors.append(f"transition {a}->{b}: {','.join(decision['violations'])}")
+            else:
+                row["text"] = decision["text"]
+
+    gap = out.get("gap_report")
+    if isinstance(gap, dict):
+        kept: list[dict[str, Any]] = []
+        for row in gap.get("interviewer_lines") or []:
+            if not isinstance(row, dict):
+                continue
+            target = str(row.get("targets_segment_id") or "")
+            evidence = {
+                "target_excerpt": (by_id.get(target) or {}).get("text"),
+                "after_topic": (by_id.get(target) or {}).get("topic"),
+            }
+            required = is_episode_orientation(row)
+            decision = guard_spoken_copy(
+                str(row.get("text") or ""),
+                evidence=evidence,
+                required=required,
+                purpose=f"optimizer_promote_gap[{row.get('line_id') or target}]",
+            )
+            if decision["action"] == "block":
+                errors.append(
+                    f"gap {row.get('line_id') or target}: "
+                    + ",".join(decision["violations"])
+                )
+                continue
+            if decision["action"] == "omit":
+                continue
+            row["text"] = decision["text"]
+            kept.append(row)
+        gap["interviewer_lines"] = kept
+    return out, errors
 
 
 def remaster_sync(ctx: RunContext, *, until_mix: bool = True) -> None:
@@ -64,6 +141,13 @@ def take_best_candidate(
     ordered = [str(s) for s in (best.get("ordered_segment_ids") or []) if s]
     if not ordered:
         return {"ok": False, "error": "empty_order"}
+    best, spoken_errors = _guard_candidate_spoken_copy(ctx, best)
+    if spoken_errors:
+        return {
+            "ok": False,
+            "error": "unsafe_spoken_copy",
+            "details": spoken_errors[:8],
+        }
 
     # Selection
     sel = (

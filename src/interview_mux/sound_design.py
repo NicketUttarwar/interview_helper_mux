@@ -260,6 +260,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         "preface_end_ms": None,
         "first_question_start_ms": None,
         "first_speech_start_ms": None,
+        "opening_music_window": None,
+        "orientation_window": None,
+        "orientation_bed_overlap_allowed": False,
         "vo_windows": live_vo_windows,
     }
     cold_bridge_ms = _cold_open_bridge_budget_ms(ctx)
@@ -380,6 +383,12 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 from pydub import AudioSegment as _AS
 
                 pad = max(0, int(clip.get("duration_ms") or 0))
+                opening_music = (
+                    str(clip.get("air_kind") or "") == "opening_music"
+                    and bool(clip.get("preserve_planned_music"))
+                )
+                if opening_music and cold_bridge_ms > 0:
+                    pad = max(pad, cold_bridge_ms)
                 # After show-open preface, reserve air for a speech-free cold-open bridge
                 # before the first question VO (hook → theme → question).
                 if last_vo_kind == "preface" and cold_bridge_ms > 0:
@@ -435,8 +444,17 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 if kind == "preface":
                     pe = live_landmarks.get("preface_end_ms")
                     live_landmarks["preface_end_ms"] = t_end if pe is None else max(int(pe), t_end)
+                    live_landmarks["orientation_window"] = (t_start, t_end)
+                    live_landmarks["orientation_bed_overlap_allowed"] = bool(
+                        clip.get("allow_music_bed_overlap")
+                    )
                 elif kind == "question" and live_landmarks.get("first_question_start_ms") is None:
                     live_landmarks["first_question_start_ms"] = t_start
+            elif (
+                ctype == "silence"
+                and str(clip.get("air_kind") or "") == "opening_music"
+            ):
+                live_landmarks["opening_music_window"] = (t_start, t_end)
 
         if missing_vo:
             ctx.log(
@@ -474,6 +492,81 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 continue
             pos = max(0, int(cue.get("position_ms", 0)))
             mixed = mixed.overlay(clip_audio, position=pos)
+
+        coverage_plan = load_sound_design_plan(ctx)
+        coverage_assets = {
+            str(row.get("asset_id") or ""): row
+            for row in (coverage_plan.get("assets") or [])
+            if isinstance(row, dict) and row.get("asset_id")
+        }
+        active_coverage_cues = [
+            cue
+            for cue in _flow_plan_cues(coverage_plan)
+            if isinstance(cue, dict)
+            and not cue.get("skip")
+            and str(cue.get("asset_id") or "")
+        ]
+        intentionally_skipped_assets: set[str] = set()
+        _, intentionally_skipped_assets = _filter_skipped_underscore_beds(
+            active_coverage_cues,
+            coverage_assets,
+            underscore_policy=str(contract.get("underscore_policy") or ""),
+        )
+        planned_music_assets = {
+            str(cue.get("asset_id") or "") for cue in active_coverage_cues
+        } - intentionally_skipped_assets
+        realized_music_assets = {
+            str(cue.get("asset_id") or "")
+            for cue in overlays
+            if isinstance(cue, dict) and str(cue.get("asset_id") or "")
+        }
+        missing_music_assets = sorted(planned_music_assets - realized_music_assets)
+        realized_duration_rows = [
+            {
+                "asset_id": str(cue.get("asset_id") or ""),
+                "music_role": cue.get("music_role"),
+                "position_ms": int(cue.get("position_ms") or 0),
+                "source_duration_ms": int(cue.get("source_duration_ms") or 0),
+                "rendered_duration_ms": int(cue.get("rendered_duration_ms") or 0),
+                "preserve_full_duration": bool(cue.get("preserve_full_duration")),
+            }
+            for cue in overlays
+            if isinstance(cue, dict) and str(cue.get("asset_id") or "")
+        ]
+        shortened_preserved_assets = sorted(
+            {
+                row["asset_id"]
+                for row in realized_duration_rows
+                if row["preserve_full_duration"]
+                and row["rendered_duration_ms"] < row["source_duration_ms"]
+            }
+        )
+        ctx.write_json(
+            "master/music_cue_coverage.json",
+            {
+                "version": 1,
+                "planned_asset_ids": sorted(planned_music_assets),
+                "realized_asset_ids": sorted(realized_music_assets),
+                "missing_asset_ids": missing_music_assets,
+                "shortened_preserved_asset_ids": shortened_preserved_assets,
+                "realized_cues": realized_duration_rows,
+                "intentionally_skipped_bed_asset_ids": sorted(
+                    intentionally_skipped_assets
+                ),
+                "preserved": not missing_music_assets
+                and not shortened_preserved_assets,
+            },
+        )
+        if missing_music_assets or shortened_preserved_assets:
+            raise RuntimeError(
+                "mix: approved music assets missing or shortened: "
+                + ", ".join(
+                    [
+                        *(f"missing:{x}" for x in missing_music_assets),
+                        *(f"shortened:{x}" for x in shortened_preserved_assets),
+                    ]
+                )
+            )
 
         ctx.log(
             (
@@ -735,6 +828,36 @@ def _flow_plan_cues(plan: dict[str, Any]) -> list[Any]:
     return cues
 
 
+def _filter_skipped_underscore_beds(
+    cues: list[dict[str, Any]],
+    assets_by_id: dict[str, dict[str, Any]],
+    *,
+    underscore_policy: str,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """A skip-underscore contract removes beds, never bookends/punctuators."""
+    if str(underscore_policy) != "skip":
+        return list(cues), set()
+    from interview_mux.music_lane import (
+        LANE_BED,
+        effective_cue_role,
+        music_lane_for_role,
+    )
+
+    kept: list[dict[str, Any]] = []
+    skipped_assets: set[str] = set()
+    for cue in cues:
+        asset_id = str(cue.get("asset_id") or "")
+        lane = music_lane_for_role(
+            effective_cue_role(cue, assets_by_id.get(asset_id, {}))
+        )
+        if lane == LANE_BED:
+            if asset_id:
+                skipped_assets.add(asset_id)
+            continue
+        kept.append(cue)
+    return kept, skipped_assets
+
+
 def _flow1_speech_join_crossfades(ctx: RunContext) -> dict[tuple[str, str], int]:
     """Per-segment speech join crossfade overrides from SDP transition/stinger cues."""
     plan = load_sound_design_plan(ctx)
@@ -773,9 +896,7 @@ def flow1_overlays_from_sdp(
 ) -> list[dict[str, Any]]:
     contract = contract or mix_contract(ctx)
     excluded = list(excluded_windows or [])
-    if contract.get("underscore_policy") == "skip":
-        ctx.log("mix: underscore_skipped — no bed overlays", level="info", stage="mix")
-        return []
+    skip_beds = contract.get("underscore_policy") == "skip"
     profile = load_profile(ctx)
     transcript = _load_transcript(ctx)
     segments_by_id = _segments_by_id(ctx)
@@ -801,6 +922,19 @@ def flow1_overlays_from_sdp(
     assets_by_id = {
         str(a.get("asset_id")): a for a in assets if isinstance(a, dict) and a.get("asset_id")
     }
+    if skip_beds:
+        before_count = len(cues)
+        cues, _skipped_assets = _filter_skipped_underscore_beds(
+            cues,
+            assets_by_id,
+            underscore_policy="skip",
+        )
+        ctx.log(
+            f"mix: underscore_skipped — removed {before_count - len(cues)} bed cue(s); "
+            "preserving bookends and punctuators",
+            level="info",
+            stage="mix",
+        )
     cues, collapse_actions = collapse_duplicate_music_cues(cues, assets_by_id)
     if bind_actions or collapse_actions:
         ctx.log(
@@ -936,6 +1070,26 @@ def flow1_overlays_from_sdp(
                 continue
             start_ms = int(timings[0][0])
             end_ms = int(timings[-1][1])
+            orientation_window = landmarks.get("orientation_window")
+            if (
+                bool(landmarks.get("orientation_bed_overlap_allowed"))
+                and isinstance(orientation_window, (list, tuple))
+                and len(orientation_window) == 2
+            ):
+                orientation_end = int(orientation_window[1])
+                body_start = min(
+                    (
+                        int(window[0])
+                        for window in segment_timing.values()
+                        if int(window[0]) >= orientation_end
+                    ),
+                    default=min(
+                        (int(window[0]) for window in segment_timing.values()),
+                        default=start_ms,
+                    ),
+                )
+                if start_ms == body_start:
+                    start_ms = min(start_ms, int(orientation_window[0]))
             dur = max(0, end_ms - start_ms)
             if dur <= 0:
                 continue
@@ -1019,21 +1173,47 @@ def flow1_overlays_from_sdp(
         # Musical cold open: always prefer post-hook air gap placement.
         if asset_role == "theme_cold_open":
             air_ms = int(presence.get("cold_open_air_ms") or 400)
-            pe = landmarks.get("preface_end_ms")
-            qs = landmarks.get("first_question_start_ms")
-            # Fit theme into post-hook air when the gap is shorter than the full stem.
-            if pe is not None and qs is not None and int(qs) > int(pe):
-                gap = int(qs) - int(pe)
-                fit = max(800, gap - max(80, air_ms // 2))
-                if len(cue_audio) > fit:
-                    tail_fade = min(max(400, fit // 3), fit)
-                    cue_audio = organic_fade_out(cue_audio[:fit], tail_fade)
+            opening_window = landmarks.get("opening_music_window")
+            if (
+                isinstance(opening_window, (list, tuple))
+                and len(opening_window) == 2
+                and int(opening_window[1]) > int(opening_window[0])
+                and len(cue_audio)
+                > int(opening_window[1]) - int(opening_window[0])
+            ):
+                ctx.log(
+                    "mix: opening music exceeds protected air; preserving full "
+                    "duration with speech ducking",
+                    level="info",
+                    stage="mix",
+                    detail={
+                        "asset_id": asset_id,
+                        "music_duration_ms": len(cue_audio),
+                        "protected_air_ms": int(opening_window[1])
+                        - int(opening_window[0]),
+                    },
+                )
             pos = cold_open_position_ms(
                 theme_duration_ms=len(cue_audio),
                 landmarks=landmarks,
                 segment_timing=segment_timing,
                 air_ms=air_ms,
             )
+            if speech_stem is not None and len(speech_stem) > 0:
+                from interview_mux.sidechain_duck import duck_bed_with_sidechain
+
+                speech_window = speech_stem[
+                    max(0, int(pos)) : max(0, int(pos)) + len(cue_audio)
+                ]
+                cue_audio = duck_bed_with_sidechain(
+                    cue_audio,
+                    speech_window,
+                    level_db=0.0,
+                    duck_db=max(
+                        MIN_DUCK_DB,
+                        float(cue.get("duck_under_speech_db") or duck_default),
+                    ),
+                )
         if pos is None:
             pos = max(0, max((v[1] for v in segment_timing.values()), default=0) - 50)
         if asset_role != "theme_cold_open" and _cue_uses_pause_alignment(cue, asset):
@@ -1075,6 +1255,10 @@ def flow1_overlays_from_sdp(
                 "role": role,
                 "music_role": asset_role,
                 "asset_id": asset_id,
+                "source_duration_ms": body_ms,
+                "rendered_duration_ms": len(cue_audio),
+                "preserve_full_duration": asset_role
+                in {"theme_cold_open", "theme_outro"},
             }
         )
         # Chapter-hinge breathe: dry micro-gap after resolve before speech resumes.
@@ -1089,7 +1273,21 @@ def flow1_overlays_from_sdp(
                     }
                 )
 
-    return apply_music_lane_exclusivity(out)
+    realized = apply_music_lane_exclusivity(out)
+    for overlay in realized:
+        audio = overlay.get("audio") if isinstance(overlay, dict) else None
+        if audio is None or not hasattr(audio, "__len__"):
+            continue
+        rendered_ms = len(audio)
+        overlay["rendered_duration_ms"] = rendered_ms
+        if overlay.get("preserve_full_duration") and rendered_ms < int(
+            overlay.get("source_duration_ms") or rendered_ms
+        ):
+            raise RuntimeError(
+                "mix: preserve_full_duration music cue was shortened: "
+                + str(overlay.get("asset_id") or "unknown")
+            )
+    return realized
 
 
 def flow1_overlays_legacy(

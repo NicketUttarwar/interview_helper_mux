@@ -51,3 +51,13 @@ def test_chatterbox_failure_uses_mlx(monkeypatch: pytest.MonkeyPatch, ctx: RunCo
     entry = (doc.get("entries") or [])[-1]
     assert entry["backend"] == "mlx_audio"
     assert entry.get("fallback_from") == "chatterbox"
+
+
+def test_synthesis_blocks_spoken_internal_segment_id(ctx: RunContext) -> None:
+    line = {
+        "line_id": "line_002",
+        "text": "What happens as we get to 153?",
+        "targets_segment_id": "seg_153",
+    }
+    with pytest.raises(ValueError, match="spoken_internal_identifier"):
+        s2s_runner.synthesize_line(ctx, line, mode="synthesize")

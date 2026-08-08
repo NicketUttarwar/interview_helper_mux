@@ -1059,36 +1059,39 @@ def heal_stage_done_markers() -> None:
                             healed.append(sid)
                 else:
                     # Rewrite scaffolding phrasing so compose artifacts can finalize.
-                    from interview_mux.spoken_meta_lint import lint_spoken_text, spoken_structure_hits
+                    from interview_mux.opening_orientation import is_episode_orientation
+                    from interview_mux.spoken_copy_guard import guard_spoken_copy
 
                     dirty = 0
+                    guarded_lines = []
                     for ln in repaired.get("interviewer_lines") or []:
                         if not isinstance(ln, dict):
                             continue
                         text = str(ln.get("text") or "")
-                        if not spoken_structure_hits(text):
-                            continue
-                        # Prefer idiomatic rewrite over dropping the line.
-                        cleaned = (
-                            text.replace("next chapter", "next phase")
-                            .replace("Next chapter", "Next phase")
-                            .replace("this chapter", "this stretch")
-                            .replace("This chapter", "This stretch")
-                            .replace("our chapter", "this stretch")
-                            .replace("previous chapter", "earlier discussion")
+                        decision = guard_spoken_copy(
+                            text,
+                            evidence={
+                                "target_excerpt": ln.get("target_excerpt"),
+                                "after_topic": ln.get("target_topic"),
+                                "before_excerpt": ln.get("before_excerpt"),
+                                "source_gap_ms": ln.get("source_gap_ms"),
+                            },
+                            required=is_episode_orientation(ln),
+                            purpose=f"e2e_gap_heal[{ln.get('line_id') or 'line'}]",
                         )
-                        # Strip remaining chapter/act ordinals gently.
-                        import re as _re
-
-                        cleaned = _re.sub(
-                            r"\b(?:chapter|act|part)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-                            "section",
-                            cleaned,
-                            flags=_re.IGNORECASE,
-                        )
-                        if cleaned != text and not spoken_structure_hits(cleaned):
-                            ln["text"] = cleaned
+                        if decision["action"] == "block":
+                            raise RuntimeError(
+                                "required E2E spoken fallback blocked: "
+                                + ",".join(decision["violations"])
+                            )
+                        if decision["action"] == "omit":
                             dirty += 1
+                            continue
+                        if decision["text"] != text:
+                            dirty += 1
+                        ln["text"] = decision["text"]
+                        guarded_lines.append(ln)
+                    repaired["interviewer_lines"] = guarded_lines
                     if dirty:
                         write_validated_artifact(
                             ctx,
@@ -2072,41 +2075,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 transitions=tr,
             )
             if miss:
-                from interview_mux.seam_glue import default_bridge_text
+                from interview_mux.seam_glue import mint_missing_transitions
 
-                rows = list(tr.get("transitions") or [])
-                have = {
-                    (str(r.get("after_segment_id") or ""), str(r.get("before_segment_id") or ""))
-                    for r in rows
-                    if isinstance(r, dict)
-                }
-                for m in miss:
-                    a = str(m.get("after_segment_id") or "")
-                    b = str(m.get("before_segment_id") or "")
-                    if a and b and (a, b) not in have:
-                        # Must include spoken text + schema `type` — empty silence
-                        # stubs fail both bridge_completeness and artifact validation.
-                        try:
-                            text = default_bridge_text(
-                                {"after_segment_id": a, "before_segment_id": b}
-                            ) or "And then — this next beat."
-                        except Exception:
-                            text = "And then — this next beat."
-                        rows.append(
-                            {
-                                "after_segment_id": a,
-                                "before_segment_id": b,
-                                "text": text,
-                                "type": "bridge",
-                                "tone": "bridge",
-                                "kind": "reorder",
-                                "transition_type": "reorder_bridge",
-                                "e2e_minted": True,
-                            }
-                        )
-                        have.add((a, b))
-                tr["transitions"] = rows
-                ctx.write_json("master/transitions.json", tr, stage_key="transitions", skip_handoff=True)
+                tr = mint_missing_transitions(ctx, miss, transitions=tr)
                 log(f"bridge heal: minted spoken bridge(s) for {len(miss)} pair(s)")
             doc = assert_bridges_complete(
                 bridges,

@@ -316,6 +316,37 @@ def normalize_synthetic_plan(
             row["line_id"] = f"syn_{index:03d}_{anchor}"
         if not str(row.get("text") or "").strip():
             continue
+        from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+        after_row = native_by_id.get(str(row.get("after_segment_id") or "")) or {}
+        before_row = native_by_id.get(str(row.get("before_segment_id") or "")) or {}
+        evidence = {
+            "after_excerpt": after_row.get("text") or after_row.get("text_excerpt"),
+            "before_excerpt": before_row.get("text") or before_row.get("text_excerpt"),
+            "target_excerpt": native.get("text") or native.get("text_excerpt"),
+            "source_gap_ms": row.get("source_gap_ms"),
+            "strict_grounding": True,
+        }
+        required_line = str(row.get("placement") or "") == "between_segments"
+        guarded = guard_spoken_copy(
+            str(row.get("text") or ""),
+            evidence=evidence,
+            required=required_line,
+            purpose=f"synthetic_framing[{row.get('line_id') or index}]",
+        )
+        if guarded["action"] == "block":
+            raise ValueError(
+                f"required synthetic line blocked: {row.get('line_id')}: "
+                + ", ".join(guarded["violations"])
+            )
+        if guarded["action"] == "omit":
+            continue
+        row["text"] = guarded["text"]
+        row["spoken_copy_guard"] = {
+            "action": guarded["action"],
+            "script_hash": guarded["script_hash"],
+            "context_hash": guarded["context_hash"],
+        }
         cleaned.append(row)
     out["lines"] = cleaned
     if out.get("synthetic_input_share_estimate") is None:
@@ -341,7 +372,11 @@ def normalize_synthetic_plan(
         and str(line.get("before_segment_id") or "")
         and str(line.get("text") or "").strip()
     }
-    from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
+    from interview_mux.seam_glue import (
+        bridge_guard_evidence,
+        default_bridge_text,
+        enrich_bridge_pair_excerpts,
+    )
 
     def _mint_seam(pair: dict[str, Any], a: str, b: str) -> None:
         native = native_by_id.get(a) or native_by_id.get(b) or {}
@@ -350,6 +385,14 @@ def normalize_synthetic_plan(
             int(native.get("end_ms") or 0) - int(native.get("start_ms") or 0),
         )
         enriched = enrich_bridge_pair_excerpts(pair, native_by_id)
+        text = default_bridge_text(enriched)
+        from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
+
+        guarded = assert_guarded_spoken_copy(
+            text,
+            evidence=bridge_guard_evidence(enriched),
+            purpose=f"synthetic_reorder_seam[{a}->{b}]",
+        )
         cleaned.append(
             {
                 "line_id": f"syn_seam_{a}_{b}",
@@ -358,7 +401,7 @@ def normalize_synthetic_plan(
                 "anchor_segment_id": a if a in ordered else b,
                 "after_segment_id": a,
                 "before_segment_id": b,
-                "text": default_bridge_text(enriched),
+                "text": guarded["text"],
                 "duration_ratio": 1.0,
                 "target_duration_ms": max(250, min(3500, int(native_ms * 0.6) or 1200)),
                 "comprehension_reason": (
@@ -368,6 +411,11 @@ def normalize_synthetic_plan(
                 "native_respect_violation": False,
                 "auto_minted_seam": True,
                 "speaker_policy": "current_host_clone",
+                "spoken_copy_guard": {
+                    "action": guarded["action"],
+                    "script_hash": guarded["script_hash"],
+                    "context_hash": guarded["context_hash"],
+                },
             }
         )
         covered.add((a, b))

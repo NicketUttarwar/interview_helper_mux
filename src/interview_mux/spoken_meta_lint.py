@@ -44,6 +44,25 @@ _SCAFFOLD = re.compile(
     re.IGNORECASE,
 )
 
+# Internal edit identifiers are metadata, never listener-facing copy. The second
+# pattern catches old deterministic fallbacks that stripped ``seg_`` but left the
+# numeric suffix in phrases such as "what happens as we get to 153?"
+_INTERNAL_ID = re.compile(
+    r"\b(?:seg(?:ment)?|line|clip|turn)[\s_-]*\d+[a-z]?\b",
+    re.IGNORECASE,
+)
+_DISGUISED_SEGMENT_ID = re.compile(
+    r"\b(?:"
+    r"what\s+happens\s+as\s+we\s+get\s+to|"
+    r"what\s+led\s+into|"
+    r"where\s+does|"
+    r"how\s+does"
+    r")\s+\d+[a-z]?\b|"
+    r"\b(?:opens?\s+on|follow\s+from)\s+\d+[a-z]?\b|"
+    r"\b\d+[a-z]?\s+(?:take\s+this|follow\s+from)\b",
+    re.IGNORECASE,
+)
+
 # Gap-eval / QC prose that must never be spoken as interviewer VO.
 _EDITORIAL_QC = re.compile(
     r"(?:"
@@ -76,6 +95,8 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
         hits.append("spoken_chapter_meta")
     if not allow_scaffold and _SCAFFOLD.search(t):
         hits.append("spoken_show_scaffold")
+    if _INTERNAL_ID.search(t) or _DISGUISED_SEGMENT_ID.search(t):
+        hits.append("spoken_internal_identifier")
     if _EDITORIAL_QC.search(t):
         hits.append("spoken_editorial_qc_prose")
     return hits

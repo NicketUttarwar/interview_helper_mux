@@ -1702,7 +1702,9 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 limit = max(1, int(word_limit_for_category(cat)))
                 words = text.split()
                 if len(words) > limit:
-                    line["text"] = " ".join(words[:limit])
+                    from interview_mux.spoken_copy_guard import shorten_spoken_text
+
+                    line["text"] = shorten_spoken_text(text, limit)
                     applied.append(
                         {
                             "action": "trim_line_word_limit",
@@ -1862,6 +1864,84 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                                 "line_id": row.get("line_id"),
                             }
                         )
+    # Final listener-facing guard after every deterministic repair/rewrite.
+    from interview_mux.opening_orientation import is_episode_orientation
+    from interview_mux.spoken_copy_guard import guard_spoken_copy
+
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        by_id = {
+            str(row.get("segment_id")): row
+            for row in ((manifest or {}).get("segments") or [])
+            if isinstance(row, dict) and row.get("segment_id")
+        }
+    grounding_context = (
+        ctx.read_json("understanding/content_brief.json")
+        if ctx.artifact_exists("understanding/content_brief.json")
+        else None
+    )
+    guarded_lines: list[dict[str, Any]] = []
+    seen_texts: list[str] = []
+    for row in out.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped_optional"):
+            guarded_lines.append(row)
+            continue
+        target = str(row.get("targets_segment_id") or "")
+        prior_id = str(row.get("prior_segment_id") or "")
+        prior_row = by_id.get(prior_id) or {}
+        target_row = by_id.get(target) or {}
+        source_gap = row.get("source_gap_ms")
+        if source_gap is None and prior_row and target_row:
+            try:
+                source_gap = int(target_row.get("start_ms") or 0) - int(
+                    prior_row.get("end_ms") or 0
+                )
+            except (TypeError, ValueError):
+                source_gap = None
+        evidence = {
+            "target_excerpt": target_row.get("text"),
+            "after_topic": target_row.get("topic"),
+            "before_excerpt": row.get("before_excerpt") or prior_row.get("text"),
+            "source_gap_ms": source_gap,
+            "grounding_context": grounding_context,
+            "strict_grounding": bool(grounding_context or target_row or prior_row),
+        }
+        required = is_episode_orientation(row)
+        decision = guard_spoken_copy(
+            str(row.get("text") or ""),
+            evidence=evidence,
+            required=required,
+            purpose=f"gap_repair[{row.get('line_id') or target}]",
+            seen_texts=seen_texts,
+        )
+        if decision["action"] == "block":
+            raise ValueError(
+                f"required gap VO blocked by spoken_copy_guard "
+                f"({row.get('line_id') or target}): "
+                + ", ".join(decision["violations"])
+            )
+        if decision["action"] == "omit":
+            applied.append(
+                {
+                    "action": "omit_unsafe_optional_vo",
+                    "line_id": row.get("line_id"),
+                    "violations": decision["violations"],
+                }
+            )
+            continue
+        fixed = dict(row)
+        fixed["text"] = decision["text"]
+        fixed["spoken_copy_guard"] = {
+            "action": decision["action"],
+            "script_hash": decision["script_hash"],
+            "context_hash": decision["context_hash"],
+        }
+        guarded_lines.append(fixed)
+        seen_texts.append(str(decision["text"]))
+    out["interviewer_lines"] = guarded_lines
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied

@@ -117,6 +117,24 @@ def test_editorial_qc_prose_detected():
     assert not is_editorial_qc_prose("What was the turning point in that stretch?")
 
 
+def test_spoken_internal_segment_references_are_blocked():
+    bad_lines = [
+        "And then — what happens as we get to 153?",
+        "Where does 167 take this?",
+        "Let us move to segment 204.",
+        "That connects here — how does 208 follow from 205?",
+        "Continue with seg_241.",
+    ]
+    for text in bad_lines:
+        errs = lint_spoken_text(text, label="transition")
+        assert any("spoken_internal_identifier" in err for err in errs), text
+
+    assert lint_spoken_text(
+        "Moving from fundraising constraints to the strategic sale, what changed?",
+        label="transition",
+    ) == []
+
+
 def test_high_gap_seed_does_not_paste_confusion(tmp_path, monkeypatch):
     from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
 

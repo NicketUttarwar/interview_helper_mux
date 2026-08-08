@@ -84,6 +84,14 @@
               "gap_type": {
                 "type": "string"
               },
+              "script_hash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "context_hash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
               "source_path": {
                 "type": [
                   "string",
@@ -121,6 +129,10 @@
               },
               "transition_type": {
                 "type": "string"
+              },
+              "script_hash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
               },
               "duration_ms": {
                 "type": "integer"
