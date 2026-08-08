@@ -66,31 +66,24 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
         vo_duration_ms=lambda _p: 2_000,
     )
 
-    types = [c["type"] for c in edl["clips"]]
-    assert types == [
-        "speech",
-        "vo_pickup",
-        "silence",
-        "transition",
-        "silence",
-        "vo_pickup",
-        "silence",
-        "speech",
-    ]
+    types = [c["type"] for c in edl["clips"] if c["type"] != "silence"]
+    # One spoken host turn per seam: before-VO on seg_b covers the pair;
+    # after-VO + transition are not stacked.
+    assert types == ["speech", "vo_pickup", "speech"]
 
     vo_before = next(c for c in edl["clips"] if c.get("line_id") == "line_001")
     assert vo_before["placement"] == "before"
     assert vo_before["targets_segment_id"] == "seg_b"
+    assert not any(c.get("line_id") == "line_002" for c in edl["clips"])
 
     speech_a = edl["clips"][0]
     assert speech_a["timeline_start_ms"] == 0
     assert speech_a["duration_ms"] == 10_000
 
-    assert edl["vo_pickup_clip_count"] == 2
-    assert "transition" in types
-    assert len(edl["gap_placements"]) == 2
-    # Speech + 2 VO + transition + air pads; exact timeline depends on air policy.
-    assert edl["timeline_duration_ms"] >= 10_000 + 2_000 + 2_000 + 15_000
+    assert edl["vo_pickup_clip_count"] == 1
+    assert "transition" not in types
+    assert len(edl["gap_placements"]) == 1
+    assert edl["timeline_duration_ms"] >= 10_000 + 2_000 + 15_000
 
 
 def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:

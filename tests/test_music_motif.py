@@ -109,8 +109,11 @@ def test_compile_musicgen_prompt_negatives() -> None:
 
 
 def test_vo_density_floor_math() -> None:
-    # 173 selected speech → floor ≥ 35 at 0.20
+    # Default min_vo_insert_ratio is 0 (off). Explicit ratio still computes a floor.
     n = 173
+    ratio = 0.0
+    floor = int(math.ceil(n * ratio)) if ratio > 0 else 0
+    assert floor == 0
     ratio = 0.20
     floor = max(1, int(math.ceil(n * ratio)))
     assert floor == 35
@@ -127,16 +130,33 @@ class _FakeCtx:
         return self._arts[rel]
 
 
-def test_enforce_min_vo_insert_ratio_seeds() -> None:
+def test_enforce_min_vo_insert_ratio_seeds(monkeypatch) -> None:
+    from interview_mux import config as config_mod
     from interview_mux.artifact_repairs import _enforce_min_vo_insert_ratio
 
+    monkeypatch.setattr(
+        config_mod,
+        "merged_config",
+        lambda: {"analysis": {"gap_framing": {"min_vo_insert_ratio": 0.20}}},
+    )
     ordered = [f"seg_{i:03d}" for i in range(20)]
+    segs = [
+        {
+            "segment_id": sid,
+            "speaker_id": f"spk_{i % 4}",
+            "start_ms": i * 10_000,
+            "end_ms": (i + 1) * 10_000,
+            "text": f"Answer {i} with enough words to not look micro.",
+        }
+        for i, sid in enumerate(ordered)
+    ]
     ctx = _FakeCtx(
         {
             "master/selection.json": {"ordered_segment_ids": ordered},
             "master/narrative_plan.json": {
                 "chapters": [{"chapter_id": "c1", "segment_ids": ordered[:10]}, {"chapter_id": "c2", "segment_ids": ordered[10:]}]
             },
+            "segments/manifest.json": {"segments": segs},
         }
     )
     out: dict[str, Any] = {"interviewer_lines": []}

@@ -44,6 +44,108 @@ def _ratio_bounds(cfg: dict[str, Any] | None = None) -> tuple[float, float]:
     return low, high
 
 
+def _compact_gap_evaluations(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep placement/severity signal; drop long rationales that blow the volley."""
+    rows: list[dict[str, Any]] = []
+    for row in value.get("evaluations") or []:
+        if not isinstance(row, dict):
+            continue
+        rows.append(
+            {
+                "segment_id": row.get("segment_id"),
+                "gap_type": row.get("gap_type"),
+                "secondary_gap_type": row.get("secondary_gap_type"),
+                "severity": row.get("severity"),
+                "self_explanatory": row.get("self_explanatory"),
+                "recommended_framing": row.get("recommended_framing"),
+                "candidate_for_summary": row.get("candidate_for_summary"),
+            }
+        )
+    return {"evaluations": rows, "_compacted_for": STAGE_ID}
+
+
+def _compact_content_brief(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep spine fields; drop bulky digests that do not steer seam framing."""
+    out: dict[str, Any] = {"_compacted_for": STAGE_ID}
+    for key in (
+        "thesis",
+        "logline",
+        "title",
+        "subtitle",
+        "episode_promise",
+        "audience",
+        "tone",
+        "narrative_mode",
+        "guest_name",
+        "host_name",
+    ):
+        if key in value:
+            out[key] = value[key]
+    topics = value.get("topics")
+    if isinstance(topics, list):
+        slim_topics: list[Any] = []
+        for t in topics[:12]:
+            if isinstance(t, dict):
+                slim_topics.append(
+                    {
+                        "topic_id": t.get("topic_id") or t.get("id"),
+                        "label": t.get("label") or t.get("name") or t.get("title"),
+                        "summary": str(t.get("summary") or t.get("blurb") or "")[:180],
+                    }
+                )
+            elif t:
+                slim_topics.append(str(t)[:120])
+        out["topics"] = slim_topics
+    claims = value.get("key_claims")
+    if isinstance(claims, list):
+        out["key_claims"] = [
+            (c if isinstance(c, str) else str((c or {}).get("claim") or c))[:160]
+            for c in claims[:12]
+        ]
+    beats = value.get("emotional_beats")
+    if isinstance(beats, list):
+        out["emotional_beats"] = [
+            (b if isinstance(b, str) else str((b or {}).get("label") or b))[:120]
+            for b in beats[:8]
+        ]
+    gloss = value.get("jargon_glossary")
+    if isinstance(gloss, list):
+        out["jargon_glossary"] = gloss[:12]
+    elif isinstance(gloss, dict):
+        out["jargon_glossary"] = dict(list(gloss.items())[:12])
+    return out
+
+
+def _compact_optional_packet_value(key: str, value: dict[str, Any]) -> dict[str, Any]:
+    if key == "prior_gap_report":
+        from interview_mux.gap_framing import compact_gap_report_for_ranking
+
+        compact = compact_gap_report_for_ranking(value)
+        compact["_compacted_for"] = STAGE_ID
+        return compact
+    if key == "gap_evaluations":
+        return _compact_gap_evaluations(value)
+    if key == "content_brief":
+        return _compact_content_brief(value)
+    if key == "reorder_bridges":
+        bridges = value.get("bridges") if isinstance(value.get("bridges"), list) else value.get("items")
+        if isinstance(bridges, list):
+            slim = []
+            for row in bridges[:120]:
+                if not isinstance(row, dict):
+                    continue
+                slim.append(
+                    {
+                        "after_segment_id": row.get("after_segment_id") or row.get("from_segment_id"),
+                        "before_segment_id": row.get("before_segment_id") or row.get("to_segment_id"),
+                        "kind": row.get("kind") or row.get("bridge_kind"),
+                        "needed": row.get("needed"),
+                    }
+                )
+            return {"bridges": slim, "_compacted_for": STAGE_ID}
+    return value
+
+
 def build_context_packet(ctx: RunContext) -> dict[str, Any]:
     selection = ctx.read_json("master/selection.json")
     if not isinstance(selection, dict):
@@ -60,8 +162,9 @@ def build_context_packet(ctx: RunContext) -> dict[str, Any]:
         if ctx.artifact_exists("segments/manifest.json")
         else {}
     )
+    # Keep native excerpts short — full gap_report text previously pushed o3 over 128k.
     compact = compact_manifest_for_volley(
-        manifest if isinstance(manifest, dict) else {}, text_max=240
+        manifest if isinstance(manifest, dict) else {}, text_max=160
     )
     segments = [
         row
@@ -115,8 +218,7 @@ def build_context_packet(ctx: RunContext) -> dict[str, Any]:
         if ctx.artifact_exists(rel):
             value = ctx.read_json(rel)
             if isinstance(value, dict):
-                packet[key] = value
-
+                packet[key] = _compact_optional_packet_value(key, value)
     # Required reorder seams must be planned explicitly — no canned mint later.
     try:
         from interview_mux.bridge_completeness import missing_reorder_bridges

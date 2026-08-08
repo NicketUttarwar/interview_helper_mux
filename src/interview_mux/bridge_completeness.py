@@ -46,8 +46,8 @@ def _bridged_pairs(
 ) -> set[tuple[str, str]]:
     """Return (after, before) pairs that have intentional spoken/transition glue.
 
-    Silence-only markers and wildcard VO targeting are intentionally excluded —
-    reorder seams need pair-bound glue.
+    Silence-only markers are excluded. Gap ``placement: before`` VO on the
+    destination covers the seam via ``missing_reorder_bridges`` (one host turn).
     """
     bridged: set[tuple[str, str]] = set()
     if isinstance(gap_report, dict):
@@ -65,11 +65,15 @@ def _bridged_pairs(
             after = str(ln.get("after_segment_id") or "")
             before = str(ln.get("before_segment_id") or "")
             target = str(ln.get("targets_segment_id") or "")
+            prior = str(ln.get("prior_segment_id") or "")
+            placement = str(ln.get("placement") or "before").strip() or "before"
             # Pair-specific only: require explicit after→before (or after→target).
             if after and before:
                 bridged.add((after, before))
             elif after and target:
                 bridged.add((after, target))
+            elif placement == "before" and prior and target:
+                bridged.add((prior, target))
     if isinstance(transitions, dict):
         for tr in transitions.get("transitions") or []:
             if not isinstance(tr, dict):
@@ -93,6 +97,19 @@ def missing_reorder_bridges(
     if not isinstance(reorder_bridges, dict):
         return []
     bridged = _bridged_pairs(gap_report, transitions)
+    vo_before_targets: set[str] = set()
+    if isinstance(gap_report, dict):
+        for ln in gap_report.get("interviewer_lines") or []:
+            if not isinstance(ln, dict) or ln.get("skipped_optional"):
+                continue
+            delivery = str(ln.get("delivery") or "").lower()
+            if delivery and delivery not in {"record", "synthesize"}:
+                continue
+            if str(ln.get("placement") or "before").strip() != "before":
+                continue
+            tid = str(ln.get("targets_segment_id") or "").strip()
+            if tid:
+                vo_before_targets.add(tid)
     missing: list[dict[str, Any]] = []
     for pair in reorder_bridges.get("pairs") or []:
         if not isinstance(pair, dict):
@@ -101,7 +118,7 @@ def missing_reorder_bridges(
         b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
         if not a or not b:
             continue
-        if (a, b) in bridged:
+        if (a, b) in bridged or b in vo_before_targets:
             continue
         missing.append(
             {

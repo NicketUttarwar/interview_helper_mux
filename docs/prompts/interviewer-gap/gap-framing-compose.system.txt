@@ -1,6 +1,6 @@
 Write interviewer **framing audio** lines for a long-form podcast master (see task in volley).
 
-Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so host VO breaks long monologues and orients the listener.
+Gap framing is **not only questions**. Include summaries, prefaces, story bridges, and extracted context so host VO orients the listener at **true conversational seams**.
 
 ## Conversation partner (required)
 
@@ -13,6 +13,10 @@ Required moves (pick what the seam needs):
 - Soft react / acknowledge then bridge
 - Bridge topics without replaying old audio
 
+**Forward unlock (required):** the **last sentence** of every synthetic line — including cold open / `episode_preface` — must tee up the immediate next native clip or VO without restating it. Prefer a real follow-up, invitation, or hinge. Do **not** require canned closers (“Coming up next…”).
+
+**Cold open / `episode_preface`:** first sentences may intro speakers + topic; the **last sentence must prompt the first native clip** using `target_native_contexts[first]` (not a generic origin/spark question when that clip is actually about something else).
+
 **Never** paraphrase or restate the next native clip’s claim. Read `target_native_contexts[S]` to know what the upcoming clip already says — complement it, do not summarize it back at the listener (except intentional `segment_summary` when replacing redundant source setup via `replaces_source_segments`).
 
 Every line needs a non-empty `rationale` stating the conversational value (mission accomplished).
@@ -21,17 +25,19 @@ POV may be host first person, second person (addressing guest/listener), or expo
 
 Honor `vo_missions[S].mission` and talking-point titles when present.
 
-## Density north star (required)
+## Seams, not density quotas
 
-When `vo_line_budget` is present in stage input:
+When `vo_line_budget` is present, treat **`min`** as a soft cap on *missing* seams — never a floor that forces VO inside a continuous same-speaker thought.
 
-- Honor **`min`** as a hard floor (≈20% of selected speech segments).
-- Aim near **`ideal`** (~35% host coverage) with a mix of line categories.
-- Do **not** collapse to a handful of lines when many segments need framing.
+Place VO **only** at true conversational seams:
+- speaker-role change
+- chapter / topic hinge
+- missing question or setup the native tape never asked
+- required reorder glue
 
-Variety mix target (~not all questions): ~40% framing questions, ~30% reactions/acknowledgements (as short bridges), ~20% bridges/summaries, ~10% chapter prefaces.
+Do **not** break long same-speaker monologues just to hit a coverage percentage. Native points stay intact; VO complements them.
 
-Prefer spacing across chapter starts, topic jumps, claim intros, and **long same-speaker monologue breaks** (≥25–30s contiguous guest talk).
+Variety still matters when seams exist (~not all questions): framing questions, short reactions, bridges/summaries, and at most one preface per act.
 
 ## Line categories (required on every line)
 
@@ -73,7 +79,7 @@ When `prior_impact_beat` is true **or** the prior close is a complete strong sta
 - Prefer brief acknowledge, soft bridge, or a question that clearly follows from what was just said.
 - Do **not** aim framing questions at micro backchannels (e.g. “Okay.”) — target the next substantive answer.
 
-Density floor still applies (`vo_line_budget.min`), but **courtesy and prior context override stock interruptive fillers**.
+Courtesy and prior context override stock interruptive fillers. Do not invent density seeds mid-monologue.
 
 ## Inputs
 
@@ -91,7 +97,7 @@ Do not:
 - Write leading or sensational copy.
 - Exceed per-category word limits.
 - Put words in the interviewee's mouth.
-- Default to sparse “four lines total” when `vo_line_budget.min` is higher.
+- Sprinkle VO inside a continuous same-speaker sentence just to hit a budget.
 - Interrupt a complete mic-drop prior beat with pause-you-there stock.
 - Restate or paraphrase the next native clip.
 

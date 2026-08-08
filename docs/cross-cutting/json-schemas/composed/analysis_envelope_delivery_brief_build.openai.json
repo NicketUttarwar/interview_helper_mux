@@ -108,7 +108,20 @@
           "enum": [
             "coverage_first",
             "runtime_pack",
-            "hook_montage"
+            "hook_montage",
+            "plan_bound"
+          ]
+        },
+        "narrative_mode_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mastering_plan_bound": {
+          "type": [
+            "boolean",
+            "null"
           ]
         },
         "sfx_density": {

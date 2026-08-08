@@ -94,7 +94,7 @@ def _last_token(text: str) -> str:
     return words[-1].lower() if words else ""
 
 
-DEFAULT_PAUSE_SPLIT_MS = 400
+DEFAULT_PAUSE_SPLIT_MS = 1000
 
 
 def ends_complete_thought(
@@ -556,6 +556,8 @@ def vo_value_gate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "restate_min_vo_tokens": 6,
         "allow_summary_overlap_max": 0.62,
         "enforce_courtesy": True,
+        "require_forward_cue": True,
+        "require_cold_open_layup": True,
     }
     return {**defaults, **block}
 
@@ -621,13 +623,108 @@ def vo_target_overlap_ratio(vo_text: str, target_text: str) -> float:
     return hits / len(content)
 
 
+_FORWARD_CUE_RE = re.compile(
+    r"(?:"
+    r"\?|"
+    r"\b(?:what|how|why|where|when|who)\b|"
+    r"\b(?:tell me|walk me|take us|take me|help us|help me)\b|"
+    r"\b(?:coming up|next|follow|follows|sets? up|opens?|leads?)\b|"
+    r"\b(?:shall we|let's|lets)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_GENERIC_ORIGIN_RE = re.compile(
+    r"\b(?:origin|spark|how (?:it|this) (?:all )?started|where (?:it|this) began|"
+    r"founding story|how did you (?:get|start))\b",
+    re.IGNORECASE,
+)
+
+
+def last_spoken_sentence(text: str) -> str:
+    """Return the last sentence-like span of spoken VO."""
+    stripped = str(text or "").strip()
+    if not stripped:
+        return ""
+    parts = re.split(r"(?<=[.!?…])\s+", stripped)
+    parts = [p.strip() for p in parts if p.strip()]
+    return parts[-1] if parts else stripped
+
+
+def has_forward_cue(text: str) -> bool:
+    last = last_spoken_sentence(text)
+    if not last:
+        return False
+    return bool(_FORWARD_CUE_RE.search(last))
+
+
+def cold_open_layup_ok(
+    line: dict[str, Any],
+    *,
+    target_text: str,
+    ordered_ids: list[str] | None = None,
+) -> bool:
+    """Preface / first-segment last sentence must cue the actual first native, not a generic origin prompt."""
+    category = str(line.get("line_category") or "").strip().lower()
+    tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
+    ordered = [str(s) for s in (ordered_ids or []) if s]
+    is_first = bool(tid and ordered and tid == ordered[0]) or category == "episode_preface"
+    if not is_first:
+        return True
+    last = last_spoken_sentence(str(line.get("text") or ""))
+    if not last:
+        return False
+    if not has_forward_cue(last):
+        return False
+    tgt = str(target_text or "").strip()
+    if not tgt:
+        return True
+    if vo_target_overlap_ratio(last, tgt) > 0.42:
+        return False
+    # Generic origin/spark prompt when the first clip is about something else (e.g. M&A).
+    if _GENERIC_ORIGIN_RE.search(last) and not _GENERIC_ORIGIN_RE.search(tgt):
+        return False
+    return True
+
+
+def repair_last_sentence_layup(
+    text: str,
+    *,
+    prior: dict[str, Any] | None = None,
+    target_text: str = "",
+    category: str = "framing_question",
+    target_segment_id: str | None = None,
+) -> str:
+    """Rewrite only the last sentence into a unique forward unlock from prior+target context."""
+    stripped = str(text or "").strip()
+    if not stripped:
+        return courtesy_seed_text(prior, category=category, target_segment_id=target_segment_id)
+    parts = re.split(r"(?<=[.!?…])\s+", stripped)
+    parts = [p.strip() for p in parts if p.strip()]
+    body = " ".join(parts[:-1]) if len(parts) > 1 else ""
+    cue = courtesy_seed_text(prior, category=category, target_segment_id=target_segment_id)
+    # If target looks like M&A / deal / exit, prefer that hinge over origin stock.
+    tgt_l = str(target_text or "").lower()
+    if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
+        tag = _seed_target_tag(target_segment_id)
+        cue = (
+            f"What made that deal possible{f' as we get to {tag}' if tag else ''}?"
+            if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+            else f"What was at stake in that exit{f' as we get to {tag}' if tag else ''}?"
+        )
+    if body:
+        return f"{body} {cue}".strip()
+    return cue
+
+
 def vo_value_violations(
     lines: list[dict[str, Any]],
     *,
     segments_by_id: dict[str, dict[str, Any]] | None = None,
     cfg: dict[str, Any] | None = None,
+    ordered_ids: list[str] | None = None,
 ) -> list[str]:
-    """Deterministic VO partner quality: rationale + no-restate + courtesy."""
+    """Deterministic VO partner quality: rationale + no-restate + courtesy + layup."""
     settings = vo_value_gate_cfg(cfg)
     if not settings.get("enabled", True):
         return []
@@ -650,11 +747,20 @@ def vo_value_violations(
             if text and not rationale:
                 errs.append(f"{lid}: missing rationale (conversation-partner value)")
         tid = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
-        if not tid or not text:
+        if not text:
             continue
+        if settings.get("require_forward_cue", True) and not has_forward_cue(text):
+            errs.append(f"{lid}: last sentence needs a forward cue into the next beat")
         target = segs.get(tid) or {}
         target_text = str(target.get("text") or target.get("text_excerpt") or "")
-        if not target_text:
+        if settings.get("require_cold_open_layup", True) and not cold_open_layup_ok(
+            line, target_text=target_text, ordered_ids=ordered_ids
+        ):
+            errs.append(
+                f"{lid}: cold-open / preface last sentence must cue the first native clip "
+                "without restating it or using a generic origin prompt"
+            )
+        if not tid or not target_text:
             continue
         vo_toks = _tokenize_for_overlap(text)
         if len(vo_toks) < min_toks:
@@ -666,6 +772,11 @@ def vo_value_violations(
             errs.append(
                 f"{lid}: VO restates next clip (overlap={ratio:.2f} > {limit:.2f} for {category or 'line'})"
             )
+        last = last_spoken_sentence(text)
+        if last and vo_target_overlap_ratio(last, target_text) > limit:
+            errs.append(
+                f"{lid}: last sentence restates next clip (overlap too high)"
+            )
     return errs
 
 
@@ -673,8 +784,21 @@ def is_interruptive_opener(text: str) -> bool:
     return bool(INTERRUPTIVE_OPENER_RE.match(text or ""))
 
 
-def courtesy_seed_text(prior: dict[str, Any] | None, *, category: str) -> str:
-    """Deterministic courteous density-seed copy conditioned on prior native beat."""
+def _seed_target_tag(target_segment_id: str | None) -> str:
+    sid = str(target_segment_id or "").strip()
+    if not sid:
+        return ""
+    short = sid.removeprefix("seg_").removeprefix("SEG_")
+    return short or sid
+
+
+def courtesy_seed_text(
+    prior: dict[str, Any] | None,
+    *,
+    category: str,
+    target_segment_id: str | None = None,
+) -> str:
+    """Deterministic courteous density-seed copy — unique per target, no stock loops."""
     quote = ""
     impact = False
     complete = False
@@ -685,30 +809,45 @@ def courtesy_seed_text(prior: dict[str, Any] | None, *, category: str) -> str:
     # Truncate quote for spoken VO length.
     if len(quote) > 110:
         quote = quote[:107].rstrip() + "…"
+    tag = _seed_target_tag(target_segment_id)
 
     if category == "episode_preface":
         if impact and quote:
-            return f"That landing stays with you — next, here's where this chapter goes from there."
-        return "Coming up next — here's where this chapter leads."
+            return (
+                f"That landing stays with you — where does the next beat take us"
+                f"{f' on {tag}' if tag else ''}?"
+            )
+        if tag:
+            return f"Coming up — what opens as we get to {tag}?"
+        return "Coming up — where does this stretch lead?"
 
     if category == "segment_summary":
         if quote:
-            return f"Keep that beat in mind — here's the claim that follows."
-        return "Here's the beat we're about to hear — the claim that matters for this chapter."
+            return f"Keep that beat in mind — what claim follows{f' at {tag}' if tag else ''}?"
+        if tag:
+            return f"Here's the hinge into {tag} — what should we listen for?"
+        return "Here's the hinge — what should we listen for next?"
 
     if category == "story_bridge":
         if impact and quote:
-            return f"That's a sharp point — hold onto it, because it sets up what comes next."
+            return f"That's a sharp point — how does it set up{f' {tag}' if tag else ' what comes next'}?"
         if complete and quote:
-            return "That lands — and it sets up what comes next."
-        return "That's a sharp point — hold onto that, because it sets up what comes next."
+            return f"That lands — what follows{f' at {tag}' if tag else ''}?"
+        if tag:
+            return f"Hold onto that — what opens at {tag}?"
+        return "Hold onto that — what comes next?"
 
     # framing_question (default)
     if impact and quote:
-        return f"Given what you just said — how did that reshape what came next?"
+        return (
+            f"Given what you just said — how did that reshape what came next"
+            f"{f' at {tag}' if tag else ''}?"
+        )
     if complete and quote:
-        return "Building on that — what was the turning point in that stretch?"
-    return "What was the turning point in that stretch?"
+        return f"Building on that — what changed next{f' at {tag}' if tag else ''}?"
+    if tag:
+        return f"What was the turning point as we get to {tag}?"
+    return "What changed next in that stretch?"
 
 
 def enrich_line_with_prior_context(
@@ -764,7 +903,9 @@ def apply_prior_context_to_density_seed(
     final_text = text
     if settings.get("rewrite_density_seeds", True):
         if is_interruptive_opener(text) or (prior and prior.get("prior_impact_beat")):
-            final_text = courtesy_seed_text(prior, category=category)
+            final_text = courtesy_seed_text(
+                prior, category=category, target_segment_id=sid
+            )
     prov = enrich_line_with_prior_context(
         {"targets_segment_id": sid, "text": final_text, "line_category": category},
         prior=prior,

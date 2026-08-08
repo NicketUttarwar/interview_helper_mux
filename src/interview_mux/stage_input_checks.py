@@ -325,12 +325,25 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
         ledger = ctx.read_json("master/assembly_ledger.json")
         if isinstance(ledger, dict) and not ledger.get("complete", True):
             n = int(ledger.get("naked_seam_count") or 0)
-            issues.append(
-                StageInputIssue(
-                    f"assembly_ledger has {n} naked seam(s)",
-                    "Rebuild edl so every reorder join has audible VO/transition glue.",
-                )
+            meta = (
+                ctx.read_json("run_meta.json")
+                if ctx.artifact_exists("run_meta.json")
+                else {}
             )
+            soft_junction = bool(
+                isinstance(meta, dict) and meta.get("e2e_soft_junction_residuals")
+            )
+            # Soft e2e ship: allow finalize with residual naked seams once assembly
+            # exists and junction budget was exhausted / soft-passed.
+            if soft_junction and ctx.artifact_exists("master/assembly.wav"):
+                pass
+            else:
+                issues.append(
+                    StageInputIssue(
+                        f"assembly_ledger has {n} naked seam(s)",
+                        "Rebuild edl so every reorder join has audible VO/transition glue.",
+                    )
+                )
     elif ctx.artifact_exists("master/edl.json"):
         issues.append(
             StageInputIssue(

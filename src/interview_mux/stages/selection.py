@@ -61,9 +61,18 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             segments_payload if isinstance(segments_payload, dict) else {},
             text_max=100,
         )
+        from interview_mux.gap_framing import compact_gap_report_for_ranking
+
+        gap_raw = (
+            c.read_json("understanding/gap_report.json")
+            if c.artifact_exists("understanding/gap_report.json")
+            else {}
+        )
         payload = {
             "segments": segments_payload,
-            "gap_report": c.read_json("understanding/gap_report.json"),
+            "gap_report": compact_gap_report_for_ranking(
+                gap_raw if isinstance(gap_raw, dict) else {}
+            ),
             "content_brief": c.read_json("understanding/content_brief.json"),
             "coverage_audit": c.read_json("master/coverage_audit.json"),
             "narrative_plan": c.read_json("master/narrative_plan.json"),
@@ -152,9 +161,14 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         ]
         chapter_cand = chapter_order_from_plan(plan if isinstance(plan, dict) else None)
         if chapter_cand and chapter_cand != ranking_ordered:
-            # Intersect with kept ranking ids when ranking already filtered
+            # Reorder ranking by chapter head — never shrink membership to chapter-only.
             kept = set(ranking_ordered) if ranking_ordered else set(chapter_cand)
-            filtered_ch = [s for s in chapter_cand if s in kept] or chapter_cand
+            head = [s for s in chapter_cand if s in kept]
+            if ranking_ordered:
+                tail = [s for s in ranking_ordered if s not in set(head)]
+                filtered_ch = head + tail
+            else:
+                filtered_ch = head or chapter_cand
             candidates.append({"source": "narrative_chapters", "ordered_segment_ids": filtered_ch})
 
         mp = None
@@ -196,6 +210,22 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             if c.artifact_exists("master/transitions.json")
             else None
         )
+        brief_min = None
+        brief_ideal = None
+        if c.artifact_exists("understanding/delivery_brief.json"):
+            try:
+                from interview_mux.delivery_brief import load_delivery_brief
+
+                brief = load_delivery_brief(c)
+                band = (brief or {}).get("target_duration_sec") or {}
+                if isinstance(band, dict):
+                    if band.get("min") is not None:
+                        brief_min = float(band["min"])
+                    if band.get("ideal") is not None:
+                        brief_ideal = float(band["ideal"])
+            except Exception:
+                brief_min = None
+                brief_ideal = None
         pick = pick_best_order(
             candidates,
             narrative_plan=plan if isinstance(plan, dict) else None,
@@ -203,6 +233,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             gap_report=gap if isinstance(gap, dict) else None,
             transitions=tr if isinstance(tr, dict) else None,
             hook_segment_id=str(hook_id) if hook_id else None,
+            brief_min_sec=brief_min,
+            brief_ideal_sec=brief_ideal,
         )
         c.write_json("master/rank_candidates.json", pick)
         dual_ordered = [str(s) for s in (pick.get("ordered_segment_ids") or ranking_ordered) if s]

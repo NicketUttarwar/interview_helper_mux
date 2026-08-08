@@ -1020,6 +1020,97 @@ def align_narrative_plan_to_selection(
     return applied
 
 
+def _drop_redundant_remapped_seeds(
+    out: dict[str, Any], *, applied: list[dict[str, Any]]
+) -> None:
+    """Drop vo_seed_* / vo_density_* rows that remapped onto a target already covered by real VO."""
+    lines = out.get("interviewer_lines")
+    if not isinstance(lines, list):
+        return
+    covered_by_real: set[str] = set()
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        lid = str(ln.get("line_id") or "")
+        if lid.startswith("vo_seed_") or lid.startswith("vo_density_"):
+            continue
+        tgt = str(ln.get("targets_segment_id") or ln.get("segment_id") or "")
+        if tgt:
+            covered_by_real.add(tgt)
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        lid = str(ln.get("line_id") or "")
+        tgt = str(ln.get("targets_segment_id") or "")
+        is_seed = lid.startswith("vo_seed_") or lid.startswith("vo_density_")
+        if is_seed and tgt and tgt in covered_by_real:
+            orig = ""
+            if lid.startswith("vo_seed_"):
+                orig = lid[len("vo_seed_") :]
+            elif lid.startswith("vo_density_"):
+                orig = lid[len("vo_density_") :]
+            if orig and orig != tgt:
+                dropped += 1
+                applied.append(
+                    {
+                        "action": "drop_redundant_remapped_seed",
+                        "line_id": lid,
+                        "targets": tgt,
+                    }
+                )
+                continue
+            if orig == tgt:
+                dropped += 1
+                applied.append(
+                    {
+                        "action": "drop_seed_target_already_covered",
+                        "line_id": lid,
+                        "targets": tgt,
+                    }
+                )
+                continue
+        kept.append(ln)
+    if dropped:
+        out["interviewer_lines"] = kept
+
+
+def _dedupe_interviewer_lines(
+    out: dict[str, Any], *, applied: list[dict[str, Any]]
+) -> None:
+    """Keep first occurrence of each line_id / identical target+text (heal loops must not stack)."""
+    lines = out.get("interviewer_lines")
+    if not isinstance(lines, list):
+        return
+    seen: set[str] = set()
+    seen_text: set[tuple[str, str, str]] = set()
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        lid = str(row.get("line_id") or "").strip()
+        if lid and lid in seen:
+            dropped += 1
+            continue
+        tgt = str(row.get("targets_segment_id") or "").strip()
+        placement = str(row.get("placement") or "before").strip() or "before"
+        text_norm = " ".join(str(row.get("text") or "").strip().lower().split())
+        tkey = (text_norm, tgt, placement)
+        if text_norm and tgt and tkey in seen_text:
+            dropped += 1
+            continue
+        if lid:
+            seen.add(lid)
+        if text_norm and tgt:
+            seen_text.add(tkey)
+        kept.append(row)
+    if dropped:
+        out["interviewer_lines"] = kept
+        applied.append({"action": "dedupe_line_ids", "dropped": dropped})
+
+
 def _seed_missing_high_gap_interviewer_lines(
     ctx: Any,
     out: dict[str, Any],
@@ -1054,11 +1145,30 @@ def _seed_missing_high_gap_interviewer_lines(
     if not isinstance(lines, list):
         lines = []
         out["interviewer_lines"] = lines
-    targeted = {
-        str(ln.get("targets_segment_id") or ln.get("segment_id") or "")
-        for ln in lines
-        if isinstance(ln, dict)
-    }
+    targeted: set[str] = set()
+    existing_line_ids: set[str] = set()
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        lid = str(ln.get("line_id") or "").strip()
+        if lid:
+            existing_line_ids.add(lid)
+            # vo_seed_{seg} covers the original high-gap segment even when
+            # prior-context remaps targets_segment_id to a neighbor.
+            if lid.startswith("vo_seed_"):
+                targeted.add(lid[len("vo_seed_") :])
+        for key in ("targets_segment_id", "segment_id"):
+            sid = str(ln.get(key) or "").strip()
+            if sid:
+                targeted.add(sid)
+        for sid in ln.get("supports_segment_ids") or []:
+            if sid:
+                targeted.add(str(sid))
+        extracted = ln.get("extracted_from")
+        if isinstance(extracted, dict):
+            path = str(extracted.get("path") or "")
+            if path.startswith("repair_seed:"):
+                targeted.add(path.split(":", 1)[1].strip())
     voice = ""
     try:
         from interview_mux.source_topology import pickup_eligible_speaker_id
@@ -1067,10 +1177,42 @@ def _seed_missing_high_gap_interviewer_lines(
     except Exception:
         voice = ""
     from interview_mux.gap_framing import GAP_TYPE_TO_CATEGORY
+    from interview_mux.gap_vo_prior_context import (
+        apply_prior_context_to_density_seed,
+        courtesy_seed_text,
+    )
+    from interview_mux.spoken_meta_lint import is_editorial_qc_prose
+
+    ordered_ids: list[str] = []
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+        except Exception:
+            ordered_ids = []
+    pred: dict[str, str] = {}
+    for i in range(1, len(ordered_ids)):
+        pred[ordered_ids[i]] = ordered_ids[i - 1]
+    segs_by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        try:
+            man = ctx.read_json("segments/manifest.json")
+            segs_by_id = {
+                str(r.get("segment_id")): r
+                for r in ((man or {}).get("segments") or [])
+                if isinstance(r, dict) and r.get("segment_id")
+            }
+        except Exception:
+            segs_by_id = {}
 
     for row in high_rows:
         seg_id = str(row.get("segment_id") or "").strip()
         if not seg_id or seg_id in targeted:
+            continue
+        seed_id = f"vo_seed_{seg_id}"
+        if seed_id in existing_line_ids:
+            targeted.add(seg_id)
             continue
         if manifest_ids and seg_id not in manifest_ids:
             continue
@@ -1078,32 +1220,82 @@ def _seed_missing_high_gap_interviewer_lines(
         if _segment_is_blank_or_unusable(ctx, seg_id):
             applied.append({"action": "skip_seed_blank_segment", "segment_id": seg_id})
             continue
+        prior_sid = pred.get(seg_id) or ""
+        if prior_sid and _same_speaker_source_contiguous_rows(
+            segs_by_id.get(prior_sid), segs_by_id.get(seg_id)
+        ):
+            applied.append(
+                {
+                    "action": "skip_seed_contiguous_same_speaker",
+                    "segment_id": seg_id,
+                    "prior": prior_sid,
+                }
+            )
+            continue
         gap_type = str(row.get("gap_type") or "ok_with_light_bridge").strip() or "ok_with_light_bridge"
         category = GAP_TYPE_TO_CATEGORY.get(gap_type, "story_bridge")
         confusion = str(row.get("listener_confusion") or "").strip()
         blankish = any(
             tok in confusion.lower()
-            for tok in ("blank", "no transcript", "empty answer", "unusable", "silence where")
+            for tok in (
+                "blank",
+                "no transcript",
+                "empty answer",
+                "unusable",
+                "silence where",
+                "makes no sense",
+                "unheard prompt",
+            )
         )
-        if blankish:
-            applied.append({"action": "skip_seed_meta_blank_copy", "segment_id": seg_id})
+        # Micro / QC-only gaps: skip seeding spoken VO (exclude path handles micros).
+        if blankish or (confusion and is_editorial_qc_prose(confusion)):
+            # Still seed speakable copy when the gap is real missing_question etc.,
+            # but never paste the confusion into on-air text — fall through with
+            # courtesy copy only when gap_type wants an interviewer line.
+            if gap_type in {"ok_with_light_bridge", "none"} or str(
+                row.get("recommended_framing") or ""
+            ).lower() in {"none", ""}:
+                applied.append({"action": "skip_seed_meta_blank_copy", "segment_id": seg_id})
+                continue
+        # Speakable interviewer copy — never paste listener_confusion into text.
+        text = courtesy_seed_text(None, category=category, target_segment_id=seg_id)
+        target_id = seg_id
+        try:
+            target_id, text, _prior, prov = apply_prior_context_to_density_seed(
+                ctx,
+                target_segment_id=seg_id,
+                category=category,
+                text=text,
+            )
+        except Exception:
+            prov = {}
+        if is_editorial_qc_prose(text):
+            text = courtesy_seed_text(None, category=category, target_segment_id=target_id)
+        # If prior-context remapped onto a neighbor that already has VO, skip —
+        # stacking seeds on the same adjacency fails edl_narrative_audit.
+        if target_id != seg_id and target_id in targeted:
+            applied.append(
+                {
+                    "action": "skip_seed_target_already_covered",
+                    "segment_id": seg_id,
+                    "targets": target_id,
+                }
+            )
+            targeted.add(seg_id)
             continue
+        rationale = "Auto-seeded for high-severity gap missing an interviewer line."
         if confusion:
-            words = confusion.split()
-            snippet = " ".join(words[:18]).rstrip(".,;:")
-            text = f"Quickly — {snippet}, then continue."
-        else:
-            text = "Let's clarify that beat before we continue."
+            rationale = f"{rationale} Mission: {confusion[:160]}"
         seeded = {
-            "line_id": f"vo_seed_{seg_id}",
+            "line_id": seed_id,
             "gap_type": gap_type,
             "line_category": category,
             "text": text,
-            "targets_segment_id": seg_id,
+            "targets_segment_id": target_id,
             "placement": "before",
             "delivery": "synthesize",
-            "rationale": "Auto-seeded for high-severity gap missing an interviewer line.",
-            "supports_segment_ids": [seg_id],
+            "rationale": rationale,
+            "supports_segment_ids": list(dict.fromkeys([seg_id, target_id])),
             "replaces_source_segments": [],
             "estimated_duration_sec": 6,
             "severity": "high",
@@ -1111,13 +1303,25 @@ def _seed_missing_high_gap_interviewer_lines(
             "extracted_from": {
                 "artifact": "gap_evaluations",
                 "path": f"repair_seed:{seg_id}",
+                "listener_confusion": confusion[:240] if confusion else None,
             },
         }
+        if isinstance(prov, dict):
+            for key in (
+                "prior_segment_id",
+                "prior_impact_beat",
+                "prior_complete_thought",
+                "density_forced",
+            ):
+                if key in prov:
+                    seeded[key] = prov[key]
         if voice:
             seeded["voice_speaker_id"] = voice
         lines.append(seeded)
+        existing_line_ids.add(seed_id)
         targeted.add(seg_id)
-        applied.append({"action": "seed_high_gap_line", "segment_id": seg_id})
+        targeted.add(target_id)
+        applied.append({"action": "seed_high_gap_line", "segment_id": seg_id, "targets": target_id})
 
 
 def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
@@ -1133,8 +1337,33 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
         dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
         if not text or dur < 400:
             return True
+        # Incomplete micro-fragments ("Within…", "But end of the day,") are high-gap
+        # noise — do not require on-air VO; ranking/exclude handles them.
+        words = [w for w in text.replace("…", " ").split() if w.strip(".,;:!?\"'")]
+        if len(words) <= 5 and dur < 5000:
+            return True
         return False
     return False
+
+
+def _same_speaker_source_contiguous_rows(
+    prev: dict[str, Any] | None,
+    curr: dict[str, Any] | None,
+    *,
+    gap_ms: int = 2500,
+) -> bool:
+    if not isinstance(prev, dict) or not isinstance(curr, dict):
+        return False
+    prev_spk = str(prev.get("speaker_id") or "").strip()
+    curr_spk = str(curr.get("speaker_id") or "").strip()
+    if not prev_spk or prev_spk != curr_spk:
+        return False
+    try:
+        prev_end = int(prev.get("end_ms") or prev.get("source_end_ms") or 0)
+        curr_start = int(curr.get("start_ms") or curr.get("source_start_ms") or 0)
+    except (TypeError, ValueError):
+        return False
+    return -gap_ms <= (curr_start - prev_end) <= gap_ms
 
 
 def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list[dict[str, Any]]) -> None:
@@ -1144,7 +1373,7 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
     from interview_mux.config import merged_config
 
     gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
-    ratio = float(gf.get("min_vo_insert_ratio") or 0.20)
+    ratio = float(gf.get("min_vo_insert_ratio") or 0.0)
     if ratio <= 0:
         return
     ordered: list[str] = []
@@ -1190,8 +1419,9 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
                         chapter_ends.add(segs[-1])
         except Exception:
             pass
-    # Midpoints of long same-speaker runs (≥28s).
-    mono_breaks: list[str] = []
+    # Speaker-role changes (true conversational seams) — never mid-monologue breaks.
+    role_hinges: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}
     try:
         man = ctx.read_json("segments/manifest.json") if ctx.artifact_exists("segments/manifest.json") else {}
         by_id = {
@@ -1199,74 +1429,62 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
             for r in ((man or {}).get("segments") or [])
             if isinstance(r, dict) and r.get("segment_id")
         }
-        run_ms = 0
-        run_spk = ""
-        run_start_idx = 0
-        for i, sid in enumerate(ordered):
+        prev_spk = ""
+        for sid in ordered:
             row = by_id.get(sid) or {}
             spk = str(row.get("speaker_id") or "")
-            dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
-            if spk and spk == run_spk:
-                run_ms += dur
-            else:
-                if run_ms >= 25000 and run_start_idx < i:
-                    mid = ordered[run_start_idx + (i - run_start_idx) // 2]
-                    if mid not in covered:
-                        mono_breaks.append(mid)
-                run_spk = spk
-                run_ms = dur
-                run_start_idx = i
-        if run_ms >= 25000 and run_start_idx < len(ordered):
-            mid = ordered[run_start_idx + (len(ordered) - run_start_idx) // 2]
-            if mid not in covered:
-                mono_breaks.append(mid)
+            if prev_spk and spk and spk != prev_spk and sid not in covered:
+                role_hinges.append(sid)
+            prev_spk = spk or prev_spk
     except Exception:
-        mono_breaks = []
+        role_hinges = []
     stride = max(1, len(ordered) // max(1, floor))
-    priority = list(dict.fromkeys(mono_breaks + [s for s in ordered if s in chapter_ends] + ordered))
-    # Variety mix ≈ 40% framing questions / 30% reactions / 20% bridges / 10% prefaces.
-    # Stock openers are courteous defaults; prior-context rewrite may replace them.
-    variety_cycle = (
-        [("framing_question", "What was the turning point in that stretch?")] * 4
-        + [
-            (
-                "story_bridge",
-                "That's a sharp point — hold onto that, because it sets up what comes next.",
-            )
-        ]
-        * 3
-        + [
-            (
-                "segment_summary",
-                "Here's the beat we're about to hear — the claim that matters for this chapter.",
-            )
-        ]
-        * 2
-        + [("episode_preface", "Coming up next — here's where this chapter leads.")]
+    priority = list(dict.fromkeys(role_hinges + [s for s in ordered if s in chapter_ends] + ordered))
+    from interview_mux.gap_vo_prior_context import (
+        apply_prior_context_to_density_seed,
+        courtesy_seed_text,
     )
-    from interview_mux.gap_vo_prior_context import apply_prior_context_to_density_seed
+
+    pred: dict[str, str] = {}
+    for i in range(1, len(ordered)):
+        pred[ordered[i]] = ordered[i - 1]
 
     seed_i = 0
+    variety_cats = (
+        ["framing_question"] * 4
+        + ["story_bridge"] * 3
+        + ["segment_summary"] * 2
+        + ["episode_preface"]
+    )
     for i, sid in enumerate(priority):
         if len([ln for ln in lines if isinstance(ln, dict) and not ln.get("skipped_optional")]) >= floor:
             break
         if sid in covered:
             continue
-        # Always take monologue/chapter seeds; otherwise stride-sample.
-        if sid not in mono_breaks and sid not in chapter_ends:
+        prior_sid = pred.get(sid) or ""
+        if (
+            prior_sid
+            and sid not in chapter_ends
+            and sid not in role_hinges
+            and _same_speaker_source_contiguous_rows(by_id.get(prior_sid), by_id.get(sid))
+        ):
+            continue
+        # Always take speaker-change / chapter seeds; otherwise stride-sample.
+        if sid not in role_hinges and sid not in chapter_ends:
             try:
                 oi = ordered.index(sid)
             except ValueError:
                 continue
             if oi % stride != 0:
                 continue
-        if sid in mono_breaks:
-            cat, text = "framing_question", "What was the turning point in that stretch?"
-        elif sid in chapter_ends:
-            cat, text = "episode_preface", "Coming up next — here's where this chapter leads."
+        if sid in chapter_ends:
+            cat = "episode_preface"
+        elif sid in role_hinges:
+            cat = "framing_question"
         else:
-            cat, text = variety_cycle[seed_i % len(variety_cycle)]
+            cat = variety_cats[seed_i % len(variety_cats)]
             seed_i += 1
+        text = courtesy_seed_text(None, category=cat, target_segment_id=sid)
         final_sid, final_text, _prior, prov = apply_prior_context_to_density_seed(
             ctx, target_segment_id=sid, category=cat, text=text
         )
@@ -1322,6 +1540,72 @@ def _enforce_min_vo_insert_ratio(ctx: Any, out: dict[str, Any], *, applied: list
                 }
             )
         lines.append(line)
+
+def _rewrite_editorial_qc_vo_lines(
+    ctx: Any,
+    out: dict[str, Any],
+    *,
+    applied: list[dict[str, Any]],
+) -> None:
+    """Replace gap-eval QC prose in spoken VO with courteous interviewer copy."""
+    from interview_mux.gap_framing import GAP_TYPE_TO_CATEGORY, infer_line_category
+    from interview_mux.gap_vo_prior_context import (
+        apply_prior_context_to_density_seed,
+        courtesy_seed_text,
+    )
+    from interview_mux.spoken_meta_lint import is_editorial_qc_prose
+
+    lines = out.get("interviewer_lines")
+    if not isinstance(lines, list):
+        return
+    rewritten: list[dict[str, Any]] = []
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        line = dict(row)
+        text = str(line.get("text") or "").strip()
+        if not text or not is_editorial_qc_prose(text):
+            rewritten.append(line)
+            continue
+        category = str(line.get("line_category") or "").strip() or infer_line_category(line)
+        if not category:
+            gap_type = str(line.get("gap_type") or "")
+            category = GAP_TYPE_TO_CATEGORY.get(gap_type, "framing_question")
+        target = str(line.get("targets_segment_id") or line.get("segment_id") or "").strip()
+        new_text = courtesy_seed_text(None, category=category, target_segment_id=target or None)
+        if target:
+            try:
+                target, new_text, _prior, prov = apply_prior_context_to_density_seed(
+                    ctx,
+                    target_segment_id=target,
+                    category=category,
+                    text=new_text,
+                )
+                if isinstance(prov, dict):
+                    for key in (
+                        "prior_segment_id",
+                        "prior_impact_beat",
+                        "prior_complete_thought",
+                        "density_forced",
+                    ):
+                        if key in prov:
+                            line[key] = prov[key]
+            except Exception:
+                pass
+        if is_editorial_qc_prose(new_text):
+            new_text = courtesy_seed_text(None, category=category, target_segment_id=target or None)
+        line["text"] = new_text
+        if target:
+            line["targets_segment_id"] = target
+        applied.append(
+            {
+                "action": "rewrite_editorial_qc_vo",
+                "line_id": line.get("line_id"),
+            }
+        )
+        rewritten.append(line)
+    out["interviewer_lines"] = rewritten
+
 
 def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
@@ -1395,9 +1679,43 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 applied.append({"action": "default_value", "path": "line_id"})
             kept.append(row)
         out["interviewer_lines"] = kept
+    _dedupe_interviewer_lines(out, applied=applied)
+    _drop_redundant_remapped_seeds(out, applied=applied)
+    _rewrite_editorial_qc_vo_lines(ctx, out, applied=applied)
     _seed_missing_high_gap_interviewer_lines(
         ctx, out, manifest_ids=set(manifest_ids or ()), applied=applied
     )
+    _drop_redundant_remapped_seeds(out, applied=applied)
+    _dedupe_interviewer_lines(out, applied=applied)
+    # Trim over-budget line text so post-commit word-limit lint can pass.
+    try:
+        from interview_mux.gap_framing import infer_line_category, word_limit_for_category
+
+        trimmed_lines: list[dict[str, Any]] = []
+        for row in list(out.get("interviewer_lines") or []):
+            if not isinstance(row, dict):
+                continue
+            line = dict(row)
+            text = str(line.get("text") or "").strip()
+            if text:
+                cat = infer_line_category(line)
+                limit = max(1, int(word_limit_for_category(cat)))
+                words = text.split()
+                if len(words) > limit:
+                    line["text"] = " ".join(words[:limit])
+                    applied.append(
+                        {
+                            "action": "trim_line_word_limit",
+                            "line_id": line.get("line_id"),
+                            "category": cat,
+                            "from": len(words),
+                            "to": limit,
+                        }
+                    )
+            trimmed_lines.append(line)
+        out["interviewer_lines"] = trimmed_lines
+    except Exception:
+        pass
     try:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
@@ -1410,10 +1728,13 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     try:
         from interview_mux.gap_vo_prior_context import (
             build_prior_native_context,
+            cold_open_layup_ok,
             courtesy_seed_text,
+            has_forward_cue,
             is_interruptive_opener,
             load_ordered_and_segments,
             prior_context_cfg,
+            repair_last_sentence_layup,
             stamp_lines_prior_provenance,
             write_gap_vo_context_audit,
         )
@@ -1435,12 +1756,45 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                     chapters=chapters,
                     cfg=settings,
                 )
-                line["text"] = courtesy_seed_text(prior, category=cat)
+                line["text"] = courtesy_seed_text(
+                    prior, category=cat, target_segment_id=str(line.get("targets_segment_id") or "") or None
+                )
                 applied.append(
                     {
                         "action": "rewrite_interruptive_after_impact",
                         "line_id": line.get("line_id"),
                         "prior_segment_id": line.get("prior_segment_id"),
+                    }
+                )
+            text_now = str(line.get("text") or "").strip()
+            tid_now = str(line.get("targets_segment_id") or "").strip()
+            target_row = by_id.get(tid_now) or {}
+            target_text = str(target_row.get("text") or target_row.get("text_excerpt") or "")
+            needs_layup = text_now and (
+                not has_forward_cue(text_now)
+                or not cold_open_layup_ok(line, target_text=target_text, ordered_ids=ordered)
+            )
+            if needs_layup:
+                cat = str(line.get("line_category") or "framing_question")
+                prior = build_prior_native_context(
+                    target_segment_id=tid_now,
+                    ordered_ids=ordered,
+                    segments_by_id=by_id,
+                    chapters=chapters,
+                    cfg=settings,
+                )
+                line["text"] = repair_last_sentence_layup(
+                    text_now,
+                    prior=prior,
+                    target_text=target_text,
+                    category=cat,
+                    target_segment_id=tid_now or None,
+                )
+                applied.append(
+                    {
+                        "action": "repair_last_sentence_layup",
+                        "line_id": line.get("line_id"),
+                        "targets_segment_id": tid_now,
                     }
                 )
             fixed_lines.append(line)

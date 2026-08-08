@@ -230,3 +230,15 @@ def test_validate_framing_before_impact_missing_vo() -> None:
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("preceding framing VO" in e for e in errors)
 
+
+def test_validate_duplicate_line_id_is_blocking() -> None:
+    ctx = RunContext("run_edl_dup_vo", create=True)
+    _write_story_artifacts(ctx)
+    report = ctx.read_json("understanding/gap_report.json")
+    line = dict(report["interviewer_lines"][0])
+    report["interviewer_lines"].append(line)
+    ctx.write_json("understanding/gap_report.json", report)
+    edl = _good_edl()
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("appears 2x" in e and "line_id" in e for e in errors)
+

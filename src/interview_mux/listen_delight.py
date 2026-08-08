@@ -76,7 +76,7 @@ def _nugget_retention(ctx: RunContext) -> float:
             score = 1.0 - min(0.15, (ratio - 1.0) * 0.1)
         else:
             score = ratio
-        return round(_clamp(score, 0.4, 1.0), 4)
+        return round(_clamp(score, 0.0, 1.0), 4)
     except Exception:
         return 0.85
 

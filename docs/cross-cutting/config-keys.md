@@ -93,6 +93,8 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
 | `edl_narrative_qc.require_synthesized_vo` | `edl_narrative_qc._validate_gap_placements` | When `true`, requires synthesized gap lines to have WAV on vo_pickup clips (default `false`) |
 | `edl_narrative_qc.require_framing_before_impact` | `edl_narrative_qc._validate_framing_before_impact` | When `true`, each impact block primary segment must have preceding framing VO in EDL order |
+| `analysis.gap_framing.min_vo_insert_ratio` | `artifact_repairs._enforce_min_vo_insert_ratio`, compose `vo_line_budget` | Hard density floor vs selected speech (default **0** — off; do not force mid-monologue VO) |
+| `analysis.gap_framing.target_vo_insert_ratio` | compose `vo_line_budget`, delivery_brief | Soft seam-coverage aim (default **0.15**) |
 | `analysis.gap_framing.interviewer_question_max_words` | `gap_framing`, compose/ranking prompts | Max words for `framing_question` lines (default **60**) |
 | `analysis.gap_framing.max_exclusion_ratio` | `framing_coverage_guard` | Cap on framing-driven exclusions vs manifest size (default **0.15**) |
 | `analysis.gap_framing.never_exclude_primary_impact` | `framing_coverage_guard` | Block excluding sole primary impact segment (default **true**) |
@@ -104,12 +106,14 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.enabled` | `vo_value_violations`, `deterministic_lint` | Enforce conversation-partner VO quality (rationale + no-restate) (default **true**) |
 | `analysis.gap_framing.vo_value_gate.restate_overlap_max` | `vo_value_violations` | Max VO↔next-clip content-token overlap before fail (default **0.42**) |
 | `analysis.gap_framing.vo_value_gate.require_rationale` | `vo_value_violations` | Require non-empty `rationale` on each interviewer line (default **true**) |
+| `analysis.gap_framing.vo_value_gate.require_forward_cue` | `vo_value_violations` | Last sentence of every VO must unlock the next beat (default **true**) |
+| `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
 | `analysis.gap_vo.timbre_match.enabled` | `timbre_match`, G1 `/match` endpoint | Enables deterministic spectral/loudness matching of an operator take; never synthesizes replacement words |
 | `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
-| `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Optional duration QC + mlx retry when `auto_fallback_on_qc_fail` |
+| `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Duration QC + speech QA; `max_ms_per_word` / `min_ms_per_word` hard-fail TTS stutter vs script |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
 | `show_notes_qc.strict` | `gates.check_show_notes_qc` | **Inert.** Flow 3 publishing was removed, so no stage produces a show description and the gate is never called |
@@ -444,6 +448,8 @@ Talking-points-first cut authority — `ideal_cuts.py`, stages `talking_points_c
 | `skip_classification_llm_when_bound` | `true` | Skip `segment_classification` LLM; build manifest from cuts + speakers |
 | `prefer_seed_over_ranking` | `true` | Prefer ideal-cuts selection seed in `full_master_ranking` |
 | `prefer_seed_over_shape` | `true` | Ideal-cuts air order beats Shape segment order when both bind |
+| `min_span_coverage_ratio` | `0.45` | Propose retry + skip deterministic TP narrative when cut span is early-only |
+| `overlap_map_min_ms` | `500` | Min overlap when remapping cuts onto real boundaries |
 
 ## `analysis.talking_points_authority.*`
 
@@ -527,8 +533,8 @@ Timeline authority + boundary/classification hardening — `segment_timeline_sta
 | `drop_orphan_manifest_rows` | `true` | Drop manifest rows not in `segment_contract` on hydrate |
 | `boundary_proactive_decompose_pace_classes` | `["calm","brisk"]` | Pace classes eligible for proactive boundary decompose |
 | `default_granularity` | `"fine"` | Global segmentation granularity (`fine` \| `standard` \| `coarse`) |
-| `max_segment_duration_ms` | `null` | Force-split spans longer than this (operator-tuned; unset = no cap) |
-| `min_segment_duration_ms` | `4000` | Floor to prevent word-level slivers |
+| `max_segment_duration_ms` | `180000` | Force-split spans longer than this (align with `ideal_cuts.max_cut_ms`; unset = no cap) |
+| `min_segment_duration_ms` | `8000` | Floor to prevent word-level slivers / mid-sentence fragments |
 | `split_backchannels` | `true` | Deterministic split of brief interviewer turns during answers |
 | `backchannel_max_words` | `8` | Max words for a splittable backchannel turn |
 | `prefer_topic_splits` | `true` | Prefer `topic_shift` over pause-only splits in enrich pass |
@@ -771,7 +777,7 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
 | `question_budget_max` | `0` (uncapped) | soft guidance only when >0 | Prefer `creative_delivery.listenability_guards` host_vo coverage ratios |
-| `enforce_duration` | `false` | ranking cross-validate | When `true`, soft duration band becomes hard fail |
+| `enforce_duration` | `true` | ranking cross-validate + post-master | Soft duration band becomes hard fail; selection below brief.min×0.85 or source min-ratio blocks ship |
 
 ---
 
@@ -795,7 +801,7 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 
 **Retention / pack-to-target policy:** trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The only hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — a master should not compress below ~10% of source without an explicit override). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
 
-**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Pair-specific gap VO / transition text only — wildcard VO targeting a segment does not cover an arbitrary preceding seam. Fallback hinge text from `seam_glue.default_bridge_text` must be **content-anchored** (destination/source segment excerpts) — category-only stock lines such as "And then—what happened next?" are treated as stubs. `bridge_completeness.stub_reorder_bridges` flags known generic stub phrases **and** verbatim text reused across ≥3 distinct seam pairs; `assert_bridges_complete` **blocks** on stubs (not advisory-only). Artifact: `master/assembly_ledger.json`.
+**Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Any gap `placement: before` VO on `before_segment_id` covers the pair — do not mint a second spoken host turn. Fallback hinge text from `seam_glue.default_bridge_text` invites the next beat **without embedding the native excerpt**. `bridge_completeness.stub_reorder_bridges` flags known generic stub phrases **and** verbatim text reused across ≥3 distinct seam pairs; `assert_bridges_complete` **blocks** on stubs (not advisory-only). Artifact: `master/assembly_ledger.json`.
 
 ## `audio_preclean`
 
@@ -908,7 +914,7 @@ Injected into prompts / STT prep; changing them changes **editorial behavior**, 
 
 | Key | If wrong |
 |-----|----------|
-| `pause_split_ms` | Too small → fragment boundaries; too large → merges distinct ideas |
+| `pause_split_ms` | Too small → fragment boundaries; too large → merges distinct ideas (default **1000** — do not split mid-sentence on 400 ms breaths) |
 | `short_question_max_words` | Mis-splits Q+A pairs in boundary prompt |
 | `interviewer_question_max_words` / `interviewer_setup_max_words` | VO lines too long for product spec |
 | `highlight_setup_max_sec` | **Inert** — Flow 2 removed |

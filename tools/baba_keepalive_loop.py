@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Keep baba server + e2e driver alive until podcast_publish completes."""
+"""Keep baba server + e2e driver alive until podcast_publish completes.
+
+When the pointed run reaches the ship bar (master + cover + publish), this
+loop tears down serve + e2e and exits — it does not relaunch a finished run.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.request
@@ -112,27 +117,77 @@ def write_status(run_id: str | None) -> None:
     )
 
 
+def pointed_run() -> str | None:
+    if not RUN_POINTER.is_file():
+        return None
+    pointed = RUN_POINTER.read_text(encoding="utf-8").strip()
+    if pointed and (ASSETS / "executions" / pointed).is_dir():
+        return pointed
+    return None
+
+
 def main() -> None:
     log("keepalive loop start")
     while True:
         run_id = latest_run()
-        if run_id and pipeline_complete(run_id):
-            write_status(run_id)
-            log(f"DONE pipeline complete run={run_id}")
+        pointed = pointed_run()
+        # Only treat completion as terminal when the authoritative pointer
+        # matches a finished run AND the e2e driver has exited. Otherwise a
+        # fresh launch (pointer cleared while POST /api/runs is still creating)
+        # can latch onto a prior completed exec_* and exit immediately.
+        if (
+            pointed
+            and pipeline_complete(pointed)
+            and not e2e_alive()
+        ):
+            write_status(pointed)
+            log(f"DONE pipeline complete run={pointed} — shutting down stack")
+            try:
+                from baba_daemon_launch import shutdown_baba_stack
+
+                info = shutdown_baba_stack(kill_keepalive=False, exclude_pid=os.getpid())
+                log(f"stack shutdown: {info}")
+            except Exception as exc:
+                log(f"stack shutdown failed: {exc}")
             return
+        if run_id and pipeline_complete(run_id) and not pointed and e2e_alive():
+            log(f"fresh e2e still binding — ignoring prior complete run={run_id}")
+            write_status(None)
+            time.sleep(15)
+            continue
+        # Never relaunch once the pointed run has already shipped.
+        if pointed and pipeline_complete(pointed):
+            write_status(pointed)
+            log(f"DONE pointed run complete (e2e may still be finishing) run={pointed}")
+            time.sleep(15)
+            continue
         if not server_alive():
             log("server down — relaunch")
             launch("server")
             time.sleep(3)
         if not e2e_alive():
-            if run_id and not pipeline_complete(run_id):
+            if pointed and not pipeline_complete(pointed):
+                log(f"e2e down — resume {pointed}")
+                launch("e2e", "--run-id", pointed)
+            elif run_id and not pipeline_complete(run_id):
                 log(f"e2e down — resume {run_id}")
                 launch("e2e", "--run-id", run_id)
             elif not run_id:
                 log("e2e down — fresh")
                 launch("e2e", "--fresh")
+            elif run_id and pipeline_complete(run_id):
+                log(f"DONE incomplete pointer but run complete — shutting down stack run={run_id}")
+                write_status(run_id)
+                try:
+                    from baba_daemon_launch import shutdown_baba_stack
+
+                    info = shutdown_baba_stack(kill_keepalive=False, exclude_pid=os.getpid())
+                    log(f"stack shutdown: {info}")
+                except Exception as exc:
+                    log(f"stack shutdown failed: {exc}")
+                return
             time.sleep(3)
-        write_status(run_id)
+        write_status(pointed or run_id)
         time.sleep(45)
 
 

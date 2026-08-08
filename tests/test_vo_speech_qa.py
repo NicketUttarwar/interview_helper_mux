@@ -70,6 +70,29 @@ def test_modulated_speechish_passes(tmp_path: Path) -> None:
     assert vo_passes_speech_qa(wav)
 
 
+def test_duration_vs_word_count_fails_stutter(tmp_path: Path) -> None:
+    wav = tmp_path / "stutter.wav"
+    _write_noisy_speechish(wav, duration_sec=12.0)
+    script = "What changed next in that stretch after the cash crunch ended?"
+    row = analyze_vo_wav(
+        wav,
+        script_text=script,
+        cfg={
+            "enabled": True,
+            "speech_qa_enabled": True,
+            "max_tonal_peak_ratio": 0.58,
+            "min_speech_band_ratio": 0.12,
+            "min_envelope_cv": 0.18,
+            "min_duration_ms": 400,
+            "max_ms_per_word": 800,
+            "min_ms_per_word": 120,
+            "min_words_for_duration_check": 8,
+        },
+    )
+    assert row["pass"] is False
+    assert any("duration_vs_word_count" in str(r) for r in row["reasons"])
+
+
 def test_forbidden_backends() -> None:
     assert not backend_allowed_for_vo("tone_stub")
     assert "tone_stub" in FORBIDDEN_VO_BACKENDS

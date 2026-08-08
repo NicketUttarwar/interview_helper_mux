@@ -1,0 +1,363 @@
+"""Regression tests for exec_1577 VO loop / mid-sentence / cold-open layup failures."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from interview_mux.artifact_repairs import (
+    _drop_redundant_remapped_seeds,
+    _enforce_min_vo_insert_ratio,
+    _seed_missing_high_gap_interviewer_lines,
+)
+from interview_mux.bridge_completeness import missing_reorder_bridges
+from interview_mux.gap_framing import (
+    drop_contiguous_light_bridge_lines,
+    transition_redundant_with_framing,
+)
+from interview_mux.gap_vo_prior_context import (
+    cold_open_layup_ok,
+    has_forward_cue,
+    vo_value_violations,
+)
+from interview_mux.seam_glue import default_bridge_text, mint_missing_transitions
+from interview_mux.stages.assembly import _gap_lines_for_segment, build_flow1_edl
+from interview_mux import config as config_mod
+from run_fixtures import isolated_run_ctx
+
+
+def test_gap_lines_for_segment_dedupes_line_id(tmp_path: Path) -> None:
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_seed_seg_013",
+                "targets_segment_id": "seg_014",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "What changed next?",
+            }
+            for _ in range(4)
+        ]
+    }
+    emitted_ids: set[str] = set()
+    emitted_text: set[tuple[str, str, str]] = set()
+    lines = _gap_lines_for_segment(
+        gap,
+        "seg_014",
+        "before",
+        emitted_line_ids=emitted_ids,
+        emitted_text_keys=emitted_text,
+    )
+    assert len(lines) == 1
+    assert list(emitted_ids) == ["vo_seed_seg_013"]
+
+    vo_files: dict[str, Path] = {}
+    p = tmp_path / "vo_seed_seg_013.wav"
+    p.write_bytes(b"\x00")
+    vo_files["vo_seed_seg_013"] = p
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_013", "seg_014"]},
+        segments_by_id={
+            "seg_013": {
+                "segment_id": "seg_013",
+                "speaker_id": "spk_a",
+                "start_ms": 0,
+                "end_ms": 300,
+                "text": "Within",
+            },
+            "seg_014": {
+                "segment_id": "seg_014",
+                "speaker_id": "spk_b",
+                "start_ms": 10_000,
+                "end_ms": 20_000,
+                "text": "We sold the company.",
+            },
+        },
+        gap_report=gap,
+        resolve_vo_path=lambda line: vo_files.get(str(line.get("line_id") or "")),
+        vo_duration_ms=lambda _p: 1500,
+    )
+    vo_clips = [c for c in edl["clips"] if c.get("type") == "vo_pickup"]
+    assert len(vo_clips) == 1
+    assert vo_clips[0]["line_id"] == "vo_seed_seg_013"
+
+
+def test_drop_contiguous_vo_same_speaker() -> None:
+    segs = {
+        "seg_008": {
+            "segment_id": "seg_008",
+            "speaker_id": "spk_0",
+            "start_ms": 0,
+            "end_ms": 8_000,
+            "text": "We kept investing.",
+        },
+        "seg_009": {
+            "segment_id": "seg_009",
+            "speaker_id": "spk_0",
+            "start_ms": 8_200,
+            "end_ms": 16_000,
+            "text": "Even when cash was thin.",
+        },
+        "seg_010": {
+            "segment_id": "seg_010",
+            "speaker_id": "spk_0",
+            "start_ms": 16_300,
+            "end_ms": 24_000,
+            "text": "That became the turning point.",
+        },
+    }
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_q_seg_009",
+                "targets_segment_id": "seg_009",
+                "placement": "before",
+                "delivery": "synthesize",
+                "gap_type": "missing_followup",
+                "line_category": "framing_question",
+                "text": "What forced that?",
+            },
+            {
+                "line_id": "vo_density_seg_010",
+                "targets_segment_id": "seg_010",
+                "placement": "before",
+                "delivery": "synthesize",
+                "gap_type": "missing_followup",
+                "density_forced": True,
+                "text": "What was the turning point as we get to 010?",
+            },
+        ]
+    }
+    cleaned, notes = drop_contiguous_light_bridge_lines(
+        gap, segs, ordered_segment_ids=["seg_008", "seg_009", "seg_010"]
+    )
+    assert notes
+    assert cleaned["interviewer_lines"] == []
+
+
+def test_high_gap_seed_skips_when_real_vo_exists(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "high_gap_seed")
+    segs = [
+        {
+            "segment_id": "seg_013",
+            "speaker_id": "spk_0",
+            "speaker_role": "interviewee",
+            "type": "interviewee_answer",
+            "topic_tags": [],
+            "start_ms": 0,
+            "end_ms": 400,
+            "text": "Within",
+        },
+        {
+            "segment_id": "seg_014",
+            "speaker_id": "spk_1",
+            "speaker_role": "interviewee",
+            "type": "interviewee_answer",
+            "topic_tags": [],
+            "start_ms": 5_000,
+            "end_ms": 15_000,
+            "text": "We closed the acquisition in under a year.",
+        },
+    ]
+    path = ctx.path("segments", "manifest.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import json
+
+    path.write_text(json.dumps({"segments": segs}), encoding="utf-8")
+    path2 = ctx.path("master", "selection.json")
+    path2.parent.mkdir(parents=True, exist_ok=True)
+    path2.write_text(json.dumps({"ordered_segment_ids": ["seg_013", "seg_014"]}), encoding="utf-8")
+    path3 = ctx.path("understanding", "gap_evaluations.json")
+    path3.parent.mkdir(parents=True, exist_ok=True)
+    path3.write_text(
+        json.dumps(
+            {
+                "evaluations": [
+                    {
+                        "segment_id": "seg_013",
+                        "severity": "high",
+                        "gap_type": "missing_followup",
+                        "listener_confusion": "needs a prompt",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_q_seg_014",
+                "targets_segment_id": "seg_014",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "What made that deal possible?",
+                "rationale": "cue acquisition",
+            },
+            {
+                "line_id": "vo_seed_seg_013",
+                "targets_segment_id": "seg_014",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "What changed next?",
+                "rationale": "remapped seed",
+            },
+        ]
+    }
+    applied: list[dict] = []
+    _drop_redundant_remapped_seeds(out, applied=applied)
+    assert any(a.get("action") == "drop_redundant_remapped_seed" for a in applied)
+    assert all(ln.get("line_id") != "vo_seed_seg_013" for ln in out["interviewer_lines"])
+
+    applied2: list[dict] = []
+    _seed_missing_high_gap_interviewer_lines(
+        ctx, out, manifest_ids={"seg_013", "seg_014"}, applied=applied2
+    )
+    assert not any(a.get("action") == "seed_high_gap_line" for a in applied2)
+
+
+def test_density_floor_does_not_break_monologue(monkeypatch) -> None:
+    monkeypatch.setattr(
+        config_mod,
+        "merged_config",
+        lambda: {"analysis": {"gap_framing": {"min_vo_insert_ratio": 0.25}}},
+    )
+    ordered = [f"seg_{i:03d}" for i in range(1, 9)]
+    segs = [
+        {
+            "segment_id": sid,
+            "speaker_id": "spk_guest",
+            "start_ms": i * 10_000,
+            "end_ms": (i + 1) * 10_000,
+            "text": f"Long same-speaker answer part {i} with enough words.",
+        }
+        for i, sid in enumerate(ordered)
+    ]
+
+    class _Ctx:
+        def __init__(self):
+            self._arts = {
+                "master/selection.json": {"ordered_segment_ids": ordered},
+                "master/narrative_plan.json": {"chapters": []},
+                "segments/manifest.json": {"segments": segs},
+            }
+
+        def artifact_exists(self, rel: str) -> bool:
+            return rel in self._arts
+
+        def read_json(self, rel: str):
+            return self._arts[rel]
+
+    out: dict = {"interviewer_lines": []}
+    applied: list[dict] = []
+    _enforce_min_vo_insert_ratio(_Ctx(), out, applied=applied)
+    # Same-speaker contiguous run: density must not invent mid-monologue breaks.
+    assert not any(
+        str(a.get("action") or "").startswith("seed_vo_density")
+        and str(a.get("segment_id") or "") in set(ordered[1:-1])
+        for a in applied
+    )
+
+
+def test_transition_skipped_when_before_vo_exists(tmp_path, monkeypatch) -> None:
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_q_seg_020",
+                "targets_segment_id": "seg_020",
+                "placement": "before",
+                "delivery": "synthesize",
+                "line_category": "framing_question",
+                "text": "What changed next?",
+            }
+        ]
+    }
+    assert transition_redundant_with_framing(gap, "seg_019", "seg_020") is True
+    bridges = {
+        "pairs": [
+            {
+                "after_id": "seg_019",
+                "before_id": "seg_020",
+                "after_segment_id": "seg_019",
+                "before_segment_id": "seg_020",
+                "kind": "reorder",
+                "source_gap_ms": -50_000,
+            }
+        ]
+    }
+    assert missing_reorder_bridges(bridges, gap_report=gap) == []
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "seam_skip")
+    import json
+
+    gr_path = ctx.path("understanding", "gap_report.json")
+    gr_path.parent.mkdir(parents=True, exist_ok=True)
+    gr_path.write_text(json.dumps(gap), encoding="utf-8")
+    doc = mint_missing_transitions(
+        ctx,
+        [
+            {
+                "after_segment_id": "seg_019",
+                "before_segment_id": "seg_020",
+                "kind": "reorder",
+                "source_gap_ms": -50_000,
+                "before_excerpt": "limited resources and we could do only so much",
+            }
+        ],
+        transitions={"transitions": []},
+    )
+    assert doc["transitions"] == []
+    text = default_bridge_text(
+        {
+            "after_segment_id": "seg_019",
+            "before_segment_id": "seg_020",
+            "before_excerpt": "limited resources and we could do only so much",
+        }
+    )
+    assert "limited resources" not in text.lower()
+
+
+def test_cold_open_last_sentence_cues_first_native() -> None:
+    line = {
+        "line_id": "vo_q_seg_001",
+        "line_category": "episode_preface",
+        "targets_segment_id": "seg_001",
+        "text": (
+            "Welcome to the room with founders who bootstrapped Max Protein. "
+            "What was the origin spark that started it all?"
+        ),
+        "rationale": "cold open",
+    }
+    target = "We were looking at M&A as the clean exit path after the ₹150 crore run."
+    assert cold_open_layup_ok(line, target_text=target, ordered_ids=["seg_001"]) is False
+    errs = vo_value_violations(
+        [line],
+        segments_by_id={"seg_001": {"segment_id": "seg_001", "text": target}},
+        ordered_ids=["seg_001"],
+    )
+    assert any("cold-open" in e or "forward cue" in e or "origin" in e.lower() for e in errs)
+
+
+def test_spoken_layup_required() -> None:
+    line = {
+        "line_id": "vo_sum_seg_010",
+        "line_category": "story_bridge",
+        "targets_segment_id": "seg_010",
+        "text": "They had already put everything back into the company.",
+        "rationale": "summary only",
+    }
+    assert has_forward_cue(line["text"]) is False
+    errs = vo_value_violations(
+        [line],
+        segments_by_id={
+            "seg_010": {
+                "segment_id": "seg_010",
+                "text": "But those were limited resources and we could do only so much.",
+            }
+        },
+        ordered_ids=["seg_009", "seg_010"],
+    )
+    assert any("forward cue" in e for e in errs)

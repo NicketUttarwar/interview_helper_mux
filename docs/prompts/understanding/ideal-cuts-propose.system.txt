@@ -11,6 +11,7 @@ Rules:
 - `rationale` must say why *this* window is the ideal proof (not "because there was a pause").
 - Do not invent dialogue; windows must contain the claimed evidence.
 - Sort cuts by `start_ms`. Avoid heavy overlaps; if two must_keeps collide, keep the stronger proof and warn.
+- **Distribute cuts across the full interview timeline.** Do not cluster all proofs in the cold open or first few minutes. On long interviews, must_keep talking points that appear mid/late in the transcript must have cuts in those later regions. The span from earliest cut start to latest cut end should cover a substantial fraction of the source duration.
 
 Schema: `artifacts` → ideal_cuts_artifact.schema.json
 

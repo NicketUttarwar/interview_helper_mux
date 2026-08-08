@@ -19,6 +19,7 @@ def boundary_collate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "coarse_partition_min_children": int(itr.get("boundary_coarse_partition_min_children") or 2),
         "coarse_coverage_ratio": float(itr.get("boundary_coarse_coverage_ratio") or 0.85),
         "min_segment_duration_ms": int(seg.get("min_segment_duration_ms") or 4000),
+        "max_segment_duration_ms": seg.get("max_segment_duration_ms"),
         "granularity": str(seg.get("default_granularity") or "fine"),
     }
 
@@ -229,20 +230,67 @@ def _merge_micro_boundaries(
     merge_threshold_ms: int,
     min_segment_duration_ms: int = 4000,
     granularity: str = "fine",
+    same_speaker_pause_ms: int = 2500,
+    max_segment_duration_ms: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     applied: list[dict[str, Any]] = []
     if not rows:
         return [], applied
+    max_ms = int(max_segment_duration_ms) if max_segment_duration_ms else None
     merged: list[dict[str, Any]] = [dict(rows[0])]
     for row in rows[1:]:
         span = _row_span(row)
-        if granularity == "fine" and span >= min_segment_duration_ms:
+        prev = merged[-1] if merged else None
+        prev_spk = str((prev or {}).get("speaker_id") or "").strip()
+        row_spk = str(row.get("speaker_id") or "").strip()
+        pause_ms = 10_000
+        if prev is not None:
+            try:
+                pause_ms = int(row.get("start_ms") or 0) - int(prev.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                pause_ms = 10_000
+        same_speaker_small_pause = bool(
+            prev is not None
+            and prev_spk
+            and row_spk
+            and prev_spk == row_spk
+            and 0 <= pause_ms <= same_speaker_pause_ms
+        )
+        # Never merge into a bed that would exceed the max-duration policy —
+        # otherwise enforce_max_segment_duration splits get immediately undone.
+        if same_speaker_small_pause and max_ms and prev is not None:
+            try:
+                combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
+                    prev.get("start_ms") or 0
+                )
+            except (TypeError, ValueError):
+                combined = 0
+            if combined > max_ms:
+                same_speaker_small_pause = False
+        if granularity == "fine" and span >= min_segment_duration_ms and not same_speaker_small_pause:
             merged.append(dict(row))
             continue
-        if span < merge_threshold_ms and merged:
+        if merged and (span < merge_threshold_ms or same_speaker_small_pause):
+            if max_ms and prev is not None:
+                try:
+                    combined = max(int(prev.get("end_ms") or 0), int(row.get("end_ms") or 0)) - int(
+                        prev.get("start_ms") or 0
+                    )
+                except (TypeError, ValueError):
+                    combined = 0
+                if combined > max_ms:
+                    merged.append(dict(row))
+                    continue
             prev = merged[-1]
             prev["end_ms"] = max(int(prev.get("end_ms", 0)), int(row.get("end_ms", 0)))
-            applied.append({"action": "merge_micro_boundary", "segment_id": row.get("segment_id")})
+            applied.append(
+                {
+                    "action": "merge_same_speaker_boundary"
+                    if same_speaker_small_pause
+                    else "merge_micro_boundary",
+                    "segment_id": row.get("segment_id"),
+                }
+            )
             continue
         merged.append(dict(row))
     return merged, applied
@@ -534,6 +582,7 @@ def normalize_boundary_timeline(
         merge_threshold_ms=merge_threshold,
         min_segment_duration_ms=min_seg_ms,
         granularity=granularity,
+        max_segment_duration_ms=int(settings.get("max_segment_duration_ms") or 0) or None,
     )
     applied.extend(merge_actions)
 

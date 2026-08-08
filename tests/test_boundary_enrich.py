@@ -96,7 +96,7 @@ def test_detect_overloaded_segment_ids_by_duration_and_topics():
 def test_fine_granularity_skips_micro_merge_for_valid_segments():
     rows = [
         {"start_ms": 0, "end_ms": 5000, "speaker_id": "spk_0"},
-        {"start_ms": 5000, "end_ms": 5200, "speaker_id": "spk_0"},
+        {"start_ms": 5000, "end_ms": 5200, "speaker_id": "spk_1"},
         {"start_ms": 5200, "end_ms": 12_000, "speaker_id": "spk_0"},
     ]
     cfg = {
@@ -109,8 +109,29 @@ def test_fine_granularity_skips_micro_merge_for_valid_segments():
             },
         }
     }
-    normalized, _ = normalize_boundary_timeline(rows, cfg=cfg)
+    normalized, applied = normalize_boundary_timeline(rows, cfg=cfg)
+    # Speaker changes keep the two substantive beds; micro may stay or merge.
     assert len(normalized) >= 2
+    assert {str(r.get("speaker_id")) for r in normalized} >= {"spk_0"}
+
+
+def test_same_speaker_small_pause_merges_in_fine_mode():
+    rows = [
+        {"start_ms": 0, "end_ms": 5000, "speaker_id": "spk_0"},
+        {"start_ms": 5200, "end_ms": 12_000, "speaker_id": "spk_0"},
+    ]
+    cfg = {
+        "analysis": {
+            "segmentation": {
+                "default_granularity": "fine",
+                "min_segment_duration_ms": 4000,
+                "boundary_merge_threshold_ms": 200,
+            },
+        }
+    }
+    normalized, applied = normalize_boundary_timeline(rows, cfg=cfg)
+    assert len(normalized) == 1
+    assert any(a.get("action") == "merge_same_speaker_boundary" for a in applied)
 
 
 def test_enrich_boundary_rows_respects_min_duration_floor():

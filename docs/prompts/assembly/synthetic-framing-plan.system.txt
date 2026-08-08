@@ -15,7 +15,9 @@ Hard rules:
   `before_segment_id`. These are hard listener-continuity requirements, not
   optional polish.
 - Every proposed line must add necessary orientation, context, or transition;
-  never restate the following clip.
+  never restate the following clip. The **last sentence** is a forward unlock
+  into the next native or synthetic beat (cold open last sentence cues the
+  first native clip from its actual content, not a generic origin prompt).
 - Use the current approved host-clone speaker policy.
 - duration_ratio must be 0.4..2.0 of anchor native duration. Openers and true
   explanatory setups may be longer when justified.

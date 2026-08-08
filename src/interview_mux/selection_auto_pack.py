@@ -135,16 +135,21 @@ def pack_selection_to_duration(
             return 9999.0
 
     speaker_of = _speaker_of_map(ctx) if prefer_volley_intact else {}
+    by_id = _segments_by_id(ctx)
 
-    def drop_score(sid: str) -> tuple[float, float]:
+    def drop_score(sid: str) -> tuple[float, float, float]:
         if not prefer_volley_intact:
-            return (0.0, rank_of(sid))
+            return (0.0, 0.0, rank_of(sid))
         idx = ordered.index(sid)
         spk = speaker_of.get(sid, "")
         prev = speaker_of.get(ordered[idx - 1], "") if idx > 0 else ""
         nxt = speaker_of.get(ordered[idx + 1], "") if idx + 1 < len(ordered) else ""
-        mid_mono = 1.0 if spk and spk == prev == nxt else 0.0
-        return (mid_mono, rank_of(sid))
+        mid_mono = spk and spk == prev == nxt
+        dur = _segment_duration_ms(by_id.get(sid) or {})
+        micro = 1.0 if dur > 0 and dur < 2500 else 0.0
+        # Prefer dropping isolated / micro clips; keep mid-monologue native points intact.
+        isolated = 0.0 if mid_mono else 1.0
+        return (micro, isolated, rank_of(sid))
 
     droppable = [sid for sid in ordered if sid not in critical]
     droppable.sort(key=drop_score, reverse=True)  # drop mid-monologue + worst ranks first

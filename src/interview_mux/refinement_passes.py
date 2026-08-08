@@ -168,12 +168,28 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
                     cfg=settings,
                 )
                 line["text"] = courtesy_seed_text(
-                    prior, category=str(line.get("line_category") or "framing_question")
+                    prior,
+                    category=str(line.get("line_category") or "framing_question"),
+                    target_segment_id=str(line.get("targets_segment_id") or "") or None,
                 )
             cleaned.append(line)
         kept_lines = cleaned
         candidate["interviewer_lines"] = kept_lines
         write_gap_vo_context_audit(ctx, kept_lines)
+    except Exception:
+        pass
+    try:
+        from interview_mux.artifact_repairs import repair_gap_report
+
+        repaired, notes = repair_gap_report(ctx, candidate)
+        if notes:
+            candidate = repaired
+            kept_lines = list(candidate.get("interviewer_lines") or [])
+            ctx.log(
+                f"gap_framing_recompose: post-merge repair ({len(notes)} note(s))",
+                level="info",
+                stage="gap_framing_recompose",
+            )
     except Exception:
         pass
     candidate["_meta"] = {

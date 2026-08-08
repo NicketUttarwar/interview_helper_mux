@@ -95,12 +95,44 @@ def vo_pickup_relpath(ctx: RunContext, path: Path) -> str:
     return rel
 
 
+def _normalize_vo_text(text: str) -> str:
+    return " ".join(str(text or "").strip().lower().split())
+
+
+def _same_speaker_source_contiguous(
+    prev: dict | None,
+    curr: dict | None,
+    *,
+    gap_ms: int = 2500,
+) -> bool:
+    if not isinstance(prev, dict) or not isinstance(curr, dict):
+        return False
+    prev_spk = str(prev.get("speaker_id") or "").strip()
+    curr_spk = str(curr.get("speaker_id") or "").strip()
+    if not prev_spk or prev_spk != curr_spk:
+        return False
+    try:
+        prev_end = int(prev.get("end_ms") or prev.get("source_end_ms") or 0)
+        curr_start = int(curr.get("start_ms") or curr.get("source_start_ms") or 0)
+    except (TypeError, ValueError):
+        return False
+    source_gap = curr_start - prev_end
+    return -gap_ms <= source_gap <= gap_ms
+
+
 def _gap_lines_for_segment(
-    gap_report: dict | None, segment_id: str, placement: str
+    gap_report: dict | None,
+    segment_id: str,
+    placement: str,
+    *,
+    emitted_line_ids: set[str] | None = None,
+    emitted_text_keys: set[tuple[str, str, str]] | None = None,
 ) -> list[dict]:
     if not gap_report:
         return []
     out: list[dict] = []
+    seen_ids = emitted_line_ids if emitted_line_ids is not None else set()
+    seen_text = emitted_text_keys if emitted_text_keys is not None else set()
     for line in gap_report.get("interviewer_lines") or []:
         if line.get("skipped_optional"):
             continue
@@ -110,6 +142,20 @@ def _gap_lines_for_segment(
             continue
         if line.get("delivery") != "record" and line.get("delivery") != "synthesize":
             continue
+        lid = str(line.get("line_id") or "").strip()
+        if lid and lid in seen_ids:
+            continue
+        text_key = (
+            str(segment_id),
+            str(placement),
+            _normalize_vo_text(str(line.get("text") or "")),
+        )
+        if text_key[2] and text_key in seen_text:
+            continue
+        if lid:
+            seen_ids.add(lid)
+        if text_key[2]:
+            seen_text.add(text_key)
         out.append(line)
     return out
 
@@ -178,6 +224,15 @@ def build_flow1_edl(
                 missing_targets.append(target)
 
     duration_fn = vo_duration_ms or _wav_duration_ms
+    emitted_line_ids: set[str] = set()
+    emitted_text_keys: set[tuple[str, str, str]] = set()
+
+    def _last_non_silence_type() -> str:
+        for clip in reversed(clips):
+            ctype = str(clip.get("type") or "")
+            if ctype and ctype != "silence":
+                return ctype
+        return ""
 
     for idx, sid in enumerate(ordered):
         seg = segments_by_id.get(sid)
@@ -185,7 +240,37 @@ def build_flow1_edl(
             missing_segments.append(sid)
             continue
 
-        for line in _gap_lines_for_segment(gap_report, sid, "before"):
+        prev_sid = ordered[idx - 1] if idx > 0 else ""
+        prev_seg = segments_by_id.get(prev_sid) if prev_sid else None
+        skip_before_vo = _same_speaker_source_contiguous(prev_seg, seg)
+        nxt = ordered[idx + 1] if idx + 1 < len(ordered) else ""
+        next_before_vo = bool(
+            nxt
+            and _gap_lines_for_segment(
+                gap_report,
+                nxt,
+                "before",
+                emitted_line_ids=set(emitted_line_ids),
+                emitted_text_keys=set(emitted_text_keys),
+            )
+        )
+
+        before_lines = (
+            []
+            if skip_before_vo
+            else _gap_lines_for_segment(
+                gap_report,
+                sid,
+                "before",
+                emitted_line_ids=emitted_line_ids,
+                emitted_text_keys=emitted_text_keys,
+            )
+        )
+        # One host turn per seam: if prior clip already left a VO/transition, skip.
+        if _last_non_silence_type() in {"vo_pickup", "transition"}:
+            before_lines = []
+
+        for line in before_lines:
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
@@ -239,7 +324,18 @@ def build_flow1_edl(
         )
         timeline_ms += speech_dur
 
-        for line in _gap_lines_for_segment(gap_report, sid, "after"):
+        after_lines = _gap_lines_for_segment(
+            gap_report,
+            sid,
+            "after",
+            emitted_line_ids=emitted_line_ids,
+            emitted_text_keys=emitted_text_keys,
+        )
+        # Prefer a before-VO layup on the next clip over an after-VO on this one.
+        if next_before_vo:
+            after_lines = []
+
+        for line in after_lines:
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel = None
             dur = 0
@@ -279,6 +375,13 @@ def build_flow1_edl(
         if idx + 1 < len(ordered):
             nxt = ordered[idx + 1]
             tr = _transition_after_segment(transitions, sid, nxt)
+            if tr:
+                from interview_mux.gap_framing import transition_redundant_with_framing
+
+                if transition_redundant_with_framing(gap_report, sid, nxt):
+                    tr = None
+                elif _last_non_silence_type() == "vo_pickup":
+                    tr = None
             if tr:
                 text = str(tr.get("text") or "")
                 tr_path = (
@@ -362,6 +465,21 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("understanding/gap_report.json")
             else None
         )
+        if isinstance(gap_report, dict):
+            try:
+                from interview_mux.artifact_repairs import repair_gap_report
+
+                repaired, notes = repair_gap_report(ctx, gap_report)
+                if notes:
+                    ctx.write_json("understanding/gap_report.json", repaired)
+                    ctx.log(
+                        f"edl: repaired gap_report before build ({len(notes)} note(s))",
+                        level="info",
+                        stage="edl",
+                    )
+                gap_report = repaired
+            except Exception as exc:
+                ctx.log(f"edl: gap_report repair skipped: {exc}", level="warning", stage="edl")
         transitions = (
             ctx.read_json("master/transitions.json")
             if ctx.artifact_exists("master/transitions.json")

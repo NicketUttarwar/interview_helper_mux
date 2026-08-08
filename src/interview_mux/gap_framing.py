@@ -65,6 +65,8 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "rewrite_density_seeds": True,
             "relocate_micro_targets": True,
         },
+        "min_vo_insert_ratio": 0.0,
+        "target_vo_insert_ratio": 0.15,
         "vo_value_gate": {
             "enabled": True,
             "require_rationale": True,
@@ -72,6 +74,8 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "restate_min_vo_tokens": 6,
             "allow_summary_overlap_max": 0.62,
             "enforce_courtesy": True,
+            "require_forward_cue": True,
+            "require_cold_open_layup": True,
         },
     }
     if isinstance(raw, dict):
@@ -362,7 +366,7 @@ def rebase_gap_lines_to_selection(
 
 # Source joins within this window are already continuous tape — a light-bridge
 # VO placed between them cuts mid-thought (audible as synthetic interrupting native).
-_CONTIGUOUS_LIGHT_BRIDGE_GAP_MS = 1500
+_CONTIGUOUS_LIGHT_BRIDGE_GAP_MS = 2500
 
 
 def drop_contiguous_light_bridge_lines(
@@ -372,7 +376,7 @@ def drop_contiguous_light_bridge_lines(
     ordered_segment_ids: list[str] | None = None,
     contiguous_gap_ms: int = _CONTIGUOUS_LIGHT_BRIDGE_GAP_MS,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """Drop ok_with_light_bridge VO that would split near-contiguous source speech."""
+    """Drop before-VO that would split near-contiguous same-speaker source speech."""
     if not isinstance(gap_report, dict) or not isinstance(segments_by_id, dict):
         return gap_report, []
     order = [str(s) for s in (ordered_segment_ids or []) if str(s).strip()]
@@ -391,19 +395,30 @@ def drop_contiguous_light_bridge_lines(
             return None
         return start, end
 
+    def _speaker(sid: str) -> str:
+        seg = segments_by_id.get(sid)
+        if not isinstance(seg, dict):
+            return ""
+        return str(seg.get("speaker_id") or "").strip()
+
     notes: list[dict[str, str]] = []
     kept: list[dict[str, Any]] = []
     for line in gap_report.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
         row = dict(line)
-        gap_type = str(row.get("gap_type") or "")
-        if gap_type != "ok_with_light_bridge":
+        placement = str(row.get("placement") or "before").strip() or "before"
+        if placement != "before":
             kept.append(row)
             continue
         tid = str(row.get("targets_segment_id") or "").strip()
         prior = str(row.get("prior_segment_id") or pred.get(tid) or "").strip()
         if not tid or not prior:
+            kept.append(row)
+            continue
+        prev_spk = _speaker(prior)
+        tgt_spk = _speaker(tid)
+        if not prev_spk or not tgt_spk or prev_spk != tgt_spk:
             kept.append(row)
             continue
         ta = _times(prior)
@@ -412,10 +427,14 @@ def drop_contiguous_light_bridge_lines(
             kept.append(row)
             continue
         source_gap = tb[0] - ta[1]
+        # Large negative gap is a reorder hinge — keep VO.
+        if source_gap < -5000:
+            kept.append(row)
+            continue
         if abs(source_gap) <= contiguous_gap_ms:
             notes.append(
                 {
-                    "action": "drop_contiguous_light_bridge",
+                    "action": "drop_contiguous_same_speaker_vo",
                     "line_id": str(row.get("line_id") or tid),
                     "from": prior,
                     "to": tid,
@@ -464,10 +483,100 @@ def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
     return out
 
 
+def compact_gap_report_for_ranking(report: dict[str, Any] | None) -> dict[str, Any]:
+    """Strip VO copy from gap_report for ranking — keep placement contract only.
+
+    Full interviewer text blows long-form ranking context (100+ lines × long copy).
+    Ranking only needs which segments are framed and how lines place.
+    """
+    if not isinstance(report, dict):
+        return {"interviewer_lines": [], "gaps": []}
+    lines: list[dict[str, Any]] = []
+    for line in report.get("interviewer_lines") or []:
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        lines.append(
+            {
+                "line_id": line.get("line_id"),
+                "line_category": infer_line_category(line),
+                "gap_type": line.get("gap_type"),
+                "targets_segment_id": line.get("targets_segment_id") or line.get("segment_id"),
+                "placement": line.get("placement") or "before",
+                "delivery": line.get("delivery"),
+                "supports_segment_ids": list(line.get("supports_segment_ids") or [])[:8],
+                "replaces_source_segments": list(line.get("replaces_source_segments") or [])[:8],
+                "estimated_duration_sec": line.get("estimated_duration_sec"),
+                "severity": line.get("severity"),
+            }
+        )
+    gaps_out: list[dict[str, Any]] = []
+    for g in report.get("gaps") or []:
+        if not isinstance(g, dict):
+            continue
+        gaps_out.append(
+            {
+                "segment_id": g.get("segment_id"),
+                "gap_type": g.get("gap_type"),
+                "severity": g.get("severity"),
+            }
+        )
+    return {
+        "interviewer_lines": lines,
+        "gaps": gaps_out[:200],
+        "_compacted_for": "full_master_ranking",
+    }
+
+
 def attach_framing_to_ranking_payload(ctx: RunContext, payload: dict[str, Any]) -> dict[str, Any]:
     plan = load_gap_framing_plan(ctx)
     if plan:
-        payload["gap_framing_plan"] = plan
+        # Keep plan structure but drop long rationales (acts / impact_blocks).
+        compact_plan = dict(plan)
+        acts = compact_plan.get("acts")
+        if isinstance(acts, list):
+            slim_acts: list[dict[str, Any]] = []
+            for act in acts:
+                if not isinstance(act, dict):
+                    continue
+                slim_act = {
+                    "act_id": act.get("act_id"),
+                    "preface_line_id": act.get("preface_line_id"),
+                }
+                blocks = act.get("impact_blocks") or act.get("blocks") or []
+                slim_blocks: list[dict[str, Any]] = []
+                if isinstance(blocks, list):
+                    for b in blocks:
+                        if not isinstance(b, dict):
+                            continue
+                        slim_blocks.append(
+                            {
+                                "framing_line_ids": list(b.get("framing_line_ids") or [])[:4],
+                                "source_segment_ids": list(b.get("source_segment_ids") or [])[:8],
+                                "excluded_redundant_segment_ids": list(
+                                    b.get("excluded_redundant_segment_ids") or []
+                                )[:8],
+                            }
+                        )
+                slim_act["impact_blocks"] = slim_blocks
+                slim_acts.append(slim_act)
+            compact_plan["acts"] = slim_acts
+        blocks = compact_plan.get("blocks")
+        if isinstance(blocks, list):
+            slim: list[dict[str, Any]] = []
+            for b in blocks:
+                if not isinstance(b, dict):
+                    continue
+                slim.append(
+                    {
+                        "framing_line_ids": list(b.get("framing_line_ids") or [])[:4],
+                        "source_segment_ids": list(b.get("source_segment_ids") or [])[:8],
+                        "excluded_redundant_segment_ids": list(
+                            b.get("excluded_redundant_segment_ids") or []
+                        )[:8],
+                    }
+                )
+            compact_plan["blocks"] = slim
+        payload["gap_framing_plan"] = compact_plan
     excludes = sorted(ranking_exclude_segment_ids(ctx))
     if excludes:
         payload["framing_covered_segment_ids"] = excludes
@@ -503,7 +612,7 @@ def transition_redundant_with_framing(
     after_segment_id: str,
     before_segment_id: str,
 ) -> bool:
-    """True when a framing VO line already bridges this segment pair."""
+    """True when any spoken before/after gap VO already covers this segment pair."""
     if not gap_report or not isinstance(gap_report, dict):
         return False
     after = str(after_segment_id or "").strip()
@@ -513,8 +622,8 @@ def transition_redundant_with_framing(
     for line in gap_report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or line.get("skipped_optional"):
             continue
-        category = infer_line_category(line)
-        if category not in FRAMING_BRIDGE_CATEGORIES:
+        delivery = str(line.get("delivery") or "").lower()
+        if delivery and delivery not in {"record", "synthesize"}:
             continue
         target = str(line.get("targets_segment_id") or "").strip()
         placement = str(line.get("placement") or "before").strip()

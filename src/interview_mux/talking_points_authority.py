@@ -249,6 +249,19 @@ def narrative_from_talking_points(
     }
 
 
+def _materialized_span_ok(ctx: RunContext, mat: dict[str, Any]) -> bool:
+    """Reject deterministic TP authority when cuts only cover early tape."""
+    from interview_mux.ideal_cuts import cut_span_coverage_ratio, ideal_cuts_cfg
+    from interview_mux.interview_duration_policy import transcript_duration_ms
+
+    floor = float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0.45)
+    duration_ms = int(transcript_duration_ms(ctx) or 0)
+    if duration_ms <= 0:
+        return True
+    ratio = cut_span_coverage_ratio(mat, duration_ms)
+    return ratio >= floor
+
+
 def try_deterministic_coverage(ctx: RunContext) -> dict[str, Any] | None:
     conf = talking_points_authority_cfg()
     if not conf.get("deterministic_coverage", True):
@@ -262,6 +275,14 @@ def try_deterministic_coverage(ctx: RunContext) -> dict[str, Any] | None:
     if not isinstance(tp, dict) or not isinstance(mat, dict):
         return None
     if not (tp.get("talking_points") or []) or not (mat.get("cuts") or []):
+        return None
+    # Provisional / early-only cuts must not claim full TP coverage.
+    if mat.get("boundary_bind_skipped") or not _materialized_span_ok(ctx, mat):
+        return None
+    if not any(
+        isinstance(c, dict) and c.get("segment_id")
+        for c in (mat.get("cuts") or [])
+    ):
         return None
     manifest_ids: set[str] | None = None
     if ctx.artifact_exists("segments/manifest.json"):
@@ -288,6 +309,13 @@ def try_deterministic_narrative(ctx: RunContext) -> dict[str, Any] | None:
     if not isinstance(tp, dict) or not isinstance(mat, dict):
         return None
     if not (mat.get("cuts") or []):
+        return None
+    if mat.get("boundary_bind_skipped") or not _materialized_span_ok(ctx, mat):
+        return None
+    if not any(
+        isinstance(c, dict) and c.get("segment_id")
+        for c in (mat.get("cuts") or [])
+    ):
         return None
     plan = None
     if ctx.artifact_exists("mastering/mastering_plan.json"):

@@ -337,7 +337,8 @@ def run_talking_points_compose(ctx: RunContext) -> None:
 
 def run_ideal_cuts_propose(ctx: RunContext) -> None:
     """Propose timed native windows for each talking point."""
-    from interview_mux.ideal_cuts import ideal_cuts_cfg
+    from interview_mux.ideal_cuts import cut_span_coverage_ratio, ideal_cuts_cfg
+    from interview_mux.interview_duration_policy import transcript_duration_ms
     from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
 
     if not ideal_cuts_cfg().get("enable", True):
@@ -382,7 +383,21 @@ def run_ideal_cuts_propose(ctx: RunContext) -> None:
         payload["pause_ladder_hints"] = pause_ladder_hints(c)
         return attach_adaptation_to_payload(c, payload)
 
-    persist = make_stage_persist("understanding/ideal_cuts.json", "ideal_cuts_propose")
+    base_persist = make_stage_persist("understanding/ideal_cuts.json", "ideal_cuts_propose")
+
+    def persist(c: RunContext, artifacts: dict[str, Any]) -> None:
+        duration_ms = int(transcript_duration_ms(c) or 0)
+        floor = float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0.45)
+        # Only enforce span distribution on long interviews (short tapes can cluster).
+        if duration_ms >= 900_000:
+            ratio = cut_span_coverage_ratio(artifacts if isinstance(artifacts, dict) else {}, duration_ms)
+            if ratio < floor:
+                raise RuntimeError(
+                    f"ideal_cuts_propose span coverage {ratio:.3f} < min {floor:.3f} "
+                    f"(cuts clustered early — redistribute across the interview)"
+                )
+        base_persist(c, artifacts)
+
     with logged_step(
         "ideal_cuts_propose/llm_stage", ctx=ctx, stage="ideal_cuts_propose"
     ):

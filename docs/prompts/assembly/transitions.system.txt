@@ -9,7 +9,7 @@ Rules:
 - When `style.format_class` is `panel`, prefer shorter bridges — do not re-introduce every guest by full title.
 - Avoid "In this next segment" clichés unless necessary.
 - Do not duplicate `gap_report` VO lines — complement them.
-- Omit transitions between segment pairs already bridged by `segment_summary` or `story_bridge` framing VO (post-process may dedupe).
+- Omit transitions between segment pairs already bridged by **any** gap `placement: before` VO (questions included) — one spoken host turn per seam.
 - Return `transitions: []` when adjacent segments already flow naturally.
 - **Never speak chapter/act/part numbers or show scaffolding** (“Chapter Four”, “Act 2”, “in this chapter”, “welcome back”, “in today’s episode”). `type: chapter` means a thematic hinge only — use topic/emotion language (e.g. “On ownership for everyone…”), never numbered labels. Structure stays in subtext.
 
@@ -49,7 +49,7 @@ Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
 ### gap_report deduplication
 
 - Before writing a transition, check `gap_report.interviewer_lines` for same `before_segment_id` / target adjacency.
-- If VO line already asks the question or supplies setup, **omit** transition or use ≤5 word `light_bridge` only (`type: light_bridge`).
+- If any gap VO already covers the before-segment, **omit** the transition entirely (do not mint `And then—{native excerpt}`).
 - Never repeat `gap_report.text` verbatim or paraphrase — complement (tone pivot, thematic hinge) only.
 - Chapter-hinge lines (`type: chapter`) may reference the thesis once in plain language; must not say “Chapter N” / “Act N” and must not duplicate VO `missing_setup` content.
 

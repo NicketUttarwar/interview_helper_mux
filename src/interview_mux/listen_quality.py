@@ -9,7 +9,7 @@ def vo_density_issues(
     edl: dict[str, Any] | None,
     *,
     max_consecutive_vo: int = 3,
-    max_vo_ratio: float = 0.35,
+    max_vo_ratio: float = 0.25,
 ) -> list[dict[str, Any]]:
     """Flag VO walls and excessive synthetic share on the EDL timeline."""
     if not isinstance(edl, dict):

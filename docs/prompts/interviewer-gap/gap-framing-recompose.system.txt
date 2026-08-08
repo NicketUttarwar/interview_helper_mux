@@ -4,13 +4,14 @@ Rewrite interviewer framing for the **kept** show order after ranking.
 
 ## North star
 
-Best listener outcome: honor the **VO density floor** from `vo_line_budget.min` (and aim toward `ideal`). Only drop orphans/duplicates **if replaced** with another line that preserves coverage. Prefer stronger wording, not fewer lines.
+Best listener outcome: keep native points intact and VO as a conversation partner at **true seams**. Drop orphans, duplicates, and mid-sentence before-VO on same-speaker contiguous speech. Prefer stronger wording, not more lines.
 
 ## Conversation partner (required)
 
 Each rewritten line remains a **value-adding conversation partner turn**. Use `target_native_contexts`, `vo_missions`, and `prior_native_contexts` when present.
 
 - Unlock stakes, ask a real follow-up, define assumed knowledge, or bridge — never filler.
+- **Last sentence** must be a forward unlock into the next native/VO beat without restating it. Cold open / preface last sentence must cue the first native clip (`target_native_contexts[first]`), not a generic origin prompt.
 - **Must not** paraphrase/restate the next native clip’s claim (read `target_native_contexts[S]`).
 - Keep a non-empty `rationale` stating conversational value.
 - POV may be 1st / 2nd / 3rd person as narrative mode needs.
@@ -24,14 +25,15 @@ After a mic-drop or complete impactful native close:
 - Prefer courteous acknowledge / soft bridge / follow-from-what-was-said.
 - Do not retarget framing questions onto micro backchannels (“Okay.”).
 
-Density floor still applies, but courtesy after impact beats is non-negotiable.
+Courtesy after impact beats is non-negotiable. Do not reintroduce mid-monologue density seeds.
 
 ## Rules
 
 - Only support `supports_segment_ids` / `targets_segment_id` in `selection.ordered_segment_ids` (except episode_preface / cold_open).
 - Propose drops with reasons; do not invent guest evidence.
 - Preserve `origin: operator` lines unless target segment was dropped.
-- If active line count would fall below `vo_line_budget.min`, rewrite/relocate rather than delete — keep chapter hinges, monologue breaks, and evenly spaced bridges.
+- Drop duplicate `line_id` / identical text on the same target. One spoken host turn per seam.
+- Relocate or drop VO that sits inside a continuous same-speaker native sentence (source-adjacent, in-order). Keep chapter hinges, speaker-role changes, and true missing questions.
 - Output `interviewer_lines` + optional `gap_framing_plan` + `recompose_decisions`.
 
 Schema: gap_report + gap_framing_plan companions.

@@ -1126,6 +1126,83 @@ def apply_junction_repairs(
     if music_adjs:
         _merge_placement_adjustments(ctx, music_adjs)
 
+    # Strip orphan VO targeting excluded speech (e.g. vo_micro exclude left the
+    # preceding vo_pickup on the timeline).
+    if excluded:
+        before_n = len(clips)
+        clips = [
+            c
+            for c in clips
+            if not (
+                str(c.get("type") or "") == "vo_pickup"
+                and str(c.get("targets_segment_id") or "") in excluded
+            )
+        ]
+        if len(clips) < before_n:
+            changed = True
+            applied.append(
+                {
+                    "action": "strip_orphan_vo_pickup",
+                    "excluded_segment_ids": sorted(excluded),
+                    "removed_clips": before_n - len(clips),
+                    "status": "applied",
+                }
+            )
+        placements = [
+            p
+            for p in (edl.get("gap_placements") or [])
+            if isinstance(p, dict)
+            and str(p.get("targets_segment_id") or "") not in excluded
+        ]
+        if placements != list(edl.get("gap_placements") or []):
+            edl = dict(edl)
+            edl["gap_placements"] = placements
+            changed = True
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            try:
+                from interview_mux.gap_framing import rebase_gap_lines_to_selection
+                from interview_mux.write_staging import write_committed_json
+
+                gr = ctx.read_json("understanding/gap_report.json")
+                if isinstance(gr, dict):
+                    ordered_live = [
+                        str(s)
+                        for s in (edl.get("ordered_segment_ids") or [])
+                        if str(s) not in excluded
+                    ]
+                    if not ordered_live and ctx.artifact_exists("master/selection.json"):
+                        sel = ctx.read_json("master/selection.json")
+                        if isinstance(sel, dict):
+                            ordered_live = [
+                                str(s)
+                                for s in (sel.get("ordered_segment_ids") or [])
+                                if str(s) not in excluded
+                            ]
+                    rebased, notes = rebase_gap_lines_to_selection(gr, ordered_live)
+                    if notes:
+                        write_committed_json(
+                            ctx,
+                            "understanding/gap_report.json",
+                            rebased,
+                            stage_key=STAGE_ID,
+                        )
+                        applied.append(
+                            {
+                                "action": "rebase_gap_report_after_exclude",
+                                "notes": notes[:12],
+                                "status": "applied",
+                            }
+                        )
+                        changed = True
+            except Exception as exc:
+                applied.append(
+                    {
+                        "action": "rebase_gap_report_after_exclude",
+                        "status": "failed",
+                        "error": str(exc)[:160],
+                    }
+                )
+
     if overrides != (nle.get("segment_overrides") or {}) or nudge_history != (
         nle.get("junction_nudge_history") or {}
     ):

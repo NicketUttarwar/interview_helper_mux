@@ -4,7 +4,7 @@ When a recording is **long or dense**, LLM stages may hit **token / character ca
 
 This document is the **policy** for operators and implementers: what to expect, what breaks, and how to recover **without** silently losing fidelity.
 
-**v2 proactive batching (shipped):** when transcript length exceeds `proactive_decompose_chars` (default 72k), `content_context` and `talking_points_compose` run **contiguous overlapping shards** and merge artifacts (`transcript_shards.py`). `missing_framing` batches by segment IDs when count exceeds `proactive_decompose_gap_segments` (default 40), with per-segment text from `segment_text_max_chars` (default 400). This is **deterministic classification-style batching** — not the deleted LLM-arbiter shard/collate product path.
+**v2 proactive batching (shipped):** when transcript length exceeds `proactive_decompose_chars` (default 72k), `content_context` and `talking_points_compose` run **contiguous overlapping shards** and merge artifacts (`transcript_shards.py`). `missing_framing` and `gap_framing_compose` batch by segment IDs when count exceeds `proactive_decompose_gap_segments` (default 40), with per-segment text from `segment_text_max_chars` (default 400). Sparse `missing_framing` shard outputs get a coverage pass plus deterministic low-severity fills. `full_master_ranking` receives a **compacted** `gap_report` (placement contract only — no full VO copy) so long interviews stay under model context. This is **deterministic classification-style batching** — not the deleted LLM-arbiter shard/collate product path.
 
 **H-ORC-03 coherence (30m+):** when interview duration ≥ `coherence.min_duration_ms` (default 30 minutes), the coherence layer activates — drift/contradiction/callback risks are scored and padded into coverage/arc volleys. See [coherence-orc03.md](../cross-cutting/coherence-orc03.md).
 
@@ -23,7 +23,7 @@ This document is the **policy** for operators and implementers: what to expect, 
 | `segment_text_max_chars` | Per-segment text in compact manifests (wired) | Gap pass blind to long answers |
 | `max_segments_in_context` | Documented ceiling for some stages | Tail segments never scored in that call |
 | `max_segments_in_gap_pass` | Soft gap window ceiling | Prefer `proactive_decompose_gap_segments` |
-| `proactive_decompose_gap_segments` | `missing_framing` batch size (default 40) | Incomplete gap evals or oversized volleys |
+| `proactive_decompose_gap_segments` | `missing_framing` / `gap_framing_compose` batch size (default 40) | Incomplete gap evals, oversized compose volleys, or context_length_exceeded |
 | `max_gap_evaluations` | Rows in missing-framing batch | Some segments not evaluated until re-run |
 | `max_stage_data_chars` | Total JSON payload to model | Envelope truncated / validation odd |
 | `interviewer_sample_lines` | Lines fed into transitions stage | Weaker bridge tone match |

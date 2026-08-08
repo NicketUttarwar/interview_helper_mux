@@ -87,12 +87,14 @@ def e2e_alive() -> bool:
         return False
 
 
-def ensure_server() -> int | None:
-    if server_alive():
+def ensure_server(*, force_restart: bool = False) -> int | None:
+    """Start GUI serve if down. With force_restart, recycle to load current code."""
+    if server_alive() and not force_restart:
         return None
-    # Soft-kill stale listeners
+    # Soft-kill stale listeners (needed when Python modules changed under a live serve).
     subprocess.run(["pkill", "-f", "interview_mux serve"], check=False)
-    time.sleep(1)
+    _kill_pids_on_port(8765)
+    time.sleep(1.5)
     pid = _popen(
         [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser"],
         ASSETS / "baba_server.log",
@@ -105,8 +107,8 @@ def ensure_server() -> int | None:
     raise RuntimeError("server failed to become healthy")
 
 
-def ensure_e2e(*, fresh: bool = False, run_id: str | None = None) -> int | None:
-    if e2e_alive() and not fresh:
+def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = False) -> int | None:
+    if e2e_alive() and not fresh and not force:
         return None
     subprocess.run(["pkill", "-f", "_baba_e2e_driver.py"], check=False)
     time.sleep(1)
@@ -149,6 +151,95 @@ def ensure_keepalive() -> int | None:
     return pid
 
 
+def _kill_pids_on_port(port: int = 8765) -> list[int]:
+    """SIGTERM anything listening on the GUI serve port."""
+    killed: list[int] = []
+    try:
+        out = subprocess.check_output(
+            ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return killed
+    self_pid = os.getpid()
+    for tok in out.split():
+        try:
+            pid = int(tok.strip())
+        except ValueError:
+            continue
+        if pid <= 1 or pid == self_pid:
+            continue
+        try:
+            os.kill(pid, 15)
+            killed.append(pid)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            subprocess.run(["kill", "-15", str(pid)], check=False)
+            killed.append(pid)
+    return killed
+
+
+def _pkill_pattern(pattern: str, *, exclude_pid: int | None = None) -> None:
+    """Best-effort pkill for a process pattern, optionally skipping one pid."""
+    try:
+        out = subprocess.check_output(["pgrep", "-f", pattern], text=True)
+    except subprocess.CalledProcessError:
+        return
+    self_pid = os.getpid()
+    for tok in out.split():
+        try:
+            pid = int(tok.strip())
+        except ValueError:
+            continue
+        if pid <= 1 or pid == self_pid:
+            continue
+        if exclude_pid is not None and pid == exclude_pid:
+            continue
+        try:
+            os.kill(pid, 15)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            subprocess.run(["kill", "-15", str(pid)], check=False)
+
+
+def shutdown_baba_stack(
+    *,
+    kill_server: bool = True,
+    kill_e2e: bool = True,
+    kill_keepalive: bool = True,
+    exclude_pid: int | None = None,
+    port: int = 8765,
+) -> dict[str, object]:
+    """Tear down serve + e2e + keepalive after a completed (or abandoned) run.
+
+    Call from the e2e driver with kill_e2e=False so this process can exit cleanly.
+    Call from keepalive with kill_keepalive=False for the same reason.
+    """
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    killed_port: list[int] = []
+    if kill_keepalive:
+        _pkill_pattern("baba_keepalive_loop.py", exclude_pid=exclude_pid)
+    if kill_e2e:
+        _pkill_pattern("_baba_e2e_driver.py", exclude_pid=exclude_pid)
+    if kill_server:
+        _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)
+        killed_port = _kill_pids_on_port(port)
+        # Second pass after brief settle — catch respawn races / child listeners.
+        time.sleep(0.6)
+        killed_port.extend(_kill_pids_on_port(port))
+        _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)
+    for name in ("baba_server.pid", "baba_e2e.pid", "baba_keepalive.pid"):
+        (ASSETS / name).unlink(missing_ok=True)
+    return {
+        "server_alive": server_alive() if kill_server else None,
+        "e2e_alive": e2e_alive() if kill_e2e else None,
+        "port_killed": sorted(set(killed_port)),
+    }
+
+
 def main() -> int:
     args = sys.argv[1:]
     run_id = None
@@ -156,16 +247,23 @@ def main() -> int:
         if arg == "--run-id" and i + 1 < len(args):
             run_id = args[i + 1]
     fresh = "--fresh" in args
-    skip = {"--fresh", "--run-id", run_id}
+    restart_server = "--restart-server" in args
+    force_e2e = "--force-e2e" in args or restart_server or bool(run_id)
+    skip = {"--fresh", "--run-id", "--restart-server", "--force-e2e", run_id}
     modes = {a for a in args if a not in skip and not a.startswith("--")}
+    if "stop" in modes or "shutdown" in modes:
+        info = shutdown_baba_stack()
+        print(f"shutdown={info}")
+        return 0
     if not modes or "all" in modes:
         modes = {"server", "e2e", "keepalive"}
 
     if "server" in modes:
-        pid = ensure_server()
+        pid = ensure_server(force_restart=restart_server)
         print(f"server pid={pid or 'already-up'}")
     if "e2e" in modes:
-        pid = ensure_e2e(fresh=fresh, run_id=run_id)
+        # Recycle driver when --run-id / --force-e2e / --restart-server so code edits load.
+        pid = ensure_e2e(fresh=fresh, run_id=run_id, force=force_e2e)
         print(f"e2e pid={pid or 'already-up'}")
     if "keepalive" in modes:
         pid = ensure_keepalive()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import struct
 import wave
 from pathlib import Path
@@ -23,6 +24,9 @@ def vo_speech_qa_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "min_speech_band_ratio": 0.12,
         "min_envelope_cv": 0.18,
         "min_duration_ms": 400,
+        "max_ms_per_word": 800,
+        "min_ms_per_word": 120,
+        "min_words_for_duration_check": 8,
     }
     if isinstance(raw, dict):
         return {**defaults, **raw}
@@ -158,7 +162,12 @@ def _tonal_peak_ratio(samples: list[float], rate: int) -> float:
     return max(mags) / total
 
 
-def analyze_vo_wav(path: Path, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+def analyze_vo_wav(
+    path: Path,
+    *,
+    cfg: dict[str, Any] | None = None,
+    script_text: str | None = None,
+) -> dict[str, Any]:
     """Return speech-QA metrics and pass/fail for a VO pickup WAV."""
     qc = cfg or vo_speech_qa_cfg()
     row: dict[str, Any] = {
@@ -208,6 +217,17 @@ def analyze_vo_wav(path: Path, *, cfg: dict[str, Any] | None = None) -> dict[str
         row["reasons"].append("non_speech_spectrum")
     if env_cv < min_cv * 0.5 and tonal >= 0.4:
         row["reasons"].append("flat_envelope_tone")
+
+    words = len(re.findall(r"\S+", str(script_text or "")))
+    min_words = int(qc.get("min_words_for_duration_check", 8))
+    if words >= min_words and duration_ms > 0:
+        max_ppw = float(qc.get("max_ms_per_word", 800))
+        min_ppw = float(qc.get("min_ms_per_word", 120))
+        ms_per_word = duration_ms / words
+        if ms_per_word > max_ppw or ms_per_word < min_ppw:
+            row["reasons"].append(
+                f"duration_vs_word_count:{duration_ms}ms for {words} words"
+            )
 
     row["pass"] = not row["reasons"]
     return row

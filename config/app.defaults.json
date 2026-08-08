@@ -880,7 +880,7 @@
       "prefer_index_over_legacy_summaries": false
     },
     "prompt_thresholds": {
-      "pause_split_ms": 400,
+      "pause_split_ms": 1000,
       "short_question_max_words": 12,
       "interviewer_question_max_words": 60,
       "interviewer_setup_max_words": 20,
@@ -897,7 +897,7 @@
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
       "question_budget_max": 0,
-      "enforce_duration": false
+      "enforce_duration": true
     },
     "coverage_limits": {
       "analysis_timeline_min_coverage_ratio": 0.85,
@@ -1006,8 +1006,8 @@
       }
     },
     "gap_framing": {
-      "min_vo_insert_ratio": 0.20,
-      "target_vo_insert_ratio": 0.35,
+      "min_vo_insert_ratio": 0.0,
+      "target_vo_insert_ratio": 0.15,
       "interviewer_question_max_words": 60,
       "interviewer_setup_max_words": 20,
       "interviewer_summary_max_words": 80,
@@ -1039,7 +1039,9 @@
         "restate_overlap_max": 0.42,
         "restate_min_vo_tokens": 6,
         "allow_summary_overlap_max": 0.62,
-        "enforce_courtesy": true
+        "enforce_courtesy": true,
+        "require_forward_cue": true,
+        "require_cold_open_layup": true
       }
     },
     "gap_vo": {
@@ -1064,7 +1066,10 @@
         "max_tonal_peak_ratio": 0.58,
         "min_speech_band_ratio": 0.12,
         "min_envelope_cv": 0.18,
-        "min_duration_ms": 400
+        "min_duration_ms": 400,
+        "max_ms_per_word": 800,
+        "min_ms_per_word": 120,
+        "min_words_for_duration_check": 8
       }
     },
     "g1": {
@@ -1198,8 +1203,8 @@
         "brisk"
       ],
       "default_granularity": "fine",
-      "max_segment_duration_ms": 60000,
-      "min_segment_duration_ms": 4000,
+      "max_segment_duration_ms": 180000,
+      "min_segment_duration_ms": 8000,
       "split_backchannels": true,
       "backchannel_max_words": 8,
       "prefer_topic_splits": true,

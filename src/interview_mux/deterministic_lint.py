@@ -371,11 +371,18 @@ def _lint_missing_framing(artifacts: dict[str, Any], _ctx: RunContext) -> list[s
 
 
 def _lint_sound_design_palettes(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
+    from interview_mux.config import merged_config
     from interview_mux.sonic_context import (
         load_sonic_context,
         palette_keyword_matches_sonic_provenance,
         sonic_provenance_keyword_set,
     )
+
+    # When early palette LLM is deferred, sound_design_plan owns musical direction.
+    # Empty palettes / sonic_identity here are intentional — do not hard-fail.
+    sd_cfg = merged_config().get("sound_design") or {}
+    if not bool(sd_cfg.get("early_palettes_llm", False)):
+        return []
 
     errors: list[str] = []
     coherence = artifacts.get("coherence") or {}
@@ -708,10 +715,31 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
             for ln in lines
             if isinstance(ln, dict)
         }
+        for ln in lines:
+            if not isinstance(ln, dict):
+                continue
+            lid = str(ln.get("line_id") or "")
+            if lid.startswith("vo_seed_") and len(lid) > len("vo_seed_"):
+                targeted.add(lid[len("vo_seed_") :])
+            for sid in ln.get("supports_segment_ids") or []:
+                if sid:
+                    targeted.add(str(sid))
+            extracted = ln.get("extracted_from")
+            if isinstance(extracted, dict):
+                path = str(extracted.get("path") or "")
+                if path.startswith("repair_seed:"):
+                    targeted.add(path.split(":", 1)[1].strip())
+        try:
+            from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
+        except Exception:
+            _segment_is_blank_or_unusable = None  # type: ignore[assignment]
         for seg_id in high_segs:
-            if seg_id and seg_id not in targeted:
-                errors.append(f"high gap segment {seg_id} has no interviewer line")
-                break
+            if not seg_id or seg_id in targeted:
+                continue
+            if _segment_is_blank_or_unusable is not None and _segment_is_blank_or_unusable(ctx, seg_id):
+                continue
+            errors.append(f"high gap segment {seg_id} has no interviewer line")
+            break
     if not lines and not errors:
         pass
     from interview_mux.production_profile import is_tbiy
@@ -749,7 +777,18 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
                     if isinstance(row, dict) and row.get("segment_id"):
                         segs_by_id[str(row["segment_id"])] = row
         # Prefer richer target text from compose packet when audit was stamped.
-        errors.extend(vo_value_violations(lines if isinstance(lines, list) else [], segments_by_id=segs_by_id))
+        ordered_ids: list[str] = []
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                ordered_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+        errors.extend(
+            vo_value_violations(
+                lines if isinstance(lines, list) else [],
+                segments_by_id=segs_by_id,
+                ordered_ids=ordered_ids,
+            )
+        )
     except Exception as exc:
         errors.append(f"vo_value_gate failed: {exc}")
     return errors

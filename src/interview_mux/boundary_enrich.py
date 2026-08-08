@@ -205,7 +205,7 @@ def enforce_max_segment_duration(
         return rows, []
     max_ms = int(max_ms)
     min_ms = int(sc.get("min_segment_duration_ms") or 4000)
-    pause_ms = int((merged_config().get("analysis") or {}).get("prompt_thresholds", {}).get("pause_split_ms") or 400)
+    pause_ms = int((merged_config().get("analysis") or {}).get("prompt_thresholds", {}).get("pause_split_ms") or 1000)
     words = _words_from_transcript(transcript)
     topic_times = sorted(topic_split_times or [])
 

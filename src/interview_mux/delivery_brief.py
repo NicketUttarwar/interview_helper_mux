@@ -133,8 +133,8 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     import math
 
     gf = (cfg.get("analysis") or {}).get("gap_framing") or {}
-    vo_min_ratio = float(gf.get("min_vo_insert_ratio") or 0.20)
-    vo_target_ratio = float(gf.get("target_vo_insert_ratio") or 0.35)
+    vo_min_ratio = float(gf.get("min_vo_insert_ratio") or 0.0)
+    vo_target_ratio = float(gf.get("target_vo_insert_ratio") or 0.15)
     ordered_n = 0
     if ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")
@@ -142,7 +142,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
             ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
     if ordered_n <= 0:
         ordered_n = segs
-    vo_floor = max(1, int(math.ceil(ordered_n * vo_min_ratio))) if ordered_n else 0
+    vo_floor = int(math.ceil(ordered_n * vo_min_ratio)) if ordered_n and vo_min_ratio > 0 else 0
     vo_target_n = max(vo_floor, int(math.ceil(ordered_n * vo_target_ratio))) if ordered_n else vo_floor
 
     # question_budget_max <= 0 means uncapped — density follows gap evidence + VO floor.

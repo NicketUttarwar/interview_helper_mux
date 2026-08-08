@@ -297,6 +297,19 @@ def _validate_framing_before_impact(
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
     }
+    # Only enforce framing ids that still exist in the committed gap_report.
+    live_line_ids: set[str] = set()
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            gr = ctx.read_json("understanding/gap_report.json")
+            if isinstance(gr, dict):
+                live_line_ids = {
+                    _as_id(ln.get("line_id"))
+                    for ln in (gr.get("interviewer_lines") or [])
+                    if isinstance(ln, dict) and ln.get("line_id") and not ln.get("skipped_optional")
+                }
+        except Exception:
+            live_line_ids = set()
 
     for act in plan.get("acts") or []:
         if not isinstance(act, dict):
@@ -310,7 +323,11 @@ def _validate_framing_before_impact(
             primary = primaries[0]
             if primary not in speech_positions:
                 continue
-            framing_ids = [_as_id(lid) for lid in (block.get("framing_line_ids") or []) if lid]
+            framing_ids = [
+                _as_id(lid)
+                for lid in (block.get("framing_line_ids") or [])
+                if lid and (not live_line_ids or _as_id(lid) in live_line_ids)
+            ]
             if not framing_ids:
                 continue
             speech_ms = next(
@@ -386,6 +403,8 @@ def _validate_gap_placements(
     qc_cfg = _edl_narrative_qc_cfg()
     require_synth = bool(qc_cfg.get("require_synthesized_vo", False))
 
+    seen_line_ids: dict[str, int] = {}
+    seen_text_targets: dict[tuple[str, str, str], int] = {}
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
@@ -397,6 +416,12 @@ def _validate_gap_placements(
         line_id = _as_id(line.get("line_id"))
         target = _as_id(line.get("targets_segment_id"))
         placement = _as_id(line.get("placement") or "before")
+        if line_id:
+            seen_line_ids[line_id] = seen_line_ids.get(line_id, 0) + 1
+        text_norm = " ".join(str(line.get("text") or "").strip().lower().split())
+        if text_norm and target:
+            tkey = (text_norm, target, placement)
+            seen_text_targets[tkey] = seen_text_targets.get(tkey, 0) + 1
         if target not in speech_set:
             continue
         key = (line_id, target, placement)
@@ -430,6 +455,49 @@ def _validate_gap_placements(
             errors.append(
                 f'master/edl.json: gap_placements entry {key} has no matching '
                 "vo_pickup clip. Re-run edl."
+            )
+
+    # Orphan VO: pickup targeting a segment that is not on the air speech order.
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict) or clip.get("type") != "vo_pickup":
+            continue
+        target = _as_id(clip.get("targets_segment_id"))
+        if not target:
+            continue
+        if target not in speech_set:
+            lid = _as_id(clip.get("line_id")) or "?"
+            errors.append(
+                f'master/edl.json: orphan vo_pickup "{lid}" targets "{target}" '
+                "which is not in ordered speech. Strip VO or retarget after junction exclude."
+            )
+
+    for lid, count in seen_line_ids.items():
+        if count > 1:
+            errors.append(
+                f'understanding/gap_report.json: line_id "{lid}" appears {count}x. '
+                "Dedupe interviewer_lines before vo_ingest / edl."
+            )
+    for (text_norm, target, placement), count in seen_text_targets.items():
+        if count > 1:
+            snippet = text_norm[:80]
+            errors.append(
+                f'understanding/gap_report.json: identical VO text targeting "{target}" '
+                f'({placement}) appears {count}x ("{snippet}"). Dedupe before edl.'
+            )
+
+    vo_clip_ids: dict[str, int] = {}
+    for clip in clips:
+        if clip.get("type") != "vo_pickup":
+            continue
+        lid = _as_id(clip.get("line_id"))
+        if not lid:
+            continue
+        vo_clip_ids[lid] = vo_clip_ids.get(lid, 0) + 1
+    for lid, count in vo_clip_ids.items():
+        if count > 1:
+            errors.append(
+                f'master/edl.json: vo_pickup line_id "{lid}" appears {count}x. '
+                "Dedupe gap lines before building the EDL."
             )
 
 

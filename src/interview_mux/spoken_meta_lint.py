@@ -44,6 +44,25 @@ _SCAFFOLD = re.compile(
     re.IGNORECASE,
 )
 
+# Gap-eval / QC prose that must never be spoken as interviewer VO.
+_EDITORIAL_QC = re.compile(
+    r"(?:"
+    r"makes\s+no\s+sense|"
+    r"without\s+the\s+(?:unheard|preceding)\s+prompt|"
+    r"unheard\s+prompt|"
+    r"listener\s+(?:lacks|never\s+hears|confusion)|"
+    r"the\s+answer\s+references|"
+    r"no\s+transcript|"
+    r"\bunusable\b|"
+    r"blank\s+answer|"
+    r"thought\s+stops\s+mid[- ]sentence|"
+    r"gap\s+type|"
+    r"needs?\s+a\s+prompt|"
+    r"quickly\s*[—\-–]\s+.+,?\s+then\s+continue"
+    r")",
+    re.IGNORECASE,
+)
+
 
 def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[str]:
     """Return list of rule ids that fire on *text*."""
@@ -57,7 +76,14 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
         hits.append("spoken_chapter_meta")
     if not allow_scaffold and _SCAFFOLD.search(t):
         hits.append("spoken_show_scaffold")
+    if _EDITORIAL_QC.search(t):
+        hits.append("spoken_editorial_qc_prose")
     return hits
+
+
+def is_editorial_qc_prose(text: str) -> bool:
+    """True when text looks like gap-eval diagnostics rather than on-air VO."""
+    return "spoken_editorial_qc_prose" in spoken_structure_hits(text)
 
 
 def lint_spoken_text(

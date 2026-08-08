@@ -147,7 +147,17 @@ def _gaps_sound_design_plan(data: dict[str, Any] | None) -> list[str]:
     coherence = data.get("coherence") or {}
     if not _non_empty_str(coherence.get("sonic_identity")):
         gaps.append("coherence.sonic_identity")
-    if not (data.get("palettes") or []):
+    # Early palette LLM may be deferred to sound_design_plan — empty palettes are OK.
+    deferred = bool(coherence.get("deferred_early_palettes"))
+    if not deferred:
+        try:
+            from interview_mux.config import merged_config
+
+            sd_cfg = merged_config().get("sound_design") or {}
+            deferred = not bool(sd_cfg.get("early_palettes_llm", False))
+        except Exception:
+            deferred = False
+    if not deferred and not (data.get("palettes") or []):
         gaps.append("palettes")
     return gaps
 

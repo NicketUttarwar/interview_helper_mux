@@ -273,7 +273,7 @@
       "interviewer_sample_lines": 8
     },
     "prompt_thresholds": {
-      "pause_split_ms": 700,
+      "pause_split_ms": 1000,
       "short_question_max_words": 12,
       "interviewer_question_max_words": 60,
       "interviewer_setup_max_words": 20,

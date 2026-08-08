@@ -13,6 +13,7 @@
 #   MUX_SKIP_ASSETS_CLEANUP=1    Skip ephemeral ASSETS/ cleanup (debug)
 #   MUX_NO_BROWSER=1             Pass --no-browser to serve (headless / e2e)
 #   MUX_BABA_E2E=1               After serve, detach baba e2e + keepalive
+#                                (on pipeline complete, driver/keepalive stop the whole stack)
 #                                (MUX_INPUT_AUDIO / MUX_FRESH / MUX_RUN_ID honored)
 #   MUX_DETACH_SERVE=1           Start serve in its own session and return
 #                                (unattended e2e: server survives parent shell exit)

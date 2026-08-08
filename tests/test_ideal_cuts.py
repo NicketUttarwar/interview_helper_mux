@@ -58,6 +58,42 @@ def test_snap_ideal_cuts_and_seed_order():
     assert seed["must_keep_segment_ids"] == ["seg_001"]
 
 
+def test_evaluate_boundary_quality_flags_sparse_ideal_cut_bind():
+    from interview_mux.stages.segmentation import evaluate_boundary_quality
+
+    # 56-minute interview with only 4 keep windows → metric_coarse
+    doc = {
+        "boundaries": [
+            {"segment_id": "seg_001", "start_ms": 0, "end_ms": 60_000},
+            {"segment_id": "seg_002", "start_ms": 600_000, "end_ms": 720_000},
+            {"segment_id": "seg_003", "start_ms": 1_200_000, "end_ms": 1_320_000},
+            {"segment_id": "seg_004", "start_ms": 3_000_000, "end_ms": 3_120_000},
+        ]
+    }
+    report = evaluate_boundary_quality(doc, duration_ms=3_350_000)
+    assert report["reject"] is True
+    assert report["metric_coarse"] is True
+    assert report["segment_count"] == 4
+
+
+def test_evaluate_boundary_quality_accepts_dense_timeline():
+    from interview_mux.stages.segmentation import evaluate_boundary_quality
+
+    boundaries = []
+    t = 0
+    for i in range(80):
+        boundaries.append(
+            {
+                "segment_id": f"seg_{i+1:03d}",
+                "start_ms": t,
+                "end_ms": t + 40_000,
+            }
+        )
+        t += 40_000
+    report = evaluate_boundary_quality({"boundaries": boundaries}, duration_ms=t)
+    assert report["reject"] is False
+    assert report["segment_count"] == 80
+
 def test_resolve_ideal_cuts_air_order_appends_missing():
     seed = {"ordered_segment_ids": ["seg_001", "seg_003"]}
     bind = resolve_ideal_cuts_air_order(

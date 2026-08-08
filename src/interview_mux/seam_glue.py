@@ -114,12 +114,10 @@ def enrich_bridge_pair_excerpts(
 
 
 def default_bridge_text(pair: dict[str, Any]) -> str:
-    """Deterministic speakable hinge text anchored to the seam's native content.
+    """Deterministic speakable hinge — invite the next beat without restating it.
 
-    Stock category templates alone are not pair-specific — when reused across
-    many seams they become audible filler ("And then—what happened next?").
-    Prefer a short excerpt from the destination (or source) segment so each
-    minted hinge orients the listener to *this* join.
+    Do **not** embed the next native excerpt ("And then—{before_excerpt}").
+    Pair uniqueness comes from after/before segment ids when no richer cue exists.
     """
     kind = str(pair.get("kind") or "reorder")
     try:
@@ -127,43 +125,20 @@ def default_bridge_text(pair: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         gap = 0
     category = str(pair.get("suggested_line_category") or "")
-    before_ex = _clip_excerpt(pair.get("before_excerpt") or "")
-    after_ex = _clip_excerpt(pair.get("after_excerpt") or "")
-    anchor = before_ex or after_ex
-
-    if kind == "chapter_jump" or abs(gap) >= CHAPTER_SCALE_GAP_MS:
-        if gap < 0:
-            return (
-                _hinge_with_excerpt("Stepping back—", after_ex)
-                if after_ex
-                else "Stepping back—here's what led there."
-            )
-        return (
-            _hinge_with_excerpt("Next—", anchor)
-            if anchor
-            else "Next, the focus shifts."
-        )
-    if category == "extracted_context" or gap < 0:
-        return (
-            _hinge_with_excerpt("That connects here—", anchor)
-            if anchor
-            else "That connects to something earlier."
-        )
-    if category == "story_bridge":
-        return (
-            _hinge_with_excerpt("Meanwhile—", anchor)
-            if anchor
-            else "Meanwhile, another thread opens."
-        )
-    if anchor:
-        return _hinge_with_excerpt("And then—", anchor)
-    # No excerpts available (tests / incomplete segment map). Keep speakable
-    # but unique per pair so stub detection cannot accept a global stock line.
     after = str(pair.get("after_segment_id") or pair.get("after_id") or "").strip()
     before = str(pair.get("before_segment_id") or pair.get("before_id") or "").strip()
     a = after.removeprefix("seg_") if after else "?"
     b = before.removeprefix("seg_") if before else "?"
-    return f"And then—from {a} into {b}."
+
+    if kind == "chapter_jump" or abs(gap) >= CHAPTER_SCALE_GAP_MS:
+        if gap < 0:
+            return f"Stepping back—what led into {b}?"
+        return f"That thread closes — where does {b} take this?"
+    if category == "extracted_context" or gap < 0:
+        return f"That connects here — how does {b} follow from {a}?"
+    if category == "story_bridge":
+        return f"Meanwhile — what opens on {b}?"
+    return f"And then — what happens as we get to {b}?"
 
 
 def is_chapter_scale_pair(pair: dict[str, Any]) -> bool:
@@ -231,6 +206,13 @@ def mint_missing_transitions(
     allow_canned = bool(
         synthetic_framing_cfg().get("allow_canned_bridge_fallback", False)
     )
+    gap_report = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else None
+    )
+    from interview_mux.gap_framing import transition_redundant_with_framing
+
     for pair in missing:
         if not isinstance(pair, dict):
             continue
@@ -238,6 +220,8 @@ def mint_missing_transitions(
         a = str(pair.get("after_segment_id") or "")
         b = str(pair.get("before_segment_id") or "")
         if not a or not b or (a, b) in existing:
+            continue
+        if transition_redundant_with_framing(gap_report, a, b):
             continue
         planned = planned_transition_for_pair(synthetic_plan, a, b)
         if not planned:

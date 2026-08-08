@@ -98,6 +98,12 @@
     "rationale": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "narrative_mode_hint": {
+      "type": "string"
+    },
+    "mastering_plan_bound": {
+      "type": "boolean"
     }
   },
   "additionalProperties": false

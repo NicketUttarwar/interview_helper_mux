@@ -137,8 +137,10 @@ def heuristic_proposals(
         ch = chapter_order_from_plan(plan)
         if ch and ch != ordered:
             kept = set(ordered)
-            filtered = [s for s in ch if s in kept]
-            if filtered:
+            head = [s for s in ch if s in kept]
+            tail = [s for s in ordered if s not in set(head)]
+            filtered = head + tail
+            if filtered and filtered != ordered:
                 props.append(
                     {
                         "op": "set_order",

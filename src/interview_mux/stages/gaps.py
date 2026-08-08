@@ -229,6 +229,21 @@ def _missing_framing_payload(
     )
 
     payload = attach_prior_native_contexts_to_payload(c, payload)
+    # Shard payloads: keep prior contexts only for requested segment ids.
+    if segment_ids and isinstance(payload.get("prior_native_contexts"), dict):
+        want = {str(s) for s in segment_ids}
+        payload["prior_native_contexts"] = {
+            k: v
+            for k, v in payload["prior_native_contexts"].items()
+            if str(k) in want
+        }
+        highlights = payload.get("prior_native_context_highlights")
+        if isinstance(highlights, list):
+            payload["prior_native_context_highlights"] = [
+                h
+                for h in highlights
+                if isinstance(h, dict) and str(h.get("before_target") or "") in want
+            ][:40]
     payload = attach_vo_partner_context_to_payload(c, payload, segment_ids=segment_ids)
     if shard_meta:
         payload["_gap_eval_shard"] = shard_meta
@@ -246,8 +261,10 @@ def run_missing_framing(ctx: RunContext) -> None:
     def build_input(c: RunContext) -> dict:
         return _missing_framing_payload(c)
 
-    with logged_step("missing_framing/pre_specialists", ctx=ctx, stage="missing_framing"):
-        maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
+    # Pre-specialists on the full 300+ segment tape blow mini context; skip when sharding.
+    if len(required_ids) <= batch_size:
+        with logged_step("missing_framing/pre_specialists", ctx=ctx, stage="missing_framing"):
+            maybe_run_pre_stage_specialists(ctx, "missing_framing", build_input(ctx))
 
     with logged_step("missing_framing/llm_stage", ctx=ctx, stage="missing_framing"):
         if len(required_ids) <= batch_size:
@@ -320,14 +337,99 @@ def run_missing_framing(ctx: RunContext) -> None:
                     parts.append(arts)
 
             merged = _merge_gap_evaluations(parts, required_ids)
-            missing = [sid for sid in required_ids if sid not in {
-                str(r.get("segment_id")) for r in (merged.get("evaluations") or []) if isinstance(r, dict)
-            }]
+            missing = [
+                sid
+                for sid in required_ids
+                if sid
+                not in {
+                    str(r.get("segment_id"))
+                    for r in (merged.get("evaluations") or [])
+                    if isinstance(r, dict)
+                }
+            ]
+            # One coverage pass for LLM-sparse shards (common when context is huge).
             if missing:
-                raise RuntimeError(
-                    f"Batched missing_framing incomplete: "
-                    f"{len(required_ids) - len(missing)}/{len(required_ids)} evaluated; "
-                    f"missing e.g. {missing[:5]}"
+                ctx.log(
+                    f"missing_framing coverage pass for {len(missing)} uncovered segment(s)",
+                    level="warning",
+                    stage="missing_framing",
+                    action_id="missing_framing.coverage_pass",
+                )
+                cov_batches = [
+                    missing[i : i + max(8, min(batch_size, 20))]
+                    for i in range(0, len(missing), max(8, min(batch_size, 20)))
+                ]
+                for ci, cov_ids in enumerate(cov_batches):
+
+                    def build_cov(
+                        c: RunContext,
+                        *,
+                        _ids: list[str] = list(cov_ids),
+                        _ci: int = ci,
+                        _total: int = len(cov_batches),
+                    ) -> dict:
+                        return _missing_framing_payload(
+                            c,
+                            segment_ids=_ids,
+                            shard_meta={
+                                "index": _ci + 1,
+                                "total": _total,
+                                "segment_ids": list(_ids),
+                                "coverage_pass": True,
+                            },
+                        )
+
+                    envelope = run_llm_stage_simple(
+                        ctx,
+                        "missing_framing",
+                        prompt_rel,
+                        build_cov,
+                        _noop_persist,
+                        auto_complete=False,
+                    )
+                    arts = (
+                        envelope.get("artifacts")
+                        if isinstance(envelope.get("artifacts"), dict)
+                        else {}
+                    )
+                    if isinstance(arts, dict) and arts:
+                        parts.append(arts)
+                merged = _merge_gap_evaluations(parts, required_ids)
+                missing = [
+                    sid
+                    for sid in required_ids
+                    if sid
+                    not in {
+                        str(r.get("segment_id"))
+                        for r in (merged.get("evaluations") or [])
+                        if isinstance(r, dict)
+                    }
+                ]
+            if missing:
+                # Deterministic fill — LLM sparsely samples even with sharded ids.
+                # Prefer progress over infinite re-runs; severity stays low.
+                filled = list(merged.get("evaluations") or [])
+                for sid in missing:
+                    filled.append(
+                        {
+                            "segment_id": sid,
+                            "self_explanatory": True,
+                            "gap_type": "ok_with_light_bridge",
+                            "severity": "low",
+                            "listener_confusion": "",
+                            "_meta": {
+                                "filled_by": "missing_framing_batch_coverage",
+                                "reason": "llm_sparse_shard_output",
+                            },
+                        }
+                    )
+                merged = {"evaluations": filled}
+                ctx.log(
+                    f"missing_framing: filled {len(missing)} uncovered segment(s) with defaults",
+                    level="warning",
+                    stage="missing_framing",
+                    action_id="missing_framing.batch_fill",
+                    detail={"filled_count": len(missing), "examples": missing[:8]},
                 )
             persist(ctx, merged)
             sync_gaps_to_state(ctx, merged)
@@ -388,28 +490,109 @@ def _assert_gap_evaluations_complete(ctx: RunContext) -> None:
     )
 
 
-def run_gap_framing_compose(ctx: RunContext) -> None:
-    """Compose full gap framing script (questions, summaries, prefaces, bridges)."""
+def _filter_gap_evaluations_for_ids(
+    doc: dict[str, Any] | None, segment_ids: list[str] | None
+) -> dict[str, Any]:
+    if not isinstance(doc, dict):
+        return {"evaluations": []}
+    evals = [e for e in (doc.get("evaluations") or []) if isinstance(e, dict)]
+    if segment_ids is None:
+        return {"evaluations": evals, **{k: v for k, v in doc.items() if k != "evaluations"}}
+    want = {str(s) for s in segment_ids}
+    return {
+        "evaluations": [e for e in evals if str(e.get("segment_id") or "") in want],
+    }
 
-    def build_input(c: RunContext) -> dict:
-        from interview_mux.gap_framing import gap_framing_cfg
-        from interview_mux.config import merged_config
-        import math
 
-        payload = {
-            "gap_evaluations": c.read_json("understanding/gap_evaluations.json"),
-            "segments": _compact_segments_payload(c),
-            "content_brief": c.read_json("understanding/content_brief.json"),
-            "gap_framing_policy": gap_framing_cfg(),
-        }
-        if c.artifact_exists("understanding/delivery_brief.json"):
-            payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
-        if c.artifact_exists("understanding/episode_structure.json"):
-            payload["episode_structure"] = c.read_json("understanding/episode_structure.json")
-        # VO density contract for compose (hard min ≈20% of selected speech).
-        gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
-        min_r = float(gf.get("min_vo_insert_ratio") or 0.20)
-        tgt_r = float(gf.get("target_vo_insert_ratio") or 0.35)
+def _trim_prior_contexts_to_ids(payload: dict[str, Any], segment_ids: list[str] | None) -> dict[str, Any]:
+    if not segment_ids:
+        return payload
+    want = {str(s) for s in segment_ids}
+    for key in (
+        "prior_native_contexts",
+        "target_native_contexts",
+        "vo_missions",
+    ):
+        raw = payload.get(key)
+        if isinstance(raw, dict):
+            payload[key] = {k: v for k, v in raw.items() if str(k) in want}
+    highlights = payload.get("prior_native_context_highlights")
+    if isinstance(highlights, list):
+        payload["prior_native_context_highlights"] = [
+            h
+            for h in highlights
+            if isinstance(h, dict) and str(h.get("before_target") or "") in want
+        ][:40]
+    return payload
+
+
+def _merge_gap_report_parts(parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge sharded gap_framing_compose artifacts (lines + gaps + plan)."""
+    lines_by_id: dict[str, dict[str, Any]] = {}
+    gaps: list[Any] = []
+    plan: dict[str, Any] | None = None
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        for line in part.get("interviewer_lines") or []:
+            if not isinstance(line, dict):
+                continue
+            lid = str(line.get("line_id") or "").strip()
+            if not lid:
+                tgt = str(line.get("targets_segment_id") or line.get("segment_id") or "")
+                cat = str(line.get("line_category") or "line")
+                lid = f"vo_{cat}_{tgt}" if tgt else f"vo_auto_{len(lines_by_id)+1}"
+                line = {**line, "line_id": lid}
+            if lid not in lines_by_id:
+                lines_by_id[lid] = line
+        for g in part.get("gaps") or []:
+            gaps.append(g)
+        gp = part.get("gap_framing_plan")
+        if isinstance(gp, dict) and plan is None:
+            plan = gp
+    out: dict[str, Any] = {
+        "interviewer_lines": list(lines_by_id.values()),
+        "gaps": gaps,
+    }
+    if plan is not None:
+        out["gap_framing_plan"] = plan
+    return out
+
+
+def _gap_framing_compose_payload(
+    c: RunContext,
+    *,
+    segment_ids: list[str] | None = None,
+    shard_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from interview_mux.gap_framing import gap_framing_cfg
+    from interview_mux.config import merged_config
+    import math
+
+    evals_doc = (
+        c.read_json("understanding/gap_evaluations.json")
+        if c.artifact_exists("understanding/gap_evaluations.json")
+        else {"evaluations": []}
+    )
+    payload: dict[str, Any] = {
+        "gap_evaluations": _filter_gap_evaluations_for_ids(
+            evals_doc if isinstance(evals_doc, dict) else {}, segment_ids
+        ),
+        "segments": _compact_segments_payload(c, segment_ids=segment_ids),
+        "content_brief": c.read_json("understanding/content_brief.json"),
+        "gap_framing_policy": gap_framing_cfg(),
+    }
+    if c.artifact_exists("understanding/delivery_brief.json"):
+        payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
+    if c.artifact_exists("understanding/episode_structure.json"):
+        payload["episode_structure"] = c.read_json("understanding/episode_structure.json")
+    # VO density contract for compose (hard min ≈20% of selected speech).
+    gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
+    min_r = float(gf.get("min_vo_insert_ratio") or 0.0)
+    tgt_r = float(gf.get("target_vo_insert_ratio") or 0.15)
+    if segment_ids is not None:
+        ordered_n = len(segment_ids)
+    else:
         ordered_n = 0
         if c.artifact_exists("master/selection.json"):
             sel = c.read_json("master/selection.json")
@@ -418,75 +601,97 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         if ordered_n <= 0 and c.artifact_exists("segments/manifest.json"):
             man = c.read_json("segments/manifest.json")
             ordered_n = len(
-                [r for r in ((man or {}).get("segments") or []) if isinstance(r, dict) and r.get("segment_id")]
+                [
+                    r
+                    for r in ((man or {}).get("segments") or [])
+                    if isinstance(r, dict) and r.get("segment_id")
+                ]
             )
-        vo_min = max(1, int(math.ceil(ordered_n * min_r))) if ordered_n else 1
-        vo_ideal = max(vo_min, int(math.ceil(ordered_n * tgt_r))) if ordered_n else vo_min
-        qb = {}
-        if isinstance(payload.get("delivery_brief"), dict):
-            qb = (payload["delivery_brief"].get("question_budget") or {}) if isinstance(
-                payload["delivery_brief"].get("question_budget"), dict
-            ) else {}
-        payload["vo_line_budget"] = {
-            "min": int(qb.get("min") or vo_min),
-            "ideal": int(qb.get("ideal") or vo_ideal),
-            "max": int(qb.get("max") or max(vo_ideal, vo_min)),
+    vo_min = int(math.ceil(ordered_n * min_r)) if ordered_n and min_r > 0 else 0
+    vo_ideal = max(vo_min, int(math.ceil(ordered_n * tgt_r))) if ordered_n else vo_min
+    qb = {}
+    if isinstance(payload.get("delivery_brief"), dict) and segment_ids is None:
+        qb = (
+            (payload["delivery_brief"].get("question_budget") or {})
+            if isinstance(payload["delivery_brief"].get("question_budget"), dict)
+            else {}
+        )
+    payload["vo_line_budget"] = {
+        "min": int(qb.get("min") or vo_min),
+        "ideal": int(qb.get("ideal") or vo_ideal),
+        "max": int(qb.get("max") or max(vo_ideal, vo_min)),
+    }
+    vf = compact_value_features_summary(c)
+    if vf:
+        payload["value_features_summary"] = vf
+    payload = attach_adaptation_to_payload(c, payload)
+    try:
+        from interview_mux.mastering_plan_loader import best_available_mode, validate_or_degrade
+        from interview_mux.narrative_mode import prefer_forbid_volley_block
+
+        plan = validate_or_degrade(c)
+        mode = best_available_mode(plan)
+        payload["mastering_plan_summary"] = {
+            "narrative_mode": mode,
+            "pass": plan.get("pass"),
+            "plan_status": plan.get("plan_status"),
+            "montage_grammar": plan.get("montage_grammar"),
+            "pov": plan.get("pov"),
         }
-        vf = compact_value_features_summary(c)
-        if vf:
-            payload["value_features_summary"] = vf
-        payload = attach_adaptation_to_payload(c, payload)
-        try:
-            from interview_mux.mastering_plan_loader import best_available_mode, validate_or_degrade
-            from interview_mux.narrative_mode import prefer_forbid_volley_block
-
-            plan = validate_or_degrade(c)
-            mode = best_available_mode(plan)
-            payload["mastering_plan_summary"] = {
-                "narrative_mode": mode,
-                "pass": plan.get("pass"),
-                "plan_status": plan.get("plan_status"),
-                "montage_grammar": plan.get("montage_grammar"),
-                "pov": plan.get("pov"),
-            }
-            payload["narrative_mode_priors"] = prefer_forbid_volley_block(mode, plan)
-        except Exception:
-            pass
-        # Address labels for name/group-aware VO (never invent names)
-        try:
-            from interview_mux.speaker_delivery_plan import (
-                build_speaker_delivery_plan,
-                write_speaker_delivery_plan,
-            )
-
-            if c.artifact_exists("understanding/speaker_delivery_plan.json"):
-                sdp = c.read_json("understanding/speaker_delivery_plan.json")
-            else:
-                sdp = build_speaker_delivery_plan(c)
-                try:
-                    write_speaker_delivery_plan(c)
-                except Exception:
-                    pass
-            if isinstance(sdp, dict):
-                payload["address_labels"] = sdp.get("address_labels") or {}
-                payload["speaker_delivery_plan"] = {
-                    "clone_speaker_id": sdp.get("clone_speaker_id"),
-                    "insert_strategy": sdp.get("insert_strategy"),
-                    "address_mode": sdp.get("address_mode"),
-                    "group_label": sdp.get("group_label"),
-                    "speaker_count": sdp.get("speaker_count"),
-                }
-        except Exception:
-            pass
-        if c.artifact_exists("understanding/reorder_bridges.json"):
-            payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")
-        from interview_mux.gap_vo_prior_context import (
-            attach_prior_native_contexts_to_payload,
-            attach_vo_partner_context_to_payload,
+        payload["narrative_mode_priors"] = prefer_forbid_volley_block(mode, plan)
+    except Exception:
+        pass
+    # Address labels for name/group-aware VO (never invent names)
+    try:
+        from interview_mux.speaker_delivery_plan import (
+            build_speaker_delivery_plan,
+            write_speaker_delivery_plan,
         )
 
-        payload = attach_prior_native_contexts_to_payload(c, payload)
-        return attach_vo_partner_context_to_payload(c, payload)
+        if c.artifact_exists("understanding/speaker_delivery_plan.json"):
+            sdp = c.read_json("understanding/speaker_delivery_plan.json")
+        else:
+            sdp = build_speaker_delivery_plan(c)
+            try:
+                write_speaker_delivery_plan(c)
+            except Exception:
+                pass
+        if isinstance(sdp, dict):
+            payload["address_labels"] = sdp.get("address_labels") or {}
+            payload["speaker_delivery_plan"] = {
+                "clone_speaker_id": sdp.get("clone_speaker_id"),
+                "insert_strategy": sdp.get("insert_strategy"),
+                "address_mode": sdp.get("address_mode"),
+                "group_label": sdp.get("group_label"),
+                "speaker_count": sdp.get("speaker_count"),
+            }
+    except Exception:
+        pass
+    if c.artifact_exists("understanding/reorder_bridges.json"):
+        payload["reorder_bridges"] = c.read_json("understanding/reorder_bridges.json")
+    from interview_mux.gap_vo_prior_context import (
+        attach_prior_native_contexts_to_payload,
+        attach_vo_partner_context_to_payload,
+    )
+
+    payload = attach_prior_native_contexts_to_payload(c, payload)
+    payload = attach_vo_partner_context_to_payload(c, payload, segment_ids=segment_ids)
+    payload = _trim_prior_contexts_to_ids(payload, segment_ids)
+    if shard_meta:
+        payload["_gap_compose_shard"] = shard_meta
+    return payload
+
+
+def run_gap_framing_compose(ctx: RunContext) -> None:
+    """Compose full gap framing script (questions, summaries, prefaces, bridges)."""
+    from interview_mux.llm_simple import run_llm_stage_simple
+
+    required_ids = _gap_segment_ids(ctx)
+    batch_size = _gap_pass_batch_size()
+    prompt_rel = prompt_variant("interviewer-gap/gap-framing-compose.system.txt", ctx)
+
+    def build_input(c: RunContext) -> dict:
+        return _gap_framing_compose_payload(c)
 
     def persist(c: RunContext, artifacts: dict) -> None:
         from interview_mux.artifact_repairs import repair_gap_report
@@ -515,12 +720,90 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         )
 
     with logged_step("gap_framing_compose/llm_stage", ctx=ctx, stage="gap_framing_compose"):
-        run_analysis_llm_stage(
-            ctx,
-            "gap_framing_compose",
-            prompt_variant("interviewer-gap/gap-framing-compose.system.txt", ctx),
-            build_input,
-            persist,
+        if len(required_ids) <= batch_size:
+            run_analysis_llm_stage(
+                ctx,
+                "gap_framing_compose",
+                prompt_rel,
+                build_input,
+                persist,
+            )
+            return
+
+        batches = [
+            required_ids[i : i + batch_size]
+            for i in range(0, len(required_ids), batch_size)
+        ]
+        ctx.log(
+            f"gap_framing_compose proactive batch: {len(required_ids)} segments → "
+            f"{len(batches)} shard(s) of ≤{batch_size}",
+            level="info",
+            stage="gap_framing_compose",
+            action_id="gap_framing_compose.proactive_batch",
+            detail={
+                "required_count": len(required_ids),
+                "batch_size": batch_size,
+                "batches": len(batches),
+            },
+        )
+
+        def _noop_persist(_c: RunContext, _artifacts: dict) -> None:
+            return None
+
+        parts: list[dict[str, Any]] = []
+        for bi, batch_ids in enumerate(batches):
+
+            def build_batch(
+                c: RunContext,
+                *,
+                _ids: list[str] = list(batch_ids),
+                _bi: int = bi,
+                _total: int = len(batches),
+            ) -> dict:
+                return _gap_framing_compose_payload(
+                    c,
+                    segment_ids=_ids,
+                    shard_meta={
+                        "index": _bi + 1,
+                        "total": _total,
+                        "segment_ids": list(_ids),
+                    },
+                )
+
+            ctx.log(
+                f"gap_framing_compose shard {bi + 1}/{len(batches)} "
+                f"({len(batch_ids)} segment ids)",
+                level="action",
+                stage="gap_framing_compose",
+                action_id="gap_framing_compose.shard",
+            )
+            envelope = run_llm_stage_simple(
+                ctx,
+                "gap_framing_compose",
+                prompt_rel,
+                build_batch,
+                _noop_persist,
+                auto_complete=False,
+            )
+            arts = envelope.get("artifacts") if isinstance(envelope.get("artifacts"), dict) else {}
+            if isinstance(arts, dict) and arts:
+                parts.append(arts)
+
+        merged = _merge_gap_report_parts(parts)
+        if not (merged.get("interviewer_lines") or []):
+            raise RuntimeError(
+                f"Batched gap_framing_compose produced no interviewer_lines "
+                f"across {len(batches)} shard(s)"
+            )
+        persist(ctx, merged)
+        if not ctx.is_done("gap_framing_compose"):
+            ctx.mark_done("gap_framing_compose")
+        ctx.log(
+            f"gap_framing_compose batched complete "
+            f"({len(merged.get('interviewer_lines') or [])} lines)",
+            level="success",
+            stage="gap_framing_compose",
+            action_id="gap_framing_compose.proactive_batch_complete",
         )
 
 

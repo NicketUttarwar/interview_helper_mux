@@ -134,7 +134,7 @@ def record_synthesis(
         speech_ok = False
         reasons.append("missing_output_wav")
     elif qc.get("enabled") and qc.get("speech_qa_enabled", True) and out_wav and out_wav.is_file():
-        speech = analyze_vo_wav(out_wav, cfg=qc)
+        speech = analyze_vo_wav(out_wav, cfg=qc, script_text=str(line.get("text") or ""))
         entry["speech_qa"] = {
             "tonal_peak_ratio": speech.get("tonal_peak_ratio"),
             "speech_band_ratio": speech.get("speech_band_ratio"),

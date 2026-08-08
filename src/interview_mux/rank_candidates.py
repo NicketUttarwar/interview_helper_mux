@@ -15,6 +15,9 @@ def _score_order(
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
     hook_segment_id: str | None = None,
+    segments_by_id: dict[str, dict[str, Any]] | None = None,
+    brief_min_sec: float | None = None,
+    brief_ideal_sec: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Higher is better. Uses story_health + simple listen heuristics."""
     health = evaluate_story_health(
@@ -54,6 +57,31 @@ def _score_order(
             if finale_ids and ordered[-1] in finale_ids:
                 score += 6.0
 
+    # Heavily penalize packs shorter than the delivery brief floor so sparse
+    # narrative_chapters candidates cannot beat a brief-compliant ranking.
+    by_id = segments_by_id or {}
+    if by_id and ordered and (brief_min_sec or brief_ideal_sec):
+        total_ms = 0
+        for sid in ordered:
+            seg = by_id.get(str(sid))
+            if not isinstance(seg, dict):
+                continue
+            try:
+                total_ms += max(
+                    0,
+                    int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0),
+                )
+            except (TypeError, ValueError):
+                continue
+        dur_sec = total_ms / 1000.0
+        min_sec = float(brief_min_sec or 0.0)
+        ideal_sec = float(brief_ideal_sec or 0.0)
+        floor = min_sec if min_sec > 0 else (0.7 * ideal_sec if ideal_sec > 0 else 0.0)
+        if floor > 0 and dur_sec < floor:
+            # Up to 80 points — catastrophic shorts must lose to long packs.
+            deficit = (floor - dur_sec) / floor
+            score -= min(80.0, 40.0 + 60.0 * deficit)
+
     return score, health
 
 
@@ -65,6 +93,8 @@ def pick_best_order(
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
     hook_segment_id: str | None = None,
+    brief_min_sec: float | None = None,
+    brief_ideal_sec: float | None = None,
 ) -> dict[str, Any]:
     """Score candidates and return rank_candidates doc + winner order.
 
@@ -88,6 +118,9 @@ def pick_best_order(
             gap_report=gap_report,
             transitions=transitions,
             hook_segment_id=hook_segment_id,
+            segments_by_id=by_id,
+            brief_min_sec=brief_min_sec,
+            brief_ideal_sec=brief_ideal_sec,
         )
         scored.append(
             {

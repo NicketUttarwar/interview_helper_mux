@@ -50,7 +50,13 @@
     },
     "selection_mode": {
       "type": "string",
-      "enum": ["coverage_first", "runtime_pack", "hook_montage"]
+      "enum": ["coverage_first", "runtime_pack", "hook_montage", "plan_bound"]
+    },
+    "narrative_mode_hint": {
+      "type": "string"
+    },
+    "mastering_plan_bound": {
+      "type": "boolean"
     },
     "sfx_density": {
       "type": "object",

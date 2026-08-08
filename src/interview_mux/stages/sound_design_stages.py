@@ -40,6 +40,20 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             "notes",
             "early palettes deferred — sound_design_plan owns musical direction",
         )
+        # Keep a provisional identity from sonic_context so later stages have a seed.
+        if not str(coherence.get("sonic_identity") or "").strip():
+            sonic = load_sonic_context(ctx) or {}
+            atlas = str(
+                (sonic.get("atlas_bucket") if isinstance(sonic, dict) else None) or ""
+            ).strip()
+            tags = [
+                str(t.get("label") or t.get("tag_id") or "").strip()
+                for t in ((sonic.get("tag_registry") or []) if isinstance(sonic, dict) else [])
+                if isinstance(t, dict)
+            ]
+            seed = atlas or (tags[0] if tags else "")
+            coherence["sonic_identity"] = seed or "deferred_to_sound_design_plan"
+            coherence["deferred_early_palettes"] = True
         sdp["coherence"] = coherence
         _validate_sound_design_plan(sdp)
         write_validated_artifact(

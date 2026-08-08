@@ -49,22 +49,45 @@ def run_boundaries(ctx: RunContext) -> None:
     )
 
     # Talking-points-first bind: skip LLM when materialize already published
-    # a valid boundary contract from ideal cuts.
+    # a *quality* boundary contract from ideal cuts. Sparse keep-windows must
+    # not short-circuit full segmentation — fall through to the LLM path.
     conf = ideal_cuts_cfg()
     if (
         bind_boundaries_enabled(conf)
         and conf.get("skip_boundary_llm_when_bound", True)
         and boundaries_already_from_ideal_cuts(ctx)
     ):
-        _assert_boundary_quality(ctx)
-        if not ctx.is_done("boundary_detection"):
-            ctx.mark_done("boundary_detection", force=True)
+        doc = ctx.read_json("segments/boundaries.json")
+        report = evaluate_boundary_quality(
+            doc if isinstance(doc, dict) else {},
+            duration_ms=_transcript_duration_ms(ctx),
+        )
+        if not report.get("reject") and bool(segmentation_cfg().get("reject_coarse_fallback", True)):
+            if not ctx.is_done("boundary_detection"):
+                ctx.mark_done("boundary_detection", force=True)
+            ctx.log(
+                "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries "
+                f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')})",
+                level="info",
+                stage="boundary_detection",
+            )
+            return
+        if not report.get("reject") and not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
+            if not ctx.is_done("boundary_detection"):
+                ctx.mark_done("boundary_detection", force=True)
+            ctx.log(
+                "boundary_detection: skipped LLM — ideal_cuts bind (reject_coarse_fallback=false)",
+                level="info",
+                stage="boundary_detection",
+            )
+            return
         ctx.log(
-            "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries",
-            level="info",
+            "boundary_detection: ideal_cuts bind too coarse "
+            f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')} "
+            f"expected_min≈{report.get('expected_min_segments')}) — running LLM segmentation",
+            level="warning",
             stage="boundary_detection",
         )
-        return
 
     def build_input(c: RunContext) -> dict:
         transcript = compact_transcript_for_boundaries(c.read_json("transcript/full.json"))
@@ -119,25 +142,21 @@ def run_boundaries(ctx: RunContext) -> None:
     _assert_boundary_quality(ctx)
 
 
-def _assert_boundary_quality(ctx: RunContext) -> None:
-    """Reject truly unsafe boundaries — judge metrics, not LLM warning prose.
+def evaluate_boundary_quality(
+    doc: dict,
+    *,
+    duration_ms: int = 0,
+) -> dict:
+    """Metric-only boundary quality report (no I/O, no raises).
 
-    Models often self-label fine-grained long-tape cuts as "coarse" / "token limit"
-    even when hundreds of valid edit blocks exist. Keyword-matching those warnings
-    falsely blocked a previously shippable baba run. Fail only on structural defects
-    or metric evidence of time-boxed coarse fallback.
+    Ideal-cut keep windows are sparse by design; use this before binding them as
+    the full segment contract, and before hard-failing LLM boundaries.
     """
-    if not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
-        return
-    if not ctx.artifact_exists("segments/boundaries.json"):
-        return
-    doc = ctx.read_json("segments/boundaries.json")
-    if not isinstance(doc, dict):
-        return
     rows = [r for r in (doc.get("boundaries") or []) if isinstance(r, dict)]
     invalid_rows: list[str] = []
     durs_ms: list[int] = []
     last_end = 0
+    intervals: list[tuple[int, int]] = []
     for row in rows:
         sid = str(row.get("segment_id") or "")
         start = int(row.get("start_ms") or 0)
@@ -147,50 +166,140 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             continue
         durs_ms.append(end - start)
         last_end = max(last_end, end)
+        intervals.append((start, end))
 
     sc = segmentation_cfg()
-    max_ms = int(sc.get("max_segment_duration_ms") or 60_000)
+    max_ms = int(sc.get("max_segment_duration_ms") or 180_000)
     over_max = [d for d in durs_ms if d > max_ms + 250]
     mean_ms = (sum(durs_ms) / len(durs_ms)) if durs_ms else 0.0
-    # True coarse time-boxing: ~one block per max_ms with mean near the ceiling.
-    duration_ms = 0
-    try:
-        from interview_mux.interview_duration_policy import transcript_duration_ms
-
-        duration_ms = int(transcript_duration_ms(ctx) or 0)
-    except Exception:
-        duration_ms = 0
     if duration_ms <= 0:
         duration_ms = last_end
     expected_min_segments = max(8, int(duration_ms / max(max_ms, 1)) + 1) if duration_ms else 0
-    coverage_ratio = (last_end / duration_ms) if duration_ms > 0 else 1.0
+    covered_ms = 0
+    if intervals:
+        intervals.sort()
+        cur_s, cur_e = intervals[0]
+        for s, e in intervals[1:]:
+            if s <= cur_e:
+                cur_e = max(cur_e, e)
+            else:
+                covered_ms += max(0, cur_e - cur_s)
+                cur_s, cur_e = s, e
+        covered_ms += max(0, cur_e - cur_s)
+    coverage_ratio = (covered_ms / duration_ms) if duration_ms > 0 else 1.0
     near_ceiling = sum(1 for d in durs_ms if d >= int(max_ms * 0.92))
     near_ceiling_ratio = (near_ceiling / len(durs_ms)) if durs_ms else 0.0
+    # Do not reject ideal-cut / complete-thought binds solely because there are
+    # fewer rows than duration/max_ms. Coverage holes and near-ceiling slabs still fail.
     is_metric_coarse = bool(
         durs_ms
-        and expected_min_segments
         and (
-            len(durs_ms) < max(8, int(expected_min_segments * 0.55))
-            or (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
+            (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
             or coverage_ratio < 0.85
         )
     )
-
     warnings = [str(x) for x in (doc.get("warnings") or [])]
     self_labeled = [
         w
         for w in warnings
         if "coarse" in w.lower() or "mid-sentence" in w.lower() or "token limit" in w.lower()
     ]
-    if self_labeled and not is_metric_coarse and not invalid_rows and not over_max:
+    reject = bool(invalid_rows or over_max or is_metric_coarse)
+    return {
+        "reject": reject,
+        "invalid_segment_ids": invalid_rows,
+        "over_max_count": len(over_max),
+        "segment_count": len(durs_ms),
+        "mean_ms": round(mean_ms),
+        "coverage_ratio": round(coverage_ratio, 3),
+        "near_ceiling_ratio": round(near_ceiling_ratio, 3),
+        "metric_coarse": is_metric_coarse,
+        "self_labeled_warnings": self_labeled,
+        "duration_ms": duration_ms,
+        "expected_min_segments": expected_min_segments,
+    }
+
+
+def _transcript_duration_ms(ctx: RunContext) -> int:
+    try:
+        from interview_mux.interview_duration_policy import transcript_duration_ms
+
+        return int(transcript_duration_ms(ctx) or 0)
+    except Exception:
+        return 0
+
+
+def _assert_boundary_quality(ctx: RunContext) -> None:
+    """Reject truly unsafe boundaries — judge metrics, not LLM warning prose.
+
+    Models often self-label fine-grained long-tape cuts as "coarse" / "token limit"
+    even when hundreds of valid edit blocks exist. Keyword-matching those warnings
+    falsely blocked a previously shippable baba run. Fail only on structural defects
+    or metric evidence of time-boxed coarse fallback.
+
+    Before rejecting on over-max spans, attempt a deterministic max-duration split
+    so a raised ``max_segment_duration_ms`` (complete-thought policy) cannot soft-lock
+    the pipeline when the LLM leaves a few long beds.
+    """
+    if not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
+        return
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return
+    doc = ctx.read_json("segments/boundaries.json")
+    if not isinstance(doc, dict):
+        return
+    duration_ms = _transcript_duration_ms(ctx)
+    report = evaluate_boundary_quality(doc, duration_ms=duration_ms)
+
+    # Deterministic repair: split beds that exceed max_segment_duration_ms.
+    if int(report.get("over_max_count") or 0) > 0:
+        try:
+            from interview_mux.boundary_collate import normalize_boundary_timeline
+            from interview_mux.boundary_enrich import enforce_max_segment_duration
+            from interview_mux.stage_coupling import publish_boundary_contract
+
+            transcript = (
+                ctx.read_json("transcript/full.json")
+                if ctx.artifact_exists("transcript/full.json")
+                else None
+            )
+            rows = [dict(r) for r in (doc.get("boundaries") or []) if isinstance(r, dict)]
+            fixed, applied = enforce_max_segment_duration(rows, transcript)
+            if applied:
+                normalized, _notes = normalize_boundary_timeline(fixed)
+                out = dict(doc)
+                out["boundaries"] = normalized
+                out = publish_boundary_contract(out, publisher_stage="boundary_detection")
+                ctx.write_json("segments/boundaries.json", out)
+                ctx.log(
+                    f"boundary_detection: enforced max duration on {len(applied)} split(s) "
+                    f"→ {len(normalized)} segments",
+                    level="info",
+                    stage="boundary_detection",
+                )
+                doc = out
+                report = evaluate_boundary_quality(doc, duration_ms=duration_ms)
+        except Exception as exc:
+            ctx.log(
+                f"boundary max-duration repair skipped: {exc}",
+                level="warning",
+                stage="boundary_detection",
+            )
+
+    self_labeled = list(report.get("self_labeled_warnings") or [])
+    if (
+        self_labeled
+        and not report.get("reject")
+    ):
         ctx.log(
             "Boundary warnings mention coarse/token-limit but metrics look fine "
-            f"(n={len(durs_ms)} mean_ms={mean_ms:.0f} coverage={coverage_ratio:.2f}) — accepting.",
+            f"(n={report.get('segment_count')} mean_ms={report.get('mean_ms')} "
+            f"coverage={report.get('coverage_ratio')}) — accepting.",
             level="warning",
             stage="boundary_detection",
         )
 
-    if invalid_rows or over_max or is_metric_coarse:
+    if report.get("reject"):
         from interview_mux.loud_fail import raise_loud_failure
 
         raise_loud_failure(
@@ -199,13 +308,13 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             stage="boundary_detection",
             reason="coarse_or_invalid_segmentation",
             detail={
-                "invalid_segment_ids": invalid_rows[:20],
-                "over_max_count": len(over_max),
-                "segment_count": len(durs_ms),
-                "mean_ms": round(mean_ms),
-                "coverage_ratio": round(coverage_ratio, 3),
-                "near_ceiling_ratio": round(near_ceiling_ratio, 3),
-                "metric_coarse": is_metric_coarse,
+                "invalid_segment_ids": (report.get("invalid_segment_ids") or [])[:20],
+                "over_max_count": report.get("over_max_count"),
+                "segment_count": report.get("segment_count"),
+                "mean_ms": report.get("mean_ms"),
+                "coverage_ratio": report.get("coverage_ratio"),
+                "near_ceiling_ratio": report.get("near_ceiling_ratio"),
+                "metric_coarse": report.get("metric_coarse"),
                 "self_labeled_warnings": self_labeled[:4],
                 "hint": "Re-run boundary detection with sharded volleys / pause-ladder refine.",
             },

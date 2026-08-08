@@ -78,7 +78,8 @@ def test_detects_seg_010_to_seg_002_source_jump():
     assert ("seg_002", "seg_003") not in pairs
 
 
-def test_wildcard_vo_does_not_cover_reorder_pair():
+def test_wildcard_vo_covers_reorder_pair_when_before_vo_exists():
+    """Any placement:before gap VO on the destination covers the seam (one host turn)."""
     bridges = {
         "pairs": [
             {
@@ -96,13 +97,12 @@ def test_wildcard_vo_does_not_cover_reorder_pair():
                 "targets_segment_id": "seg_002",
                 "placement": "before",
                 "delivery": "synthesize",
-                "text": "A density follow-up.",
+                "text": "What changed as we get to that beat?",
             }
         ]
     }
     missing = missing_reorder_bridges(bridges, gap_report=gap, transitions=None)
-    assert len(missing) == 1
-    assert missing[0]["after_segment_id"] == "seg_010"
+    assert missing == []
 
 
 def test_pair_transition_covers_and_mints(monkeypatch):
@@ -123,6 +123,8 @@ def test_pair_transition_covers_and_mints(monkeypatch):
 
     text = default_bridge_text(missing[0])
     assert_speakable_or_raise(text, context="transition")
+    assert "cash in the bank" not in text.lower()
+    assert "protein shake" not in text.lower()
 
     import tempfile
     from pathlib import Path
