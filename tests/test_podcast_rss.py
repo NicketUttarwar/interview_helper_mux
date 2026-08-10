@@ -412,6 +412,14 @@ def test_package_is_complete_and_discover(tmp_path: Path):
     assert incomplete.name in incomplete_ids
     assert already == []
 
+    ready_one, _, incomplete_one = discover_ready_packages(
+        exec_root=tmp_path,
+        by_execution_id={},
+        execution_id=good.name,
+    )
+    assert [p.execution_id for p in ready_one] == [good.name]
+    assert incomplete_one == []
+
     ready2, already2, _ = discover_ready_packages(
         exec_root=tmp_path,
         by_execution_id={good.name: {"s3_prefix": "episodes/0001"}},
@@ -529,7 +537,9 @@ def test_sync_ready_packages_dry_run_skips_known_and_never_deletes(tmp_path: Pat
         patch.object(sync_assets, "write_last_sync_result"),
         patch.object(sync_assets, "upload_episode_files") as upload,
     ):
-        result = sync_assets.sync_ready_packages(dry_run=True, exec_root=tmp_path)
+        result = sync_assets.sync_ready_packages(
+            dry_run=True, exec_root=tmp_path, all_ready=True
+        )
 
     assert result.dry_run is True
     assert result.ready == 1
@@ -538,3 +548,48 @@ def test_sync_ready_packages_dry_run_skips_known_and_never_deletes(tmp_path: Pat
     upload.assert_not_called()
     # sync_assets must never expose/call S3 delete helpers
     assert not hasattr(sync_assets, "empty_bucket")
+
+
+def test_sync_ready_packages_execution_id_ignores_siblings(tmp_path: Path):
+    from interview_mux.podcast_rss import sync_assets
+
+    sibling = tmp_path / "exec_020_abcdefabcdef_20260101T000000Z"
+    current = tmp_path / "exec_021_abcdefabcdef_20260101T000001Z"
+    _write_ready_package(sibling, title="Sibling")
+    _write_ready_package(current, title="Current")
+
+    with (
+        patch.object(
+            sync_assets,
+            "require_publish_ready",
+            return_value={
+                "bucket": "b",
+                "region": "us-east-1",
+                "distribution_id": "E123",
+                "feed_base_url": "https://d.example",
+                "project_name": "the_war_room_001",
+            },
+        ),
+        patch.object(sync_assets, "get_json", return_value={}),
+        patch.object(sync_assets, "write_last_sync_result"),
+        patch.object(sync_assets, "upload_episode_files") as upload,
+    ):
+        result = sync_assets.sync_ready_packages(
+            dry_run=True,
+            exec_root=tmp_path,
+            execution_id=current.name,
+        )
+
+    assert result.ready == 1
+    assert result.uploaded[0]["execution_id"] == current.name
+    assert sibling.name not in [row.get("execution_id") for row in result.uploaded]
+    assert result.scanned == 1
+    upload.assert_not_called()
+
+
+def test_sync_ready_packages_requires_scope():
+    from interview_mux.podcast_rss import sync_assets
+
+    result = sync_assets.sync_ready_packages(dry_run=True)
+    assert result.errors
+    assert "execution_id" in result.errors[0]["error"]

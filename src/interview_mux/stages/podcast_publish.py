@@ -1,7 +1,8 @@
 """Podcast publish stages: meta, cover prompt, MP3, cover art, local package finalize.
 
-S3 / RSS upload is a separate ASSETS-wide sync (``podcast_rss.sync_assets`` /
-``scripts/sync_podcast_episodes.py``), not part of the per-run pipeline.
+S3 / RSS upload is a separate sync scoped to the current execution
+(``podcast_rss.sync_assets`` / ``scripts/sync_podcast_episodes.py --execution-id``),
+not part of the per-run pipeline.
 """
 
 from __future__ import annotations
@@ -508,8 +509,8 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
 def run_podcast_publish(ctx: RunContext) -> None:
     """Finalize a local episode package under publish/ — no S3 upload.
 
-    Upload is a separate ASSETS-wide sync (GUI G-Publish sync or
-    ``scripts/sync_podcast_episodes.py``).
+    Upload is a separate sync for this execution only (GUI G-Publish sync or
+    ``scripts/sync_podcast_episodes.py --execution-id``).
     """
     from datetime import datetime, timezone
 
@@ -625,7 +626,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
             "execution_id": execution_id,
             "title": title,
             "prepared_at": prepared_at,
-            "hint": "Run scripts/sync_podcast_episodes.py or G-Publish → Upload all to push to S3",
+            "hint": "G-Publish → Upload this run to S3 (or scripts/sync_podcast_episodes.py --execution-id …)",
         },
     )
     ctx.log(

@@ -134,6 +134,11 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
         "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
         "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
+        "nugget_corpus_mine": lambda: analysis_extended.run_nugget_corpus_mine(ctx),
+        "information_package_plan": lambda: __import__(
+            "interview_mux.information_packages", fromlist=["run_information_package_plan"]
+        ).run_information_package_plan(ctx),
+        "nugget_layup_compose": lambda: analysis_extended.run_nugget_layup_compose(ctx),
         # Refinement Pass (docs/cross-cutting/refinement-passes.md): L0 agenda + deterministic
         # recompose/refine stages. No LLM calls — gated by refinement_gate.decide_pass.
         "refinement_agenda": lambda: run_refinement_agenda(ctx, phase="confirm"),

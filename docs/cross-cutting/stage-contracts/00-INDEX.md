@@ -39,6 +39,9 @@
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | — |
 | `mmaudio_sfx` | process | — |
+| `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json |
+| `information_package_plan` | process | mastering/shape/information_package_candidates.json |
+| `nugget_layup_compose` | llm_full | understanding/nugget_layup_plan.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | deterministic | — |
 | `optimal_questions` | llm_full | understanding/gap_report.json |

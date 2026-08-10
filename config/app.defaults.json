@@ -59,6 +59,12 @@
       "full_master_ranking": {
         "tier": "flagship"
       },
+      "nugget_corpus_mine": {
+        "tier": "flagship"
+      },
+      "nugget_layup_compose": {
+        "tier": "flagship"
+      },
       "edl_narrative_audit": {
         "tier": "flagship"
       },
@@ -1044,6 +1050,20 @@
         "require_cold_open_layup": true
       }
     },
+    "nugget_layup": {
+      "enabled": true,
+      "require_layup_per_native": true,
+      "min_layup_coverage": 0.9,
+      "min_layup_words": 18,
+      "max_layup_words": 90,
+      "prefer_excluded_nuggets": true,
+      "segment_text_max_chars": 420,
+      "suppress_placeholder_seams_when_layup": true,
+      "demote_synthetic_framing_content": true,
+      "authoritative_gap_report": true,
+      "block_on_open_must_keep": true,
+      "honor_information_package_dense_budget": true
+    },
     "gap_vo": {
       "default_delivery": "chatterbox",
       "allowed_delivery": ["chatterbox", "record"],
@@ -1246,6 +1266,29 @@
         "prefer_talking_points_mode": true,
         "two_pass": true,
         "_comment_consumers_bind": "Stays false until Shape soft-gate has corpus evidence — see mastering-integration-backlog.md H7."
+      },
+      "information_packages": {
+        "enable": true,
+        "mode": "shadow",
+        "max_per_episode": 2,
+        "min_novelty": 0.75,
+        "min_necessity": 0.75,
+        "min_listen_uplift": 0.7,
+        "min_dense_words": 55,
+        "min_nugget_count": 2,
+        "min_seam_gap_segments": 2,
+        "allow_regroup": false,
+        "require_corpus": true,
+        "min_ms_from_bookends": 45000,
+        "dense_max_layup_words": 140,
+        "_comment_mode": "shadow | commit_music_vo | commit_with_regroup — package kill-switch does not disable episode_close"
+      },
+      "episode_close": {
+        "require_music": true,
+        "role": "theme_outro",
+        "placement": "after_last_native",
+        "fade_out_ms": 2200,
+        "may_underscore_last_native_tail": true
       }
     },
     "timeline_optimizer": {

@@ -1893,14 +1893,20 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         prior_id = str(row.get("prior_segment_id") or "")
         prior_row = by_id.get(prior_id) or {}
         target_row = by_id.get(target) or {}
-        source_gap = row.get("source_gap_ms")
+        required = is_episode_orientation(row)
+        # Episode-preface copy describes the whole conversation, not a local
+        # source-timeline join. Applying negative-gap chronology rules here
+        # misclassifies phrases such as "next-chapter goals" and replaces the
+        # orientation with a generic seam hinge.
+        source_gap = None if required else row.get("source_gap_ms")
         if source_gap is None and prior_row and target_row:
-            try:
-                source_gap = int(target_row.get("start_ms") or 0) - int(
-                    prior_row.get("end_ms") or 0
-                )
-            except (TypeError, ValueError):
-                source_gap = None
+            if not required:
+                try:
+                    source_gap = int(target_row.get("start_ms") or 0) - int(
+                        prior_row.get("end_ms") or 0
+                    )
+                except (TypeError, ValueError):
+                    source_gap = None
         evidence = {
             "target_excerpt": target_row.get("text"),
             "after_topic": target_row.get("topic"),
@@ -1909,7 +1915,6 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             "grounding_context": grounding_context,
             "strict_grounding": bool(grounding_context or target_row or prior_row),
         }
-        required = is_episode_orientation(row)
         decision = guard_spoken_copy(
             str(row.get("text") or ""),
             evidence=evidence,
@@ -2933,6 +2938,129 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             segment_id=selection_ids[0],
             asset_id=cold_asset,
         )
+
+    # Always ensure musical episode close after last native when theme_outro asset exists.
+    outro_asset = next(
+        (str(a.get("asset_id") or "") for a in assets if str(a.get("role") or "") == "theme_outro"),
+        None,
+    )
+    has_outro = any(
+        isinstance(c, dict)
+        and str((assets_by_id.get(str(c.get("asset_id") or "")) or {}).get("role") or c.get("role") or "")
+        == "theme_outro"
+        and not c.get("skip")
+        for c in cues
+    )
+    require_outro = True
+    fade_out_ms = 2200
+    try:
+        from interview_mux.information_packages import information_packages_cfg
+
+        ecfg = information_packages_cfg().get("episode_close") or {}
+        require_outro = bool(ecfg.get("require_music", True))
+        fade_out_ms = int(ecfg.get("fade_out_ms") or 2200)
+        if ctx.artifact_exists("mastering/mastering_plan.json"):
+            mp = ctx.read_json("mastering/mastering_plan.json")
+            if isinstance(mp, dict) and isinstance(mp.get("episode_close"), dict):
+                music = mp["episode_close"].get("music") or {}
+                if isinstance(music, dict):
+                    if music.get("required") is False:
+                        require_outro = False
+                    if music.get("fade_out_ms") is not None:
+                        fade_out_ms = int(music["fade_out_ms"])
+    except Exception:
+        pass
+    if require_outro and outro_asset and not has_outro and selection_ids:
+        _add_cue(
+            cue_id="theme_outro_seed",
+            placement="after_segment",
+            segment_id=selection_ids[-1],
+            asset_id=outro_asset,
+        )
+        # Stamp gentle fade intent on the seeded cue.
+        for c in cues:
+            if isinstance(c, dict) and str(c.get("cue_id") or "") == "theme_outro_seed":
+                c["role"] = "theme_outro"
+                c["fade_out_ms"] = max(fade_out_ms, int(c.get("fade_out_ms") or 0) or fade_out_ms)
+                c["preserve_full_duration"] = True
+                applied.append(
+                    {
+                        "action": "seed_theme_outro",
+                        "segment_id": selection_ids[-1],
+                        "asset_id": outro_asset,
+                        "fade_out_ms": fade_out_ms,
+                    }
+                )
+                break
+
+    # Seed information-package resolve face-outs when packages are committed to air.
+    try:
+        from interview_mux.information_packages import (
+            committed_packages_from_plan,
+            packages_affect_air,
+        )
+
+        if packages_affect_air() and ctx.artifact_exists("mastering/mastering_plan.json"):
+            mp = ctx.read_json("mastering/mastering_plan.json")
+            resolve_aid = next(
+                (
+                    str(a.get("asset_id") or "")
+                    for a in assets
+                    if str(a.get("role") or "") == "theme_chapter_resolve"
+                ),
+                None,
+            )
+            for pkg in committed_packages_from_plan(mp if isinstance(mp, dict) else {}):
+                after_sid = str(pkg.get("after_segment_id") or "")
+                if not after_sid or not resolve_aid or after_sid not in selection_ids:
+                    continue
+                # Never place a package resolve on the final native (outro owns bookend).
+                if after_sid == selection_ids[-1]:
+                    applied.append(
+                        {
+                            "action": "skip_package_resolve_final_seam",
+                            "package_id": pkg.get("package_id"),
+                            "segment_id": after_sid,
+                        }
+                    )
+                    continue
+                already = any(
+                    isinstance(c, dict)
+                    and not c.get("skip")
+                    and str(c.get("segment_id") or "") == after_sid
+                    and str(c.get("placement") or "") == "after_segment"
+                    and str(
+                        (assets_by_id.get(str(c.get("asset_id") or "")) or {}).get("role")
+                        or c.get("role")
+                        or ""
+                    )
+                    == "theme_chapter_resolve"
+                    for c in cues
+                )
+                if already:
+                    continue
+                cue_id = f"info_pkg_resolve_{pkg.get('package_id') or after_sid}"
+                _add_cue(
+                    cue_id=cue_id,
+                    placement="after_segment",
+                    segment_id=after_sid,
+                    asset_id=resolve_aid,
+                )
+                for c in cues:
+                    if isinstance(c, dict) and str(c.get("cue_id") or "") == cue_id:
+                        c["role"] = "theme_chapter_resolve"
+                        c["information_package_id"] = pkg.get("package_id")
+                        applied.append(
+                            {
+                                "action": "seed_information_package_resolve",
+                                "package_id": pkg.get("package_id"),
+                                "segment_id": after_sid,
+                                "asset_id": resolve_aid,
+                            }
+                        )
+                        break
+    except Exception as exc:
+        applied.append({"action": "information_package_resolve_seed_skipped", "error": str(exc)[:160]})
 
     # Seed additional under_segment beds on unused palette anchors until coverage floor.
     try:

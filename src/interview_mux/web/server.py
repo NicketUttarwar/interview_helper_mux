@@ -1500,7 +1500,8 @@ def create_app() -> FastAPI:
             else {}
         )
         base = str(secrets.get("PODCAST_FEED_BASE_URL") or "").rstrip("/")
-        sync_summary = sync_status_summary()
+        # Counts + sync are scoped to this run only — never sibling executions.
+        sync_summary = sync_status_summary(execution_id=run_id)
         return {
             "pending": check_g_publish_pending(ctx),
             "enabled": bool(podcast.get("enabled", True)),
@@ -1515,6 +1516,7 @@ def create_app() -> FastAPI:
             "ready_package_count": int(sync_summary.get("ready_package_count") or 0),
             "already_uploaded_count": int(sync_summary.get("already_uploaded_count") or 0),
             "incomplete_count": int(sync_summary.get("incomplete_count") or 0),
+            "execution_id": run_id,
             "last_sync": sync_summary.get("last_sync") or read_last_sync_result(),
             "sync_job": _read_podcast_sync_job(),
         }
@@ -1543,7 +1545,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/g-publish/sync")
     def g_publish_sync(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        """ASSETS-wide upload of ready packages. Never deletes S3 objects."""
+        """Upload this run's ready package only. Never deletes S3 objects; never other executions."""
         with _guarded_run(run_id):
             _ = _ctx(run_id)  # validate run exists
             body = body or {}
@@ -1552,8 +1554,12 @@ def create_app() -> FastAPI:
             existing = _read_podcast_sync_job()
             if existing.get("status") == "running":
                 raise HTTPException(409, "Podcast sync already running")
-            job = _start_podcast_sync_job(dry_run=dry_run, force_files=force_files)
-            return {"ok": True, "started": True, "job": job}
+            job = _start_podcast_sync_job(
+                dry_run=dry_run,
+                force_files=force_files,
+                execution_id=run_id,
+            )
+            return {"ok": True, "started": True, "job": job, "execution_id": run_id}
 
     @app.post("/api/runs/{run_id}/g-publish/skip")
     def g_publish_skip(run_id: str) -> dict[str, Any]:
@@ -3652,15 +3658,21 @@ def _write_podcast_sync_job(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _start_podcast_sync_job(*, dry_run: bool = False, force_files: bool = False) -> dict[str, Any]:
-    """Spawn ASSETS-wide podcast sync in a daemon thread (never deletes S3)."""
+def _start_podcast_sync_job(
+    *,
+    dry_run: bool = False,
+    force_files: bool = False,
+    execution_id: str,
+) -> dict[str, Any]:
+    """Spawn podcast sync for one execution in a daemon thread (never deletes S3)."""
     started_at = datetime.now(timezone.utc).isoformat()
     job: dict[str, Any] = {
         "status": "running",
         "dry_run": dry_run,
         "force_files": force_files,
+        "execution_id": execution_id,
         "started_at": started_at,
-        "message": "Syncing ready episode packages to S3",
+        "message": f"Syncing this run's package to S3 ({execution_id})",
     }
     _write_podcast_sync_job(job)
 
@@ -3668,16 +3680,21 @@ def _start_podcast_sync_job(*, dry_run: bool = False, force_files: bool = False)
         from interview_mux.podcast_rss.sync_assets import sync_ready_packages
 
         try:
-            result = sync_ready_packages(dry_run=dry_run, force_files=force_files)
+            result = sync_ready_packages(
+                dry_run=dry_run,
+                force_files=force_files,
+                execution_id=execution_id,
+            )
             payload = {
                 "status": "error" if result.errors else "done",
                 "dry_run": dry_run,
                 "force_files": force_files,
+                "execution_id": execution_id,
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "result": result.to_dict(),
                 "message": (
-                    f"Synced {len(result.uploaded)} package(s); "
+                    f"Synced {len(result.uploaded)} package(s) for {execution_id}; "
                     f"skipped {len(result.skipped_already_uploaded)} already uploaded"
                     if not result.errors
                     else f"Sync finished with {len(result.errors)} error(s)"
@@ -3690,6 +3707,7 @@ def _start_podcast_sync_job(*, dry_run: bool = False, force_files: bool = False)
                     "status": "error",
                     "dry_run": dry_run,
                     "force_files": force_files,
+                    "execution_id": execution_id,
                     "started_at": started_at,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
                     "message": str(exc),

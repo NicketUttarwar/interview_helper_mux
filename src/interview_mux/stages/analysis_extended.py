@@ -162,3 +162,77 @@ def run_narrative_arc(ctx: RunContext) -> None:
             build_input,
             persist,
         )
+
+
+def run_nugget_corpus_mine(ctx: RunContext) -> None:
+    """Flagship mine of grounded nuggets from the full tape (kept + excluded)."""
+    from interview_mux.nugget_layup import (
+        CORPUS_REL,
+        build_corpus_mine_input,
+        nugget_layup_enabled,
+    )
+
+    if not nugget_layup_enabled():
+        ctx.write_json(CORPUS_REL, {"nuggets": [], "warnings": ["nugget_layup_disabled"]})
+        if not ctx.is_done("nugget_corpus_mine"):
+            ctx.mark_done("nugget_corpus_mine", force=True)
+        return
+
+    persist = make_stage_persist(CORPUS_REL, "nugget_corpus_mine")
+    with logged_step("nugget_corpus_mine/llm_stage", ctx=ctx, stage="nugget_corpus_mine"):
+        run_flow_llm_stage(
+            ctx,
+            "nugget_corpus_mine",
+            prompt_variant("nugget_layup/nugget-corpus-mine.system.txt", ctx),
+            build_corpus_mine_input,
+            persist,
+        )
+
+
+def run_nugget_layup_compose(ctx: RunContext) -> None:
+    """Flagship per-native lay-up plan → authoritative gap_report before-VO lines."""
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        assert_layup_qc_or_raise,
+        build_layup_compose_input,
+        evaluate_layup_qc,
+        nugget_layup_enabled,
+        publish_layup_plan_to_gap_report,
+    )
+
+    if not nugget_layup_enabled():
+        ctx.write_json(
+            PLAN_REL,
+            {
+                "ordered_segment_ids": [],
+                "layups": [],
+                "warnings": ["nugget_layup_disabled"],
+            },
+        )
+        if not ctx.is_done("nugget_layup_compose"):
+            ctx.mark_done("nugget_layup_compose", force=True)
+        return
+
+    persist_plan = make_stage_persist(PLAN_REL, "nugget_layup_compose")
+
+    def persist(c: RunContext, artifacts: dict) -> None:
+        doc = dict(artifacts) if isinstance(artifacts, dict) else {}
+        if "ordered_segment_ids" not in doc:
+            sel = c.read_json("master/selection.json") if c.artifact_exists("master/selection.json") else {}
+            doc["ordered_segment_ids"] = list((sel or {}).get("ordered_segment_ids") or [])
+        from interview_mux.nugget_layup import normalize_layup_talking_point_ledger
+
+        doc = normalize_layup_talking_point_ledger(c, doc)
+        persist_plan(c, doc)
+        publish_layup_plan_to_gap_report(c, doc)
+        qc = evaluate_layup_qc(c, doc)
+        assert_layup_qc_or_raise(c, qc)
+
+    with logged_step("nugget_layup_compose/llm_stage", ctx=ctx, stage="nugget_layup_compose"):
+        run_flow_llm_stage(
+            ctx,
+            "nugget_layup_compose",
+            prompt_variant("nugget_layup/nugget-layup-compose.system.txt", ctx),
+            build_layup_compose_input,
+            persist,
+        )

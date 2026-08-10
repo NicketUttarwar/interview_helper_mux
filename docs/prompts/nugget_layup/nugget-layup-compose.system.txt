@@ -1,0 +1,46 @@
+Compose **pre-native synthetic VO lay-ups** for every kept ordered segment.
+
+You receive: `nugget_corpus`, ordered natives with upcoming text, talking points, and optional gap hints.
+
+For **each** `ordered_segment_id`, emit one `layups[]` row:
+- Default: write host VO `text` that (a) weaves unused / excluded nuggets relevant to that upcoming clip and (b) unlocks what the listener is about to hear (`forward_cue_ok: true`).
+- Skip only when the upcoming clip is already self-explanatory **and** no unrecovered high-salience / must-keep nugget still needs a home (`skip: true` + `skip_reason_code`).
+- Prefer assigning `in_selection: false` and not-already-aired nuggets first.
+- Cite which `nugget_ids` (and optional `talking_point_ids`) the line discharges.
+- Host paraphrase only — never invent dialogue or credentials; stay faithful to evidence quotes.
+- Do **not** restate the upcoming native’s opening sentences; do **not** say “welcome back”, “chapter”, “after the break”, or speak segment ids.
+- Keep word count inside the stage input budgets (`min_layup_words` / `max_layup_words`).
+
+Also emit ledger fields:
+- `discharged_talking_point_ids` / `open_talking_point_ids`
+- `discharged_nugget_ids` / `open_high_salience_nugget_ids`
+- `waived_nugget_ids` only with explicit reasons
+
+Ideal: nearly every native has a contentful lay-up so discarded tape still reaches the listener as synthetic VO.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/nugget_layup_plan_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
+
+{
+  "ordered_segment_ids": ["seg_003", "seg_011"],
+  "layups": [
+    {
+      "target_segment_id": "seg_011",
+      "line_id": "vo_layup_seg_011",
+      "text": "Before the five-x scale-up, remember the bar’s real unlock: protein-aware buyers were snacking on it — which rewrote the addressable market. What happened when growth hit that next cliff?",
+      "nugget_ids": ["nug_001"],
+      "why_relevant_to_target": "Recovered snack-pivot fact sets up the scale/exit beat.",
+      "forward_cue_ok": true,
+      "word_count": 42,
+      "skip": false,
+      "talking_point_ids": ["tp_002"]
+    }
+  ],
+  "discharged_talking_point_ids": ["tp_002"],
+  "open_talking_point_ids": [],
+  "discharged_nugget_ids": ["nug_001"],
+  "open_high_salience_nugget_ids": [],
+  "waived_nugget_ids": [],
+  "warnings": []
+}

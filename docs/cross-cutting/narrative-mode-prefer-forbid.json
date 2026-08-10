@@ -12,7 +12,7 @@
     "guide_summary": {
       "prefer_line_categories": ["segment_summary", "extracted_context", "episode_preface", "story_bridge"],
       "forbid_line_categories": [],
-      "prefer_grammar_moves": ["vo_then_clip", "summary_replace_setup", "act_preface_blocks"],
+      "prefer_grammar_moves": ["vo_then_clip", "summary_replace_setup", "act_preface_blocks", "information_package_then_block"],
       "forbid_grammar_moves": [],
       "sonic_density": "moderate",
       "default_pov": "host_second_person"
@@ -20,7 +20,7 @@
     "documentary_bridge": {
       "prefer_line_categories": ["episode_preface", "story_bridge", "extracted_context", "segment_summary"],
       "forbid_line_categories": [],
-      "prefer_grammar_moves": ["vo_then_clip", "act_preface_blocks", "interleaved_bridges", "summary_replace_setup"],
+      "prefer_grammar_moves": ["vo_then_clip", "act_preface_blocks", "interleaved_bridges", "summary_replace_setup", "information_package_then_block"],
       "forbid_grammar_moves": [],
       "sonic_density": "moderate",
       "default_pov": "expository_third_person"
@@ -28,7 +28,7 @@
     "hook_montage": {
       "prefer_line_categories": ["episode_preface", "story_bridge", "context_setup"],
       "forbid_line_categories": [],
-      "prefer_grammar_moves": ["cold_open_then_body", "vo_then_clip", "interleaved_bridges"],
+      "prefer_grammar_moves": ["cold_open_then_body", "vo_then_clip", "interleaved_bridges", "information_package_then_block"],
       "forbid_grammar_moves": [],
       "sonic_density": "hook_forward",
       "default_pov": "host_second_person"
@@ -37,7 +37,7 @@
       "prefer_line_categories": ["story_bridge"],
       "forbid_line_categories": ["episode_preface", "segment_summary", "extracted_context"],
       "prefer_grammar_moves": ["clip_then_react_vo"],
-      "forbid_grammar_moves": ["summary_replace_setup", "act_preface_blocks", "cold_open_then_body"],
+      "forbid_grammar_moves": ["summary_replace_setup", "act_preface_blocks", "cold_open_then_body", "information_package_then_block"],
       "sonic_density": "minimal",
       "default_pov": "host_first_person"
     },

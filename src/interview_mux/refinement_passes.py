@@ -51,7 +51,39 @@ def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any
 
 
 def run_gap_framing_recompose(ctx: RunContext) -> None:
-    """Post-ranking gap VO recompose — or skip-copy for flow integrity."""
+    """Post-ranking gap VO recompose — or skip-copy for flow integrity.
+
+    When the Nugget Layup System owns gap_report, this stage is a thin adapter:
+    re-publish layups, ensure orientation, and mark done without dropping recovery lines.
+    """
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        nugget_layup_cfg,
+        nugget_layup_enabled,
+        publish_layup_plan_to_gap_report,
+    )
+
+    if nugget_layup_enabled() and nugget_layup_cfg().get("authoritative_gap_report"):
+        if ctx.artifact_exists(PLAN_REL):
+            publish_layup_plan_to_gap_report(ctx)
+            ctx.write_json(
+                "understanding/gap_framing_recompose.json",
+                {
+                    "decisions": [],
+                    "accept": {
+                        "accepted": True,
+                        "reason_code": "nugget_layup_authority",
+                    },
+                    "input_hash": None,
+                },
+            )
+            maybe_write_shadow_score(ctx, "gap_framing_recompose")
+            append_listener_outcome(ctx, "gap_recompose_nugget_layup", {"status": "authority"})
+            after_gap_recompose_or_skip(ctx)
+            if not ctx.is_done("gap_framing_recompose"):
+                ctx.mark_done("gap_framing_recompose", force=True)
+            return
+
     dual_write_draft_from_compose(ctx)
     if ctx.artifact_exists(FINAL_REL) and not ctx.artifact_exists(DRAFT_REL):
         dual_write_draft_from_compose(ctx)
@@ -111,6 +143,11 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             if cat in ("episode_preface",) or line.get("cold_open"):
                 kept.append({**line, "origin": "recompose", "recompose_action": "kept"})
                 shard_decisions.append({"line_id": lid, "action": "kept", "reason": "preface_or_open"})
+                continue
+            if origin == "nugget_layup" or str(line.get("gap_type") or "") == "nugget_layup":
+                # Layups already target kept natives; never drop as off-selection recovery.
+                kept.append({**line, "origin": "nugget_layup", "recompose_action": "kept"})
+                shard_decisions.append({"line_id": lid, "action": "kept", "reason": "nugget_layup"})
                 continue
             if oset is not None and tid and tid not in oset:
                 supports = [str(s) for s in (line.get("supports_segment_ids") or [])]

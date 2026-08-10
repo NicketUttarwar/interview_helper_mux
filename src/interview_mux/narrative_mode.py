@@ -27,6 +27,7 @@ GRAMMAR_MOVES: tuple[str, ...] = (
     "cold_open_then_body",
     "act_preface_blocks",
     "interleaved_bridges",
+    "information_package_then_block",
 )
 
 _DOCS = Path(__file__).resolve().parents[2] / "docs" / "cross-cutting"

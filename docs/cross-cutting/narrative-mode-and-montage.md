@@ -32,7 +32,7 @@ POV: `host_first_person` | `host_second_person` | `expository_third_person` — 
 
 ## Montage grammar moves
 
-`vo_then_clip` · `clip_then_react_vo` · `summary_replace_setup` · `cold_open_then_body` · `act_preface_blocks` · `interleaved_bridges`
+`vo_then_clip` · `clip_then_react_vo` · `summary_replace_setup` · `cold_open_then_body` · `act_preface_blocks` · `interleaved_bridges` · `information_package_then_block`
 
 Prefer/forbid matrices (JSON) reweight gap `line_category` usage; they do not invent new categories.
 

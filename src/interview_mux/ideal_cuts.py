@@ -629,3 +629,196 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
         level="info",
         stage="ideal_cuts_materialize",
     )
+
+
+def _overlap_ms(a0: int, a1: int, b0: int, b1: int) -> int:
+    return max(0, min(a1, b1) - max(a0, b0))
+
+
+def _cuts_list(cuts_doc: dict[str, Any] | list[Any] | None) -> list[dict[str, Any]]:
+    if isinstance(cuts_doc, list):
+        return [c for c in cuts_doc if isinstance(c, dict)]
+    if not isinstance(cuts_doc, dict):
+        return []
+    for key in ("cuts", "talking_points"):
+        rows = cuts_doc.get(key)
+        if isinstance(rows, list):
+            return [c for c in rows if isinstance(c, dict)]
+    return []
+
+
+def overlapping_ideal_window(
+    *,
+    source_start_ms: int,
+    source_end_ms: int,
+    cuts_doc: dict[str, Any] | list[Any] | None,
+    segment_id: str | None = None,
+) -> tuple[int, int] | None:
+    """Best overlapping ideal-cut / talking-point window for a keeper slab."""
+    best: tuple[int, int, int] | None = None  # overlap, start, end
+    for cut in _cuts_list(cuts_doc):
+        try:
+            c0 = int(cut.get("start_ms") or 0)
+            c1 = int(cut.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if c1 <= c0:
+            continue
+        ids = _segment_ids_from_cut(cut)
+        ov = _overlap_ms(source_start_ms, source_end_ms, c0, c1)
+        if ov <= 0:
+            continue
+        # Prefer cuts bound to this segment when present.
+        bound_bonus = 0
+        if segment_id and (
+            segment_id in ids or str(cut.get("segment_id") or "") == segment_id
+        ):
+            bound_bonus = 1_000_000
+        score = ov + bound_bonus
+        if best is None or score > best[0]:
+            best = (score, c0, c1)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
+def last_complete_thought_end_ms(
+    words: list[dict[str, Any]],
+    *,
+    start_ms: int,
+    end_ms: int,
+    max_lookback_ms: int | None = None,
+) -> int | None:
+    """Walk backward from ``end_ms`` to the last complete thought within the span."""
+    from interview_mux.gap_vo_prior_context import (
+        DEFAULT_PAUSE_SPLIT_MS,
+        ends_complete_thought,
+    )
+
+    if end_ms <= start_ms + 300:
+        return None
+    lookback = max_lookback_ms if max_lookback_ms is not None else max(0, end_ms - start_ms)
+    window = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and end_ms - lookback <= int(w.get("end_ms") or 0) <= end_ms
+        and int(w.get("end_ms") or 0) > start_ms
+    ]
+    if not window:
+        return None
+    for i in range(len(window) - 1, -1, -1):
+        toks = [
+            str(w.get("text") or w.get("word") or "").strip()
+            for w in window[: i + 1]
+            if str(w.get("text") or w.get("word") or "").strip()
+        ]
+        if not toks:
+            continue
+        text = " ".join(toks)
+        last = toks[-1]
+        pause: int | None
+        if i + 1 < len(window):
+            pause = max(
+                0,
+                int(window[i + 1].get("start_ms") or 0)
+                - int(window[i].get("end_ms") or 0),
+            )
+        else:
+            pause = max(0, end_ms - int(window[i].get("end_ms") or 0))
+            if pause < DEFAULT_PAUSE_SPLIT_MS:
+                # Treat span end as a natural stop when no following word exists.
+                pause = DEFAULT_PAUSE_SPLIT_MS
+        if last[-1:] in ".!?…" or ends_complete_thought(text, next_pause_ms=pause):
+            cand = int(window[i].get("end_ms") or 0)
+            if cand > start_ms + 300:
+                return cand
+    return None
+
+
+def resolve_keeper_air_bounds(
+    *,
+    source_start_ms: int,
+    source_end_ms: int,
+    cuts_doc: dict[str, Any] | list[Any] | None = None,
+    words: list[dict[str, Any]] | None = None,
+    segment_id: str | None = None,
+    max_keep_ms: int | None = None,
+    min_keep_ms: int = 2500,
+) -> tuple[int, int]:
+    """Tighten keeper source bounds to ideal window and/or complete-thought trim.
+
+    Ranking IDs stay; mix uses the returned air window. Never forward-chops past
+    a hanging token — only retreats ``source_end`` to a complete thought.
+    """
+    start = int(source_start_ms)
+    end = int(source_end_ms)
+    if end <= start:
+        return start, end
+
+    window = overlapping_ideal_window(
+        source_start_ms=start,
+        source_end_ms=end,
+        cuts_doc=cuts_doc,
+        segment_id=segment_id,
+    )
+    if window is not None:
+        w0, w1 = window
+        # Clamp ideal window to the keeper slab, then snap end to complete thought.
+        start = max(start, w0)
+        end = min(end, w1)
+        if end <= start:
+            start, end = int(source_start_ms), int(source_end_ms)
+        elif words:
+            snapped = last_complete_thought_end_ms(
+                words, start_ms=start, end_ms=end
+            )
+            if snapped is not None and snapped - start >= min_keep_ms:
+                end = snapped
+
+    span = end - start
+    budget = int(max_keep_ms) if max_keep_ms is not None else None
+    if budget is not None and span > budget and words:
+        # Prefer trimming inside the ideal window budget when present.
+        target_end = start + budget
+        snapped = last_complete_thought_end_ms(
+            words,
+            start_ms=start,
+            end_ms=min(end, target_end + 2_000),
+            max_lookback_ms=max(budget, 12_000),
+        )
+        if snapped is not None and snapped - start >= min_keep_ms:
+            # Prefer the last complete thought at or before the budget.
+            if snapped <= start + budget:
+                end = snapped
+            else:
+                earlier = last_complete_thought_end_ms(
+                    words, start_ms=start, end_ms=start + budget
+                )
+                if earlier is not None and earlier - start >= min_keep_ms:
+                    end = earlier
+        elif snapped is not None and snapped - start >= min_keep_ms:
+            end = snapped
+
+    if end - start < min_keep_ms:
+        return int(source_start_ms), int(source_end_ms)
+    return start, end
+
+
+def load_air_bound_inputs(ctx: RunContext) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Load ideal-cut / materialized windows and transcript words for EDL air bounds."""
+    cuts: dict[str, Any] | None = None
+    for rel in (MATERIALIZED_REL, IDEAL_CUTS_REL, TALKING_POINTS_REL):
+        if not ctx.artifact_exists(rel):
+            continue
+        doc = ctx.read_json(rel)
+        if isinstance(doc, dict) and _cuts_list(doc):
+            cuts = doc
+            break
+    words: list[dict[str, Any]] = []
+    if ctx.artifact_exists("transcript/full.json"):
+        tr = ctx.read_json("transcript/full.json")
+        if isinstance(tr, dict):
+            words = [w for w in (tr.get("words") or []) if isinstance(w, dict)]
+    return cuts, words
+

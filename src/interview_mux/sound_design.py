@@ -506,14 +506,28 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             and not cue.get("skip")
             and str(cue.get("asset_id") or "")
         ]
+        # Drop cues anchored to segments that are not on the air timeline — they
+        # cannot be realized and must not fail the mix as "missing" assets.
+        placeable_coverage_cues: list[dict[str, Any]] = []
+        for cue in active_coverage_cues:
+            anchors = [
+                str(cue.get("segment_id") or ""),
+                str(cue.get("after_segment_id") or ""),
+                str(cue.get("before_segment_id") or ""),
+                *[str(x) for x in (cue.get("segment_ids") or []) if x],
+            ]
+            anchors = [a for a in anchors if a]
+            if anchors and not any(a in segment_timing for a in anchors):
+                continue
+            placeable_coverage_cues.append(cue)
         intentionally_skipped_assets: set[str] = set()
         _, intentionally_skipped_assets = _filter_skipped_underscore_beds(
-            active_coverage_cues,
+            placeable_coverage_cues,
             coverage_assets,
             underscore_policy=str(contract.get("underscore_policy") or ""),
         )
         planned_music_assets = {
-            str(cue.get("asset_id") or "") for cue in active_coverage_cues
+            str(cue.get("asset_id") or "") for cue in placeable_coverage_cues
         } - intentionally_skipped_assets
         realized_music_assets = {
             str(cue.get("asset_id") or "")

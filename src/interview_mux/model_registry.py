@@ -29,6 +29,8 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
     "topic_coverage_audit": "flagship",
     "narrative_arc_plan": "flagship",
     "full_master_ranking": "flagship",
+    "nugget_corpus_mine": "flagship",
+    "nugget_layup_compose": "flagship",
     "edl_narrative_audit": "flagship",
     "transitions": "economy",
     "podcast_sfx_brief": "economy",
@@ -50,6 +52,8 @@ HIGH_SEVERITY_STAGES = {
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
+    "nugget_corpus_mine",
+    "nugget_layup_compose",
     "edl_narrative_audit",
     "sound_design_plan",
 }

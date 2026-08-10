@@ -201,6 +201,47 @@
       "seg_001"
     ]
   },
+  "nugget_corpus_mine": {
+    "nuggets": [
+      {
+        "nugget_id": "nug_001",
+        "text_claim": "Customers used the protein bar as a snack, not a supplement.",
+        "evidence_quote": "taking it as a protein snack",
+        "source_start_ms": 1000,
+        "source_end_ms": 4000,
+        "speaker_id": "spk_0",
+        "source_segment_ids": ["seg_002"],
+        "in_selection": false,
+        "already_aired_in_selection": false,
+        "talking_point_ids": ["tp_001"],
+        "salience": "high",
+        "themes": ["product_pivot"]
+      }
+    ],
+    "warnings": []
+  },
+  "nugget_layup_compose": {
+    "ordered_segment_ids": ["seg_001"],
+    "layups": [
+      {
+        "target_segment_id": "seg_001",
+        "line_id": "vo_layup_seg_001",
+        "text": "Before the scale-up, remember the snack insight that rewrote the market. What happened next?",
+        "nugget_ids": ["nug_001"],
+        "why_relevant_to_target": "Recovered pivot fact unlocks the growth beat.",
+        "forward_cue_ok": true,
+        "word_count": 18,
+        "skip": false,
+        "talking_point_ids": ["tp_001"]
+      }
+    ],
+    "discharged_talking_point_ids": ["tp_001"],
+    "open_talking_point_ids": [],
+    "discharged_nugget_ids": ["nug_001"],
+    "open_high_salience_nugget_ids": [],
+    "waived_nugget_ids": [],
+    "warnings": []
+  },
   "edl_narrative_audit": {
     "verdict": "pass",
     "blocking_issues": [],

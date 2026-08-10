@@ -109,12 +109,13 @@ python scripts/seed_podcast_origin.py   # uploads + invalidates /feed.xml
 Finish pipeline through master → **G-Publish**:
 
 1. **Prepare package for this run** — clears the gate and runs `episode_meta_build`…`podcast_publish` **locally** (writes `publish/package_ready.json`; no S3).
-2. **Upload all ready packages to S3** — ASSETS-wide sync of complete packages (GUI or script below). Never deletes S3 objects; skips `execution_id`s already in `catalog/by_execution_id.json`.
+2. **Upload this run to S3** — syncs **only this execution's** complete package (GUI or script below). Never uploads sibling executions; never deletes S3 objects; skips if this `execution_id` is already in `catalog/by_execution_id.json`.
 3. **Skip** — decline packaging for this run.
 
 ```bash
-python scripts/sync_podcast_episodes.py           # upload all ready packages
-python scripts/sync_podcast_episodes.py --dry-run # list would-upload / skip
+python scripts/sync_podcast_episodes.py --execution-id exec_…   # this run only
+python scripts/sync_podcast_episodes.py --execution-id exec_… --dry-run
+python scripts/sync_podcast_episodes.py --all                   # explicit bulk (rare)
 ```
 
 ### 5 — Submit the feed (once)
@@ -152,7 +153,7 @@ python scripts/seed_podcast_origin.py   # re-seed feed/catalog/show after wipe
 | `episode_cover_generate` | candidates + `publish/cover.jpg` (3000²) |
 | `podcast_publish` | Local package finalize (`package_ready.json`) — **no S3** |
 
-S3 upload is **not** a pipeline stage. Use `scripts/sync_podcast_episodes.py` or G-Publish → Upload all. Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
+S3 upload is **not** a pipeline stage. App paths (G-Publish, baba/e2e) always pass the current `execution_id`. CLI: `scripts/sync_podcast_episodes.py --execution-id …` (or `--all` for explicit bulk). Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
 
 ## Art style contract
 

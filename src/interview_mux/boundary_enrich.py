@@ -192,6 +192,49 @@ def split_backchannel_turns(
     return result, applied
 
 
+def _best_complete_thought_split(
+    words: list[dict[str, Any]],
+    *,
+    start_ms: int,
+    end_ms: int,
+    pause_split_ms: int,
+    target_ms: int | None = None,
+    min_ms: int = 4000,
+) -> int | None:
+    """Split at a complete-thought hinge near ``target_ms`` (never a raw midpoint)."""
+    from interview_mux.gap_vo_prior_context import ends_complete_thought
+
+    span_words = _words_in_span(words, start_ms, end_ms)
+    if len(span_words) < 2:
+        return None
+    best: tuple[int, int] | None = None
+    for i in range(len(span_words) - 1):
+        prev = span_words[i]
+        nxt = span_words[i + 1]
+        gap = int(nxt["start_ms"]) - int(prev["end_ms"])
+        if gap < pause_split_ms:
+            continue
+        split_at = int(nxt["start_ms"])
+        if split_at <= start_ms + min_ms or split_at >= end_ms - min_ms:
+            continue
+        toks = [
+            str(w.get("text") or "").strip()
+            for w in span_words[: i + 1]
+            if str(w.get("text") or "").strip()
+        ]
+        text = " ".join(toks)
+        if not text:
+            continue
+        if not ends_complete_thought(text, next_pause_ms=gap):
+            continue
+        score = gap
+        if target_ms is not None:
+            score -= abs(split_at - target_ms) // 10
+        if best is None or score > best[0]:
+            best = (score, split_at)
+    return best[1] if best else None
+
+
 def enforce_max_segment_duration(
     rows: list[dict[str, Any]],
     transcript: dict[str, Any] | None,
@@ -227,12 +270,39 @@ def enforce_max_segment_duration(
         split_at: int | None = topic_candidates[len(topic_candidates) // 2] if topic_candidates else None
         reason = "topic_shift"
         if split_at is None:
-            split_at = _best_pause_split(words, start_ms=start, end_ms=end, pause_split_ms=pause_ms, target_ms=target)
+            split_at = _best_complete_thought_split(
+                words,
+                start_ms=start,
+                end_ms=end,
+                pause_split_ms=pause_ms,
+                target_ms=target,
+                min_ms=min_ms,
+            )
+            reason = "complete_thought"
+        if split_at is None:
+            split_at = _best_pause_split(
+                words, start_ms=start, end_ms=end, pause_split_ms=pause_ms, target_ms=target
+            )
             reason = "pause"
         if split_at is None:
-            split_at = target
-            reason = "pause"
-            applied.append({"action": "force_split_midpoint", "start_ms": start, "end_ms": end})
+            # Do not midpoint-force-split airable speech — leave overlong and mark
+            # non-airable until a complete-thought re-cut is available.
+            flagged = {
+                **row,
+                "overlong_unsplit": True,
+                "airable": False,
+                "proposed_split_reason": "skip_midpoint",
+            }
+            result.append(flagged)
+            applied.append(
+                {
+                    "action": "skip_midpoint_split",
+                    "start_ms": start,
+                    "end_ms": end,
+                    "span_ms": span,
+                }
+            )
+            continue
 
         left = {**row, "start_ms": start, "end_ms": split_at, "proposed_split_reason": reason}
         right = {**row, "start_ms": split_at, "end_ms": end, "proposed_split_reason": reason}

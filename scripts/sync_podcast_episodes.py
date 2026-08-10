@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Upload all ready local episode packages under ASSETS/executions to S3.
+"""Upload a ready local episode package to S3 (current run by default).
 
 Additive only — never deletes remote objects. Skips executions already listed
 in catalog/by_execution_id.json. Skips PutObject when remote size matches.
 
+App paths (GUI / baba e2e) always sync one ``execution_id``. This CLI matches
+that default; use ``--all`` only for an explicit bulk of every ready package.
+
 Usage:
-  python scripts/sync_podcast_episodes.py
-  python scripts/sync_podcast_episodes.py --dry-run
-  python scripts/sync_podcast_episodes.py --force-files
+  python scripts/sync_podcast_episodes.py --execution-id exec_...
+  python scripts/sync_podcast_episodes.py --execution-id exec_... --dry-run
+  python scripts/sync_podcast_episodes.py --all
+  python scripts/sync_podcast_episodes.py --all --force-files
 """
 
 from __future__ import annotations
@@ -25,7 +29,21 @@ from interview_mux.podcast_rss.sync_assets import sync_ready_packages  # noqa: E
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync ready ASSETS episode packages to The War Room S3/RSS (never deletes)."
+        description=(
+            "Sync a ready ASSETS episode package to The War Room S3/RSS "
+            "(never deletes; default is one execution_id)."
+        )
+    )
+    scope = parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument(
+        "--execution-id",
+        metavar="ID",
+        help="Upload only this execution's complete publish/ package",
+    )
+    scope.add_argument(
+        "--all",
+        action="store_true",
+        help="Explicit bulk: upload every ready package under ASSETS/executions",
     )
     parser.add_argument(
         "--dry-run",
@@ -39,7 +57,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = sync_ready_packages(dry_run=args.dry_run, force_files=args.force_files)
+    if args.all:
+        result = sync_ready_packages(
+            dry_run=args.dry_run,
+            force_files=args.force_files,
+            all_ready=True,
+        )
+    else:
+        result = sync_ready_packages(
+            dry_run=args.dry_run,
+            force_files=args.force_files,
+            execution_id=args.execution_id,
+        )
     print(json.dumps(result.to_dict(), indent=2))
     if result.errors:
         return 1

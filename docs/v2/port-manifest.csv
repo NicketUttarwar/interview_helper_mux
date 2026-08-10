@@ -36,6 +36,9 @@ g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording (not in DELIVERY_ORDER)
 topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 full_master_ranking,plan_rank,llm,stages/selection.py,yes,NLE overrides
+nugget_corpus_mine,plan_rank,llm,stages/analysis_extended.py,yes,full-tape nugget mine after ranking
+information_package_plan,plan_rank,non_llm,information_packages.py,yes,high-bar mid-body packages + episode_close
+nugget_layup_compose,plan_rank,llm,stages/analysis_extended.py,yes,per-native VO layups to gap_report
 refinement_agenda,plan_rank,non_llm,refinement_agenda.py,yes,Refinement Pass L0
 gap_framing_recompose,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
 selection_framing_apply,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass

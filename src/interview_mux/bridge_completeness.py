@@ -33,7 +33,7 @@ _GENERIC_STUB_PHRASES = frozenset(
 
 # Verbatim bridge text reused across this many (or more) distinct pairs reads as
 # canned filler pasted everywhere, not glue written for that specific seam.
-_REPEATED_TEXT_STUB_THRESHOLD = 3
+_REPEATED_TEXT_STUB_THRESHOLD = 2
 
 
 def _normalize_bridge_text(text: str) -> str:
@@ -200,7 +200,7 @@ def assert_bridges_complete(
     """Return completeness doc; raise SystemExit when incomplete and not soft.
 
     Stub bridges (known stock phrases, or the same verbatim line pasted across
-    ≥3 distinct pairs) count as incomplete — they are audible filler, not
+    ≥2 distinct pairs) count as incomplete — they are audible filler, not
     pair-specific glue.
     """
     missing = missing_reorder_bridges(

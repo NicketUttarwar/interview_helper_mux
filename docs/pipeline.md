@@ -68,7 +68,7 @@ Gates: [workflows/operator-gates.md](./workflows/operator-gates.md) · Journey: 
 5. **EDL path** — narrative audit/refine → EDL → assembly preview → listen delight (**authoritative**)  
 6. **MMAudio + mix** — `mmaudio_sfx` → `mix` → `junction_snip_qa`  
 7. **Master** — `master_finalize` → −16 LUFS  
-8. **Optional G-Publish** — local `episode_meta_build` … `podcast_publish` (no S3); sync via GUI or `scripts/sync_podcast_episodes.py` — [podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md)
+8. **Optional G-Publish** — local `episode_meta_build` … `podcast_publish` (no S3); sync this run via GUI or `scripts/sync_podcast_episodes.py --execution-id …` — [podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md)
 
 ### Success criteria
 

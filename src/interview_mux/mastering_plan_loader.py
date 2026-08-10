@@ -45,6 +45,9 @@ REBUILD_SCOPES: dict[str, tuple[str, ...]] = {
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "nugget_corpus_mine",
+        "information_package_plan",
+        "nugget_layup_compose",
         "gap_framing_recompose",
         "selection_framing_apply",
         "transitions",
@@ -68,6 +71,8 @@ def evidence_packet_hash(packet: dict[str, Any] | None) -> str:
 
 
 def forced_sparse_plan(*, reason: str, evidence_hash: str = "") -> dict[str, Any]:
+    from interview_mux.information_packages import default_episode_close
+
     return {
         "version": 1,
         "pass": "confirmed",
@@ -82,6 +87,8 @@ def forced_sparse_plan(*, reason: str, evidence_hash: str = "") -> dict[str, Any
             "evidence_refs": [],
             "confidence": 0.3,
         },
+        "information_packages": [],
+        "episode_close": default_episode_close(),
         "decisions": [],
         "bespoke_rationale": f"Forced sparse: {reason}",
         "listener_outcome": {
@@ -194,6 +201,11 @@ def best_available_mode(plan: dict[str, Any]) -> str:
 
 
 def write_plan(ctx: RunContext, plan: dict[str, Any]) -> None:
+    from interview_mux.information_packages import ensure_episode_close_on_plan
+
+    plan = ensure_episode_close_on_plan(plan)
+    if "information_packages" not in plan:
+        plan["information_packages"] = []
     ctx.write_json(PLAN_REL, plan)
     _record_degradation(ctx, plan)
 

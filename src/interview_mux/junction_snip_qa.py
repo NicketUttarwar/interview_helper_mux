@@ -222,18 +222,83 @@ def _on_a_roll(
     return gap < 450
 
 
+# Never let a phrase-extend invade the next selected speech source start.
+SOURCE_OVERLAP_EPS_MS = 80
+
+
+def _next_speech_source_start(
+    clips: list[dict[str, Any]],
+    from_index: int,
+) -> int | None:
+    for j in range(from_index + 1, len(clips)):
+        other = clips[j]
+        if not isinstance(other, dict):
+            continue
+        if str(other.get("type") or "") != "speech":
+            continue
+        try:
+            return int(other.get("source_start_ms") or 0)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _clamp_end_before_next_speech(
+    end_ms: int,
+    next_source_start_ms: int | None,
+    *,
+    eps_ms: int = SOURCE_OVERLAP_EPS_MS,
+) -> int:
+    if next_source_start_ms is None:
+        return end_ms
+    return min(end_ms, int(next_source_start_ms) - int(eps_ms))
+
+
+def _pause_after_word(
+    words: list[dict[str, Any]],
+    word: dict[str, Any],
+    *,
+    index: int | None = None,
+) -> int | None:
+    """Inter-word pause after ``word`` (ms), or None when unknown."""
+    try:
+        end = int(word.get("end_ms") or 0)
+    except (TypeError, ValueError):
+        return None
+    if index is not None and 0 <= index + 1 < len(words):
+        nxt = words[index + 1]
+        try:
+            return max(0, int(nxt.get("start_ms") or 0) - end)
+        except (TypeError, ValueError):
+            return None
+    for w in words:
+        try:
+            start = int(w.get("start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if start >= end:
+            return max(0, start - end)
+    return None
+
+
 def _find_phrase_end_ms(
     words: list[dict[str, Any]],
     from_ms: int,
     *,
     max_extend_ms: int,
     speaker: str = "",
+    hard_cap_ms: int | None = None,
 ) -> int | None:
     """Extend to the first word end that completes a thought within the window."""
+    cap = from_ms + max_extend_ms
+    if hard_cap_ms is not None:
+        cap = min(cap, int(hard_cap_ms))
+    if cap <= from_ms:
+        return None
     window = [
         w
         for w in words
-        if from_ms < int(w.get("end_ms") or 0) <= from_ms + max_extend_ms
+        if from_ms < int(w.get("end_ms") or 0) <= cap
     ]
     if speaker:
         filtered = [
@@ -246,18 +311,27 @@ def _find_phrase_end_ms(
     if not window:
         return None
     accumulated: list[str] = []
-    for w in window:
+    for i, w in enumerate(window):
         tok = str(w.get("text") or w.get("word") or "").strip()
         if tok:
             accumulated.append(tok)
         candidate = " ".join(accumulated)
-        if ends_complete_thought(candidate) and candidate[-1:] in ".!?…":
+        pause = _pause_after_word(window, w, index=i)
+        if pause is None:
+            pause = _pause_after_word(words, w)
+        if ends_complete_thought(candidate, next_pause_ms=pause) and candidate[-1:] in ".!?…":
             return int(w.get("end_ms") or 0)
         # Soft: stop at pause after content word
-        if ends_complete_thought(candidate) and len(accumulated) >= 3:
+        if (
+            ends_complete_thought(candidate, next_pause_ms=pause)
+            and len(accumulated) >= 3
+        ):
             return int(w.get("end_ms") or 0)
     # Last complete word boundary in window if we gained content
-    if accumulated and ends_complete_thought(" ".join(accumulated)):
+    last_pause = _pause_after_word(words, window[-1])
+    if accumulated and ends_complete_thought(
+        " ".join(accumulated), next_pause_ms=last_pause
+    ):
         return int(window[-1].get("end_ms") or 0)
     return None
 
@@ -286,7 +360,22 @@ def _find_last_complete_phrase_end(
         if not text:
             continue
         last = toks[-1]
-        if last[-1:] in ".!?…" or ends_complete_thought(text):
+        pause = None
+        if i + 1 < len(window):
+            pause = max(
+                0,
+                int(window[i + 1].get("start_ms") or 0)
+                - int(window[i].get("end_ms") or 0),
+            )
+        else:
+            # Pause from end of this word to the original cut / next source word
+            pause = max(0, end_ms - int(window[i].get("end_ms") or 0))
+            if pause == 0:
+                pause = _pause_after_word(words, window[i])
+        complete = last[-1:] in ".!?…" or ends_complete_thought(
+            text, next_pause_ms=pause
+        )
+        if complete:
             # Prefer true sentence end when available
             if last[-1:] in ".!?…" or i < len(window) - 1:
                 return int(window[i].get("end_ms") or 0)
@@ -536,14 +625,17 @@ def detect_junction_findings(
                     evidence=f"start {src_start} → word snap {snapped_start}",
                 )
             if abs(snapped_end - src_end) >= 25:
-                add(
-                    "mid_word_end",
-                    segment_id=sid,
-                    clip_index=i,
-                    action="nudge_source_bounds",
-                    detail={"edge": "end", "recommended_ms": snapped_end},
-                    evidence=f"end {src_end} → word snap {snapped_end}",
-                )
+                next_start = _next_speech_source_start(clips, i)
+                snapped_end = _clamp_end_before_next_speech(snapped_end, next_start)
+                if snapped_end > src_start + 300 and abs(snapped_end - src_end) >= 25:
+                    add(
+                        "mid_word_end",
+                        segment_id=sid,
+                        clip_index=i,
+                        action="nudge_source_bounds",
+                        detail={"edge": "end", "recommended_ms": snapped_end},
+                        evidence=f"end {src_end} → word snap {snapped_end}",
+                    )
 
             lead, trail = _leading_trailing_silence(
                 ctx, src_start, src_end, search_ms=micro_nudge
@@ -609,18 +701,41 @@ def detect_junction_findings(
                     segs=segs,
                 )
 
+            next_src_start = _next_speech_source_start(clips, i)
+            extend_hard_cap = (
+                int(next_src_start) - SOURCE_OVERLAP_EPS_MS
+                if next_src_start is not None
+                else None
+            )
+            # Prefer absorbing same-speaker continuum when phrase end would invade
+            # the next keep — widen merge gap to phrase budget for on-a-roll.
+            if incomplete and not chapter_bleed and merge is None and on_roll:
+                merge = _merge_candidate_for_clip(
+                    clips=clips,
+                    index=i,
+                    sid=sid,
+                    src_start=src_start,
+                    src_end=src_end,
+                    speaker=speaker,
+                    chapter=ch,
+                    selection=selection,
+                    segs=segs,
+                    gap_max_ms=max(450, phrase_max),
+                )
+
             if on_roll and not chapter_bleed:
                 extended = _find_phrase_end_ms(
                     words,
                     src_end,
                     max_extend_ms=phrase_max,
                     speaker=speaker,
+                    hard_cap_ms=extend_hard_cap,
                 )
                 earlier = (
                     None
                     if extended is not None
                     else _find_last_complete_phrase_end(
-                        words, src_end, max_lookback_ms=min(phrase_max, 8000)
+                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
                     )
                 )
                 can_cut = bool(
@@ -628,18 +743,53 @@ def detect_junction_findings(
                     and earlier > src_start + 300
                     and earlier < src_end - 80
                 )
+                # Invasion would leave incomplete — prefer cut/merge over fake extend.
+                if (
+                    extended is not None
+                    and extend_hard_cap is not None
+                    and extended >= extend_hard_cap
+                    and earlier is not None
+                    and can_cut
+                ):
+                    extended = None
                 action = _phrase_action_for_incomplete(
                     can_extend=extended is not None,
                     can_cut=can_cut,
                     can_merge=merge is not None,
                     is_micro=is_micro,
                 )
+                # Continuum with no safe phrase end: merge across keepers rather
+                # than shipping a mid-flow chop or impact-hold band-aid.
+                if (
+                    action == "cut_earlier"
+                    and not can_cut
+                    and merge is not None
+                ):
+                    action = "merge_micro"
                 recommended = extended if extended is not None else earlier
+                if recommended is not None and action == "extend_later":
+                    recommended = _clamp_end_before_next_speech(
+                        int(recommended), next_src_start
+                    )
+                    if recommended <= src_end + 20:
+                        recommended = None
+                        action = _phrase_action_for_incomplete(
+                            can_extend=False,
+                            can_cut=can_cut,
+                            can_merge=merge is not None,
+                            is_micro=is_micro,
+                        )
+                        if action == "cut_earlier" and not can_cut and merge is not None:
+                            action = "merge_micro"
+                        recommended = earlier if can_cut else None
                 detail: dict[str, Any] = {
                     "recommended_ms": recommended,
                     "end_text": end_text[-80:],
                     "unrecoverable_within_clip": (
-                        extended is None and not can_cut and merge is None and not is_micro
+                        recommended is None
+                        and merge is None
+                        and not is_micro
+                        and action != "merge_micro"
                     ),
                 }
                 if action == "merge_micro" and merge:
@@ -655,7 +805,7 @@ def detect_junction_findings(
                 )
             elif incomplete and chapter_bleed:
                 earlier = _find_last_complete_phrase_end(
-                    words, src_end, max_lookback_ms=phrase_max
+                    words, src_end, max_lookback_ms=max(phrase_max, 12_000)
                 )
                 can_cut = bool(
                     earlier is not None
@@ -682,15 +832,24 @@ def detect_junction_findings(
                     src_end,
                     max_extend_ms=phrase_max,
                     speaker=speaker,
+                    hard_cap_ms=extend_hard_cap,
                 )
                 earlier = _find_last_complete_phrase_end(
-                    words, src_end, max_lookback_ms=min(phrase_max, 5000)
+                    words, src_end, max_lookback_ms=max(phrase_max, 12_000)
                 )
                 can_cut = bool(
                     earlier is not None
                     and earlier > src_start + 300
                     and earlier < src_end - 80
                 )
+                if (
+                    extended is not None
+                    and extend_hard_cap is not None
+                    and extended >= extend_hard_cap
+                    and earlier is not None
+                    and can_cut
+                ):
+                    extended = None
                 action = _phrase_action_for_incomplete(
                     can_extend=extended is not None,
                     can_cut=can_cut,
@@ -698,11 +857,26 @@ def detect_junction_findings(
                     is_micro=is_micro,
                 )
                 recommended = extended if extended is not None else earlier
+                if recommended is not None and action == "extend_later":
+                    recommended = _clamp_end_before_next_speech(
+                        int(recommended), next_src_start
+                    )
+                    if recommended <= src_end + 20:
+                        recommended = earlier if can_cut else None
+                        action = _phrase_action_for_incomplete(
+                            can_extend=False,
+                            can_cut=can_cut,
+                            can_merge=merge is not None,
+                            is_micro=is_micro,
+                        )
                 detail = {
                     "recommended_ms": recommended,
                     "end_text": end_text[-80:],
                     "unrecoverable_within_clip": (
-                        extended is None and not can_cut and merge is None and not is_micro
+                        recommended is None
+                        and merge is None
+                        and not is_micro
+                        and action != "merge_micro"
                     ),
                 }
                 if action == "merge_micro" and merge:
@@ -1004,13 +1178,32 @@ def apply_junction_repairs(
                     ov["end_ms"] = se
                 overrides[sid] = ov
             else:
-                # Allow extend beyond prior end up to phrase_max from original
+                # Allow extend beyond prior end up to phrase_max from original,
+                # but never invade the next selected speech source range.
                 new_se = max(ss + 300, rec)
                 # Cap wild extends
                 if new_se > se + phrase_max:
                     new_se = se + phrase_max
                 if new_se < se - phrase_max:
                     new_se = max(ss + 300, se - phrase_max)
+                clip_index = next(
+                    (
+                        idx
+                        for idx, row in enumerate(clips)
+                        if str(row.get("type") or "") == "speech"
+                        and str(row.get("segment_id") or "") == sid
+                    ),
+                    None,
+                )
+                next_start = (
+                    _next_speech_source_start(clips, clip_index)
+                    if clip_index is not None
+                    else None
+                )
+                new_se = _clamp_end_before_next_speech(new_se, next_start)
+                if new_se <= ss + 300:
+                    applied.append({**f, "status": "skipped_next_clip_clamp"})
+                    break
                 if abs(new_se - se) < 20:
                     continue
                 c["source_end_ms"] = new_se
@@ -1977,18 +2170,47 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     # re-running junction forever does not improve ship readiness.
     commit_ok = str(commitment.get("status") or "") == "committed"
     feel_ok = str(audit.get("verdict") or "") in {"pass", "soft_pass", "warn"}
+    _INCOMPLETE_SOFT_BLOCK_KINDS = frozenset(
+        {
+            "on_a_roll",
+            "incomplete_clause",
+            "chapter_bleed_incomplete",
+        }
+    )
+
+    def _is_incomplete_cut_residual(finding: dict[str, Any]) -> bool:
+        kind = str(finding.get("kind") or "")
+        if kind in _INCOMPLETE_SOFT_BLOCK_KINDS:
+            return True
+        detail = finding.get("detail") if isinstance(finding.get("detail"), dict) else {}
+        return bool(detail.get("unrecoverable_within_clip"))
+
     if critical_left and not (commit_ok and feel_ok):
         blocking_reasons.append("critical_junction_residuals_after_two_runs")
     elif critical_left and commit_ok and feel_ok:
-        report["critical_residuals_softened"] = True
-        report["critical_residual_soft_reason"] = (
-            "commitment_committed_and_feel_soft_pass_after_budget"
-        )
-        for finding in residual_findings:
-            if isinstance(finding, dict) and str(finding.get("severity") or "") == "critical":
+        softenable = [
+            f
+            for f in residual_findings
+            if isinstance(f, dict)
+            and str(f.get("severity") or "") == "critical"
+            and not _is_incomplete_cut_residual(f)
+        ]
+        if softenable:
+            report["critical_residuals_softened"] = True
+            report["critical_residual_soft_reason"] = (
+                "commitment_committed_and_feel_soft_pass_after_budget"
+            )
+            for finding in softenable:
                 finding["severity"] = "warning"
                 finding["e2e_softened"] = True
-        critical_left = []
+        # Incomplete mid-clause residuals stay critical — cut_integrity must fail.
+        critical_left = [
+            f
+            for f in residual_findings
+            if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
+        ]
+        if critical_left:
+            blocking_reasons.append("critical_incomplete_cut_residuals")
     # unavailable after retry is a blocking quality signal.
     if audit.get("verdict") == "unavailable":
         report["feel_audit_unavailable"] = True

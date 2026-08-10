@@ -122,6 +122,20 @@ def test_paths_placeholders_and_unsupported_names_are_rejected() -> None:
     assert any(v.startswith("spoken_unsupported_entity") for v in violations)
 
 
+def test_discourse_markers_are_not_unsupported_entities() -> None:
+    violations = spoken_copy_violations(
+        "Alright, what changed after the team locked the deal?",
+        evidence={
+            "strict_grounding": True,
+            "before_excerpt": "the team locked the deal",
+            "after_excerpt": "what came next for the brand",
+            "before_topic": "deal close",
+            "after_topic": "brand next steps",
+        },
+    )
+    assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
+
+
 def test_stale_script_hash_rejects_generated_wav(
     tmp_path, monkeypatch
 ) -> None:

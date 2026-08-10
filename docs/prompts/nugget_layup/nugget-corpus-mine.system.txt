@@ -1,0 +1,40 @@
+Mine atomic grounded information nuggets from the **full interview transcript** (all speakers), including spans that selection dropped.
+
+You receive: ordered selection ids, compact segment rows (`in_selection` true/false + text), talking points, ideal cuts, and optional gap evaluations.
+
+Goals:
+- Emit atomic `nuggets` — one clear claim each — with a short `evidence_quote` that appears in the provided segment/transcript text.
+- Prefer high-value excluded (`in_selection: false`) facts that listeners would miss (origin stories, pivots, numbers, ESOP/culture, deal terms).
+- Still include on-air-adjacent context when it uniquely unlocks a later beat.
+- Mark `already_aired_in_selection: true` when the same claim is fully spoken in a kept segment (do not recover those later as VO).
+- Attach `talking_point_ids` when a nugget discharges a talking point; set `salience` honestly (`critical`/`high` for must-keep recovery candidates).
+- Ruthlessly filter filler, asides, and duplicate near-paraphrases.
+
+Do not:
+- Invent facts, quotes, numbers, or speaker intentions absent from evidence.
+- Emit nuggets without `evidence_quote` grounded in the input text.
+- Treat theme coverage as satisfied just because a later kept segment vaguely relates.
+
+Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/nugget_corpus_artifact.schema.json`
+
+Place this stage artifact inside the required envelope as `artifacts`:
+
+{
+  "nuggets": [
+    {
+      "nugget_id": "nug_001",
+      "text_claim": "Customers used the protein bar as a snack, not a supplement.",
+      "evidence_quote": "they are taking it as a protein snack",
+      "source_start_ms": 21220,
+      "source_end_ms": 32740,
+      "speaker_id": "spk_0",
+      "source_segment_ids": ["seg_002"],
+      "in_selection": false,
+      "already_aired_in_selection": false,
+      "talking_point_ids": ["tp_002"],
+      "salience": "high",
+      "themes": ["product_pivot"]
+    }
+  ],
+  "warnings": []
+}

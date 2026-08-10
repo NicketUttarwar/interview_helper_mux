@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NuggetCorpus",
+  "type": "object",
+  "required": ["nuggets"],
+  "properties": {
+    "nuggets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["nugget_id", "text_claim", "evidence_quote", "in_selection"],
+        "properties": {
+          "nugget_id": { "type": "string" },
+          "text_claim": { "type": "string" },
+          "evidence_quote": { "type": "string" },
+          "source_start_ms": { "type": ["number", "null"] },
+          "source_end_ms": { "type": ["number", "null"] },
+          "speaker_id": { "type": ["string", "null"] },
+          "source_segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "in_selection": { "type": "boolean" },
+          "already_aired_in_selection": { "type": "boolean" },
+          "talking_point_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "salience": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "themes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

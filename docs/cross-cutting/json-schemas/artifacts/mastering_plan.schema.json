@@ -205,9 +205,93 @@
           "summary_replace_setup",
           "cold_open_then_body",
           "act_preface_blocks",
-          "interleaved_bridges"
+          "interleaved_bridges",
+          "information_package_then_block"
         ]
       }
+    },
+    "information_packages": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "package_id",
+          "after_segment_id",
+          "before_segment_ids",
+          "music",
+          "vo",
+          "why_package_required",
+          "evidence_refs",
+          "confidence"
+        ],
+        "properties": {
+          "package_id": { "type": "string" },
+          "after_segment_id": { "type": "string" },
+          "before_segment_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "music": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "vo": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "new_information_claim": { "type": "string" },
+          "why_package_required": { "type": "string" },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "gate_scores": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "episode_close": {
+      "type": "object",
+      "required": ["music", "rationale", "evidence_refs", "confidence"],
+      "properties": {
+        "music": {
+          "type": "object",
+          "required": ["required", "role"],
+          "properties": {
+            "required": { "type": "boolean" },
+            "role": {
+              "type": "string",
+              "const": "theme_outro"
+            },
+            "placement": { "type": "string" },
+            "fade_out": { "type": "string" },
+            "fade_out_ms": { "type": "integer", "minimum": 0 },
+            "may_underscore_last_native_tail": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "rationale": { "type": "string" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": true
     },
     "plan_status": {
       "type": "string",

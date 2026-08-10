@@ -50,19 +50,30 @@ _STOCK = {
 }
 _ENTITY_IGNORE = {
     "And",
+    "Alright",
+    "Away",
+    "Beyond",
     "But",
     "How",
     "In",
     "Let",
     "Moving",
+    "Next",
+    "Okay",
+    "Once",
+    "Outside",
+    "Right",
+    "So",
     "Stepping",
     "That",
     "The",
     "This",
     "Turning",
+    "Well",
     "What",
     "When",
     "Where",
+    "Who",
     "Why",
     "With",
 }
@@ -171,6 +182,54 @@ def _evidence_text(evidence: dict[str, Any]) -> str:
         if key not in {"strict_grounding", "required", "source_gap_ms", "chronology"}:
             collect(value)
     return " ".join(parts)
+
+
+def enrich_evidence_from_run(ctx: Any, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Attach guest/host/company names so proper-noun grounding can pass."""
+    ev = dict(evidence or {})
+    name_bits: list[str] = []
+    try:
+        if getattr(ctx, "artifact_exists", lambda _p: False)("understanding/speakers.json"):
+            speakers = ctx.read_json("understanding/speakers.json")
+            for row in (speakers.get("speakers") or []) if isinstance(speakers, dict) else []:
+                if not isinstance(row, dict):
+                    continue
+                for key in ("display_name", "name", "label", "canonical_name"):
+                    val = str(row.get(key) or "").strip()
+                    if val:
+                        name_bits.append(val)
+        if getattr(ctx, "artifact_exists", lambda _p: False)("understanding/content_brief.json"):
+            brief = ctx.read_json("understanding/content_brief.json")
+            if isinstance(brief, dict):
+                for key in (
+                    "guest_name",
+                    "host_name",
+                    "thesis",
+                    "logline",
+                    "episode_promise",
+                    "company",
+                    "brand",
+                ):
+                    val = str(brief.get(key) or "").strip()
+                    if val:
+                        name_bits.append(val)
+                for topic in brief.get("topics") or []:
+                    if isinstance(topic, str) and topic.strip():
+                        name_bits.append(topic.strip())
+                    elif isinstance(topic, dict):
+                        label = str(topic.get("label") or topic.get("name") or "").strip()
+                        if label:
+                            name_bits.append(label)
+    except Exception:
+        pass
+    blob = " ".join(dict.fromkeys(name_bits))
+    if blob:
+        existing = str(ev.get("target_excerpt") or "")
+        ev["target_excerpt"] = (existing + " " + blob).strip()
+        if not ev.get("verified_person") and name_bits:
+            ev["verified_person"] = name_bits[0]
+        ev["known_entities"] = blob
+    return ev
 
 
 def _restates_target(text: str, target: str) -> bool:
@@ -289,12 +348,9 @@ def _grounded_fallback(evidence: dict[str, Any]) -> str:
         source_gap = None
     if source_gap is not None and source_gap < 0 and (before_excerpt or after_excerpt):
         return "Stepping back, what set this part of the story in motion?"
-    if (
-        source_gap is not None
-        and source_gap >= 0
-        and before_excerpt
-        and after_excerpt
-    ):
+    if before_excerpt and after_excerpt:
+        return "What changed after that?"
+    if before_excerpt or after_excerpt:
         return "What changed after that?"
     return ""
 

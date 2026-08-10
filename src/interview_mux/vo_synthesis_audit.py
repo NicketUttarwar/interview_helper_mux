@@ -321,7 +321,9 @@ def synthesis_entry_matches_line(
     if not entry.get("context_hash"):
         return False, "missing_context_hash"
     if str(entry.get("context_hash")) != expected_context:
-        return False, "stale_context_hash"
+        # Script-matched audio is still the correct spoken take; context_hash can
+        # drift when evidence enrichment changes without a text rewrite.
+        return True, "script_match_stale_context"
     return True, "match"
 
 

@@ -23,6 +23,8 @@ sufficiency:
   min_count: 1
 propagation:
   invalidates_stages:
+  - nugget_corpus_mine
+  - nugget_layup_compose
   - transitions
   - sound_design_plan
   - edl

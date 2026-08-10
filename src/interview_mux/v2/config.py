@@ -45,6 +45,10 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
+    # Nugget Layup System: full-tape mine → per-native before-VO (authoritative gap_report).
+    "nugget_corpus_mine",
+    "information_package_plan",
+    "nugget_layup_compose",
     # Slim Pass-2: agenda + gap recompose + framing apply only (no-op *_refine removed).
     "refinement_agenda",
     "gap_framing_recompose",
@@ -85,6 +89,8 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "nugget_corpus_mine",
+        "nugget_layup_compose",
         "synthetic_framing_plan",
         "transitions",
         "sound_design_plan",

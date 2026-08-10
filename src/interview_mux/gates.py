@@ -378,6 +378,9 @@ _DELIVERY_ORDER = (
     "topic_coverage_audit",
     "narrative_arc_plan",
     "full_master_ranking",
+    "nugget_corpus_mine",
+    "information_package_plan",
+    "nugget_layup_compose",
     "refinement_agenda",
     "gap_framing_recompose",
     "selection_framing_apply",
@@ -667,7 +670,7 @@ def require_g_publish_clear(ctx: RunContext, *, stage: str) -> None:
             ctx,
             "G-Publish pending — prepare a local episode package "
             "(POST …/g-publish/continue) or skip (POST …/g-publish/skip). "
-            "S3 upload is a separate sync (POST …/g-publish/sync).",
+            "S3 upload is a separate this-run sync (POST …/g-publish/sync).",
             stage=stage,
         )
 

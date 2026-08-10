@@ -510,11 +510,11 @@ def main() -> int:
 
     run = api("GET", f"/api/runs/{run_id}")
     master = run.get("meta", {}).get("master_path") or "master/master.wav"
-    # Push local publish/ package to S3/RSS (same ship bar as baba e2e).
+    # Push this run's publish/ package to S3/RSS only (same ship bar as baba e2e).
     try:
         from interview_mux.podcast_rss.sync_assets import sync_ready_packages
 
-        sync = sync_ready_packages(dry_run=False, force_files=False)
+        sync = sync_ready_packages(dry_run=False, force_files=False, execution_id=run_id)
         hits = [
             row
             for row in (sync.uploaded or [])

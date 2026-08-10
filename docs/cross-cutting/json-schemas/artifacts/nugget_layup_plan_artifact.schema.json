@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NuggetLayupPlan",
+  "type": "object",
+  "required": ["layups", "ordered_segment_ids"],
+  "properties": {
+    "ordered_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "layups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target_segment_id"],
+        "properties": {
+          "target_segment_id": { "type": "string" },
+          "line_id": { "type": ["string", "null"] },
+          "text": { "type": ["string", "null"] },
+          "nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "why_relevant_to_target": { "type": ["string", "null"] },
+          "forward_cue_ok": { "type": "boolean" },
+          "word_count": { "type": ["integer", "null"] },
+          "skip": { "type": "boolean" },
+          "skip_reason_code": { "type": ["string", "null"] },
+          "talking_point_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "discharged_talking_point_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "open_talking_point_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "discharged_nugget_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "open_high_salience_nugget_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "waived_nugget_ids": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "nugget_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

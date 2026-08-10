@@ -16,12 +16,13 @@ interface GPublishPayload {
   ready_package_count?: number;
   already_uploaded_count?: number;
   incomplete_count?: number;
+  execution_id?: string;
   publish_result?: Record<string, unknown>;
   last_sync?: Record<string, unknown>;
   sync_job?: Record<string, unknown>;
 }
 
-/** Ship gate: prepare local package + sync ready ASSETS packages to The War Room RSS. */
+/** Ship gate: prepare local package + upload this run only to The War Room RSS. */
 export function GPublishPanel() {
   const { runId, refreshRun, appendClientLog, showToast } = useApp();
   const [payload, setPayload] = useState<GPublishPayload | null>(null);
@@ -57,6 +58,8 @@ export function GPublishPanel() {
   const syncRunning = syncJob.status === "running";
   const readyCount = Number(payload.ready_package_count || 0);
   const uploadedCount = Number(payload.already_uploaded_count || 0);
+  const thisRunReady = readyCount >= 1;
+  const thisRunUploaded = uploadedCount >= 1;
 
   const prepare = async () => {
     setBusy(true);
@@ -86,7 +89,7 @@ export function GPublishPanel() {
     }
   };
 
-  const syncAll = async () => {
+  const syncThisRun = async () => {
     setBusy(true);
     try {
       await api<{ ok?: boolean; started?: boolean }>(`/api/runs/${runId}/g-publish/sync`, {
@@ -95,13 +98,13 @@ export function GPublishPanel() {
         body: JSON.stringify({}),
       });
       appendClientLog(
-        "G-Publish — syncing all ready ASSETS packages to S3",
+        "G-Publish — uploading this run's package to S3",
         "action",
         "podcast_publish",
         "gui.g_publish.sync",
       );
       reload();
-      showToast("Uploading ready packages to S3 (additive, no deletes)", "success");
+      showToast("Uploading this run to S3 (additive, no deletes, this execution only)", "success");
     } catch (err) {
       showToast(String(err), "error");
     } finally {
@@ -126,15 +129,20 @@ export function GPublishPanel() {
   return (
     <GatePanelShell title="G-Publish — The War Room RSS">
       <p className="hint">
-        Mastering is separate from RSS. Prepare a local package for this run, then upload all ready
-        packages under ASSETS to {payload.show_title ?? "The War Room"} (S3 + CloudFront). Sync never
-        deletes remote files and skips executions already on S3.
+        Mastering is separate from RSS. Prepare a local package for this run, then upload only this
+        run&apos;s complete package to {payload.show_title ?? "The War Room"} (S3 + CloudFront). Sync
+        never deletes remote files, never uploads other executions, and skips if this run is already
+        on S3.
       </p>
       <p className="hint">
-        Ready to upload: {readyCount} · Already on S3: {uploadedCount}
-        {typeof payload.incomplete_count === "number" && payload.incomplete_count > 0
-          ? ` · Incomplete (master only): ${payload.incomplete_count}`
-          : null}
+        This run:{" "}
+        {thisRunUploaded
+          ? "already on S3"
+          : thisRunReady
+            ? "ready to upload"
+            : payload.incomplete_count
+              ? "package incomplete"
+              : "not ready"}
       </p>
       {feedUrl ? (
         <p className="hint">
@@ -172,10 +180,10 @@ export function GPublishPanel() {
         <button
           type="button"
           className="btn sm primary"
-          disabled={busy || syncRunning || readyCount < 1}
-          onClick={() => void syncAll()}
+          disabled={busy || syncRunning || !thisRunReady}
+          onClick={() => void syncThisRun()}
         >
-          {syncRunning ? "Uploading…" : "Upload all ready packages to S3"}
+          {syncRunning ? "Uploading…" : "Upload this run to S3"}
         </button>
         {payload.pending ? (
           <button type="button" className="btn sm ghost" disabled={busy || syncRunning} onClick={() => void skip()}>

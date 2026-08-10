@@ -114,6 +114,44 @@ def _validate_no_overlapping_speech(clips: list[Any]) -> list[str]:
     return errors
 
 
+def _validate_no_overlapping_source_ranges(clips: list[Any]) -> list[str]:
+    """Fail when speech clips share intersecting source media ranges.
+
+    Timeline-adjacent speech can still loop in the listener's ear when junction
+    extends push one clip's source_end into the next keep's source_start.
+    """
+    errors: list[str] = []
+    speech: list[tuple[int, dict[str, Any]]] = []
+    for index, clip in enumerate(clips):
+        if not isinstance(clip, dict) or clip.get("type") != "speech":
+            continue
+        try:
+            ss = int(clip.get("source_start_ms", 0))
+            se = int(clip.get("source_end_ms", ss))
+        except (TypeError, ValueError):
+            continue
+        if se <= ss:
+            continue
+        speech.append((index, clip))
+
+    for i in range(len(speech)):
+        idx_a, clip_a = speech[i]
+        ss_a = int(clip_a.get("source_start_ms", 0))
+        se_a = int(clip_a.get("source_end_ms", ss_a))
+        label_a = clip_a.get("segment_id") or f"clips[{idx_a}]"
+        for j in range(i + 1, len(speech)):
+            idx_b, clip_b = speech[j]
+            ss_b = int(clip_b.get("source_start_ms", 0))
+            se_b = int(clip_b.get("source_end_ms", ss_b))
+            if ss_a < se_b and ss_b < se_a:
+                label_b = clip_b.get("segment_id") or f"clips[{idx_b}]"
+                errors.append(
+                    f"Overlapping source range: {label_a} "
+                    f"[{ss_a},{se_a}ms) intersects {label_b} [{ss_b},{se_b}ms)"
+                )
+    return errors
+
+
 def _validate_timeline_monotonic(edl: dict[str, Any], clips: list[Any]) -> list[str]:
     errors: list[str] = []
     prev_start: int | None = None
@@ -199,6 +237,7 @@ def validate_flow1_edl(
     valid_segments = _segment_ids_from_manifest(ctx)
     errors.extend(_validate_vo_line_ids(clips, gap_lines))
     errors.extend(_validate_no_overlapping_speech(clips))
+    errors.extend(_validate_no_overlapping_source_ranges(clips))
     errors.extend(_validate_timeline_monotonic(edl, clips))
     errors.extend(
         _validate_speech_clips(edl, clips, valid_segment_ids=valid_segments)

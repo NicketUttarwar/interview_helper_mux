@@ -83,7 +83,7 @@ python scripts/seed_podcast_origin.py
 ./scripts/run.sh
 ```
 
-Finish a pipeline → **G-Publish → Prepare package for this run** (local meta/cover/mp3 only). When ready, **Upload all ready packages to S3** (or `python scripts/sync_podcast_episodes.py`). Sync is additive and never deletes remote objects.
+Finish a pipeline → **G-Publish → Prepare package for this run** (local meta/cover/mp3 only). When ready, **Upload this run to S3** (or `python scripts/sync_podcast_episodes.py --execution-id …`). Sync uploads only that execution, is additive, and never deletes remote objects.
 
 Manual CloudFront recovery (boto3, no AWS CLI): `./scripts/invalidate_podcast_cf.sh`
 
@@ -104,7 +104,7 @@ scripts/bootstrap_venv.sh          # fresh env
 scripts/tf-*.sh                    # Terraform wrappers (podcast stack; updates terraform/state/)
 scripts/sync_podcast_tf_secrets.sh # outputs → PODCAST_* in secrets.env
 scripts/seed_podcast_origin.py     # seed feed.xml + show art (boto3)
-scripts/sync_podcast_episodes.py   # upload ready ASSETS packages (additive; no deletes)
+scripts/sync_podcast_episodes.py   # upload one execution (or --all for explicit bulk)
 scripts/invalidate_podcast_cf.sh   # CloudFront invalidation (boto3; no AWS CLI)
 scripts/run.sh                     # launch (MUX_BABA_E2E=1 for detached e2e)
 terraform/                         # S3 + CloudFront OAC (README + committed state/)

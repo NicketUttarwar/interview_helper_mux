@@ -1,4 +1,7 @@
-"""Scan ASSETS/executions for ready episode packages and upload to S3 (additive only).
+"""Upload ready episode packages from ASSETS/executions to S3 (additive only).
+
+App paths (GUI G-Publish, baba/e2e drivers) must pass ``execution_id`` so only the
+current run's complete ``publish/`` package is uploaded — never sibling executions.
 
 Never deletes remote objects. Skips executions already present in by_execution_id.
 """
@@ -153,8 +156,13 @@ def discover_ready_packages(
     *,
     exec_root: Path | None = None,
     by_execution_id: dict[str, Any] | None = None,
+    execution_id: str | None = None,
 ) -> tuple[list[ReadyPackage], list[str], list[str]]:
-    """Return (ready, already_uploaded_ids, incomplete_ids)."""
+    """Return (ready, already_uploaded_ids, incomplete_ids).
+
+    When ``execution_id`` is set, only that execution directory is considered —
+    sibling runs under ASSETS/executions are ignored.
+    """
     root = exec_root if exec_root is not None else executions_root()
     layout = s3_layout()
     files = layout["episode_files"]
@@ -166,16 +174,24 @@ def discover_ready_packages(
     if not root.is_dir():
         return ready, already, incomplete
 
-    for child in sorted(root.iterdir()):
+    if execution_id:
+        eid = str(execution_id).strip()
+        if not eid or not is_product_execution_dir(eid):
+            return ready, already, incomplete
+        children = [root / eid]
+    else:
+        children = sorted(root.iterdir())
+
+    for child in children:
         if not child.is_dir() or not is_product_execution_dir(child.name):
             continue
-        execution_id = child.name
+        eid = child.name
         publish_dir = child / "publish"
-        if execution_id in known:
-            already.append(execution_id)
+        if eid in known:
+            already.append(eid)
             continue
         if not package_is_complete(publish_dir, layout=layout):
-            incomplete.append(execution_id)
+            incomplete.append(eid)
             continue
         run_meta = _read_json(child / "run_meta.json")
         episode_meta = _read_json(publish_dir / "episode_meta.json")
@@ -198,7 +214,7 @@ def discover_ready_packages(
         )
         ready.append(
             ReadyPackage(
-                execution_id=execution_id,
+                execution_id=eid,
                 run_dir=child,
                 publish_dir=publish_dir,
                 source_audio_hash=source_hash,
@@ -252,13 +268,35 @@ def sync_ready_packages(
     dry_run: bool = False,
     force_files: bool = False,
     exec_root: Path | None = None,
+    execution_id: str | None = None,
+    all_ready: bool = False,
 ) -> SyncResult:
-    """Upload all complete local packages not yet in the S3 execution catalog.
+    """Upload complete local package(s) not yet in the S3 execution catalog.
+
+    Pass ``execution_id`` to upload only that run (required for GUI / e2e).
+    Pass ``all_ready=True`` only for explicit bulk CLI sync of every ready package.
 
     Never deletes S3 objects. One feed rebuild + one CloudFront invalidation at end
     when any new episode was uploaded.
     """
     result = SyncResult(dry_run=dry_run)
+    eid = str(execution_id or "").strip() or None
+    if not eid and not all_ready:
+        result.errors.append(
+            {
+                "error": (
+                    "sync_ready_packages requires execution_id=... "
+                    "(current run only) or all_ready=True (explicit bulk)"
+                )
+            }
+        )
+        return result
+    if eid and all_ready:
+        result.errors.append(
+            {"error": "Pass either execution_id or all_ready=True, not both"}
+        )
+        return result
+
     cfg = podcast_cfg()
     if not bool(cfg.get("enabled", True)):
         result.errors.append({"error": "podcast.enabled is false"})
@@ -285,13 +323,17 @@ def sync_ready_packages(
     ready, already, incomplete = discover_ready_packages(
         exec_root=exec_root,
         by_execution_id=by_exec_raw if isinstance(by_exec_raw, dict) else {},
+        execution_id=eid,
     )
     root = exec_root if exec_root is not None else executions_root()
-    result.scanned = sum(
-        1
-        for child in (root.iterdir() if root.is_dir() else [])
-        if child.is_dir() and is_product_execution_dir(child.name)
-    )
+    if eid:
+        result.scanned = 1 if (root / eid).is_dir() else 0
+    else:
+        result.scanned = sum(
+            1
+            for child in (root.iterdir() if root.is_dir() else [])
+            if child.is_dir() and is_product_execution_dir(child.name)
+        )
     result.ready = len(ready)
     result.skipped_already_uploaded = list(already)
     result.skipped_incomplete = list(incomplete)
@@ -491,15 +533,24 @@ def sync_ready_packages(
     return result
 
 
-def sync_status_summary(*, exec_root: Path | None = None) -> dict[str, Any]:
-    """Counts for GUI without uploading (uses local discovery + optional remote catalog)."""
+def sync_status_summary(
+    *,
+    exec_root: Path | None = None,
+    execution_id: str | None = None,
+) -> dict[str, Any]:
+    """Counts for GUI without uploading (uses local discovery + optional remote catalog).
+
+    When ``execution_id`` is set, counts apply only to that run (never sibling executions).
+    """
     cfg = podcast_cfg()
+    eid = str(execution_id or "").strip() or None
     if not bool(cfg.get("enabled", True)):
         return {
             "enabled": False,
             "ready_package_count": 0,
             "already_uploaded_count": 0,
             "incomplete_count": 0,
+            "execution_id": eid,
             "last_sync": read_last_sync_result(),
         }
     by_exec: dict[str, Any] = {}
@@ -516,6 +567,7 @@ def sync_status_summary(*, exec_root: Path | None = None) -> dict[str, Any]:
     ready, already, incomplete = discover_ready_packages(
         exec_root=exec_root,
         by_execution_id=by_exec if isinstance(by_exec, dict) else {},
+        execution_id=eid,
     )
     return {
         "enabled": True,
@@ -523,5 +575,6 @@ def sync_status_summary(*, exec_root: Path | None = None) -> dict[str, Any]:
         "already_uploaded_count": len(already),
         "incomplete_count": len(incomplete),
         "ready_execution_ids": [p.execution_id for p in ready],
+        "execution_id": eid,
         "last_sync": read_last_sync_result(),
     }

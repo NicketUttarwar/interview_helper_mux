@@ -195,9 +195,18 @@ def build_flow1_edl(
     vo_relpath: Callable[[Path], str] | None = None,
     vo_duration_ms: Callable[[Path], int] | None = None,
     resolve_transition_path: Callable[[str, str], Path | None] | None = None,
+    ideal_cuts: dict | list | None = None,
+    transcript_words: list | None = None,
+    max_keeper_ms: int | None = None,
 ) -> dict:
-    """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors."""
+    """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors.
+
+    When ``ideal_cuts`` / ``transcript_words`` are provided, speech clips use
+    tightened air bounds (ideal window + complete-thought trim) instead of the
+    full coarse segment slab.
+    """
     from interview_mux.listenability_guards import air_pad_ms, listenability_guards_cfg
+    from interview_mux.ideal_cuts import resolve_keeper_air_bounds
 
     ordered = list(selection.get("ordered_segment_ids") or [])
     clips: list[dict] = []
@@ -208,6 +217,14 @@ def build_flow1_edl(
     missing_segments: list[str] = []
     missing_transitions: list[str] = []
     air_cfg = listenability_guards_cfg()
+    words = [w for w in (transcript_words or []) if isinstance(w, dict)]
+    if max_keeper_ms is None:
+        try:
+            from interview_mux.ideal_cuts import ideal_cuts_cfg
+
+            max_keeper_ms = int(ideal_cuts_cfg().get("max_cut_ms") or 180_000)
+        except Exception:
+            max_keeper_ms = 180_000
 
     def _append_air(kind: str, ref_dur: int) -> None:
         nonlocal timeline_ms
@@ -359,7 +376,18 @@ def build_flow1_edl(
                 else:
                     _append_air("after_vo", dur)
 
-        speech_dur = int(seg["end_ms"]) - int(seg["start_ms"])
+        speech_start = int(seg["start_ms"])
+        speech_end = int(seg["end_ms"])
+        if ideal_cuts is not None or words:
+            speech_start, speech_end = resolve_keeper_air_bounds(
+                source_start_ms=speech_start,
+                source_end_ms=speech_end,
+                cuts_doc=ideal_cuts if isinstance(ideal_cuts, (dict, list)) else None,
+                words=words or None,
+                segment_id=str(sid),
+                max_keep_ms=max_keeper_ms,
+            )
+        speech_dur = max(0, speech_end - speech_start)
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
@@ -367,8 +395,8 @@ def build_flow1_edl(
         clips.append(
             {
                 "segment_id": sid,
-                "source_start_ms": seg["start_ms"],
-                "source_end_ms": seg["end_ms"],
+                "source_start_ms": speech_start,
+                "source_end_ms": speech_end,
                 "timeline_start_ms": timeline_ms,
                 "duration_ms": speech_dur,
                 "type": "speech",
@@ -574,6 +602,12 @@ def run_edl(ctx: RunContext) -> None:
         ctx.write_json("master/selection.json", selection)
 
         soft = bool(_nle_ops(nle))
+        try:
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            if bool((meta or {}).get("e2e_soft_junction_residuals")):
+                soft = True
+        except Exception:
+            pass
         _bridges, transitions, completeness = ensure_seam_glue(
             ctx,
             ordered=ordered,
@@ -584,7 +618,7 @@ def run_edl(ctx: RunContext) -> None:
         )
         if soft and not completeness.get("complete"):
             ctx.log(
-                f"bridge_completeness soft (NLE overlay): "
+                f"bridge_completeness soft: "
                 f"{completeness.get('missing_count')} missing — shipping",
                 level="warning",
                 stage="edl",
@@ -613,7 +647,9 @@ def run_edl(ctx: RunContext) -> None:
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         from interview_mux.order_hash import stamp_order_hash
+        from interview_mux.ideal_cuts import load_air_bound_inputs
 
+        ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
         edl = build_flow1_edl(
             selection=selection,
             segments_by_id=by_id,
@@ -622,6 +658,8 @@ def run_edl(ctx: RunContext) -> None:
             resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
             vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
             resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
+            ideal_cuts=ideal_cuts_doc,
+            transcript_words=transcript_words,
         )
         edl = stamp_order_hash(edl)
         try:

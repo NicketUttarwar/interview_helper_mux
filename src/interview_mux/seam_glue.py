@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -155,16 +156,81 @@ def bridge_guard_evidence(pair: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def default_bridge_text(pair: dict[str, Any]) -> str:
+def default_bridge_text(
+    pair: dict[str, Any],
+    *,
+    used_texts: set[str] | frozenset[str] | None = None,
+) -> str:
     """Deterministic listener-facing hinge with no internal metadata.
 
     Do **not** embed the next native excerpt ("And then—{before_excerpt}").
     Prefer topic labels when available. Otherwise use a semantic relative hinge;
     segment IDs are edit metadata and must never be spoken.
+
+    When ``used_texts`` is provided, walk the hinge menu from the hash index
+    until an unused line is found so adjacent seams don't collide.
     """
     from interview_mux.spoken_copy_guard import grounded_fallback_for_evidence
 
-    return grounded_fallback_for_evidence(bridge_guard_evidence(pair))
+    fallback = grounded_fallback_for_evidence(bridge_guard_evidence(pair))
+    generic_relative = {
+        "Stepping back, what set this part of the story in motion?",
+        "What changed after that?",
+    }
+    if fallback not in generic_relative:
+        return fallback
+    # Reverse-order joins without topic labels previously all received the same
+    # stock sentence, so three or more seams failed bridge completeness. Keep
+    # the language chronology-safe while deterministically varying it per pair.
+    reverse_hinges = (
+        "What had shaped the decision by that point?",
+        "How had the story reached that turn?",
+        "At that earlier point, what was already changing?",
+        "What had set that choice in motion?",
+        "At that stage, what mattered most?",
+        "How had things shifted before that moment?",
+        "What context had led to that point?",
+        "At the outset, what was driving the change?",
+        "What had already changed by then?",
+        "How had that situation taken shape?",
+        "At that point, what was guiding the choice?",
+        "What had brought events to that moment?",
+    )
+    forward_hinges = (
+        "What shifted from there?",
+        "How did that shape what followed?",
+        "What changed at that point?",
+        "How did the situation develop from there?",
+        "What became possible from that point?",
+        "How did that decision change the course?",
+        "What did that set in motion?",
+        "Where did the story turn from there?",
+        "How did events move forward from that point?",
+        "What changed once that was in place?",
+        "How did that lead into the later decision?",
+        "What did that moment make possible?",
+    )
+    pair_key = (
+        f"{pair.get('after_segment_id') or pair.get('after_id') or ''}->"
+        f"{pair.get('before_segment_id') or pair.get('before_id') or ''}"
+    )
+    index = int(hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:8], 16)
+    try:
+        reverse = int(pair.get("source_gap_ms") or 0) < 0
+    except (TypeError, ValueError):
+        reverse = False
+    hinges = reverse_hinges if reverse else forward_hinges
+    used_norm = {
+        " ".join(str(t or "").strip().lower().split())
+        for t in (used_texts or set())
+        if str(t or "").strip()
+    }
+    for offset in range(len(hinges)):
+        candidate = hinges[(index + offset) % len(hinges)]
+        norm = " ".join(candidate.strip().lower().split())
+        if norm not in used_norm:
+            return candidate
+    return hinges[index % len(hinges)]
 
 
 def is_chapter_scale_pair(pair: dict[str, Any]) -> bool:
@@ -207,6 +273,20 @@ def mint_missing_transitions(
         )
         for t in items
     }
+    used_bridge_texts: set[str] = {
+        str(t.get("text") or "").strip()
+        for t in items
+        if str(t.get("text") or "").strip()
+    }
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        gr_early = ctx.read_json("understanding/gap_report.json")
+        if isinstance(gr_early, dict):
+            for ln in gr_early.get("interviewer_lines") or []:
+                if not isinstance(ln, dict) or ln.get("skipped_optional"):
+                    continue
+                txt = str(ln.get("text") or "").strip()
+                if txt:
+                    used_bridge_texts.add(txt)
 
     synthetic_plan = (
         ctx.read_json("understanding/synthetic_framing_plan.json")
@@ -238,6 +318,12 @@ def mint_missing_transitions(
         else None
     )
     from interview_mux.gap_framing import transition_redundant_with_framing
+    from interview_mux.nugget_layup import gap_has_layup_before, nugget_layup_cfg, nugget_layup_enabled
+
+    suppress_when_layup = bool(
+        nugget_layup_enabled()
+        and nugget_layup_cfg().get("suppress_placeholder_seams_when_layup", True)
+    )
 
     for pair in missing:
         if not isinstance(pair, dict):
@@ -249,6 +335,10 @@ def mint_missing_transitions(
             continue
         if transition_redundant_with_framing(gap_report, a, b):
             continue
+        # Contentful lay-up before the next native already covers the seam.
+        if suppress_when_layup and gap_has_layup_before(gap_report if isinstance(gap_report, dict) else None, b):
+            existing.add((a, b))
+            continue
         planned = planned_transition_for_pair(synthetic_plan, a, b)
         if not planned:
             # Prefer pair-aware default glue over aborting remaster. The canned
@@ -258,7 +348,7 @@ def mint_missing_transitions(
                 text = CANNED_BRIDGE_TEXT
                 canned = True
             else:
-                text = default_bridge_text(pair)
+                text = default_bridge_text(pair, used_texts=used_bridge_texts)
                 canned = False
                 unplanned.append(f"{a}->{b}")
             decision = assert_guarded_spoken_copy(
@@ -287,6 +377,8 @@ def mint_missing_transitions(
                     "source_gap_ms": pair.get("source_gap_ms"),
                 }
             )
+            if text.strip():
+                used_bridge_texts.add(text.strip())
             existing.add((a, b))
             minted += 1
             continue
@@ -317,6 +409,8 @@ def mint_missing_transitions(
                 },
             }
         )
+        if text.strip():
+            used_bridge_texts.add(text.strip())
         existing.add((a, b))
         minted += 1
 

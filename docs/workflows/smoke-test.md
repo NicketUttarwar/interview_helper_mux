@@ -168,7 +168,7 @@ When validating Ship + feed hosting on a fresh machine:
 ./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
 python scripts/seed_podcast_origin.py
 # After a master: G-Publish prepare, then
-python scripts/sync_podcast_episodes.py --dry-run
+python scripts/sync_podcast_episodes.py --execution-id "$RUN_ID" --dry-run
 ```
 
 See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terraform/README.md](../../terraform/README.md). Session restore: `./scripts/tf-plan.sh --use-session`.

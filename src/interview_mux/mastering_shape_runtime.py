@@ -319,6 +319,8 @@ def _plan_from_candidate(
     provisional_mode: str | None = None,
     degradation_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
+    from interview_mux.information_packages import default_episode_close
+
     mode = str(cand.get("narrative_mode") or "sparse_source")
     grammar = list(cand.get("montage_grammar") or [])
     grammar = [g for g in grammar if g in GRAMMAR_MOVES]
@@ -338,6 +340,8 @@ def _plan_from_candidate(
             "evidence_refs": ["mastering/shape/candidates.json"],
             "confidence": 0.65,
         },
+        "information_packages": [],
+        "episode_close": default_episode_close(),
         "decisions": [
             {
                 "id": "narrative_mode",
@@ -442,6 +446,10 @@ def run_mastering_plan_confirm(ctx: RunContext) -> None:
         # Preserve provisional order when confirm rebuilds from mode-only cand
         if isinstance(prev.get("ordered_segment_ids"), list) and prev.get("ordered_segment_ids"):
             plan["ordered_segment_ids"] = list(prev["ordered_segment_ids"])
+        if isinstance(prev.get("information_packages"), list):
+            plan["information_packages"] = list(prev["information_packages"])
+        if isinstance(prev.get("episode_close"), dict):
+            plan["episode_close"] = dict(prev["episode_close"])
         from interview_mux.shape_order_emit import attach_shape_order
 
         plan = attach_shape_order(ctx, plan)

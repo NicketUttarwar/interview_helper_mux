@@ -80,11 +80,13 @@ PHASES: list[dict[str, Any]] = [
     {
         "id": "plan_rank",
         "label": "Plan & rank",
-        "description": "Coverage + narrative (deterministic when cuts bound), ranking, gap recompose.",
+        "description": "Coverage + narrative, ranking, nugget layups, gap recompose.",
         "stages": [
             "topic_coverage_audit",
             "narrative_arc_plan",
             "full_master_ranking",
+            "nugget_corpus_mine",
+            "nugget_layup_compose",
             "refinement_agenda",
             "gap_framing_recompose",
             "selection_framing_apply",

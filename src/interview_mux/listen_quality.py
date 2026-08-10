@@ -288,6 +288,41 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
                 "message": "cold-open music cue declared but no theme_cold_open asset role",
             }
         )
+    # Required episode close: theme_outro cue must exist when config/plan requires music.
+    require_outro = True
+    try:
+        from interview_mux.information_packages import information_packages_cfg
+
+        require_outro = bool(
+            (information_packages_cfg().get("episode_close") or {}).get("require_music", True)
+        )
+    except Exception:
+        require_outro = True
+    has_outro_cue = any(
+        isinstance(c, dict)
+        and not c.get("skip")
+        and (
+            str(c.get("role") or "") == "theme_outro"
+            or "outro" in str(c.get("cue_id") or "").lower()
+        )
+        for c in cues
+    )
+    if require_outro and "theme_outro" not in roles and not has_outro_cue:
+        issues.append(
+            {
+                "code": "missing_episode_close_outro",
+                "severity": "error",
+                "message": "episode_close requires a theme_outro cue after the last native",
+            }
+        )
+    elif require_outro and "theme_outro" in roles and not has_outro_cue:
+        issues.append(
+            {
+                "code": "missing_episode_close_outro_cue",
+                "severity": "error",
+                "message": "theme_outro asset present but no after-last-native outro cue",
+            }
+        )
     return issues
 
 

@@ -52,18 +52,53 @@ def test_split_backchannel_turns_isolates_host_affirmation():
 
 
 def test_enforce_max_segment_duration_splits_long_span():
-    transcript = {
-        "words": [
-            {"text": f"w{i}", "speaker_id": "spk_1", "start_ms": i * 1000, "end_ms": i * 1000 + 900}
-            for i in range(120)
-        ]
-    }
+    # Long pauses after complete sentences so splits stay sentence-safe.
+    words = []
+    t = 0
+    i = 0
+    while t < 120_000:
+        words.append(
+            {
+                "text": f"word{i}.",
+                "speaker_id": "spk_1",
+                "start_ms": t,
+                "end_ms": t + 400,
+            }
+        )
+        t += 400
+        # ≥1s pause between sentences → complete-thought hinge
+        t += 1200
+        i += 1
+    transcript = {"words": words}
     rows = [{"start_ms": 0, "end_ms": 120_000, "speaker_id": "spk_1"}]
     cfg = {"max_segment_duration_ms": 30_000, "min_segment_duration_ms": 4000}
     out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
     assert len(out) >= 3
     assert all(int(r["end_ms"]) - int(r["start_ms"]) <= 30_000 for r in out)
     assert any(a.get("action") == "enforce_max_duration" for a in actions)
+    assert not any(a.get("action") == "force_split_midpoint" for a in actions)
+
+
+def test_enforce_max_skips_midpoint_when_no_complete_hinge():
+    # Continuous speech with sub-pause gaps — must not invent a midpoint cut.
+    transcript = {
+        "words": [
+            {
+                "text": f"w{i}",
+                "speaker_id": "spk_1",
+                "start_ms": i * 200,
+                "end_ms": i * 200 + 180,
+            }
+            for i in range(400)
+        ]
+    }
+    rows = [{"start_ms": 0, "end_ms": 80_000, "speaker_id": "spk_1"}]
+    cfg = {"max_segment_duration_ms": 20_000, "min_segment_duration_ms": 4000}
+    out, actions = enforce_max_segment_duration(rows, transcript, cfg=cfg)
+    assert len(out) == 1
+    assert out[0].get("airable") is False
+    assert out[0].get("overlong_unsplit") is True
+    assert any(a.get("action") == "skip_midpoint_split" for a in actions)
 
 
 def test_detect_overloaded_segment_ids_by_duration_and_topics():

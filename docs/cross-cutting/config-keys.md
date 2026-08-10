@@ -108,6 +108,15 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.require_rationale` | `vo_value_violations` | Require non-empty `rationale` on each interviewer line (default **true**) |
 | `analysis.gap_framing.vo_value_gate.require_forward_cue` | `vo_value_violations` | Last sentence of every VO must unlock the next beat (default **true**) |
 | `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**) |
+| `analysis.nugget_layup.enabled` | `nugget_layup`, corpus/layup stages | Master switch for Nugget Layup System (default **true**) |
+| `analysis.nugget_layup.require_layup_per_native` | `evaluate_layup_qc` | Require a plan row per ordered native (default **true**) |
+| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.9**) |
+| `analysis.nugget_layup.min_layup_words` / `max_layup_words` | layup compose prompt budgets | Word bounds for each before-VO (defaults **18** / **90**) |
+| `analysis.nugget_layup.prefer_excluded_nuggets` | corpus/layup prompts | Prefer recovering off-air facts (default **true**) |
+| `analysis.nugget_layup.suppress_placeholder_seams_when_layup` | `seam_glue` | Skip canned seam mint when before-VO layup exists (default **true**) |
+| `analysis.nugget_layup.demote_synthetic_framing_content` | `synthetic_framing` | Skip contentful synthetic framing LLM under layup authority (default **true**) |
+| `analysis.nugget_layup.authoritative_gap_report` | `gap_framing_recompose` | Recompose becomes thin adapter when layup plan exists (default **true**) |
+| `analysis.nugget_layup.block_on_open_must_keep` | `assert_layup_qc_or_raise` | Fail compose when must_keep TPs remain open (default **true**) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
@@ -841,6 +850,12 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.shape.soft_gate.shadow_compare` | `true` | Writes `mastering/shadow_diff.json` comparing plan vs legacy structure proxy | `false` skips the observability diff — no behavior change |
 | `mastering.shape.soft_gate.consumers_bind` | `false` | Global switch downstream consumers would check before trusting Shape's emitted order | **Plan 6:** stays `false` until the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop (capability mutations → critics → auditions → Pareto → hard delight) end-to-end and `shape_order_bind.resolve_air_order` has shadow-compare evidence across a corpus. Per-run hybrid bind (`resolve_air_order`) already prefers Shape order when the plan is complete and `story_health` passes — this flag does not gate that; see `mastering-integration-backlog.md` H7 |
 | `mastering.shape.soft_gate.two_pass` | `true` | Pass1 provisional (pre-`missing_framing`) + Pass2 confirm (post-gap-eval) | `false` unused by current runtime; two-pass is the only shipped path |
+| `mastering.shape.information_packages.enable` | `true` | Mid-episode information package planner | `false` skips packages; does **not** disable episode_close |
+| `mastering.shape.information_packages.mode` | `shadow` | `shadow` / `commit_music_vo` / `commit_with_regroup` | Shadow audits only; commit modes bind plan + SDP/layup |
+| `mastering.shape.information_packages.max_per_episode` | `2` | Hard cap on committed packages | — |
+| `mastering.shape.information_packages.allow_regroup` | `false` | Phase-2 kept-native regroup | Keep false until order preflight tests pass |
+| `mastering.shape.episode_close.require_music` | `true` | Always seed `theme_outro` after last native | Independent of package mode |
+| `mastering.shape.episode_close.fade_out_ms` | `2200` | Gentle long outro fade | Mix also floors via `bookend_fade_out_ms` |
 | `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
 | `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
 | `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |

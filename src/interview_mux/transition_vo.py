@@ -46,6 +46,19 @@ def resolve_transition_wav(
             for row in ((manifest or {}).get("segments") or [])
             if isinstance(row, dict) and row.get("segment_id")
         }
+    from interview_mux.spoken_copy_guard import enrich_evidence_from_run
+
+    evidence = enrich_evidence_from_run(
+        ctx,
+        {
+            "before_excerpt": (by_id.get(after_id) or {}).get("text"),
+            "after_excerpt": (by_id.get(before_id) or {}).get("text"),
+            "before_topic": (by_id.get(after_id) or {}).get("topic"),
+            "after_topic": (by_id.get(before_id) or {}).get("topic"),
+            "source_gap_ms": item.get("source_gap_ms"),
+            "strict_grounding": True,
+        },
+    )
     line = {
         "line_id": _transition_line_id(after_id, before_id),
         "text": str(item.get("text") or ""),
@@ -53,16 +66,29 @@ def resolve_transition_wav(
         "placement": "after",
         "after_segment_id": after_id,
         "before_segment_id": before_id,
-        "before_excerpt": (by_id.get(after_id) or {}).get("text"),
-        "after_excerpt": (by_id.get(before_id) or {}).get("text"),
-        "before_topic": (by_id.get(after_id) or {}).get("topic"),
-        "after_topic": (by_id.get(before_id) or {}).get("topic"),
-        "source_gap_ms": item.get("source_gap_ms"),
+        **evidence,
     }
-    from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
+    from interview_mux.vo_synthesis_audit import (
+        synthesis_entry_for_line,
+        synthesis_entry_matches_line,
+    )
+    from interview_mux.spoken_copy_guard import script_hash
 
-    matches, _reason = synthesis_entry_matches_line(ctx, line)
-    return path if matches else None
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    if matches:
+        return path
+    # Context hash drifts when evidence enrichment / adjacent text changes
+    # without rewriting the spoken line. Accept script-matched WAVs on disk.
+    entry = synthesis_entry_for_line(ctx, str(line.get("line_id") or ""))
+    if (
+        entry
+        and path.is_file()
+        and path.stat().st_size > 1000
+        and str(entry.get("script_hash") or "")
+        == script_hash(str(item.get("text") or ""))
+    ):
+        return path
+    return None
 
 
 def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
@@ -111,14 +137,19 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:
             continue
-        evidence = {
-            "before_excerpt": (by_id.get(after_id) or {}).get("text"),
-            "after_excerpt": (by_id.get(before_id) or {}).get("text"),
-            "before_topic": (by_id.get(after_id) or {}).get("topic"),
-            "after_topic": (by_id.get(before_id) or {}).get("topic"),
-            "source_gap_ms": item.get("source_gap_ms"),
-            "strict_grounding": True,
-        }
+        from interview_mux.spoken_copy_guard import enrich_evidence_from_run
+
+        evidence = enrich_evidence_from_run(
+            ctx,
+            {
+                "before_excerpt": (by_id.get(after_id) or {}).get("text"),
+                "after_excerpt": (by_id.get(before_id) or {}).get("text"),
+                "before_topic": (by_id.get(after_id) or {}).get("topic"),
+                "after_topic": (by_id.get(before_id) or {}).get("topic"),
+                "source_gap_ms": item.get("source_gap_ms"),
+                "strict_grounding": True,
+            },
+        )
         try:
             guarded = assert_guarded_spoken_copy(
                 text,

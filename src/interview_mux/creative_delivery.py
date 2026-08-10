@@ -236,6 +236,13 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
     if "chapter_stinger" in roles or "transition_stinger" in roles:
         roles.add("theme_chapter_resolve")
     need = {"theme_underscore", "theme_cold_open"}
+    try:
+        from interview_mux.information_packages import information_packages_cfg
+
+        if bool((information_packages_cfg().get("episode_close") or {}).get("require_music", True)):
+            need.add("theme_outro")
+    except Exception:
+        need.add("theme_outro")
     miss = sorted(need - roles)
     accent_family = {
         "theme_emphasis",

@@ -111,10 +111,19 @@ None of these mutations are free-form: they stay inside the hard invariants (pic
 
 ---
 
-## Outro / payoff / close (`structure_candidates`)
+## Outro / payoff / close (`structure_candidates` + episode_close)
 
-Mirror of cold-open logic: `none` | `segment` | `vo` | `vo+sfx` — dynamically chosen, not required.  
-**Realization:** trailing EDL element(s).
+**Spoken** outro / payoff VO remains dynamically chosen (`none` | `segment` | `vo` | `vo+sfx`) and is not required.
+
+**Musical episode close is required:** `mastering_plan.episode_close.music` always requests `theme_outro` after the last native with a gentle long fade. See [information-packages.md](./information-packages.md). Realization: SDP seed + mix bookend fade (`bookend_fade_out_ms`).
+
+---
+
+## Information packages (mid-episode)
+
+**Owner:** delivery stage `information_package_plan` (Shape-owned plan field).  
+**Plan field:** `mastering_plan.information_packages` (0–2).  
+High-bar music face-out (`theme_chapter_resolve`) + dense Nugget Layup before-VO. Not a cold open. Details: [information-packages.md](./information-packages.md).
 
 ---
 

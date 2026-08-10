@@ -39,7 +39,9 @@ Research lane (8 waves / 38 fields, dynamically routed)
 
 **Talking-points-first cuts (analysis):** After `content_context`, `talking_points_compose` → `ideal_cuts_propose` → `ideal_cuts_materialize` choose holistic talking points and snap ideal native windows to word timestamps. With `analysis.ideal_cuts.bind_mode=both` (default), materialize publishes `segments/boundaries.json` (skipping the boundary LLM when valid), skips topic resplit + classification LLM when bound, and seeds ranking order. Coverage + narrative + classification are synthesized deterministically when `analysis.talking_points_authority.*` is on (LLM fallback otherwise). See `analysis.ideal_cuts.*` in [config-keys.md](./config-keys.md).
 
-**Slim delivery Pass-2:** Only `refinement_agenda` → `gap_framing_recompose` → `selection_framing_apply` remain in `DELIVERY_ORDER`. No-op `*_refine` stubs were removed from the default order (runners remain for manual/legacy). Early `sound_design_palettes` LLM is off by default (`sound_design.early_palettes_llm=false`); SDP owns musical direction. Prompts are unified (no TBIY dual path).
+**Nugget Layup System (synthetic VO):** After selection freezes, flagship `nugget_corpus_mine` + `nugget_layup_compose` assess the **full transcript** (including excluded natives) and write a relevant before-VO lay-up for each kept segment so discarded facts still reach the listener. Canon: [nugget-layup-system.md](./nugget-layup-system.md).
+
+**Slim delivery Pass-2:** Only `refinement_agenda` → `gap_framing_recompose` → `selection_framing_apply` remain in `DELIVERY_ORDER` after layups. When layups own `gap_report`, recompose is a thin adapter. Early `sound_design_palettes` LLM is off by default (`sound_design.early_palettes_llm=false`); SDP owns musical direction. Prompts are unified (no TBIY dual path).
 
 **Slim Shape soft-gate:** Default `mastering.shape.soft_gate.max_mode_candidates=2` with `skip_diversity=true`. Full L0–L5 / capability-module docs describe the aspirational mutation engine; the shipped runtime is the two-pass soft-gate compiler in `mastering_shape_runtime.py`.
 
@@ -132,11 +134,11 @@ SFX is an independent switch on any non-`none` option. Full catalog: [mastering-
 ## Realization & Polish
 
 1. Render `cold_open` as leading EDL element(s)
-2. Ranking / EDL / transitions / SDP **bound to** `mastering_plan`
+2. Ranking / EDL / transitions / SDP **bound to** `mastering_plan` (including optional `information_packages` and required `episode_close` music — [information-packages.md](./information-packages.md))
 3. Before EDL write: rebuild `reorder_bridges` from the air order, **auto-mint pair-specific spoken transitions** for any naked reorder/chapter jump, synthesize audible WAVs, then hard-fail if glue is still missing (NLE soft only)
 4. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
 5. Preview → optional post-preview pickup when plan requires
-6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift
+6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift; always realize gentle `theme_outro` after last native
 7. **Junction snip QA + [seam autopsy](./seam-autopsy.md)** — deterministic start/end snip + music-transition repairs on every junction, one feel-audit LLM (`OH-J1`), commitment proof, and at most **two full identify-all → fix-all remediation runs**
 8. `master_finalize` → `master/master.wav` (−16 LUFS) → always-on post-master quality + listener scorecard; blocks on naked seams, incomplete `bridge_completeness`, uncommitted repairs, unavailable feel audit, or critical residuals
 9. MP3 encoding / podcast package creation requires the same passing post-master quality artifact

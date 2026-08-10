@@ -562,19 +562,24 @@ def run_transitions(ctx: RunContext) -> None:
             for row in ((manifest or {}).get("segments") or [])
             if isinstance(row, dict) and row.get("segment_id")
         }
+        from interview_mux.spoken_copy_guard import enrich_evidence_from_run
+
         for row in artifacts.get("transitions") or []:
             if not isinstance(row, dict) or not str(row.get("text") or "").strip():
                 continue
             a = str(row.get("after_segment_id") or "")
             b = str(row.get("before_segment_id") or "")
-            evidence = {
-                "before_excerpt": (by_id.get(a) or {}).get("text"),
-                "after_excerpt": (by_id.get(b) or {}).get("text"),
-                "before_topic": (by_id.get(a) or {}).get("topic"),
-                "after_topic": (by_id.get(b) or {}).get("topic"),
-                "source_gap_ms": row.get("source_gap_ms"),
-                "strict_grounding": True,
-            }
+            evidence = enrich_evidence_from_run(
+                c,
+                {
+                    "before_excerpt": (by_id.get(a) or {}).get("text"),
+                    "after_excerpt": (by_id.get(b) or {}).get("text"),
+                    "before_topic": (by_id.get(a) or {}).get("topic"),
+                    "after_topic": (by_id.get(b) or {}).get("topic"),
+                    "source_gap_ms": row.get("source_gap_ms"),
+                    "strict_grounding": True,
+                },
+            )
             decision = assert_guarded_spoken_copy(
                 str(row.get("text") or ""),
                 evidence=evidence,

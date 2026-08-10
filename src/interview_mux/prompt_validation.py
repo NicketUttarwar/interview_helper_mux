@@ -29,6 +29,8 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "topic_coverage_audit": "coverage_audit_artifact.schema.json",
     "narrative_arc_plan": "narrative_plan_artifact.schema.json",
     "full_master_ranking": "master_selection_artifact.schema.json",
+    "nugget_corpus_mine": "nugget_corpus_artifact.schema.json",
+    "nugget_layup_compose": "nugget_layup_plan_artifact.schema.json",
     "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
     "synthetic_framing_plan": "synthetic_framing_plan.schema.json",
@@ -72,6 +74,8 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "topic_coverage_audit": "master/coverage_audit.json",
     "narrative_arc_plan": "master/narrative_plan.json",
     "full_master_ranking": "master/selection.json",
+    "nugget_corpus_mine": "understanding/nugget_corpus.json",
+    "nugget_layup_compose": "understanding/nugget_layup_plan.json",
     "edl_narrative_audit": "master/edl_narrative_audit.json",
     "edl": "master/edl.json",
     "transitions": "master/transitions.json",
@@ -301,6 +305,13 @@ def validate_gap_evaluations(data: dict[str, Any]) -> list[str]:
 def validate_gap_report(data: dict[str, Any]) -> list[str]:
     return _validate_dict(data, _load_root_schema("gap_report.schema.json"))
 
+def validate_nugget_corpus(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("nugget_corpus_artifact.schema.json", data)
+
+
+def validate_nugget_layup_plan(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("nugget_layup_plan_artifact.schema.json", data)
+
 def validate_coverage_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("coverage_audit_artifact.schema.json", data)
 
@@ -453,6 +464,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/speakers.json": validate_speakers,
     "understanding/gap_evaluations.json": validate_gap_evaluations,
     "understanding/gap_report.json": validate_gap_report,
+    "understanding/nugget_corpus.json": validate_nugget_corpus,
+    "understanding/nugget_layup_plan.json": validate_nugget_layup_plan,
     "understanding/delivery_brief.json": validate_delivery_brief,
     "understanding/soundscape_policy.json": validate_soundscape_policy,
     "understanding/episode_structure.json": validate_episode_structure,
