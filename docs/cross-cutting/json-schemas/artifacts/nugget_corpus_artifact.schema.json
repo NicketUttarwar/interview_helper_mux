@@ -30,6 +30,11 @@
             "type": "string",
             "enum": ["low", "medium", "high", "critical"]
           },
+          "grounding_quality": {
+            "type": "string",
+            "enum": ["high", "mixed", "weak"]
+          },
+          "evidence_partial": { "type": "boolean" },
           "themes": {
             "type": "array",
             "items": { "type": "string" }

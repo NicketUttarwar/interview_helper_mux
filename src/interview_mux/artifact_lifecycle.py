@@ -87,7 +87,11 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         from interview_mux.file_store import read_json as fs_read_json
         from interview_mux.write_staging import resolve_read_path
 
-        doc = fs_read_json(resolve_read_path(ctx, rel))
+        committed = ctx.final_path(*rel.split("/"))
+        if committed.is_file():
+            doc = fs_read_json(committed)
+        else:
+            doc = fs_read_json(resolve_read_path(ctx, rel))
     except Exception:
         return None
     if not isinstance(doc, dict):

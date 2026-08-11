@@ -18,6 +18,9 @@ segment_classification,understand,llm,stages/segmentation.py,yes,deterministic w
 content_brief_reanchor,understand,llm,stages/understanding.py,yes,
 boundary_topic_resplit,understand,llm,stages/segmentation.py,yes,skipped when ideal-cuts bound
 vernacular_segment_sanitize,understand,non_llm,stages/audio_probes.py,yes,N-way vernacular sub-segmentation
+low_conf_island_scan,understand,non_llm,stages/low_conf_fuse_stages.py,yes,Low-conf ladder + density top-decile must_keep
+connector_fuse_pass,understand,llm,stages/low_conf_fuse_stages.py,yes,Economy seam fuse post-sanitize
+connector_fuse_pass_pre_ranking,plan_rank,llm,stages/low_conf_fuse_stages.py,yes,Second seam fuse before ranking
 sonic_context_build,understand,non_llm,stages/sonic_context_stages.py,yes,
 sound_design_palettes,understand,llm,stages/sound_design_stages.py,yes,early LLM off by default (early_palettes_llm)
 mastering_research_routing,understand,non_llm,mastering_research.py,yes,Mastering Process research lane

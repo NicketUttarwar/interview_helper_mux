@@ -28,6 +28,14 @@ Every call records `_llm_meta.truncation_escalation`:
 
 **OpenAI gateway:** detect truncation markers in volley → log `truncation.input_truncated` → **do not call** primary/shard with truncated messages when `never_accept_truncated_output` → raise `TruncationEscalationRequired` (primary) or return blocked envelope with `needs[].type: decompose`.
 
+**Safe prune (API context window, every chat call):** if Chat Completions returns `context_length` / too many tokens:
+
+1. Retry once on **flagship** when the failing call was economy/standard.
+2. If flagship still fails the window: **one** economy chunk-extract (`safe_prune_extract`) against the original system prompt, pack keeps into a single volley, **one** flagship retry.
+3. Packed estimate over `flagship_input_token_budget`, or that flagship retry still overflows → `SafePruneExhausted` (hard stop). No second prune on that invocation.
+
+Cover vision uses the same ladder via `create_chat_with_context_ladder`. Local MLX is not on this ladder.
+
 **Routing (`run_llm_stage_with_routing`) — holistic rebuild before hard-block:**
 
 1. Scan prepared volley for truncation flags.
@@ -65,4 +73,7 @@ Critical LLM stages (`block_partial_on_quality_fail`) do **not** stage write-app
 - `truncation.auto_decompose` — routing auto-escalated to shard/collate (after boost)
 - `truncation.escalation_required` — `TruncationEscalationRequired` caught in primary path
 - `llm.flagship_promote` — uptier exhausted at flagship but lint/schema clean
+- `llm.safe_prune.start` — economy chunk extract began after flagship context_length
+- `llm.safe_prune.packed` — condensed volley ready for the single flagship retry
+- `llm.safe_prune.exhausted` — pack still over budget or flagship retry still overflowed
 - `llm.resilience.partial_blocked` — critical stage skipped write-approvable partial persist

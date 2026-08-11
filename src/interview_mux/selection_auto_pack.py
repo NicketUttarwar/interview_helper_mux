@@ -41,11 +41,25 @@ def _arc_critical_ids(ctx: RunContext) -> set[str]:
                         if sid:
                             ids.add(str(sid))
     try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        ids |= hard_keep_segment_ids(ctx)
+    except Exception:
+        pass
+    try:
         from interview_mux.stages.audio_probes import authoritative_must_keep_ids
 
         ids |= authoritative_must_keep_ids(ctx)
     except Exception:
         pass
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            for ch in (sel.get("chapters") or []) if isinstance(sel, dict) else []:
+                if isinstance(ch, dict):
+                    ids.update(str(s) for s in (ch.get("segment_ids") or []) if s)
+        except Exception:
+            pass
     try:
         from interview_mux.stt_lexicon_islands import soft_protect_segment_ids
 

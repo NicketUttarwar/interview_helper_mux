@@ -93,6 +93,10 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "sound_design_plan": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
+    # Lay-up mining/composing may legitimately return zero rows (no recoverable
+    # nuggets), so the rule is presence of the collection, not a row floor.
+    "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 0}],
+    "nugget_layup_compose": [{"path": "layups", "rule": "min_rows", "min_count": 0}],
     "episode_meta_build": [{"path": "title", "rule": "non_empty_string", "min_length": 1}],
     "episode_cover_prompt_craft": [
         {"path": "prompt", "rule": "non_empty_string", "min_length": 1}
@@ -118,6 +122,42 @@ _CONSUMER_OVERRIDES = {
         "podcast_publish",
     ],
     "episode_cover_prompt_craft": ["episode_cover_generate"],
+    "nugget_corpus_mine": ["nugget_layup_compose"],
+    "nugget_layup_compose": ["gap_framing_recompose", "edl", "g1_vo_pickup"],
+}
+
+# Extra declared inputs for stages whose reads are not derivable from
+# LLM_UPSTREAM_STAGE alone.
+_EXTRA_INPUTS: dict[str, dict[str, list[dict]]] = {
+    "nugget_corpus_mine": {
+        "hard": [{"path": "master/selection.json", "producer": "full_master_ranking"}],
+        "soft": [
+            {"path": "segments/manifest.json", "producer": "segment_classification"},
+            {"path": "understanding/talking_points.json", "producer": "talking_points_compose"},
+            {"path": "understanding/ideal_cuts.json", "producer": "ideal_cuts_propose"},
+        ],
+    },
+    "nugget_layup_compose": {
+        "hard": [
+            {"path": "master/selection.json", "producer": "full_master_ranking"},
+            {"path": "understanding/nugget_corpus.json", "producer": "nugget_corpus_mine"},
+        ],
+        "soft": [
+            {"path": "segments/manifest.json", "producer": "segment_classification"},
+            {"path": "understanding/talking_points.json", "producer": "talking_points_compose"},
+        ],
+    },
+}
+
+# Secondary artifacts a stage also writes (beyond its registered envelope path).
+_EXTRA_OUTPUTS: dict[str, list[dict]] = {
+    "nugget_layup_compose": [
+        {
+            "path": "understanding/gap_report.json",
+            "schema": "gap_report.schema.json",
+            "staging": True,
+        }
+    ],
 }
 
 _PROCESS_STAGES = [
@@ -224,6 +264,7 @@ def _contract_for(stage_id: str) -> dict:
                 "staging": tier == "llm_full",
             }
         ]
+    doc["outputs"].extend(_EXTRA_OUTPUTS.get(stage_id, []))
 
     upstream = LLM_UPSTREAM_STAGE.get(stage_id)
     if upstream:
@@ -232,6 +273,10 @@ def _contract_for(stage_id: str) -> dict:
         )
         if up_rel:
             doc["inputs"]["hard"].append({"path": up_rel, "producer": upstream})
+
+    for kind, items in _EXTRA_INPUTS.get(stage_id, {}).items():
+        known = {i["path"] for i in doc["inputs"][kind]}
+        doc["inputs"][kind].extend(i for i in items if i["path"] not in known)
 
     if stage_id in _GATES:
         doc.update(_GATES[stage_id])

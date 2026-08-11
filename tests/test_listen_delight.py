@@ -27,8 +27,26 @@ def test_authoritative_mode_is_default(tmp_path):
 
 
 def test_authoritative_fails_below_floors_and_hard_stops(tmp_path):
-    """A near-empty run has no evidence of gap glue / mode consistency and must not ship."""
+    """Forbidden-for-mode glue (not system layups) still hard-stops ship."""
     ctx = isolated_run_ctx(tmp_path, "exec_delight_fail")
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_summary_x",
+                    "line_category": "segment_summary",
+                    "text": "In this chapter we recap the deal.",
+                }
+            ]
+        },
+    )
+    _write_raw(
+        ctx,
+        "mastering/mastering_plan.json",
+        {"narrative_mode": "sparse_source", "plan_status": "complete"},
+    )
 
     with pytest.raises(LoudStageFailure, match="Listen delight floors failed"):
         run_listen_delight_audit(ctx)
@@ -138,3 +156,38 @@ def test_cut_integrity_degrades_with_critical_junction_residuals(tmp_path, monke
     )
     audit = run_listen_delight_audit(ctx)
     assert audit["dimensions"]["cut_integrity"] < 1.0
+
+
+def test_cut_integrity_uses_hang_ratio_not_per_hit_zero(tmp_path, monkeypatch):
+    """Five hanging ends on a long EDL must not collapse cut_integrity to 0."""
+    from interview_mux.listen_delight import evaluate_listen_delight
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_hang_ratio")
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"mode": "advisory"},
+    )
+
+    def fake_continues(words, end_ms):
+        return int(end_ms) < 5000  # first 5 clips only
+
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_prior_context.clause_continues_after", fake_continues
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_vo_prior_context.is_legal_conceptual_hinge",
+        lambda *a, **k: True,
+    )
+    clips = [
+        {"type": "speech", "source_start_ms": i * 1000, "source_end_ms": i * 1000 + 800}
+        for i in range(50)
+    ]
+    words = [
+        {"text": "hello.", "start_ms": c["source_end_ms"] - 50, "end_ms": c["source_end_ms"]}
+        for c in clips
+    ]
+    _write_raw(ctx, "master/edl.json", {"clips": clips})
+    _write_raw(ctx, "transcript/full.json", {"words": words})
+    result = evaluate_listen_delight(ctx)
+    assert result["dimensions"]["cut_integrity"] > 0.5
+    assert result["dimensions"]["cut_integrity"] < 1.0

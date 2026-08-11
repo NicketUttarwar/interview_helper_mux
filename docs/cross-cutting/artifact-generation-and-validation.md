@@ -4,7 +4,7 @@
 
 **Related:**
 
-- [model-routing.md](./model-routing.md) — tier registry (`flagship` = `o3` by default)
+- [model-routing.md](./model-routing.md) — tier registry (`flagship` = `gpt-5.6-terra` by default)
 - [llm-call-record-framework.md](./llm-call-record-framework.md) — call → schema → persist gating and audit records
 - [json-schema-coverage.md](./json-schema-coverage.md) — which paths have validators
 - [analysis-memory.md](./analysis-memory.md) — profile merge and operator verification
@@ -169,7 +169,7 @@ If `validate_artifact_write` fails, `write_json` raises `ValueError` and `write_
 ## OpenAI flagship routing
 
 - **Config:** `config/app.defaults.json` → `models.stages.<stage_key>.tier: "flagship"` for every stage in `STAGE_ARTIFACT_SCHEMAS`.
-- **Registry:** [model-routing.md](./model-routing.md) — default API ID `o3` for tier `flagship`; override via `OPENAI_TIER_FLAGSHIP` in secrets.
+- **Registry:** [model-routing.md](./model-routing.md) — default API ID `gpt-5.6-terra` for tier `flagship`; override via `OPENAI_TIER_FLAGSHIP` in secrets.
 - **Local LLM:** The local MLX framer may pre-compress the volley (fail-open), but stages that write structured artifacts **always** call OpenAI via `llm_simple.py`.
 
 ---

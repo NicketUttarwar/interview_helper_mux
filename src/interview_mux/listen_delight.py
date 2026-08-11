@@ -82,23 +82,82 @@ def _nugget_retention(ctx: RunContext) -> float:
 
 
 def _cut_integrity(ctx: RunContext) -> float:
-    """Junction snip QA critical residuals — 1.0 clean/missing, degrades per critical finding."""
-    if not ctx.artifact_exists("master/junction_snip_qa.json"):
-        return 1.0
+    """Junction critical residuals + EDL lookahead hang check — fail closed.
+
+    Missing junction artifact is no longer a free pass when EDL + words exist:
+    illegal hanging ends degrade the score the same way as critical residuals.
+    """
+    score = 1.0
+    residual_n = 0
+    if ctx.artifact_exists("master/junction_snip_qa.json"):
+        try:
+            doc = ctx.read_json("master/junction_snip_qa.json")
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            residual = [
+                f
+                for f in (doc.get("residual_findings") or [])
+                if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
+            ]
+            residual_n = len(residual)
+            if residual_n:
+                score = _clamp(1.0 - 0.15 * residual_n)
+
+    # Authoritative lookahead floor even when junction is missing/soft.
+    hang_hits = 0
     try:
-        doc = ctx.read_json("master/junction_snip_qa.json")
+        from interview_mux.gap_vo_prior_context import (
+            clause_continues_after,
+            is_legal_conceptual_hinge,
+        )
+
+        edl = (
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else None
+        )
+        tr = (
+            ctx.read_json("transcript/full.json")
+            if ctx.artifact_exists("transcript/full.json")
+            else None
+        )
+        words = [
+            w
+            for w in ((tr or {}).get("words") or [])
+            if isinstance(w, dict)
+        ] if isinstance(tr, dict) else []
+        clips = (edl or {}).get("clips") or [] if isinstance(edl, dict) else []
+        speech_n = 0
+        for clip in clips:
+            if not isinstance(clip, dict) or str(clip.get("type") or "") != "speech":
+                continue
+            speech_n += 1
+            end_ms = int(clip.get("source_end_ms") or 0)
+            start_ms = int(clip.get("source_start_ms") or 0)
+            if end_ms <= start_ms or not words:
+                continue
+            end_toks = [
+                str(w.get("text") or w.get("word") or "").strip()
+                for w in words
+                if start_ms <= int(w.get("end_ms") or 0) <= end_ms
+                and str(w.get("text") or w.get("word") or "").strip()
+            ]
+            end_text = " ".join(end_toks[-12:]) if end_toks else ""
+            if not end_text:
+                continue
+            if clause_continues_after(words, end_ms) or not is_legal_conceptual_hinge(
+                end_text, words=words, end_ms=end_ms, next_pause_ms=None
+            ):
+                hang_hits += 1
     except Exception:
-        return 1.0
-    if not isinstance(doc, dict):
-        return 1.0
-    residual = [
-        f
-        for f in (doc.get("residual_findings") or [])
-        if isinstance(f, dict) and str(f.get("severity") or "") == "critical"
-    ]
-    if not residual:
-        return 1.0
-    return round(_clamp(1.0 - 0.15 * len(residual)), 4)
+        hang_hits = 0
+        speech_n = 0
+    if hang_hits:
+        # Ratio, not 0.2×count — five hangs on a 150-clip tape must not zero the dim.
+        hang_ratio = hang_hits / max(speech_n, hang_hits, 1)
+        score = _clamp(min(score, 1.0 - 0.8 * hang_ratio))
+    return round(score, 4)
 
 
 def _conversation_fit(ctx: RunContext, *, consistency_ok: bool) -> float:

@@ -55,16 +55,47 @@ flowchart LR
   boundary_topic_resplit -->|I| sound_design_palettes
   boundary_topic_resplit -->|I| missing_framing
   boundary_topic_resplit -->|I| optimal_questions
+  boundary_topic_resplit -->|I| low_conf_island_scan
+  boundary_topic_resplit -->|I| connector_fuse_pass
+  vernacular_segment_sanitize -->|I| low_conf_island_scan
+  vernacular_segment_sanitize -->|I| connector_fuse_pass
+  low_conf_island_scan -->|I| connector_fuse_pass
+  low_conf_island_scan -->|I| full_master_ranking
+  connector_fuse_pass -->|I| connector_fuse_pass_pre_ranking
+  connector_fuse_pass -->|I| topic_coverage_audit
+  connector_fuse_pass -->|I| narrative_arc_plan
+  connector_fuse_pass -->|I| full_master_ranking
+  connector_fuse_pass -->|I| nugget_corpus_mine
+  connector_fuse_pass -->|I| nugget_layup_compose
+  connector_fuse_pass -->|I| transitions
+  connector_fuse_pass -->|I| edl
+  connector_fuse_pass_pre_ranking -->|I| full_master_ranking
+  connector_fuse_pass_pre_ranking -->|I| nugget_corpus_mine
+  connector_fuse_pass_pre_ranking -->|I| nugget_layup_compose
   sound_design_palettes -->|I| missing_framing
   sound_design_palettes -->|I| optimal_questions
   topic_coverage_audit -->|I| narrative_arc_plan
+  topic_coverage_audit -->|I| connector_fuse_pass_pre_ranking
   topic_coverage_audit -->|I| full_master_ranking
+  topic_coverage_audit -->|I| nugget_corpus_mine
+  topic_coverage_audit -->|I| nugget_layup_compose
   topic_coverage_audit -->|I| transitions
+  narrative_arc_plan -->|I| connector_fuse_pass_pre_ranking
   narrative_arc_plan -->|I| full_master_ranking
   narrative_arc_plan -->|I| transitions
+  full_master_ranking -->|I| nugget_corpus_mine
+  full_master_ranking -->|I| nugget_layup_compose
   full_master_ranking -->|I| transitions
   full_master_ranking -->|I| sound_design_plan
   full_master_ranking -->|I| edl
+  nugget_corpus_mine -->|I| nugget_layup_compose
+  nugget_corpus_mine -->|I| gap_framing_recompose
+  nugget_corpus_mine -->|I| transitions
+  nugget_corpus_mine -->|I| edl
+  nugget_layup_compose -->|I| gap_framing_recompose
+  nugget_layup_compose -->|I| selection_framing_apply
+  nugget_layup_compose -->|I| transitions
+  nugget_layup_compose -->|I| edl
   transitions -->|I| sound_design_plan
   transitions -->|I| edl
   sound_design_plan -->|I| sfx_prompt_craft
@@ -76,6 +107,8 @@ flowchart LR
   g1_vo_pickup -->|I| master_finalize
   boundary_detection -->|R| content_context
   boundary_topic_resplit -->|R| content_brief_reanchor
+  connector_seam_adjudicate -->|R| connector_fuse_pass
+  connector_seam_adjudicate -->|R| segment_classification
   content_brief_reanchor -->|R| segment_classification
   content_context -->|R| speaker_roles
   delivery_brief_build -->|R| gap_framing_compose
@@ -83,14 +116,23 @@ flowchart LR
   episode_cover_prompt_craft -->|R| episode_meta_build
   full_master_ranking -->|R| narrative_arc_plan
   gap_framing_compose -->|R| missing_framing
+  information_package_plan -->|R| nugget_corpus_mine
   junction_feel_audit -->|R| junction_snip_qa
   junction_feel_audit -->|R| edl
   missing_framing -->|R| boundary_topic_resplit
   narrative_arc_plan -->|R| topic_coverage_audit
+  nugget_corpus_mine -->|R| full_master_ranking
+  nugget_corpus_mine -->|R| segment_classification
+  nugget_corpus_mine -->|R| talking_points_compose
+  nugget_corpus_mine -->|R| ideal_cuts_propose
+  nugget_layup_compose -->|R| full_master_ranking
+  nugget_layup_compose -->|R| nugget_corpus_mine
+  nugget_layup_compose -->|R| segment_classification
+  nugget_layup_compose -->|R| talking_points_compose
   optimal_questions -->|R| missing_framing
   segment_classification -->|R| boundary_detection
   sfx_prompt_craft -->|R| sound_design_plan
   sound_design_palettes -->|R| boundary_topic_resplit
   sound_design_plan -->|R| transitions
-  transitions -->|R| full_master_ranking
+  transitions -->|R| nugget_layup_compose
 ```

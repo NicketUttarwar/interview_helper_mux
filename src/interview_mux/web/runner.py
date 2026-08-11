@@ -545,6 +545,7 @@ class JobRunner:
         flow: str | None = None,
         from_stage: str | None = None,
         until_stage: str | None = None,
+        invalidate: bool = False,
         nle_full_refresh: bool = False,
         nle_apply_mode: str = "structural",
     ) -> None:
@@ -572,6 +573,7 @@ class JobRunner:
                 "until_stage": until_stage,
                 "nle_full_refresh": nle_full_refresh,
                 "nle_apply_mode": nle_apply_mode,
+                "invalidate": invalidate,
             }
             total = len(stage_ids) or 1
             if stage_ids:
@@ -613,15 +615,24 @@ class JobRunner:
                 elif mode == "stage" and stage:
                     if stage in SUBPROCESS_STAGES:
                         dir_lock_released["value"] = True
-                        self._run_subprocess_stage(ctx, stage, from_stage, dir_lock)
+                        self._run_subprocess_stage(
+                            ctx, stage, from_stage, dir_lock, invalidate=invalidate
+                        )
                     else:
-                        self._execute_single_stage(ctx, stage, from_stage)
+                        self._execute_single_stage(
+                            ctx, stage, from_stage, invalidate=invalidate
+                        )
                 elif mode in ("analysis", "analysis_until_g0"):
                     ctx.log("Running shared analysis pipeline…", level="info", stage="analysis")
                     us = until_stage
                     if mode == "analysis_until_g0" and not us:
                         us = "transcript_review_build"
-                    run_analysis(ctx, from_stage=from_stage or stage, until_stage=us)
+                    run_analysis(
+                        ctx,
+                        from_stage=from_stage or stage,
+                        until_stage=us,
+                        invalidate=invalidate,
+                    )
                     refresh_journey_meta(ctx)
                 elif mode in ("delivery", "delivery_until_preview", "delivery_polish"):
                     if mode == "delivery_polish":
@@ -637,6 +648,7 @@ class JobRunner:
                         ctx,
                         from_stage=fs,
                         until_stage=us,
+                        invalidate=invalidate,
                     )
                     refresh_journey_meta(ctx)
                     if mode == "delivery" and not us:
@@ -748,7 +760,20 @@ class JobRunner:
             except Exception as exc:
                 err_msg = str(exc)
                 tb = traceback.format_exc()
-                stage_id = stage or label
+                # Prefer the stage that was actually running — not the batch from_stage.
+                # Mis-attributing failures to from_stage makes e2e clear_from() archive
+                # good upstream artifacts (talking_points, speakers, …).
+                stage_id = ""
+                try:
+                    prev = ctx.read_json("gui_job.json")
+                    if isinstance(prev, dict):
+                        stage_id = str(
+                            prev.get("current_stage") or prev.get("stage") or ""
+                        ).strip()
+                except Exception:
+                    stage_id = ""
+                if not stage_id or stage_id in {"analysis", "delivery", "gui", "None"}:
+                    stage_id = str(stage or label or "").strip()
                 if stage_id:
                     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
@@ -769,13 +794,14 @@ class JobRunner:
                     "error_class": type(exc).__name__,
                     "traceback_excerpt": tb[:2000] if tb else None,
                 }
-                ctx.log(err_msg, level="error", stage=label, detail=tb)
+                ctx.log(err_msg, level="error", stage=stage_id or label, detail=tb)
                 self._write_job(
                     ctx,
                     {
                         "status": "error",
                         "mode": mode,
-                        "stage": stage,
+                        "stage": stage_id or stage,
+                        "current_stage": stage_id or stage,
                         "message": err_msg,
                         "error": err_msg,
                         "traceback": tb,
@@ -938,6 +964,7 @@ class JobRunner:
         flow: str | None = None,
         from_stage: str | None = None,
         until_stage: str | None = None,
+        invalidate: bool = False,
         nle_full_refresh: bool = False,
         nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
@@ -1028,6 +1055,7 @@ class JobRunner:
             flow=flow,
             from_stage=from_stage,
             until_stage=until_stage,
+            invalidate=invalidate,
             nle_full_refresh=nle_full_refresh,
             nle_apply_mode=nle_apply_mode,
         )
@@ -1042,6 +1070,7 @@ class JobRunner:
         flow: str | None = None,
         from_stage: str | None = None,
         until_stage: str | None = None,
+        invalidate: bool = False,
         nle_full_refresh: bool = False,
         nle_apply_mode: str = "structural",
         api_consents: dict[str, bool] | None = None,
@@ -1056,6 +1085,7 @@ class JobRunner:
                 flow=flow,
                 from_stage=from_stage,
                 until_stage=until_stage,
+                invalidate=invalidate,
                 nle_full_refresh=nle_full_refresh,
                 nle_apply_mode=nle_apply_mode,
                 api_consents=api_consents,
@@ -1098,11 +1128,13 @@ class JobRunner:
         stage: str,
         from_stage: str | None,
         dir_lock: RunDirectoryLock,
+        *,
+        invalidate: bool = False,
     ) -> None:
         from interview_mux.gui_job_reconcile import WRITE_APPROVAL_EXIT
         from interview_mux.process_cleanup import track_worker_pid, untrack_worker_pid
 
-        if from_stage and from_stage != stage:
+        if invalidate and from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
         if stage == "mmaudio_sfx":
@@ -1145,8 +1177,15 @@ class JobRunner:
                 raise RuntimeError(msg)
             raise RuntimeError(f"Stage {stage} failed (exit {returncode})")
 
-    def _execute_single_stage(self, ctx: RunContext, stage: str, from_stage: str | None) -> None:
-        if from_stage and from_stage != stage:
+    def _execute_single_stage(
+        self,
+        ctx: RunContext,
+        stage: str,
+        from_stage: str | None,
+        *,
+        invalidate: bool = False,
+    ) -> None:
+        if invalidate and from_stage and from_stage != stage:
             self.invalidate_from(ctx.run_id, from_stage)
             ctx = RunContext(ctx.run_id, create=False)
         if stage == "mmaudio_sfx":

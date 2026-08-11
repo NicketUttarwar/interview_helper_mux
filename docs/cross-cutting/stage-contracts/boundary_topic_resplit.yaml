@@ -29,6 +29,8 @@ propagation:
   - sound_design_palettes
   - missing_framing
   - optimal_questions
+  - low_conf_island_scan
+  - connector_fuse_pass
 consumers:
 - boundary_detection
 remediation:

@@ -266,7 +266,8 @@ Stored on each row in `sound_design/sfx_prompts.json` when the asset uses pitch 
 
 ### Podcast-safe defaults
 
-- **Beds:** No pitch center, no meter, no pulse — only environmental spectrum and motion (wind, room).
+- **Theme underscores (`theme_underscore`):** May carry a **restrained rhythmic pulse** (soft even meter, sparse plucked/perc ticks). Speech always wins via sidechain duck; beds sit in the audible-but-subordinate band (~−28…−24 dBFS). Forbid loud kits, vocal-like leads, dense midrange hooks.
+- **Ambient / MMAudio environmental beds (heritage):** No pitch center, no meter, no pulse — only environmental spectrum and motion (wind, room). Do not confuse these with MusicGen theme underscores.
 - **Chapter stingers:** At most **one** pitch gesture over ≤2 s; prefer noise+filter sweep over diatonic melody.
 - **Montage transitions:** Forward spectral motion; avoid memorable melodic hooks listeners would hum.
 - **Midrange discipline:** Stingers and transitions keep energy out of 1–4 kHz when they might overlap speech tails.

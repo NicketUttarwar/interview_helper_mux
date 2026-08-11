@@ -94,6 +94,35 @@ def test_evaluate_boundary_quality_accepts_dense_timeline():
     assert report["reject"] is False
     assert report["segment_count"] == 80
 
+
+def test_evaluate_boundary_quality_accepts_fine_map_with_minor_coverage_hole():
+    """Turn-mapped fine segments must not fail at ~84% coverage (silence gaps)."""
+    from interview_mux.stages.segmentation import evaluate_boundary_quality
+
+    duration_ms = 3_347_860
+    boundaries = []
+    t = 0
+    # ~84.5% coverage with hundreds of short segments (baba-like turn map).
+    while t < int(duration_ms * 0.845):
+        end = min(t + 8_500, int(duration_ms * 0.845))
+        if end <= t:
+            break
+        boundaries.append(
+            {
+                "segment_id": f"seg_{len(boundaries)+1:03d}",
+                "start_ms": t,
+                "end_ms": end,
+            }
+        )
+        t = end
+    report = evaluate_boundary_quality(
+        {"boundaries": boundaries}, duration_ms=duration_ms
+    )
+    assert report["coverage_ratio"] < 0.85
+    assert report["coverage_ratio"] >= 0.70
+    assert report["reject"] is False
+    assert report["segment_count"] >= 100
+
 def test_resolve_ideal_cuts_air_order_appends_missing():
     seed = {"ordered_segment_ids": ["seg_001", "seg_003"]}
     bind = resolve_ideal_cuts_air_order(

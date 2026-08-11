@@ -208,7 +208,31 @@ def run_master_finalize(ctx: RunContext) -> Path:
                 sel = ctx.read_json("master/selection.json")
                 sel_order = [str(s) for s in ((sel or {}).get("ordered_segment_ids") or []) if s]
             best_order = [str(s) for s in (best.get("ordered_segment_ids") or []) if s]
+            from interview_mux.order_hash import ordered_segment_ids_hash
+
+            sel_doc = sel if ctx.artifact_exists("master/selection.json") else {}
+            if not isinstance(sel_doc, dict):
+                sel_doc = {}
+            best_hash = str(
+                best.get("order_hash")
+                or best.get("order_content_hash")
+                or ordered_segment_ids_hash(best_order)
+                or ""
+            )
+            sel_hash = str(
+                sel_doc.get("order_hash")
+                or sel_doc.get("order_content_hash")
+                or ordered_segment_ids_hash(sel_order)
+                or ""
+            )
             needs = best_order and best_order != sel_order
+            if (
+                best_hash
+                and sel_hash
+                and best_hash == sel_hash
+                and ctx.artifact_exists("master/assembly.wav")
+            ):
+                needs = False
             if needs or state.get("promoted_needs_remaster"):
                 take_best_candidate(ctx, remaster=True, sync_remaster=True, runner=None)
                 optimizer_applied = True

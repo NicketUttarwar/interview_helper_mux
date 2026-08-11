@@ -62,8 +62,17 @@ def _musicality_checks(samples: list[float], rate: int) -> dict[str, Any]:
     """Reject thin sine-like / no-onset / missing-bass theme stems."""
     fail: list[str] = []
     warn: list[str] = []
+    pulse_clarity = 0.0
+    speech_band_roughness = 0.0
+    tonal_center_score = 0.5
     if not samples or rate <= 0:
-        return {"fail_reasons": ["musicality_empty"], "warn_reasons": []}
+        return {
+            "fail_reasons": ["musicality_empty"],
+            "warn_reasons": [],
+            "pulse_clarity": 0.0,
+            "speech_band_roughness": 0.0,
+            "tonal_center_score": 0.0,
+        }
     # Onset / energy variability: flat sine stubs have near-constant RMS windows.
     window = max(1, int(rate * 0.05))
     rms_vals: list[float] = []
@@ -72,8 +81,11 @@ def _musicality_checks(samples: list[float], rate: int) -> dict[str, Any]:
     if rms_vals:
         mean_r = sum(rms_vals) / len(rms_vals)
         var = sum((r - mean_r) ** 2 for r in rms_vals) / len(rms_vals)
-        if mean_r > 1e-6 and var / (mean_r * mean_r) < 0.02:
+        cv2 = var / (mean_r * mean_r) if mean_r > 1e-6 else 0.0
+        if mean_r > 1e-6 and cv2 < 0.02:
             fail.append("musicality_no_onset_structure")
+        # Soft pulse clarity: moderate RMS modulation is good; flat or chaotic is bad.
+        pulse_clarity = max(0.0, min(1.0, (cv2 - 0.02) / 0.25))
     # Low-end energy proxy via long-window zero-crossing (too many ZC ⇒ thin/high-only).
     zc = sum(1 for a, b in zip(samples[::4], samples[4::4]) if a * b < 0)
     zc_rate = zc * 4 / max(1, len(samples) / rate) if samples else 0.0
@@ -84,6 +96,7 @@ def _musicality_checks(samples: list[float], rate: int) -> dict[str, Any]:
         rms = _rms(samples) or 1e-8
         if peak / rms < 2.2:
             fail.append("musicality_sine_like_spectrum")
+            tonal_center_score = 0.1
     # Missing low-end: downsample RMS of heavily low-passed proxy (moving average).
     ma = 0.0
     alpha = min(0.05, 200.0 / max(rate, 1))
@@ -95,7 +108,17 @@ def _musicality_checks(samples: list[float], rate: int) -> dict[str, Any]:
     total = _rms(samples) or 1e-8
     if low_rms / total < 0.08:
         warn.append("musicality_missing_low_end")
-    return {"fail_reasons": fail, "warn_reasons": warn, "zc_rate": round(zc_rate, 2)}
+    speech_band_roughness = _band_energy_ratio(samples, rate, 1000.0, 4000.0)
+    if speech_band_roughness > 0.55:
+        warn.append("musicality_speech_band_harsh")
+    return {
+        "fail_reasons": fail,
+        "warn_reasons": warn,
+        "zc_rate": round(zc_rate, 2),
+        "pulse_clarity": round(pulse_clarity, 4),
+        "speech_band_roughness": round(speech_band_roughness, 4),
+        "tonal_center_score": round(tonal_center_score, 4),
+    }
 
 
 def _band_energy_ratio(samples: list[float], rate: int, low_hz: float, high_hz: float) -> float:
@@ -217,6 +240,7 @@ def analyze_asset_wav(
             if gmeta.get("backend") == "musical_stub":
                 from interview_mux.musicgen_runner import fail_closed_on_stub
 
+                row["reasons"].append("musical_stub_last_resort")
                 if fail_closed_on_stub():
                     row["verdict"] = "fail"
                     row["reasons"].append("musical_stub_backend")

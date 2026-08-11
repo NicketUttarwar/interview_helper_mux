@@ -84,12 +84,7 @@ def resolve_venv_python(runtime_id: str) -> Path:
 
 
 def runtime_python(runtime_id: str) -> Path:
-    """Alias kept for callers that predate ``resolve_venv_python``."""
-    return resolve_venv_python(runtime_id)
-
-
-def runtime_python(runtime_id: str) -> Path:
-    """Alias for resolve_venv_python (used by synthesis_fallback)."""
+    """Alias for resolve_venv_python (used by synthesis_fallback / callers)."""
     return resolve_venv_python(runtime_id)
 
 
@@ -177,21 +172,19 @@ def run_runtime_script(
                         f"Local runtime failed (exit {proc.returncode}): {label}",
                         level="error",
                         stage=sid,
-                        detail={"stderr": (stderr or "")[:500]},
-                    )
-                    raise LocalRuntimeUnavailable(
-                        f"Local runtime {runtime_id} failed: {(stderr or stdout or '')[:500]}"
+                        detail={"stderr": (stderr or "")[:500], "stdout_tail": (stdout or "")[-300:]},
                     )
                 for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
                     for line in (text or "").splitlines():
                         if line.strip():
                             run.log(
                                 line,
-                                level="info",
+                                level="info" if proc.returncode == 0 else "warning",
                                 stage=sid,
                                 detail={"stream": stream_name, "journey_kind": "execute"},
                             )
-                run.log(f"Done: {label}", level="success", stage=sid)
+                if proc.returncode == 0:
+                    run.log(f"Done: {label}", level="success", stage=sid)
                 return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
             return subprocess.run(
                 cmd,
@@ -217,6 +210,76 @@ def run_runtime_script(
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} timed out after {timeout}s") from exc
 
 
+def parse_runtime_json_stdout(raw: str) -> dict[str, Any] | None:
+    """Parse a JSON object from a local-runtime script's stdout.
+
+    Isolated venvs often print warnings/progress to stdout before the contract
+    JSON line. Prefer the last parseable object so a successful generate is not
+    treated as ``invalid JSON``.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        candidate = json.loads(text)
+        if isinstance(candidate, dict):
+            return candidate
+    except json.JSONDecodeError:
+        pass
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line or line[0] not in "{[":
+            continue
+        try:
+            candidate = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            return candidate
+    start = text.rfind("{")
+    if start >= 0:
+        try:
+            candidate, _ = json.JSONDecoder().raw_decode(text[start:])
+        except json.JSONDecodeError:
+            candidate = None
+        if isinstance(candidate, dict):
+            return candidate
+    return None
+
+
+def classify_runtime_error(stderr: str, stdout: str = "") -> str:
+    blob = f"{stderr}\n{stdout}".lower()
+    if "out of memory" in blob or "oom" in blob or "mps backend out of memory" in blob:
+        return "oom"
+    if "timed out" in blob or "timeout" in blob:
+        return "timeout"
+    if "voice" in blob and ("ref" in blob or "reference" in blob or "missing" in blob):
+        return "missing_voice_ref"
+    if "qc" in blob and "fail" in blob:
+        return "qc_fail"
+    if not (stdout or "").strip() or "invalid json" in blob:
+        return "invalid_json_stdout"
+    return "runtime_error"
+
+
+def persist_runtime_last_error(ctx: Any, payload: dict[str, Any]) -> None:
+    if ctx is None:
+        return
+    try:
+        rel = "vo_pickup/local_runtime_last_error.json"
+        hist: list[dict[str, Any]] = []
+        if ctx.artifact_exists(rel):
+            prev = ctx.read_json(rel)
+            if isinstance(prev, dict):
+                hist = list(prev.get("failures") or [])
+            elif isinstance(prev, list):
+                hist = list(prev)
+        hist.append(payload)
+        ctx.write_json(rel, {"version": 1, "failures": hist[-12:]})
+    except Exception:
+        pass
+
+
 def run_runtime_json(
     runtime_id: str,
     script_rel: str,
@@ -235,26 +298,44 @@ def run_runtime_json(
         ctx=ctx,
         stage=stage,
     )
-    raw = (proc.stdout or "").strip()
-    parsed: dict[str, Any] | None = None
-    if raw:
+    parsed = parse_runtime_json_stdout(proc.stdout or "") or parse_runtime_json_stdout(
+        proc.stderr or ""
+    )
+    likely = classify_runtime_error(proc.stderr or "", proc.stdout or "")
+    event = {
+        "runtime_id": runtime_id,
+        "script": script_rel,
+        "returncode": proc.returncode,
+        "parsed_ok": parsed is not None,
+        "error": (parsed or {}).get("error") if isinstance(parsed, dict) else None,
+        "stderr_tail": (proc.stderr or "")[-500:],
+        "likely_cause": likely,
+        "stage": stage,
+        "line_id": (payload or {}).get("line_id"),
+    }
+    if ctx is not None:
         try:
-            candidate = json.loads(raw)
-            if isinstance(candidate, dict):
-                parsed = candidate
-        except json.JSONDecodeError:
-            parsed = None
-    if proc.returncode != 0:
-        if parsed and (parsed.get("error") or parsed.get("ok") is False):
+            ctx.log(
+                f"local_runtime {runtime_id} rc={proc.returncode} parsed={event['parsed_ok']} cause={likely}",
+                level="error" if proc.returncode else "info",
+                stage=stage or runtime_id,
+                detail=event,
+            )
+        except Exception:
+            pass
+        if proc.returncode != 0 or parsed is None:
+            persist_runtime_last_error(ctx, event)
+    if parsed is not None:
+        if proc.returncode != 0 or parsed.get("ok") is False:
             err = str(parsed.get("error") or "runtime failed")[:500]
-            raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err}")
-        err = (proc.stderr or proc.stdout or "").strip()[:500]
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} failed: {err or 'empty stderr/stdout'}")
-    if not raw:
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} returned empty stdout")
-    if parsed is None:
-        raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} returned invalid JSON")
-    return parsed
+            raise LocalRuntimeUnavailable(
+                f"Local runtime {runtime_id} failed: {err} (likely_cause={likely})"
+            )
+        return parsed
+    err = (proc.stderr or proc.stdout or "").strip()[:500]
+    raise LocalRuntimeUnavailable(
+        f"Local runtime {runtime_id} failed: {err or 'invalid JSON'} (likely_cause={likely})"
+    )
 
 
 def write_install_manifest(

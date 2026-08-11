@@ -122,12 +122,14 @@ def synthesize_line(
 
     from interview_mux.spoken_copy_guard import (
         assert_guarded_spoken_copy,
+        enrich_evidence_from_run,
         evidence_for_line,
     )
     line = dict(line)
+    evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
     guarded = assert_guarded_spoken_copy(
         str(line.get("text") or ""),
-        evidence=evidence_for_line(line),
+        evidence=evidence,
         purpose=f"vo[{line.get('line_id') or 'line'}]",
     )
     line["text"] = guarded["text"]
@@ -161,13 +163,18 @@ def synthesize_line(
                     return out
             except Exception as exc:
                 block = gap_vo_cfg()
-                if block.get("fail_open", False) and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
+                from interview_mux.chatterbox_runner import chatterbox_cfg
+
+                parseable = "likely_cause" in str(exc) or "Local runtime" in str(exc)
+                use_mlx = parseable or bool(block.get("fail_open") or chatterbox_cfg().get("fail_open"))
+                if use_mlx and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
                     ctx.log(
-                        f"Chatterbox fail-open → mlx-audio: {exc}",
+                        f"Chatterbox → mlx-audio fallback: {exc}",
                         level="warning",
                         stage="vo_synthesize",
                     )
                     chatterbox_fallback = True
+                    line["fallback_from"] = "chatterbox"
                 elif mode == "synthesize":
                     from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
 

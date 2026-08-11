@@ -19,7 +19,7 @@ FAILURE_REVIEW_REL = "master/failure_review.json"
 REMEDIATION_PLAN_REL = "master/remediation_plan.json"
 REMEDIATION_LOG_REL = "master/remediation_run_log.json"
 LEARNING_REL = "remediation_learning.jsonl"
-MAX_REMEDIATION_RUNS = 2
+MAX_REMEDIATION_RUNS = 8
 
 SUPPORTED_ACTIONS = frozenset(
     {

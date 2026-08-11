@@ -37,6 +37,125 @@ def _music_presence_cfg() -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _check_bed_presence_band(
+    ctx: RunContext,
+    *,
+    assembly_path: Path,
+    speech_stem: AudioSegment,
+    segment_timing: dict[str, tuple[int, int]],
+    contract: dict[str, Any],
+    remux_cycle: int,
+) -> str:
+    """Return ``ok`` / ``remux`` / ``fail`` for ghost/drowning beds under speech."""
+    from interview_mux.master_qc import (
+        collect_flow1_bed_speech_windows,
+        speech_band_rms,
+    )
+
+    presence_cfg = _mix_cfg().get("bed_presence_qc")
+    if isinstance(presence_cfg, dict) and presence_cfg.get("enabled") is False:
+        return "ok"
+    # Require realized underscore/bed cues — skip when mix has no beds.
+    try:
+        coverage = (
+            ctx.read_json("master/music_cue_coverage.json")
+            if ctx.artifact_exists("master/music_cue_coverage.json")
+            else {}
+        )
+        realized = coverage.get("realized_cues") or [] if isinstance(coverage, dict) else []
+        has_bed = any(
+            isinstance(r, dict)
+            and str(r.get("music_role") or "") == "theme_underscore"
+            for r in realized
+        )
+        if not has_bed:
+            return "ok"
+    except Exception:
+        return "ok"
+
+    mins: dict[str, Any] = {}
+    try:
+        sc = (merged_config().get("soundscape") or {}).get("min_density") or {}
+        if isinstance(sc, dict):
+            mins = dict(sc)
+    except Exception:
+        mins = {}
+    floor = float(mins.get("min_audible_bed_level_db", -28.0))
+    ceiling = float(mins.get("max_audible_bed_level_db", -24.0))
+    windows = collect_flow1_bed_speech_windows(
+        ctx, segment_timing=segment_timing, contract=contract
+    )
+    if not windows:
+        return "ok"
+    assembly = AudioSegment.from_file(str(assembly_path))
+    ghost = 0
+    drowning = 0
+    for win in windows:
+        start = max(0, int(win.start_ms))
+        end = max(start, int(win.end_ms))
+        mix_slice = assembly[start:end]
+        speech_slice = speech_stem[start:end] if len(speech_stem) > start else None
+        if len(mix_slice) <= 0:
+            continue
+        try:
+            mix_rms = speech_band_rms(mix_slice) or 1e-9
+            sp_rms = (
+                speech_band_rms(speech_slice)
+                if speech_slice is not None and len(speech_slice) > 0
+                else 1e-9
+            )
+            residual = max(1e-9, mix_rms - 0.85 * (sp_rms or 0.0))
+            bed_db = 20.0 * math.log10(residual)
+        except Exception:
+            bed_db = float(mix_slice.dBFS) if mix_slice.dBFS != float("-inf") else -90.0
+        if bed_db < floor - 2.0:
+            ghost += 1
+        if bed_db > ceiling + 4.0:
+            drowning += 1
+    report = {
+        "version": 1,
+        "ghost_windows": ghost,
+        "drowning_windows": drowning,
+        "windows_checked": len(windows),
+        "floor_db": floor,
+        "ceiling_db": ceiling,
+    }
+    ctx.write_json("master/bed_presence_qc.json", report)
+    fail_closed = True
+    if isinstance(presence_cfg, dict) and "fail_closed" in presence_cfg:
+        fail_closed = bool(presence_cfg.get("fail_closed"))
+    if drowning and remux_cycle < 2:
+        return "remux_duck"
+    if ghost and remux_cycle < 2:
+        try:
+            current = float(contract.get("bed_under_dialogue_db") or floor)
+
+            def _lift(m: dict) -> None:
+                m["mix_bed_presence_lift_db"] = min(ceiling, current + 2.0)
+
+            ctx.mutate_run_meta(_lift)
+        except Exception:
+            pass
+        return "remux_lift"
+    if drowning and fail_closed and remux_cycle < 2:
+        return "fail"
+    if drowning:
+        ctx.log(
+            f"mix: drowning beds remain after remux ({drowning}/{len(windows)} windows) — continue",
+            level="warning",
+            stage="mix",
+        )
+        return "ok"
+    if ghost:
+        ctx.log(
+            f"mix: ghost beds remain after remux ({ghost}/{len(windows)} windows) — continue",
+            level="warning",
+            stage="mix",
+        )
+        return "ok"
+    return "ok"
+
+
 def _bed_fade_ms(
     *,
     placement: str,
@@ -222,6 +341,27 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     with logged_step("mix/placement_qa", ctx=ctx, stage="mix"):
         maybe_run_placement_qa(ctx)
         contract = mix_contract(ctx)
+        # Intelligibility / presence remux hints via run_meta.
+        try:
+            if ctx.artifact_exists("run_meta.json"):
+                meta = ctx.read_json("run_meta.json")
+                if isinstance(meta, dict):
+                    if meta.get("mix_intelligibility_remux_duck_db") is not None:
+                        contract = {
+                            **contract,
+                            "duck_under_speech_db": float(
+                                meta["mix_intelligibility_remux_duck_db"]
+                            ),
+                        }
+                    if meta.get("mix_bed_presence_lift_db") is not None:
+                        contract = {
+                            **contract,
+                            "bed_under_dialogue_db": float(
+                                meta["mix_bed_presence_lift_db"]
+                            ),
+                        }
+        except Exception:
+            pass
         profile = load_profile(ctx)
         pace = (profile or {}).get("pacing", {}) if isinstance(profile, dict) else {}
         policy_hash = ""
@@ -491,7 +631,20 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             if not isinstance(clip_audio, AudioSegment):
                 continue
             pos = max(0, int(cue.get("position_ms", 0)))
+            # pydub overlay truncates past len(mixed) — pad silence so outro /
+            # cold-open overrun / preserve_full_duration cues remain audible.
+            need = pos + len(clip_audio)
+            if need > len(mixed):
+                from pydub import AudioSegment as _ASPad
+
+                pad_ms = need - len(mixed)
+                mixed = mixed + _ASPad.silent(
+                    duration=pad_ms,
+                    frame_rate=mixed.frame_rate,
+                )
             mixed = mixed.overlay(clip_audio, position=pos)
+
+        post_overlay_timeline_ms = len(mixed)
 
         coverage_plan = load_sound_design_plan(ctx)
         coverage_assets = {
@@ -535,6 +688,27 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             if isinstance(cue, dict) and str(cue.get("asset_id") or "")
         }
         missing_music_assets = sorted(planned_music_assets - realized_music_assets)
+        # Lane exclusivity / stinger-cap may omit a generated stem from overlays.
+        # Do not fail mix when the approved WAV exists on disk.
+        sfx_dir = ctx.final_path("master", "sfx")
+        assets_dir = ctx.final_path("sound_design", "assets")
+        generated_ok: set[str] = set()
+        for aid in missing_music_assets:
+            for folder in (sfx_dir, assets_dir):
+                wav = folder / f"{aid}.wav"
+                try:
+                    if wav.is_file() and wav.stat().st_size > 1000:
+                        generated_ok.add(aid)
+                        break
+                except OSError:
+                    continue
+        if generated_ok:
+            ctx.log(
+                f"mix: generated but unplaced music assets (lane/cap): {sorted(generated_ok)}",
+                level="warning",
+                stage="mix",
+            )
+            missing_music_assets = [a for a in missing_music_assets if a not in generated_ok]
         realized_duration_rows = [
             {
                 "asset_id": str(cue.get("asset_id") or ""),
@@ -542,6 +716,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 "position_ms": int(cue.get("position_ms") or 0),
                 "source_duration_ms": int(cue.get("source_duration_ms") or 0),
                 "rendered_duration_ms": int(cue.get("rendered_duration_ms") or 0),
+                "audible_end_ms": int(cue.get("position_ms") or 0)
+                + int(cue.get("rendered_duration_ms") or 0),
                 "preserve_full_duration": bool(cue.get("preserve_full_duration")),
             }
             for cue in overlays
@@ -552,7 +728,10 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 row["asset_id"]
                 for row in realized_duration_rows
                 if row["preserve_full_duration"]
-                and row["rendered_duration_ms"] < row["source_duration_ms"]
+                and (
+                    row["rendered_duration_ms"] < row["source_duration_ms"]
+                    or row["audible_end_ms"] > post_overlay_timeline_ms
+                )
             }
         )
         ctx.write_json(
@@ -567,6 +746,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 "intentionally_skipped_bed_asset_ids": sorted(
                     intentionally_skipped_assets
                 ),
+                "base_timeline_ms": len(base),
+                "post_overlay_timeline_ms": post_overlay_timeline_ms,
                 "preserved": not missing_music_assets
                 and not shortened_preserved_assets,
             },
@@ -604,7 +785,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         )
 
     with logged_step("mix/post_mix_qc", ctx=ctx, stage="mix"):
-        maybe_check_mix_intelligibility(
+        intel = maybe_check_mix_intelligibility(
             ctx,
             assembly_path=assembly,
             flow="podcast",
@@ -613,6 +794,69 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             segment_timing=segment_timing,
             contract=contract,
         )
+        from interview_mux.master_qc import intelligibility_qc_config
+
+        intel_cfg = intelligibility_qc_config()
+        max_intel_remux = int(intel_cfg.get("max_remux_cycles") or 2)
+        remux_on_fail = bool(intel_cfg.get("remux_on_fail", False))
+        if (
+            intel is not None
+            and not intel.ok
+            and remux_on_fail
+            and remux_cycle < max_intel_remux
+        ):
+            boost = float(intel_cfg.get("remux_duck_boost_db") or 4.0)
+            prev = float(contract.get("duck_under_speech_db") or 16.0)
+
+            def _boost_duck(m: dict) -> None:
+                # Persist deeper duck for remux cycle via run meta hint.
+                m["mix_intelligibility_remux_duck_db"] = prev + boost
+
+            try:
+                ctx.mutate_run_meta(_boost_duck)
+            except Exception:
+                pass
+            ctx.log(
+                f"mix: intelligibility remux with deeper duck (+{boost} dB, cycle {remux_cycle})",
+                level="warning",
+                stage="mix",
+            )
+            # Apply deeper duck into contract for recursive remux.
+            contract = {**contract, "duck_under_speech_db": prev + boost}
+            return mix(ctx, remux_cycle=remux_cycle + 1)
+        if intel is not None and not intel.ok and remux_on_fail:
+            raise RuntimeError(
+                "mix intelligibility QC failed after remux: "
+                + ", ".join(intel.flagged_segment_ids or intel.failures[:6] or ["unknown"])
+            )
+        # Ghost-bed presence: beds under speech must stay in audible band.
+        presence = _check_bed_presence_band(
+            ctx,
+            assembly_path=assembly,
+            speech_stem=base,
+            segment_timing=segment_timing,
+            contract=contract,
+            remux_cycle=remux_cycle,
+        )
+        if presence.startswith("remux") and remux_cycle < 2:
+            ctx.log(
+                f"mix: bed presence remux ({presence}, cycle {remux_cycle})",
+                level="warning",
+                stage="mix",
+            )
+            if presence == "remux_duck":
+                prev = float(contract.get("duck_under_speech_db") or 16.0)
+
+                def _boost(m: dict) -> None:
+                    m["mix_intelligibility_remux_duck_db"] = prev + 4.0
+
+                try:
+                    ctx.mutate_run_meta(_boost)
+                except Exception:
+                    pass
+            return mix(ctx, remux_cycle=remux_cycle + 1)
+        if presence == "fail":
+            raise RuntimeError("mix bed presence QC failed (ghost or drowning beds)")
         if soundscape_enabled():
             report = run_soundscape_verify(ctx, remux_cycle=remux_cycle)
             if report.get("verdict") == "remediate":
@@ -1246,6 +1490,28 @@ def flow1_overlays_from_sdp(
                 segments_by_id=segments_by_id,
                 segment_timing=segment_timing,
             )
+        # Accents over speech must sidechain-duck after final position is known.
+        if (
+            asset_role in {"theme_emphasis", "theme_chapter_resolve", "theme_transition"}
+            and speech_stem is not None
+            and len(speech_stem) > 0
+            and pos is not None
+        ):
+            from interview_mux.sidechain_duck import duck_bed_with_sidechain
+
+            speech_window = speech_stem[
+                max(0, int(pos)) : max(0, int(pos)) + len(cue_audio)
+            ]
+            if len(speech_window) > 0 and float(speech_window.dBFS) > -48.0:
+                cue_audio = duck_bed_with_sidechain(
+                    cue_audio,
+                    speech_window,
+                    level_db=0.0,
+                    duck_db=max(
+                        MIN_DUCK_DB,
+                        float(cue.get("duck_under_speech_db") or duck_default),
+                    ),
+                )
         lane = music_lane_for_role(asset_role)
         # Punctuators must not start inside VO pickups (bookends may use post-hook air).
         if lane == LANE_PUNCTUATOR and excluded:

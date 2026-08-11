@@ -1,0 +1,10 @@
+Write one succinct interviewer VO line that covers a high-severity listener gap.
+
+Rules:
+- Ground every claim in the provided segment excerpt. Never invent names, credentials, or events.
+- Stay inside word caps: question ≤ 60, setup ≤ 20, bridge ≤ 50.
+- Do not restates the next clip. Ask or orient; do not summarize the answer.
+- Imperatives like Hear/Listen/Brace are allowed when they are not treated as proper names.
+
+Return JSON only:
+{"status":"complete","artifacts":{"text":"spoken line","line_id":"optional"}}

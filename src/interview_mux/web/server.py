@@ -2278,6 +2278,7 @@ def create_app() -> FastAPI:
             mode="stage",
             stage=stage,
             from_stage=stage,
+            invalidate=True,
             api_consents=body.api_consents,
         )
 
@@ -3090,6 +3091,7 @@ def create_app() -> FastAPI:
 
             synthesized: list[str] = []
             fallbacks: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
             for line in report.get("interviewer_lines") or []:
                 if not isinstance(line, dict):
                     continue
@@ -3112,27 +3114,25 @@ def create_app() -> FastAPI:
                     fallbacks.append({"line_id": lid, "notice": fb.notice})
                 except Exception as exc:
                     ctx.log(
-                        f"Batch VO synthesis hard-stopped at {lid or 'line'}: {exc}",
+                        f"Batch VO synthesis failed for {lid or 'line'}: {exc}",
                         level="error",
                         stage="g1_vo_pickup",
                         action_id="gui.g1.vo.synthesize_all",
                         detail={
                             "line_id": lid,
-                            "synthesized_before_fail": synthesized,
-                            "hard_stop": True,
+                            "hard_stop": False,
                         },
                     )
-                    refresh_journey_meta(ctx)
-                    raise HTTPException(
-                        500 if not isinstance(exc, LoudStageFailure) else 503,
-                        f"VO synthesis failed for {lid or 'line'}: {exc}",
-                    ) from exc
+                    errors.append({"line_id": lid, "error": str(exc)[:500]})
+                    continue
             refresh_journey_meta(ctx)
             notice = fallbacks[-1]["notice"] if fallbacks else None
+            if errors and not synthesized:
+                raise HTTPException(503, f"VO synthesis failed for all lines: {errors[0]}")
             return {
-                "ok": True,
+                "ok": not errors,
                 "synthesized": synthesized,
-                "errors": [],
+                "errors": errors,
                 "fallbacks": fallbacks,
                 "fallback": "record" if fallbacks else None,
                 "notice": notice,

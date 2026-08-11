@@ -161,8 +161,66 @@ def compact_transcript_for_boundaries(transcript: dict[str, Any]) -> dict[str, A
 
 
 def attach_disfluency_context(payload: dict[str, Any], ctx: RunContext) -> dict[str, Any]:
-    _ = ctx
-    return payload
+    """Attach this-tape must-keep IDs and STT island excerpts (not pipeline metadata)."""
+    out = dict(payload)
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        keeps = sorted(hard_keep_segment_ids(ctx))
+        if keeps:
+            out["must_keep_segment_ids"] = keeps
+    except Exception:
+        keeps = []
+    excerpts: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        try:
+            man = ctx.read_json("segments/manifest.json")
+            by_id = {
+                str(s.get("segment_id") or ""): s
+                for s in ((man or {}).get("segments") or [])
+                if isinstance(s, dict) and s.get("segment_id")
+            }
+        except Exception:
+            by_id = {}
+    island_ids: list[str] = []
+    for rel in (
+        "transcript/low_conf_islands.json",
+        "transcript/vernacular_islands.json",
+        "analysis/stt_lexicon_islands.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        rows = doc.get("islands") if isinstance(doc, dict) else doc
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("segment_id") or "")
+            if sid:
+                island_ids.append(sid)
+            text = str(row.get("text") or row.get("excerpt") or "").strip()
+            if not text and sid and sid in by_id:
+                text = str(by_id[sid].get("text") or "")[:280]
+            if text:
+                excerpts.append({"segment_id": sid, "excerpt": text[:280]})
+            if len(excerpts) >= 24:
+                break
+        if len(excerpts) >= 24:
+            break
+    if not excerpts:
+        for sid in (keeps or [])[:12]:
+            text = str((by_id.get(sid) or {}).get("text") or "").strip()
+            if text:
+                excerpts.append({"segment_id": sid, "excerpt": text[:280]})
+    if excerpts:
+        out["stt_island_excerpts"] = excerpts
+    if island_ids:
+        out["stt_island_segment_ids"] = sorted(set(island_ids))[:40]
+    return out
 
 
 def interviewer_sample_lines(ctx: RunContext, *, limit: int = 8) -> list[str]:

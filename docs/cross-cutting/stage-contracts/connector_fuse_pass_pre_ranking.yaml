@@ -1,0 +1,28 @@
+stage_id: connector_fuse_pass_pre_ranking
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: analysis/connector_fuse_rounds.json
+  schema: null
+  staging: false
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages:
+  - full_master_ranking
+  - nugget_corpus_mine
+  - nugget_layup_compose
+consumers: []
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

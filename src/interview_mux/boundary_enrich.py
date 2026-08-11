@@ -227,6 +227,13 @@ def _best_complete_thought_split(
             continue
         if not ends_complete_thought(text, next_pause_ms=gap):
             continue
+        # Prefer legal conceptual hinges (hanging setups never qualify).
+        from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+        if not is_legal_conceptual_hinge(
+            text, words=span_words, end_ms=int(prev["end_ms"]), next_pause_ms=gap
+        ):
+            continue
         score = gap
         if target_ms is not None:
             score -= abs(split_at - target_ms) // 10

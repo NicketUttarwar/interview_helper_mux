@@ -24,6 +24,7 @@ Authoritative specs for **interview_helper_mux** — messy interview audio → s
 | [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md) | ASSETS input picker, executions, resume after `run.sh` |
 | [cross-cutting/anchored-toolchain.md](./cross-cutting/anchored-toolchain.md) | Pinned Python/system/API versions, anchor lock, `pip-audit`, Context7 |
 | [cross-cutting/llm-stage-model-matrix.md](./cross-cutting/llm-stage-model-matrix.md) | Per-stage model tier matrix |
+| [cross-cutting/llm-volley-context.md](./cross-cutting/llm-volley-context.md) | Tape-only LLM packets; metadata denylist |
 | [cross-cutting/local-audio-stack.md](./cross-cutting/local-audio-stack.md) | Local DeepFilterNet + MMAudio stacks, isolation, MMAudio prompt tuning |
 | [prompts/_shared/examples/sfx-prompt-regression.md](./prompts/_shared/examples/sfx-prompt-regression.md) | Golden prompt regression QA |
 | [cross-cutting/json-schema-coverage.md](./cross-cutting/json-schema-coverage.md) | Schema coverage gaps + resilient guards |
@@ -51,4 +52,4 @@ Authoritative specs for **interview_helper_mux** — messy interview audio → s
 
 There is a single delivery path. The highlight-reel and show-description flows (Flow 2 / Flow 3) and the G2 flow picker were removed — see [v2/drop-manifest.md](./v2/drop-manifest.md).
 
-Analysis runs via `tools/run_analysis.py`, delivery via `tools/run_delivery.py`. Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**29 + 28 = 57 stages**) and [v2/port-manifest.csv](./v2/port-manifest.csv). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).
+Analysis runs via `tools/run_analysis.py`, delivery via `tools/run_delivery.py`. Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 + 27 = 61 stages**) and [v2/port-manifest.csv](./v2/port-manifest.csv). Remaining quality work: [podcast-quality-roadmap.md](./cross-cutting/podcast-quality-roadmap.md).

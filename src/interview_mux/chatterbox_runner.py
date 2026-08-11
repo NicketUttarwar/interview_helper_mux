@@ -19,10 +19,13 @@ def chatterbox_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "enabled": True,
         "model_id": "ResembleAI/chatterbox",
         "timeout_sec": 600,
-        "fail_open": False,
+        "fail_open": bool(gap_vo_cfg().get("fail_open", False)),
     }
     if isinstance(block, dict):
-        return {**defaults, **block}
+        merged = {**defaults, **block}
+        if "fail_open" not in block:
+            merged["fail_open"] = defaults["fail_open"]
+        return merged
     return defaults
 
 

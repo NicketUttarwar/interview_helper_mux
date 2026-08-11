@@ -314,6 +314,106 @@ def test_mid_clause_residual_not_soft_passable(tmp_path) -> None:
             assert detail.get("unrecoverable_within_clip") or f.get("severity") == "critical"
 
 
+def test_hanging_setup_that_is_the_time_is_illegal() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        ends_hanging_setup,
+        is_legal_conceptual_hinge,
+    )
+
+    left = "and that is the time"
+    right = "you want to figure out how do we take to the next level"
+    assert ends_hanging_setup(left)
+    assert not is_legal_conceptual_hinge(left, next_pause_ms=2000)
+
+    words = []
+    t = 0
+    for tok in (left + " " + right).split():
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 180})
+        t += 200
+    # Cut lands on "time"
+    end_ms = words[4]["end_ms"]  # "time"
+    assert clause_continues_after(words, end_ms)
+    assert not is_legal_conceptual_hinge(
+        left, words=words, end_ms=end_ms, next_pause_ms=None
+    )
+
+    # Air bounds must extend past the hang (or retreat) — never leave "time".
+    _start, end = resolve_keeper_air_bounds(
+        source_start_ms=0,
+        source_end_ms=end_ms,
+        words=words,
+        max_keep_ms=30_000,
+        min_keep_ms=800,
+        max_extend_ms=20_000,
+    )
+    assert end > end_ms
+    end_toks = [
+        str(w["text"])
+        for w in words
+        if int(w["end_ms"]) <= end
+    ]
+    assert end_toks[-1].lower().rstrip(".,!?") != "time"
+
+
+def test_conceptual_hinge_without_period_is_legal() -> None:
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    # Run-on: idea 1 closes mid-chain, then a new idea opens with "so".
+    text = "we put everything back into the company"
+    toks = (
+        "we put everything back into the company so then we raised a new round"
+    ).split()
+    words = []
+    t = 0
+    for i, tok in enumerate(toks):
+        if i == 7:  # "so" — real pause after "company"
+            t += 1200
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 180})
+        t += 200
+    hinge_end = words[6]["end_ms"]  # "company"
+    assert is_legal_conceptual_hinge(
+        text, words=words, end_ms=hinge_end, next_pause_ms=1200
+    )
+
+
+def test_fabricated_span_end_pause_no_longer_marks_complete() -> None:
+    from interview_mux.ideal_cuts import last_complete_thought_end_ms
+
+    # Window ends on hanging "time" with no following word *in window* —
+    # must not invent DEFAULT_PAUSE_SPLIT_MS completeness.
+    words = []
+    t = 0
+    for tok in "and that is the time".split():
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 180})
+        t += 200
+    # Continuation exists after the window end on the full word list.
+    cont_t = t
+    for tok in "you want to figure out".split():
+        words.append({"text": tok, "start_ms": cont_t, "end_ms": cont_t + 180})
+        cont_t += 200
+    cut_end = words[4]["end_ms"]  # "time"
+    snapped = last_complete_thought_end_ms(
+        words, start_ms=0, end_ms=cut_end
+    )
+    # Must not return the hanging "time" end as a complete thought.
+    assert snapped is None or snapped != cut_end
+
+
+def test_ideal_cuts_prompt_forbids_hanging_setups() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    ideal = (root / "docs/prompts/understanding/ideal-cuts-propose.system.txt").read_text()
+    boundary = (
+        root / "docs/prompts/segmentation/boundary-detection.system.txt"
+    ).read_text()
+    for body in (ideal, boundary):
+        assert "conceptual" in body.lower() or "hinge" in body.lower()
+        assert "that is the time" in body.lower()
+        assert "hanging" in body.lower()
+
+
 def test_overlong_keeper_uses_ideal_window_air_bounds() -> None:
     words = []
     # Sentence ends around 20s and 35s inside a 180s slab.

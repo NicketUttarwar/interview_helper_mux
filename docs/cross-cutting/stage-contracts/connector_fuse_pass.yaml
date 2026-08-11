@@ -1,0 +1,33 @@
+stage_id: connector_fuse_pass
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: analysis/connector_fuse_audit.json
+  schema: null
+  staging: false
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages:
+  - connector_fuse_pass_pre_ranking
+  - topic_coverage_audit
+  - narrative_arc_plan
+  - full_master_ranking
+  - nugget_corpus_mine
+  - nugget_layup_compose
+  - transitions
+  - edl
+consumers: []
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

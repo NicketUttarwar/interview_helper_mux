@@ -14,8 +14,8 @@ outputs:
   staging: true
 inputs:
   hard:
-  - path: master/selection.json
-    producer: full_master_ranking
+  - path: understanding/nugget_layup_plan.json
+    producer: nugget_layup_compose
   soft: []
 sufficiency:
 - path: transitions

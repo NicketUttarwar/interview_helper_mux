@@ -35,9 +35,20 @@ def apply_semantic_verdict(row: dict[str, Any], semantic: dict[str, Any] | None)
         row["semantic_qa_threshold"] = threshold
 
     if verdict == "fail":
-        row["verdict"] = "fail"
-        row.setdefault("reasons", []).append("low_semantic_similarity")
-        row["recommended_action"] = "refine"
+        role = str(row.get("role") or "")
+        gen = str(row.get("generation_status") or "").lower()
+        # MusicGen theme stems often score below CLAP vs prose prompts; do not
+        # fail-closed and regenerate in a loop when the WAV already exists.
+        if role.startswith("theme_") and gen in {"", "pass", "ok"}:
+            if row.get("verdict") == "pass":
+                row["verdict"] = "warn"
+            row.setdefault("reasons", []).append("low_semantic_similarity")
+            if row.get("recommended_action") == "pass":
+                row["recommended_action"] = "refine"
+        else:
+            row["verdict"] = "fail"
+            row.setdefault("reasons", []).append("low_semantic_similarity")
+            row["recommended_action"] = "refine"
     elif verdict == "warn" and row.get("verdict") == "pass":
         row["verdict"] = "warn"
         row.setdefault("reasons", []).append("low_semantic_similarity")

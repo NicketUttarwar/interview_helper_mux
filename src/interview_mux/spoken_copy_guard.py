@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
@@ -16,7 +17,7 @@ _PATH_OR_FILE = re.compile(
 )
 _PRODUCTION_JARGON = re.compile(
     r"\b(?:"
-    r"edl|edit decision list|timeline|stage|pipeline|artifact|schema|"
+    r"edl|edit decision list|timeline|(?<![-])stage(?![-])|pipeline|artifact|schema|"
     r"quality control|qc(?:\s+pass|\s+fail)?|lint|validator|"
     r"selection order|source segment|native segment|gap report|"
     r"synthesis report|fallback backend|confidence score|"
@@ -76,6 +77,22 @@ _ENTITY_IGNORE = {
     "Who",
     "Why",
     "With",
+}
+_IMPERATIVE_IGNORE = {
+    "Hear",
+    "Listen",
+    "Brace",
+    "Remember",
+    "Those",
+    "These",
+    "Please",
+    "Imagine",
+    "Consider",
+    "Notice",
+    "Watch",
+    "Stay",
+    "Hold",
+    "Keep",
 }
 
 
@@ -301,11 +318,20 @@ def spoken_copy_violations(
     if bool(ev.get("strict_grounding")):
         corpus = _evidence_text(ev)
         corpus_fold = corpus.casefold()
-        unsupported = [
-            entity
-            for entity in _PROPER_NAME.findall(clean)
-            if entity not in _ENTITY_IGNORE and entity.casefold() not in corpus_fold
-        ]
+        corpus_tokens = list(_tokens(corpus))
+        unsupported: list[str] = []
+        for entity in _PROPER_NAME.findall(clean):
+            if entity in _ENTITY_IGNORE or entity in _IMPERATIVE_IGNORE:
+                continue
+            if entity.casefold() in corpus_fold:
+                continue
+            first = entity.split()[0].casefold()
+            if first in corpus_fold:
+                continue
+            close = difflib.get_close_matches(entity.casefold(), corpus_tokens, n=1, cutoff=0.8)
+            if close:
+                continue
+            unsupported.append(entity)
         if unsupported:
             errors.append("spoken_unsupported_entity:" + ",".join(unsupported[:3]))
     return list(dict.fromkeys(errors))
@@ -383,7 +409,21 @@ def guard_spoken_copy(
             "context_hash": context_hash(ev),
             "purpose": purpose,
         }
+    entity_only = bool(violations) and all(
+        v.startswith("spoken_unsupported_entity") for v in violations
+    )
     fallback = _grounded_fallback(ev)
+    if entity_only and original:
+        stripped = original
+        for raw in violations:
+            names = raw.split(":", 1)[-1]
+            for name in names.split(","):
+                token = name.strip()
+                if token:
+                    stripped = re.sub(rf"\b{re.escape(token)}\b", "", stripped)
+        stripped = normalize_script(stripped)
+        if stripped and not spoken_copy_violations(stripped, evidence=ev, seen_texts=seen_texts):
+            fallback = stripped
     fallback_errors = (
         spoken_copy_violations(fallback, evidence=ev, seen_texts=seen_texts)
         if fallback

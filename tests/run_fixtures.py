@@ -66,6 +66,12 @@ def patch_mix_test_config(
             **(base.get("creative_delivery") or {}),
             "required": False,
         }
+    mix_cfg = dict(base.get("mix") or {})
+    intel = dict(mix_cfg.get("intelligibility_qc") or {})
+    intel["remux_on_fail"] = False
+    mix_cfg["intelligibility_qc"] = intel
+    mix_cfg["bed_presence_qc"] = {"enabled": False, "fail_closed": False}
+    overrides["mix"] = mix_cfg
     patch_merged_config(monkeypatch, overrides)
 
 def parse_log_detail(entry: dict[str, Any]) -> dict[str, Any]:

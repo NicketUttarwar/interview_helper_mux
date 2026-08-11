@@ -1124,6 +1124,16 @@ def _seed_missing_high_gap_interviewer_lines(
     occasionally omit one segment (especially unfinished/crosstalk clips); seed a
     short synthesize bridge so compose can commit without a full re-volley.
     """
+    # Under Nugget Layup authority the publish path owns body lines — seeded
+    # hinges are canned air and fail EDL authority lint.
+    if bool(out.get("nugget_layup_authority")):
+        try:
+            from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+            fill_uncovered_high_gaps(ctx, out, applied=applied, origin="nugget_layup")
+        except Exception as exc:
+            applied.append({"action": "high_gap_vo_fill_failed", "error": str(exc)[:240]})
+        return
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return
     try:
@@ -1205,6 +1215,33 @@ def _seed_missing_high_gap_interviewer_lines(
             }
         except Exception:
             segs_by_id = {}
+
+    try:
+        from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+        fill_uncovered_high_gaps(ctx, out, applied=applied, origin="high_gap_vo_fill")
+        lines = out.setdefault("interviewer_lines", [])
+        if not isinstance(lines, list):
+            lines = []
+            out["interviewer_lines"] = lines
+        targeted = set()
+        existing_line_ids = set()
+        for ln in lines:
+            if not isinstance(ln, dict):
+                continue
+            lid = str(ln.get("line_id") or "").strip()
+            if lid:
+                existing_line_ids.add(lid)
+                if lid.startswith("vo_seed_"):
+                    targeted.add(lid[len("vo_seed_") :])
+                if lid.startswith("vo_fill_"):
+                    targeted.add(lid[len("vo_fill_") :])
+            for key in ("targets_segment_id", "segment_id"):
+                sid = str(ln.get(key) or "").strip()
+                if sid:
+                    targeted.add(sid)
+    except Exception:
+        pass
 
     for row in high_rows:
         seg_id = str(row.get("segment_id") or "").strip()
@@ -1744,11 +1781,26 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         stamped = stamp_lines_prior_provenance(ctx, list(out.get("interviewer_lines") or []))
         ordered, by_id, chapters = load_ordered_and_segments(ctx)
         settings = prior_context_cfg()
+        from interview_mux.opening_orientation import is_episode_orientation
+
         fixed_lines: list[dict[str, Any]] = []
         for row in stamped:
             if not isinstance(row, dict):
                 continue
             line = dict(row)
+            # Episode orientation is selection-independent setup copy — never
+            # collapse it into a courtesy seam hinge after impact beats.
+            if is_episode_orientation(line):
+                fixed_lines.append(line)
+                continue
+            # Authoritative layups own their recovery copy — courtesy rewrites
+            # were replacing plan text with canned hinges and failing EDL.
+            if (
+                bool(out.get("nugget_layup_authority"))
+                and str(line.get("origin") or "") == "nugget_layup"
+            ):
+                fixed_lines.append(line)
+                continue
             if line.get("prior_impact_beat") and is_interruptive_opener(str(line.get("text") or "")):
                 cat = str(line.get("line_category") or "framing_question")
                 prior = build_prior_native_context(
@@ -1889,24 +1941,33 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         if row.get("skipped_optional"):
             guarded_lines.append(row)
             continue
-        target = str(row.get("targets_segment_id") or "")
-        prior_id = str(row.get("prior_segment_id") or "")
-        prior_row = by_id.get(prior_id) or {}
-        target_row = by_id.get(target) or {}
-        required = is_episode_orientation(row)
+        required = is_episode_orientation(row) or bool(row.get("required"))
+        lid = str(row.get("line_id") or "")
+        origin = str(row.get("origin") or "")
+        if lid.startswith("vo_fill_") or origin in {"high_gap_vo_fill", "nugget_layup"}:
+            required = True
+            row["required"] = True
         # Episode-preface copy describes the whole conversation, not a local
         # source-timeline join. Applying negative-gap chronology rules here
         # misclassifies phrases such as "next-chapter goals" and replaces the
         # orientation with a generic seam hinge.
         source_gap = None if required else row.get("source_gap_ms")
-        if source_gap is None and prior_row and target_row:
-            if not required:
+        if source_gap is None and not required:
+            target = str(row.get("targets_segment_id") or "")
+            prior_id = str(row.get("prior_segment_id") or "")
+            prior_row = by_id.get(prior_id) or {}
+            target_row = by_id.get(target) or {}
+            if prior_row and target_row:
                 try:
                     source_gap = int(target_row.get("start_ms") or 0) - int(
                         prior_row.get("end_ms") or 0
                     )
                 except (TypeError, ValueError):
                     source_gap = None
+        target = str(row.get("targets_segment_id") or "")
+        prior_id = str(row.get("prior_segment_id") or "")
+        prior_row = by_id.get(prior_id) or {}
+        target_row = by_id.get(target) or {}
         evidence = {
             "target_excerpt": target_row.get("text"),
             "after_topic": target_row.get("topic"),
@@ -1922,6 +1983,56 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             purpose=f"gap_repair[{row.get('line_id') or target}]",
             seen_texts=seen_texts,
         )
+        orig_text = str(row.get("text") or "").strip()
+        new_text = str(decision.get("text") or "").strip()
+        # Never collapse a substantive episode orientation into a thin hinge
+        # fallback (spoken_production_jargon → "What changed after that?").
+        if (
+            required
+            and len(orig_text.split()) >= 6
+            and len(new_text.split()) < 6
+        ):
+            fixed = dict(row)
+            guarded_lines.append(fixed)
+            seen_texts.append(orig_text)
+            applied.append(
+                {
+                    "action": "keep_orientation_despite_spoken_fallback",
+                    "line_id": row.get("line_id"),
+                    "violations": decision.get("violations"),
+                    "guard_action": decision.get("action"),
+                }
+            )
+            continue
+        # Same for authoritative layups — fallback hinges destroy coverage QC.
+        if (
+            bool(out.get("nugget_layup_authority"))
+            and str(row.get("origin") or "") == "nugget_layup"
+            and orig_text
+            and (
+                decision.get("action") in {"omit", "fallback"}
+                or (
+                    new_text
+                    and new_text.lower() in {
+                        "what changed after that?",
+                        "what happened next?",
+                        "what was at stake?",
+                    }
+                )
+            )
+        ):
+            fixed = dict(row)
+            guarded_lines.append(fixed)
+            seen_texts.append(orig_text)
+            applied.append(
+                {
+                    "action": "keep_layup_despite_spoken_fallback",
+                    "line_id": row.get("line_id"),
+                    "violations": decision.get("violations"),
+                    "guard_action": decision.get("action"),
+                }
+            )
+            continue
         if decision["action"] == "block":
             raise ValueError(
                 f"required gap VO blocked by spoken_copy_guard "
@@ -1929,6 +2040,16 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 + ", ".join(decision["violations"])
             )
         if decision["action"] == "omit":
+            if required:
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    f"required high-gap VO omitted after rewrite ({row.get('line_id')})",
+                    stage="gap_framing_compose",
+                    reason="high_gap_uncovered",
+                    detail={"violations": decision.get("violations")},
+                )
             applied.append(
                 {
                     "action": "omit_unsafe_optional_vo",
@@ -1947,6 +2068,15 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         guarded_lines.append(fixed)
         seen_texts.append(str(decision["text"]))
     out["interviewer_lines"] = guarded_lines
+    # Re-inject authoritative layups after spoken-copy omit — restore must be last
+    # so a later guard cannot wipe recovery copy again.
+    try:
+        from interview_mux.nugget_layup import restore_layup_lines
+
+        out, restored = restore_layup_lines(ctx, out)
+        applied.extend(restored)
+    except Exception:
+        pass
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
@@ -3487,6 +3617,56 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 podcast["cues"] = cues
     except Exception as exc:
         applied.append({"action": "hinge_resolve_seed_skipped", "error": str(exc)[:160]})
+
+    pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
+    if not pals:
+        seed_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for cue in ((out.get("flow_plans") or {}).get("podcast") or {}).get("cues") or []:
+            if not isinstance(cue, dict):
+                continue
+            for key in ("segment_id", "before_segment_id", "after_segment_id"):
+                sid = str(cue.get(key) or "")
+                if sid and sid not in seen_ids:
+                    seen_ids.add(sid)
+                    seed_ids.append(sid)
+        if not seed_ids:
+            seed_ids = list(selection_ids[:24])
+        out["palettes"] = [
+            {
+                "palette_id": "theme_default",
+                "theme_label": "show theme",
+                "keywords": ["acoustic", "warm", "conversational", "sparse"],
+                "segment_ids": seed_ids[:48],
+                "ambient_description": "Soft acoustic underscore under conversation",
+                "accent_description": "Short motif punctuation at chapter hinges",
+                "avoid": ["vocals", "lyrics", "crowd noise"],
+            }
+        ]
+        applied.append({"action": "seed_default_palette", "segment_count": len(seed_ids[:48])})
+
+    coh = out.get("coherence") if isinstance(out.get("coherence"), dict) else {}
+    if not str(coh.get("sonic_identity") or "").strip() or not str(coh.get("primary_mood") or "").strip():
+        seed_mood = "conversational"
+        seed_density = "sparse"
+        if ctx.artifact_exists("understanding/sonic_context.json"):
+            sonic = ctx.read_json("understanding/sonic_context.json")
+            ident = sonic.get("sonic_identity_seed") if isinstance(sonic, dict) else None
+            if isinstance(ident, dict):
+                seed_mood = str(ident.get("primary_mood") or seed_mood)
+                seed_density = str(ident.get("density_hint") or seed_density)
+        coh = dict(coh)
+        coh.setdefault("sonic_identity", f"{seed_mood} {seed_density} acoustic motif")
+        if not str(coh.get("sonic_identity") or "").strip():
+            coh["sonic_identity"] = f"{seed_mood} {seed_density} acoustic motif"
+        coh.setdefault("primary_mood", seed_mood)
+        if not str(coh.get("primary_mood") or "").strip():
+            coh["primary_mood"] = seed_mood
+        coh.setdefault("density", seed_density)
+        if not str(coh.get("density") or "").strip():
+            coh["density"] = seed_density
+        out["coherence"] = coh
+        applied.append({"action": "seed_empty_coherence"})
 
     # sound_design_plan.schema.json forbids root additionalProperties (_meta);
     # write_validated_artifact strips/restores _meta, but keep disk payload clean.

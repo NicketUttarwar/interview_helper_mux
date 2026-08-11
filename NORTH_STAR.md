@@ -108,6 +108,12 @@ All of the below are **deleted from the codebase**, not disabled. Inventory: [do
 
 Bare “volley” is ambiguous — always qualify.
 
+## LLM volley packets (quality covenant)
+
+User packets must contain **this tape’s meaning** (transcript, segment excerpts, spine windows, must-keep IDs as editorial constraints). Forbidden: path-exists flags, `.stage_done`, fingerprint dumps, e2e heal notes. Spec: [docs/cross-cutting/llm-volley-context.md](docs/cross-cutting/llm-volley-context.md).
+
+**Must-keep clips** (gap-framing primaries, vernacular/low-conf, ideal-cuts, talking-point must-keeps) stay in `ordered_segment_ids`. **E2E must not stub QC green** (`INTERVIEW_MUX_E2E_SOFT` default off). **Resume** does not `clear_from` past a frozen gap spine.
+
 ## Quality spine (all hard)
 
 `verify_master` (−16 LUFS) · junction snip QA authoritative residuals · listener scorecard / post_master_quality · **listen_delight** (authoritative).

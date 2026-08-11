@@ -1,0 +1,230 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "nuggets",
+        "warnings"
+      ],
+      "properties": {
+        "nuggets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "nugget_id",
+              "text_claim",
+              "evidence_quote",
+              "source_start_ms",
+              "source_end_ms",
+              "speaker_id",
+              "source_segment_ids",
+              "in_selection",
+              "already_aired_in_selection",
+              "talking_point_ids",
+              "salience",
+              "grounding_quality",
+              "evidence_partial",
+              "themes"
+            ],
+            "properties": {
+              "nugget_id": {
+                "type": "string"
+              },
+              "text_claim": {
+                "type": "string"
+              },
+              "evidence_quote": {
+                "type": "string"
+              },
+              "source_start_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "source_end_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "speaker_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_segment_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "in_selection": {
+                "type": "boolean"
+              },
+              "already_aired_in_selection": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "talking_point_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "salience": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ]
+              },
+              "grounding_quality": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "high",
+                  "mixed",
+                  "weak"
+                ]
+              },
+              "evidence_partial": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "themes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "warnings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

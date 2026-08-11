@@ -90,6 +90,12 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
         "boundary_topic_resplit": lambda: segmentation.run_boundary_topic_resplit(ctx),
         "vernacular_segment_sanitize": lambda: audio_probes.run_vernacular_segment_sanitize(ctx),
+        "low_conf_island_scan": lambda: __import__(
+            "interview_mux.stages.low_conf_fuse_stages", fromlist=["run_low_conf_island_scan"]
+        ).run_low_conf_island_scan(ctx),
+        "connector_fuse_pass": lambda: __import__(
+            "interview_mux.stages.low_conf_fuse_stages", fromlist=["run_connector_fuse_pass"]
+        ).run_connector_fuse_pass(ctx),
         "sonic_context_build": lambda: sonic_context_stages.run_sonic_context_build(ctx),
         "sound_design_palettes": lambda: sound_design_stages.run_sound_design_palettes(ctx),
         "mastering_research_routing": lambda: __import__(
@@ -133,6 +139,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
     return {
         "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
         "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
+        "connector_fuse_pass_pre_ranking": lambda: __import__(
+            "interview_mux.stages.low_conf_fuse_stages",
+            fromlist=["run_connector_fuse_pass_pre_ranking"],
+        ).run_connector_fuse_pass_pre_ranking(ctx),
         "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
         "nugget_corpus_mine": lambda: analysis_extended.run_nugget_corpus_mine(ctx),
         "information_package_plan": lambda: __import__(
@@ -445,13 +455,31 @@ def run_analysis(
     *,
     from_stage: str | None = None,
     until_stage: str | None = None,
+    invalidate: bool = False,
 ) -> None:
     from interview_mux.artifact_completeness import should_run_stage_for_artifact
     from interview_mux.web.job_progress import notify_stage_start
     from interview_mux.write_staging import run_wrapped_stage
 
     analysis_order = effective_analysis_order()
-    if from_stage:
+    if (
+        not invalidate
+        and from_stage
+        and (
+            ctx.artifact_exists("understanding/gap_report.json")
+            or ctx.is_done("gap_framing_compose")
+        )
+        and from_stage in analysis_order
+        and "gap_framing_compose" in analysis_order
+        and analysis_order.index(from_stage) < analysis_order.index("gap_framing_compose")
+    ):
+        ctx.log(
+            f"spine freeze: refusing rewind from {from_stage} past existing gap artifacts",
+            level="warning",
+            stage=from_stage,
+        )
+        from_stage = "gap_framing_compose"
+    if from_stage and invalidate:
         ctx.clear_from(from_stage, analysis_order)
 
     stages = _analysis_stage_fns(ctx)
@@ -549,6 +577,7 @@ def run_delivery(
     from_stage: str | None = None,
     until_stage: str | None = None,
     preclean_hook: Callable[[str], None] | None = None,
+    invalidate: bool = False,
 ) -> None:
     if not v2_g1_optional():
         require_g1_clear(ctx)
@@ -556,7 +585,7 @@ def run_delivery(
     require_delivery_gates(ctx, from_stage=from_stage)
 
     delivery_order = effective_delivery_order()
-    if from_stage:
+    if from_stage and invalidate:
         ctx.clear_from(from_stage, delivery_order)
 
     stages = _delivery_stage_fns(ctx)

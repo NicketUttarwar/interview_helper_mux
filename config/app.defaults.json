@@ -18,12 +18,12 @@
   "operator": {
     "autopilot_enabled": false
   },
-  "_comment_models": "OpenAI tier routing per stage",
+  "_comment_models": "OpenAI tier routing per stage. Flagship is gpt-5.6-terra (~1.05M input context).",
   "models": {
     "tiers": {
       "economy": "gpt-4o-mini",
       "standard": "gpt-4o",
-      "flagship": "o3"
+      "flagship": "gpt-5.6-terra"
     },
     "stages": {
       "speaker_roles": {
@@ -168,8 +168,15 @@
       "soft_fail_sfx_placeholder": false
     },
     "intelligibility_qc": {
-      "enabled": false,
-      "silent_speech_mix_ceiling_dbfs": -32
+      "enabled": true,
+      "silent_speech_mix_ceiling_dbfs": -32,
+      "remux_on_fail": true,
+      "remux_duck_boost_db": 4.0,
+      "max_remux_cycles": 2
+    },
+    "bed_presence_qc": {
+      "enabled": true,
+      "fail_closed": true
     }
   },
   "_comment_audio_preclean": "DeepFilterNet primary; ffmpeg denoise when local stack unavailable",
@@ -452,7 +459,7 @@
     },
     "mmaudio": {
       "venv_dir": "ASSETS/local_mmaudio/venv",
-      "enabled": false
+      "enabled": true
     },
     "musicgen": {
       "venv_dir": "ASSETS/local_musicgen/venv",
@@ -708,25 +715,28 @@
     "auto_refine_on_listen_fail": true,
     "auto_refine_on_trauma": true
   },
-  "_comment_musicgen": "Local MusicGen for music-only theme stems (no whoosh/tick/foley)",
+  "_comment_musicgen": "Local MusicGen theme stems. device=cpu by default. 1h timeout then step-down (shorter/bare/smaller cached model) then musical-note stub so mix always has audio.",
   "musicgen": {
     "enabled": true,
-    "model_id": "facebook/musicgen-medium",
-    "melody_model_id": "facebook/musicgen-melody",
-    "device": "auto",
+    "model_id": "facebook/musicgen-large",
+    "melody_model_id": "facebook/musicgen-melody-large",
+    "device": "cpu",
+    "ban_mps_on_abort": true,
     "request_timeout_sec": 3600,
     "default_duration_sec": 10.0,
     "min_duration_sec": 4.0,
     "max_duration_sec": 16.0,
     "use_melody_conditioning": false,
-    "fail_closed_on_stub": true,
+    "fail_closed_on_stub": false,
     "best_of_n_speech_free": 1,
     "best_of_n_underscore": 1,
+    "max_best_of_n": 1,
     "keep_candidates": false,
-    "max_regen_per_asset": 3,
+    "max_regen_per_asset": 2,
     "semantic_qa_fail_on_low": true,
     "prefetch_models": [
-      "facebook/musicgen-medium"
+      "facebook/musicgen-large",
+      "facebook/musicgen-melody-large"
     ]
   },
   "_comment_web": "GUI server port and operator console",
@@ -786,6 +796,44 @@
       "vernacular_boost_multiplier": 1.25,
       "sibling_cohesion_enabled": true
     },
+    "_comment_low_conf_selection": "Recall-first low-conf cluster ladder + density top-decile hard must_keep for selection.",
+    "low_conf_selection": {
+      "enabled": true,
+      "top_percentile": 0.10,
+      "enforcement_mode": "authoritative",
+      "min_positive_density": 0.0,
+      "recall_first": true,
+      "cluster": {
+        "low_confidence_threshold": 0.85,
+        "high_confidence_threshold": 0.90,
+        "min_low_ratio_loose": 0.45,
+        "min_low_words_loose": 3,
+        "max_high_conf_sprinkle": 8,
+        "break_on_high_run": 5,
+        "cluster_break_pause_ms": 700,
+        "window_ms_options": [2000, 4000, 6000],
+        "window_mean_conf_max": 0.88,
+        "min_bricks_in_window": 4,
+        "segment_soft_density": 0.12,
+        "null_confidence_as": "mid"
+      }
+    },
+    "_comment_connector_fuse": "Economy-LLM seam adjudication over every chronological pair; fuse mid-thought chops into one segment.",
+    "connector_fuse": {
+      "enabled": true,
+      "max_fuses_per_pass": 0,
+      "max_fuse_rounds": 0,
+      "allow_cross_speaker_fuse": false,
+      "tail_words": 16,
+      "head_words": 16,
+      "llm_batch_size": 16,
+      "llm_tier": "economy",
+      "prefer_fuse_when_hint_and_uncertain": true,
+      "deterministic_fallback_on_llm_fail": true,
+      "max_seam_gap_ms": 8000,
+      "same_topic_score_floor": 0.15,
+      "passes": ["post_sanitize", "pre_ranking", "junction_heal"]
+    },
     "prompt_examples": {
       "enabled": true,
       "mode": "full"
@@ -817,6 +865,13 @@
         16.0
       ],
       "field_truncation_clear_floor_chars": 8000
+    },
+    "safe_pruning": {
+      "enabled": true,
+      "extract_tier": "economy",
+      "economy_chunk_char_budget": 80000,
+      "flagship_input_token_budget": 900000,
+      "max_chunks": 24
     },
     "context": {
       "transcript_excerpt_chars": 24000,
@@ -1057,12 +1112,30 @@
       "min_layup_words": 18,
       "max_layup_words": 90,
       "prefer_excluded_nuggets": true,
-      "segment_text_max_chars": 420,
+      "segment_text_max_chars": 1500,
+      "prior_close_excerpt_chars": 480,
+      "max_open_nuggets_per_target": 8,
+      "slim_open_nuggets": true,
+      "compose_batch_max_natives": 32,
+      "require_analysis_fields": true,
+      "ban_canned_air": true,
+      "unique_nuggets_across_layups": true,
+      "max_cross_layup_overlap": 0.6,
+      "max_target_restate_overlap": 0.6,
       "suppress_placeholder_seams_when_layup": true,
       "demote_synthetic_framing_content": true,
       "authoritative_gap_report": true,
       "block_on_open_must_keep": true,
-      "honor_information_package_dense_budget": true
+      "honor_information_package_dense_budget": true,
+      "degraded_layup": {
+        "enabled": true,
+        "comprehensible_min_token_conf": 0.85,
+        "grace_min_layup_words": 12,
+        "allow_thinner_forward_unlock": true,
+        "extra_degraded_regenerate": true,
+        "exclude_unclear_from_llm_verbatim": true,
+        "include_unclear_span_summaries": true
+      }
     },
     "gap_vo": {
       "default_delivery": "chatterbox",
@@ -1269,7 +1342,7 @@
       },
       "information_packages": {
         "enable": true,
-        "mode": "shadow",
+        "mode": "commit_music_vo",
         "max_per_episode": 2,
         "min_novelty": 0.75,
         "min_necessity": 0.75,

@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import pytest
+
+from interview_mux.artifact_repairs import repair_gap_report
+from interview_mux.loud_fail import LoudStageFailure
 from interview_mux.nugget_layup import (
     CORPUS_REL,
     GAP_REL,
     PLAN_REL,
+    assert_layup_fresh_vs_selection,
     build_corpus_mine_input,
     build_layup_compose_input,
+    canned_air_violations,
     evaluate_layup_qc,
     gap_has_layup_before,
+    layup_freshness_errors,
     layup_line_from_row,
+    lint_gap_report_layup_authority,
     nugget_layup_cfg,
     publish_layup_plan_to_gap_report,
+    restore_layup_lines,
 )
 from interview_mux.prompt_validation import (
     STAGE_ARTIFACT_DISK_PATHS,
@@ -22,6 +31,13 @@ from interview_mux.prompt_validation import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import ALL_LLM_STAGES, DELIVERY_ORDER
+
+# Construction analysis every non-skip lay-up row must carry.
+_ANALYSIS = {
+    "target_beat": "The exit negotiation",
+    "listener_need_entering_T": "The prior clip ended before the buyer appeared",
+    "forward_unlock": "Why the snack pivot decided the price",
+}
 
 
 def test_delivery_order_places_layup_after_ranking():
@@ -288,6 +304,7 @@ def test_qc_ignores_should_keep_and_discharged_open_ids():
                 "talking_point_ids": ["tp_001"],
                 "skip": False,
                 "forward_cue_ok": True,
+                **_ANALYSIS,
             }
         ],
         # LLM noise: should_keep open + must_keep listed as both open and discharged.
@@ -370,6 +387,7 @@ def test_exec_1579_shaped_recovery_mapping():
                 "talking_point_ids": ["tp_002"],
                 "skip": False,
                 "forward_cue_ok": True,
+                **_ANALYSIS,
             },
             {
                 "target_segment_id": "seg_011",
@@ -378,6 +396,7 @@ def test_exec_1579_shaped_recovery_mapping():
                 "talking_point_ids": ["tp_001"],
                 "skip": False,
                 "forward_cue_ok": True,
+                **_ANALYSIS,
             },
             {
                 "target_segment_id": "seg_028",
@@ -386,6 +405,7 @@ def test_exec_1579_shaped_recovery_mapping():
                 "talking_point_ids": ["tp_003"],
                 "skip": False,
                 "forward_cue_ok": True,
+                **_ANALYSIS,
             },
         ],
         "discharged_talking_point_ids": ["tp_001", "tp_002", "tp_003"],
@@ -396,3 +416,272 @@ def test_exec_1579_shaped_recovery_mapping():
     qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
     assert qc["layup_coverage"] == 1.0
     assert qc["ok"] is True
+
+
+def _layup_row(target: str, text: str, **extra) -> dict:
+    return {
+        "target_segment_id": target,
+        "line_id": f"vo_layup_{target}",
+        "text": text,
+        "skip": False,
+        "forward_cue_ok": True,
+        **_ANALYSIS,
+        **extra,
+    }
+
+
+def _seed_air_order(ctx: RunContext, ordered: list[str], texts: dict[str, str]) -> None:
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ordered})
+    segments = []
+    start = 0
+    for sid in ordered:
+        segments.append(
+            {
+                "segment_id": sid,
+                "speaker_id": "spk_0",
+                "speaker_role": "interviewee",
+                "type": "interviewee_answer",
+                "topic_tags": [],
+                "text": texts.get(sid, f"Native content for {sid}."),
+                "start_ms": start,
+                "end_ms": start + 9000,
+            }
+        )
+        start += 12_000
+    ctx.write_json("segments/manifest.json", {"segments": segments})
+
+
+def test_stale_or_reordered_plan_fails_closed():
+    ctx = RunContext("exec_nugget_layup_stale", create=True)
+    _seed_air_order(ctx, ["seg_003", "seg_011"], {})
+    plan = {
+        "ordered_segment_ids": ["seg_011"],
+        "layups": [_layup_row("seg_011", "Recovered ESOP breadth sets up the deal terms.")],
+    }
+    errors = layup_freshness_errors(ctx, plan)
+    assert errors and "ordered_segment_ids" in errors[0]
+    with pytest.raises(LoudStageFailure):
+        assert_layup_fresh_vs_selection(ctx, plan)
+
+    fresh = {
+        "ordered_segment_ids": ["seg_003", "seg_011"],
+        "layups": [_layup_row("seg_011", "Recovered ESOP breadth sets up the deal terms.")],
+    }
+    assert layup_freshness_errors(ctx, fresh) == []
+    stale_meta = {**fresh, "_meta": {"stale": True, "stale_reason": "invalidated_by:full_master_ranking"}}
+    with pytest.raises(LoudStageFailure):
+        assert_layup_fresh_vs_selection(ctx, stale_meta)
+
+
+def test_recompose_cannot_wipe_layups():
+    ctx = RunContext("exec_nugget_layup_authority", create=True)
+    ordered = ["seg_011", "seg_028"]
+    _seed_air_order(
+        ctx,
+        ordered,
+        {
+            "seg_011": "Then the money conversation started and everything about the timeline shifted.",
+            "seg_028": "The buyer signed and the pool stayed intact through the transition.",
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            _layup_row(
+                "seg_011",
+                "The company had grown to thirty crore with no outside capital before that call. "
+                "What did the investors want in exchange?",
+                nugget_ids=["nug_boot"],
+            ),
+            _layup_row(
+                "seg_028",
+                "The employee pool reached shop-floor staff, not just senior managers. "
+                "What did the buyer promise in writing?",
+                nugget_ids=["nug_esop"],
+            ),
+        ],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    assert len([ln for ln in report["interviewer_lines"] if ln.get("origin") == "nugget_layup"]) == 2
+
+    # A recompose that rewrites the artifact without the layups.
+    wiped = {
+        **report,
+        "interviewer_lines": [
+            ln for ln in report["interviewer_lines"] if ln.get("origin") != "nugget_layup"
+        ],
+    }
+    assert lint_gap_report_layup_authority(ctx, wiped)
+    restored, notes = restore_layup_lines(ctx, wiped)
+    assert len(notes) == 2
+    assert gap_has_layup_before(restored, "seg_011")
+    assert gap_has_layup_before(restored, "seg_028")
+    assert lint_gap_report_layup_authority(ctx, restored) == []
+
+    # Same protection on the central gap_report write repair path.
+    repaired, applied = repair_gap_report(ctx, wiped)
+    assert any(a.get("action") == "restore_nugget_layup_line" for a in applied)
+    assert gap_has_layup_before(repaired, "seg_028")
+
+
+def test_duplicate_nugget_across_layups_fails_qc():
+    ctx = RunContext("exec_nugget_layup_dupe", create=True)
+    ordered = ["seg_011", "seg_028"]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            _layup_row(
+                "seg_011",
+                "Bootstrapped growth to thirty crore set the bar before outside capital.",
+                nugget_ids=["nug_esop"],
+            ),
+            _layup_row(
+                "seg_028",
+                "Inclusive ESOPs meant shop-floor partners shared the upside of the sale.",
+                selected_nugget_ids=["nug_esop"],
+            ),
+        ],
+        "discharged_nugget_ids": ["nug_esop"],
+    }
+    qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
+    assert qc["ok"] is False
+    assert qc["duplicate_nugget_ids"] == ["nug_esop"]
+    assert any("duplicate_nugget" in err for err in qc["errors"])
+
+
+def test_compose_packet_carries_excluded_tape_and_air_ledger():
+    ctx = RunContext("exec_nugget_layup_packet", create=True)
+    ordered = ["seg_003", "seg_028"]
+    _seed_air_order(
+        ctx,
+        ordered,
+        {
+            "seg_003": "We bootstrapped the company to thirty crore before any outside capital arrived.",
+            "seg_028": "The Zydus structure protected employee ownership through the ESOP pool at exit.",
+        },
+    )
+    ctx.write_json(
+        CORPUS_REL,
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "nug_esop",
+                    "text_claim": "Employee ownership through the ESOP pool covered shop-floor staff",
+                    "evidence_quote": "everyone had ESOP",
+                    "source_segment_ids": ["seg_014"],
+                    "in_selection": False,
+                    "salience": "high",
+                },
+                {
+                    "nugget_id": "nug_boot",
+                    "text_claim": "Bootstrapped to thirty crore before outside capital",
+                    "evidence_quote": "we bootstrapped",
+                    "source_segment_ids": ["seg_003"],
+                    "in_selection": True,
+                    "salience": "high",
+                },
+            ]
+        },
+    )
+    packet = build_layup_compose_input(ctx)
+    first, second = packet["natives"]
+    assert first["seam_reason"] == "episode_open"
+    assert second["prior_segment_id"] == "seg_003"
+    assert "bootstrapped" in second["prior_closing_excerpt"].lower()
+    # Facts the earlier native speaks itself are spent before later targets.
+    assert "nug_boot" in second["already_aired_nugget_ids"]
+    ranked_ids = [n["nugget_id"] for n in second["open_nuggets_ranked"]]
+    assert "nug_esop" in ranked_ids
+    assert "nug_boot" not in ranked_ids
+    esop = next(n for n in second["open_nuggets_ranked"] if n["nugget_id"] == "nug_esop")
+    assert esop["in_selection"] is False
+    assert esop["relevance_to_target"] > 0
+    # Slim ranked rows are pointers; claims live in nugget_corpus once.
+    assert "text_claim" not in esop
+    assert any(
+        n.get("nugget_id") == "nug_esop" and n.get("text_claim")
+        for n in (packet.get("nugget_corpus") or {}).get("nuggets") or []
+    )
+    assert "target_beat" in packet["required_analysis_fields"]
+
+
+def test_merge_layup_plan_parts_preserves_air_order():
+    from interview_mux.nugget_layup import merge_layup_plan_parts
+
+    ordered = ["seg_a", "seg_b", "seg_c"]
+    merged = merge_layup_plan_parts(
+        [
+            {
+                "layups": [{"target_segment_id": "seg_a", "text": "A"}],
+                "discharged_nugget_ids": ["n1"],
+            },
+            {
+                "layups": [
+                    {"target_segment_id": "seg_c", "text": "C"},
+                    {"target_segment_id": "seg_b", "text": "B"},
+                ],
+                "discharged_nugget_ids": ["n2"],
+                "open_high_salience_nugget_ids": ["n3"],
+            },
+        ],
+        ordered_segment_ids=ordered,
+    )
+    assert [r["target_segment_id"] for r in merged["layups"]] == ordered
+    assert merged["discharged_nugget_ids"] == ["n1", "n2"]
+    assert merged["open_high_salience_nugget_ids"] == ["n3"]
+
+
+def test_canned_hinge_rejected_under_authority():
+    ctx = RunContext("exec_nugget_layup_canned", create=True)
+    ordered = ["seg_028"]
+    _seed_air_order(
+        ctx,
+        ordered,
+        {"seg_028": "The Zydus structure protected the ESOP pool when the deal closed."},
+    )
+    assert canned_air_violations("What changed after that?")
+    assert canned_air_violations("What shifted from there?")
+    assert canned_air_violations(
+        "Earlier ESOP breadth made employee wealth part of the deal. What changed after that?"
+    )
+    assert canned_air_violations(
+        "Earlier ESOP breadth made employee wealth part of the deal. "
+        "Which promise did the buyer have to honour in writing?"
+    ) == []
+
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            _layup_row(
+                "seg_028",
+                "Earlier ESOP breadth made employee wealth part of the deal. What changed after that?",
+                nugget_ids=["nug_esop"],
+            )
+        ],
+    }
+    qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
+    assert qc["ok"] is False
+    assert any("canned_air" in err for err in qc["errors"])
+    assert qc["canned_air_lines"][0]["target_segment_id"] == "seg_028"
+
+
+def test_missing_analysis_fields_rejected():
+    ctx = RunContext("exec_nugget_layup_thin", create=True)
+    ordered = ["seg_028"]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            {
+                "target_segment_id": "seg_028",
+                "text": "Inclusive ESOPs meant shop-floor partners shared the upside of the sale.",
+                "skip": False,
+                "forward_cue_ok": True,
+            }
+        ],
+    }
+    qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
+    assert qc["ok"] is False
+    assert qc["insufficient_analysis_targets"] == ["seg_028"]

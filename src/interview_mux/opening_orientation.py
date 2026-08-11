@@ -106,6 +106,8 @@ def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
 
     if core[-1:] not in ".!?":
         core += "."
+    # Spoken-copy guard treats bare "stage" as production jargon ("growth stage").
+    core = re.sub(r"\bstage\b", "chapter", core, flags=re.IGNORECASE)
     text = f"{core} Let’s hear how it unfolded."
     words = text.split()
     if len(words) > 105:
@@ -211,6 +213,21 @@ def ensure_episode_orientation(
         "conversation_topic",
         "listener_stakes",
     ]
+    # Retargeting / courtesy rewrites can leave a 1–4 word hinge that fails the
+    # opening contract (<6 words). Replace with grounded fallback copy.
+    if len(str(chosen.get("text") or "").split()) < 6:
+        text, extracted_from = _fallback_orientation_text(ctx)
+        if len(text.split()) >= 6:
+            chosen["text"] = text
+            if extracted_from:
+                chosen["extracted_from"] = extracted_from
+            actions.append(
+                {
+                    "action": "thicken_episode_orientation_text",
+                    "line_id": chosen["line_id"],
+                    "words": len(text.split()),
+                }
+            )
     chosen["recompose_action"] = "retargeted" if old_target != target else "kept"
     if old_target != target:
         actions.append(

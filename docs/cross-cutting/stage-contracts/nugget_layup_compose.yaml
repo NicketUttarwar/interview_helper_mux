@@ -45,8 +45,8 @@ remediation:
   - volley_retry
   - full_stage_rerun
 critical_fields:
-- ordered_segment_ids
 - layups
+- ordered_segment_ids
 nullable_fields:
-- warnings
 - open_talking_point_ids
+- warnings

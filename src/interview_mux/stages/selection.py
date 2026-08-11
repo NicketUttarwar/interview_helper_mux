@@ -135,6 +135,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.framing_coverage_guard import enforce_framing_ranking
 
         artifacts = enforce_framing_ranking(c, artifacts)
+        from interview_mux.hard_keep import enforce_hard_keeps
+
+        artifacts = enforce_hard_keeps(c, artifacts)
         artifacts = enforce_stt_island_selection_guards(c, artifacts, stage="full_master_ranking")
 
         from interview_mux.story_health import evaluate_story_health
@@ -239,8 +242,21 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         c.write_json("master/rank_candidates.json", pick)
         dual_ordered = [str(s) for s in (pick.get("ordered_segment_ids") or ranking_ordered) if s]
         if dual_ordered:
+            prior = set(ranking_ordered)
+            dropped = [s for s in prior if s not in set(dual_ordered)]
             artifacts["ordered_segment_ids"] = dual_ordered
             artifacts["rank_candidate_winner"] = pick.get("winner")
+            if dropped:
+                excl = list(artifacts.get("excluded_segment_ids") or [])
+                have = {
+                    (e if isinstance(e, str) else str((e or {}).get("segment_id") or ""))
+                    for e in excl
+                }
+                for sid in dropped:
+                    if sid not in have:
+                        excl.append({"segment_id": sid, "reason": "pick_best_order_drop"})
+                artifacts["excluded_segment_ids"] = excl
+            artifacts = enforce_hard_keeps(c, artifacts)
 
         # Hybrid Shape bind (per-run; global consumers_bind stays false)
         bind = resolve_air_order(
@@ -289,6 +305,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                         level="info",
                         stage="full_master_ranking",
                     )
+                artifacts = enforce_hard_keeps(c, artifacts)
 
         # Guarantee hook in first 30–60s window (first three slots)
         ordered, hook_moved = ensure_hook_early(
@@ -345,7 +362,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 artifacts, plan if isinstance(plan, dict) else None
             )
             if notes:
-                artifacts = repaired
+                artifacts = enforce_hard_keeps(c, repaired)
                 ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
                 bridges = annotate_reorder_bridges(
                     build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),

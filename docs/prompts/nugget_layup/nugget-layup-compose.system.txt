@@ -1,15 +1,31 @@
 Compose **pre-native synthetic VO lay-ups** for every kept ordered segment.
 
-You receive: `nugget_corpus`, ordered natives with upcoming text, talking points, and optional gap hints.
+You receive: `nugget_corpus` (canonical claims/evidence by `nugget_id`), plus one `natives[]` row per ordered segment in this call — `text` / `comprehensible_text` (the upcoming clip **T**), `prior_closing_excerpt` (how the previous clip ended), `seam_reason` (why the listener needs help entering T), `open_nuggets_ranked` (still-unaired corpus nuggets ranked for T — often slim id/score pointers; look up claim text in `nugget_corpus`), and `already_aired_nugget_ids` / `already_claimed_facts` (facts already spent earlier in the air order). When `_layup_compose_shard` is present, compose **only** for the natives in this shard.
 
-For **each** `ordered_segment_id`, emit one `layups[]` row:
-- Default: write host VO `text` that (a) weaves unused / excluded nuggets relevant to that upcoming clip and (b) unlocks what the listener is about to hear (`forward_cue_ok: true`).
-- Skip only when the upcoming clip is already self-explanatory **and** no unrecovered high-salience / must-keep nugget still needs a home (`skip: true` + `skip_reason_code`).
-- Prefer assigning `in_selection: false` and not-already-aired nuggets first.
+When `degraded_lexicon_island` / `degraded_path` is true (or `transcript_quality` is degraded):
+- Build setup only from `comprehensible_text` / `high_conf_text` + grounded corpus nuggets.
+- Treat `unclear_spans` as awareness only (“dense unclear stretch”) — never invent what those tokens said.
+- Work around missing context; keep a smooth forward unlock into T; do not apologize on air or say “unclear audio.”
+- Air `text` must stay speakable (no bracket placeholders). Thinner unlocks are OK when island meaning cannot be recovered.
+
+For **each** `ordered_segment_id`, emit one `layups[]` row that is *constructed for the next native*, not a generic hinge:
+- `target_beat` — what T actually delivers (one clause, listener-facing).
+- `listener_need_entering_T` — the specific thing a listener is missing at that seam (use `prior_closing_excerpt` + `seam_reason`).
+- `selected_nugget_ids` — the nuggets this line spends (prefer `in_selection: false`, high-relevance, still open). Never reuse anything in `already_aired_nugget_ids`.
+- `setup_from_nuggets` — the recovered facts as host paraphrase, faithful to the evidence quotes.
+- `forward_unlock` — the concrete, T-specific reason to keep listening.
+- `text` — the spoken line built from `setup_from_nuggets` + `forward_unlock` (`forward_cue_ok: true`).
+- Skip only when T is already self-explanatory **and** no unrecovered high-salience / must-keep nugget still needs a home (`skip: true` + `skip_reason_code`).
 - Cite which `nugget_ids` (and optional `talking_point_ids`) the line discharges.
 - Host paraphrase only — never invent dialogue or credentials; stay faithful to evidence quotes.
-- Do **not** restate the upcoming native’s opening sentences; do **not** say “welcome back”, “chapter”, “after the break”, or speak segment ids.
-- Keep word count inside the stage input budgets (`min_layup_words` / `max_layup_words`).
+- Keep word count inside the stage input budgets (`min_layup_words` / `max_layup_words`; `dense_max_layup_words` for information-package targets).
+
+Hard rejects (QC fails the stage):
+- Canned or interchangeable air copy — anything in `banned_air_phrases`, and generic unlocks such as “What changed after that?”, “What happened next?”, “What shifted from there?”. Every unlock must name something only T can answer.
+- A line missing `target_beat`, `listener_need_entering_T`, or `forward_unlock`.
+- Restating T’s own content (the listener hears it seconds later) or reusing another lay-up’s wording.
+- The same `nugget_id` claimed by two lay-ups.
+- “welcome back”, “chapter”, “after the break”, or spoken segment ids.
 
 Also emit ledger fields:
 - `discharged_talking_point_ids` / `open_talking_point_ids`
@@ -28,7 +44,12 @@ Place this stage artifact inside the required envelope as `artifacts`:
     {
       "target_segment_id": "seg_011",
       "line_id": "vo_layup_seg_011",
-      "text": "Before the five-x scale-up, remember the bar’s real unlock: protein-aware buyers were snacking on it — which rewrote the addressable market. What happened when growth hit that next cliff?",
+      "target_beat": "The five-x scale-up and the cliff it created",
+      "listener_need_entering_T": "The previous clip ended on gym buyers, so scale sounds unearned without the snack pivot",
+      "selected_nugget_ids": ["nug_001"],
+      "setup_from_nuggets": "Protein-aware buyers were snacking on the bar, which rewrote the addressable market",
+      "forward_unlock": "Why thirty crore of demand nearly broke the supply chain",
+      "text": "Before the five-x scale-up, remember the bar’s real unlock: protein-aware buyers were snacking on it, which rewrote the addressable market. That is the demand that nearly broke the supply chain.",
       "nugget_ids": ["nug_001"],
       "why_relevant_to_target": "Recovered snack-pivot fact sets up the scale/exit beat.",
       "forward_cue_ok": true,

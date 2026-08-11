@@ -113,10 +113,32 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.9**) |
 | `analysis.nugget_layup.min_layup_words` / `max_layup_words` | layup compose prompt budgets | Word bounds for each before-VO (defaults **18** / **90**) |
 | `analysis.nugget_layup.prefer_excluded_nuggets` | corpus/layup prompts | Prefer recovering off-air facts (default **true**) |
+| `analysis.nugget_layup.segment_text_max_chars` | `build_corpus_mine_input`, `build_layup_compose_input` | Chars of native text handed to the LLM — full upcoming clip, not a stub (default **1500**) |
+| `analysis.nugget_layup.prior_close_excerpt_chars` | `build_layup_compose_input` | Tail of the previous native handed to compose as the seam's starting point (default **480**) |
+| `analysis.nugget_layup.max_open_nuggets_per_target` | `rank_open_nuggets_for_target` | Open corpus nuggets ranked per target (default **8**) |
+| `analysis.nugget_layup.slim_open_nuggets` | `build_layup_compose_input` | Ranked rows are id/score pointers; claims live once in `nugget_corpus` (default **true**) |
+| `analysis.nugget_layup.compose_batch_max_natives` | `run_nugget_layup_compose` | Shard compose when air order exceeds this many natives (default **32**) |
+| `analysis.nugget_layup.require_analysis_fields` | `evaluate_layup_craft` | Require `target_beat` / `listener_need_entering_T` / `forward_unlock` per line (default **true**) |
+| `analysis.nugget_layup.ban_canned_air` | `evaluate_layup_craft`, `lint_gap_report_layup_authority`, `seam_glue.mint_missing_transitions` | Reject hinge-menu / generic-unlock copy as air under layup authority (default **true**) |
+| `analysis.nugget_layup.unique_nuggets_across_layups` | `evaluate_layup_craft` | One nugget may be claimed by one lay-up only (default **true**) |
+| `analysis.nugget_layup.max_cross_layup_overlap` | `evaluate_layup_craft` | Max token overlap between two lay-up lines (default **0.6**) |
+| `analysis.nugget_layup.max_target_restate_overlap` | `evaluate_layup_craft` | Max token overlap between a lay-up and the clip it introduces (default **0.6**) |
 | `analysis.nugget_layup.suppress_placeholder_seams_when_layup` | `seam_glue` | Skip canned seam mint when before-VO layup exists (default **true**) |
 | `analysis.nugget_layup.demote_synthetic_framing_content` | `synthetic_framing` | Skip contentful synthetic framing LLM under layup authority (default **true**) |
 | `analysis.nugget_layup.authoritative_gap_report` | `gap_framing_recompose` | Recompose becomes thin adapter when layup plan exists (default **true**) |
 | `analysis.nugget_layup.block_on_open_must_keep` | `assert_layup_qc_or_raise` | Fail compose when must_keep TPs remain open (default **true**) |
+| `analysis.nugget_layup.degraded_layup.*` | spine mask + craft QC | Grace floors / unclear-span policy for lexicon islands (default enabled) |
+| `analysis.low_conf_selection.enabled` | `low_conf_island_scan` | Master switch for density ladder + top-decile must_keep (default **true**) |
+| `analysis.low_conf_selection.top_percentile` | `write_low_conf_must_keep` | Hard-include fraction of natives (default **0.10**) |
+| `analysis.low_conf_selection.enforcement_mode` | `authoritative_low_conf_must_keep_ids` | `authoritative` (default) or soft |
+| `analysis.low_conf_selection.cluster.*` | `scan_low_conf_islands` | Ladder thresholds (loose sprinkle, windows, soft density) |
+| `analysis.connector_fuse.enabled` | `connector_fuse_pass` | Seam LLM fuse loop (default **true**) |
+| `analysis.connector_fuse.max_fuses_per_pass` / `max_fuse_rounds` | `run_connector_fuse_pass` | **0** = unbounded until fixed point or oscillation halt |
+| `analysis.connector_fuse.tail_words` / `head_words` / `llm_batch_size` | seam packets | Defaults **16** / **16** / **16** |
+| `analysis.connector_fuse.allow_cross_speaker_fuse` | adjudicate | Default **false** |
+| `analysis.connector_fuse.llm_tier` | `connector_seam_adjudicate` | Default **economy** |
+| `analysis.connector_fuse.max_seam_gap_ms` | seam short-circuit / apply | Default **8000**; large gaps stay independent unless island-straddle |
+| `analysis.connector_fuse.same_topic_score_floor` | apply fuse | Default **0.15**; refuse fuse when declared topics barely overlap |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
@@ -482,6 +504,20 @@ Consumed by `truncation_policy` + LLM routing gateways. Defaults in `config/app.
 | `framer_digest_limits` | Local framer digest size per stage before `…[digest truncated]` |
 
 See [truncation-integrity.md](truncation-integrity.md).
+
+## `analysis.safe_pruning.*`
+
+One-shot packer after a flagship `context_length` API error. Applies to every OpenAI chat call.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Master switch |
+| `extract_tier` | `economy` | Model tier for per-chunk extract (never flagship) |
+| `economy_chunk_char_budget` | `80000` | Max chars per extract chunk |
+| `flagship_input_token_budget` | `900000` | Packed volley must estimate under this (`chars/4`) or hard-stop |
+| `max_chunks` | `24` | More chunks than this → `SafePruneExhausted` |
+
+See [truncation-integrity.md](truncation-integrity.md) and [model-routing.md](model-routing.md).
 
 ---
 
@@ -851,7 +887,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.shape.soft_gate.consumers_bind` | `false` | Global switch downstream consumers would check before trusting Shape's emitted order | **Plan 6:** stays `false` until the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) runs its full loop (capability mutations → critics → auditions → Pareto → hard delight) end-to-end and `shape_order_bind.resolve_air_order` has shadow-compare evidence across a corpus. Per-run hybrid bind (`resolve_air_order`) already prefers Shape order when the plan is complete and `story_health` passes — this flag does not gate that; see `mastering-integration-backlog.md` H7 |
 | `mastering.shape.soft_gate.two_pass` | `true` | Pass1 provisional (pre-`missing_framing`) + Pass2 confirm (post-gap-eval) | `false` unused by current runtime; two-pass is the only shipped path |
 | `mastering.shape.information_packages.enable` | `true` | Mid-episode information package planner | `false` skips packages; does **not** disable episode_close |
-| `mastering.shape.information_packages.mode` | `shadow` | `shadow` / `commit_music_vo` / `commit_with_regroup` | Shadow audits only; commit modes bind plan + SDP/layup |
+| `mastering.shape.information_packages.mode` | `commit_music_vo` | `shadow` / `commit_music_vo` / `commit_with_regroup` | Shadow audits only; commit modes bind plan + SDP/layup |
 | `mastering.shape.information_packages.max_per_episode` | `2` | Hard cap on committed packages | — |
 | `mastering.shape.information_packages.allow_regroup` | `false` | Phase-2 kept-native regroup | Keep false until order preflight tests pass |
 | `mastering.shape.episode_close.require_music` | `true` | Always seed `theme_outro` after last native | Independent of package mode |
@@ -1029,14 +1065,17 @@ Local MusicGen theme beds for creative-delivery `theme_*` stems. See [local-audi
 | Key | Default | Role |
 |-----|---------|------|
 | `enabled` | `true` | Theme bed generation |
-| `model_id` | `facebook/musicgen-medium` | Text-to-music model (medium fits local MPS timeouts) |
-| `melody_model_id` | `facebook/musicgen-melody` | Melody-conditioned model when cold-open WAV exists |
-| `fail_closed_on_stub` | `true` | Refuse sine stubs; fail stage if MusicGen unavailable |
+| `model_id` | `facebook/musicgen-large` | Text-to-music model (matches bootstrap cache) |
+| `melody_model_id` | `facebook/musicgen-melody-large` | Melody-conditioned model when cold-open WAV exists |
+| `device` | `cpu` | `cpu` / `mlx` / `mps` / `cuda`. **Never auto-MPS** — PyTorch MPS can abort in Metal (`Python quit unexpectedly`). Opt in with `mps`. |
+| `ban_mps_on_abort` | `true` | After SIGABRT, ban MPS for the rest of the run and retry once on CPU |
+| `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after the 1h + step-down ladder so mix always has music |
 | `best_of_n_speech_free` | `1` | Candidates for cold open / outro / accents |
 | `best_of_n_underscore` | `1` | Candidates for underscore beds |
+| `max_best_of_n` | `1` | Hard cap (also clamps production-profile overrides) |
 | `use_melody_conditioning` | `false` | Condition later stems on cold-open melody |
-| `request_timeout_sec` | `3600` | Per-clip subprocess timeout |
-| `prefetch_models` | medium | Bootstrap cache list |
+| `request_timeout_sec` | `3600` | Per-clip timeout; then shorter/bare/smaller-model step-down, then musical stub |
+| `prefetch_models` | large + melody-large | Bootstrap cache list |
 | `keep_candidates` | `false` | Keep losing best-of-N WAVs under `_candidates/` |
 
 ---

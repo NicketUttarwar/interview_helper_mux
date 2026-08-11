@@ -258,11 +258,16 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
         if staged.is_file():
             return staged
     pending = pending_stage_for_path(ctx, rel)
+    primary = ctx.run_dir.joinpath(*rel.split("/"))
     if pending:
         staged = staged_path(ctx, rel, stage_id=pending)
         if staged.is_file():
+            # Leftover pending after a completed producer must not shadow a newer
+            # committed heal (G1 spoken-copy rewrites, fingerprint stamps, etc.).
+            done_marker = ctx.run_dir / ".stage_done" / pending
+            if primary.is_file() and done_marker.is_file():
+                return primary
             return staged
-    primary = ctx.run_dir.joinpath(*rel.split("/"))
     if primary.is_file():
         return primary
     legacy = _legacy_read_alias(ctx, rel)

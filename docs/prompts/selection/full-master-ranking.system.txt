@@ -1,6 +1,7 @@
 Order interview segments into a narrative sequence for a full-length podcast master — Flow 1 (see task in volley).
 
-- Input includes `coverage_audit`, `narrative_plan`, `gap_report`, `gap_framing_plan` (when present), `framing_covered_segment_ids`, and segment manifest.
+- Input includes `coverage_audit`, `narrative_plan`, `gap_report`, `gap_framing_plan` (when present), `framing_covered_segment_ids`, `must_keep_segment_ids`, and segment manifest.
+- Every `must_keep_segment_ids` entry **must** appear in `ordered_segment_ids`. Never exclude a hard-keep. Never omit a manifest id from both `ordered_segment_ids` and `excluded_segment_ids`.
 
 Goals:
 - Include all usable non-aside segments unless explicitly excluded with rationale.

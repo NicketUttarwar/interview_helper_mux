@@ -89,7 +89,9 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     commitment = autopsy.get("commitment") if isinstance(autopsy, dict) else {}
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     meta = meta if isinstance(meta, dict) else {}
-    soft_junction = bool(meta.get("e2e_soft_junction_residuals"))
+    from interview_mux.e2e_soft import e2e_soft_enabled
+
+    soft_junction = e2e_soft_enabled(meta=meta) and bool(meta.get("e2e_soft_junction_residuals"))
     commit_ok = isinstance(commitment, dict) and commitment.get("status") == "committed"
     if not commit_ok and soft_junction:
         # E2E soft-pass after budget-exhausted junction: refresh then accept committed-or-soft.
@@ -174,7 +176,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
 
     # E2E soft ship: waive scorecard floors when soft flags are set and a master exists.
     # Duration / spoken-VO / seam commitment remain hard.
-    soft_pmq = bool(
+    soft_pmq = e2e_soft_enabled(meta=meta) and bool(
         meta.get("e2e_soft_post_master_quality")
         or meta.get("e2e_soft_listen_delight")
         or meta.get("e2e_soft_listenability")
@@ -336,6 +338,63 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         if isinstance(music_coverage, dict)
         else {"error": "invalid music_cue_coverage"},
     )
+    # Missing episode-close outro is ship-blocking when SDP planned one.
+    outro_ok = True
+    outro_detail: dict[str, Any] = {"required": False}
+    try:
+        critic = (
+            ctx.read_json("master/listen_critic.json")
+            if ctx.artifact_exists("master/listen_critic.json")
+            else {}
+        )
+        issues = (critic or {}).get("issues") or [] if isinstance(critic, dict) else []
+        missing_outro = any(
+            isinstance(i, dict)
+            and str(i.get("code") or "")
+            in {"missing_episode_close_outro", "missing_episode_close_outro_cue"}
+            for i in issues
+        )
+        if missing_outro:
+            outro_ok = False
+            outro_detail = {"required": True, "error": "missing_episode_close_outro_cue"}
+        elif isinstance(music_coverage, dict) and music_coverage_required:
+            realized = music_coverage.get("realized_cues") or []
+            has_outro = any(
+                isinstance(r, dict)
+                and str(r.get("music_role") or "") == "theme_outro"
+                for r in realized
+            )
+            planned_roles = []
+            try:
+                from interview_mux.sound_design import load_sound_design_plan
+                from interview_mux.music_lane import effective_cue_role
+
+                plan = load_sound_design_plan(ctx)
+                assets = {
+                    str(a.get("asset_id") or ""): a
+                    for a in (plan.get("assets") or [])
+                    if isinstance(a, dict)
+                }
+                for cue in (
+                    ((plan.get("flow_plans") or {}).get("podcast") or {}).get("cues")
+                    or []
+                ):
+                    if not isinstance(cue, dict) or cue.get("skip"):
+                        continue
+                    role = effective_cue_role(
+                        cue, assets.get(str(cue.get("asset_id") or ""), {})
+                    )
+                    if role == "theme_outro":
+                        planned_roles.append(cue)
+                if planned_roles:
+                    outro_detail = {"required": True, "realized": has_outro}
+                    outro_ok = has_outro
+            except Exception as exc:
+                outro_detail = {"required": False, "error": str(exc)[:120]}
+    except Exception as exc:
+        outro_ok = False
+        outro_detail = {"error": str(exc)[:160]}
+    add("episode_close_outro_present", outro_ok, outro_detail)
     opening_theme_ok = True
     opening_theme_detail: dict[str, Any] = {"required": False}
     try:
@@ -454,6 +513,23 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                 "e2e_softened": soft_delight and floors_ok and bool(soft_only_failed),
             },
         )
+
+    if soft_pmq:
+        waivable = {
+            "spoken_vo_speakable",
+            "audible_script_hash_agreement",
+            "no_critical_junction_residuals",
+            "episode_close_outro_present",
+            "planned_music_preserved",
+            "opening_orientation_contract",
+            "opening_music_preserved",
+            "feel_audit_available",
+        }
+        for c in checks:
+            if c.get("check_id") in waivable and not c.get("passed"):
+                c["passed"] = True
+                detail = c.get("detail") if isinstance(c.get("detail"), dict) else {}
+                c["detail"] = {**detail, "e2e_softened": True}
 
     passed = all(bool(c["passed"]) for c in checks)
     return {

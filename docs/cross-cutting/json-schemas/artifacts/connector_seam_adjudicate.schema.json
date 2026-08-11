@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConnectorSeamAdjudicate",
+  "type": "object",
+  "required": ["verdicts"],
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pair_id", "decision"],
+        "properties": {
+          "pair_id": { "type": "string" },
+          "decision": {
+            "type": "string",
+            "enum": ["fuse", "stay_independent"]
+          },
+          "fuse_direction": {
+            "type": ["string", "null"],
+            "enum": ["into_earlier", "into_later"]
+          },
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "mid_sentence_continue",
+              "mid_topic_continue",
+              "mid_flow",
+              "clean_turn",
+              "topic_shift",
+              "speaker_change",
+              "other",
+              "island_straddle"
+            ]
+          },
+          "rationale": { "type": "string" },
+          "confidence": { "type": "number" }
+        }
+      }
+    }
+  }
+}

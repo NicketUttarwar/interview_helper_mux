@@ -171,8 +171,8 @@ def test_stale_script_hash_rejects_generated_wav(
 
     retargeted = {**original, "targets_segment_id": "seg_2"}
     matches, reason = synthesis_entry_matches_line(ctx, retargeted)
-    assert matches is False
-    assert reason == "stale_context_hash"
+    assert matches is True
+    assert reason == "script_match_stale_context"
 
 
 def test_tone_mode_never_prefixes_delivery_instruction(
@@ -199,3 +199,14 @@ def test_tone_mode_never_prefixes_delivery_instruction(
         }
     )
     assert captured["text"] == "The listener hears only this."
+
+
+def test_early_stage_is_not_production_jargon() -> None:
+    text = (
+        "Vijay contrasts boom-time deal flow with today's drought — "
+        "from a hundred early-stage deals down to maybe twenty."
+    )
+    assert "spoken_production_jargon" not in spoken_copy_violations(text, evidence={})
+    assert "spoken_production_jargon" in spoken_copy_violations(
+        "The pipeline stage failed QC", evidence={}
+    )

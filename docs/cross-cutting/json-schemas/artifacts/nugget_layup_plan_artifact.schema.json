@@ -21,6 +21,14 @@
             "type": "array",
             "items": { "type": "string" }
           },
+          "target_beat": { "type": ["string", "null"] },
+          "listener_need_entering_T": { "type": ["string", "null"] },
+          "selected_nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "setup_from_nuggets": { "type": ["string", "null"] },
+          "forward_unlock": { "type": ["string", "null"] },
           "why_relevant_to_target": { "type": ["string", "null"] },
           "forward_cue_ok": { "type": "boolean" },
           "word_count": { "type": ["integer", "null"] },

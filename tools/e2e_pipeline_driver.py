@@ -239,6 +239,7 @@ def accept_gap_framing_defaults(run_id: str) -> None:
 
 
 def decline_reuse(run_id: str, stage_id: str) -> None:
+    """Record decline; caller re-executes the phase body (GUI uses decline_and_run)."""
     api("POST", f"/api/runs/{run_id}/stages/{stage_id}/reuse", {"action": "decline"})
     print(f"  Declined reuse for {stage_id}", flush=True)
 
@@ -410,6 +411,8 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "content_brief_reanchor",
             "boundary_topic_resplit",
             "vernacular_segment_sanitize",
+            "low_conf_island_scan",
+            "connector_fuse_pass",
             "sonic_context_build",
             "sound_design_palettes",
             "mastering_research_routing",
@@ -431,6 +434,7 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
         [
             "topic_coverage_audit",
             "narrative_arc_plan",
+            "connector_fuse_pass_pre_ranking",
             "full_master_ranking",
             "refinement_agenda",
             "gap_framing_recompose",

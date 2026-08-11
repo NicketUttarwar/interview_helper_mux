@@ -25,6 +25,8 @@ ANALYSIS_ORDER: tuple[str, ...] = (
     "content_brief_reanchor",
     "boundary_topic_resplit",
     "vernacular_segment_sanitize",
+    "low_conf_island_scan",
+    "connector_fuse_pass",
     "sonic_context_build",
     "sound_design_palettes",
     "mastering_research_routing",
@@ -44,6 +46,7 @@ ANALYSIS_ORDER: tuple[str, ...] = (
 DELIVERY_ORDER: tuple[str, ...] = (
     "topic_coverage_audit",
     "narrative_arc_plan",
+    "connector_fuse_pass_pre_ranking",
     "full_master_ranking",
     # Nugget Layup System: full-tape mine → per-native before-VO (authoritative gap_report).
     "nugget_corpus_mine",
@@ -83,6 +86,7 @@ ALL_LLM_STAGES: frozenset[str] = frozenset(
         "segment_classification",
         "content_brief_reanchor",
         "boundary_topic_resplit",
+        "connector_seam_adjudicate",
         "sound_design_palettes",
         "missing_framing",
         "gap_framing_compose",

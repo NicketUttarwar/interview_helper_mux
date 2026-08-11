@@ -2,7 +2,7 @@
 
 Modules, surfaces, and behaviors **not ported** to the greenfield simplified app.
 
-For what the v2 pipeline actually runs, see [`src/interview_mux/v2/config.py`](../../src/interview_mux/v2/config.py) (**29 analysis + 28 delivery = 57 stages**) and [port-manifest.csv](./port-manifest.csv).
+For what the v2 pipeline actually runs, see [`src/interview_mux/v2/config.py`](../../src/interview_mux/v2/config.py) (**34 analysis + 27 delivery = 61 stages**) and [port-manifest.csv](./port-manifest.csv).
 
 ## Kept (explicitly *not* dropped)
 

@@ -721,13 +721,30 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
 
     with logged_step("gap_framing_compose/llm_stage", ctx=ctx, stage="gap_framing_compose"):
         if len(required_ids) <= batch_size:
-            run_analysis_llm_stage(
-                ctx,
-                "gap_framing_compose",
-                prompt_rel,
-                build_input,
-                persist,
-            )
+            try:
+                run_analysis_llm_stage(
+                    ctx,
+                    "gap_framing_compose",
+                    prompt_rel,
+                    build_input,
+                    persist,
+                )
+            except Exception as exc:
+                ctx.log(
+                    f"gap_framing_compose flagship failed — high-gap fill: {exc}",
+                    level="warning",
+                    stage="gap_framing_compose",
+                )
+                from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+                seed = (
+                    ctx.read_json("understanding/gap_report.json")
+                    if ctx.artifact_exists("understanding/gap_report.json")
+                    else {"interviewer_lines": []}
+                )
+                applied: list[dict[str, Any]] = []
+                fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
+                persist(ctx, seed)
             return
 
         batches = [

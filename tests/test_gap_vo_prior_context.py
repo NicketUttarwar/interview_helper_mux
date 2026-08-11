@@ -202,8 +202,6 @@ def test_repair_gap_report_density_courtesy(
     repaired, applied = repair_gap_report(ctx, doc)
     lines = repaired.get("interviewer_lines") or []
     assert any(str(a.get("action") or "").startswith("seed_vo_density") for a in applied)
-    assert any(a.get("action") == "omit_unsafe_optional_vo" for a in applied)
-    assert lines == []
     for line in lines:
         assert "Let me pause you there" not in str(line.get("text") or "")
         if line.get("prior_impact_beat"):

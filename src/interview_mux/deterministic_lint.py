@@ -676,8 +676,26 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
         if not has_inline:
             errors.append("excluded segments without exclude_rationales")
     from interview_mux.framing_coverage_guard import validate_framing_ranking
+    from interview_mux.hard_keep import hard_keep_segment_ids
 
     errors.extend(validate_framing_ranking(ctx, artifacts))
+    keep_ids = hard_keep_segment_ids(ctx)
+    ordered_set = set(ordered)
+    excl_ids: set[str] = set()
+    for row in excluded:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+        else:
+            sid = str(row or "")
+        if sid:
+            excl_ids.add(sid)
+    if manifest_ids:
+        for sid in manifest_ids:
+            if sid not in ordered_set and sid not in excl_ids:
+                errors.append(f"manifest segment {sid} missing from ordered ∪ excluded")
+    for sid in keep_ids:
+        if sid not in ordered_set:
+            errors.append(f"hard-keep segment {sid} must appear in ordered_segment_ids")
     # Enforce narrative_plan ordering_constraints at ranking commit (app base).
     if ordered and ctx.artifact_exists("master/narrative_plan.json"):
         try:

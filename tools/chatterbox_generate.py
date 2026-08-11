@@ -56,19 +56,25 @@ def main() -> int:
     try:
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         # chatterbox 0.1.7: from_pretrained(device) — do NOT pass model_id.
-        model = ChatterboxTTS.from_pretrained(device)
-        wav = model.generate(text, audio_prompt_path=str(ref_audio))
-        if wav.ndim > 1:
-            wav = wav.squeeze(0)
-        # Pipeline VO QA / wave.open require PCM s16le (not float32).
-        audio = wav.detach().cpu().float().clamp(-1.0, 1.0).unsqueeze(0)
-        torchaudio.save(
-            str(out_wav),
-            audio,
-            int(model.sr),
-            encoding="PCM_S",
-            bits_per_sample=16,
-        )
+        # Keep contract JSON on stdout: libraries dump progress/warnings there.
+        _stdout = sys.stdout
+        try:
+            sys.stdout = sys.stderr
+            model = ChatterboxTTS.from_pretrained(device)
+            wav = model.generate(text, audio_prompt_path=str(ref_audio))
+            if wav.ndim > 1:
+                wav = wav.squeeze(0)
+            # Pipeline VO QA / wave.open require PCM s16le (not float32).
+            audio = wav.detach().cpu().float().clamp(-1.0, 1.0).unsqueeze(0)
+            torchaudio.save(
+                str(out_wav),
+                audio,
+                int(model.sr),
+                encoding="PCM_S",
+                bits_per_sample=16,
+            )
+        finally:
+            sys.stdout = _stdout
     except Exception as exc:  # noqa: BLE001 — CLI must always emit JSON
         print(json.dumps({"ok": False, "error": str(exc)[:500], "model_id": model_id}))
         return 1

@@ -416,7 +416,7 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
             {
                 "version": 1,
                 "source_duration_ms": 60_000,
-                "target_duration_sec": {"min": 30, "ideal": 45, "max": 60},
+                "target_duration_sec": {"min": 8, "ideal": 12, "max": 60},
                 "question_budget": {"min": 0, "ideal": 1, "max": 2},
                 "chapter_budget": {"min": 1, "ideal": 2, "max": 4},
                 "selection_mode": "coverage_first",

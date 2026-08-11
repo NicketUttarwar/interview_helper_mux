@@ -167,7 +167,15 @@ def take_best_candidate(
     sel["optimizer_candidate_id"] = best.get("candidate_id")
     sel["optimizer_score"] = best.get("score")
     from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.order_hash import stamp_order_hash
 
+    prev_sel = (
+        ctx.read_json("master/selection.json")
+        if ctx.artifact_exists("master/selection.json")
+        else None
+    )
+    sel = stamp_order_hash(sel)
+    ctx.write_json("master/optimizer_pending_selection.json", sel)
     write_validated_artifact(
         ctx,
         "master/selection.json",
@@ -261,12 +269,21 @@ def take_best_candidate(
                     mode="delivery",
                     from_stage="edl",
                     until_stage="mix",
+                    invalidate=True,
                 )
                 remaster_started = True
                 state = load_optimizer_state(ctx)
                 state["promoted_needs_remaster"] = False
                 save_optimizer_state(ctx, state)
             except Exception as exc:
+                if isinstance(prev_sel, dict):
+                    write_validated_artifact(
+                        ctx,
+                        "master/selection.json",
+                        prev_sel,
+                        merge_from_disk=False,
+                        stage_key="timeline_optimizer",
+                    )
                 ctx.log(
                     f"optimizer remaster start failed: {exc}",
                     level="warning",
@@ -282,15 +299,51 @@ def take_best_candidate(
                 remaster_sync(ctx, until_mix=True)
                 remaster_started = True
                 try:
-                    from interview_mux.junction_snip_qa import _set_g_listen_pending_after_remaster
+                    from interview_mux.order_hash import stamp_order_hash, sync_selection_order_to_edl
 
-                    _set_g_listen_pending_after_remaster(ctx)
+                    if ctx.artifact_exists("master/edl.json") and ctx.artifact_exists(
+                        "master/selection.json"
+                    ):
+                        edl = ctx.read_json("master/edl.json")
+                        cur = ctx.read_json("master/selection.json")
+                        if isinstance(edl, dict) and isinstance(cur, dict):
+                            synced = stamp_order_hash(sync_selection_order_to_edl(cur, edl))
+                            write_validated_artifact(
+                                ctx,
+                                "master/selection.json",
+                                synced,
+                                merge_from_disk=False,
+                                stage_key="timeline_optimizer",
+                            )
                 except Exception:
                     pass
+                try:
+                    from interview_mux.junction_snip_qa import (
+                        _set_g_listen_pending_after_remaster,
+                        run_junction_snip_qa,
+                    )
+
+                    run_junction_snip_qa(ctx)
+                    _set_g_listen_pending_after_remaster(ctx)
+                except Exception:
+                    try:
+                        from interview_mux.junction_snip_qa import _set_g_listen_pending_after_remaster
+
+                        _set_g_listen_pending_after_remaster(ctx)
+                    except Exception:
+                        pass
                 state = load_optimizer_state(ctx)
                 state["promoted_needs_remaster"] = False
                 save_optimizer_state(ctx, state)
             except Exception as exc:
+                if isinstance(prev_sel, dict):
+                    write_validated_artifact(
+                        ctx,
+                        "master/selection.json",
+                        prev_sel,
+                        merge_from_disk=False,
+                        stage_key="timeline_optimizer",
+                    )
                 ctx.log(
                     f"optimizer sync remaster failed: {exc}",
                     level="warning",

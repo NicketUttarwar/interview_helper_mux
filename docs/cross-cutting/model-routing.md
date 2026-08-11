@@ -34,7 +34,7 @@ Do **not** pin flagship to a marketing name in pipeline READMEs — use the tier
 |------|-------------------|-----------------|
 | economy | `gpt-4o-mini` | 2026-05-27 |
 | standard | `gpt-4o` | 2026-05-27 |
-| flagship | `o3` | 2026-05-28 |
+| flagship | `gpt-5.6-terra` (1.05M input context) | 2026-08-11 |
 
 Optional secrets overrides: `OPENAI_TIER_ECONOMY`, `OPENAI_TIER_STANDARD`, `OPENAI_TIER_FLAGSHIP` (read from merged config `secrets` via `model_registry`).
 
@@ -87,10 +87,12 @@ Committed defaults still include flat stage strings for backward compatibility.
 
 | Stage key | v1 API ID (committed) | Maps to tier |
 |-----------|----------------------|--------------|
-| All stages in `STAGE_ARTIFACT_SCHEMAS` (understanding, segmentation, gaps, flow JSON) | flagship registry ID (`o3`) | flagship |
+| All stages in `STAGE_ARTIFACT_SCHEMAS` (understanding, segmentation, gaps, flow JSON) | flagship registry ID (`gpt-5.6-terra`) | flagship |
 | `arbiter`, `shard` sub-calls | economy registry ID | economy |
 
 See `models.stages.*.tier` in committed `config/app.defaults.json`. Artifact generation spec: [artifact-generation-and-validation.md](./artifact-generation-and-validation.md).
+
+**Context-window ladder (every OpenAI chat call):** configured tier → one flagship retry on `context_length` → one safe-prune pack + one flagship retry. See [truncation-integrity.md](./truncation-integrity.md) (`analysis.safe_pruning`).
 
 **Note:** Prefer `models.stages.<key>.tier` for routing. Flat `models.<stage_key>` string overrides remain an escape hatch; `retry_uptier` bypasses flat overrides so tier bumps take effect.
 

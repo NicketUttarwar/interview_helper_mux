@@ -69,10 +69,22 @@ def vernacular_must_keep_ids(ctx: RunContext) -> set[str]:
 
 
 def authoritative_must_keep_ids(ctx: RunContext) -> set[str]:
-    """Hard must_keep only when enforcement_mode=authoritative."""
-    if enforcement_mode_for_ctx(ctx) != "authoritative":
-        return set()
-    return load_must_keep_segment_ids(ctx)
+    """Hard must_keep: vernacular (when authoritative) ∪ low-conf density top decile.
+
+    The low-conf set carries its own ``analysis.low_conf_selection.enforcement_mode``
+    so the densest STT-weak natives stay unpackable even while vernacular runs in
+    shadow.
+    """
+    ids: set[str] = set()
+    if enforcement_mode_for_ctx(ctx) == "authoritative":
+        ids |= load_must_keep_segment_ids(ctx)
+    try:
+        from interview_mux.low_conf_islands import authoritative_low_conf_must_keep_ids
+
+        ids |= authoritative_low_conf_must_keep_ids(ctx)
+    except Exception:  # noqa: BLE001
+        pass
+    return ids
 
 
 def run_audio_probe_build(ctx: RunContext) -> None:

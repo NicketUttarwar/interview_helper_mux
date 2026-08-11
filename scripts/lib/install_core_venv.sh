@@ -39,4 +39,8 @@ fi
 echo "Installing interview-mux editable + dev tools (pytest, ruff, pip-audit) ..."
 pip install -e "${ROOT}[dev]"
 
+# requirements.lock can lag requirements.txt (Pillow/boto3 for cover + S3 publish).
+echo "Ensuring cover/publish extras (Pillow, boto3) ..."
+pip install 'boto3>=1.35,<2' 'Pillow>=10,<12'
+
 python -c "import interview_mux; print('interview_mux', interview_mux.__version__, 'OK')"

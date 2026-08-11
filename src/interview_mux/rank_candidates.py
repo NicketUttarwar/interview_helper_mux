@@ -142,11 +142,24 @@ def pick_best_order(
 
     scored.sort(key=lambda r: float(r.get("score") or -999), reverse=True)
     winner = scored[0]
+    win_ids = [str(s) for s in (winner.get("ordered_segment_ids") or []) if s]
+    seen: set[str] = set()
+    universe: list[str] = []
+    for cand in candidates:
+        if not isinstance(cand, dict):
+            continue
+        for sid in cand.get("ordered_segment_ids") or []:
+            s = str(sid or "")
+            if s and s not in seen:
+                seen.add(s)
+                universe.append(s)
+    dropped = [s for s in universe if s not in set(win_ids)]
     return {
         "version": 1,
         "candidates": scored[:4],
         "winner": winner.get("source"),
-        "ordered_segment_ids": list(winner.get("ordered_segment_ids") or []),
+        "ordered_segment_ids": win_ids,
+        "dropped_segment_ids": dropped,
         "winner_score": winner.get("score"),
     }
 

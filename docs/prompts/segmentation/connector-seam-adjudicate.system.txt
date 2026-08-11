@@ -1,0 +1,35 @@
+Adjudicate chronological segment seams for a podcast editor.
+
+You receive batches of seam packets. Each packet joins the last words of the earlier
+segment and the first words of the later segment with " | " at the cut. Read across
+the cut as if listening.
+
+Decide `fuse` vs `stay_independent` for **every** pair_id:
+
+- Choose **fuse** when the later words continue the earlier clause, setup, topic, or
+  mid-flow sentence — including when low-confidence or non-English-looking tokens sit
+  on the seam.
+- Choose **stay_independent** when the earlier words land on a listen-complete idea
+  hinge **and** the later words start a new question, topic, or speaker move.
+- Prefer **fuse** when unsure **and** `deterministic_hints` show hanging_setup_end,
+  clause_continues_after, or island_straddle (recall-first at seams).
+- Never invent missing words. Judge only from the provided seam text + hints.
+
+Return JSON only inside the required envelope:
+
+{
+  "verdicts": [
+    {
+      "pair_id": "seg_012__seg_013",
+      "decision": "fuse",
+      "fuse_direction": "into_earlier",
+      "reason_code": "mid_sentence_continue",
+      "rationale": "Later clause continues the hanging setup.",
+      "confidence": 0.82
+    }
+  ]
+}
+
+`decision` ∈ {fuse, stay_independent}
+`fuse_direction` ∈ {into_earlier, into_later, null}
+`reason_code` ∈ {mid_sentence_continue, mid_topic_continue, mid_flow, clean_turn, topic_shift, speaker_change, other}

@@ -13,6 +13,41 @@ CHAPTER_SCALE_GAP_MS = 60_000
 # Only used when mastering.synthetic_framing.allow_canned_bridge_fallback is on.
 CANNED_BRIDGE_TEXT = "There is more to that story."
 
+# Deterministic hinge menus for seams with no topic labels. Exported so the
+# Nugget Layup System can ban the same strings as air copy under its authority.
+REVERSE_HINGES = (
+    "What had shaped the decision by that point?",
+    "How had the story reached that turn?",
+    "At that earlier point, what was already changing?",
+    "What had set that choice in motion?",
+    "At that stage, what mattered most?",
+    "How had things shifted before that moment?",
+    "What context had led to that point?",
+    "At the outset, what was driving the change?",
+    "What had already changed by then?",
+    "How had that situation taken shape?",
+    "At that point, what was guiding the choice?",
+    "What had brought events to that moment?",
+)
+FORWARD_HINGES = (
+    "What shifted from there?",
+    "How did that shape what followed?",
+    "What changed at that point?",
+    "How did the situation develop from there?",
+    "What became possible from that point?",
+    "How did that decision change the course?",
+    "What did that set in motion?",
+    "Where did the story turn from there?",
+    "How did events move forward from that point?",
+    "What changed once that was in place?",
+    "How did that lead into the later decision?",
+    "What did that moment make possible?",
+)
+GENERIC_RELATIVE_HINGES = (
+    "Stepping back, what set this part of the story in motion?",
+    "What changed after that?",
+)
+
 
 def _chapter_ends_from_plan(plan: dict[str, Any] | None) -> set[str]:
     ends: set[str] = set()
@@ -173,43 +208,13 @@ def default_bridge_text(
     from interview_mux.spoken_copy_guard import grounded_fallback_for_evidence
 
     fallback = grounded_fallback_for_evidence(bridge_guard_evidence(pair))
-    generic_relative = {
-        "Stepping back, what set this part of the story in motion?",
-        "What changed after that?",
-    }
-    if fallback not in generic_relative:
+    if fallback not in set(GENERIC_RELATIVE_HINGES):
         return fallback
     # Reverse-order joins without topic labels previously all received the same
     # stock sentence, so three or more seams failed bridge completeness. Keep
     # the language chronology-safe while deterministically varying it per pair.
-    reverse_hinges = (
-        "What had shaped the decision by that point?",
-        "How had the story reached that turn?",
-        "At that earlier point, what was already changing?",
-        "What had set that choice in motion?",
-        "At that stage, what mattered most?",
-        "How had things shifted before that moment?",
-        "What context had led to that point?",
-        "At the outset, what was driving the change?",
-        "What had already changed by then?",
-        "How had that situation taken shape?",
-        "At that point, what was guiding the choice?",
-        "What had brought events to that moment?",
-    )
-    forward_hinges = (
-        "What shifted from there?",
-        "How did that shape what followed?",
-        "What changed at that point?",
-        "How did the situation develop from there?",
-        "What became possible from that point?",
-        "How did that decision change the course?",
-        "What did that set in motion?",
-        "Where did the story turn from there?",
-        "How did events move forward from that point?",
-        "What changed once that was in place?",
-        "How did that lead into the later decision?",
-        "What did that moment make possible?",
-    )
+    reverse_hinges = REVERSE_HINGES
+    forward_hinges = FORWARD_HINGES
     pair_key = (
         f"{pair.get('after_segment_id') or pair.get('after_id') or ''}->"
         f"{pair.get('before_segment_id') or pair.get('before_id') or ''}"
@@ -318,12 +323,43 @@ def mint_missing_transitions(
         else None
     )
     from interview_mux.gap_framing import transition_redundant_with_framing
-    from interview_mux.nugget_layup import gap_has_layup_before, nugget_layup_cfg, nugget_layup_enabled
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        gap_has_layup_before,
+        nugget_layup_cfg,
+        nugget_layup_enabled,
+    )
 
+    layup_cfg = nugget_layup_cfg()
     suppress_when_layup = bool(
         nugget_layup_enabled()
-        and nugget_layup_cfg().get("suppress_placeholder_seams_when_layup", True)
+        and layup_cfg.get("suppress_placeholder_seams_when_layup", True)
     )
+    # Under layup authority every known native gets constructed air copy; a canned
+    # hinge here would ship interchangeable filler instead. Fail so the driver can
+    # recompose the plan.
+    ban_canned_air = bool(
+        nugget_layup_enabled()
+        and layup_cfg.get("ban_canned_air", True)
+        and layup_cfg.get("authoritative_gap_report", True)
+        and ctx.artifact_exists(PLAN_REL)
+    )
+    layup_targets: set[str] = set()
+    if ban_canned_air:
+        plan = ctx.read_json(PLAN_REL)
+        if isinstance(plan, dict):
+            # A deliberate skip (self-explanatory clip) may still take a hinge;
+            # a target the plan never composed for must not.
+            skipped = {
+                str(row.get("target_segment_id") or "")
+                for row in (plan.get("layups") or [])
+                if isinstance(row, dict) and row.get("skip")
+            }
+            layup_targets = {
+                str(x)
+                for x in (plan.get("ordered_segment_ids") or [])
+                if x and str(x) not in skipped
+            }
 
     for pair in missing:
         if not isinstance(pair, dict):
@@ -341,6 +377,17 @@ def mint_missing_transitions(
             continue
         planned = planned_transition_for_pair(synthetic_plan, a, b)
         if not planned:
+            if ban_canned_air and b in layup_targets:
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    "Canned seam air blocked under nugget layup authority: "
+                    f"{a}->{b} has no composed lay-up or planned transition",
+                    stage="edl",
+                    reason="canned_air_under_layup_authority",
+                    detail={"after_segment_id": a, "before_segment_id": b},
+                )
             # Prefer pair-aware default glue over aborting remaster. The canned
             # phrase is only used when explicitly allowed; otherwise mint a
             # deterministic hinge from default_bridge_text so mix can proceed.

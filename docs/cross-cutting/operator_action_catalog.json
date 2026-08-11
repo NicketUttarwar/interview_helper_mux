@@ -680,6 +680,30 @@
     "doc_link": "docs/cross-cutting/truncation-integrity.md"
   },
   {
+    "action_id": "llm.safe_prune.start",
+    "description": "Economy chunk extract after flagship context_length",
+    "implementation": "safe_pruning.run_safe_prune_pack",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "llm.safe_prune.packed",
+    "description": "Safe-pruned volley packed for one flagship retry",
+    "implementation": "safe_pruning.run_safe_prune_pack",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
+    "action_id": "llm.safe_prune.exhausted",
+    "description": "Safe prune pack still over budget or flagship retry overflowed",
+    "implementation": "safe_pruning.maybe_safe_prune_after_context_length",
+    "stage": "*",
+    "origin": "pipeline",
+    "doc_link": "docs/cross-cutting/truncation-integrity.md"
+  },
+  {
     "action_id": "truncation.auto_decompose",
     "description": "[REMOVED] Routing auto-escalated truncated evidence to shard/collate",
     "implementation": "*",

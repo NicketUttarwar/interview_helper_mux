@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
 from interview_mux.stage_input_helpers import transcript_quality_for_ctx
@@ -190,12 +192,29 @@ def evaluate_boundary_quality(
     near_ceiling = sum(1 for d in durs_ms if d >= int(max_ms * 0.92))
     near_ceiling_ratio = (near_ceiling / len(durs_ms)) if durs_ms else 0.0
     # Do not reject ideal-cut / complete-thought binds solely because there are
-    # fewer rows than duration/max_ms. Coverage holes and near-ceiling slabs still fail.
+    # fewer rows than duration/max_ms. Near-ceiling slabs still fail.
+    # Coverage holes alone must not fail fine-grained turn maps (e.g. 1:1 diarization
+    # with ~84% covered — silence/gaps, not coarse time-boxing).
+    coverage_min = float(sc.get("boundary_quality_min_coverage_ratio") or 0.85)
+    critical_coverage = float(sc.get("boundary_quality_critical_coverage_ratio") or 0.70)
+    fine_grained = bool(
+        durs_ms
+        and len(durs_ms) >= max(8, expected_min_segments or 8)
+        and mean_ms < max_ms * 0.55
+        and near_ceiling_ratio < 0.20
+    )
+    coverage_fail = bool(
+        duration_ms > 0
+        and (
+            coverage_ratio < critical_coverage
+            or (coverage_ratio < coverage_min and not fine_grained)
+        )
+    )
     is_metric_coarse = bool(
         durs_ms
         and (
             (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
-            or coverage_ratio < 0.85
+            or coverage_fail
         )
     )
     warnings = [str(x) for x in (doc.get("warnings") or [])]
@@ -468,14 +487,52 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
 
     _assert_boundary_quality(ctx)
     ctx.mark_done("boundary_topic_resplit", force=True)
-    # Stop this analysis pass — continuing would hit sonic_context without a fresh
-    # manifest. The next execute must resume from segment_classification.
-    msg = (
-        "boundary_topic_resplit invalidated segment_classification/content_brief_reanchor; "
-        "resume analysis from stage segment_classification"
+    try:
+        _patch_brief_ids_after_resplit(ctx)
+    except Exception as exc:
+        ctx.log(f"brief id patch after resplit skipped: {exc}", level="warning", stage="boundary_topic_resplit")
+    ctx.log(
+        "boundary_topic_resplit: re-running classification in-process (no clear_from)",
+        level="info",
+        stage="boundary_topic_resplit",
     )
-    ctx.log(msg, level="warning", stage="boundary_topic_resplit")
-    raise SystemExit(msg)
+    run_classification(ctx)
+    from interview_mux.stages.understanding import run_content_brief_reanchor
+
+    run_content_brief_reanchor(ctx)
+
+
+def _patch_brief_ids_after_resplit(ctx: RunContext) -> None:
+    """Remap content_brief topic segment_ids onto the post-resplit manifest."""
+    if not ctx.artifact_exists("understanding/content_brief.json"):
+        return
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return
+    brief = ctx.read_json("understanding/content_brief.json")
+    man = ctx.read_json("segments/manifest.json")
+    if not isinstance(brief, dict) or not isinstance(man, dict):
+        return
+    segs = [s for s in (man.get("segments") or []) if isinstance(s, dict) and s.get("segment_id")]
+    live = {str(s["segment_id"]) for s in segs}
+    changed = False
+    for topic in brief.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        ids = [str(x) for x in (topic.get("segment_ids") or []) if x]
+        if not ids or all(i in live for i in ids):
+            continue
+        mapped: list[str] = []
+        for oid in ids:
+            if oid in live:
+                mapped.append(oid)
+                continue
+            # Best-effort: keep any live id that shares a prefix (seg_012 → seg_012a).
+            hits = [sid for sid in sorted(live) if sid.startswith(oid) or oid.startswith(sid)]
+            mapped.extend(hits[:3] or [])
+        topic["segment_ids"] = list(dict.fromkeys(mapped))
+        changed = True
+    if changed:
+        ctx.write_json("understanding/content_brief.json", brief, stage_key="boundary_topic_resplit")
 
 
 def run_classification(ctx: RunContext) -> None:

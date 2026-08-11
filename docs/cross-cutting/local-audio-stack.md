@@ -10,7 +10,9 @@ Interview MUX runs **noise reduction** and **theme music generation** locally vi
 
 **Music-only rule:** creative delivery never ships whoosh/tick/foley/murmur. Theme stems share a motif family (`understanding/music_brief.json` + SDP `motif_family`). QA failure → regen → fallback to a passed stem in the same family → else fail-closed.
 
-**MusicGen resources:** `musicgen-large` is heavier than medium (~3GB+ weights). Bootstrap prefetches `facebook/musicgen-large` and `facebook/musicgen-melody-large` into `ASSETS/local_musicgen/hf_cache`. Expect several minutes and multi‑GB disk/RAM on first prefetch; generation uses transformers (MLX is best-effort for non-large). Set `musicgen.fail_closed_on_stub: false` only for offline/dev stub fallbacks.
+**MusicGen resources:** Default device is **CPU**. PyTorch **MPS** (`device: mps`) can `abort()` inside Metal (`MTLReportFailure` / `Python quit unexpectedly`). After a SIGABRT the runner bans MPS for the rest of the run and retries once on CPU. Generation is serialized (`ASSETS/local_musicgen/generate.lock`) and launched via the framework CLI `python3.12`, not `Python.app`. Per-clip timeout is **1 hour**, then a cheaper ladder (short bare prompt on CPU, then a cached medium/small model if present), then a deterministic musical-note stub so mix always has audio. `fail_closed_on_stub` defaults **false** so that last-resort stub is accepted.
+
+**Local runtime JSON:** scripts emit one JSON object on stdout `{ok, error?, out_wav?, warnings?}`. Progress stays on stderr. `run_runtime_json` parses stdout then stderr, logs `gui_log` + `vo_pickup/local_runtime_last_error.json` with `likely_cause`. G1 synthesize-all collects per-line errors instead of aborting the batch.
 
 **Planned:** deeper ML speech-to-speech voice conversion — [speech-to-speech-vo.md](./speech-to-speech-vo.md). DSP timbre match for operator gap VO is shipped.
 

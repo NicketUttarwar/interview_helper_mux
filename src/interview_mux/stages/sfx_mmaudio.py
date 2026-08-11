@@ -716,6 +716,13 @@ def _generate_with_retry(
                     n = max(1, int(ov["best_of_n_speech_free"]))
         except Exception:
             pass
+        try:
+            from interview_mux.musicgen_runner import musicgen_cfg as _mg_cfg
+
+            cap = max(1, int((_mg_cfg() or {}).get("max_best_of_n") or 1))
+            n = min(n, cap)
+        except Exception:
+            n = min(n, 1)
 
         if n <= 1:
             meta = generate_music_clip(
@@ -767,9 +774,25 @@ def _generate_with_retry(
             mus = qa.get("musicality") if isinstance(qa.get("musicality"), dict) else {}
             score -= 3.0 * len(mus.get("fail_reasons") or [])
             score -= 0.5 * len(mus.get("warn_reasons") or [])
+            # Prefer clear soft pulse / onset structure over flat pads.
+            pulse = float(mus.get("pulse_clarity") or 0.0)
+            score += 4.0 * pulse
+            if "musicality_no_onset_structure" in (mus.get("fail_reasons") or []):
+                score -= 6.0
+            speech_band = float(mus.get("speech_band_roughness") or 0.0)
+            if "underscore" in str(role or ""):
+                score -= 3.0 * speech_band
+            tonal = float(mus.get("tonal_center_score") or 0.0)
+            score += 2.0 * tonal
             if score > best_score and cand_path.is_file():
                 best_score = score
-                best_meta = {**meta, "best_of_n": n, "best_of_n_index": i, "best_of_n_score": score}
+                best_meta = {
+                    **meta,
+                    "best_of_n": n,
+                    "best_of_n_index": i,
+                    "best_of_n_score": score,
+                    "pulse_clarity": pulse,
+                }
                 if cand_path != out_file:
                     import shutil
 

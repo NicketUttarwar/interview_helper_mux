@@ -52,6 +52,62 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
     }
 )
 
+# Multi-word hanging setups — illegal keeper ends even with a following pause.
+_HANGING_SETUP_PHRASES: tuple[str, ...] = (
+    "that is the time",
+    "that was the time",
+    "the fact that",
+    "in terms of",
+    "the reason why",
+    "the reason that",
+    "how do we",
+    "how do you",
+    "how do i",
+    "what we need to",
+    "what you want to",
+    "what i want to",
+    "the way that",
+    "the thing that",
+    "so that we",
+    "so that you",
+    "in order to",
+    "as far as",
+    "when it comes to",
+)
+
+_HANGING_SETUP_RE = re.compile(
+    r"(?:^|\s)(?:"
+    + "|".join(re.escape(p) for p in _HANGING_SETUP_PHRASES)
+    + r")\s*$",
+    re.IGNORECASE,
+)
+
+# Tokens that often start a *new* conceptual unit after a hinge (not same-clause continue).
+_NEW_UNIT_OPENERS = frozenset(
+    {
+        "so",
+        "then",
+        "now",
+        "anyway",
+        "meanwhile",
+        "also",
+        "plus",
+        "next",
+        "later",
+        "afterward",
+        "afterwards",
+        "but",
+        "however",
+        "still",
+        "look",
+        "listen",
+        "okay",
+        "ok",
+        "well",
+        "right",
+    }
+)
+
 _MIC_DROP_HINT_RE = re.compile(
     r"\b(higher than|lower than|never|nobody|nothing|realized|truth is|bottom line|"
     r"cash in|account was|that was the|turning point)\b",
@@ -97,6 +153,18 @@ def _last_token(text: str) -> str:
 DEFAULT_PAUSE_SPLIT_MS = 1000
 
 
+def ends_hanging_setup(text: str) -> bool:
+    """True when the audible end is a hanging setup / incomplete promise."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    if stripped[-1] in ".!?…":
+        return False
+    if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
+        return True
+    return bool(_HANGING_SETUP_RE.search(stripped))
+
+
 def ends_complete_thought(
     text: str,
     *,
@@ -109,20 +177,125 @@ def ends_complete_thought(
     Word choice alone (e.g. any noun/verb close) is no longer sufficient —
     without terminal punctuation we require actual pause evidence
     (``next_pause_ms >= pause_split_ms``) so mid-sentence commas/breaths
-    aren't mistaken for a complete thought.
+    aren't mistaken for a complete thought. Hanging multi-word setups are
+    never complete even with a long pause.
     """
     stripped = (text or "").strip()
     if not stripped:
         return False
     if stripped[-1] in ".!?…":
         return True
-    if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
+    if ends_hanging_setup(stripped):
         return False
     return next_pause_ms is not None and next_pause_ms >= pause_split_ms
 
 
 # Backward-compatible private alias
 _ends_complete_thought = ends_complete_thought
+
+
+def _word_token(w: dict[str, Any]) -> str:
+    return str(w.get("text") or w.get("word") or "").strip()
+
+
+def clause_continues_after(
+    words: list[dict[str, Any]],
+    end_ms: int,
+    *,
+    max_lookahead_ms: int = 4000,
+    pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+) -> bool:
+    """True when G0 words after ``end_ms`` continue the same unfinished clause/setup.
+
+    A new conceptual unit (fresh opener after a real pause, or new sentence) does
+    **not** count as continuation — that hinge is legal even without ``.!?``.
+    """
+    if not words or end_ms < 0:
+        return False
+    ahead = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and end_ms < int(w.get("start_ms") or 0) <= end_ms + max_lookahead_ms
+        and _word_token(w)
+    ]
+    if not ahead:
+        return False
+    ahead.sort(key=lambda w: int(w.get("start_ms") or 0))
+    first = ahead[0]
+    gap = int(first.get("start_ms") or 0) - int(end_ms)
+    if gap >= pause_split_ms:
+        # Real pause then new unit — not same-clause continuation.
+        return False
+    first_tok = _word_token(first).lower().strip(".,!?;:\"'")
+    # Terminal punct on the cut word itself means the idea closed.
+    before = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and int(w.get("end_ms") or 0) <= end_ms + 20
+        and int(w.get("end_ms") or 0) >= end_ms - 80
+        and _word_token(w)
+    ]
+    if before:
+        last_tok = _word_token(before[-1])
+        if last_tok[-1:] in ".!?…":
+            return False
+        end_text = " ".join(_word_token(w) for w in before[-16:])
+        if ends_hanging_setup(end_text):
+            return True
+        if _last_token(end_text) in _INCOMPLETE_TAIL_TOKENS:
+            return True
+    # Tight gap + content continuation of the same clause.
+    if first_tok in _NEW_UNIT_OPENERS and gap >= 350:
+        return False
+    # Look at a few upcoming tokens — lowercase continuers are same-clause.
+    cont = " ".join(_word_token(w) for w in ahead[:8]).lower()
+    if re.match(
+        r"^(you|we|i|they|he|she|it|to|that|which|who|how|what|when|where|"
+        r"and|or|but|because|if|of|for|with|into|onto|from)\b",
+        cont,
+    ):
+        return True
+    # No terminal punct behind and tight gap → treat as unfinished.
+    return gap < 450
+
+
+def is_legal_conceptual_hinge(
+    text: str,
+    *,
+    words: list[dict[str, Any]] | None = None,
+    end_ms: int | None = None,
+    next_pause_ms: int | None = None,
+    pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+) -> bool:
+    """Shared predicate: word-aligned listen-complete idea boundary (not hang).
+
+    Full grammatical sentences are one legal hinge type — not the only one.
+    When ``words`` + ``end_ms`` are provided, also rejects cuts where the next
+    transcript words continue the same unfinished setup.
+    """
+    if not ends_complete_thought(
+        text, next_pause_ms=next_pause_ms, pause_split_ms=pause_split_ms
+    ):
+        # Conceptual hinge without terminal punct / measured pause: allow when
+        # lookahead shows a *new* unit (not same-clause continue) and text is
+        # not a hanging setup.
+        stripped = (text or "").strip()
+        if not stripped or ends_hanging_setup(stripped):
+            return False
+        if words is not None and end_ms is not None:
+            if clause_continues_after(
+                words, end_ms, pause_split_ms=pause_split_ms
+            ):
+                return False
+            # Non-hanging content word with no same-clause continue = legal hinge.
+            return True
+        return False
+    if words is not None and end_ms is not None:
+        if clause_continues_after(words, end_ms, pause_split_ms=pause_split_ms):
+            return False
+    return True
 
 
 def is_micro_segment(seg: dict[str, Any] | None, *, cfg: dict[str, Any]) -> bool:
@@ -767,12 +940,14 @@ def vo_value_violations(
         ratio = vo_target_overlap_ratio(text, target_text)
         category = str(line.get("line_category") or "").strip().lower()
         limit = summary_max if category == "segment_summary" else overlap_max
-        if ratio > limit:
+        # Use a tiny epsilon so float noise at the configured ceiling
+        # (e.g. 0.42000001 vs 0.42) does not hard-fail post-commit.
+        if ratio > (limit + 1e-6):
             errs.append(
                 f"{lid}: VO restates next clip (overlap={ratio:.2f} > {limit:.2f} for {category or 'line'})"
             )
         last = last_spoken_sentence(text)
-        if last and vo_target_overlap_ratio(last, target_text) > limit:
+        if last and vo_target_overlap_ratio(last, target_text) > (limit + 1e-6):
             errs.append(
                 f"{lid}: last sentence restates next clip (overlap too high)"
             )

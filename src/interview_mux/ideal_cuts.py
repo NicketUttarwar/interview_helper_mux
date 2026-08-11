@@ -228,6 +228,34 @@ def snap_ideal_cuts(
         priority = str(cut.get("priority") or "should_keep").strip().lower()
         if priority not in {"must_keep", "should_keep", "optional"}:
             priority = "should_keep"
+        # Hard-reject / auto-fix hanging-setup ends after snap.
+        from interview_mux.gap_vo_prior_context import (
+            clause_continues_after,
+            is_legal_conceptual_hinge,
+        )
+
+        end_text = _span_text(words, max(start, end - 8_000), end, max_chars=400)
+        legal = is_legal_conceptual_hinge(
+            end_text, words=words, end_ms=end, next_pause_ms=None
+        )
+        if not legal or clause_continues_after(words, end):
+            fixed = last_complete_thought_end_ms(
+                words, start_ms=start, end_ms=end
+            )
+            if fixed is None:
+                fixed = next_legal_hinge_end_ms(
+                    words, from_ms=end, max_extend_ms=12_000
+                )
+            if fixed is not None and fixed - start >= min_ms:
+                end = fixed
+                warnings.append(
+                    f"cut[{index}] auto-fixed illegal hang end → {end}"
+                )
+            else:
+                warnings.append(
+                    f"cut[{index}] rejected: illegal hanging / unfinished end"
+                )
+                continue
         row = {
             **cut,
             "start_ms": int(start),
@@ -239,6 +267,7 @@ def snap_ideal_cuts(
             "text_excerpt": cut.get("text_excerpt")
             or _span_text(words, start, end),
             "snapped": True,
+            "legal_conceptual_hinge": True,
         }
         snapped.append(row)
 
@@ -462,10 +491,16 @@ def resolve_ideal_cuts_air_order(
         }
     filtered = [s for s in raw if not kept or s in kept]
     if kept and not filtered:
+        mk = [
+            str(s)
+            for s in (seed.get("must_keep_segment_ids") or [])
+            if s and str(s) in kept
+        ]
+        ordered = list(dict.fromkeys([*mk, *sel]))
         return {
-            "order_authority": "ranking",
-            "ordered_segment_ids": sel,
-            "bind_reason": "ideal_cuts_seed_misses_kept",
+            "order_authority": "ideal_cuts",
+            "ordered_segment_ids": ordered or sel,
+            "bind_reason": "ideal_cuts_seed_union_must_keep",
         }
     # Append any kept ids missing from seed (preserve ranking relative order)
     missing = [s for s in sel if s not in set(filtered)]
@@ -689,11 +724,12 @@ def last_complete_thought_end_ms(
     end_ms: int,
     max_lookback_ms: int | None = None,
 ) -> int | None:
-    """Walk backward from ``end_ms`` to the last complete thought within the span."""
-    from interview_mux.gap_vo_prior_context import (
-        DEFAULT_PAUSE_SPLIT_MS,
-        ends_complete_thought,
-    )
+    """Walk backward from ``end_ms`` to the last legal conceptual hinge in-span.
+
+    Span end without a following word is **not** fabricated as a pause — that
+    alone does not prove a finished idea.
+    """
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
 
     if end_ms <= start_ms + 300:
         return None
@@ -725,14 +761,82 @@ def last_complete_thought_end_ms(
                 - int(window[i].get("end_ms") or 0),
             )
         else:
-            pause = max(0, end_ms - int(window[i].get("end_ms") or 0))
-            if pause < DEFAULT_PAUSE_SPLIT_MS:
-                # Treat span end as a natural stop when no following word exists.
-                pause = DEFAULT_PAUSE_SPLIT_MS
-        if last[-1:] in ".!?…" or ends_complete_thought(text, next_pause_ms=pause):
-            cand = int(window[i].get("end_ms") or 0)
+            # No following word *inside the lookback window* — check full word
+            # list for a real next pause; never fabricate DEFAULT_PAUSE_SPLIT_MS.
+            cand_end = int(window[i].get("end_ms") or 0)
+            nxt = next(
+                (
+                    w
+                    for w in words
+                    if isinstance(w, dict) and int(w.get("start_ms") or 0) > cand_end
+                ),
+                None,
+            )
+            if nxt is not None:
+                pause = max(0, int(nxt.get("start_ms") or 0) - cand_end)
+            else:
+                pause = None
+        cand = int(window[i].get("end_ms") or 0)
+        if last[-1:] in ".!?…" or is_legal_conceptual_hinge(
+            text, words=words, end_ms=cand, next_pause_ms=pause
+        ):
             if cand > start_ms + 300:
                 return cand
+    return None
+
+
+def next_legal_hinge_end_ms(
+    words: list[dict[str, Any]],
+    *,
+    from_ms: int,
+    max_extend_ms: int,
+    hard_cap_ms: int | None = None,
+) -> int | None:
+    """Extend forward from ``from_ms`` to the next legal conceptual hinge."""
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    cap = from_ms + max(0, int(max_extend_ms))
+    if hard_cap_ms is not None:
+        cap = min(cap, int(hard_cap_ms))
+    if cap <= from_ms:
+        return None
+    window = [
+        w
+        for w in words
+        if isinstance(w, dict) and from_ms < int(w.get("end_ms") or 0) <= cap
+    ]
+    if not window:
+        return None
+    accumulated: list[str] = []
+    for i, w in enumerate(window):
+        tok = str(w.get("text") or w.get("word") or "").strip()
+        if tok:
+            accumulated.append(tok)
+        if not accumulated:
+            continue
+        candidate = " ".join(accumulated)
+        cand_end = int(w.get("end_ms") or 0)
+        pause: int | None = None
+        if i + 1 < len(window):
+            pause = max(
+                0,
+                int(window[i + 1].get("start_ms") or 0) - cand_end,
+            )
+        else:
+            nxt = next(
+                (
+                    x
+                    for x in words
+                    if isinstance(x, dict) and int(x.get("start_ms") or 0) > cand_end
+                ),
+                None,
+            )
+            if nxt is not None:
+                pause = max(0, int(nxt.get("start_ms") or 0) - cand_end)
+        if is_legal_conceptual_hinge(
+            candidate, words=words, end_ms=cand_end, next_pause_ms=pause
+        ):
+            return cand_end
     return None
 
 
@@ -745,17 +849,37 @@ def resolve_keeper_air_bounds(
     segment_id: str | None = None,
     max_keep_ms: int | None = None,
     min_keep_ms: int = 2500,
+    max_extend_ms: int = 12_000,
+    next_keeper_start_ms: int | None = None,
+    meta_out: dict[str, Any] | None = None,
 ) -> tuple[int, int]:
-    """Tighten keeper source bounds to ideal window and/or complete-thought trim.
+    """Tighten keeper source bounds to a legal conceptual hinge.
 
-    Ranking IDs stay; mix uses the returned air window. Never forward-chops past
-    a hanging token — only retreats ``source_end`` to a complete thought.
+    Ideal-window match is optional; boundary trim is not — every keeper with
+    words runs the legal-hinge path. Keepers stay disjoint: extend never
+    crosses ``next_keeper_start_ms``.
     """
-    start = int(source_start_ms)
-    end = int(source_end_ms)
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        is_legal_conceptual_hinge,
+    )
+
+    orig_start = int(source_start_ms)
+    orig_end = int(source_end_ms)
+    start = orig_start
+    end = orig_end
+    meta: dict[str, Any] = {
+        "air_bound_reason": "unchanged",
+        "before_start_ms": orig_start,
+        "before_end_ms": orig_end,
+        "ideal_window_id": None,
+    }
     if end <= start:
+        if meta_out is not None:
+            meta_out.update(meta)
         return start, end
 
+    ideal_id: str | None = None
     window = overlapping_ideal_window(
         source_start_ms=start,
         source_end_ms=end,
@@ -764,22 +888,82 @@ def resolve_keeper_air_bounds(
     )
     if window is not None:
         w0, w1 = window
-        # Clamp ideal window to the keeper slab, then snap end to complete thought.
         start = max(start, w0)
         end = min(end, w1)
+        meta["air_bound_reason"] = "ideal_window_clamp"
+        # Best-effort ideal id from overlapping cut.
+        for cut in _cuts_list(cuts_doc):
+            if not isinstance(cut, dict):
+                continue
+            try:
+                c0 = int(cut.get("start_ms") or 0)
+                c1 = int(cut.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            if c0 == w0 and c1 == w1:
+                ideal_id = str(
+                    cut.get("cut_id") or cut.get("talking_point_id") or ""
+                ) or None
+                break
+        meta["ideal_window_id"] = ideal_id
         if end <= start:
-            start, end = int(source_start_ms), int(source_end_ms)
-        elif words:
-            snapped = last_complete_thought_end_ms(
-                words, start_ms=start, end_ms=end
+            start, end = orig_start, orig_end
+            meta["air_bound_reason"] = "ideal_window_rejected"
+
+    hard_cap = None
+    if next_keeper_start_ms is not None:
+        hard_cap = int(next_keeper_start_ms) - 80
+
+    if words:
+        # Always snap end to a legal hinge inside the current slab when possible.
+        snapped = last_complete_thought_end_ms(words, start_ms=start, end_ms=end)
+        if snapped is not None and snapped - start >= min_keep_ms:
+            if snapped != end:
+                meta["air_bound_reason"] = (
+                    "ideal_hinge_snap"
+                    if meta["air_bound_reason"] == "ideal_window_clamp"
+                    else "conceptual_hinge_trim"
+                )
+            end = snapped
+
+        # Lookahead: if clause continues after end, extend then retreat.
+        end_toks = [
+            str(w.get("text") or w.get("word") or "").strip()
+            for w in words
+            if isinstance(w, dict)
+            and start <= int(w.get("end_ms") or 0) <= end
+            and str(w.get("text") or w.get("word") or "").strip()
+        ]
+        end_text = " ".join(end_toks[-16:]) if end_toks else ""
+        continues = clause_continues_after(words, end) or (
+            end_text
+            and not is_legal_conceptual_hinge(
+                end_text, words=words, end_ms=end, next_pause_ms=None
             )
-            if snapped is not None and snapped - start >= min_keep_ms:
-                end = snapped
+        )
+        if continues:
+            extended = next_legal_hinge_end_ms(
+                words,
+                from_ms=end,
+                max_extend_ms=max_extend_ms,
+                hard_cap_ms=hard_cap if hard_cap is not None else (
+                    start + int(max_keep_ms) if max_keep_ms else None
+                ),
+            )
+            if extended is not None and extended - start >= min_keep_ms:
+                end = extended
+                meta["air_bound_reason"] = "extend_to_legal_hinge"
+            else:
+                retreated = last_complete_thought_end_ms(
+                    words, start_ms=start, end_ms=max(start + min_keep_ms, end - 200)
+                )
+                if retreated is not None and retreated - start >= min_keep_ms:
+                    end = retreated
+                    meta["air_bound_reason"] = "retreat_to_legal_hinge"
 
     span = end - start
     budget = int(max_keep_ms) if max_keep_ms is not None else None
     if budget is not None and span > budget and words:
-        # Prefer trimming inside the ideal window budget when present.
         target_end = start + budget
         snapped = last_complete_thought_end_ms(
             words,
@@ -788,7 +972,6 @@ def resolve_keeper_air_bounds(
             max_lookback_ms=max(budget, 12_000),
         )
         if snapped is not None and snapped - start >= min_keep_ms:
-            # Prefer the last complete thought at or before the budget.
             if snapped <= start + budget:
                 end = snapped
             else:
@@ -797,11 +980,32 @@ def resolve_keeper_air_bounds(
                 )
                 if earlier is not None and earlier - start >= min_keep_ms:
                     end = earlier
+            meta["air_bound_reason"] = "budget_hinge_trim"
         elif snapped is not None and snapped - start >= min_keep_ms:
             end = snapped
+            meta["air_bound_reason"] = "budget_hinge_trim"
 
+    if hard_cap is not None and end > hard_cap:
+        end = hard_cap
+        if words:
+            retreated = last_complete_thought_end_ms(
+                words, start_ms=start, end_ms=end
+            )
+            if retreated is not None and retreated - start >= min_keep_ms:
+                end = retreated
+        meta["air_bound_reason"] = "disjoint_cap"
+
+    meta["after_start_ms"] = start
+    meta["after_end_ms"] = end
     if end - start < min_keep_ms:
-        return int(source_start_ms), int(source_end_ms)
+        meta["air_bound_reason"] = "min_keep_revert"
+        meta["after_start_ms"] = orig_start
+        meta["after_end_ms"] = orig_end
+        if meta_out is not None:
+            meta_out.update(meta)
+        return orig_start, orig_end
+    if meta_out is not None:
+        meta_out.update(meta)
     return start, end
 
 

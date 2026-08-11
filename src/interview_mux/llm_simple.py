@@ -79,6 +79,13 @@ def run_llm_stage_simple(
     """Run one LLM stage with at most two attempts (initial + one retry)."""
     ensure_analysis_workspace(ctx)
     base_input = build_stage_input(ctx)
+    try:
+        from interview_mux.volley_packet_lint import lint_llm_user_payload
+
+        if isinstance(base_input, dict):
+            base_input = lint_llm_user_payload(base_input)
+    except Exception:
+        pass
     user_payload = json.dumps(base_input, indent=2, ensure_ascii=False)
     last_schema_errors: list[str] = []
     envelope: dict[str, Any] = {}
@@ -133,8 +140,15 @@ def run_llm_stage_simple(
                 ctx=ctx,
                 call_attempt=attempt,
                 messages=messages,
+                bump_tier=bool(attempt == 2 and stage_key == "gap_framing_compose"),
             )
         except Exception as exc:
+            from interview_mux.safe_pruning import SafePruneExhausted
+
+            if isinstance(exc, SafePruneExhausted):
+                msg = f"LLM stage {stage_key} failed after safe prune: {exc}"
+                ctx.log(msg, level="error", stage=stage_key)
+                raise StageError(stage_key, msg) from exc
             if attempt == 2:
                 msg = f"LLM stage {stage_key} failed: {exc}"
                 ctx.log(msg, level="error", stage=stage_key)
@@ -192,7 +206,27 @@ def run_llm_stage_simple(
             continue
 
         _warn_only_lint(ctx, stage_key, envelope)
-        persist_artifacts(ctx, artifacts)
+        try:
+            persist_artifacts(ctx, artifacts)
+        except RuntimeError as exc:
+            # Persist-time quality gates (e.g. ideal_cuts span coverage) should
+            # consume the same one-retry budget as schema errors — not abort the
+            # whole analysis batch and force an e2e clear_from rewind.
+            msg = str(exc)
+            retryable = (
+                "span coverage" in msg.lower()
+                or "clustered early" in msg.lower()
+                or "redistribute across" in msg.lower()
+            )
+            if retryable and attempt < 2:
+                last_schema_errors = [msg]
+                ctx.log(
+                    f"{msg} — retrying LLM (attempt {attempt + 1})",
+                    level="warning",
+                    stage=stage_key,
+                )
+                continue
+            raise
         if sync_fn is not None:
             sync_fn(ctx, envelope)
         if auto_complete:

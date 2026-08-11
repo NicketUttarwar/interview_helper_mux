@@ -8,6 +8,8 @@ Goals:
 - Still include on-air-adjacent context when it uniquely unlocks a later beat.
 - Mark `already_aired_in_selection: true` when the same claim is fully spoken in a kept segment (do not recover those later as VO).
 - Attach `talking_point_ids` when a nugget discharges a talking point; set `salience` honestly (`critical`/`high` for must-keep recovery candidates).
+- Prefer mining claims from **high-confidence** spans. When evidence sits in a loose low-conf / lexicon island, set `evidence_partial: true` and keep `evidence_quote` to **comprehensible** tokens only — never fabricate the unclear word.
+- Optionally set `grounding_quality` to `high` | `mixed` | `weak` from confidence on the evidence span.
 - Ruthlessly filter filler, asides, and duplicate near-paraphrases.
 
 Do not:

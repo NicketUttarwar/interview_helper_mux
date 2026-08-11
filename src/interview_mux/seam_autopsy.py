@@ -278,11 +278,21 @@ def verify_commitment(
     assembly_path = ctx.final_path("master", "assembly.wav")
     edl_path = ctx.final_path("master", "edl.json")
     assembly_fp = _file_fingerprint(assembly_path)
-    fresh = bool(
+    ledger = {}
+    if ctx.artifact_exists(RENDER_LEDGER_REL):
+        try:
+            ledger = ctx.read_json(RENDER_LEDGER_REL) or {}
+        except Exception:
+            ledger = {}
+    ledger_hash = str((ledger or {}).get("assembly_sha256_edges") or (ledger or {}).get("sha256_edges") or "")
+    content_ok = bool(
         assembly_fp.get("exists")
-        and edl_path.is_file()
-        and int(assembly_fp.get("mtime_ns") or 0) >= edl_path.stat().st_mtime_ns
+        and (
+            not ledger_hash
+            or ledger_hash == str(assembly_fp.get("sha256_edges") or "")
+        )
     )
+    fresh = bool(content_ok and assembly_fp.get("exists") and edl_path.is_file())
     reasons: list[str] = []
     if unresolved:
         reasons.append("claimed_repairs_missing_from_edl")

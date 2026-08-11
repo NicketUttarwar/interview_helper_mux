@@ -13,6 +13,7 @@ STAGE_SPINE_VOLLEY_KEYS = frozenset(
         "missing_framing",
         "content_context",
         "full_master_ranking",
+        "content_brief_reanchor",
     }
 )
 
@@ -21,6 +22,7 @@ _STAGE_SPINE_LIMITS: dict[str, dict[str, int]] = {
     "segment_classification": {"max_windows": 3, "max_events": 10, "max_chars": 120},
     "missing_framing": {"max_windows": 4, "max_events": 15, "max_chars": 120},
     "full_master_ranking": {"max_windows": 3, "max_events": 10, "max_chars": 120},
+    "content_brief_reanchor": {"max_windows": 4, "max_events": 12, "max_chars": 140},
 }
 
 def attach_spine_to_payload(ctx, payload: dict[str, Any], stage_key: str) -> None:

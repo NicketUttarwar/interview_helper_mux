@@ -12,6 +12,7 @@ from interview_mux.model_registry import (
 def test_resolve_model_primary_uses_stage_tier():
     resolved = resolve_model("missing_framing", "primary")
     assert resolved.tier == "flagship"
+    assert DEFAULT_TIER_MODELS["flagship"] == "gpt-5.6-terra"
     assert resolved.model_id == DEFAULT_TIER_MODELS["flagship"]
 
 
@@ -95,6 +96,7 @@ def test_reasoning_models_omit_temperature():
     assert supports_custom_temperature("o3-mini") is False
     assert supports_custom_temperature("o1-preview") is False
     assert supports_custom_temperature("o4-mini") is False
+    assert supports_custom_temperature("gpt-5.6-terra") is False
 
 
 def test_temperature_for_chat_by_model_and_task():
@@ -102,3 +104,4 @@ def test_temperature_for_chat_by_model_and_task():
     assert temperature_for_chat("gpt-4o-mini", "arbiter") == 0.0
     assert temperature_for_chat("o3", "primary") is None
     assert temperature_for_chat("o3", "arbiter") is None
+    assert temperature_for_chat("gpt-5.6-terra", "primary") is None

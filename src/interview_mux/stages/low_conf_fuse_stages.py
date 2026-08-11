@@ -1,0 +1,106 @@
+"""Pipeline stages for low-confidence island selection + connector seam fuse."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from interview_mux.low_conf_islands import (
+    compute_density_ranking,
+    low_conf_selection_cfg,
+)
+from interview_mux.low_conf_islands import (
+    run_low_conf_island_scan as scan_low_conf_islands_for_ctx,
+)
+from interview_mux.low_conf_islands import (
+    write_low_conf_must_keep,
+)
+from interview_mux.operator_trace import logged_step
+from interview_mux.run_context import RunContext
+from interview_mux.segment_fuse import connector_fuse_cfg
+from interview_mux.segment_fuse import run_connector_fuse_pass as fuse_pass
+
+DEFAULT_FUSE_PASS_ID = "post_sanitize"
+
+
+def run_low_conf_island_scan(ctx: RunContext) -> None:
+    """Scan the low-conf ladder, density-rank natives, publish the top-decile must_keep."""
+    stage = "low_conf_island_scan"
+    conf = low_conf_selection_cfg()
+    if not conf.get("enabled", True):
+        ctx.log(
+            "low_conf_island_scan skipped (analysis.low_conf_selection.enabled=false)",
+            stage=stage,
+            action_id="low_conf.scan.skip",
+        )
+        return
+
+    with logged_step(f"{stage}/scan", ctx=ctx, stage=stage):
+        islands = scan_low_conf_islands_for_ctx(ctx)
+        ranking = compute_density_ranking(ctx, islands)
+        must_keep = write_low_conf_must_keep(ctx, ranking)
+
+    ctx.log(
+        f"Low-conf islands: {islands.get('island_count')} found "
+        f"({islands.get('suspect_count')} suspect) — "
+        f"{len(must_keep.get('must_keep_segment_ids') or [])} segment(s) hard-included "
+        f"at top {must_keep.get('top_percentile')}",
+        stage=stage,
+        action_id="low_conf.scan",
+        detail={
+            "island_count": islands.get("island_count"),
+            "tier_counts": islands.get("tier_counts") or {},
+            "positive_count": ranking.get("positive_count"),
+            "must_keep": (must_keep.get("must_keep_segment_ids") or [])[:20],
+            "enforcement_mode": must_keep.get("enforcement_mode"),
+        },
+    )
+
+
+def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
+    """Economy-LLM seam adjudication + fuse rewrite for one pass."""
+    stage = "connector_fuse_pass"
+    pass_id = str(kwargs.get("pass_id") or DEFAULT_FUSE_PASS_ID)
+    conf = connector_fuse_cfg()
+    if not conf.get("enabled", True):
+        ctx.log(
+            "connector_fuse_pass skipped (analysis.connector_fuse.enabled=false)",
+            stage=stage,
+            action_id="connector_fuse.skip",
+            detail={"pass_id": pass_id},
+        )
+        return
+
+    with logged_step(f"{stage}/{pass_id}", ctx=ctx, stage=stage):
+        result = fuse_pass(ctx, pass_id=pass_id)
+
+    ctx.log(
+        f"Connector fuse pass '{pass_id}' complete — {result.get('total_applied')} fuse(s), "
+        f"fixed_point={result.get('fixed_point')}",
+        stage=stage,
+        action_id="connector_fuse.complete",
+        detail={
+            "pass_id": pass_id,
+            "total_applied": result.get("total_applied"),
+            "rounds": len(result.get("rounds") or []),
+            "skip_reason": result.get("skip_reason"),
+        },
+    )
+
+
+def run_connector_fuse_pass_pre_ranking(ctx: RunContext) -> None:
+    """Second fuse pass immediately before full_master_ranking."""
+    run_connector_fuse_pass(ctx, pass_id="pre_ranking")
+
+
+def run_connector_fuse_pass_junction_heal(ctx: RunContext) -> None:
+    """Fuse pass scheduled from junction QA when incomplete residuals survive."""
+    run_connector_fuse_pass(ctx, pass_id="junction_heal", force_readjudicate=True)
+
+
+__all__ = [
+    "DEFAULT_FUSE_PASS_ID",
+    "run_connector_fuse_pass",
+    "run_connector_fuse_pass_junction_heal",
+    "run_connector_fuse_pass_pre_ranking",
+    "run_low_conf_island_scan",
+]

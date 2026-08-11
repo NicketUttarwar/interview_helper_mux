@@ -24,6 +24,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **AWS (podcast)** | Infra via **Terraform** (`scripts/tf-*.sh` → `terraform/state/`). See **`terraform/README.md`**. App S3/CF via **boto3** + secrets. Never AWS CLI / `aws login`. |
 | **Media** | Default **`./ASSETS/`** (gitignored). Runs under **`ASSETS/executions/`**. |
 | **Schemas** | Validate with **`prompt_validation`** + **`docs/cross-cutting/json-schemas/`**. |
+| **LLM packets** | Tape meaning only — [docs/cross-cutting/llm-volley-context.md](../../docs/cross-cutting/llm-volley-context.md). Strip `exists` / `stage_done` / `run_meta`. |
 
 ---
 
@@ -43,7 +44,7 @@ Full copy: **`docs/workflows/operator-gates.md`**.
 
 ## Pipeline
 
-- **57 stages:** 29 analysis + 28 delivery — orders in **`src/interview_mux/v2/config.py`** · inventory **`docs/v2/port-manifest.csv`**
+- **61 stages:** 34 analysis + 27 delivery — orders in **`src/interview_mux/v2/config.py`** · inventory **`docs/v2/port-manifest.csv`**
 - **Idempotency:** `.stage_done/<stage_id>`; **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**
 - **Artifacts:** writes via `ctx.path()` / `ctx.write_json()`; reads via `ctx.read_path()` / `ctx.read_json()` — see **`write_staging.py`**
 

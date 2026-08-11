@@ -91,13 +91,20 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
     """Start GUI serve if down. With force_restart, recycle to load current code."""
     if server_alive() and not force_restart:
         return None
-    # Soft-kill stale listeners (needed when Python modules changed under a live serve).
+    # Recycle listeners so Python module edits load. SIGTERM first, then SIGKILL
+    # leftovers (a second serve can bind 8765 while an old worker keeps synthesizing).
     subprocess.run(["pkill", "-f", "interview_mux serve"], check=False)
+    time.sleep(1.0)
+    subprocess.run(["pkill", "-9", "-f", "interview_mux serve"], check=False)
     _kill_pids_on_port(8765)
     time.sleep(1.5)
     pid = _popen(
         [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser"],
         ASSETS / "baba_server.log",
+        env={
+            "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
+            "MUX_E2E_SOFT_LISTENABILITY": "1",
+        },
     )
     (ASSETS / "baba_server.pid").write_text(str(pid))
     for _ in range(40):
@@ -116,6 +123,7 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
         "MUX_INPUT_AUDIO": os.environ.get("MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav"),
+        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
     }
     if fresh:
         rotate_e2e_console()

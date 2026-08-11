@@ -115,7 +115,8 @@
     "understanding/gap_report.json": {
       "schemas_by_producer": {
         "gap_framing_compose": "gap_report.schema.json",
-        "optimal_questions": "gap_report.schema.json"
+        "optimal_questions": "gap_report.schema.json",
+        "nugget_layup_compose": "gap_report.schema.json"
       },
       "producers": [
         "gap_framing_compose",
@@ -123,6 +124,7 @@
       ],
       "consumers": [
         "gap_framing_compose",
+        "nugget_corpus_mine",
         "optimal_questions"
       ],
       "has_write_validator": true
@@ -163,6 +165,72 @@
       ],
       "has_write_validator": true
     },
+    "analysis/connector_seam_verdicts.json": {
+      "schemas_by_producer": {
+        "connector_seam_adjudicate": "connector_seam_adjudicate.schema.json"
+      },
+      "producers": [
+        "connector_seam_adjudicate"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "analysis/low_conf_islands.json": {
+      "schemas_by_producer": {
+        "low_conf_island_scan": null
+      },
+      "producers": [
+        "low_conf_island_scan"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "analysis/connector_fuse_audit.json": {
+      "schemas_by_producer": {
+        "connector_fuse_pass": null
+      },
+      "producers": [
+        "connector_fuse_pass"
+      ],
+      "consumers": [
+        "connector_seam_adjudicate"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/connector_fuse_rounds.json": {
+      "schemas_by_producer": {
+        "connector_fuse_pass_pre_ranking": null
+      },
+      "producers": [
+        "connector_fuse_pass_pre_ranking"
+      ],
+      "consumers": [
+        "connector_seam_adjudicate"
+      ],
+      "has_write_validator": false
+    },
+    "understanding/nugget_corpus.json": {
+      "schemas_by_producer": {
+        "nugget_corpus_mine": "nugget_corpus_artifact.schema.json"
+      },
+      "producers": [
+        "nugget_corpus_mine"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "understanding/nugget_layup_plan.json": {
+      "schemas_by_producer": {
+        "nugget_layup_compose": "nugget_layup_plan_artifact.schema.json"
+      },
+      "producers": [
+        "nugget_layup_compose"
+      ],
+      "consumers": [
+        "nugget_corpus_mine"
+      ],
+      "has_write_validator": true
+    },
     "master/edl_narrative_audit.json": {
       "schemas_by_producer": {
         "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json"
@@ -182,7 +250,9 @@
       "producers": [
         "edl"
       ],
-      "consumers": [],
+      "consumers": [
+        "nugget_layup_compose"
+      ],
       "has_write_validator": true
     },
     "master/transitions.json": {
@@ -242,20 +312,6 @@
         "junction_feel_audit"
       ],
       "consumers": [],
-      "has_write_validator": true
-    },
-    "vo_pickup/synthesis_report.json": {
-      "schemas_by_producer": {
-        "g1_vo_pickup": "synthesis_report.schema.json"
-      },
-      "producers": [
-        "g1_vo_pickup"
-      ],
-      "consumers": [
-        "vo_ingest",
-        "edl",
-        "post_master_quality"
-      ],
       "has_write_validator": true
     }
   }

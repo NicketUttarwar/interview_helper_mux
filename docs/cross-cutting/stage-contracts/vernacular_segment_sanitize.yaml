@@ -14,7 +14,9 @@ inputs:
   soft: []
 sufficiency: []
 propagation:
-  invalidates_stages: []
+  invalidates_stages:
+  - low_conf_island_scan
+  - connector_fuse_pass
 consumers: []
 remediation:
   strategies:

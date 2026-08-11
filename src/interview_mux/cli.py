@@ -139,7 +139,7 @@ def run_pipeline(
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
         if not skip_analysis or not ctx.artifact_exists("analysis_complete.json"):
-            run_analysis(ctx, from_stage=from_stage)
+            run_analysis(ctx, from_stage=from_stage, invalidate=bool(from_stage))
             _emit(ctx, "Analysis complete.", level="success", stage="cli", console_markup="[green]Analysis complete.[/green]")
         else:
             _emit(
@@ -163,7 +163,11 @@ def run_pipeline(
             _emit(ctx, "--analysis-only: stopping before delivery.", level="info", stage="cli", console_markup="[dim]--analysis-only: stopping before delivery.[/dim]")
             return ctx
 
-        run_delivery(ctx, from_stage=delivery_from_stage)
+        run_delivery(
+            ctx,
+            from_stage=delivery_from_stage,
+            invalidate=bool(delivery_from_stage),
+        )
         _emit(
             ctx,
             f"Master: {ctx.path('master/master.wav')}",
@@ -198,7 +202,7 @@ def analysis_cmd(
     )
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
-        run_analysis(ctx, from_stage=from_stage)
+        run_analysis(ctx, from_stage=from_stage, invalidate=bool(from_stage))
     _emit(
         ctx,
         "Analysis complete. Resolve G1 if needed, then run delivery.",
@@ -226,7 +230,7 @@ def delivery_cmd(
     _emit(ctx, f"Delivery on {ctx.run_id}", level="info", stage="delivery", console_markup=f"[bold]Delivery[/bold] on {ctx.run_id}")
     with run_directory_lock(ctx.run_id):
         _cli_write_approval_gate(ctx)
-        run_delivery(ctx, from_stage=from_stage)
+        run_delivery(ctx, from_stage=from_stage, invalidate=bool(from_stage))
         _emit(
             ctx,
             f"Master: {ctx.path('master/master.wav')}",

@@ -30,6 +30,7 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "topic_coverage_audit": "OF-01",
     "narrative_arc_plan": "OF-02",
     "full_master_ranking": "OF-03",
+    "connector_seam_adjudicate": "OF-02a",
     "nugget_corpus_mine": "OF-03a",
     "nugget_layup_compose": "OF-03b",
     "transitions": "OF-04",
@@ -134,6 +135,11 @@ def _build_registry() -> dict[str, dict[str, Any]]:
     _OF_META = {
         "topic_coverage_audit": ("analysis_extended.run_topic_coverage", "selection/topic-coverage-audit", "full/shard/collate"),
         "narrative_arc_plan": ("analysis_extended.run_narrative_arc", "selection/narrative-arc-plan", "full"),
+        "connector_seam_adjudicate": (
+            "segment_fuse.adjudicate_seams_llm",
+            "segmentation/connector-seam-adjudicate",
+            "full",
+        ),
         "full_master_ranking": ("selection.run_full_master_ranking", "selection/full-master-ranking", "full/shard/collate"),
         "nugget_corpus_mine": ("analysis_extended.run_nugget_corpus_mine", "nugget_layup/nugget-corpus-mine", "full"),
         "nugget_layup_compose": ("analysis_extended.run_nugget_layup_compose", "nugget_layup/nugget-layup-compose", "full"),
@@ -198,6 +204,23 @@ def _build_registry() -> dict[str, dict[str, Any]]:
             model_tier="economy",
         )
 
+    reg["OS-05"] = _entry(
+        id="OS-05",
+        provider="openai",
+        interaction="high_gap_vo_fill",
+        stage_key="high_gap_vo_fill",
+        task_kind="advisory",
+        trigger="uncovered high-severity gap after compose",
+        entrypoint="high_gap_vo.fill_uncovered_high_gaps",
+        prompt_rel="interviewer-gap/high-gap-vo-fill.system.txt",
+        volley_profile="full",
+        response_schema="json_object text line",
+        verify="spoken_copy_guard",
+        on_verify_fail="rewrite then omit last",
+        goal="Succinct VO covering one high-severity gap",
+        model_tier="standard",
+    )
+
     reg["LX-01"] = _entry(
         id="LX-01",
         provider="local_mlx",
@@ -232,6 +255,23 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         on_verify_fail="normalize_then_verify",
         goal="Benign fabricated values for low-risk null fields",
         model_tier="mid",
+    )
+
+    reg["OM-SAFE"] = _entry(
+        id="OM-SAFE",
+        provider="openai",
+        interaction="safe_prune_extract",
+        stage_key="*",
+        task_kind="safe_prune_extract",
+        trigger="flagship Chat Completions context_length error",
+        entrypoint="safe_pruning.extract_chunk_keeps",
+        prompt_rel="_shared/safe-prune-chunk.system.txt",
+        volley_profile="chunk extract",
+        response_schema="json_object keeps",
+        verify="volley_packet_lint tape slice",
+        on_verify_fail="empty keeps fail-open",
+        goal="Keep only tape evidence that answers the original system prompt",
+        model_tier="economy",
     )
 
     for cid, meta in _OH_META.items():
@@ -358,6 +398,7 @@ _OA_GOALS: dict[str, str] = {
 _OF_GOALS: dict[str, str] = {
     "topic_coverage_audit": "Theme coverage score",
     "narrative_arc_plan": "Chapter arc",
+    "connector_seam_adjudicate": "Fuse vs stay_independent for every chronological seam",
     "full_master_ranking": "Ordered segment_ids",
     "nugget_corpus_mine": "Full-tape grounded nuggets",
     "nugget_layup_compose": "Per-native before-VO layups",
@@ -396,6 +437,9 @@ def resolve_interaction_id(
         tk = task_kind.removeprefix("local_") if task_kind.startswith("local_") else task_kind
         return LOCAL_FRAMER_IDS.get(tk, "LX-01")
 
+    if task_kind == "safe_prune_extract":
+        return "OM-SAFE"
+
     if task_kind == "specialist":
         sk = resolve_specialist_key_from_stage(stage_key)
         if sk and sk in SPECIALIST_IDS:
@@ -428,6 +472,9 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "junction_snip_qa",
             "podcast_publish",
             "timeline_optimizer",
+            "segment_fuse",
+            "high_gap_vo",
+            "safe_pruning",
         ),
         "generate_local_chat": (
             "local_volley_framer",

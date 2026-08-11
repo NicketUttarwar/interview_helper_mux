@@ -27,7 +27,7 @@ def test_openai_failure_logs_to_gui_log(tmp_path, monkeypatch) -> None:
                     llm_runner.run_prompt_envelope(
                         "missing_framing",
                         "interviewer-gap/missing-framing.system.txt",
-                        user_content='{"task":"test"}',
+                        user_content='{"task":"test","excerpts":["tape from the interview"]}',
                         task_kind="primary",
                         ctx=ctx,
                     )

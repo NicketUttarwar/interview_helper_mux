@@ -454,11 +454,41 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
 
         attach_coherence_summary(payload, c, "content_brief_reanchor")
         from interview_mux.conversation_context import attach_conversation_context
+        from interview_mux.interview_spine.compact import attach_spine_to_payload
 
+        excerpts: list[dict[str, Any]] = []
+        for row in (compact_manifest.get("segments") if isinstance(compact_manifest, dict) else None) or []:
+            if not isinstance(row, dict):
+                continue
+            text = str(row.get("text") or row.get("excerpt") or "").strip()
+            if not text:
+                continue
+            excerpts.append(
+                {
+                    "segment_id": row.get("segment_id"),
+                    "topic": row.get("topic"),
+                    "excerpt": text[:240],
+                }
+            )
+            if len(excerpts) >= 40:
+                break
+        if excerpts:
+            payload["topic_excerpts"] = excerpts
         payload = attach_conversation_context(c, payload, "content_brief_reanchor")
+        attach_spine_to_payload(c, payload, "content_brief_reanchor")
         return attach_disfluency_context(payload, c)
 
-    persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
+    inner_persist = make_stage_persist("understanding/content_brief.json", "content_brief_reanchor")
+
+    def persist(c: RunContext, artifacts: dict) -> None:
+        inner_persist(c, artifacts)
+        from interview_mux.artifact_completeness import artifact_status
+
+        st = artifact_status("understanding/content_brief.json", c)
+        if st != "complete":
+            raise RuntimeError(
+                f"content_brief_reanchor must persist a complete brief (status={st})"
+            )
     prompt_rel = prompt_variant("understanding/content-brief-reanchor.system.txt", ctx)
 
     with logged_step("content_brief_reanchor/llm_stage", ctx=ctx, stage="content_brief_reanchor"):

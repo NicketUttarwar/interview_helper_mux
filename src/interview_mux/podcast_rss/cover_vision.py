@@ -86,7 +86,15 @@ def pick_cover_winner(
     if temp is not None:
         kwargs["temperature"] = temp
 
-    resp = client.chat.completions.create(**kwargs)
+    from interview_mux.safe_pruning import create_chat_with_context_ladder
+
+    resp = create_chat_with_context_ladder(
+        client,
+        kwargs,
+        stage_key=stage_key,
+        original_system=system,
+        ctx=None,
+    )
     raw = (resp.choices[0].message.content or "").strip()
     data = json.loads(_strip_fences(raw))
     if not isinstance(data, dict):

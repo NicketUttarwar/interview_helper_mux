@@ -58,6 +58,8 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
     """
     from interview_mux.nugget_layup import (
         PLAN_REL,
+        assert_gap_report_layup_authority,
+        assert_layup_fresh_vs_selection,
         nugget_layup_cfg,
         nugget_layup_enabled,
         publish_layup_plan_to_gap_report,
@@ -65,7 +67,11 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
 
     if nugget_layup_enabled() and nugget_layup_cfg().get("authoritative_gap_report"):
         if ctx.artifact_exists(PLAN_REL):
-            publish_layup_plan_to_gap_report(ctx)
+            assert_layup_fresh_vs_selection(ctx, stage="gap_framing_recompose")
+            report = publish_layup_plan_to_gap_report(ctx)
+            assert_gap_report_layup_authority(
+                ctx, report, stage="gap_framing_recompose"
+            )
             ctx.write_json(
                 "understanding/gap_framing_recompose.json",
                 {
@@ -337,7 +343,12 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
             cleaned, opening_notes = ensure_episode_orientation(
                 ctx, cleaned, final_ordered
             )
-            all_notes = list(notes) + list(drop_notes) + list(opening_notes)
+            from interview_mux.nugget_layup import restore_layup_lines
+
+            cleaned, layup_notes = restore_layup_lines(ctx, cleaned)
+            all_notes = (
+                list(notes) + list(drop_notes) + list(opening_notes) + list(layup_notes)
+            )
             if all_notes:
                 ctx.write_json("understanding/gap_report.json", cleaned)
                 ctx.log(

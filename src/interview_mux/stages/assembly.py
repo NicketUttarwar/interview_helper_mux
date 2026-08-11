@@ -316,20 +316,29 @@ def build_flow1_edl(
             )
         )
 
-        before_lines = (
-            []
-            if skip_before_vo
-            else _gap_lines_for_segment(
-                gap_report,
-                sid,
-                "before",
-                emitted_line_ids=emitted_line_ids,
-                emitted_text_keys=emitted_text_keys,
-            )
+        before_lines = _gap_lines_for_segment(
+            gap_report,
+            sid,
+            "before",
+            emitted_line_ids=emitted_line_ids,
+            emitted_text_keys=emitted_text_keys,
         )
-        # One host turn per seam: if prior clip already left a VO/transition, skip.
+        if skip_before_vo:
+            # Contiguous same-speaker source usually needs no seam hinge, but
+            # authoritative nugget layups (and episode orientation) must still air.
+            before_lines = [
+                ln
+                for ln in before_lines
+                if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
+            ]
+        # One host turn per seam: if prior clip already left a VO/transition, skip
+        # generic hinges — keep layup/orientation recovery copy.
         if _last_non_silence_type() in {"vo_pickup", "transition"}:
-            before_lines = []
+            before_lines = [
+                ln
+                for ln in before_lines
+                if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
+            ]
 
         for line in before_lines:
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
@@ -378,6 +387,12 @@ def build_flow1_edl(
 
         speech_start = int(seg["start_ms"])
         speech_end = int(seg["end_ms"])
+        air_meta: dict = {}
+        next_keeper_start = None
+        if nxt:
+            nxt_seg = segments_by_id.get(nxt)
+            if isinstance(nxt_seg, dict) and nxt_seg.get("start_ms") is not None:
+                next_keeper_start = int(nxt_seg["start_ms"])
         if ideal_cuts is not None or words:
             speech_start, speech_end = resolve_keeper_air_bounds(
                 source_start_ms=speech_start,
@@ -386,22 +401,35 @@ def build_flow1_edl(
                 words=words or None,
                 segment_id=str(sid),
                 max_keep_ms=max_keeper_ms,
+                next_keeper_start_ms=next_keeper_start,
+                meta_out=air_meta,
             )
         speech_dur = max(0, speech_end - speech_start)
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
             _append_air("before_answer", speech_dur)
-        clips.append(
-            {
-                "segment_id": sid,
-                "source_start_ms": speech_start,
-                "source_end_ms": speech_end,
-                "timeline_start_ms": timeline_ms,
-                "duration_ms": speech_dur,
-                "type": "speech",
-            }
-        )
+        speech_clip = {
+            "segment_id": sid,
+            "source_start_ms": speech_start,
+            "source_end_ms": speech_end,
+            "timeline_start_ms": timeline_ms,
+            "duration_ms": speech_dur,
+            "type": "speech",
+        }
+        if air_meta:
+            speech_clip["air_bound_reason"] = air_meta.get("air_bound_reason")
+            if air_meta.get("ideal_window_id"):
+                speech_clip["air_bound_ideal_window_id"] = air_meta.get("ideal_window_id")
+            speech_clip["air_bound_before_ms"] = [
+                air_meta.get("before_start_ms"),
+                air_meta.get("before_end_ms"),
+            ]
+            speech_clip["air_bound_after_ms"] = [
+                air_meta.get("after_start_ms"),
+                air_meta.get("after_end_ms"),
+            ]
+        clips.append(speech_clip)
         timeline_ms += speech_dur
 
         after_lines = _gap_lines_for_segment(
@@ -588,6 +616,17 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                     detail=opening_actions,
                 )
+        from interview_mux.nugget_layup import (
+            assert_gap_report_layup_authority,
+            assert_layup_fresh_vs_selection,
+        )
+
+        # Air copy is about to be cut — refuse a lay-up plan built for a
+        # different order, or a body another writer rewrote.
+        assert_layup_fresh_vs_selection(ctx, stage="edl")
+        assert_gap_report_layup_authority(
+            ctx, gap_report if isinstance(gap_report, dict) else None, stage="edl"
+        )
         transitions = (
             ctx.read_json("master/transitions.json")
             if ctx.artifact_exists("master/transitions.json")
@@ -604,7 +643,11 @@ def run_edl(ctx: RunContext) -> None:
         soft = bool(_nle_ops(nle))
         try:
             meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            if bool((meta or {}).get("e2e_soft_junction_residuals")):
+            from interview_mux.e2e_soft import e2e_soft_enabled
+
+            if e2e_soft_enabled(meta=meta if isinstance(meta, dict) else None) and bool(
+                (meta or {}).get("e2e_soft_junction_residuals")
+            ):
                 soft = True
         except Exception:
             pass

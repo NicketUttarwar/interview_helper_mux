@@ -37,6 +37,8 @@ After `transcribe`, `audio_probe_build` writes golden facts, zones, flows, probe
 
 After `boundary_topic_resplit`, `vernacular_segment_sanitize` N-way splits parents, tags special children, writes must_keep + resplit report.
 
+**Merge counterpart:** when cuts leave mid-thought chops or low-conf lexicon islands straddling a seam, `connector_fuse_pass` rewrites neighbors into **one** complete-thought segment (merge, not split). See [low-conf-connector-fuse.md](./low-conf-connector-fuse.md).
+
 ## Data contracts
 
 | Producer | Consumer | Contract |

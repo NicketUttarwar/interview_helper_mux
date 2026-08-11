@@ -225,6 +225,7 @@ def _execute_openai_envelope_call(
     system_override: str | None,
     volley_retry_index: int,
     esc_meta: Any | None = None,
+    safe_prune_retry: bool = False,
 ) -> dict[str, Any]:
     """
     Call OpenAI with either:
@@ -324,6 +325,64 @@ def _execute_openai_envelope_call(
     try:
         resp = client.chat.completions.create(**kwargs)
     except Exception as exc:
+        from interview_mux.safe_pruning import (
+            SAFE_PRUNE_EXTRACT_KIND,
+            SafePruneExhausted,
+            is_context_length_error,
+            is_safe_prune_retry,
+            maybe_safe_prune_after_context_length,
+            safe_pruning_enabled,
+        )
+
+        if is_context_length_error(exc) and task_kind != SAFE_PRUNE_EXTRACT_KIND and model is None:
+            flagship_id = resolve_model(
+                stage_key, task_kind=task_kind, explicit_tier="flagship"
+            ).model_id
+            already_flagship = chosen == flagship_id or explicit_tier == "flagship"
+            if not already_flagship and not safe_prune_retry:
+                return _execute_openai_envelope_call(
+                    stage_key,
+                    prompt_rel,
+                    user_content,
+                    model=None,
+                    ctx=ctx,
+                    include_preamble=include_preamble,
+                    messages=messages,
+                    task_kind=task_kind,
+                    bump_tier=False,
+                    explicit_tier="flagship",
+                    response_format=response_format,
+                    call_attempt=call_attempt,
+                    record_stage_key=record_stage_key,
+                    system_override=system_override,
+                    volley_retry_index=volley_retry_index,
+                    esc_meta=esc_meta,
+                    safe_prune_retry=False,
+                )
+            if (
+                safe_pruning_enabled()
+                and not safe_prune_retry
+                and not is_safe_prune_retry()
+            ):
+                return maybe_safe_prune_after_context_length(
+                    stage_key=stage_key,
+                    prompt_rel=prompt_rel,
+                    user_content=user_content,
+                    messages=messages,
+                    original_system=system,
+                    ctx=ctx,
+                    include_preamble=include_preamble,
+                    task_kind=task_kind,
+                    response_format=response_format,
+                    call_attempt=call_attempt,
+                    record_stage_key=record_stage_key,
+                    system_override=system_override,
+                    volley_retry_index=volley_retry_index,
+                    esc_meta=esc_meta,
+                )
+            raise SafePruneExhausted(
+                f"context window exceeded after safe-prune ladder ({stage_key})"
+            ) from exc
         if ctx:
             from interview_mux.operator_trace import log_failure
 
@@ -406,7 +465,7 @@ def _execute_openai_envelope_call(
                     "errors": verification.errors[:5],
                 },
             )
-        if so_cfg.get("fail_on_verify_error", True):
+        if so_cfg.get("fail_on_verify_error", True) and task_kind != "safe_prune_extract":
             raise ValueError(
                 f"LLM response failed schema verification ({interaction_id}): "
                 f"{verification.errors[:3]}"
@@ -490,6 +549,7 @@ def run_prompt_envelope(
     record_stage_key: str | None = None,
     system_override: str | None = None,
     volley_retry_index: int = 0,
+    safe_prune_retry: bool = False,
 ) -> dict[str, Any]:
     """OpenAI gateway with universal truncation scan and hard block on truncated primary."""
     from interview_mux.truncation_policy import (
@@ -504,6 +564,20 @@ def run_prompt_envelope(
 
     cfg = merged_config()
     esc_meta = TruncationEscalationMeta(provider="openai")
+    if user_content:
+        try:
+            from interview_mux.volley_packet_lint import lint_llm_user_payload
+
+            parsed = json.loads(user_content)
+            cleaned = lint_llm_user_payload(parsed, require_tape=task_kind in {"primary", "shard"})
+            if cleaned != parsed:
+                user_content = json.dumps(cleaned, indent=2, ensure_ascii=False)
+        except json.JSONDecodeError:
+            pass
+        except (TypeError, ValueError) as lint_exc:
+            if "tape-derived" in str(lint_exc):
+                raise
+            pass
     scan = scan_llm_input(messages=messages, user_content=user_content)
     use_bump = bump_tier
     use_explicit = explicit_tier
@@ -578,6 +652,7 @@ def run_prompt_envelope(
         system_override=system_override,
         volley_retry_index=volley_retry_index,
         esc_meta=esc_meta,
+        safe_prune_retry=safe_prune_retry,
     )
 
 

@@ -22,11 +22,12 @@ from interview_mux.mmaudio_asset_qa import _musicality_checks, analyze_asset_wav
 from interview_mux.stages.understanding import _derive_mix_contract
 
 
-def test_musicgen_defaults_medium_and_fail_closed():
+def test_musicgen_defaults_large_and_fail_closed():
     cfg = musicgen_cfg()
-    assert "medium" in str(cfg.get("model_id") or "")
+    assert "musicgen-large" in str(cfg.get("model_id") or "")
     assert "melody" in str(cfg.get("melody_model_id") or "")
-    assert fail_closed_on_stub() is True
+    assert int(cfg.get("request_timeout_sec") or 0) == 3600
+    assert fail_closed_on_stub() is False
     assert best_of_n_for_role("theme_cold_open") >= 1
     assert best_of_n_for_role("theme_underscore") >= 1
 
@@ -120,24 +121,12 @@ def test_musicality_flags_flat_sine(tmp_path: Path):
 
 
 def test_analyze_rejects_stub_meta(tmp_path: Path, monkeypatch):
-    import math
-    import struct
-    import wave
-
     from interview_mux import musicgen_runner
+    from interview_mux.musicgen_runner import _write_musical_stub_wav
 
-    monkeypatch.setattr(musicgen_runner, "fail_closed_on_stub", lambda: True)
+    monkeypatch.setattr(musicgen_runner, "fail_closed_on_stub", lambda: False)
     path = tmp_path / "theme_cold_open.wav"
-    rate = 48000
-    n = rate
-    with wave.open(str(path), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(rate)
-        frames = b"".join(
-            struct.pack("<h", int(0.3 * 32767 * math.sin(2 * math.pi * 220 * i / rate))) for i in range(n)
-        )
-        wf.writeframes(frames)
+    _write_musical_stub_wav(path, duration_sec=8.0, seed=1)
     path.with_suffix(".gen.json").write_text(
         json.dumps({"backend": "musical_stub", "seed": 1, "prompt_hash": "abc"}),
         encoding="utf-8",
@@ -147,8 +136,9 @@ def test_analyze_rejects_stub_meta(tmp_path: Path, monkeypatch):
         path=path,
         plan_row={"role": "theme_cold_open", "duration_seconds": 8},
     )
-    assert row["verdict"] == "fail"
-    assert "musical_stub_backend" in row["reasons"]
+    assert "musical_stub_last_resort" in row["reasons"]
+    assert "musical_stub_backend" not in row["reasons"]
+    assert row["verdict"] != "fail"
 
 
 def test_music_listen_gate(tmp_path, monkeypatch):

@@ -29,8 +29,14 @@ def main() -> int:
     melody_wav = req.get("melody_wav")
     use_melody = bool(req.get("use_melody_conditioning", True)) and bool(melody_wav)
 
-    # Prefer transformers for *-large (MLX ports often lack large/melody weights).
-    prefer_tf = "large" in model_id.lower() or use_melody
+    device_pref = str(req.get("device") or "cpu")
+    # Prefer transformers for *-large (MLX ports often lack large/melody weights)
+    # or when the operator explicitly requested PyTorch MPS/CUDA.
+    prefer_tf = "large" in model_id.lower() or use_melody or device_pref.strip().lower() in {
+        "mps",
+        "cuda",
+        "gpu",
+    }
     if not prefer_tf:
         try:
             return _generate_mlx(
@@ -53,7 +59,7 @@ def main() -> int:
             melody_model_id=melody_model_id,
             seed=seed,
             melody_wav=str(melody_wav) if use_melody else None,
-            device_pref=str(req.get("device") or "auto"),
+            device_pref=device_pref,
         )
     except Exception as tf_exc:
         print(f"transformers_musicgen_unavailable: {tf_exc}", file=sys.stderr)
@@ -124,21 +130,45 @@ def _load_melody_mono(path: str, target_sr: int = 32000):
     return arr, int(sr)
 
 
+def _ensure_hf_home() -> None:
+    import os
+
+    cache = Path(__file__).resolve().parents[1] / "ASSETS" / "local_musicgen" / "hf_cache"
+    if cache.is_dir():
+        os.environ.setdefault("HF_HOME", str(cache))
+        os.environ.setdefault("TRANSFORMERS_CACHE", str(cache))
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(cache / "hub"))
+
+
 def _resolve_torch_device(requested: str | None = None):
+    import os
+
     import torch
 
-    pref = (requested or "auto").strip().lower()
-    if pref in {"", "auto"}:
-        if torch.backends.mps.is_available():
+    pref = (requested or "cpu").strip().lower()
+    ban = os.environ.get("MUX_MUSICGEN_BAN_MPS", "").strip().lower() in {"1", "true", "yes"}
+    # Never auto-select MPS — Metal MTLReportFailure aborts the interpreter.
+    if pref in {"", "auto", "mlx"}:
+        pref = "cpu"
+    if pref == "mps":
+        if ban or not torch.backends.mps.is_available():
+            print("musicgen_mps_disabled falling_back=cpu", file=sys.stderr)
+            pref = "cpu"
+        else:
             return torch.device("mps")
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        return torch.device("cpu")
-    if pref == "mps" and torch.backends.mps.is_available():
-        return torch.device("mps")
     if pref in {"cuda", "gpu"} and torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def _empty_accel_cache() -> None:
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+    except Exception:
+        pass
 
 
 def _generate_transformers(
@@ -154,6 +184,7 @@ def _generate_transformers(
 ) -> int:
     import torch
 
+    _ensure_hf_home()
     # ~50 tokens/sec of audio at 32k for MusicGen; approximate.
     max_new = max(64, int(float(duration) * 50))
     if seed is not None:
@@ -167,7 +198,7 @@ def _generate_transformers(
                 device_pref = json.loads(req_path.read_text(encoding="utf-8")).get("device")
         except Exception:
             device_pref = None
-    device = _resolve_torch_device(str(device_pref) if device_pref else "auto")
+    device = _resolve_torch_device(str(device_pref) if device_pref else "cpu")
     dtype = torch.float16 if device.type in {"mps", "cuda"} else torch.float32
     print(f"musicgen_device={device} dtype={dtype}", file=sys.stderr)
 
@@ -204,15 +235,18 @@ def _generate_transformers(
                 **inputs, do_sample=True, guidance_scale=3.0, max_new_tokens=max_new
             )
 
-    data = audio_values[0, 0].detach().to("cpu").float().numpy()
-    sr = 32000
     try:
-        enc = getattr(model.config, "audio_encoder", None)
-        if enc is not None and getattr(enc, "sampling_rate", None):
-            sr = int(enc.sampling_rate)
-    except Exception:
-        pass
-    _save_array_wav(data, out_wav, sr=sr)
+        data = audio_values[0, 0].detach().to("cpu").float().numpy()
+        sr = 32000
+        try:
+            enc = getattr(model.config, "audio_encoder", None)
+            if enc is not None and getattr(enc, "sampling_rate", None):
+                sr = int(enc.sampling_rate)
+        except Exception:
+            pass
+        _save_array_wav(data, out_wav, sr=sr)
+    finally:
+        _empty_accel_cache()
     # MPS/CUDA worker threads often hang in Py_Finalize; hard-exit after success.
     if out_wav.is_file() and out_wav.stat().st_size > 1000:
         print(f"musicgen_ok path={out_wav} bytes={out_wav.stat().st_size}", file=sys.stderr)

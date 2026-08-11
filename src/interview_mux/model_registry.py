@@ -10,17 +10,18 @@ TIER_ORDER = ("economy", "standard", "flagship")
 DEFAULT_TIER_MODELS: dict[str, str] = {
     "economy": "gpt-4o-mini",
     "standard": "gpt-4o",
-    "flagship": "o3",
+    "flagship": "gpt-5.6-terra",
 }
 
-# OpenAI reasoning models reject non-default temperature (API error if set).
-_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
+# OpenAI reasoning / GPT-5.x models reject non-default temperature (API error if set).
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5")
 
 DEFAULT_STAGE_TIERS: dict[str, str] = {
     "speaker_roles": "economy",
     "content_context": "economy",
     "boundary_detection": "standard",
     "boundary_topic_resplit": "standard",
+    "connector_seam_adjudicate": "economy",
     "segment_classification": "standard",
     "sound_design_palettes": "economy",
     "missing_framing": "flagship",

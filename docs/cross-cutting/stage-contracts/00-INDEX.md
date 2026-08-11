@@ -7,6 +7,9 @@
 | `audio_probe_build` | process | — |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
+| `connector_fuse_pass` | process | analysis/connector_fuse_audit.json |
+| `connector_fuse_pass_pre_ranking` | process | analysis/connector_fuse_rounds.json |
+| `connector_seam_adjudicate` | llm_full | analysis/connector_seam_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | — |
@@ -23,11 +26,13 @@
 | `gap_framing_recompose` | deterministic | — |
 | `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json |
 | `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
+| `information_package_plan` | process | — |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
 | `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
 | `junction_snip_qa` | process | — |
 | `listen_delight_audit` | process | — |
+| `low_conf_island_scan` | process | analysis/low_conf_islands.json |
 | `master_finalize` | process | — |
 | `mastering_plan_confirm` | process | — |
 | `mastering_plan_synthesize` | process | — |
@@ -39,11 +44,10 @@
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | — |
 | `mmaudio_sfx` | process | — |
-| `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json |
-| `information_package_plan` | process | mastering/shape/information_package_candidates.json |
-| `nugget_layup_compose` | llm_full | understanding/nugget_layup_plan.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | deterministic | — |
+| `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json |
+| `nugget_layup_compose` | llm_full | understanding/nugget_layup_plan.json, understanding/gap_report.json |
 | `optimal_questions` | llm_full | understanding/gap_report.json |
 | `podcast_encode_mp3` | process | — |
 | `podcast_publish` | process | — |

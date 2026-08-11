@@ -32,6 +32,8 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
     "sound_design_plan": frozenset({"assets", "flow_plans"}),
     "sfx_prompt_craft": frozenset({"prompts"}),
     "sound_design_palettes": frozenset({"palettes"}),
+    "nugget_corpus_mine": frozenset({"nuggets"}),
+    "nugget_layup_compose": frozenset({"ordered_segment_ids", "layups"}),
 }
 
 # Optional paths where JSON null means "unavailable" — acknowledged and excluded from volleys.
@@ -99,6 +101,8 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
     "sound_design_plan": frozenset({"notes"}),
     "sfx_prompt_craft": frozenset({"notes"}),
     "sound_design_palettes": frozenset({"notes"}),
+    "nugget_corpus_mine": frozenset({"warnings"}),
+    "nugget_layup_compose": frozenset({"warnings", "open_talking_point_ids"}),
 }
 
 def null_policy_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:

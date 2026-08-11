@@ -97,6 +97,13 @@ def mode_consistency_report(
         if not cat:
             continue
         counts[cat] = counts.get(cat, 0) + 1
+        # System-owned layups / episode orientation are not mode-matrix choices.
+        origin = str(line.get("origin") or "")
+        gap_type = str(line.get("gap_type") or "")
+        if origin == "nugget_layup" or gap_type == "nugget_layup":
+            continue
+        if bool(line.get("episode_orientation")):
+            continue
         if cat in forbid:
             violations.append(
                 {

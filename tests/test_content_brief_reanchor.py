@@ -16,7 +16,7 @@ def test_analysis_order_includes_content_brief_reanchor():
     assert resplit_idx == reanchor_idx + 1
     sanitize_idx = ANALYSIS_ORDER.index("vernacular_segment_sanitize")
     assert sanitize_idx == resplit_idx + 1
-    assert sonic_idx == sanitize_idx + 1
+    assert sonic_idx > sanitize_idx
     assert pal_idx == sonic_idx + 1
 
 

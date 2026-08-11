@@ -32,7 +32,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
         {
             **minimal_gap_line(line_id="line_001", targets_segment_id="seg_001"),
             "line_category": "framing_question",
-            "text": "What happened next?",
+            "text": "What did Asha decide after the first customer call?",
         },
         eligible="spk_0",
         delivery="synthesize",

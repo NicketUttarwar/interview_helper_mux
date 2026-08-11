@@ -1,0 +1,311 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "ordered_segment_ids",
+        "layups",
+        "discharged_talking_point_ids",
+        "open_talking_point_ids",
+        "discharged_nugget_ids",
+        "open_high_salience_nugget_ids",
+        "waived_nugget_ids",
+        "warnings"
+      ],
+      "properties": {
+        "ordered_segment_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "layups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "target_segment_id",
+              "line_id",
+              "text",
+              "nugget_ids",
+              "target_beat",
+              "listener_need_entering_T",
+              "selected_nugget_ids",
+              "setup_from_nuggets",
+              "forward_unlock",
+              "why_relevant_to_target",
+              "forward_cue_ok",
+              "word_count",
+              "skip",
+              "skip_reason_code",
+              "talking_point_ids"
+            ],
+            "properties": {
+              "target_segment_id": {
+                "type": "string"
+              },
+              "line_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nugget_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "target_beat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "listener_need_entering_T": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "selected_nugget_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "setup_from_nuggets": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "forward_unlock": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "why_relevant_to_target": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "forward_cue_ok": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "word_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "skip": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "skip_reason_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "talking_point_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "discharged_talking_point_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "open_talking_point_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "discharged_nugget_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "open_high_salience_nugget_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "waived_nugget_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "nugget_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "nugget_id",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "warnings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

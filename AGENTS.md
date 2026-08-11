@@ -9,7 +9,7 @@
 ./scripts/run.sh              # launch GUI
 ```
 
-**Pipeline size:** **57 stages** — 29 analysis + 28 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
+**Pipeline size:** **61 stages** — 34 analysis + 27 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
 
 ## Read order
 
@@ -18,6 +18,7 @@
    - [docs/cross-cutting/narrative-mode-and-montage.md](docs/cross-cutting/narrative-mode-and-montage.md) — narrative_mode, montage grammar, two-pass Shape, FT
    - [docs/cross-cutting/mastering-quality-hardening.md](docs/cross-cutting/mastering-quality-hardening.md) — reliability gates layered on that strategy
 3. [docs/cross-cutting/volley-glossary.md](docs/cross-cutting/volley-glossary.md) — **speaker volley** vs **LLM volley**
+   - [docs/cross-cutting/llm-volley-context.md](docs/cross-cutting/llm-volley-context.md) — tape-only LLM packets; metadata denylist
 4. [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md)
 5. [docs/workflows/operator-gates.md](docs/workflows/operator-gates.md)
 6. [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv)

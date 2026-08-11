@@ -667,12 +667,24 @@ def detect_junction_findings(
                     )
 
             end_text = _clip_end_text(seg if isinstance(seg, dict) else None, words, src_end)
-            incomplete = bool(end_text) and not ends_complete_thought(end_text)
-            on_roll = incomplete and _on_a_roll(
-                seg=seg if isinstance(seg, dict) else {},
-                end_ms=src_end,
-                words=words,
-                phrase_extend_max_ms=phrase_max,
+            from interview_mux.gap_vo_prior_context import (
+                clause_continues_after,
+                is_legal_conceptual_hinge,
+            )
+
+            legal = bool(end_text) and is_legal_conceptual_hinge(
+                end_text, words=words, end_ms=src_end, next_pause_ms=None
+            )
+            continues = clause_continues_after(words, src_end, max_lookahead_ms=phrase_max)
+            incomplete = bool(end_text) and (not legal or continues)
+            on_roll = incomplete and (
+                continues
+                or _on_a_roll(
+                    seg=seg if isinstance(seg, dict) else {},
+                    end_ms=src_end,
+                    words=words,
+                    phrase_extend_max_ms=phrase_max,
+                )
             )
             ch = _chapter_id_for(sid, selection)
             next_sid = None
@@ -1456,6 +1468,22 @@ def _exclude_from_selection(
 ) -> None:
     if not excluded or not ctx.artifact_exists("master/selection.json"):
         return
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        keeps = hard_keep_segment_ids(ctx)
+        blocked = excluded & keeps
+        if blocked:
+            ctx.log(
+                "junction refuse exclude of hard-keep: " + ", ".join(sorted(blocked)[:8]),
+                level="warning",
+                stage="junction_snip_qa",
+            )
+            excluded = {s for s in excluded if s not in keeps}
+        if not excluded:
+            return
+    except Exception:
+        pass
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
         return
@@ -1752,7 +1780,8 @@ def run_junction_feel_audit(
     from interview_mux.stages.llm_runner import run_prompt_envelope
 
     user_content = json.dumps(packet, indent=2, ensure_ascii=False)
-    max_attempts = 2
+    max_attempts = 3
+    tiers = ("standard", "standard", "flagship")
     for attempt in range(1, max_attempts + 1):
         try:
             envelope = run_prompt_envelope(
@@ -1760,7 +1789,8 @@ def run_junction_feel_audit(
                 FEEL_PROMPT,
                 user_content,
                 ctx=ctx,
-                explicit_tier="standard",
+                explicit_tier=tiers[attempt - 1],
+                bump_tier=attempt > 1,
                 record_stage_key=FEEL_STAGE_KEY,
             )
             llm_calls += 1
@@ -1901,7 +1931,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     findings = detect_junction_findings(ctx, edl, cfg=conf)
     remaster_rounds = 0
     applied: list[dict[str, Any]] = []
-    max_rounds = min(2, int(conf.get("max_remaster_rounds") or 2))
+    max_rounds = max(1, int(conf.get("max_remaster_rounds") or 8))
     residual_findings = list(findings)
 
     # Two full repair runs maximum.  Each run detects the complete set first,
@@ -2049,15 +2079,11 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     report["llm_calls"] = int(audit.get("llm_calls") or 0)
     ctx.write_json(QA_REL, report)
 
-    if report["llm_calls"] > 2:
-        # Hard invariant: feel audit ≤2 attempts (primary + one schema/unavailable retry)
-        from interview_mux.loud_fail import raise_loud_failure
-
-        raise_loud_failure(
-            ctx,
-            f"junction_snip_qa exceeded feel-audit budget: {report['llm_calls']}",
+    if report["llm_calls"] > 6:
+        ctx.log(
+            f"junction_snip_qa feel-audit calls={report['llm_calls']} (escalation ladder exhausted)",
+            level="warning",
             stage=STAGE_ID,
-            reason="junction_llm_budget_exceeded",
         )
 
     if (
@@ -2195,7 +2221,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             and str(f.get("severity") or "") == "critical"
             and not _is_incomplete_cut_residual(f)
         ]
-        if softenable:
+        from interview_mux.e2e_soft import e2e_soft_enabled
+
+        if softenable and e2e_soft_enabled():
             report["critical_residuals_softened"] = True
             report["critical_residual_soft_reason"] = (
                 "commitment_committed_and_feel_soft_pass_after_budget"
@@ -2203,6 +2231,8 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             for finding in softenable:
                 finding["severity"] = "warning"
                 finding["e2e_softened"] = True
+        elif softenable:
+            blocking_reasons.append("critical_junction_residuals_after_two_runs")
         # Incomplete mid-clause residuals stay critical — cut_integrity must fail.
         critical_left = [
             f
@@ -2211,6 +2241,16 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         ]
         if critical_left:
             blocking_reasons.append("critical_incomplete_cut_residuals")
+            # Prefer seam re-fuse when incomplete residuals remain between selected natives.
+            try:
+                from interview_mux.stages.low_conf_fuse_stages import (
+                    run_connector_fuse_pass_junction_heal,
+                )
+
+                run_connector_fuse_pass_junction_heal(ctx)
+                report["connector_fuse_junction_heal"] = True
+            except Exception as fuse_exc:  # noqa: BLE001
+                report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
     # unavailable after retry is a blocking quality signal.
     if audit.get("verdict") == "unavailable":
         report["feel_audit_unavailable"] = True

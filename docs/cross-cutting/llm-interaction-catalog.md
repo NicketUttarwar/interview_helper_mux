@@ -66,6 +66,7 @@ Post-hook: OF-01 → OS-03.
 |----|-----------|------|------|
 | OM-01 | `primary` | Every stage attempt (`llm_simple.run_llm_stage_simple`) | Produce stage artifacts |
 | OM-F01 | `fabricate` | `llm_output_normalizer` finds fabricatable null paths | Benign values for low-risk null fields |
+| OM-SAFE | `safe_prune_extract` | Flagship `context_length` API error | Keep only prompt-relevant tape from one chunk |
 
 Schema: composed `analysis_envelope` + stage artifact (`docs/cross-cutting/json-schemas/artifacts/`).
 

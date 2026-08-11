@@ -6,11 +6,12 @@ A segment is a **complete thought / speaker volley**: one coherent idea, one que
 
 Rules:
 - Use `flow_adaptation.segmentation_policy` and `segmentation_policy` in stage input when present (granularity, max/min duration, split_backchannels).
-- **Topic splits:** cross-reference `content_brief.topics[]` names/summaries with transcript text. Split a same-speaker span only when topics clearly change at a complete-thought hinge — do **not** split mid-sentence on a short breath.
-- **Max duration:** when `segmentation_policy.max_segment_duration_ms` is set, no segment may exceed it — split at the best internal topic hinge or pause inside the span. Prefer fewer, longer complete thoughts over 60s fragments.
+- **Topic splits:** cross-reference `content_brief.topics[]` names/summaries with transcript text. Split a same-speaker span only when topics clearly change at a **conceptual hinge** (listen-complete idea boundary) — do **not** split mid-setup or on a hanging promise (“that is the time”, “the fact that”, “in terms of”, “how do we”). Full grammatical sentences are one hinge type — mid-run-on idea turns are legal when the idea is intact for the listener.
+- Speakers ramble: prefer the densest idea close over waiting for a period or keeping trailing and-chains that start the next idea.
+- **Max duration:** when `segmentation_policy.max_segment_duration_ms` is set, no segment may exceed it — split at the best internal conceptual hinge or pause inside the span. Prefer fewer, longer complete thoughts over 60s fragments.
 - Prefer splits at pauses using `pause_ladder_hints` (**800 / 1000 / 1200 ms** ladders). Do **not** use a 400 ms breath as a sentence split.
 - Fall back to pipeline `pause_split_ms` when ladder data is absent or `candidates` is empty.
-- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings).
+- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings) **or** placing a legal conceptual hinge that leaves both sides listen-complete.
 - Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
 - Include `speaker_id` on each boundary when diarization is in input.
 - Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in **one** segment only when the question immediately precedes the answer with **no** intervening backchannel segment.
@@ -24,6 +25,7 @@ Do not:
 - Merge interviewer backchannels into long interviewee answers (split them out instead).
 - Create word-by-word or sub-3s micro-segments without communicative reason.
 - Overlap time ranges or leave gaps without noting in `warnings`.
+- End a boundary on a hanging setup / unfinished clause that still promises continuation.
 
 Memory sync:
 - `segment_summary_patch`: `{ "boundary_count": N, "warnings": [...] }`
@@ -58,7 +60,7 @@ Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`
 - When two speakers overlap materially, prefer **one segment** spanning the exchange if a single communicative intent (one answer attempt) — do not micro-split every overlap word.
 - If overlap separates distinct intents (host interrupts to pivot topic), split at the **intent break** using `proposed_split_reason: topic_shift` or `speaker_change`.
 - Add `warnings` entry naming time range and affected `speaker_id`s; downstream classification will set `heavy_crosstalk` flag.
-- Do not invent words for unintelligible overlap; boundary text may end mid-clause with warning.
+- Do not invent words for unintelligible overlap; if a boundary must end mid-clause, add a warning and prefer extending to the next legal conceptual hinge.
 
 ### Backchannel
 
@@ -75,7 +77,8 @@ Allowed `proposed_split_reason` values: `pause`, `topic_shift`, `speaker_change`
 
 ### Quality bar
 
-- Aim for complete-thought segments (speaker volleys / full points), not a fragment per breath. Enough seams for true reorders and gap VO — not a VO insert on every clause.
+- Aim for listen-complete conceptual hinges (speaker volleys / full points), not a fragment per breath. Enough seams for true reorders and gap VO — not a VO insert on every clause.
 - Respect `segmentation_policy.min_segment_duration_ms` — no word-level slivers.
 - Every boundary needs defensible `proposed_split_reason`; sort monotonic; zero overlap unless documented in `warnings`.
 - Flag missing timestamps in `warnings` — do not guess `start_ms` / `end_ms`.
+- Never publish an `end_ms` on a hanging setup; extend or retreat to a legal hinge.

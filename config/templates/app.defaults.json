@@ -23,7 +23,7 @@
     "tiers": {
       "economy": "gpt-4o-mini",
       "standard": "gpt-4o",
-      "flagship": "o3"
+      "flagship": "gpt-5.6-terra"
     },
     "stages": {
       "speaker_roles": { "tier": "economy" },
@@ -37,6 +37,7 @@
       "full_master_ranking": { "tier": "flagship" },
       "nugget_corpus_mine": { "tier": "flagship" },
       "nugget_layup_compose": { "tier": "flagship" },
+      "connector_seam_adjudicate": { "tier": "economy" },
       "edl_narrative_audit": { "tier": "flagship" },
       "transitions": { "tier": "economy" },
       "podcast_sfx_brief": { "tier": "economy" },
@@ -98,7 +99,10 @@
     },
     "intelligibility_qc": {
       "enabled": true,
-      "silent_speech_mix_ceiling_dbfs": -32
+      "silent_speech_mix_ceiling_dbfs": -32,
+      "remux_on_fail": true,
+      "remux_duck_boost_db": 4.0,
+      "max_remux_cycles": 2
     }
   },
   "_comment_quality_gates": "G1.5, narrative/show QC strict, nle_edits.strict — production values applied in gap-closure GC-F3",
@@ -170,7 +174,8 @@
   "local_runtimes": {
     "mlx": { "venv_dir": "ASSETS/local_llm/venv", "enabled": true },
     "deepfilter": { "venv_dir": "ASSETS/local_deepfilter/venv", "enabled": true },
-    "mmaudio": { "venv_dir": "ASSETS/local_mmaudio/venv", "enabled": true }
+    "mmaudio": { "venv_dir": "ASSETS/local_mmaudio/venv", "enabled": true },
+    "musicgen": { "venv_dir": "ASSETS/local_musicgen/venv", "enabled": true }
   },
   "_comment_deepfilter": "Local DeepFilterNet noise reduction",
   "deepfilter": {
@@ -259,6 +264,42 @@
     "specialists": {
       "enabled": true,
       "comprehension_risk_threshold": 0.7
+    },
+    "low_conf_selection": {
+      "enabled": true,
+      "top_percentile": 0.10,
+      "enforcement_mode": "authoritative",
+      "min_positive_density": 0.0,
+      "recall_first": true,
+      "cluster": {
+        "low_confidence_threshold": 0.85,
+        "high_confidence_threshold": 0.90,
+        "min_low_ratio_loose": 0.45,
+        "min_low_words_loose": 3,
+        "max_high_conf_sprinkle": 8,
+        "break_on_high_run": 5,
+        "cluster_break_pause_ms": 700,
+        "window_ms_options": [2000, 4000, 6000],
+        "window_mean_conf_max": 0.88,
+        "min_bricks_in_window": 4,
+        "segment_soft_density": 0.12,
+        "null_confidence_as": "mid"
+      }
+    },
+    "connector_fuse": {
+      "enabled": true,
+      "max_fuses_per_pass": 0,
+      "max_fuse_rounds": 0,
+      "allow_cross_speaker_fuse": false,
+      "tail_words": 16,
+      "head_words": 16,
+      "llm_batch_size": 16,
+      "llm_tier": "economy",
+      "prefer_fuse_when_hint_and_uncertain": true,
+      "deterministic_fallback_on_llm_fail": true,
+      "max_seam_gap_ms": 8000,
+      "same_topic_score_floor": 0.15,
+      "passes": ["post_sanitize", "pre_ranking", "junction_heal"]
     },
     "prompt_examples": {
       "enabled": true,

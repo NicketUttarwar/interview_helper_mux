@@ -96,3 +96,21 @@ def test_apply_semantic_verdict_fail_updates_row():
     assert row["semantic_qa_verdict"] == "fail"
     assert "low_semantic_similarity" in row["reasons"]
     assert row["recommended_action"] == "refine"
+
+
+def test_apply_semantic_verdict_theme_stem_clap_fail_is_warn():
+    row = {
+        "asset_id": "show_theme_v1_emphasis",
+        "role": "theme_emphasis",
+        "generation_status": "pass",
+        "verdict": "pass",
+        "recommended_action": "pass",
+        "reasons": [],
+    }
+    apply_semantic_verdict(
+        row,
+        {"score": 0.13, "verdict": "fail", "threshold": 0.18, "model_id": "laion/clap-htsat-fused"},
+    )
+    assert row["verdict"] == "warn"
+    assert row["semantic_qa_verdict"] == "fail"
+    assert "low_semantic_similarity" in row["reasons"]

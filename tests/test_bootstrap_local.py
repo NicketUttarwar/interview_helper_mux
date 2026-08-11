@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from interview_mux.local_runtime import write_install_manifest
+from interview_mux.local_runtime import parse_runtime_json_stdout, write_install_manifest
 
 
 def test_write_install_manifest_fields(tmp_path):
@@ -38,3 +38,20 @@ def test_clone_script_paths_exist():
     text = clone.read_text(encoding="utf-8")
     assert "ASSETS/local_mmaudio/MMAudio" in text
     assert "ASSETS/local_deepfilter/DeepFilterNet" in text
+
+
+def test_parse_runtime_json_stdout_ignores_progress_prefix():
+    raw = (
+        "loading checkpoint...\n"
+        "{partial\n"
+        '{"ok": true, "out_wav": "/tmp/a.wav"}\n'
+    )
+    parsed = parse_runtime_json_stdout(raw)
+    assert parsed == {"ok": True, "out_wav": "/tmp/a.wav"}
+
+
+def test_parse_runtime_json_stdout_pure_object():
+    assert parse_runtime_json_stdout('{"ok": false, "error": "x"}') == {
+        "ok": False,
+        "error": "x",
+    }

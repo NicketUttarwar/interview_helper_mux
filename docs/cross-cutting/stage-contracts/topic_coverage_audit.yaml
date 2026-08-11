@@ -22,7 +22,10 @@ sufficiency:
 propagation:
   invalidates_stages:
   - narrative_arc_plan
+  - connector_fuse_pass_pre_ranking
   - full_master_ranking
+  - nugget_corpus_mine
+  - nugget_layup_compose
   - transitions
 consumers:
 - topic_coverage_audit
