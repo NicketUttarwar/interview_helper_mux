@@ -93,6 +93,8 @@ cp config/terraform.tfvars.example config/terraform.tfvars   # keep s3_bucket_na
 
 Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront **without** changing the distribution domain. Full wrapper table: [terraform/README.md](../../terraform/README.md).
 
+**New Apple feed URL later (one-off, do not run until cutover):** `./scripts/tf-rotate-rss-url.sh` archives the current CloudFront URL (left live in AWS) and creates a **new** distribution/feed for a fresh show — see [terraform/archives/README.md](../../terraform/archives/README.md).
+
 ### 3 — Seed empty feed + show art
 
 ```bash

@@ -29,12 +29,15 @@ _CROSSFADE_HANDOFF_MS = 300
 _DUPLICATE_WINDOW_MS = 400
 
 _CUE_ROLE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?:^|_)full_bed(?:_|$)", re.I), "theme_cold_open"),
+    (re.compile(r"(?:^|_)motif(?:_|$)", re.I), "theme_cold_open"),
     (re.compile(r"(?:^|_)cold_open(?:_|$)", re.I), "theme_cold_open"),
-    (re.compile(r"(?:^|_)outro(?:_|$)", re.I), "theme_outro"),
+    (re.compile(r"(?:^|_)outro(?:_|$)|full_bed_close", re.I), "theme_outro"),
     (re.compile(r"(?:^|_)resolve(?:_|$)|chapter_resolve", re.I), "theme_chapter_resolve"),
+    (re.compile(r"(?:^|_)stinger(?:_|$)", re.I), "theme_emphasis"),
     (re.compile(r"(?:^|_)emphasis(?:_|$)", re.I), "theme_emphasis"),
     (re.compile(r"(?:^|_)transition(?:_|$)", re.I), "theme_transition"),
-    (re.compile(r"(?:^|_)(?:underscore|bed)(?:_|$)", re.I), "theme_underscore"),
+    (re.compile(r"(?:^|_)(?:optional_loop|underscore|bed)(?:_|$)", re.I), "theme_underscore"),
 )
 
 
@@ -62,15 +65,21 @@ def infer_theme_role_from_cue_id(cue_id: str) -> str | None:
 
 def music_lane_for_role(role: str | None) -> str:
     r = str(role or "").strip()
-    if r in {"theme_cold_open", "theme_outro"}:
+    if r in {"theme_cold_open", "theme_outro", "motif", "full_bed"}:
         return LANE_BOOKEND
-    if r in THEME_BED_ROLES or r in {"ambient_bed", "era_music_bed"}:
+    if r in THEME_BED_ROLES or r in {
+        "ambient_bed",
+        "era_music_bed",
+        "underscore_loop",
+        "optional_loop",
+    }:
         return LANE_BED
     if r in THEME_PUNCTUATOR_ROLES or r in {
         "chapter_stinger",
         "transition_stinger",
         "transition_whoosh",
         "rhetorical_punctuator",
+        "stinger",
     }:
         return LANE_PUNCTUATOR
     if is_theme_role(r):

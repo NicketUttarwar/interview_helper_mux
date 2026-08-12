@@ -353,7 +353,7 @@ def _grounded_fallback(evidence: dict[str, Any]) -> str:
     cause = _safe_context(evidence.get("causal_cue"))
     if cause:
         return f"With {cause} in place, what changed?"
-    if person:
+    if person and _person_name_like(person):
         return f"How did {person} shape what happened?"
     if place:
         return f"What changed in {place}?"
@@ -379,6 +379,38 @@ def _grounded_fallback(evidence: dict[str, Any]) -> str:
     if before_excerpt or after_excerpt:
         return "What changed after that?"
     return ""
+
+
+def _person_name_like(person: str) -> bool:
+    """True when ``person`` is a short name, not a clause stuffed into verified_person."""
+    words = [w for w in str(person or "").split() if w]
+    if not words or len(words) > 4:
+        return False
+    if any(ch in person for ch in ",;:"):
+        return False
+    banned = {"explains", "how", "because", "commitment", "growth", "insight"}
+    if any(w.casefold() in banned for w in words):
+        return False
+    return True
+
+
+def _is_orientation_purpose(purpose: str, evidence: dict[str, Any] | None = None) -> bool:
+    blob = " ".join(
+        [
+            str(purpose or ""),
+            str((evidence or {}).get("line_category") or ""),
+            str((evidence or {}).get("line_id") or ""),
+        ]
+    ).lower()
+    return any(
+        key in blob
+        for key in (
+            "episode_orientation",
+            "episode_preface",
+            "vo_preface_episode",
+            "opening_orientation",
+        )
+    )
 
 
 def grounded_fallback_for_evidence(evidence: dict[str, Any] | None) -> str:
@@ -429,6 +461,21 @@ def guard_spoken_copy(
         if fallback
         else ["no_grounded_fallback"]
     )
+    keep_orientation = (
+        required
+        and len(original.split()) >= 6
+        and _is_orientation_purpose(purpose, ev)
+    )
+    if keep_orientation:
+        return {
+            "action": "allow",
+            "text": original,
+            "violations": violations,
+            "kept_orientation": True,
+            "script_hash": script_hash(original),
+            "context_hash": context_hash(ev),
+            "purpose": purpose,
+        }
     if fallback and not fallback_errors:
         return {
             "action": "fallback",

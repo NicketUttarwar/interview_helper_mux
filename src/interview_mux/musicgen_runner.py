@@ -32,17 +32,39 @@ def musicgen_enabled() -> bool:
     return bool(musicgen_cfg().get("enabled", True))
 
 
-def fail_closed_on_stub() -> bool:
-    import os
+def _env_truthy(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes"}
 
+
+def fail_closed_on_stub() -> bool:
     # E2E soft-escape after MusicGen OOM / quit loops (set by baba e2e driver).
-    if str(os.environ.get("MUX_E2E_MUSICGEN_ALLOW_STUB") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
+    if _env_truthy("MUX_E2E_MUSICGEN_ALLOW_STUB"):
         return False
     return bool(musicgen_cfg().get("fail_closed_on_stub", True))
+
+
+def e2e_musicgen_fast_stub() -> bool:
+    """When set, skip MusicGen subprocess and write the musical-note stub immediately.
+
+    Used by unattended baba e2e so musicgen-large-on-CPU cannot burn an hour per
+    stem (six stems would otherwise exceed the operator session).
+    """
+    return _env_truthy("MUX_E2E_MUSICGEN_FAST_STUB") or _env_truthy(
+        "MUX_E2E_MUSICGEN_FORCE_STUB"
+    )
+
+
+def e2e_musicgen_timeout_sec(default: int) -> int:
+    raw = str(os.environ.get("MUX_E2E_MUSICGEN_TIMEOUT_SEC") or "").strip()
+    if not raw:
+        # Soft e2e runs still try real MusicGen, but not for a full hour per clip.
+        if _env_truthy("MUX_E2E_MUSICGEN_ALLOW_STUB"):
+            return min(int(default), 180)
+        return int(default)
+    try:
+        return max(30, int(float(raw)))
+    except ValueError:
+        return int(default)
 
 
 def musicgen_hf_home() -> Path:
@@ -131,12 +153,47 @@ def ban_mps(*, run_ctx: Any | None = None, reason: str = "") -> None:
         pass
 
 
+def _mps_available_for_musicgen() -> bool:
+    """True when Apple Silicon MPS can be used by the MusicGen worker venv."""
+    import platform
+
+    if platform.system() != "Darwin":
+        return False
+    if platform.machine().lower() not in {"arm64", "aarch64"}:
+        return False
+    try:
+        import torch
+
+        return bool(torch.backends.mps.is_available() and torch.backends.mps.is_built())
+    except Exception:
+        # App .venv may lack torch; MusicGen venv on Apple Silicon still has MPS.
+        return True
+
+
 def effective_musicgen_device(*, requested: str | None = None, run_ctx: Any | None = None) -> str:
-    """Resolve device. ``auto`` never selects MPS (Metal abort). Opt in with ``mps``."""
-    pref = str(requested if requested is not None else (musicgen_cfg().get("device") or "cpu")).strip().lower()
+    """Resolve device. ``auto`` prefers GPU (MPS/CUDA) when available; falls back to CPU.
+
+    MPS remains crash-guarded via ``ban_mps_on_abort`` / ``mps_banned``.
+    """
+    pref = str(
+        requested if requested is not None else (musicgen_cfg().get("device") or "auto")
+    ).strip().lower()
     if pref in {"", "auto"}:
-        pref = "cpu"
+        if not mps_banned(run_ctx=run_ctx) and _mps_available_for_musicgen():
+            pref = "mps"
+        else:
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    pref = "cuda"
+                else:
+                    pref = "cpu"
+            except Exception:
+                pref = "cpu"
     if pref == "mps" and mps_banned(run_ctx=run_ctx):
+        return "cpu"
+    if pref == "mps" and not _mps_available_for_musicgen():
         return "cpu"
     if pref in {"cuda", "gpu"}:
         return "cuda"
@@ -160,16 +217,20 @@ def _run_ctx_for_out_wav(out_wav: Path) -> Any | None:
 
 
 def clamp_music_duration(seconds: float, *, role: str | None = None) -> float:
+    """Soft duration guidance — floor only; no hard global max_duration_sec ceiling.
+
+    Role bands from ``mmaudio.duration_bands_by_role`` raise short clips to the
+    band floor. Longer full beds / bookends may exceed the soft band hi.
+    """
     cfg = musicgen_cfg()
     lo = float(cfg.get("min_duration_sec") or 4.0)
-    hi = float(cfg.get("max_duration_sec") or 20.0)
     bands = (merged_config().get("mmaudio") or {}).get("duration_bands_by_role") or {}
-    if role and isinstance(bands.get(role), (list, tuple)) and len(bands[role]) >= 2:
-        lo = max(lo, float(bands[role][0]))
-        hi = min(hi, float(bands[role][1]))
-        if lo > hi:
-            lo, hi = float(bands[role][0]), float(bands[role][1])
-    return max(lo, min(hi, float(seconds)))
+    role_s = str(role or "").strip()
+    if role_s and isinstance(bands.get(role_s), (list, tuple)) and len(bands[role_s]) >= 2:
+        band_lo = float(bands[role_s][0])
+        lo = max(lo, band_lo)
+    # Soft advisory only — do not clamp downward to max_duration_sec.
+    return max(lo, float(seconds))
 
 
 def prompt_hash(prompt: str, *, negative: str = "", model_id: str = "") -> str:
@@ -251,42 +312,49 @@ def _spawn_musicgen(
     env.setdefault("HF_HOME", str(cache))
     env.setdefault("TRANSFORMERS_CACHE", str(cache))
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(cache / "hub"))
+    # Soft ops fallback when an op is missing on Metal (does not override device=cpu).
+    env.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     if extra_env:
         env.update(extra_env)
-    proc_h = subprocess.Popen(
-        [str(cli_python_executable(py)), str(script), str(req)],
-        cwd=str(repo_root()),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=env,
-        start_new_session=True,
-    )
-    waited = 0
-    while proc_h.poll() is None and waited < timeout:
-        if run_ctx is not None:
+    from interview_mux.gpu_exclusive import gpu_exclusive
+
+    # One MusicGen subprocess at a time across the machine; cooldown after exit
+    # so unified memory can settle before Chatterbox/MMAudio/MLX/next stem.
+    with gpu_exclusive("musicgen", ctx=run_ctx, stage="musicgen"):
+        proc_h = subprocess.Popen(
+            [str(cli_python_executable(py)), str(script), str(req)],
+            cwd=str(repo_root()),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            start_new_session=True,
+        )
+        waited = 0
+        while proc_h.poll() is None and waited < timeout:
+            if run_ctx is not None:
+                try:
+                    touch_job_progress(
+                        run_ctx,
+                        f"MusicGen generating ({role or 'theme'})… {waited}s",
+                        phase="musicgen",
+                    )
+                except Exception:
+                    pass
             try:
-                touch_job_progress(
-                    run_ctx,
-                    f"MusicGen generating ({role or 'theme'})… {waited}s",
-                    phase="musicgen",
-                )
-            except Exception:
+                proc_h.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                waited += 30
+                continue
+        if proc_h.poll() is None:
+            proc_h.kill()
+            try:
+                proc_h.wait(timeout=10)
+            except subprocess.TimeoutExpired:
                 pass
-        try:
-            proc_h.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            waited += 30
-            continue
-    if proc_h.poll() is None:
-        proc_h.kill()
-        try:
-            proc_h.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-        return subprocess.CompletedProcess(proc_h.args, -9, "", f"timeout after {timeout}s")
-    stdout, stderr = proc_h.communicate()
-    return subprocess.CompletedProcess(proc_h.args, proc_h.returncode, stdout or "", stderr or "")
+            return subprocess.CompletedProcess(proc_h.args, -9, "", f"timeout after {timeout}s")
+        stdout, stderr = proc_h.communicate()
+        return subprocess.CompletedProcess(proc_h.args, proc_h.returncode, stdout or "", stderr or "")
 
 
 def generate_music_clip(
@@ -326,20 +394,42 @@ def generate_music_clip(
         "negative_prompt": (negative_prompt or "")[:200],
         "device": device,
     }
+    if e2e_musicgen_fast_stub():
+        _write_musical_stub_wav(out_wav, duration_sec=dur, seed=int(seed or 0))
+        meta["backend"] = "musical_stub"
+        meta["warning"] = "MUX_E2E_MUSICGEN_FAST_STUB; wrote deterministic musical-note stub"
+        meta["e2e_fast_stub"] = True
+        _write_generation_meta(out_wav, meta)
+        return meta
     if py and script.is_file():
-        timeout = int(musicgen_cfg().get("request_timeout_sec") or 3600)
-        lock_cm = None
-        try:
-            from filelock import FileLock
-
-            lock_path = repo_root() / "ASSETS" / "local_musicgen" / "generate.lock"
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            lock_cm = FileLock(str(lock_path), timeout=timeout + 1260)
-        except Exception:
-            lock_cm = None
-
+        cfg_block = musicgen_cfg()
+        base_timeout = int(cfg_block.get("request_timeout_sec") or 900)
+        # musicgen-large on CPU thrash is slow; use a tighter CPU budget and step down.
+        # On MPS, keep the full request_timeout_sec (large ~3–15 min for short stems).
+        if str(device).lower() == "cpu":
+            base_timeout = int(
+                cfg_block.get("cpu_request_timeout_sec")
+                or min(base_timeout, 300)
+            )
+        timeout = e2e_musicgen_timeout_sec(base_timeout)
+        step_down_timeout = int(
+            cfg_block.get("step_down_timeout_sec") or min(480, timeout)
+        )
+        # Ladder: configured primary (default large) → medium → small.
+        # prefer_medium_on_cpu can skip large→medium when primary is still large on CPU.
+        if (
+            str(device).lower() == "cpu"
+            and bool(cfg_block.get("prefer_medium_on_cpu", False))
+            and model_id.endswith("-large")
+        ):
+            medium = "facebook/musicgen-medium"
+            slug = "models--" + medium.replace("/", "--")
+            if (musicgen_hf_home() / "hub" / slug).is_dir():
+                model_id = medium
+                meta["model_id"] = model_id
+                meta["prefer_medium_on_cpu"] = True
         def _hub_has(mid: str) -> bool:
-            slug = "models--" + str(mid).replace("/", "--")
+            slug = "models--" + mid.replace("/", "--")
             return (musicgen_hf_home() / "hub" / slug).is_dir()
 
         def _attempt(
@@ -392,6 +482,7 @@ def generate_music_clip(
             meta["musicgen_stderr"] = (proc.stderr or "")[-800:]
             if proc.returncode == -9 and "timeout" in (proc.stderr or ""):
                 meta["musicgen_error"] = proc.stderr
+                meta["musicgen_timeout"] = True
             if is_abort_returncode(proc.returncode) and bool(
                 musicgen_cfg().get("ban_mps_on_abort", True)
             ):
@@ -399,46 +490,37 @@ def generate_music_clip(
                 meta["musicgen_abort"] = True
             return False
 
-        bare = "Sparse acoustic guitar and piano instrumental, no vocals, podcast bed"
-        min_sec = float(musicgen_cfg().get("min_duration_sec") or 4.0)
-        steps: list[dict[str, Any]] = [
-            {
-                "dev": device,
-                "mid": model_id,
-                "seconds": dur,
-                "text": prompt,
-                "melody": True,
-                "step": "full",
-                "step_timeout": timeout,
-            },
-            {
-                "dev": "cpu",
-                "mid": model_id,
-                "seconds": min(dur, min_sec),
-                "text": bare,
-                "melody": False,
-                "step": "short_bare_cpu",
-                "step_timeout": min(900, timeout),
-            },
-        ]
+        # Model ladder: configured primary → medium → small; same prompt + planned duration.
+        primary = str(model_id or "facebook/musicgen-large")
+        ladder_models: list[str] = [primary]
         for lighter in ("facebook/musicgen-medium", "facebook/musicgen-small"):
-            if lighter != model_id and _hub_has(lighter):
-                steps.append(
-                    {
-                        "dev": "cpu",
-                        "mid": lighter,
-                        "seconds": min_sec,
-                        "text": bare,
-                        "melody": False,
-                        "step": f"cached_{lighter.split('/')[-1]}",
-                        "step_timeout": min(300, timeout),
-                    }
-                )
-                break
+            if lighter != primary and lighter not in ladder_models:
+                ladder_models.append(lighter)
+
+        steps: list[dict[str, Any]] = []
+        for i, mid in enumerate(ladder_models):
+            # Prefer hub-cached models for step-downs; always try primary.
+            if i > 0 and not _hub_has(mid):
+                continue
+            step_name = "large" if "large" in mid else ("medium" if "medium" in mid else "small")
+            # Keep step-downs on the same accelerator (MPS/CUDA). Forcing CPU here
+            # recreated the exec_1765 thrash path on 16GB Apple Silicon after a
+            # primary timeout. CPU is only used when device resolved to cpu, or via
+            # the MPS-abort retry below.
+            steps.append(
+                {
+                    "dev": device,
+                    "mid": mid,
+                    "seconds": dur,
+                    "text": prompt,
+                    "melody": i == 0,
+                    "step": f"ladder_{step_name}",
+                    "step_timeout": timeout if i == 0 else step_down_timeout,
+                }
+            )
+        meta["model_ladder"] = [s["mid"] for s in steps]
 
         try:
-            if lock_cm is not None:
-                lock_cm.acquire()
             ok = False
             for spec in steps:
                 ok = _attempt(**spec)
@@ -456,16 +538,12 @@ def generate_music_clip(
                 return meta
         except Exception as exc:
             meta["musicgen_error"] = str(exc)[:400]
-        finally:
-            if lock_cm is not None:
-                try:
-                    lock_cm.release()
-                except Exception:
-                    pass
 
     # Always emit listenable notes if MusicGen timed out or failed — never silent mix.
+    # Callers (sfx_mmaudio) may still try MMAudio when backend=musical_stub.
     _write_musical_stub_wav(out_wav, duration_sec=dur, seed=int(seed or 0))
     meta["backend"] = "musical_stub"
     meta["warning"] = "MusicGen unavailable; wrote deterministic musical-note stub"
+    meta["mmaudio_backup_suggested"] = bool(musicgen_cfg().get("mmaudio_backup_on_stub", True))
     _write_generation_meta(out_wav, meta)
     return meta

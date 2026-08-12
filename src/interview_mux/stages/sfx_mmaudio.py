@@ -695,10 +695,13 @@ def _generate_with_retry(
             )
         melody: Path | None = None
         assets_dir = out_file.parent
-        # Prefer cold_open as canonical motif for conditioning.
-        for cand in sorted(assets_dir.glob("*cold_open*.wav")):
-            if cand.is_file() and cand.stat().st_size > 1000 and cand != out_file:
-                melody = cand
+        # Prefer motif / cold_open as canonical DNA for conditioning beds & optional_loop.
+        for pattern in ("*motif*.wav", "*cold_open*.wav", "*full_bed_open*.wav"):
+            for cand in sorted(assets_dir.glob(pattern)):
+                if cand.is_file() and cand.stat().st_size > 1000 and cand != out_file:
+                    melody = cand
+                    break
+            if melody is not None:
                 break
         seed = params.get("seed")
         from interview_mux.musicgen_runner import best_of_n_for_role
@@ -734,6 +737,42 @@ def _generate_with_retry(
                 seed=int(seed) if seed is not None else None,
                 melody_wav=melody,
             )
+            # MusicGen hang/timeout path ends in musical_stub — try MMAudio before shipping stub.
+            if (
+                str(meta.get("backend") or "") == "musical_stub"
+                and not meta.get("e2e_fast_stub")
+                and bool(meta.get("mmaudio_backup_suggested", True))
+            ):
+                try:
+                    ctx.log(
+                        f"MusicGen stub for {asset_id} — trying MMAudio backup",
+                        level="warning",
+                        stage=stage,
+                    )
+                    mm = generate_text_to_audio(
+                        prompt=params["prompt"],
+                        negative_prompt=params.get("negative_prompt") or "",
+                        duration_seconds=params.get("duration_seconds") or 12.0,
+                        output_wav=out_file,
+                        prompt_influence=params.get("prompt_influence"),
+                        cfg_strength=params.get("cfg_strength"),
+                        num_steps=params.get("num_steps"),
+                        seed=params.get("seed"),
+                        variant=params.get("variant"),
+                        role=params.get("role"),
+                    )
+                    if out_file.is_file() and out_file.stat().st_size > 1000:
+                        return {
+                            **(mm if isinstance(mm, dict) else {}),
+                            "backend": "mmaudio_backup",
+                            "fallback_from": "musicgen_stub",
+                        }
+                except Exception as mm_exc:
+                    ctx.log(
+                        f"MMAudio backup failed for {asset_id}: {mm_exc}",
+                        level="warning",
+                        stage=stage,
+                    )
             return meta
 
         from interview_mux.config import merged_config

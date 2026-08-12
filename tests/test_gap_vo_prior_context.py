@@ -261,6 +261,29 @@ def test_attach_vo_partner_context_includes_targets_and_missions(
     assert payload["vo_partner_policy"]["never_restate_next_clip"] is True
 
 
+def test_vo_value_gate_allows_moderate_overlap_under_075() -> None:
+    """Soft ceiling 0.75 allows intentional setup that shares some tokens."""
+    from interview_mux.gap_vo_prior_context import vo_target_overlap_ratio, vo_value_violations
+
+    target = (
+        "Because everything was put back into the company. But those were limited "
+        "resources and we could do only so much in that."
+    )
+    # Partial thematic overlap, not near-verbatim restatement.
+    soft = {
+        "line_id": "vo_soft",
+        "targets_segment_id": "seg_004",
+        "line_category": "story_bridge",
+        "text": "With limited resources on the table, what did the company choose next?",
+        "rationale": "Cue stakes without restating the full proof.",
+    }
+    segs = {"seg_004": {"segment_id": "seg_004", "text": target}}
+    ratio = vo_target_overlap_ratio(str(soft["text"]), target)
+    assert ratio < 0.75
+    errs = vo_value_violations([soft], segments_by_id=segs)
+    assert not any("restates next clip" in e for e in errs)
+
+
 def test_vo_value_gate_flags_restate_and_missing_rationale() -> None:
     from interview_mux.gap_vo_prior_context import vo_value_violations
 

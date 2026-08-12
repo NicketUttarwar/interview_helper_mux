@@ -150,14 +150,14 @@ def _standards_for_pace(pace: str, underscore: str) -> dict[str, Any]:
         min_rel = 14.0
     if underscore in {"skip", "sparse_or_skip"}:
         min_rel = 10.0
-    coverage = 0.4
+    coverage = 0.75
     if underscore == "sparse":
-        coverage = 0.28
+        coverage = 0.55
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
-        # Creative delivery still wants audible beds under dense talk (~28–40%).
-        coverage = 0.28
+        # Creative delivery still wants audible beds under dense talk.
+        coverage = 0.55
     return {
         "min_speech_relative_db": min_rel,
         "max_midrange_overlap_score": 0.35,
@@ -400,7 +400,8 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
                 dens = dict(dens)
                 dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
                 dens["max_foley"] = 0
-                coverage = min(coverage, 0.35)
+                # Soft modes still allow musically dense beds up to the product max.
+                coverage = min(max(coverage, 0.28), 0.75)
                 mix["max_bed_coverage_ratio"] = coverage
                 mix["underscore_policy"] = underscore
                 standards["max_bed_coverage_ratio"] = coverage

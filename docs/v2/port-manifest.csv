@@ -57,8 +57,9 @@ edl_narrative_refine,build,non_llm,refinement_passes.py,legacy,removed from DELI
 edl,build,non_llm,stages/assembly.py,yes,
 assembly_preview,build,non_llm,stages/assembly.py,yes,speech+VO preview
 listen_delight_audit,build,non_llm,listen_delight.py,yes,authoritative ship gate
-sfx_prompt_craft,sound,llm,stages/sound_design_stages.py,yes,soft LLM; order after preview in DELIVERY_ORDER
-mmaudio_sfx,build,non_llm,stages/sfx_mmaudio.py,yes,
+music_palette_compose,build,llm,stages/music_palette_compose.py,yes,place/reuse fixed MusicGen palette into cues
+sfx_prompt_craft,build,llm,stages/sound_design_stages.py,yes,succinct MusicGen prompts; after palette compose
+mmaudio_sfx,build,non_llm,stages/sfx_mmaudio.py,yes,MusicGen large→medium→small then MMAudio backup
 mix,build,non_llm,stages/assembly.py,yes,
 junction_snip_qa,build,non_llm,junction_snip_qa.py,yes,mid-thought / VO-micro junction repair
 master_finalize,ship,non_llm,stages/mastering.py,yes,master.wav output

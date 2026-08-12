@@ -8,8 +8,8 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.stages import assembly
-from interview_mux.stages.assembly import build_flow1_edl
-from run_fixtures import minimal_manifest, minimal_manifest_segment
+from interview_mux.stages.assembly import build_flow1_edl, resync_required_synthesize_wavs
+from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment
 
 
 def _segments() -> dict[str, dict]:
@@ -154,6 +154,20 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
         "interview_mux.transition_vo.synthesize_spoken_transitions",
         _fake_synth_transitions,
     )
+    # NLE must not soft-pass stub bridges; stub completeness for this apply-path unit test.
+    monkeypatch.setattr(
+        "interview_mux.bridge_completeness.assert_bridges_complete",
+        lambda *a, soft=False, **k: {
+            "complete": True,
+            "missing_count": 0,
+            "missing": [],
+            "stub_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.assembly_ledger.assert_ledger_no_naked_seams",
+        lambda *_a, **_k: None,
+    )
     ctx = RunContext("run_206", create=True)
     ctx.write_json(
         "segments/manifest.json",
@@ -248,6 +262,166 @@ def test_opening_orientation_precedes_music_without_native_hook(
         ("silence", "opening_music"),
         ("speech", None),
     ]
+
+
+def test_missing_orientation_wav_is_warned_not_silent_clip() -> None:
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "intro_music_body",
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "before",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: None,
+    )
+    assert not any(
+        c.get("line_id") == "vo_preface_episode_orientation" for c in edl["clips"]
+    )
+    assert "vo_preface_episode_orientation" in edl["warnings"]["missing_vo_files"]
+
+
+def test_opening_music_marker_present_when_vo_duration_is_zero(tmp_path: Path) -> None:
+    wav = tmp_path / "vo_preface.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "intro_music_body",
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "before",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 0,
+    )
+    assert (
+        sum(1 for c in edl["clips"] if c.get("air_kind") == "opening_music") == 1
+    )
+    assert any(
+        c.get("type") == "vo_pickup"
+        and c.get("line_id") == "vo_preface_episode_orientation"
+        for c in edl["clips"]
+    )
+
+
+def test_cold_open_with_many_before_vo_keeps_orientation_early(
+    tmp_path: Path,
+) -> None:
+    """Hook before-VO must not push orientation past max_non_silence_index=3."""
+    from interview_mux.opening_orientation import validate_opening_orientation
+
+    wav = tmp_path / "vo.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "native_hook_music_intro_body",
+                "orientation_missions": [
+                    "guest_identity",
+                    "conversation_topic",
+                    "listener_stakes",
+                ],
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "after",
+                "delivery": "synthesize",
+            },
+            *[
+                {
+                    "line_id": f"vo_hook_{i}",
+                    "origin": "nugget_layup",
+                    "text": f"Hook setup line number {i} with enough words here.",
+                    "targets_segment_id": "seg_a",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+                for i in range(4)
+            ],
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+    )
+    errors = validate_opening_orientation(gap_report=gap_report, edl=edl)
+    assert not any("too_late" in e for e in errors), errors
+    non_silence = [c for c in edl["clips"] if c.get("type") != "silence"]
+    orient_idx = next(
+        i
+        for i, c in enumerate(non_silence)
+        if c.get("line_id") == "vo_preface_episode_orientation"
+    )
+    assert orient_idx <= 3
+    assert non_silence[0]["type"] == "speech"
+
+
+def test_cold_open_orientation_survives_next_before_layup(tmp_path: Path) -> None:
+    wav = tmp_path / "vo.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_episode_orientation",
+                "gap_type": "missing_setup",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "opening_sequence": "native_hook_music_intro_body",
+                "text": "This conversation is about the company and the stakes.",
+                "targets_segment_id": "seg_a",
+                "placement": "after",
+                "delivery": "synthesize",
+            },
+            {
+                "line_id": "vo_layup_seg_b",
+                "origin": "nugget_layup",
+                "text": "Next he explains the employee test and why it mattered.",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+                "delivery": "synthesize",
+            },
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+    )
+    assert any(
+        c.get("line_id") == "vo_preface_episode_orientation" for c in edl["clips"]
+    )
+    assert any(c.get("line_id") == "vo_layup_seg_b" for c in edl["clips"])
 
 
 def test_native_hook_precedes_music_and_orientation(tmp_path: Path) -> None:
@@ -412,3 +586,47 @@ def test_run_preview_missing_vo_raises(tmp_path: Path, monkeypatch) -> None:
 
     with pytest.raises(FileNotFoundError, match="line_missing"):
         assembly.run_preview(FakeCtx())
+
+
+def test_resync_required_synthesize_wavs_calls_synth_when_unresolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_resync_vo")
+    line = {
+        "line_id": "vo_preface_episode_orientation",
+        "episode_orientation": True,
+        "line_category": "episode_preface",
+        "text": "This conversation is about the company and the stakes.",
+        "targets_segment_id": "seg_a",
+        "placement": "before",
+        "delivery": "synthesize",
+    }
+    called: list[str] = []
+
+    def _fake_synth(_ctx, row, *, mode="synthesize"):
+        called.append(str(row.get("line_id")))
+        out = _ctx.path("vo_pickup", "synthesized", "vo_preface_episode_orientation.wav")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rate = 48_000
+        with wave.open(str(out), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(b"\x00\x00" * int(rate * 0.3))
+        from interview_mux.vo_synthesis_audit import record_synthesis
+
+        record_synthesis(_ctx, row, backend="mlx_audio", out_wav=out)
+        return out
+
+    monkeypatch.setattr("interview_mux.s2s_runner.synthesize_line", _fake_synth)
+    monkeypatch.setattr(
+        "interview_mux.stages.assembly.resolve_vo_pickup_path",
+        lambda _ctx, _line: (
+            _ctx.path("vo_pickup", "synthesized", "vo_preface_episode_orientation.wav")
+            if called
+            else None
+        ),
+    )
+    notes = resync_required_synthesize_wavs(ctx, {"interviewer_lines": [line]})
+    assert called == ["vo_preface_episode_orientation"]
+    assert notes == ["vo_preface_episode_orientation"]

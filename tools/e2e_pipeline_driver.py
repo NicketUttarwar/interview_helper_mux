@@ -15,6 +15,11 @@ BASE = "http://127.0.0.1:8765"
 INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav")
 POLL_SEC = 15
 MAX_WAIT_SEC = 7200
+# Honor the same MusicGen e2e escapes as baba_daemon_launch (serve must be started
+# with these env vars for stubs to apply inside generate_music_clip).
+os.environ.setdefault("MUX_E2E_MUSICGEN_ALLOW_STUB", "1")
+os.environ.setdefault("MUX_E2E_MUSICGEN_FAST_STUB", "1")
+os.environ.setdefault("MUX_E2E_MUSICGEN_TIMEOUT_SEC", "180")
 
 
 def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:

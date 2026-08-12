@@ -23,6 +23,8 @@ python -m pip install "mlx-audiogen" || python -m pip install "musicgen-mlx" || 
 MODEL_IDS=(
   "facebook/musicgen-large"
   "facebook/musicgen-melody-large"
+  "facebook/musicgen-medium"
+  "facebook/musicgen-small"
 )
 
 if [[ "$PREFETCH" == "1" ]]; then

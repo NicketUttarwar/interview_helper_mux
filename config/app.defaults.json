@@ -451,6 +451,22 @@
     "clap_timeout_sec": 120,
     "ssl_enabled": false
   },
+  "_comment_local_gpu": "Machine-wide serialize for GPU/unified-memory consumers. One MusicGen/Chatterbox/MMAudio/MLX/DeepFilter subprocess at a time; after each exits, wait cooldown_sec before the next may start (prevents M1 16GB Metal thrash).",
+  "local_gpu": {
+    "serialize": true,
+    "cooldown_sec": 5,
+    "lock_timeout_sec": 7200,
+    "consumers": [
+      "musicgen",
+      "mmaudio",
+      "chatterbox",
+      "speech",
+      "mlx",
+      "llm",
+      "deepfilter",
+      "image"
+    ]
+  },
   "_comment_local_runtimes": "Isolated venv paths under ASSETS/ (gitignored)",
   "local_runtimes": {
     "deepfilter": {
@@ -557,10 +573,11 @@
       }
     }
   },
-  "_comment_local_chatterbox": "ResembleAI Chatterbox zero-shot clone for gap framing VO",
+  "_comment_local_chatterbox": "ResembleAI Chatterbox zero-shot clone for gap framing VO. device=auto prefers MPS on Apple Silicon.",
   "local_chatterbox": {
     "enabled": true,
     "model_id": "ResembleAI/chatterbox",
+    "device": "auto",
     "timeout_sec": 600,
     "fail_open": false
   },
@@ -715,19 +732,23 @@
     "auto_refine_on_listen_fail": true,
     "auto_refine_on_trauma": true
   },
-  "_comment_musicgen": "Local MusicGen theme stems. device=cpu by default. 1h timeout then step-down (shorter/bare/smaller cached model) then musical-note stub so mix always has audio.",
+  "_comment_musicgen": "Local MusicGen fixed palette. device=auto prefers MPS/CUDA. Ladder: large→medium→small (same prompt/duration) then MMAudio backup then stub. Primary timeouts sized for MPS (large ~3–15 min/stem); cpu_request_timeout_sec is tighter so CPU thrash steps down instead of hanging.",
   "musicgen": {
     "enabled": true,
     "model_id": "facebook/musicgen-large",
     "melody_model_id": "facebook/musicgen-melody-large",
-    "device": "cpu",
+    "device": "auto",
     "ban_mps_on_abort": true,
-    "request_timeout_sec": 3600,
+    "request_timeout_sec": 900,
+    "cpu_request_timeout_sec": 300,
+    "step_down_timeout_sec": 480,
     "default_duration_sec": 10.0,
     "min_duration_sec": 4.0,
-    "max_duration_sec": 16.0,
+    "max_duration_sec": 24.0,
     "use_melody_conditioning": false,
     "fail_closed_on_stub": false,
+    "prefer_medium_on_cpu": false,
+    "mmaudio_backup_on_stub": true,
     "best_of_n_speech_free": 1,
     "best_of_n_underscore": 1,
     "max_best_of_n": 1,
@@ -736,7 +757,9 @@
     "semantic_qa_fail_on_low": true,
     "prefetch_models": [
       "facebook/musicgen-large",
-      "facebook/musicgen-melody-large"
+      "facebook/musicgen-melody-large",
+      "facebook/musicgen-medium",
+      "facebook/musicgen-small"
     ]
   },
   "_comment_web": "GUI server port and operator console",
@@ -954,7 +977,7 @@
       "enabled": true,
       "ideal_fraction_of_source": 0.45,
       "min_ratio_of_source": 0.1,
-      "max_ratio_of_source": 1.0,
+      "max_ratio_of_source": 1.5,
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
       "question_budget_max": 0,
@@ -966,7 +989,7 @@
       "reanchor_min_coverage_ratio_max": 0.85,
       "delivery_output_min_ratio_of_source": 0.1,
       "delivery_output_ideal_ratio_of_source": 0.45,
-      "delivery_output_max_ratio_of_source": 1.0,
+      "delivery_output_max_ratio_of_source": 1.5,
       "volley_spread_quartile_min_ratio": 0.25,
       "volley_hydrate_max_ratio_of_budget": 0.2,
       "volley_spine_event_max_ratio": 1.0,
@@ -1097,9 +1120,9 @@
       "vo_value_gate": {
         "enabled": true,
         "require_rationale": true,
-        "restate_overlap_max": 0.42,
+        "restate_overlap_max": 0.75,
         "restate_min_vo_tokens": 6,
-        "allow_summary_overlap_max": 0.62,
+        "allow_summary_overlap_max": 0.75,
         "enforce_courtesy": true,
         "require_forward_cue": true,
         "require_cold_open_layup": true
@@ -1121,7 +1144,7 @@
       "ban_canned_air": true,
       "unique_nuggets_across_layups": true,
       "max_cross_layup_overlap": 0.6,
-      "max_target_restate_overlap": 0.6,
+      "max_target_restate_overlap": 0.75,
       "suppress_placeholder_seams_when_layup": true,
       "demote_synthetic_framing_content": true,
       "authoritative_gap_report": true,

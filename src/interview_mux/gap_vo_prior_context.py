@@ -725,9 +725,9 @@ def vo_value_gate_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     defaults = {
         "enabled": True,
         "require_rationale": True,
-        "restate_overlap_max": 0.42,
+        "restate_overlap_max": 0.75,
         "restate_min_vo_tokens": 6,
-        "allow_summary_overlap_max": 0.62,
+        "allow_summary_overlap_max": 0.75,
         "enforce_courtesy": True,
         "require_forward_cue": True,
         "require_cold_open_layup": True,
@@ -902,8 +902,13 @@ def vo_value_violations(
         return []
     errs: list[str] = []
     segs = segments_by_id or {}
-    overlap_max = float(settings.get("restate_overlap_max") or 0.42)
-    summary_max = float(settings.get("allow_summary_overlap_max") or 0.62)
+    # Single soft ceiling for all line categories — intentional setup/repetition
+    # is allowed; only near-verbatim restatement fails.
+    overlap_max = float(
+        settings.get("restate_overlap_max")
+        or settings.get("allow_summary_overlap_max")
+        or 0.75
+    )
     min_toks = int(settings.get("restate_min_vo_tokens") or 6)
 
     if settings.get("enforce_courtesy", True):
@@ -939,9 +944,9 @@ def vo_value_violations(
             continue
         ratio = vo_target_overlap_ratio(text, target_text)
         category = str(line.get("line_category") or "").strip().lower()
-        limit = summary_max if category == "segment_summary" else overlap_max
+        limit = overlap_max
         # Use a tiny epsilon so float noise at the configured ceiling
-        # (e.g. 0.42000001 vs 0.42) does not hard-fail post-commit.
+        # (e.g. 0.75000001 vs 0.75) does not hard-fail post-commit.
         if ratio > (limit + 1e-6):
             errs.append(
                 f"{lid}: VO restates next clip (overlap={ratio:.2f} > {limit:.2f} for {category or 'line'})"

@@ -39,6 +39,7 @@ def main() -> int:
     out_wav.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        import os
         import torch
         import torchaudio
         import perth
@@ -54,13 +55,32 @@ def main() -> int:
         return 1
 
     try:
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        device_pref = str(payload.get("device") or "auto").strip().lower()
+        mps_ok = bool(torch.backends.mps.is_available() and torch.backends.mps.is_built())
+        if device_pref in {"", "auto"}:
+            device = "mps" if mps_ok else "cpu"
+        elif device_pref == "mps":
+            device = "mps" if mps_ok else "cpu"
+        else:
+            device = "cpu"
         # chatterbox 0.1.7: from_pretrained(device) — do NOT pass model_id.
         # Keep contract JSON on stdout: libraries dump progress/warnings there.
         _stdout = sys.stdout
         try:
             sys.stdout = sys.stderr
-            model = ChatterboxTTS.from_pretrained(device)
+            try:
+                model = ChatterboxTTS.from_pretrained(device)
+            except Exception as mps_exc:
+                if device != "cpu":
+                    print(
+                        f"chatterbox_mps_failed falling_back=cpu err={mps_exc}",
+                        file=sys.stderr,
+                    )
+                    device = "cpu"
+                    model = ChatterboxTTS.from_pretrained(device)
+                else:
+                    raise
             wav = model.generate(text, audio_prompt_path=str(ref_audio))
             if wav.ndim > 1:
                 wav = wav.squeeze(0)

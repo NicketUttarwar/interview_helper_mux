@@ -114,5 +114,15 @@ def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytes
     )
     doc = {"missing_coverage": [{"topic": "Unknown Topic", "reason": "gap"}]}
     patched, applied = repair_coverage_audit(ctx, doc)
-    assert patched["missing_coverage"] == []
+    # Unknown topics dropped; brief topics may be auto-documented as uncovered.
+    assert not any(
+        str(row.get("topic") or "") == "Unknown Topic"
+        for row in (patched.get("missing_coverage") or [])
+        if isinstance(row, dict)
+    )
     assert applied
+    assert any(
+        str(row.get("topic") or "") == "Origin Story"
+        for row in (patched.get("missing_coverage") or [])
+        if isinstance(row, dict)
+    )

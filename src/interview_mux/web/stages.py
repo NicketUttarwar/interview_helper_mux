@@ -532,6 +532,14 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         (),
     ),
     StageInfo(
+        "music_palette_compose",
+        "Music palette compose",
+        "Place fixed MusicGen palette assets (motif, loops, stingers, full beds) into the master cue timeline.",
+        "delivery",
+        ("understanding/sound_design_plan.json", "sound_design/music_palette_compose.json"),
+        ("understanding/sound_design_plan.json", "sound_design/music_palette_compose.json"),
+    ),
+    StageInfo(
         "g1_5_preview_pickup",
         "Post-preview pickup (G1.5)",
         "TBIY only: after listening to assembly preview, re-record reaction lines with preview context.",
@@ -541,8 +549,8 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     ),
     StageInfo(
         "sfx_prompt_craft",
-        "Craft MMAudio prompts",
-        "Build one MMAudio text-to-audio prompt per planned asset_id (positive + negative). "
+        "Craft MusicGen prompts",
+        "Build one succinct MusicGen text-to-music prompt per palette asset_id (positive + negative). "
         "When G1.5 is enabled (g1_5_require_prompt_approval), review and approve prompts here before SFX generation.",
         "delivery",
         ("sound_design/sfx_prompts.json",),
@@ -765,6 +773,7 @@ STAGE_API_PROVIDERS: dict[str, tuple[str, ...]] = {
     "nugget_layup_compose": ("openai",),
     "transitions": ("openai",),
     "sound_design_plan": ("openai",),
+    "music_palette_compose": ("openai",),
     "sfx_prompt_craft": ("openai",),
     "mmaudio_sfx": (),
     "podcast_sfx_brief": ("openai",),
@@ -886,6 +895,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "edl",
         "assembly_preview",
         "listen_delight_audit",
+        "music_palette_compose",
         "sfx_prompt_craft",
         "mmaudio_sfx",
         "mix",

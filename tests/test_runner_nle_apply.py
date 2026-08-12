@@ -41,6 +41,8 @@ def test_nle_apply_stages_structural(ctx: RunContext) -> None:
     runner = JobRunner()
     stages = runner._nle_apply_stages(ctx, full_refresh=False)
     assert "full_master_ranking" in stages
+    assert "selection_framing_apply" in stages
+    assert "transitions" in stages
     assert stages[-2:] == ["edl", "assembly_preview"]
 
 

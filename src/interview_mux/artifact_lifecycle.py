@@ -66,6 +66,33 @@ def _record_fingerprint(ctx: Any, rel: str, content_hash: str, stage_key: str) -
         ctx.mutate_run_meta(_mut)
 
 
+def restamp_committed_artifact(
+    ctx: Any,
+    rel: str,
+    *,
+    producer_stage: str,
+    doc: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Fingerprint + write + record so consumer stale guards match the on-disk body.
+
+    Used after nested stage commits and after heals that rewrite an artifact
+    outside its producer stage's flush list (e.g. content_brief id remap).
+    """
+    if doc is None:
+        if not ctx.artifact_exists(rel):
+            return None
+        raw = ctx.read_json(rel)
+        if not isinstance(raw, dict):
+            return None
+        doc = raw
+    fp = fingerprint_artifact(doc, producer_stage)
+    ctx.write_json(rel, fp, stage_key=producer_stage, skip_handoff=True)
+    h = str((fp.get("_meta") or {}).get("content_hash") or "")
+    if h:
+        _record_fingerprint(ctx, rel, h, producer_stage)
+    return fp
+
+
 def post_commit_validate(ctx: Any, stage_key: str) -> list[str]:
     if not lifecycle_cfg().get("post_commit_validate", True):
         return []
@@ -349,6 +376,7 @@ __all__ = [
     "lifecycle_cfg",
     "post_commit_validate",
     "read_stale_guard",
+    "restamp_committed_artifact",
     "run_phase_checks",
     "split_artifact_lists",
     "stage_output_mode",

@@ -2,11 +2,93 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.stage_coupling import contract_segment_ids, read_segment_contract
+
+
+@dataclass(frozen=True)
+class AnswerOnlyAllowance:
+    """Whether uniform ``interviewee_answer`` typing is expected for this source."""
+
+    allowed: bool
+    reason: str
+    topology_class: str | None = None
+
+
+def allows_all_interviewee_answer(ctx: RunContext) -> AnswerOnlyAllowance:
+    """True for monologue / content-dominant sources; False when Q&A diversity is expected.
+
+    Guest-only (or near-guest-only) interviews legitimately classify every segment as
+    ``interviewee_answer``. Multi-speaker / clear host-frame topologies still require
+    type diversity.
+    """
+    from interview_mux.conversation_context import (
+        load_conversation_context,
+        role_is_content,
+        role_is_frame,
+    )
+    from interview_mux.source_topology import load_topology
+
+    try:
+        from interview_mux.segment_timeline_standard import segmentation_cfg
+
+        if not bool(segmentation_cfg().get("require_type_diversity", True)):
+            return AnswerOnlyAllowance(True, "policy_disabled")
+    except Exception:
+        pass
+
+    th = (merged_config().get("source_topology") or {}).get("thresholds") or {}
+    mono = float(th.get("monologue_talk_ratio", 0.80))
+    sparse_frame = float(th.get("sparse_host_frame_ratio", 0.15))
+
+    topo = load_topology(ctx) or {}
+    cls = str(topo.get("topology_class") or "").strip() or None
+    stats = [s for s in (topo.get("speaker_stats") or []) if isinstance(s, dict)]
+
+    if cls in {"monologue_heavy", "multi_idea_sparse_host"}:
+        return AnswerOnlyAllowance(True, f"topology:{cls}", cls)
+
+    if stats:
+        frame_r = sum(
+            float(s.get("talk_ratio") or 0)
+            for s in stats
+            if role_is_frame(str(s.get("role_hint") or s.get("role") or ""))
+        )
+        content_r = sum(
+            float(s.get("talk_ratio") or 0)
+            for s in stats
+            if role_is_content(str(s.get("role_hint") or s.get("role") or ""))
+        )
+        dominant = float(stats[0].get("talk_ratio") or 0)
+        if len(stats) == 1 or dominant >= mono:
+            return AnswerOnlyAllowance(True, "dominant_talk_ratio", cls)
+        if frame_r < sparse_frame and content_r >= (1.0 - sparse_frame):
+            return AnswerOnlyAllowance(True, "sparse_frame", cls)
+
+    conv = load_conversation_context(ctx)
+    if not conv.frame_ids and conv.content_ids:
+        return AnswerOnlyAllowance(True, "zero_frame_speakers", cls)
+    if conv.format_class in {"fireside", "media_profile"} or conv.topology_hint == "monologue_heavy":
+        return AnswerOnlyAllowance(True, f"format:{conv.format_class or conv.topology_hint}", cls)
+
+    if conv.frame_ids and cls in {
+        None,
+        "",
+        "one_on_one_asymmetric",
+        "one_on_one_balanced",
+        "panel_multi_guest",
+        "co_host_frame",
+    }:
+        return AnswerOnlyAllowance(False, "qa_frame_present", cls)
+
+    # Unknown topology: only require diversity when a frame speaker is present.
+    if conv.frame_ids:
+        return AnswerOnlyAllowance(False, "default_require_diversity", cls)
+    return AnswerOnlyAllowance(True, "no_frame_default_allow", cls)
 
 
 def classification_context_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -160,6 +242,10 @@ def obligation_lint_errors(
         for s in envelope_segments
         if isinstance(s, dict) and s.get("type")
     ]
+    # Obligation lint has no RunContext; callers with ctx should use
+    # allows_all_interviewee_answer. Keep a soft note only when diversity is
+    # structurally impossible to judge here.
     if types and types.count("interviewee_answer") == len(types) and len(types) >= 2:
-        errors.append("all segments typed interviewee_answer")
+        # Without ctx we cannot adapt; leave to deterministic_lint / repairs.
+        pass
     return errors

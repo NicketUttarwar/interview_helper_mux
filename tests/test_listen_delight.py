@@ -191,3 +191,34 @@ def test_cut_integrity_uses_hang_ratio_not_per_hit_zero(tmp_path, monkeypatch):
     result = evaluate_listen_delight(ctx)
     assert result["dimensions"]["cut_integrity"] > 0.5
     assert result["dimensions"]["cut_integrity"] < 1.0
+
+
+def test_authoritative_fail_writes_remutate_plan(tmp_path):
+    from interview_mux.listen_delight_remutate import REMUTATE_REL
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_remutate")
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_summary_x",
+                    "line_category": "segment_summary",
+                    "text": "In this chapter we recap the deal.",
+                }
+            ]
+        },
+    )
+    _write_raw(
+        ctx,
+        "mastering/mastering_plan.json",
+        {"narrative_mode": "sparse_source", "plan_status": "complete"},
+    )
+    with pytest.raises(LoudStageFailure, match="Listen delight floors failed"):
+        run_listen_delight_audit(ctx)
+    assert ctx.artifact_exists(REMUTATE_REL)
+    plan = ctx.read_json(REMUTATE_REL)
+    assert plan["attempt"] == 1
+    assert plan.get("failed_dimensions")
+    assert plan.get("passed") is not True

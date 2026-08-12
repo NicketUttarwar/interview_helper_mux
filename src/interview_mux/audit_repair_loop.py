@@ -76,4 +76,27 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
         stage="edl_narrative_audit",
         detail=notes[:8],
     )
+    if _audit_fail(out):
+        from interview_mux.edl_narrative_remutate import (
+            apply_edl_narrative_remutate,
+            plan_edl_narrative_remutate,
+        )
+
+        remutate = plan_edl_narrative_remutate(ctx, out)
+        out["remutate"] = remutate
+        if not remutate.get("exhausted"):
+            applied = apply_edl_narrative_remutate(ctx, remutate)
+            out["remutate_applied"] = applied
+            ctx.log(
+                "edl_narrative_audit still fail → typed remutate planned "
+                f"(actions={remutate.get('actions')}, from={remutate.get('from_stage')})",
+                level="warning",
+                stage="edl_narrative_audit",
+            )
+        else:
+            ctx.log(
+                "edl_narrative_audit remutate exhausted — leaving fail for operator",
+                level="error",
+                stage="edl_narrative_audit",
+            )
     return out

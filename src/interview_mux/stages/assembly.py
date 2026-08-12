@@ -340,25 +340,54 @@ def build_flow1_edl(
                 if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
             ]
 
-        for line in before_lines:
+        # Opening grammar pin: orientation must stay within the early audible window.
+        # Straight: orientation first among before-VO. Cold open: defer hook before-VO
+        # until after hook speech + opening_music + orientation.
+        cold_open_hook = False
+        if idx == 0 and gap_report:
+            for _oln in gap_report.get("interviewer_lines") or []:
+                if (
+                    isinstance(_oln, dict)
+                    and _is_orientation(_oln)
+                    and not _oln.get("skipped_optional")
+                    and str(_oln.get("targets_segment_id") or "") == sid
+                    and str(_oln.get("placement") or "before") == "after"
+                ):
+                    cold_open_hook = True
+                    break
+        before_lines = sorted(
+            before_lines, key=lambda ln: (0 if _is_orientation(ln) else 1)
+        )
+        deferred_before: list[dict] = []
+        if cold_open_hook and before_lines:
+            deferred_before = [ln for ln in before_lines if not _is_orientation(ln)]
+            before_lines = [ln for ln in before_lines if _is_orientation(ln)]
+
+        def _emit_vo_line(line: dict, *, placement: str) -> None:
+            nonlocal timeline_ms
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
             if vo_path is None or not vo_path.is_file():
-                delivery = str(line.get("delivery") or "").lower()
-                if delivery == "synthesize":
-                    missing_vo.append(line.get("line_id") or sid)
-                    continue
                 missing_vo.append(line.get("line_id") or sid)
+                if (
+                    str(line.get("delivery") or "").lower() == "synthesize"
+                    or _is_orientation(line)
+                    or bool(line.get("required"))
+                ):
+                    return
             else:
                 rel = vo_relpath(vo_path) if vo_relpath else vo_path.as_posix()
                 dur = duration_fn(vo_path)
-
+            # Cold open: music marker precedes orientation VO.
+            if placement == "after" and _is_orientation(line):
+                est_ms = int(float(line.get("estimated_duration_sec") or 0) * 1000)
+                _append_opening_music_marker(max(dur, est_ms, 1000))
             clip = {
                 "type": "vo_pickup",
                 "line_id": line.get("line_id"),
                 "targets_segment_id": sid,
-                "placement": "before",
+                "placement": placement,
                 "gap_type": line.get("gap_type"),
                 "line_category": line.get("line_category"),
                 "episode_orientation": bool(line.get("episode_orientation")),
@@ -374,16 +403,20 @@ def build_flow1_edl(
                 {
                     "line_id": line.get("line_id"),
                     "targets_segment_id": sid,
-                    "placement": "before",
+                    "placement": placement,
                     "timeline_start_ms": timeline_ms,
                 }
             )
             timeline_ms += dur
-            if dur > 0:
-                if _is_orientation(line):
-                    _append_opening_music_marker(dur)
-                else:
-                    _append_air("after_vo", dur)
+            # Straight open: music marker follows orientation VO.
+            if placement == "before" and _is_orientation(line):
+                est_ms = int(float(line.get("estimated_duration_sec") or 0) * 1000)
+                _append_opening_music_marker(max(dur, est_ms, 1000))
+            elif dur > 0:
+                _append_air("after_vo", dur)
+
+        for line in before_lines:
+            _emit_vo_line(line, placement="before")
 
         speech_start = int(seg["start_ms"])
         speech_end = int(seg["end_ms"])
@@ -440,54 +473,19 @@ def build_flow1_edl(
             emitted_text_keys=emitted_text_keys,
         )
         # Prefer a before-VO layup on the next clip over an after-VO on this one.
+        # Keep episode orientation — cold-open grammar requires it after the hook.
         if next_before_vo:
-            after_lines = []
+            after_lines = [ln for ln in after_lines if _is_orientation(ln)]
+        after_lines = sorted(
+            after_lines, key=lambda ln: (0 if _is_orientation(ln) else 1)
+        )
 
         for line in after_lines:
-            if _is_orientation(line):
-                _append_opening_music_marker(
-                    int(line.get("estimated_duration_sec") or 1) * 1000
-                )
-            vo_path = resolve_vo_path(line) if resolve_vo_path else None
-            rel = None
-            dur = 0
-            if vo_path is None or not vo_path.is_file():
-                delivery = str(line.get("delivery") or "").lower()
-                if delivery == "synthesize":
-                    missing_vo.append(line.get("line_id") or sid)
-                    continue
-                missing_vo.append(line.get("line_id") or sid)
-            else:
-                rel = vo_relpath(vo_path) if vo_relpath else vo_path.as_posix()
-                dur = duration_fn(vo_path)
+            _emit_vo_line(line, placement="after")
 
-            clip = {
-                "type": "vo_pickup",
-                "line_id": line.get("line_id"),
-                "targets_segment_id": sid,
-                "placement": "after",
-                "gap_type": line.get("gap_type"),
-                "line_category": line.get("line_category"),
-                "episode_orientation": bool(line.get("episode_orientation")),
-                "opening_sequence": line.get("opening_sequence"),
-                "allow_music_bed_overlap": bool(line.get("allow_music_bed_overlap")),
-                **_copy_hashes(line),
-                "source_path": rel,
-                "duration_ms": dur,
-                "timeline_start_ms": timeline_ms,
-            }
-            clips.append(clip)
-            gap_placements.append(
-                {
-                    "line_id": line.get("line_id"),
-                    "targets_segment_id": sid,
-                    "placement": "after",
-                    "timeline_start_ms": timeline_ms,
-                }
-            )
-            timeline_ms += dur
-            if dur > 0:
-                _append_air("after_vo", dur)
+        # Cold-open: hook before-VO deferred until after orientation.
+        for line in deferred_before:
+            _emit_vo_line(line, placement="before")
 
         if idx + 1 < len(ordered):
             nxt = ordered[idx + 1]
@@ -550,6 +548,63 @@ def build_flow1_edl(
         },
         "mux_scope": "full_mix",
     }
+
+
+def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[str]:
+    """Re-speak active synthesize lines whose WAV is missing or hash-stale. Once.
+
+    When gap framing / chatterbox is active, every non-skipped synthesize line is
+    eligible (not only orientation). Otherwise only orientation/required.
+    """
+    from interview_mux.opening_orientation import is_episode_orientation
+    from interview_mux.spoken_copy_guard import script_hash
+    from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
+    from interview_mux import s2s_runner
+
+    framing_active = False
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled, resolve_gap_vo_delivery
+
+        framing_active = gap_framing_enabled(ctx) and resolve_gap_vo_delivery(ctx) in {
+            "chatterbox",
+            "synthesize",
+            "voice_clone",
+        }
+    except Exception:
+        framing_active = False
+
+    notes: list[str] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        if str(line.get("delivery") or "").lower() != "synthesize":
+            continue
+        requiredish = is_episode_orientation(line) or bool(line.get("required"))
+        if not framing_active and not requiredish:
+            continue
+        path = resolve_vo_pickup_path(ctx, line)
+        matches, reason = synthesis_entry_matches_line(ctx, line)
+        if path is not None and path.is_file() and matches:
+            continue
+        lid = str(line.get("line_id") or "")
+        try:
+            s2s_runner.synthesize_line(ctx, line, mode="synthesize")
+            notes.append(lid)
+        except Exception as exc:
+            raise RuntimeError(
+                f"edl: synthesize WAV stale/missing (line_id={lid} "
+                f"reason={reason} path={path} "
+                f"script_hash={script_hash(str(line.get('text') or ''))}): {exc}"
+            ) from exc
+        path2 = resolve_vo_pickup_path(ctx, line)
+        matches2, reason2 = synthesis_entry_matches_line(ctx, line)
+        if path2 is None or not path2.is_file() or not matches2:
+            raise RuntimeError(
+                f"edl: synthesize WAV stale/missing (line_id={lid} "
+                f"reason={reason2} path={path2} "
+                f"script_hash={script_hash(str(line.get('text') or ''))})"
+            )
+    return notes
 
 
 def run_edl(ctx: RunContext) -> None:
@@ -616,6 +671,13 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                     detail=opening_actions,
                 )
+            resynced = resync_required_synthesize_wavs(ctx, gap_report)
+            if resynced:
+                ctx.log(
+                    f"edl: re-synthesized stale required VO {resynced}",
+                    level="info",
+                    stage="edl",
+                )
         from interview_mux.nugget_layup import (
             assert_gap_report_layup_authority,
             assert_layup_fresh_vs_selection,
@@ -632,7 +694,6 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("master/transitions.json")
             else {"transitions": []}
         )
-        from interview_mux.nle_state import nle_has_operator_edits as _nle_ops
         from interview_mux.order_hash import stamp_order_hash
         from interview_mux.seam_glue import ensure_seam_glue
 
@@ -640,14 +701,17 @@ def run_edl(ctx: RunContext) -> None:
         selection = stamp_order_hash(selection)
         ctx.write_json("master/selection.json", selection)
 
-        soft = bool(_nle_ops(nle))
+        soft = False
         try:
             meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
             from interview_mux.e2e_soft import e2e_soft_enabled
 
+            # Soft seams only from explicit waive / e2e flag — not mere NLE presence.
             if e2e_soft_enabled(meta=meta if isinstance(meta, dict) else None) and bool(
                 (meta or {}).get("e2e_soft_junction_residuals")
             ):
+                soft = True
+            if isinstance(meta, dict) and meta.get("nle_waive_naked_seams"):
                 soft = True
         except Exception:
             pass
@@ -673,9 +737,20 @@ def run_edl(ctx: RunContext) -> None:
             assert_required_bridge_synth_ok,
             assert_spoken_transitions_audible,
             resolve_transition_wav,
+            resync_spoken_transitions,
             synthesize_spoken_transitions,
         )
 
+        try:
+            tr_notes = resync_spoken_transitions(ctx)
+            if tr_notes:
+                ctx.log(
+                    f"edl: re-synthesized stale transitions {tr_notes[:6]}",
+                    level="info",
+                    stage="edl",
+                )
+        except RuntimeError:
+            raise
         synth_rows = synthesize_spoken_transitions(ctx)
         if synth_rows:
             failed = [r for r in synth_rows if r.get("ok") is False]
@@ -715,6 +790,19 @@ def run_edl(ctx: RunContext) -> None:
                 if isinstance(line, dict) and not line.get("skipped_optional")
             ]
             if gap_framing_enabled(ctx) and active_framing_lines:
+                from interview_mux.opening_orientation import is_episode_orientation
+                from interview_mux.spoken_copy_guard import script_hash
+
+                missing = set((edl.get("warnings") or {}).get("missing_vo_files") or [])
+                for line in active_framing_lines:
+                    if not is_episode_orientation(line):
+                        continue
+                    lid = str(line.get("line_id") or "")
+                    if lid in missing:
+                        raise RuntimeError(
+                            f"edl: orientation WAV stale/missing (line_id={lid} "
+                            f"script_hash={script_hash(str(line.get('text') or ''))})"
+                        )
                 opening_errors = validate_opening_orientation(
                     gap_report=gap_report if isinstance(gap_report, dict) else None,
                     edl=edl,

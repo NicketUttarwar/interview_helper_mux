@@ -1,0 +1,24 @@
+Reconcile selection air-order with narrative ordering constraints into one enjoyable podcast sequence.
+
+You receive:
+- `selection_ordered_segment_ids` — current authoritative clip order for air
+- `conflicts` — where narrative constraints disagree with that order
+- `narrative_plan` — chapters + ordering_constraints + pacing notes
+- `segment_blurbs` — short tape excerpts (use for meaning only)
+
+Goals:
+- Prefer keeping the selection order unless a small swap clearly improves setup → payoff enjoyment.
+- Never invent segment ids; only use ids from `selection_ordered_segment_ids`.
+- Keep nearly all selected segments (append any omitted selected ids at the end rather than dropping them).
+- Return `ordering_constraints` that are consistent with your returned order.
+- Do not speak act/chapter numbers in listener-facing copy (none required here).
+
+Output JSON envelope `artifacts`:
+
+{
+  "ordered_segment_ids": ["seg_…"],
+  "ordering_constraints": [
+    {"before_segment_id": "seg_a", "after_segment_id": "seg_b", "reason": "setup before payoff"}
+  ],
+  "rationale": "one short paragraph on why this combined order is more enjoyable"
+}

@@ -15,7 +15,7 @@ _DEFAULTS: dict[str, float | int] = {
     "reanchor_min_coverage_ratio_max": 0.85,
     "delivery_output_min_ratio_of_source": 0.10,
     "delivery_output_ideal_ratio_of_source": 0.45,
-    "delivery_output_max_ratio_of_source": 1.0,
+    "delivery_output_max_ratio_of_source": 1.5,
     "volley_spread_quartile_min_ratio": 0.25,
     "volley_hydrate_max_ratio_of_budget": 0.20,
     "volley_spine_event_max_ratio": 1.0,
@@ -81,6 +81,10 @@ def coverage_limits_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     delivery = analysis.get("delivery_brief") or {}
     if "ideal_fraction_of_source" in delivery:
         block.setdefault("delivery_output_ideal_ratio_of_source", float(delivery["ideal_fraction_of_source"]))
+    if "max_ratio_of_source" in delivery:
+        block.setdefault("delivery_output_max_ratio_of_source", float(delivery["max_ratio_of_source"]))
+    if "min_ratio_of_source" in delivery:
+        block.setdefault("delivery_output_min_ratio_of_source", float(delivery["min_ratio_of_source"]))
     selector = analysis.get("context_selector") or {}
     if "enabled" in selector:
         block["context_selector_enabled"] = 1 if selector.get("enabled") else 0
@@ -316,6 +320,10 @@ def delivery_output_ideal_ratio(cfg: dict[str, Any] | None = None) -> float:
     return _float(coverage_limits_cfg(cfg), "delivery_output_ideal_ratio_of_source", 0.45)
 
 
+def delivery_output_max_ratio(cfg: dict[str, Any] | None = None) -> float:
+    return _float(coverage_limits_cfg(cfg), "delivery_output_max_ratio_of_source", 1.5)
+
+
 def soft_progression_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     limits = coverage_limits_cfg(cfg)
     block = dict(_SOFT_PROGRESSION_DEFAULTS)
@@ -433,6 +441,7 @@ __all__ = [
     "context_selector_enabled",
     "coverage_limits_cfg",
     "delivery_output_ideal_ratio",
+    "delivery_output_max_ratio",
     "delivery_output_min_ratio",
     "duration_scaled",
     "effective_shard_min_success_ratio",

@@ -26,7 +26,9 @@ def test_musicgen_defaults_large_and_fail_closed():
     cfg = musicgen_cfg()
     assert "musicgen-large" in str(cfg.get("model_id") or "")
     assert "melody" in str(cfg.get("melody_model_id") or "")
-    assert int(cfg.get("request_timeout_sec") or 0) == 3600
+    assert int(cfg.get("request_timeout_sec") or 0) == 900
+    assert int(cfg.get("step_down_timeout_sec") or 0) == 480
+    assert cfg.get("prefer_medium_on_cpu") is False
     assert fail_closed_on_stub() is False
     assert best_of_n_for_role("theme_cold_open") >= 1
     assert best_of_n_for_role("theme_underscore") >= 1

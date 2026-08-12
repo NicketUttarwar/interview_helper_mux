@@ -120,6 +120,18 @@ def classify_lint_message(stage_key: str, message: str, *, artifact_path: str | 
         issue.kind = "enum"
         issue.severity = "important"
         issue.repair_strategy = "infer_segment_types"
+        # Monologue sources should not emit this; if they do, treat as soft.
+        try:
+            from interview_mux.classification_obligation import allows_all_interviewee_answer
+            from interview_mux.run_context import RunContext
+
+            # issue may carry ctx via repair pipeline; soft-mark when detectable.
+            ctx = getattr(issue, "ctx", None)
+            if isinstance(ctx, RunContext) and allows_all_interviewee_answer(ctx).allowed:
+                issue.blocking = False
+                issue.severity = "minor"
+        except Exception:
+            pass
         return issue
 
     if "all speakers unknown" in low:

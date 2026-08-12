@@ -30,12 +30,24 @@ def test_hf_home_is_local_musicgen_cache() -> None:
     assert home.as_posix().endswith("ASSETS/local_musicgen/hf_cache")
 
 
-def test_effective_device_never_auto_mps(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_effective_device_auto_prefers_mps_on_apple_silicon(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MUX_MUSICGEN_BAN_MPS", raising=False)
-    assert effective_musicgen_device(requested="auto") == "cpu"
-    assert effective_musicgen_device(requested="") == "cpu"
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner._mps_available_for_musicgen", lambda: True
+    )
+    assert effective_musicgen_device(requested="auto") == "mps"
+    assert effective_musicgen_device(requested="") == "mps"
     assert effective_musicgen_device(requested="cpu") == "cpu"
     assert effective_musicgen_device(requested="mps") == "mps"
+
+
+def test_effective_device_auto_falls_back_when_mps_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MUX_MUSICGEN_BAN_MPS", raising=False)
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner._mps_available_for_musicgen", lambda: False
+    )
+    assert effective_musicgen_device(requested="auto") == "cpu"
+    assert effective_musicgen_device(requested="mps") == "cpu"
 
 
 def test_ban_mps_forces_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +201,9 @@ def test_generate_always_writes_wav_after_ladder(tmp_path: Path, monkeypatch: py
     )
     assert out.is_file() and out.stat().st_size > 1000
     assert meta.get("backend") == "musical_stub"
-    assert meta.get("fidelity_step") == "short_bare_cpu"
+    # Ladder tries large then medium/small (same prompt+duration); last step name varies.
+    assert str(meta.get("fidelity_step") or "").startswith("ladder_")
+    ladder = meta.get("model_ladder") or []
+    assert ladder and "large" in str(ladder[0])
     assert timeouts[0] == 5
     assert timeouts[-1] <= 5

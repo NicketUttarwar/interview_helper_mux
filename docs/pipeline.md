@@ -4,7 +4,7 @@
 
 One source interview → one deliverable: **`master/master.wav`**. Product Essence: find golden nuggets, cut for listenability, weave native + grounded synthetic + music/SFX/air under Shape — [NORTH_STAR.md](../NORTH_STAR.md). Optional Ship packaging + ASSETS-wide S3 sync is separate from the north-star master.
 
-Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 27 delivery = 61 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
+Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 28 delivery = 62 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
 
 **Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.28–0.88**, hinge stinger **0.3–1.0**.
 

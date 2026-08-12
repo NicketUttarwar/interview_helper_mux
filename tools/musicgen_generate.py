@@ -142,16 +142,28 @@ def _ensure_hf_home() -> None:
 
 def _resolve_torch_device(requested: str | None = None):
     import os
+    import platform
 
     import torch
 
-    pref = (requested or "cpu").strip().lower()
+    pref = (requested or "auto").strip().lower()
     ban = os.environ.get("MUX_MUSICGEN_BAN_MPS", "").strip().lower() in {"1", "true", "yes"}
-    # Never auto-select MPS — Metal MTLReportFailure aborts the interpreter.
+    mps_ok = (
+        (not ban)
+        and platform.system() == "Darwin"
+        and torch.backends.mps.is_available()
+        and torch.backends.mps.is_built()
+    )
+    # auto → GPU whenever possible (MPS on Apple Silicon, else CUDA), else CPU.
     if pref in {"", "auto", "mlx"}:
-        pref = "cpu"
+        if mps_ok:
+            pref = "mps"
+        elif torch.cuda.is_available():
+            pref = "cuda"
+        else:
+            pref = "cpu"
     if pref == "mps":
-        if ban or not torch.backends.mps.is_available():
+        if not mps_ok:
             print("musicgen_mps_disabled falling_back=cpu", file=sys.stderr)
             pref = "cpu"
         else:

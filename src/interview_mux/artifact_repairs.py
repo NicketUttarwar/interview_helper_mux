@@ -242,24 +242,27 @@ def repair_manifest_segments(
     if drop_ids:
         out["segments"] = [r for r in out["segments"] if str(r.get("segment_id")) not in drop_ids]
 
-    # Infer segment types when all same
+    # Infer segment types when all same — skip monologue / content-dominant sources.
     types = [str(r.get("type")) for r in out["segments"] if isinstance(r, dict) and r.get("type")]
     if types and types.count("interviewee_answer") == len(types) and len(types) >= 2:
-        for row in out["segments"]:
-            if not isinstance(row, dict):
-                continue
-            inferred = _infer_segment_type(row, speakers)
-            if inferred != row.get("type"):
-                old = row.get("type")
-                row["type"] = inferred
-                applied.append(
-                    {
-                        "action": "infer_segment_type",
-                        "segment_id": row.get("segment_id"),
-                        "from": old,
-                        "to": inferred,
-                    }
-                )
+        from interview_mux.classification_obligation import allows_all_interviewee_answer
+
+        if not allows_all_interviewee_answer(ctx).allowed:
+            for row in out["segments"]:
+                if not isinstance(row, dict):
+                    continue
+                inferred = _infer_segment_type(row, speakers)
+                if inferred != row.get("type"):
+                    old = row.get("type")
+                    row["type"] = inferred
+                    applied.append(
+                        {
+                            "action": "infer_segment_type",
+                            "segment_id": row.get("segment_id"),
+                            "from": old,
+                            "to": inferred,
+                        }
+                    )
 
     # Fabricate missing segments from boundaries
     from interview_mux.segment_timeline_standard import segmentation_cfg
@@ -690,7 +693,14 @@ def sync_content_brief_topic_segment_ids(
         repaired, applied = repair_content_brief(ctx, brief)
     if not applied:
         return []
-    ctx.write_json("understanding/content_brief.json", repaired, skip_handoff=True)
+    from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+    restamp_committed_artifact(
+        ctx,
+        "understanding/content_brief.json",
+        producer_stage="content_brief_reanchor",
+        doc=repaired if isinstance(repaired, dict) else None,
+    )
     return applied
 
 
@@ -1001,6 +1011,12 @@ def align_narrative_plan_to_selection(
             if (before and before not in order_set) or (after and after not in order_set):
                 dropped_c += 1
                 continue
+            # Drop constraints that contradict selection air order (selection wins).
+            if before and after and before in order_set and after in order_set:
+                positions = {sid: i for i, sid in enumerate(ordered_ids or [])}
+                if positions.get(before, -1) >= positions.get(after, 10**9):
+                    dropped_c += 1
+                    continue
             kept_c.append(row)
         if dropped_c:
             out["ordering_constraints"] = kept_c
@@ -1918,7 +1934,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                         )
     # Final listener-facing guard after every deterministic repair/rewrite.
     from interview_mux.opening_orientation import is_episode_orientation
-    from interview_mux.spoken_copy_guard import guard_spoken_copy
+    from interview_mux.spoken_copy_guard import enrich_evidence_from_run, guard_spoken_copy
 
     by_id: dict[str, dict[str, Any]] = {}
     if ctx.artifact_exists("segments/manifest.json"):
@@ -1969,6 +1985,8 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         prior_row = by_id.get(prior_id) or {}
         target_row = by_id.get(target) or {}
         evidence = {
+            "line_id": row.get("line_id"),
+            "line_category": row.get("line_category"),
             "target_excerpt": target_row.get("text"),
             "after_topic": target_row.get("topic"),
             "before_excerpt": row.get("before_excerpt") or prior_row.get("text"),
@@ -1976,17 +1994,40 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             "grounding_context": grounding_context,
             "strict_grounding": bool(grounding_context or target_row or prior_row),
         }
+        evidence = enrich_evidence_from_run(ctx, evidence)
+        orientation_purpose = (
+            f"gap_repair[episode_preface:{lid}]"
+            if is_episode_orientation(row)
+            else f"gap_repair[{row.get('line_id') or target}]"
+        )
         decision = guard_spoken_copy(
             str(row.get("text") or ""),
             evidence=evidence,
             required=required,
-            purpose=f"gap_repair[{row.get('line_id') or target}]",
+            purpose=orientation_purpose,
             seen_texts=seen_texts,
         )
         orig_text = str(row.get("text") or "").strip()
         new_text = str(decision.get("text") or "").strip()
-        # Never collapse a substantive episode orientation into a thin hinge
-        # fallback (spoken_production_jargon → "What changed after that?").
+        # Never replace a substantive episode orientation with a guard hinge
+        # (thin "What changed after that?" or long "How did A founder explains…").
+        if (
+            is_episode_orientation(row)
+            and len(orig_text.split()) >= 6
+            and decision.get("action") in {"fallback", "omit", "block"}
+        ):
+            fixed = dict(row)
+            guarded_lines.append(fixed)
+            seen_texts.append(orig_text)
+            applied.append(
+                {
+                    "action": "keep_orientation_despite_spoken_fallback",
+                    "line_id": row.get("line_id"),
+                    "violations": decision.get("violations"),
+                    "guard_action": decision.get("action"),
+                }
+            )
+            continue
         if (
             required
             and len(orig_text.split()) >= 6
@@ -3619,31 +3660,55 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         applied.append({"action": "hinge_resolve_seed_skipped", "error": str(exc)[:160]})
 
     pals = out.get("palettes") if isinstance(out.get("palettes"), list) else []
+    seed_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for cue in ((out.get("flow_plans") or {}).get("podcast") or {}).get("cues") or []:
+        if not isinstance(cue, dict):
+            continue
+        for key in ("segment_id", "before_segment_id", "after_segment_id"):
+            sid = str(cue.get(key) or "")
+            if sid and sid not in seen_ids:
+                seen_ids.add(sid)
+                seed_ids.append(sid)
+    if not seed_ids:
+        seed_ids = list(selection_ids[:24])
+    if not seed_ids and ctx.artifact_exists("segments/manifest.json"):
+        man = ctx.read_json("segments/manifest.json")
+        if isinstance(man, dict):
+            for seg in man.get("segments") or []:
+                if isinstance(seg, dict) and seg.get("segment_id"):
+                    sid = str(seg["segment_id"])
+                    if sid and sid not in seen_ids:
+                        seen_ids.add(sid)
+                        seed_ids.append(sid)
+    seed_ids = seed_ids[:48]
     if not pals:
-        seed_ids: list[str] = []
-        seen_ids: set[str] = set()
-        for cue in ((out.get("flow_plans") or {}).get("podcast") or {}).get("cues") or []:
-            if not isinstance(cue, dict):
-                continue
-            for key in ("segment_id", "before_segment_id", "after_segment_id"):
-                sid = str(cue.get(key) or "")
-                if sid and sid not in seen_ids:
-                    seen_ids.add(sid)
-                    seed_ids.append(sid)
-        if not seed_ids:
-            seed_ids = list(selection_ids[:24])
         out["palettes"] = [
             {
                 "palette_id": "theme_default",
                 "theme_label": "show theme",
                 "keywords": ["acoustic", "warm", "conversational", "sparse"],
-                "segment_ids": seed_ids[:48],
+                "segment_ids": list(seed_ids),
                 "ambient_description": "Soft acoustic underscore under conversation",
                 "accent_description": "Short motif punctuation at chapter hinges",
                 "avoid": ["vocals", "lyrics", "crowd noise"],
             }
         ]
-        applied.append({"action": "seed_default_palette", "segment_count": len(seed_ids[:48])})
+        applied.append({"action": "seed_default_palette", "segment_count": len(seed_ids)})
+    elif seed_ids:
+        for pal in pals:
+            if not isinstance(pal, dict):
+                continue
+            if pal.get("segment_ids"):
+                continue
+            pal["segment_ids"] = list(seed_ids)
+            applied.append(
+                {
+                    "action": "fill_palette_segment_ids",
+                    "palette_id": pal.get("palette_id"),
+                    "segment_count": len(seed_ids),
+                }
+            )
 
     coh = out.get("coherence") if isinstance(out.get("coherence"), dict) else {}
     if not str(coh.get("sonic_identity") or "").strip() or not str(coh.get("primary_mood") or "").strip():

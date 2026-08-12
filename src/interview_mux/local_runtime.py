@@ -154,58 +154,62 @@ def run_runtime_script(
     if env_extra:
         env.update(env_extra)
     timeout = timeout_sec if timeout_sec is not None else _default_timeout(runtime_id)
+    from interview_mux.gpu_exclusive import gpu_exclusive
+
+    consumer = _canonical_runtime_id(runtime_id)
     try:
-        if stdin_data is not None:
-            if run:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    cwd=str(cwd or repo_root()),
-                    env=env,
-                )
-                stdout, stderr = proc.communicate(stdin_data, timeout=timeout)
-                if proc.returncode != 0:
-                    run.log(
-                        f"Local runtime failed (exit {proc.returncode}): {label}",
-                        level="error",
-                        stage=sid,
-                        detail={"stderr": (stderr or "")[:500], "stdout_tail": (stdout or "")[-300:]},
+        with gpu_exclusive(consumer, ctx=run, stage=sid):
+            if stdin_data is not None:
+                if run:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=str(cwd or repo_root()),
+                        env=env,
                     )
-                for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
-                    for line in (text or "").splitlines():
-                        if line.strip():
-                            run.log(
-                                line,
-                                level="info" if proc.returncode == 0 else "warning",
-                                stage=sid,
-                                detail={"stream": stream_name, "journey_kind": "execute"},
-                            )
-                if proc.returncode == 0:
-                    run.log(f"Done: {label}", level="success", stage=sid)
-                return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
-            return subprocess.run(
+                    stdout, stderr = proc.communicate(stdin_data, timeout=timeout)
+                    if proc.returncode != 0:
+                        run.log(
+                            f"Local runtime failed (exit {proc.returncode}): {label}",
+                            level="error",
+                            stage=sid,
+                            detail={"stderr": (stderr or "")[:500], "stdout_tail": (stdout or "")[-300:]},
+                        )
+                    for stream_name, text in (("stdout", stdout), ("stderr", stderr)):
+                        for line in (text or "").splitlines():
+                            if line.strip():
+                                run.log(
+                                    line,
+                                    level="info" if proc.returncode == 0 else "warning",
+                                    stage=sid,
+                                    detail={"stream": stream_name, "journey_kind": "execute"},
+                                )
+                    if proc.returncode == 0:
+                        run.log(f"Done: {label}", level="success", stage=sid)
+                    return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
+                return subprocess.run(
+                    cmd,
+                    input=stdin_data,
+                    cwd=str(cwd or repo_root()),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    env=env,
+                    check=False,
+                )
+            return run_command(
                 cmd,
-                input=stdin_data,
+                ctx=run,
+                stage=sid,
+                label=label,
                 cwd=str(cwd or repo_root()),
-                capture_output=True,
-                text=True,
                 timeout=timeout,
-                env=env,
+                capture_output=True,
                 check=False,
             )
-        return run_command(
-            cmd,
-            ctx=run,
-            stage=sid,
-            label=label,
-            cwd=str(cwd or repo_root()),
-            timeout=timeout,
-            capture_output=True,
-            check=False,
-        )
     except subprocess.TimeoutExpired as exc:
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} timed out after {timeout}s") from exc
 

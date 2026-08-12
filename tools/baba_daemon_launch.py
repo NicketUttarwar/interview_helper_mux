@@ -103,6 +103,14 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
         ASSETS / "baba_server.log",
         env={
             "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
+            # Unattended e2e: skip hour-long musicgen-large CPU stems; mix still
+            # gets deterministic musical-note stubs (fail_closed_on_stub soft).
+            "MUX_E2E_MUSICGEN_FAST_STUB": os.environ.get(
+                "MUX_E2E_MUSICGEN_FAST_STUB", "1"
+            ),
+            "MUX_E2E_MUSICGEN_TIMEOUT_SEC": os.environ.get(
+                "MUX_E2E_MUSICGEN_TIMEOUT_SEC", "180"
+            ),
             "MUX_E2E_SOFT_LISTENABILITY": "1",
         },
     )
@@ -124,6 +132,10 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         "MUX_POLL_SEC": "20",
         "MUX_INPUT_AUDIO": os.environ.get("MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav"),
         "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
+        "MUX_E2E_MUSICGEN_FAST_STUB": os.environ.get("MUX_E2E_MUSICGEN_FAST_STUB", "1"),
+        "MUX_E2E_MUSICGEN_TIMEOUT_SEC": os.environ.get(
+            "MUX_E2E_MUSICGEN_TIMEOUT_SEC", "180"
+        ),
     }
     if fresh:
         rotate_e2e_console()

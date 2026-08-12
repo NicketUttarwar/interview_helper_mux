@@ -8,6 +8,7 @@ from typing import Any
 from interview_mux.config import merged_config
 from interview_mux.coverage_limits import (
     delivery_output_ideal_ratio,
+    delivery_output_max_ratio,
     delivery_output_min_ratio,
 )
 from interview_mux.run_context import RunContext
@@ -116,7 +117,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     question_max = int(db_cfg.get("question_budget_max", 6))
     ideal_frac = float(db_cfg.get("ideal_fraction_of_source", delivery_output_ideal_ratio()))
     min_ratio = float(db_cfg.get("min_ratio_of_source", delivery_output_min_ratio()))
-    max_ratio = float(db_cfg.get("max_ratio_of_source", 1.0))
+    max_ratio = float(db_cfg.get("max_ratio_of_source", delivery_output_max_ratio()))
     min_sec = int(db_cfg.get("min_duration_sec", 600))
     max_sec = int(db_cfg.get("max_duration_sec", 7200))
 

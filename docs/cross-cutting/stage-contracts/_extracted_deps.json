@@ -147,8 +147,7 @@
       "understanding/talking_points.json"
     ],
     "writes": [
-      "segments/boundaries.json",
-      "understanding/content_brief.json"
+      "segments/boundaries.json"
     ]
   },
   "selection": {

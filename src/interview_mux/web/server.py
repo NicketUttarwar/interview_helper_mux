@@ -3127,16 +3127,34 @@ def create_app() -> FastAPI:
                     continue
             refresh_journey_meta(ctx)
             notice = fallbacks[-1]["notice"] if fallbacks else None
+            missing = check_g1_vo(ctx)
+            framing_hard = False
+            try:
+                from interview_mux.gap_vo_gates import (
+                    gap_framing_enabled,
+                    resolve_gap_vo_delivery,
+                )
+
+                framing_hard = gap_framing_enabled(ctx) and resolve_gap_vo_delivery(
+                    ctx
+                ) in {"chatterbox", "synthesize", "voice_clone"}
+            except Exception:
+                framing_hard = False
+            if framing_hard and missing:
+                raise HTTPException(
+                    503,
+                    f"VO synthesis incomplete; still missing: {missing[:8]}",
+                )
             if errors and not synthesized:
                 raise HTTPException(503, f"VO synthesis failed for all lines: {errors[0]}")
             return {
-                "ok": not errors,
+                "ok": not errors and not (framing_hard and missing),
                 "synthesized": synthesized,
                 "errors": errors,
                 "fallbacks": fallbacks,
                 "fallback": "record" if fallbacks else None,
                 "notice": notice,
-                "g1_missing": check_g1_vo(ctx),
+                "g1_missing": missing,
             }
 
     @app.post("/api/runs/{run_id}/gap-fill/skip")

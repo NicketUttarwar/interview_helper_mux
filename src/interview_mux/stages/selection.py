@@ -460,6 +460,19 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="full_master_ranking",
         )
+        # Unify narrative constraints with selection air-order (flagship reconcile on conflict).
+        try:
+            from interview_mux.order_reconcile import reconcile_selection_and_narrative
+
+            reconcile_selection_and_narrative(
+                c, allow_llm=True, label="full_master_ranking/order_reconcile"
+            )
+        except Exception as exc:
+            c.log(
+                f"order_reconcile after ranking failed (fail-open): {exc}",
+                level="warning",
+                stage="full_master_ranking",
+            )
 
     with logged_step("full_master_ranking/stt_lexicon_scan", ctx=ctx, stage="full_master_ranking"):
         try:

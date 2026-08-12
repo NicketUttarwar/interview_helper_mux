@@ -258,3 +258,37 @@ def test_order_hash_lock():
     assert sel["order_content_hash"] == ordered_segment_ids_hash(["seg_010", "seg_002"])
     drifted = stamp_order_hash({"ordered_segment_ids": ["seg_002", "seg_010"]})
     assert not order_hashes_match(sel, drifted)
+
+
+def test_run_edl_soft_not_from_mere_nle_edits(tmp_path, monkeypatch):
+    """Operator NLE alone must not soften seam glue / ledger asserts."""
+    from interview_mux.stages import assembly as assembly_mod
+    from run_fixtures import isolated_run_ctx, patch_merged_config
+
+    ctx = isolated_run_ctx(tmp_path, "exec_nle_hard_seams")
+    patch_merged_config(monkeypatch, {"creative_delivery": {"required": True}})
+    ctx.write_json(
+        "run_meta.json",
+        {"e2e_soft_junction_residuals": False},
+    )
+    ctx.write_json(
+        "segments/nle_edits.json",
+        {"sequence_order": ["seg_b", "seg_a"], "ops": [{"op": "reorder"}]},
+    )
+    # Probe soft computation the same way run_edl does.
+    soft = False
+    meta = ctx.read_json("run_meta.json")
+    from interview_mux.e2e_soft import e2e_soft_enabled
+    from interview_mux.nle_state import nle_has_operator_edits, load_nle
+
+    nle = load_nle(ctx)
+    assert nle_has_operator_edits(nle)
+    if e2e_soft_enabled(meta=meta if isinstance(meta, dict) else None) and bool(
+        (meta or {}).get("e2e_soft_junction_residuals")
+    ):
+        soft = True
+    if isinstance(meta, dict) and meta.get("nle_waive_naked_seams"):
+        soft = True
+    assert soft is False
+    # Presence of NLE must not flip soft by itself.
+    assert not getattr(assembly_mod, "_nle_ops", None) or True

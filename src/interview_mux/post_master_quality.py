@@ -26,7 +26,10 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
 
     Ignores e2e soft flags — catastrophic shorts must not publish.
     """
-    from interview_mux.coverage_limits import delivery_output_min_ratio
+    from interview_mux.coverage_limits import (
+        delivery_output_max_ratio,
+        delivery_output_min_ratio,
+    )
     from interview_mux.delivery_brief import (
         delivery_brief_cfg,
         estimated_selection_duration_sec,
@@ -54,8 +57,10 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
         )
     source_ms = int(transcript_duration_ms(ctx) or 0)
     min_ratio = float(delivery_output_min_ratio() or 0.1)
+    max_ratio = float(delivery_output_max_ratio() or 1.5)
     detail["source_sec"] = source_ms / 1000.0 if source_ms else None
     detail["min_ratio_of_source"] = min_ratio
+    detail["max_ratio_of_source"] = max_ratio
     if est is not None and source_ms > 0:
         ratio = float(est) / (source_ms / 1000.0)
         detail["selected_source_ratio"] = round(ratio, 4)
@@ -63,6 +68,11 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
             detail["ok"] = False
             detail["reasons"].append(
                 f"selection/source ratio {ratio:.3f} < min {min_ratio:.3f}"
+            )
+        if ratio > max_ratio:
+            detail["ok"] = False
+            detail["reasons"].append(
+                f"selection/source ratio {ratio:.3f} > max {max_ratio:.3f}"
             )
     return detail
 

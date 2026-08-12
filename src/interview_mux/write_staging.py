@@ -51,6 +51,39 @@ def exit_stage_staging() -> None:
     _active_stage.set(None)
 
 
+def run_nested_staged_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
+    """Run ``fn`` in ``stage_id`` staging and auto-commit, then restore the parent stage.
+
+    In-process follow-ups (e.g. classification after ``boundary_topic_resplit``) otherwise
+    write into the parent's ``.pending_writes/`` and are dropped on flush because they are
+    not in the parent's ``STAGE_BY_ID.artifacts``.
+    """
+    parent = _active_stage.get()
+    enter_stage_staging(stage_id)
+    try:
+        fn()
+        after_stage_write_check(ctx, stage_id)
+        # Re-stamp fingerprints for known stage artifacts so downstream stale
+        # guards (e.g. sonic_context_build ← content_brief) see a coherent hash
+        # even if a post-commit heal rewrote the body under another stage key.
+        try:
+            from interview_mux.artifact_lifecycle import (
+                STAGE_ARTIFACT_DISK_PATHS,
+                restamp_committed_artifact,
+            )
+
+            rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+            if rel and ctx.artifact_exists(rel):
+                restamp_committed_artifact(ctx, rel, producer_stage=stage_id)
+        except Exception:
+            pass
+    finally:
+        if parent:
+            enter_stage_staging(parent)
+        else:
+            exit_stage_staging()
+
+
 def is_operational_path(rel: str) -> bool:
     if rel in OPERATIONAL_REL_PATHS:
         return True

@@ -18,6 +18,7 @@ def chatterbox_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     defaults = {
         "enabled": True,
         "model_id": "ResembleAI/chatterbox",
+        "device": "auto",
         "timeout_sec": 600,
         "fail_open": bool(gap_vo_cfg().get("fail_open", False)),
     }
@@ -106,6 +107,7 @@ def _synthesize_once(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model_id": chatterbox_cfg().get("model_id"),
+        "device": chatterbox_cfg().get("device") or "auto",
         "text": str(line.get("text") or ""),
         "ref_audio": str(ref),
         "out_wav": str(out_wav),

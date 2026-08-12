@@ -65,6 +65,16 @@ Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront 
 
 Destroy (careful): `./scripts/tf-destroy.sh` — does not empty S3 objects for you.
 
+## One-off: new RSS URL (archive old Apple feed)
+
+Bucket renames alone **do not** change the CloudFront domain. To retire the live show URL for Apple and stand up a **new** `…/feed.xml` while keeping the old URL reachable as an archive:
+
+```bash
+./scripts/tf-rotate-rss-url.sh                 # preview, then yes/no
+```
+
+Details: [`terraform/archives/README.md`](archives/README.md). **Do not run until cutover.**
+
 ## Wrapper scripts (`scripts/tf-*.sh`)
 
 All wrappers source `scripts/lib/terraform-common.sh` (load `secrets.env`, optional session restore, `-var-file`, arm64/Rosetta warnings, session backup).
@@ -76,6 +86,7 @@ All wrappers source `scripts/lib/terraform-common.sh` (load `secrets.env`, optio
 | `tf-apply.sh` | Apply + `sync_podcast_tf_secrets.sh` |
 | `tf-destroy.sh` | Destroy |
 | `tf-empty-bucket.sh` | Delete all objects/versions from the managed S3 bucket; preserve infrastructure |
+| `tf-rotate-rss-url.sh` | **One-off:** archive current CF feed URL (orphan from state, leave live), create a **new** S3+CloudFront feed URL — preview then yes/no |
 | `tf-refresh.sh` | Refresh state from AWS |
 | `tf-output.sh` | Show outputs |
 | `tf-show.sh` | Show state / saved plan |

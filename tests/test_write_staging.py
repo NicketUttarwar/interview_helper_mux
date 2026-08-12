@@ -13,6 +13,7 @@ from interview_mux.write_staging import (
     flush_stage_writes,
     has_pending_writes,
     list_pending_paths,
+    run_nested_staged_stage,
     run_wrapped_stage,
     write_approval_enabled,
 )
@@ -380,3 +381,32 @@ def test_gate_blocks_write_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert not write_approval_allowed(ctx, "speaker_roles")
     with pytest.raises(WriteApprovalBlockedError, match="LLM stage gate"):
         assert_write_approval_allowed(ctx, "speaker_roles")
+
+
+def test_nested_staged_stage_commits_under_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Classification writes nested under resplit must not die on parent flush."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    monkeypatch.setattr(
+        "interview_mux.write_staging.after_stage_write_check",
+        lambda c, sid: flush_stage_writes(c, sid),
+    )
+    enter_stage_staging("boundary_topic_resplit")
+    try:
+        parent_file = ctx.path("segments/boundaries.json")
+        parent_file.parent.mkdir(parents=True, exist_ok=True)
+        parent_file.write_text("{}", encoding="utf-8")
+
+        def _inner() -> None:
+            nested = ctx.path("segments/manifest.json")
+            nested.parent.mkdir(parents=True, exist_ok=True)
+            nested.write_text('{"segments":[]}', encoding="utf-8")
+
+        run_nested_staged_stage(ctx, "segment_classification", _inner)
+    finally:
+        exit_stage_staging()
+    flush_stage_writes(ctx, "boundary_topic_resplit")
+    assert (ctx.run_dir / "segments" / "manifest.json").is_file()
+    assert (ctx.run_dir / "segments" / "boundaries.json").is_file()

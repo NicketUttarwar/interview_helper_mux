@@ -342,11 +342,12 @@ def _lint_segment_classification(artifacts: dict[str, Any], ctx: RunContext) -> 
     segments = artifacts.get("segments") or []
     if not segments:
         errors.append("no classified segments")
-    types = [str(s.get("type", "")) for s in segments if isinstance(s, dict)]
-    if types and types.count("interviewee_answer") == len(types):
-        from interview_mux.gap_fill_eligibility import gap_fill_mode
+    types = [str(s.get("type", "")) for s in segments if isinstance(s, dict) and s.get("type")]
+    if types and types.count("interviewee_answer") == len(types) and len(types) >= 2:
+        from interview_mux.classification_obligation import allows_all_interviewee_answer
 
-        if gap_fill_mode(ctx) != "skipped":
+        allowance = allows_all_interviewee_answer(ctx)
+        if not allowance.allowed:
             errors.append("all segments typed interviewee_answer")
     return errors
 

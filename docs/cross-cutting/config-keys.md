@@ -47,7 +47,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `target_lufs` | Preferred alias for podcast master LUFS (falls back to `flow1_target_lufs`) | Wrong loudness |
 | `master` | Final safety limiter before loudness normalization | Disabled or unsafe settings reduce peak protection |
 | `creative_delivery` | Selection trim requirements and exclusion floors | Selection can over-trim or retain low-value material |
-| `local_chatterbox` | Local Chatterbox VO runtime, model, timeout, fail-open | Gap VO synthesis unavailable or stalls |
+| `local_chatterbox` | Local Chatterbox VO: `enabled`, `model_id`, `device` (`auto`→MPS), `timeout_sec`, `fail_open` | Gap VO synthesis unavailable or stalls |
 | `gui_job` | Background job stall thresholds (`stall_threshold_sec` default **1200**, `subprocess_stall_threshold_sec` default **7200**) | False stall warnings or late detection |
 | `show_description_min_words` / `show_description_max_words` / `show_description_target_words` | Flow 3 schema band + editorial target (defaults **150** / **250** / **200**) | Blurb fails validation or drifts from product spec |
 | `g1_5_preview_pickup` | `gates_tbiy.py`, G1.5 post-preview pickup panel (→ Mastering Realization preview gate) | When `enabled`, blocks SFX until post-preview VO re-recorded |
@@ -104,7 +104,8 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.prior_native_context.rewrite_density_seeds` | `artifact_repairs._enforce_min_vo_insert_ratio` | Rewrite interruptive density stock using prior beat (default **true**) |
 | `analysis.gap_framing.prior_native_context.relocate_micro_targets` | `gap_vo_prior_context` | Move density VO off micro backchannels onto next substantive segment (default **true**) |
 | `analysis.gap_framing.vo_value_gate.enabled` | `vo_value_violations`, `deterministic_lint` | Enforce conversation-partner VO quality (rationale + no-restate) (default **true**) |
-| `analysis.gap_framing.vo_value_gate.restate_overlap_max` | `vo_value_violations` | Max VO↔next-clip content-token overlap before fail (default **0.42**) |
+| `analysis.gap_framing.vo_value_gate.restate_overlap_max` | `vo_value_violations` | Max VO↔next-clip content-token overlap before fail (default **0.75**; single soft ceiling for all line categories) |
+| `analysis.gap_framing.vo_value_gate.allow_summary_overlap_max` | `vo_value_violations` | Alias kept for config compat; same **0.75** soft ceiling (no separate summary limit) |
 | `analysis.gap_framing.vo_value_gate.require_rationale` | `vo_value_violations` | Require non-empty `rationale` on each interviewer line (default **true**) |
 | `analysis.gap_framing.vo_value_gate.require_forward_cue` | `vo_value_violations` | Last sentence of every VO must unlock the next beat (default **true**) |
 | `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**) |
@@ -122,7 +123,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.nugget_layup.ban_canned_air` | `evaluate_layup_craft`, `lint_gap_report_layup_authority`, `seam_glue.mint_missing_transitions` | Reject hinge-menu / generic-unlock copy as air under layup authority (default **true**) |
 | `analysis.nugget_layup.unique_nuggets_across_layups` | `evaluate_layup_craft` | One nugget may be claimed by one lay-up only (default **true**) |
 | `analysis.nugget_layup.max_cross_layup_overlap` | `evaluate_layup_craft` | Max token overlap between two lay-up lines (default **0.6**) |
-| `analysis.nugget_layup.max_target_restate_overlap` | `evaluate_layup_craft` | Max token overlap between a lay-up and the clip it introduces (default **0.6**) |
+| `analysis.nugget_layup.max_target_restate_overlap` | `evaluate_layup_craft` | Max token overlap between a lay-up and the clip it introduces (default **0.75**) |
 | `analysis.nugget_layup.suppress_placeholder_seams_when_layup` | `seam_glue` | Skip canned seam mint when before-VO layup exists (default **true**) |
 | `analysis.nugget_layup.demote_synthetic_framing_content` | `synthetic_framing` | Skip contentful synthetic framing LLM under layup authority (default **true**) |
 | `analysis.nugget_layup.authoritative_gap_report` | `gap_framing_recompose` | Recompose becomes thin adapter when layup plan exists (default **true**) |
@@ -772,6 +773,7 @@ Unified ratio policy for analysis integrity vs delivery compression — `coverag
 | `reanchor_min_coverage_ratio` | `0.55` | `content_brief_reanchor` lint | Re-anchor gate too strict/loose |
 | `delivery_output_min_ratio_of_source` | `0.10` | delivery brief / QC | Master shorter than product floor |
 | `delivery_output_ideal_ratio_of_source` | `0.45` | delivery brief | Ideal duration band misaligned |
+| `delivery_output_max_ratio_of_source` | `1.5` | delivery brief / QC | Master longer than 1.5× source |
 | `shard_target_duration_ms` | `120000` | shard planning | Shards too large/small for long interviews |
 | `shard_batch_max_ratio` | `1.0` | collate/decompose | Late timeline segments dropped |
 | `gap_fill_max_ratio` | `0.20` | micro-gap-fill | Over-synthetic remediation |
@@ -818,11 +820,11 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `enabled` | `true` | `delivery_brief_build` | No brief → delivery preflight fails when hardening on |
 | `ideal_fraction_of_source` | `0.45` | duration band derivation | Episode ideal too short/long vs source |
 | `min_ratio_of_source` | `0.10` | duration floor | Master may not compress below 10% without override |
-| `max_ratio_of_source` | `1.0` | duration ceiling | Full-length masters blocked when set lower |
+| `max_ratio_of_source` | `1.5` | duration ceiling | Masters above 1.5× source blocked at ship |
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
 | `question_budget_max` | `0` (uncapped) | soft guidance only when >0 | Prefer `creative_delivery.listenability_guards` host_vo coverage ratios |
-| `enforce_duration` | `true` | ranking cross-validate + post-master | Soft duration band becomes hard fail; selection below brief.min×0.85 or source min-ratio blocks ship |
+| `enforce_duration` | `true` | ranking cross-validate + post-master | Soft duration band becomes hard fail; selection below brief.min×0.85, below source min-ratio, or above source max-ratio blocks ship |
 
 ---
 
@@ -844,7 +846,7 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 
 `bed_coverage_max_ratio` (`0.88`) and `hinge_stinger_coverage_min_ratio` (`0.3`) were widened/loosened from earlier `0.55` / `0.5` — bed-heavy passages and lighter hinge-punctuation density are both legitimate, so the guard should not fail a well-produced master for being musically dense or for using restraint at minor hinges.
 
-**Retention / pack-to-target policy:** trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The only hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — a master should not compress below ~10% of source without an explicit override). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
+**Retention / pack-to-target policy:** product **aim band** is **0.45×–1.5×** of source for the final master (selection is the pre-mix proxy). Trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — catastrophe net only). The hard ceiling is `analysis.delivery_brief.max_ratio_of_source` (**`1.5`** — VO/music may expand past source). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
 
 **Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Any gap `placement: before` VO on `before_segment_id` covers the pair — do not mint a second spoken host turn. Fallback hinge text from `seam_glue.default_bridge_text` invites the next beat **without embedding the native excerpt**. `bridge_completeness.stub_reorder_bridges` flags known generic stub phrases **and** verbatim text reused across ≥3 distinct seam pairs; `assert_bridges_complete` **blocks** on stubs (not advisory-only). Artifact: `master/assembly_ledger.json`.
 
@@ -1060,22 +1062,28 @@ Retired for War Room episode covers (OpenAI Images only). Keys retained so orpha
 
 ## `musicgen`
 
-Local MusicGen theme beds for creative-delivery `theme_*` stems. See [local-audio-stack.md](./local-audio-stack.md).
+Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kinds. See [local-audio-stack.md](./local-audio-stack.md).
 
 | Key | Default | Role |
 |-----|---------|------|
 | `enabled` | `true` | Theme bed generation |
-| `model_id` | `facebook/musicgen-large` | Text-to-music model (matches bootstrap cache) |
-| `melody_model_id` | `facebook/musicgen-melody-large` | Melody-conditioned model when cold-open WAV exists |
-| `device` | `cpu` | `cpu` / `mlx` / `mps` / `cuda`. **Never auto-MPS** — PyTorch MPS can abort in Metal (`Python quit unexpectedly`). Opt in with `mps`. |
+| `model_id` | `facebook/musicgen-large` | Primary MusicGen model (ladder starts here: large→medium→small) |
+| `melody_model_id` | `facebook/musicgen-melody-large` | Melody-conditioned model when motif/cold-open WAV exists |
+| `device` | `auto` | `auto` / `cpu` / `mlx` / `mps` / `cuda`. **`auto` prefers GPU**: MPS on Apple Silicon when available, else CUDA, else CPU. After a Metal abort, `ban_mps_on_abort` forces CPU for the rest of the run. Set `cpu` to force CPU-only. |
 | `ban_mps_on_abort` | `true` | After SIGABRT, ban MPS for the rest of the run and retry once on CPU |
-| `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after the 1h + step-down ladder so mix always has music |
+| `request_timeout_sec` | `900` | Hang budget for primary attempt on GPU (large needs several minutes per stem) |
+| `cpu_request_timeout_sec` | `300` | Tighter hang budget when resolved device is CPU (step down instead of thrash) |
+| `step_down_timeout_sec` | `480` | Hang budget for medium/small ladder steps |
+| `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after ladder + MMAudio backup so mix always has music |
 | `best_of_n_speech_free` | `1` | Candidates for cold open / outro / accents |
 | `best_of_n_underscore` | `1` | Candidates for underscore beds |
 | `max_best_of_n` | `1` | Hard cap (also clamps production-profile overrides) |
-| `use_melody_conditioning` | `false` | Condition later stems on cold-open melody |
-| `request_timeout_sec` | `3600` | Per-clip timeout; then shorter/bare/smaller-model step-down, then musical stub |
-| `prefetch_models` | large + melody-large | Bootstrap cache list |
+| `use_melody_conditioning` | `false` | Condition later stems on motif/cold-open melody |
+| `prefer_medium_on_cpu` | `false` | When true, skip large on CPU if medium is cached — **default off** (large first) |
+| `mmaudio_backup_on_stub` | `true` | After MusicGen stub (non-e2e), try MMAudio before accepting stub audio |
+| `min_duration_sec` | `4.0` | Soft floor only |
+| `max_duration_sec` | `24.0` | Soft advisory only — not enforced as a hard ceiling in `clamp_music_duration` |
+| `prefetch_models` | large + melody-large + medium + small | Bootstrap cache list |
 | `keep_candidates` | `false` | Keep losing best-of-N WAVs under `_candidates/` |
 
 ---
@@ -1184,6 +1192,19 @@ Isolated venv paths — [local-audio-stack.md](./local-audio-stack.md).
 | `local_runtimes.deepfilter.venv_dir` | `ASSETS/local_deepfilter/venv` | Preclean DeepFilterNet subprocess fails |
 | `local_runtimes.mmaudio.venv_dir` | `ASSETS/local_mmaudio/venv` | MMAudio SFX subprocess fails |
 | `local_runtimes.*.enabled` | `true` | When `false`, `local_runtime` raises for that stack |
+
+---
+
+## `local_gpu`
+
+Machine-wide exclusive gate for heavy local AI subprocesses (MusicGen, Chatterbox, MMAudio, MLX speech/LLM, DeepFilter). Pipeline stages are already one-at-a-time per run; this also serializes back-to-back gens inside a stage and across runs.
+
+| Key | Default | If wrong |
+|-----|---------|----------|
+| `local_gpu.serialize` | `true` | Overlapping GPU jobs thrash unified memory / Metal abort; set `INTERVIEW_MUX_GPU_SERIALIZE=0` only for debug |
+| `local_gpu.cooldown_sec` | `5` | After each consumer exits, wait before next may start; override with `INTERVIEW_MUX_GPU_COOLDOWN_SEC` |
+| `local_gpu.lock_timeout_sec` | `7200` | Gate wait times out while another job still holds GPU |
+| `local_gpu.consumers` | musicgen, mmaudio, chatterbox, speech, mlx, llm, deepfilter, image | Listed runtime ids must take the gate |
 
 ---
 

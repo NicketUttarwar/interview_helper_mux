@@ -135,6 +135,20 @@ def run_sound_design_plan(ctx: RunContext) -> None:
             soundscape_enabled,
         )
 
+        # Reconcile any mid-pipeline drift before SDP LLM sees narrative vs selection.
+        try:
+            from interview_mux.order_reconcile import reconcile_selection_and_narrative
+
+            reconcile_selection_and_narrative(
+                c, allow_llm=True, label="sound_design_plan/order_reconcile"
+            )
+        except Exception as exc:
+            c.log(
+                f"order_reconcile before sound_design_plan failed (fail-open): {exc}",
+                level="warning",
+                stage="sound_design_plan",
+            )
+
         if soundscape_enabled():
             try:
                 refresh_cue_slots(c)
@@ -223,7 +237,47 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         c.write_json("understanding/music_brief.json", brief)
         if isinstance(artifacts.get("motif_family"), dict):
             sdp["motif_family"] = artifacts["motif_family"]
-        sdp = ensure_motif_on_plan(sdp, brief)
+        sdp = ensure_motif_on_plan(sdp, brief, ctx=c)
+        # Cue placement is owned by music_palette_compose (after EDL/preview).
+        # Keep a minimal placeholder cue list so schema links stay valid.
+        flow_plans = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+        podcast = flow_plans.get("podcast") if isinstance(flow_plans.get("podcast"), dict) else {}
+        if not isinstance(sdp.get("flow_plans"), dict):
+            sdp["flow_plans"] = {}
+        assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
+        by_kind = {
+            str(a.get("palette_kind") or ""): a
+            for a in assets
+            if a.get("palette_kind")
+        }
+        placeholder: list[dict] = []
+        motif = by_kind.get("motif") or by_kind.get("full_bed")
+        if motif and motif.get("asset_id"):
+            placeholder.append(
+                {
+                    "cue_id": "palette_open_placeholder",
+                    "asset_id": str(motif["asset_id"]),
+                    "role": str(motif.get("role") or "theme_cold_open"),
+                    "placement": "before_segment",
+                    "level_db": -10,
+                }
+            )
+        unders = by_kind.get("underscore_loop")
+        if unders and unders.get("asset_id"):
+            placeholder.append(
+                {
+                    "cue_id": "palette_bed_placeholder",
+                    "asset_id": str(unders["asset_id"]),
+                    "role": str(unders.get("role") or "theme_underscore"),
+                    "placement": "under_segment",
+                    "level_db": -22,
+                    "crossfade_ms": 1500,
+                }
+            )
+        podcast = dict(podcast)
+        podcast["cues"] = placeholder
+        podcast["compose_deferred"] = True
+        sdp["flow_plans"]["podcast"] = podcast
         from interview_mux.creative_delivery import hydrate_flow_cue_segments
 
         actions = hydrate_flow_cue_segments(c, sdp)
@@ -258,6 +312,10 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                     cue.pop("after_segment_id", None)
                 if str(cue.get("placement") or "") == "under_segment":
                     cue["crossfade_ms"] = max(1500, int(cue.get("crossfade_ms") or 0))
+                    if ordered and not cue.get("under_segment_id") and not cue.get("segment_id"):
+                        # Placeholder bed — compose will alternate; seed on first pillar.
+                        cue["under_segment_id"] = ordered[0]
+                        cue["segment_id"] = ordered[0]
             podcast["cues"] = cues
         _validate_sound_design_plan(sdp)
         _validate_flow1_asset_links(sdp)
@@ -304,7 +362,21 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
         elif role in ROLE_DURATION_BANDS:
             band = ROLE_DURATION_BANDS.get(role)
         if band:
-            clamped = max(float(band[0]), min(float(band[1]), float(dur)))
+            # Soft bands: raise short clips to lo; allow stretch above hi for full beds.
+            lo, hi = float(band[0]), float(band[1])
+            val = float(dur)
+            if val < lo:
+                clamped = lo
+            elif val > hi and role not in {
+                "theme_cold_open",
+                "theme_outro",
+                "full_bed",
+                "motif",
+            }:
+                # Soft guidance — allow modest stretch, not a hard global ceiling.
+                clamped = min(val, hi * 1.5)
+            else:
+                clamped = val
         else:
             clamped = clamp_duration_seconds(float(dur), role=role, ctx=ctx)
         if clamped != float(dur):
@@ -606,7 +678,7 @@ def _validate_flow1_asset_links(plan: dict) -> None:
         )
 
 def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | None = None) -> list[dict]:
-    """One crafted row per SDP asset; duration/role/prompt hygiene for theme lint."""
+    """One crafted row per SDP asset; compile_musicgen_prompt is authoritative."""
     assets = plan.get("assets")
     if not isinstance(assets, list) or not assets:
         raise ValueError(
@@ -621,10 +693,21 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | No
         raise ValueError("sfx_prompt_craft: sound design plan assets lack asset_id values")
 
     from interview_mux.artifact_repairs import heal_sfx_prompt_row, _sonic_keyword_tokens
-    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
-    from interview_mux.mmaudio_runner import clamp_duration_seconds
+    from interview_mux.music_motif import (
+        compile_musicgen_prompt,
+        default_motif_family,
+        validate_theme_prompt,
+    )
+    from interview_mux.musicgen_runner import clamp_music_duration
 
     sonic_kws = _sonic_keyword_tokens(ctx) if ctx is not None else []
+    brief: dict = {}
+    if ctx is not None and ctx.artifact_exists("understanding/music_brief.json"):
+        raw = ctx.read_json("understanding/music_brief.json")
+        brief = raw if isinstance(raw, dict) else {}
+    motif = plan.get("motif_family") if isinstance(plan.get("motif_family"), dict) else {}
+    if not motif.get("prompt_dna"):
+        motif = default_motif_family(brief)
 
     by_id: dict[str, dict] = {}
     for row in prompts:
@@ -636,18 +719,25 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | No
         merged = {**row, "asset_id": aid}
         asset = assets_by_id[aid]
         role = str(asset.get("role") or merged.get("role") or "")
+        kind = str(asset.get("palette_kind") or "") or None
+        energy = str(asset.get("energy") or "") or None
         plan_duration = asset.get("duration_seconds")
         if plan_duration is not None:
-            band = ROLE_DURATION_BANDS.get(role)
-            if band:
-                merged["duration_seconds"] = max(
-                    float(band[0]), min(float(band[1]), float(plan_duration))
-                )
-            else:
-                merged["duration_seconds"] = clamp_duration_seconds(
-                    float(plan_duration),
-                    role=role,
-                )
+            merged["duration_seconds"] = clamp_music_duration(
+                float(plan_duration), role=role or "theme_underscore"
+            )
+        # Authoritative succinct recipe — overwrite long LLM prose.
+        pos, neg = compile_musicgen_prompt(
+            brief=brief,
+            motif=motif,
+            role=role or "theme_underscore",
+            palette_kind=kind,
+            energy=energy,
+        )
+        llm_prompt = str(merged.get("sfx_prompt") or "").strip()
+        if not llm_prompt or len(llm_prompt) > 280 or validate_theme_prompt(llm_prompt):
+            merged["sfx_prompt"] = pos
+        merged["negative_prompt"] = neg
         heal_sfx_prompt_row(
             merged,
             role=role or "theme_underscore",
@@ -656,7 +746,36 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | No
             else (float(plan_duration) if plan_duration is not None else None),
             sonic_keywords=sonic_kws,
         )
+        # Re-assert succinct compile after heal (heal may expand).
+        if len(str(merged.get("sfx_prompt") or "")) > 320 or validate_theme_prompt(
+            str(merged.get("sfx_prompt") or "")
+        ):
+            merged["sfx_prompt"] = pos
+            merged["negative_prompt"] = neg
         by_id[aid] = merged
+
+    # Fill any missing assets from compile (LLM may omit).
+    for aid, asset in assets_by_id.items():
+        if aid in by_id:
+            continue
+        role = str(asset.get("role") or "theme_underscore")
+        pos, neg = compile_musicgen_prompt(
+            brief=brief,
+            motif=motif,
+            role=role,
+            palette_kind=str(asset.get("palette_kind") or "") or None,
+            energy=str(asset.get("energy") or "") or None,
+        )
+        dur = asset.get("duration_seconds")
+        row = {
+            "asset_id": aid,
+            "sfx_prompt": pos,
+            "negative_prompt": neg,
+            "duration_seconds": clamp_music_duration(float(dur or 10), role=role)
+            if dur is not None
+            else 10.0,
+        }
+        by_id[aid] = row
 
     missing = sorted(set(assets_by_id) - set(by_id))
     if missing:

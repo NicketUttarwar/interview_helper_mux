@@ -8,21 +8,63 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 # Creative-delivery show audio — music and undertones only.
+# Canonical palette kinds (aliases keep theme_* for one release).
+PALETTE_KINDS = (
+    "motif",
+    "underscore_loop",
+    "optional_loop",
+    "stinger",
+    "full_bed",
+)
+
 THEME_ROLES = frozenset(
     {
+        # Legacy / generation roles
         "theme_cold_open",
         "theme_underscore",
         "theme_emphasis",
         "theme_chapter_resolve",
         "theme_outro",
         "theme_transition",
+        # Fixed palette kinds
+        "motif",
+        "underscore_loop",
+        "optional_loop",
+        "stinger",
+        "full_bed",
     }
 )
 
-THEME_BED_ROLES = frozenset({"theme_underscore"})
-THEME_PUNCTUATOR_ROLES = frozenset(
-    {"theme_cold_open", "theme_emphasis", "theme_chapter_resolve", "theme_outro", "theme_transition"}
+THEME_BED_ROLES = frozenset(
+    {
+        "theme_underscore",
+        "underscore_loop",
+        "optional_loop",
+    }
 )
+THEME_PUNCTUATOR_ROLES = frozenset(
+    {
+        "theme_emphasis",
+        "theme_chapter_resolve",
+        "theme_transition",
+        "stinger",
+    }
+)
+
+# Map palette / legacy labels → generation role used by MusicGen + mix.
+_ROLE_CANON: dict[str, str] = {
+    "motif": "theme_cold_open",
+    "underscore_loop": "theme_underscore",
+    "optional_loop": "theme_underscore",
+    "stinger": "theme_emphasis",
+    "full_bed": "theme_cold_open",
+    "theme_cold_open": "theme_cold_open",
+    "theme_underscore": "theme_underscore",
+    "theme_emphasis": "theme_emphasis",
+    "theme_chapter_resolve": "theme_chapter_resolve",
+    "theme_transition": "theme_transition",
+    "theme_outro": "theme_outro",
+}
 
 # Never ship in creative-delivery show audio.
 BANNED_SFX_ROLES = frozenset(
@@ -36,8 +78,8 @@ BANNED_SFX_ROLES = frozenset(
         "rhetorical_punctuator",
         "era_music_bed",
         "environmental_foley",
-        "cold_open",  # legacy SFX cold_open — use theme_cold_open
-        "outro",  # legacy — use theme_outro
+        "cold_open",  # legacy SFX cold_open — use theme_cold_open / motif
+        "outro",  # legacy — use theme_outro / full_bed
     }
 )
 
@@ -122,6 +164,214 @@ def is_banned_role(role: str | None) -> bool:
     return str(role or "").strip() in BANNED_SFX_ROLES
 
 
+def canon_generation_role(role: str | None) -> str:
+    """Map palette kind / alias to the MusicGen+mix role string."""
+    r = str(role or "").strip()
+    return _ROLE_CANON.get(r, r or "theme_underscore")
+
+
+def palette_kind_for_role(role: str | None, *, energy: str | None = None) -> str:
+    """Classify an asset role into a fixed palette kind."""
+    r = str(role or "").strip()
+    if r in PALETTE_KINDS:
+        return r
+    if r in {"theme_cold_open", "motif"}:
+        return "motif"
+    if r in {"theme_outro", "full_bed"}:
+        return "full_bed"
+    if r in {"theme_emphasis", "theme_chapter_resolve", "theme_transition", "stinger"}:
+        return "stinger"
+    if r in {"theme_underscore", "underscore_loop", "optional_loop"}:
+        if str(energy or "").lower() in {"lift", "optional", "alt", "alternate"}:
+            return "optional_loop"
+        return "underscore_loop"
+    return "underscore_loop"
+
+
+def analysis_palette_counts(ctx: RunContext) -> dict[str, int]:
+    """Analysis-driven fixed palette inventory (kinds only; never invent new stem types)."""
+    counts = {
+        "motif": 1,
+        "underscore_loop": 1,
+        "optional_loop": 1,
+        "stingers": 3,
+        "full_beds": 2,
+    }
+    mode = ""
+    dens = "moderate"
+    try:
+        from interview_mux.narrative_mode import sonic_density_for_mode
+
+        if ctx.artifact_exists("mastering/mastering_plan.json"):
+            plan = ctx.read_json("mastering/mastering_plan.json")
+            if isinstance(plan, dict):
+                mode = str(
+                    plan.get("confirmed_mode")
+                    or plan.get("narrative_mode")
+                    or plan.get("provisional_mode")
+                    or ""
+                ).strip()
+                dens = sonic_density_for_mode(mode, plan)
+    except Exception:
+        pass
+
+    chapters = 0
+    if ctx.artifact_exists("master/narrative_plan.json"):
+        raw = ctx.read_json("master/narrative_plan.json")
+        if isinstance(raw, dict):
+            chapters = len([c for c in (raw.get("chapters") or []) if isinstance(c, dict)])
+
+    ordered_n = 0
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            ordered_n = len([s for s in (sel.get("ordered_segment_ids") or []) if s])
+
+    # Cue-slot / density budget when policy exists.
+    max_beds = 2
+    max_punct = 4
+    try:
+        from interview_mux.soundscape_policy import load_policy
+
+        pol = load_policy(ctx)
+        if isinstance(pol, dict):
+            dens_block = pol.get("sfx_density") if isinstance(pol.get("sfx_density"), dict) else {}
+            if dens_block.get("max_beds") is not None:
+                max_beds = int(dens_block.get("max_beds") or 0)
+            if dens_block.get("max_punctuators") is not None:
+                max_punct = int(dens_block.get("max_punctuators") or 0)
+            slots = [s for s in (pol.get("cue_slots") or []) if isinstance(s, dict)]
+            if slots:
+                punct_slots = 0
+                for slot in slots:
+                    allowed = {str(x) for x in (slot.get("allowed_roles") or [])}
+                    if allowed & {
+                        "theme_emphasis",
+                        "theme_chapter_resolve",
+                        "theme_transition",
+                        "stinger",
+                    }:
+                        punct_slots += 1
+                if punct_slots > 0:
+                    max_punct = min(max_punct, punct_slots) if max_punct else punct_slots
+    except Exception:
+        pass
+
+    dens_l = str(dens or "").lower()
+    mode_l = str(mode or "").lower()
+    if dens_l in {"minimal", "sparse"} or mode_l in {"sparse_source", "conversational_host"}:
+        counts["optional_loop"] = 0
+        counts["stingers"] = max(1, min(2, chapters or 1))
+        counts["full_beds"] = 1
+    elif dens_l in {"hook_forward", "rich", "dense"} or mode_l in {
+        "hook_montage",
+        "documentary_bridge",
+    }:
+        counts["optional_loop"] = 1
+        counts["stingers"] = max(3, min(6, (chapters or 2) + 1))
+        counts["full_beds"] = 2
+    else:
+        counts["optional_loop"] = 1 if ordered_n >= 8 or chapters >= 2 else 0
+        counts["stingers"] = max(2, min(5, chapters or 2))
+        counts["full_beds"] = 2 if ordered_n >= 10 else 1
+
+    if max_punct > 0:
+        counts["stingers"] = max(1, min(counts["stingers"], max_punct))
+    if max_beds <= 1:
+        counts["optional_loop"] = 0
+    return counts
+
+
+def build_fixed_palette_assets(
+    brief: dict[str, Any],
+    counts: dict[str, int],
+    *,
+    motif_family: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Build the exact fixed palette asset rows from analysis counts."""
+    family = motif_family if isinstance(motif_family, dict) else default_motif_family(brief)
+    dna_slug = re.sub(r"[^a-z0-9]+", "_", str(family.get("motif_id") or "theme"))[:24]
+    phrase = str(family.get("motif_phrase") or "ascending melodic motif")
+    instruments = ", ".join(
+        str(x) for x in (family.get("instrumentation") or ["acoustic guitar", "piano", "bass"])[:4]
+    )
+    assets: list[dict[str, Any]] = [
+        {
+            "asset_id": f"{dna_slug}_motif",
+            "role": "theme_cold_open",
+            "palette_kind": "motif",
+            "description": f"Show motif / cold-open seed: {phrase}; instruments: {instruments}",
+            "duration_seconds": 14,
+        },
+        {
+            "asset_id": f"{dna_slug}_underscore_loop",
+            "role": "theme_underscore",
+            "palette_kind": "underscore_loop",
+            "energy": "calm",
+            "description": (
+                f"Primary loopable underscore under dialogue: {phrase}; instruments: {instruments}"
+            ),
+            "duration_seconds": 12,
+        },
+    ]
+    if int(counts.get("optional_loop") or 0) > 0:
+        assets.append(
+            {
+                "asset_id": f"{dna_slug}_optional_loop",
+                "role": "theme_underscore",
+                "palette_kind": "optional_loop",
+                "energy": "lift",
+                "description": (
+                    f"Alternate underscore loop (anti-repetition lift): {phrase}; "
+                    f"instruments: {instruments}"
+                ),
+                "duration_seconds": 12,
+            }
+        )
+    n_stingers = max(0, int(counts.get("stingers") or 0))
+    for i in range(n_stingers):
+        assets.append(
+            {
+                "asset_id": f"{dna_slug}_stinger_{i+1:02d}",
+                "role": "theme_emphasis",
+                "palette_kind": "stinger",
+                "description": f"Chapter/hinge stinger phrase {i+1}: {phrase}",
+                "duration_seconds": 6,
+            }
+        )
+    n_beds = max(1, min(2, int(counts.get("full_beds") or 1)))
+    assets.append(
+        {
+            "asset_id": f"{dna_slug}_full_bed_open",
+            "role": "theme_cold_open",
+            "palette_kind": "full_bed",
+            "placement_hint": "open",
+            "description": (
+                f"Complex enjoyable full bed for episode open: layered ensemble, "
+                f"{phrase}; instruments: {instruments}"
+            ),
+            "duration_seconds": 20,
+        }
+    )
+    if n_beds >= 2:
+        assets.append(
+            {
+                "asset_id": f"{dna_slug}_full_bed_close",
+                "role": "theme_outro",
+                "palette_kind": "full_bed",
+                "placement_hint": "close",
+                "description": (
+                    f"Complex enjoyable full bed for episode close: resolving ensemble, "
+                    f"{phrase}; instruments: {instruments}"
+                ),
+                "duration_seconds": 18,
+            }
+        )
+    family["stems"] = [str(a.get("palette_kind") or a.get("role")) for a in assets]
+    family["palette_counts"] = dict(counts)
+    return assets
+
+
 def text_has_banned_texture(text: str) -> bool:
     low = (text or "").lower()
     return any(tok in low for tok in BANNED_TEXTURE_TOKENS)
@@ -140,17 +390,25 @@ def prompt_looks_musical(text: str) -> bool:
 
 
 def validate_theme_prompt(prompt: str, *, require_dna: str | None = None) -> list[str]:
-    """Return list of arbiter failures (empty = ok)."""
+    """Return list of arbiter failures (empty = ok). Succinct prompts are preferred."""
     errs: list[str] = []
     p = (prompt or "").strip()
-    if len(p) < 24:
+    if len(p) < 20:
         errs.append("prompt_too_short")
+    if len(p) > 420:
+        errs.append("prompt_too_long")
     if text_has_banned_texture(p):
         errs.append("banned_texture_language")
     if not prompt_looks_musical(p):
         errs.append("missing_instrument_or_melody_language")
-    if require_dna and require_dna.strip() and require_dna.strip().lower() not in p.lower():
-        errs.append("missing_prompt_dna")
+    # Soft DNA check: require a short token from dna when provided (not full dump).
+    if require_dna and require_dna.strip():
+        token = require_dna.strip().split(",")[0].strip()[:48]
+        if token and token.lower() not in p.lower():
+            # Accept key_center / motif phrase fragments instead of full DNA echo.
+            words = [w for w in re.split(r"\W+", token.lower()) if len(w) >= 4][:2]
+            if words and not any(w in p.lower() for w in words):
+                errs.append("missing_prompt_dna")
     return errs
 
 
@@ -477,186 +735,173 @@ def compile_musicgen_prompt(
     chapter_mood: str | None = None,
     extra_tags: list[str] | None = None,
     wpm: float | None = None,
+    palette_kind: str | None = None,
+    energy: str | None = None,
 ) -> tuple[str, str]:
-    """Return (positive_prompt, negative_prompt) optimized for MusicGen."""
-    dna = str(motif.get("prompt_dna") or "").strip()
-    phrase = str(motif.get("motif_phrase") or "").strip()
-    instruments = ", ".join(str(x) for x in (motif.get("instrumentation") or [])[:6])
+    """Authoritative succinct MusicGen recipe: instruments, energy, space, bans."""
+    kind = palette_kind or palette_kind_for_role(role, energy=energy)
+    gen_role = canon_generation_role(role)
+    phrase = str(motif.get("motif_phrase") or "ascending melodic motif").strip()
+    # Keep phrase short for MusicGen.
+    if len(phrase) > 90:
+        phrase = phrase[:87].rstrip() + "…"
+    instruments = ", ".join(str(x) for x in (motif.get("instrumentation") or [])[:4])
+    if not instruments:
+        instruments = "acoustic guitar, piano, bass, light percussion"
     key_center = str(motif.get("key_center") or "G")
     scale_or_mode = str(motif.get("scale_or_mode") or "major_bright")
-    # Always high-energy pulse under important beats — pace adjusts BPM, never pad-only.
-    form = {
-        "theme_cold_open": (
-            "opening theme with clear melodic lead, layered ensemble arrangement, "
-            "strong rhythmic pulse, full presence"
-        ),
-        "theme_underscore": (
-            "loopable upbeat rhythmic underscore under dialogue, duck-safe midrange, "
-            "audible pulse, motif repeating, speech-friendly dynamics"
-        ),
-        "theme_underscore_calm": (
-            "calmer looping underscore with soft percussion and warm bass, clear pulse, "
-            "dialogue-friendly midrange, never pad-only"
-        ),
-        "theme_underscore_lift": (
-            "high-energy underscore lift with brighter percussion, stronger bass, "
-            "and motif lift, still duck-safe under dialogue"
-        ),
-        "theme_emphasis": (
-            "short high-energy melodic swell with layered instruments and rhythmic punch "
-            "highlighting a key claim, not a sound effect"
-        ),
-        "theme_chapter_resolve": (
-            "cadential resolving musical tag with rhythmic landing and ensemble cadence"
-        ),
-        "theme_transition": (
-            "short rhythmic melodic bridge of musical notes between sections, no whoosh"
-        ),
-        "theme_outro": (
-            "resolving outro phrase with layered ensemble and fading pulse, full presence"
-        ),
-    }.get(role, "upbeat instrumental musical phrase with clear pulse and layered instruments")
-
     mood = chapter_mood or str(motif.get("mood") or "determined")
-    tags = [str(t) for t in (extra_tags or []) if t][:4]
-    quotes = brief.get("source_quotes_short") if isinstance(brief.get("source_quotes_short"), list) else []
-    quote_bit = ""
-    if quotes and role in {"theme_emphasis", "theme_cold_open"}:
-        quote_bit = f" evocative of: {quotes[0][:80]}"
-
     tempo = tempo_clause_for_wpm(wpm)
-    # Scrub legacy "no vocals" / Avoid clauses from motif DNA — positives must stay clean for lint.
-    dna_clean = re.sub(r"\bno\s+vocals\b", "", dna, flags=re.I)
-    dna_clean = re.sub(r"\bavoid\s*:", "", dna_clean, flags=re.I)
-    dna_clean = re.sub(r"\s+", " ", dna_clean).strip(" ,.")
+
+    form_by_kind = {
+        "motif": "short show motif / cold-open seed, clear melodic lead",
+        "underscore_loop": "loopable duck-safe underscore under dialogue, soft midrange",
+        "optional_loop": "alternate lift underscore loop, still duck-safe under dialogue",
+        "stinger": "short hinge stinger phrase of musical notes, not a sound effect",
+        "full_bed": "complex enjoyable full bed with layered ensemble, speech-free presence",
+    }
+    # Legacy role fallbacks when kind not set.
+    if kind not in form_by_kind:
+        form_by_kind[kind] = {
+            "theme_cold_open": form_by_kind["motif"],
+            "theme_outro": form_by_kind["full_bed"],
+            "theme_underscore": form_by_kind["underscore_loop"],
+            "theme_emphasis": form_by_kind["stinger"],
+            "theme_chapter_resolve": form_by_kind["stinger"],
+            "theme_transition": form_by_kind["stinger"],
+        }.get(gen_role, "instrumental musical phrase with clear pulse")
+
+    form = form_by_kind.get(kind) or "instrumental musical phrase with clear pulse"
+    tags = [str(t) for t in (extra_tags or []) if t][:2]
+    tag_bit = f"; topics {', '.join(tags)}" if tags else ""
+
+    # Recipe class from brief when present (succinct, not story dump).
+    ident = brief.get("show_identity") if isinstance(brief.get("show_identity"), dict) else {}
+    genre = str(ident.get("genre_hint") or motif.get("genre_hint") or "documentary instrumental")
+    if len(genre) > 40:
+        genre = genre[:37].rstrip() + "…"
+    # Shorten tempo clause for MusicGen token budget.
+    tempo_short = tempo
+    if len(tempo_short) > 48:
+        tempo_short = "upbeat pulse ~100 BPM"
+
     positive = (
-        f"{dna_clean}. Form: {form}. Instruments: {instruments}. "
-        f"Key: {key_center} {scale_or_mode}. Melodic contour: {phrase}. "
-        f"Mood: {mood}. Tempo: {tempo}."
+        f"{genre}; {form}; {instruments}; "
+        f"key {key_center} {scale_or_mode}; motif: {phrase}; "
+        f"{mood}; {tempo_short}{tag_bit}. Instrumental, audible pulse."
     )
-    if tags:
-        positive += f" Topics: {', '.join(tags)}."
-    positive += quote_bit
-    positive += (
-        " Pure instrumental music with clear musical notes, phrases, "
-        "layered instruments, and an audible rhythmic pulse — never ambient pad-only texture."
-    )
-    positive = re.sub(r"\bno\s+vocals\b", "", positive, flags=re.I)
-    positive = re.sub(r"\bavoid\s*:", "", positive, flags=re.I)
     positive = re.sub(r"\s+", " ", positive).strip()
+    if len(positive) > 400:
+        positive = positive[:397].rstrip() + "…"
 
     negative = (
-        "vocals, lyrics, speech, whispering, singing, choir, crowd, applause, "
-        "whoosh, riser, trailer hit, foley, sound effects, sfx, woodblock, tick, "
-        "click, slap, boing, HVAC hum, murmur, noise bed, room tone only, "
-        "pad-only drone, texture without pulse, comic cartoon sounds, footsteps, door slam, "
-        "human voice, spoken word, rap, spoken narration"
+        "vocals, lyrics, speech, singing, choir, whoosh, riser, foley, sound effects, "
+        "tick, woodblock, HVAC, murmur, pad-only drone, room tone"
     )
-    return positive.strip(), negative
+    return positive, negative
 
 
-def ensure_motif_on_plan(sdp: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
-    """Ensure SDP carries motif_family; strip banned roles from assets when creative."""
+def harden_palette_inventory(
+    sdp: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    counts: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Force SDP assets to the exact fixed palette inventory (no ad-hoc extra stems)."""
     out = dict(sdp)
     family = out.get("motif_family")
     if not isinstance(family, dict) or not family.get("prompt_dna"):
-        out["motif_family"] = default_motif_family(brief)
-    assets = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
-    cleaned: list[dict[str, Any]] = []
-    for a in assets:
+        family = default_motif_family(brief)
+        out["motif_family"] = family
+    use_counts = counts or {
+        "motif": 1,
+        "underscore_loop": 1,
+        "optional_loop": 1,
+        "stingers": 3,
+        "full_beds": 2,
+    }
+    # Prefer existing motif DNA / descriptions when present, but enforce counts.
+    existing = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+    by_kind: dict[str, list[dict[str, Any]]] = {k: [] for k in PALETTE_KINDS}
+    for a in existing:
         role = str(a.get("role") or "")
         aid = str(a.get("asset_id") or "")
         if is_banned_role(role) or asset_id_is_banned(aid):
             continue
-        if role and not is_theme_role(role) and role not in THEME_ROLES:
-            # Migrate legacy bed/stinger labels when possible.
+        if role and not is_theme_role(role):
             if role in {"ambient_bed", "era_music_bed"}:
                 a = {**a, "role": "theme_underscore"}
             elif role in {"chapter_stinger", "cold_open"}:
-                a = {**a, "role": "theme_chapter_resolve" if "stinger" in role else "theme_cold_open"}
+                a = {
+                    **a,
+                    "role": "theme_chapter_resolve" if "stinger" in role else "theme_cold_open",
+                }
             elif role in {"vo_bridge", "transition_stinger", "transition_whoosh"}:
                 a = {**a, "role": "theme_transition"}
             else:
                 continue
-        cleaned.append(a)
-    if not cleaned:
-        family = out["motif_family"]
-        dna_slug = re.sub(r"[^a-z0-9]+", "_", str(family.get("motif_id") or "theme"))[:24]
-        phrase = str(family.get("motif_phrase") or "ascending melodic motif")
-        instruments = ", ".join(str(x) for x in (family.get("instrumentation") or ["acoustic guitar", "piano"])[:3])
-        cleaned = [
-            {
-                "asset_id": f"{dna_slug}_cold_open",
-                "role": "theme_cold_open",
-                "description": f"Opening theme with layered ensemble: {phrase}; instruments: {instruments}",
-                "duration_seconds": 16,
-            },
-            {
-                "asset_id": f"{dna_slug}_underscore_calm",
-                "role": "theme_underscore",
-                "description": (
-                    f"Calm looping underscore: soft percussion, warm bass, duck-safe midrange; "
-                    f"{phrase}; instruments: {instruments}"
-                ),
-                "duration_seconds": 16,
-                "energy": "calm",
-            },
-            {
-                "asset_id": f"{dna_slug}_underscore_lift",
-                "role": "theme_underscore",
-                "description": (
-                    f"Lift underscore: brighter percussion, stronger bass, motif lift; "
-                    f"{phrase}; instruments: {instruments}"
-                ),
-                "duration_seconds": 16,
-                "energy": "lift",
-            },
-            {
-                "asset_id": f"{dna_slug}_emphasis",
-                "role": "theme_emphasis",
-                "description": f"Short layered melodic swell: {phrase}",
-                "duration_seconds": 8,
-            },
-            {
-                "asset_id": f"{dna_slug}_chapter_resolve",
-                "role": "theme_chapter_resolve",
-                "description": f"Cadential resolve tag: {phrase}",
-                "duration_seconds": 8,
-            },
-            {
-                "asset_id": f"{dna_slug}_transition",
-                "role": "theme_transition",
-                "description": f"Short melodic bridge notes: {phrase}",
-                "duration_seconds": 6,
-            },
-            {
-                "asset_id": f"{dna_slug}_outro",
-                "role": "theme_outro",
-                "description": f"Layered resolving outro: {phrase}; instruments: {instruments}",
-                "duration_seconds": 16,
-            },
-        ]
-    else:
-        # Fill required schema fields when migrating legacy rows.
-        for a in cleaned:
-            role = str(a.get("role") or "theme_underscore")
-            if not a.get("description"):
-                a["description"] = f"Instrumental {role.replace('_', ' ')} motif"
-            if a.get("duration_seconds") is None:
-                a["duration_seconds"] = {
-                    "theme_cold_open": 16,
-                    "theme_outro": 16,
-                    "theme_underscore": 16,
-                    "theme_emphasis": 8,
-                    "theme_chapter_resolve": 8,
-                    "theme_transition": 6,
-                }.get(role, 10)
-    out["assets"] = cleaned
-    # Ensure key continuity fields on motif_family.
+        kind = str(a.get("palette_kind") or "") or palette_kind_for_role(
+            str(a.get("role") or ""), energy=str(a.get("energy") or "") or None
+        )
+        # Distinguish motif vs full_bed when both use theme_cold_open.
+        if kind == "motif" and "full_bed" in aid:
+            kind = "full_bed"
+        if kind == "full_bed" and ("motif" in aid or aid.endswith("_cold_open")) and "full_bed" not in aid:
+            # Keep first cold_open-like as motif if we still need one.
+            if not by_kind["motif"]:
+                kind = "motif"
+        if kind in by_kind:
+            by_kind[kind].append({**a, "palette_kind": kind})
+
+    built = build_fixed_palette_assets(brief, use_counts, motif_family=family)
+    # Overlay descriptions from LLM assets when kinds match.
+    merged: list[dict[str, Any]] = []
+    used_existing: set[str] = set()
+    for row in built:
+        kind = str(row.get("palette_kind") or "")
+        candidates = [c for c in by_kind.get(kind, []) if str(c.get("asset_id")) not in used_existing]
+        if candidates:
+            src = candidates[0]
+            used_existing.add(str(src.get("asset_id")))
+            merged.append(
+                {
+                    **row,
+                    "asset_id": str(src.get("asset_id") or row["asset_id"]),
+                    "description": str(src.get("description") or row.get("description") or ""),
+                    "duration_seconds": src.get("duration_seconds") or row.get("duration_seconds"),
+                    "energy": src.get("energy") or row.get("energy"),
+                    "role": str(src.get("role") or row.get("role")),
+                    "palette_kind": kind,
+                }
+            )
+        else:
+            merged.append(row)
+
+    out["assets"] = merged
     family = out.get("motif_family")
     if isinstance(family, dict):
         ident = brief.get("show_identity") if isinstance(brief.get("show_identity"), dict) else {}
         family.setdefault("key_center", ident.get("key_center") or "G")
         family.setdefault("scale_or_mode", ident.get("scale_or_mode") or "major_bright")
+        family["palette_counts"] = dict(use_counts)
+        family["stems"] = [str(a.get("palette_kind") or a.get("role")) for a in merged]
         out["motif_family"] = family
+    out["palette_counts"] = dict(use_counts)
     return out
+
+
+def ensure_motif_on_plan(
+    sdp: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    ctx: RunContext | None = None,
+    counts: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Ensure SDP carries motif_family and exact fixed palette inventory."""
+    use_counts = counts
+    if use_counts is None and ctx is not None:
+        try:
+            use_counts = analysis_palette_counts(ctx)
+        except Exception:
+            use_counts = None
+    return harden_palette_inventory(sdp, brief, counts=use_counts)

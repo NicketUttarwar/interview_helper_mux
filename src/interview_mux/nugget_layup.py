@@ -75,7 +75,7 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             block.get("unique_nuggets_across_layups", True)
         ),
         "max_cross_layup_overlap": float(block.get("max_cross_layup_overlap", 0.6)),
-        "max_target_restate_overlap": float(block.get("max_target_restate_overlap", 0.6)),
+        "max_target_restate_overlap": float(block.get("max_target_restate_overlap", 0.75)),
         "suppress_placeholder_seams_when_layup": bool(
             block.get("suppress_placeholder_seams_when_layup", True)
         ),

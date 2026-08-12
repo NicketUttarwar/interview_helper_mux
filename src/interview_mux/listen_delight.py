@@ -370,13 +370,31 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     ctx.write_json("run_meta.json", meta)
 
     if blocking and not result["passed"] and bool(conf.get("fail_early_at_audit_stage", True)):
+        from interview_mux.listen_delight_remutate import (
+            apply_listen_delight_remutate,
+            plan_listen_delight_remutate,
+        )
         from interview_mux.loud_fail import raise_loud_failure
 
+        remutate = plan_listen_delight_remutate(
+            ctx, failed_dimensions=list(result["failed_dimensions"] or [])
+        )
+        audit["remutate"] = remutate
+        ctx.write_json(AUDIT_REL, audit)
+        if not remutate.get("exhausted"):
+            applied = apply_listen_delight_remutate(ctx, remutate)
+            audit["remutate_applied"] = applied
+            ctx.write_json(AUDIT_REL, audit)
         raise_loud_failure(
             ctx,
             "Listen delight floors failed: overall="
             f"{result['overall']} (min {result['overall_min']}); "
-            f"dims_below_floor={result['failed_dimensions'] or 'none'}",
+            f"dims_below_floor={result['failed_dimensions'] or 'none'}"
+            + (
+                f"; remutate_from={remutate.get('from_stage')}"
+                if remutate.get("from_stage")
+                else ""
+            ),
             stage="listen_delight_audit",
             reason="listen_delight_floors_failed",
             detail={
@@ -384,6 +402,7 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
                 "overall_min": result["overall_min"],
                 "failed_dimensions": result["failed_dimensions"],
                 "dimensions": dims,
+                "remutate": remutate,
             },
         )
     return audit

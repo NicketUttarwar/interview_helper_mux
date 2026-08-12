@@ -496,10 +496,11 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
         level="info",
         stage="boundary_topic_resplit",
     )
-    run_classification(ctx)
+    from interview_mux.write_staging import run_nested_staged_stage
     from interview_mux.stages.understanding import run_content_brief_reanchor
 
-    run_content_brief_reanchor(ctx)
+    run_nested_staged_stage(ctx, "segment_classification", lambda: run_classification(ctx))
+    run_nested_staged_stage(ctx, "content_brief_reanchor", lambda: run_content_brief_reanchor(ctx))
 
 
 def _patch_brief_ids_after_resplit(ctx: RunContext) -> None:
@@ -532,7 +533,16 @@ def _patch_brief_ids_after_resplit(ctx: RunContext) -> None:
         topic["segment_ids"] = list(dict.fromkeys(mapped))
         changed = True
     if changed:
-        ctx.write_json("understanding/content_brief.json", brief, stage_key="boundary_topic_resplit")
+        from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+        # Commit under the brief producer key and re-stamp so sonic_context_build
+        # does not see a fingerprint mismatch after resplit remaps.
+        restamp_committed_artifact(
+            ctx,
+            "understanding/content_brief.json",
+            producer_stage="content_brief_reanchor",
+            doc=brief,
+        )
 
 
 def run_classification(ctx: RunContext) -> None:

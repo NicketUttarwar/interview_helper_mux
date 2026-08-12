@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 
 from interview_mux.spoken_copy_guard import (
+    _grounded_fallback,
     guard_spoken_copy,
+    normalize_script,
     shorten_spoken_text,
     spoken_copy_violations,
 )
@@ -134,6 +136,36 @@ def test_discourse_markers_are_not_unsupported_entities() -> None:
         },
     )
     assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
+
+
+def test_required_orientation_keeps_preface_despite_unsupported_entities() -> None:
+    preface = (
+        "In this conversation, a founder explains how consumer insight, "
+        "disciplined profitable growth, and a commitment to sharing value "
+        "with employees led him to sell Right Bite to Zydus Wellness."
+    )
+    decision = guard_spoken_copy(
+        preface,
+        evidence={"strict_grounding": True, "target_excerpt": "Asha founded Acme."},
+        required=True,
+        purpose="vo[vo_preface_episode_orientation]",
+    )
+    assert decision["text"] == normalize_script(preface)
+    assert decision.get("kept_orientation") is True
+    assert "How did" not in decision["text"]
+    assert "Zydus" in decision["text"]
+
+
+def test_grounded_fallback_skips_clause_as_person() -> None:
+    text = _grounded_fallback(
+        {
+            "verified_person": (
+                "A founder explains how consumer insight, disciplined "
+                "profitable growth, and a commitment"
+            )
+        }
+    )
+    assert "How did A founder explains" not in text
 
 
 def test_stale_script_hash_rejects_generated_wav(

@@ -248,12 +248,7 @@ def g1_vo_was_skipped_optional(ctx: RunContext) -> bool:
 def _gap_line_has_vo_file(ctx: RunContext, line: dict) -> bool:
     from interview_mux.stages.assembly import resolve_vo_pickup_path
 
-    if resolve_vo_pickup_path(ctx, line) is not None:
-        return True
-    pickup = ctx.final_path("vo_pickup")
-    lid = str(line.get("line_id") or "")
-    seg = str(line.get("targets_segment_id") or "")
-    return any((pickup / name).is_file() for name in (f"{lid}.wav", f"{seg}.wav") if name)
+    return resolve_vo_pickup_path(ctx, line) is not None
 
 
 def vo_gap_line_effectively_optional(ctx: RunContext, line: dict) -> bool:
@@ -305,13 +300,12 @@ def audit_issue_covers_optional_vo_gap(ctx: RunContext, issue: dict) -> bool:
 
 
 def check_g1_vo(ctx: RunContext) -> list[str]:
-    """Return missing line_ids for blocking delivery=record VO (first_try severity filter)."""
+    """Return missing line_ids — presence means resolve_vo_pickup_path succeeds."""
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     report = ctx.read_json("understanding/gap_report.json")
-    pickup = ctx.final_path("vo_pickup")
     missing: list[str] = []
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or not _line_requires_vo(line):
@@ -321,9 +315,7 @@ def check_g1_vo(ctx: RunContext) -> list[str]:
         from interview_mux.stages.assembly import resolve_vo_pickup_path
 
         if resolve_vo_pickup_path(ctx, line) is None:
-            candidates = [pickup / f"{lid}.wav", pickup / f"{seg}.wav"]
-            if not any(p.is_file() for p in candidates):
-                missing.append(lid or seg)
+            missing.append(lid or seg)
     return missing
 
 

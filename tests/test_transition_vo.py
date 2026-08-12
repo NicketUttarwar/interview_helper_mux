@@ -140,3 +140,135 @@ def test_transition_resolver_rejects_stale_copy(tmp_path, monkeypatch) -> None:
         json.dumps(transitions), encoding="utf-8"
     )
     assert resolve_transition_wav(ctx, "seg_a", "seg_b") is None
+
+
+def test_transition_resolver_rejects_tiny_wav(tmp_path, monkeypatch) -> None:
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "transition_tiny")
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "text": "Next beat.",
+                "type": "bridge",
+            }
+        ]
+    }
+    ctx.write_json("master/transitions.json", transitions)
+    out = transition_wav_path(ctx, "seg_a", "seg_b")
+    out.write_bytes(b"tiny")
+    line = {
+        "line_id": "tr_seg_a_seg_b",
+        "text": "Next beat.",
+        "targets_segment_id": "seg_a",
+        "placement": "after",
+        "after_segment_id": "seg_a",
+        "before_segment_id": "seg_b",
+    }
+    record_synthesis(ctx, line, backend="mlx_audio", out_wav=out)
+    assert resolve_transition_wav(ctx, "seg_a", "seg_b") is None
+
+
+def test_synthesize_transitions_writeback_guarded_text(tmp_path, monkeypatch) -> None:
+    import json as _json
+
+    from interview_mux.transition_vo import synthesize_spoken_transitions
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "transition_writeback")
+    tr_path = ctx.path("master", "transitions.json")
+    tr_path.parent.mkdir(parents=True, exist_ok=True)
+    tr_path.write_text(
+        _json.dumps(
+            {
+                "transitions": [
+                    {
+                        "after_segment_id": "seg_a",
+                        "before_segment_id": "seg_b",
+                        "text": "Original hinge text here.",
+                        "type": "bridge",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    man_path = ctx.path("segments", "manifest.json")
+    man_path.parent.mkdir(parents=True, exist_ok=True)
+    man_path.write_text(
+        _json.dumps(
+            {
+                "segments": [
+                    {"segment_id": "seg_a", "text": "First answer about the buyer."},
+                    {"segment_id": "seg_b", "text": "Second answer about the deal."},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_guard(text, *, evidence=None, purpose=""):
+        return {
+            "text": "Guarded rewrite about the buyer deal.",
+            "action": "rewrite",
+            "script_hash": "abc",
+            "context_hash": "def",
+        }
+
+    def _fake_synth(ctx, line, mode="synthesize", dest_dir=None):
+        out = transition_wav_path(ctx, "seg_a", "seg_b")
+        with wave.open(str(out), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(48_000)
+            handle.writeframes(b"\x01\x00" * 24_000)
+        record_synthesis(ctx, line, backend="mlx_audio", out_wav=out)
+        return out
+
+    monkeypatch.setattr(
+        "interview_mux.spoken_copy_guard.assert_guarded_spoken_copy", _fake_guard
+    )
+    monkeypatch.setattr("interview_mux.s2s_runner.synthesize_line", _fake_synth)
+    # Avoid schema on writeback of guarded row.
+    monkeypatch.setattr(
+        ctx,
+        "write_json",
+        lambda rel, doc, **_k: ctx.path(*rel.split("/")).write_text(
+            _json.dumps(doc), encoding="utf-8"
+        )
+        or None,
+    )
+    rows = synthesize_spoken_transitions(ctx)
+    assert rows
+    doc = _json.loads(tr_path.read_text(encoding="utf-8"))
+    assert doc["transitions"][0]["text"] == "Guarded rewrite about the buyer deal."
+    assert doc["transitions"][0].get("spoken_copy_guard", {}).get("action") == "rewrite"

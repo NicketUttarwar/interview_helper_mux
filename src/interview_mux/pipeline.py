@@ -168,6 +168,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "listen_delight_audit": lambda: __import__(
             "interview_mux.listen_delight", fromlist=["run_listen_delight_audit"]
         ).run_listen_delight_audit(ctx),
+        "music_palette_compose": lambda: __import__(
+            "interview_mux.stages.music_palette_compose",
+            fromlist=["run_music_palette_compose"],
+        ).run_music_palette_compose(ctx),
         "sfx_prompt_craft": lambda: sound_design_stages.run_sfx_prompt_craft(ctx),
         "mmaudio_sfx": lambda: sfx_mmaudio.run_sfx_generation(ctx, profile="podcast"),
         "mix": lambda: assembly.run_mix(ctx),

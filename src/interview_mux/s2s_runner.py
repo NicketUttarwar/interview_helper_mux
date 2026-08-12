@@ -102,6 +102,43 @@ def context_clip_for_line(ctx: RunContext, line: dict[str, Any]) -> Path | None:
     return out if out.is_file() else None
 
 
+def _writeback_guarded_gap_line(
+    ctx: RunContext, line: dict[str, Any], guarded: dict[str, Any]
+) -> None:
+    """Persist guard rewrites onto gap_report for non-orientation synthesize lines."""
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    if is_episode_orientation(line) or guarded.get("kept_orientation"):
+        return
+    if guarded.get("action") != "fallback":
+        return
+    new_text = str(guarded.get("text") or "").strip()
+    lid = str(line.get("line_id") or "")
+    if not new_text or not lid or not ctx.artifact_exists("understanding/gap_report.json"):
+        return
+    report = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(report, dict):
+        return
+    changed = False
+    for row in report.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("line_id") or "") != lid:
+            continue
+        if is_episode_orientation(row):
+            return
+        row["text"] = new_text
+        row["spoken_copy_guard"] = {
+            "action": guarded.get("action"),
+            "script_hash": guarded.get("script_hash"),
+            "context_hash": guarded.get("context_hash"),
+        }
+        changed = True
+        break
+    if changed:
+        ctx.write_json("understanding/gap_report.json", report)
+
+
 def synthesize_line(
     ctx: RunContext,
     line: dict[str, Any],
@@ -120,24 +157,54 @@ def synthesize_line(
             raise FileNotFoundError("source_audio required for DSP timbre match (convert)")
         return match_vo_take(ctx, line, Path(source_audio))
 
+    # Skip re-synth when a resolved pickup already exists for this line.
+    try:
+        from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+        existing = resolve_vo_pickup_path(ctx, line)
+        if existing is not None and Path(existing).is_file() and Path(existing).stat().st_size > 1000:
+            return Path(existing)
+    except Exception:
+        pass
+
     from interview_mux.spoken_copy_guard import (
         assert_guarded_spoken_copy,
         enrich_evidence_from_run,
         evidence_for_line,
     )
     line = dict(line)
+    lid = str(line.get("line_id") or line.get("targets_segment_id") or "line")
+    raw_text = str(line.get("text") or "").strip()
+    if not raw_text:
+        raise ValueError(f"VO script empty for {lid} — refuse Chatterbox with incomplete text")
+
     evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
     guarded = assert_guarded_spoken_copy(
-        str(line.get("text") or ""),
+        raw_text,
         evidence=evidence,
-        purpose=f"vo[{line.get('line_id') or 'line'}]",
+        purpose=f"vo[{lid}]",
     )
-    line["text"] = guarded["text"]
+    final_text = str(guarded.get("text") or "").strip()
+    if not final_text:
+        raise ValueError(f"VO script empty after spoken_copy_guard for {lid}")
+    # Sentence-complete preflight: require terminal punctuation so Chatterbox
+    # never receives a truncated mid-clause script.
+    if final_text[-1] not in ".?!…\"'”’":
+        # Soft-complete with a period when the guard returned a usable clause.
+        if len(final_text.split()) >= 3:
+            final_text = final_text.rstrip(",;:—-") + "."
+        else:
+            raise ValueError(
+                f"VO script incomplete for {lid} (no terminal punctuation): {final_text!r}"
+            )
+    line["text"] = final_text
     line["spoken_copy_guard"] = {
         "action": guarded["action"],
         "script_hash": guarded["script_hash"],
         "context_hash": guarded["context_hash"],
+        "preflight_complete": True,
     }
+    _writeback_guarded_gap_line(ctx, line, {**guarded, "text": final_text})
 
     chatterbox_fallback = False
     if mode == "synthesize":
@@ -154,7 +221,7 @@ def synthesize_line(
                 last = (entries.get("entries") or [])[-1] if isinstance(entries, dict) and entries.get("entries") else {}
                 if isinstance(last, dict) and qc_failed(last):
                     ctx.log(
-                        f"Chatterbox QC fail → mlx-audio retry for {line.get('line_id')}",
+                        f"Chatterbox QC fail → mlx-audio retry for {lid}",
                         level="warning",
                         stage="vo_synthesize",
                     )
