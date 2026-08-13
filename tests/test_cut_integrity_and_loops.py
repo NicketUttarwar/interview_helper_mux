@@ -412,6 +412,9 @@ def test_ideal_cuts_prompt_forbids_hanging_setups() -> None:
         assert "conceptual" in body.lower() or "hinge" in body.lower()
         assert "that is the time" in body.lower()
         assert "hanging" in body.lower()
+        assert "and yet" in body.lower()
+    assert "start_anchor" in ideal
+    assert "mid-list" in ideal.lower() or "list item" in ideal.lower()
 
 
 def test_overlong_keeper_uses_ideal_window_air_bounds() -> None:

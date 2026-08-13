@@ -17,7 +17,11 @@ _PATH_OR_FILE = re.compile(
 )
 _PRODUCTION_JARGON = re.compile(
     r"\b(?:"
-    r"edl|edit decision list|timeline|(?<![-])stage(?![-])|pipeline|artifact|schema|"
+    r"edl|edit decision list|"
+    # Bare "stage"/"timeline" are ordinary English ("life stage", "career timeline").
+    # Only flag pipeline-ops compounds.
+    r"pipeline\s+stage|from_stage|until_stage|stage_done|edit\s+timeline|"
+    r"pipeline|artifact|schema|"
     r"quality control|qc(?:\s+pass|\s+fail)?|lint|validator|"
     r"selection order|source segment|native segment|gap report|"
     r"synthesis report|fallback backend|confidence score|"

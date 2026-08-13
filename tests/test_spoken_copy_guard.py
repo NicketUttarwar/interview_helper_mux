@@ -239,6 +239,14 @@ def test_early_stage_is_not_production_jargon() -> None:
         "from a hundred early-stage deals down to maybe twenty."
     )
     assert "spoken_production_jargon" not in spoken_copy_violations(text, evidence={})
+    assert "spoken_production_jargon" not in spoken_copy_violations(
+        "How the founder’s life stage shaped the decision.",
+        evidence={},
+    )
+    assert "spoken_production_jargon" not in spoken_copy_violations(
+        "On the timeline of his career, the choice was clear.",
+        evidence={},
+    )
     assert "spoken_production_jargon" in spoken_copy_violations(
         "The pipeline stage failed QC", evidence={}
     )

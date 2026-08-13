@@ -93,7 +93,7 @@ _TRANSCRIPT_REUSE_CORE: tuple[str, ...] = (
 # Relative paths to copy/check. Trailing "/" = non-empty directory. "glob:" prefix = expand.
 _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "audio_preclean": ("preclean/lineage.json", "preclean/provider.json", "preclean/isolated.wav"),
-    "ingest": ("ingest/normalized.wav", "ingest/checksums.json"),
+    "ingest": ("ingest/normalized.wav", "ingest/checksums.json", "ingest/loudness.json"),
     "transcribe": _TRANSCRIPT_REUSE_CORE,
     "transcript_review_build": (
         "transcript/review_queue.json",

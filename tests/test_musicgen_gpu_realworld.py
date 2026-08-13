@@ -143,7 +143,6 @@ def test_default_ladder_large_then_medium_then_small_on_timeout(
     import interview_mux.musicgen_runner as mg
 
     monkeypatch.setattr(mg, "musicgen_enabled", lambda: True)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setattr(mg, "musicgen_venv_python", lambda: tmp_path / "python")
     (tmp_path / "python").write_text("#!/bin/sh\n")
     monkeypatch.setattr(
@@ -208,7 +207,6 @@ def test_payload_device_is_mps_when_effective_mps(
     import interview_mux.musicgen_runner as mg
 
     monkeypatch.setattr(mg, "musicgen_enabled", lambda: True)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setattr(mg, "musicgen_venv_python", lambda: tmp_path / "python")
     (tmp_path / "python").write_text("#!/bin/sh\n")
     monkeypatch.setattr(
@@ -263,7 +261,6 @@ def test_ladder_stepdowns_stay_on_mps(
     import interview_mux.musicgen_runner as mg
 
     monkeypatch.setattr(mg, "musicgen_enabled", lambda: True)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setattr(mg, "musicgen_venv_python", lambda: tmp_path / "python")
     (tmp_path / "python").write_text("#!/bin/sh\n")
     monkeypatch.setattr(
@@ -333,8 +330,6 @@ def test_live_gpu_shipped_stinger_reports_winner(
 
     import interview_mux.musicgen_runner as mg
 
-    monkeypatch.delenv("MUX_E2E_MUSICGEN_FAST_STUB", raising=False)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "5")
 
     base = dict(mg.musicgen_cfg() or {})
@@ -417,8 +412,6 @@ def test_live_gpu_force_large_ladder_reports_which_step_wins(
 
     import interview_mux.musicgen_runner as mg
 
-    monkeypatch.delenv("MUX_E2E_MUSICGEN_FAST_STUB", raising=False)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "5")
 
     base = dict(mg.musicgen_cfg() or {})
@@ -514,8 +507,6 @@ def test_live_gpu_cold_open_succinct_bed(
 
     import interview_mux.musicgen_runner as mg
 
-    monkeypatch.delenv("MUX_E2E_MUSICGEN_FAST_STUB", raising=False)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "5")
 
     base = dict(mg.musicgen_cfg() or {})

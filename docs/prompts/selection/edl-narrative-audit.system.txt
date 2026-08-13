@@ -59,6 +59,8 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 - All `narrative_plan.ordering_constraints` satisfied in final order.
 - `coverage_audit` topics/claims represented in ordered timeline (or excluded with upstream rationale still valid).
 - Every `high` severity gap has VO or transition coverage in timeline adjacency.
+  Pre-EDL: a resolvable `vo_pickup/<line_id>.wav` counts as VO coverage — do **not**
+  fail solely because `nle_edits` is empty or EDL has not placed the clip yet.
 - Chapter boundaries align with `narrative_plan` + `selection.chapters`; no empty chapters.
 - No duplicate VO + transition text for same adjacency.
 
@@ -76,7 +78,8 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 
 - Broken `ordering_constraints` among **selected** segments (ignore constraints that cite excluded ids).
 - Brief topic or key claim with zero representation post-selection **and** no documented exclude.
-- `high` severity gap with no VO, no transition, segment still in master.
+- `high` severity gap with no VO file on disk, no transition, segment still in master.
+  Missing NLE/EDL placement alone is **not** a fail before `edl` runs.
 - Duplicate `segment_id` in order, missing segment referenced by transition/VO, or chapter open pointing to excluded segment that is still required by a selected constraint.
 - `gap_report` line targets excluded segment.
 - Panel handoff leaves listener unable to identify who speaks next (missing name when two guests alternate after reorder).

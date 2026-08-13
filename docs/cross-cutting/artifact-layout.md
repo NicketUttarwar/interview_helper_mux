@@ -68,6 +68,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `preclean/provider.json` | audio_preclean |
 | `preclean/lineage.json` | audio_preclean |
 | `ingest/normalized.wav` | ingest |
+| `ingest/loudness.json` | ingest (loudness stabilize lineage) |
 | `ingest/checksums.json` | ingest ([ingest_checksums.schema.json](./json-schemas/ingest_checksums.schema.json)) |
 | `transcript/full.json` | transcription; dock word edits set `words[].corrected`; `review_applied_at` on G0 complete |
 | `transcript/speakers.json` | transcription (AWS diarization) |

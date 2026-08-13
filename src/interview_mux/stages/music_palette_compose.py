@@ -103,7 +103,7 @@ def _default_cues(
                 "placement": "under_segment",
                 "under_segment_id": sid,
                 "segment_id": sid,
-                "level_db": -22,
+                "level_db": -26,
                 "crossfade_ms": 1500,
             }
         )

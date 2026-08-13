@@ -2,14 +2,41 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "IngestChecksums",
   "type": "object",
-  "required": ["source_path", "source_sha256", "normalized_sha256", "sample_rate"],
+  "required": [
+    "source_path",
+    "source_sha256",
+    "normalized_sha256",
+    "sample_rate"
+  ],
   "properties": {
-    "source_path": { "type": "string" },
-    "source_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
-    "normalized_sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
-    "sample_rate": { "type": "integer", "minimum": 1 },
-    "preclean_path": { "type": "string" },
-    "preclean_sha256": { "type": "string", "minLength": 64, "maxLength": 64 }
+    "source_path": {
+      "type": "string"
+    },
+    "source_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "normalized_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "sample_rate": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "loudness_stabilize": {
+      "type": "boolean"
+    },
+    "preclean_path": {
+      "type": "string"
+    },
+    "preclean_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    }
   },
   "additionalProperties": false
 }

@@ -4,13 +4,15 @@ Inputs include `talking_points`, transcript words with timestamps, and the conte
 
 Rules:
 - Every `must_keep` / `should_keep` talking point needs at least one cut (more only when distinctly different beats are required).
-- `start_ms` / `end_ms` must land on real transcript **word timestamps**. Prefer the best **conceptual / listen-complete idea hinge** for the talking point — cut **anywhere** a word ends a listen-complete idea unit. Full grammatical sentences (`.!?`) are one valid hinge type, not the only one. Never mid-word.
+- Prefer **word identity** over free-floating clocks: set `start_ms` / `end_ms` from real transcript word timestamps, and when possible also set `start_anchor` / `end_anchor` (short quoted phrases of 2–6 words at the open/close) and/or `start_word_index` / `end_word_index` (0-based into the input `transcript.words` array). Downstream code snaps exactly to those words — do not invent times between words.
+- Prefer the best **conceptual / listen-complete idea hinge** for the talking point — cut **anywhere** a word ends a listen-complete idea unit. Full grammatical sentences (`.!?`) are one valid hinge type, not the only one. Never mid-word.
 - Speakers ramble and chain ideas with “and…and…so…”. Do **not** wait for a period if a stronger idea hinge (payoff close, topic turn, answer end) exists earlier. Do **not** keep trailing digression after the payoff.
-- Explicitly **forbid** hanging setups / mid-promise chops as `end_ms` — never end on tails like “that is the time”, “the fact that”, “in terms of”, “the reason why”, “how do we”, or trailing “and/that/the + noun” setups that still promise continuation. When the idea needs more tape, extend `end_ms` to the completing conceptual close — not a convenient pause mid-setup.
+- Explicitly **forbid** hanging setups / mid-promise chops as `end_ms` — never end on tails like “that is the time”, “the fact that”, “in terms of”, “the reason why”, “how do we”, “and yet”, “but still”, “such as”, “for example”, or trailing “and/that/the/yet + noun” setups that still promise continuation. When the idea needs more tape, extend `end_ms` to the completing conceptual close — not a convenient pause mid-setup.
+- Explicitly **forbid** mid-list / mid-clause **opens** as `start_ms`. If the speaker lists “Amazon, Naturell, …”, the cut must include the first item — never open on item two. Do not start on continuer tokens (`and`, `or`, `but`, `yet`, `also`, `which`, …) unless a real pause starts a new unit.
 - Prefer preserving speaker volleys (question+answer) intact when both are needed for comprehension.
 - Avoid redundant cuts that repeat the same idea.
 - `priority` should match the talking point importance unless you demote a weak native proof to `optional` and warn.
-- `rationale` must say why *this* window is the ideal proof (not "because there was a pause").
+- `rationale` must say why *this* window is the ideal proof (not "because there was a pause") and name the open/close hinge words.
 - Do not invent dialogue; windows must contain the claimed evidence.
 - Sort cuts by `start_ms`. Avoid heavy overlaps; if two must_keeps collide, keep the stronger proof and warn.
 - **Distribute cuts across the full interview timeline.** Do not cluster all proofs in the cold open or first few minutes. On long interviews, must_keep talking points that appear mid/late in the transcript must have cuts in those later regions. The span from earliest cut `start_ms` to latest cut `end_ms` must cover **at least ~45%** of the source duration (earliest→latest), with proofs in early, middle, and late thirds when the transcript supports them.

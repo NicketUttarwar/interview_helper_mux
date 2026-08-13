@@ -49,6 +49,32 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
         "she",
         "it",
         "they",
+        # Mid-promise / mid-list closers that still need continuation.
+        "yet",
+        "still",
+        "also",
+        "just",
+        "even",
+        "like",
+        "with",
+        "into",
+        "onto",
+        "from",
+        "about",
+        "for",
+        "whether",
+        "whose",
+        "whom",
+        "which",
+        "who",
+        "how",
+        "what",
+        "why",
+        "versus",
+        "vs",
+        "including",
+        "include",
+        "includes",
     }
 )
 
@@ -73,6 +99,48 @@ _HANGING_SETUP_PHRASES: tuple[str, ...] = (
     "in order to",
     "as far as",
     "when it comes to",
+    "and yet",
+    "but still",
+    "but then",
+    "and then",
+    "and also",
+    "not only",
+    "as well as",
+    "such as",
+    "for example",
+    "for instance",
+)
+
+# Tokens that are illegal *opens* (segment starts mid-clause / mid-list).
+_CONTINUER_OPEN_TOKENS = frozenset(
+    {
+        "and",
+        "or",
+        "but",
+        "yet",
+        "also",
+        "then",
+        "so",
+        "because",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "that",
+        "than",
+        "with",
+        "from",
+        "into",
+        "onto",
+        "for",
+        "of",
+        "to",
+        "about",
+        "like",
+        "including",
+        "versus",
+        "vs",
+    }
 )
 
 _HANGING_SETUP_RE = re.compile(
@@ -295,6 +363,90 @@ def is_legal_conceptual_hinge(
     if words is not None and end_ms is not None:
         if clause_continues_after(words, end_ms, pause_split_ms=pause_split_ms):
             return False
+    return True
+
+
+def _normalize_tok(tok: str) -> str:
+    return (tok or "").lower().strip(".,!?;:\"'()[]")
+
+
+def clause_continues_before(
+    words: list[dict[str, Any]],
+    start_ms: int,
+    *,
+    max_lookback_ms: int = 4000,
+    pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+) -> bool:
+    """True when G0 words immediately before ``start_ms`` leave the open mid-clause/list.
+
+    Catches late opens that drop the first list item or start on a continuer
+    ("Naturell…" after "Amazon,", "and yet…" as a false start of a new window).
+    """
+    if not words or start_ms <= 0:
+        return False
+    ahead = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and start_ms <= int(w.get("start_ms") or 0) <= start_ms + max_lookback_ms
+        and _word_token(w)
+    ]
+    ahead.sort(key=lambda w: int(w.get("start_ms") or 0))
+    first_tok = _normalize_tok(_word_token(ahead[0])) if ahead else ""
+    before = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and start_ms - max_lookback_ms <= int(w.get("end_ms") or 0) <= start_ms
+        and _word_token(w)
+    ]
+    if not before:
+        return first_tok in _CONTINUER_OPEN_TOKENS
+    before.sort(key=lambda w: int(w.get("end_ms") or 0))
+    last = before[-1]
+    last_tok_raw = _word_token(last)
+    last_tok = _normalize_tok(last_tok_raw)
+    gap = int(start_ms) - int(last.get("end_ms") or 0)
+    if gap >= pause_split_ms:
+        return False
+    if last_tok_raw[-1:] in ".!?…":
+        return False
+    prev_text = " ".join(_word_token(w) for w in before[-16:])
+    if ends_hanging_setup(prev_text) or last_tok in _INCOMPLETE_TAIL_TOKENS:
+        return True
+    if last_tok_raw.rstrip().endswith(","):
+        return True
+    if first_tok in _CONTINUER_OPEN_TOKENS and gap < pause_split_ms:
+        return True
+    # Tight gap after a non-terminal word → likely mid-phrase open.
+    return gap < 450 and last_tok not in _NEW_UNIT_OPENERS
+
+
+def is_legal_conceptual_open(
+    text: str,
+    *,
+    words: list[dict[str, Any]] | None = None,
+    start_ms: int | None = None,
+    prev_pause_ms: int | None = None,
+    pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
+) -> bool:
+    """True when a cut *start* begins a listen-complete idea (not mid-list/clause)."""
+    stripped = (text or "").strip()
+    first = _normalize_tok(stripped.split()[0]) if stripped else ""
+    if first in _CONTINUER_OPEN_TOKENS:
+        # Continuer opens are legal only after a real pause (new unit).
+        if prev_pause_ms is not None and prev_pause_ms >= pause_split_ms:
+            return True
+        if words is not None and start_ms is not None:
+            return not clause_continues_before(
+                words, start_ms, pause_split_ms=pause_split_ms
+            )
+        return False
+    if words is not None and start_ms is not None:
+        if clause_continues_before(words, start_ms, pause_split_ms=pause_split_ms):
+            return False
+    if prev_pause_ms is not None and prev_pause_ms >= pause_split_ms:
+        return True
     return True
 
 

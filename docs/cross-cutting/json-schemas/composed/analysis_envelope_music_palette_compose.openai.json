@@ -13,109 +13,86 @@
     "artifacts": {
       "type": "object",
       "required": [
-        "cuts",
-        "coverage_notes",
-        "warnings"
+        "cues",
+        "notes",
+        "rationale"
       ],
       "properties": {
-        "cuts": {
+        "cues": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
             "required": [
-              "cut_id",
-              "talking_point_id",
-              "start_ms",
-              "end_ms",
-              "start_word_index",
-              "end_word_index",
-              "start_anchor",
-              "end_anchor",
-              "priority",
-              "rationale",
-              "speaker_id",
-              "text_excerpt",
-              "split_reason",
-              "includes_speaker_volley"
+              "cue_id",
+              "asset_id",
+              "role",
+              "placement",
+              "before_segment_id",
+              "after_segment_id",
+              "under_segment_id",
+              "segment_id",
+              "level_db",
+              "crossfade_ms"
             ],
             "properties": {
-              "cut_id": {
-                "type": "string"
-              },
-              "talking_point_id": {
-                "type": "string"
-              },
-              "start_ms": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "end_ms": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "start_word_index": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "minimum": 0,
-                "description": "Optional 0-based index into transcript.words for the first included word."
-              },
-              "end_word_index": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "minimum": 0,
-                "description": "Optional 0-based index into transcript.words for the last included word."
-              },
-              "start_anchor": {
+              "cue_id": {
                 "type": [
                   "string",
                   "null"
-                ],
-                "description": "Optional 2\u20136 word quote at the open hinge; preferred over free-floating start_ms."
+                ]
               },
-              "end_anchor": {
+              "asset_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
                 "type": [
                   "string",
                   "null"
-                ],
-                "description": "Optional 2\u20136 word quote at the close hinge; preferred over free-floating end_ms."
+                ]
               },
-              "priority": {
+              "placement": {
                 "type": "string",
                 "enum": [
-                  "must_keep",
-                  "should_keep",
-                  "optional"
+                  "before_segment",
+                  "after_segment",
+                  "under_segment"
                 ]
               },
-              "rationale": {
-                "type": "string"
-              },
-              "speaker_id": {
+              "before_segment_id": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
-              "text_excerpt": {
+              "after_segment_id": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
-              "split_reason": {
+              "under_segment_id": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
-              "includes_speaker_volley": {
+              "segment_id": {
                 "type": [
-                  "boolean",
+                  "string",
+                  "null"
+                ]
+              },
+              "level_db": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "crossfade_ms": {
+                "type": [
+                  "number",
                   "null"
                 ]
               }
@@ -123,20 +100,17 @@
             "additionalProperties": false
           }
         },
-        "coverage_notes": {
+        "notes": {
           "type": [
             "string",
             "null"
           ]
         },
-        "warnings": {
+        "rationale": {
           "type": [
-            "array",
+            "string",
             "null"
-          ],
-          "items": {
-            "type": "string"
-          }
+          ]
         }
       },
       "additionalProperties": false

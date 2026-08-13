@@ -499,8 +499,32 @@ def adjudicate_seams_llm(
 
     verdicts: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
+    try:
+        from interview_mux.island_cluster_structure import load_locked_seams
+
+        locked = load_locked_seams(ctx)
+    except Exception:
+        locked = set()
     for packet in packets:
         if not isinstance(packet, dict):
+            continue
+        pid = str(packet.get("pair_id") or "")
+        if pid and pid in locked:
+            verdicts.append(
+                {
+                    "pair_id": pid,
+                    "earlier_segment_id": packet.get("earlier_segment_id"),
+                    "later_segment_id": packet.get("later_segment_id"),
+                    "decision": "stay_independent",
+                    "fuse_direction": None,
+                    "reason_code": "locked_seam",
+                    "rationale": "Seam locked by high-value island cluster H-edge cuts.",
+                    "confidence": 1.0,
+                    "forced_by": "locked_seam",
+                    "seam_hash": packet.get("seam_hash"),
+                    "deterministic_hints": packet.get("deterministic_hints") or {},
+                }
+            )
             continue
         if not allow_cross and not packet.get("same_speaker"):
             verdicts.append(_cross_speaker_verdict(packet))
@@ -663,20 +687,22 @@ def apply_connector_fuses(
         gap_ms = max(0, _ms(later, "start_ms") - _ms(target, "end_ms"))
         max_gap = int(conf.get("max_seam_gap_ms") or 8000)
         hints = verdict.get("deterministic_hints") or {}
-        if gap_ms > max_gap and not hints.get("island_straddle") and verdict.get("forced_by") != "island_straddle":
+        forced = str(verdict.get("forced_by") or "")
+        force_bypass = forced in {"island_straddle", "high_value_speech_island"}
+        if gap_ms > max_gap and not hints.get("island_straddle") and not force_bypass:
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "seam_gap_cap"})
             continue
         topic_floor = float(conf.get("same_topic_score_floor") or 0.15)
         topic_score = _topic_overlap_score(target, later)
         # When both sides declare topics and overlap is below floor, refuse fuse
-        # unless island-straddle / hanging-setup forced the merge.
+        # unless island-straddle / hanging-setup / high-value forced the merge.
         if (
             topic_score > 0
             and topic_score < topic_floor
             and not hints.get("island_straddle")
             and not hints.get("hanging_setup_end")
             and not hints.get("clause_continues_after")
-            and verdict.get("forced_by") != "island_straddle"
+            and not force_bypass
         ):
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "same_topic_floor"})
             continue
@@ -700,8 +726,18 @@ def apply_connector_fuses(
         ]
         if topics:
             target["topic_tags"] = list(dict.fromkeys(str(t) for t in topics))
-        if str(later.get("retention") or "") == "must_keep":
+        if (
+            str(later.get("retention") or "") == "must_keep"
+            or str(target.get("retention") or "") == "must_keep"
+            or forced == "high_value_speech_island"
+            or later.get("high_value_speech")
+            or target.get("high_value_speech")
+        ):
             target["retention"] = "must_keep"
+        if forced == "high_value_speech_island" or later.get("high_value_speech") or target.get(
+            "high_value_speech"
+        ):
+            target["high_value_speech"] = True
 
         by_id[target_id] = target
         consumed.add(b_id)
@@ -860,6 +896,62 @@ def _remap_downstream_ids(ctx: RunContext, remap: dict[str, str]) -> None:
     _patch_json("understanding/ideal_cuts.json", _ideal)
     _patch_json("understanding/talking_points.json", _tp)
 
+    def _must_keep(doc: dict[str, Any]) -> bool:
+        changed = False
+        for key in ("must_keep_segment_ids", "high_value_segment_ids"):
+            vals = doc.get(key)
+            if not isinstance(vals, list):
+                continue
+            rewritten = _rewrite_id_list(vals, remap)
+            if rewritten != [str(x) for x in vals]:
+                doc[key] = rewritten
+                changed = True
+        scores = doc.get("scores")
+        if isinstance(scores, list):
+            for row in scores:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("segment_id") or "")
+                if sid in remap:
+                    row["segment_id"] = remap[sid]
+                    changed = True
+        return changed
+
+    def _hv(doc: dict[str, Any]) -> bool:
+        changed = False
+        touched = doc.get("segment_ids_touched")
+        if isinstance(touched, list):
+            rewritten = _rewrite_id_list(touched, remap)
+            if rewritten != [str(x) for x in touched]:
+                doc["segment_ids_touched"] = rewritten
+                changed = True
+        for island in doc.get("islands") or []:
+            if not isinstance(island, dict):
+                continue
+            vals = island.get("segment_ids_touched")
+            if isinstance(vals, list):
+                rewritten = _rewrite_id_list(vals, remap)
+                if rewritten != [str(x) for x in vals]:
+                    island["segment_ids_touched"] = rewritten
+                    changed = True
+        return changed
+
+    def _boosts(doc: dict[str, Any]) -> bool:
+        changed = False
+        for row in doc.get("priors") or []:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("segment_id") or "")
+            if sid in remap:
+                row["segment_id"] = remap[sid]
+                changed = True
+        return changed
+
+    _patch_json("analysis/low_conf_must_keep.json", _must_keep)
+    _patch_json("analysis/high_value_speech_islands.json", _hv)
+    _patch_json("analysis/high_value_speech_boosts.json", _boosts)
+    _patch_json("analysis/stt_lexicon_island_boosts.json", _boosts)
+
 
 def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = None) -> dict[str, Any]:
     """Re-run keeper air-bound trims on fused slabs (legal hinge snap)."""
@@ -902,6 +994,11 @@ def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = 
             continue
         meta: dict[str, Any] = {}
         try:
+            wav_path = None
+            try:
+                wav_path = ctx.read_path("ingest", "normalized.wav")
+            except Exception:
+                wav_path = None
             start_ms, end_ms = resolve_keeper_air_bounds(
                 source_start_ms=int(seg.get("start_ms") or 0),
                 source_end_ms=int(seg.get("end_ms") or 0),
@@ -909,6 +1006,7 @@ def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = 
                 words=words,
                 segment_id=sid,
                 meta_out=meta,
+                wav_path=wav_path,
             )
         except Exception:
             continue
@@ -1041,6 +1139,498 @@ def remap_fused_ids(ids: list[Any], remap: dict[str, str]) -> list[str]:
     return out
 
 
+def _segment_richness(seg: dict[str, Any]) -> float:
+    dur = max(0, _ms(seg, "end_ms") - _ms(seg, "start_ms"))
+    topics = len(seg.get("topic_tags") or [])
+    text_n = len(str(seg.get("text") or "").split())
+    return float(dur) + 500.0 * topics + 50.0 * text_n
+
+
+def plan_high_value_fuses(
+    ctx: RunContext,
+    *,
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build forced fuse verdicts so high-value islands never stay standalone keepers.
+
+    Prefer :func:`run_high_value_cluster_fuse_rounds` for production. This remains
+    for simple / single-island deterministic planning and tests.
+    """
+    conf = connector_fuse_cfg(cfg)
+    topic_floor = float(conf.get("same_topic_score_floor") or 0.15)
+    try:
+        from interview_mux.high_value_speech_islands import load_high_value_islands
+
+        hv = load_high_value_islands(ctx)
+    except Exception:
+        return {"verdicts": [], "interior_segment_ids": [], "applied_plans": 0}
+
+    islands = [i for i in (hv.get("islands") or []) if isinstance(i, dict)]
+    if not islands:
+        return {"verdicts": [], "interior_segment_ids": [], "applied_plans": 0}
+
+    segments = _load_segments(ctx)
+    if len(segments) < 1:
+        return {"verdicts": [], "interior_segment_ids": [], "applied_plans": 0}
+
+    verdicts: list[dict[str, Any]] = []
+    interior: list[str] = []
+    plans: list[dict[str, Any]] = []
+    for island in islands:
+        cluster = {
+            "cluster_id": f"legacy_{island.get('island_id')}",
+            "density": "simple",
+            "member_island_ids": [island.get("island_id")],
+            "islands": [island],
+            "start_ms": _ms(island, "start_ms"),
+            "end_ms": _ms(island, "end_ms"),
+            "segment_ids_touched": list(island.get("segment_ids_touched") or []),
+        }
+        planned = plan_cluster_fuses(
+            ctx, cluster, structure=None, cfg=conf, topic_floor=topic_floor
+        )
+        verdicts.extend(planned.get("verdicts") or [])
+        interior.extend(planned.get("interior_segment_ids") or [])
+        plans.extend(planned.get("plans") or [])
+
+    if interior:
+        try:
+            from interview_mux.high_value_speech_islands import mark_segments_high_value
+
+            mark_segments_high_value(ctx, set(interior))
+        except Exception:
+            pass
+
+    return {
+        "verdicts": verdicts,
+        "interior_segment_ids": list(dict.fromkeys(interior)),
+        "applied_plans": len(plans),
+        "plans": plans,
+    }
+
+
+def plan_cluster_fuses(
+    ctx: RunContext,
+    cluster: dict[str, Any],
+    *,
+    structure: dict[str, Any] | None = None,
+    cfg: dict[str, Any] | None = None,
+    topic_floor: float | None = None,
+) -> dict[str, Any]:
+    """Plan forced fuse verdicts for one cluster using structure + H-edge cuts."""
+    conf = connector_fuse_cfg(cfg)
+    floor = float(
+        topic_floor
+        if topic_floor is not None
+        else (conf.get("same_topic_score_floor") or 0.15)
+    )
+    segments = _load_segments(ctx)
+    by_id = {str(s["segment_id"]): s for s in segments}
+    order = [str(s["segment_id"]) for s in segments]
+    index_of = {sid: i for i, sid in enumerate(order)}
+
+    islands = [i for i in (cluster.get("islands") or []) if isinstance(i, dict)]
+    if not islands:
+        return {"verdicts": [], "interior_segment_ids": [], "plans": [], "locked_pair_ids": []}
+
+    assign_by = {
+        str(a.get("island_id")): a
+        for a in ((structure or {}).get("assignments") or [])
+        if isinstance(a, dict) and a.get("island_id")
+    }
+    topic_unity = str((structure or {}).get("topic_unity") or "same_conversation")
+    hinge_attach = (structure or {}).get("hinge_attach")
+
+    try:
+        from interview_mux.island_cluster_structure import high_conf_flank_cuts
+    except Exception:
+        high_conf_flank_cuts = None  # type: ignore[assignment]
+
+    verdicts: list[dict[str, Any]] = []
+    interior: list[str] = []
+    plans: list[dict[str, Any]] = []
+    locked: list[str] = []
+    stay_pairs: list[str] = []
+
+    if len(islands) == 1 and not assign_by:
+        island = islands[0]
+        i0, i1 = _ms(island, "start_ms"), _ms(island, "end_ms")
+        touched = [
+            sid
+            for sid in (island.get("segment_ids_touched") or cluster.get("segment_ids_touched") or [])
+            if sid in by_id
+        ]
+        if not touched:
+            touched = [
+                sid
+                for sid, seg in by_id.items()
+                if not (_ms(seg, "end_ms") <= i0 or _ms(seg, "start_ms") >= i1)
+            ]
+            touched.sort(key=lambda sid: index_of.get(sid, 1 << 30))
+        if len(touched) == 1:
+            sid = touched[0]
+            seg = by_id[sid]
+            seg_dur = max(0, _ms(seg, "end_ms") - _ms(seg, "start_ms"))
+            island_dur = max(0, i1 - i0)
+            fully_inside = _ms(seg, "start_ms") <= i0 and _ms(seg, "end_ms") >= i1
+            if fully_inside and seg_dur >= max(island_dur * 2, island_dur + 2500):
+                interior.append(sid)
+                plans.append(
+                    {
+                        "island_id": island.get("island_id"),
+                        "mode": "interior",
+                        "segment_id": sid,
+                        "cluster_id": cluster.get("cluster_id"),
+                    }
+                )
+                return {
+                    "verdicts": [],
+                    "interior_segment_ids": interior,
+                    "plans": plans,
+                    "locked_pair_ids": [],
+                }
+
+    for island in islands:
+        i0, i1 = _ms(island, "start_ms"), _ms(island, "end_ms")
+        iid = str(island.get("island_id") or "")
+        assign = assign_by.get(iid) or {}
+        fuse_side = str(assign.get("fuse_side") or "").casefold()
+        if fuse_side not in {"left", "right", "bridge"}:
+            touched = [
+                sid
+                for sid in (island.get("segment_ids_touched") or [])
+                if sid in by_id
+            ]
+            if not touched:
+                touched = [
+                    sid
+                    for sid, seg in by_id.items()
+                    if not (_ms(seg, "end_ms") <= i0 or _ms(seg, "start_ms") >= i1)
+                ]
+                touched.sort(key=lambda sid: index_of.get(sid, 1 << 30))
+            if not touched:
+                continue
+            first_i = min(index_of[s] for s in touched if s in index_of)
+            last_i = max(index_of[s] for s in touched if s in index_of)
+            prev_id = order[first_i - 1] if first_i > 0 else None
+            next_id = order[last_i + 1] if last_i + 1 < len(order) else None
+            neighbors = [n for n in (prev_id, next_id) if n]
+            richer = None
+            if neighbors:
+                richer = max(neighbors, key=lambda sid: _segment_richness(by_id[sid]))
+                if (
+                    prev_id
+                    and next_id
+                    and abs(
+                        _segment_richness(by_id[prev_id]) - _segment_richness(by_id[next_id])
+                    )
+                    < 1e-6
+                ):
+                    richer = prev_id
+            fuse_side = "left" if richer == prev_id else ("right" if richer == next_id else "left")
+            if (
+                topic_unity == "same_conversation"
+                and prev_id
+                and next_id
+                and _topic_overlap_score(by_id[prev_id], by_id[next_id]) >= floor
+            ):
+                fuse_side = "bridge"
+
+        if high_conf_flank_cuts is not None:
+            cuts = high_conf_flank_cuts(
+                ctx, island_start_ms=i0, island_end_ms=i1, fuse_side=fuse_side
+            )
+        else:
+            cuts = {
+                "absorb_start_ms": i0,
+                "absorb_end_ms": i1,
+                "cut_ms": i0 if fuse_side != "right" else i1,
+            }
+
+        absorb0 = int(cuts.get("absorb_start_ms") or i0)
+        absorb1 = int(cuts.get("absorb_end_ms") or i1)
+
+        core_ids = [
+            sid
+            for sid, seg in by_id.items()
+            if not (_ms(seg, "end_ms") <= absorb0 or _ms(seg, "start_ms") >= absorb1)
+        ]
+        core_ids.sort(key=lambda sid: index_of.get(sid, 1 << 30))
+        if not core_ids:
+            continue
+
+        first_i = min(index_of[s] for s in core_ids if s in index_of)
+        last_i = max(index_of[s] for s in core_ids if s in index_of)
+        prev_id = order[first_i - 1] if first_i > 0 else None
+        next_id = order[last_i + 1] if last_i + 1 < len(order) else None
+        core_ids = order[first_i : last_i + 1]
+
+        mode = "richer_neighbor"
+        if fuse_side == "bridge" and prev_id and next_id:
+            chain = [prev_id, *core_ids, next_id]
+            mode = "bridge"
+        elif fuse_side == "left" and prev_id:
+            chain = [prev_id, *core_ids]
+            mode = "richer_neighbor" if not assign else "left"
+        elif fuse_side == "right" and next_id:
+            chain = [*core_ids, next_id]
+            mode = "richer_neighbor" if not assign else "right"
+        else:
+            chain = list(core_ids)
+            if prev_id:
+                chain = [prev_id, *core_ids]
+                mode = "richer_neighbor"
+            elif next_id:
+                chain = [*core_ids, next_id]
+                mode = "richer_neighbor"
+
+        unique_chain = list(dict.fromkeys(chain))
+        for a, b in zip(unique_chain, unique_chain[1:]):
+            if a not in by_id or b not in by_id:
+                continue
+            if index_of.get(a, -1) > index_of.get(b, -1):
+                a, b = b, a
+            if topic_unity == "split_topics" and hinge_attach in {"left", "right"}:
+                hinge_sids = set(str(x) for x in (cluster.get("hinge_segment_ids") or []) if x)
+                if hinge_sids and (
+                    (a in hinge_sids and hinge_attach == "right" and b not in hinge_sids)
+                    or (b in hinge_sids and hinge_attach == "left" and a not in hinge_sids)
+                ):
+                    stay_pairs.append(f"{a}__{b}")
+                    continue
+            pair_id = f"{a}__{b}"
+            verdicts.append(
+                {
+                    "pair_id": pair_id,
+                    "earlier_segment_id": a,
+                    "later_segment_id": b,
+                    "decision": "fuse",
+                    "fuse_direction": "into_earlier",
+                    "reason_code": (
+                        "high_value_speech_bridge"
+                        if mode == "bridge"
+                        else "high_value_speech_neighbor"
+                    ),
+                    "rationale": (
+                        str(assign.get("rationale") or "")
+                        or "High-value low-conf/STT-skip speech must stay with narrative neighbors."
+                    )[:300],
+                    "confidence": 1.0,
+                    "forced_by": "high_value_speech_island",
+                    "cut_source": "high_conf_flank",
+                    "deterministic_hints": {
+                        "high_value_speech_island": True,
+                        "island_id": iid,
+                        "cluster_id": cluster.get("cluster_id"),
+                        "fuse_mode": mode,
+                        "fuse_side": fuse_side,
+                        "h_edge_absorb_start_ms": absorb0,
+                        "h_edge_absorb_end_ms": absorb1,
+                    },
+                }
+            )
+            locked.append(pair_id)
+        plans.append(
+            {
+                "island_id": iid,
+                "mode": mode,
+                "fuse_side": fuse_side,
+                "chain": unique_chain,
+                "cluster_id": cluster.get("cluster_id"),
+                "h_edge": cuts,
+            }
+        )
+
+    for pair_id in stay_pairs:
+        if "__" not in pair_id:
+            continue
+        a, b = pair_id.split("__", 1)
+        verdicts.append(
+            {
+                "pair_id": pair_id,
+                "earlier_segment_id": a,
+                "later_segment_id": b,
+                "decision": "stay_independent",
+                "fuse_direction": None,
+                "reason_code": "topic_shift",
+                "rationale": "Hinge high-conf segment kept independent across topic/subtopic change.",
+                "confidence": 1.0,
+                "forced_by": "island_cluster_hinge",
+                "cut_source": "high_conf_flank",
+            }
+        )
+        locked.append(pair_id)
+
+    return {
+        "verdicts": verdicts,
+        "interior_segment_ids": list(dict.fromkeys(interior)),
+        "plans": plans,
+        "locked_pair_ids": list(dict.fromkeys(locked)),
+    }
+
+
+def run_high_value_cluster_fuse_rounds(
+    ctx: RunContext,
+    *,
+    pass_id: str,
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Group HV islands → per-cluster structure → H-edge cuts → apply until fixed point."""
+    try:
+        from interview_mux.high_value_speech_islands import (
+            cluster_is_fuse_eligible,
+            group_high_value_island_clusters,
+            high_value_speech_cfg,
+            mark_segments_high_value,
+            refresh_cluster_segment_touches,
+        )
+    except Exception as exc:
+        return {"skip_reason": f"hv_import:{exc}", "total_applied": 0, "rounds": []}
+
+    hv_conf = high_value_speech_cfg(cfg)
+    if not hv_conf.get("per_cluster_fuse", True):
+        plan = plan_high_value_fuses(ctx, cfg=cfg)
+        applied = 0
+        if plan.get("verdicts"):
+            result = apply_connector_fuses(
+                ctx,
+                list(plan["verdicts"]),
+                max_fuses=0,
+                pass_id=f"{pass_id}:high_value",
+                cfg=cfg,
+            )
+            applied = int(result.get("applied") or 0)
+        return {
+            "mode": "legacy_batch",
+            "total_applied": applied,
+            "rounds": [],
+            "plans": plan.get("plans") or [],
+        }
+
+    max_rounds = int(hv_conf.get("max_island_cluster_rounds") or 32)
+    try:
+        from interview_mux.island_cluster_structure import (
+            adjudicate_island_cluster_structure,
+            lock_seams,
+            structure_cfg,
+        )
+    except Exception:
+        adjudicate_island_cluster_structure = None  # type: ignore[assignment]
+        lock_seams = None  # type: ignore[assignment]
+
+        def structure_cfg(_c=None):  # type: ignore[misc]
+            return {"lock_forced_seams": True}
+
+    s_cfg = structure_cfg(cfg)
+    lock_forced = bool(s_cfg.get("lock_forced_seams", True))
+
+    rounds: list[dict[str, Any]] = []
+    total_applied = 0
+    last_sig = ""
+
+    for round_index in range(max_rounds):
+        grouped = group_high_value_island_clusters(ctx, cfg=cfg, write=True)
+        segments = _load_segments(ctx)
+        pending: list[dict[str, Any]] = []
+        for raw in grouped.get("clusters") or []:
+            if not isinstance(raw, dict):
+                continue
+            cluster = refresh_cluster_segment_touches(raw, segments)
+            if cluster_is_fuse_eligible(cluster, segments):
+                pending.append(cluster)
+        if not pending:
+            rounds.append(
+                {
+                    "round": round_index,
+                    "pending": 0,
+                    "applied": 0,
+                    "reason": "no_fuse_eligible_clusters",
+                }
+            )
+            break
+
+        round_applied = 0
+        covered_spans: list[tuple[int, int]] = []
+        round_plans: list[dict[str, Any]] = []
+        for cluster in pending:
+            c0, c1 = _ms(cluster, "start_ms"), _ms(cluster, "end_ms")
+            if any(not (c1 <= a or c0 >= b) for a, b in covered_spans):
+                continue
+            segments = _load_segments(ctx)
+            cluster = refresh_cluster_segment_touches(cluster, segments)
+            if not cluster_is_fuse_eligible(cluster, segments):
+                if cluster.get("segment_ids_touched"):
+                    try:
+                        mark_segments_high_value(ctx, set(cluster["segment_ids_touched"]))
+                    except Exception:
+                        pass
+                continue
+
+            structure = None
+            if adjudicate_island_cluster_structure:
+                structure = adjudicate_island_cluster_structure(ctx, cluster, cfg=cfg)
+
+            planned = plan_cluster_fuses(ctx, cluster, structure=structure, cfg=cfg)
+            if planned.get("interior_segment_ids"):
+                try:
+                    mark_segments_high_value(ctx, set(planned["interior_segment_ids"]))
+                except Exception:
+                    pass
+            fuse_verdicts = [
+                v
+                for v in (planned.get("verdicts") or [])
+                if str(v.get("decision")) == "fuse"
+            ]
+            applied_n = 0
+            if fuse_verdicts:
+                result = apply_connector_fuses(
+                    ctx,
+                    list(planned["verdicts"]),
+                    max_fuses=0,
+                    pass_id=f"{pass_id}:hv_cluster:{cluster.get('cluster_id')}",
+                    cfg=cfg,
+                )
+                applied_n = int(result.get("applied") or 0)
+                round_applied += applied_n
+                total_applied += applied_n
+            if lock_forced and lock_seams and planned.get("locked_pair_ids"):
+                lock_seams(
+                    ctx,
+                    list(planned["locked_pair_ids"]),
+                    pass_id=f"{pass_id}:{cluster.get('cluster_id')}",
+                )
+            covered_spans.append((c0, c1))
+            round_plans.extend(planned.get("plans") or [])
+
+        sig = "|".join(
+            sorted(
+                f"{p.get('cluster_id')}:{p.get('island_id')}:{p.get('mode')}"
+                for p in round_plans
+            )
+        )
+        rounds.append(
+            {
+                "round": round_index,
+                "pending": len(pending),
+                "applied": round_applied,
+                "plans": len(round_plans),
+            }
+        )
+        if round_applied == 0:
+            break
+        if sig and sig == last_sig:
+            rounds[-1]["oscillation_halt"] = True
+            break
+        last_sig = sig
+
+    return {
+        "mode": "per_cluster",
+        "total_applied": total_applied,
+        "rounds": rounds,
+        "fixed_point": bool(rounds) and int(rounds[-1].get("applied") or 0) == 0,
+    }
+
+
 def already_adjudicated(audit: dict[str, Any]) -> dict[str, str]:
     """pair_id → seam_hash for pairs recorded as stay_independent in prior passes."""
     out: dict[str, str] = {}
@@ -1057,7 +1647,7 @@ def run_connector_fuse_pass(
     cfg: dict[str, Any] | None = None,
     force_readjudicate: bool = False,
 ) -> dict[str, Any]:
-    """enumerate → adjudicate → apply, looping until fixed point or ``max_fuse_rounds``."""
+    """High-value cluster fuse, then enumerate → adjudicate → apply until fixed point."""
     conf = connector_fuse_cfg(cfg)
     rounds_doc: dict[str, Any] = {
         "version": 1,
@@ -1076,13 +1666,17 @@ def run_connector_fuse_pass(
         ctx.write_json(FUSE_ROUNDS_PATH, rounds_doc)
         return rounds_doc
 
+    hv_rounds = run_high_value_cluster_fuse_rounds(ctx, pass_id=pass_id, cfg=conf)
+    hv_applied = int(hv_rounds.get("total_applied") or 0)
+    rounds_doc["high_value_cluster_fuse"] = hv_rounds
+
     raw_rounds = int(conf.get("max_fuse_rounds") or 0)
     max_rounds = raw_rounds if raw_rounds > 0 else 10_000
     cap = int(conf.get("max_fuses_per_pass") or 0)
     if cap <= 0:
         cap = 10_000_000
     batch_size = int(conf.get("llm_batch_size") or 16)
-    total_applied = 0
+    total_applied = hv_applied
     last_sig = ""
 
     for round_index in range(max_rounds):
@@ -1148,7 +1742,6 @@ def run_connector_fuse_pass(
     if total_applied:
         air = rerun_air_bounds_on_fused(ctx)
         rounds_doc["air_bounds"] = air
-    # Fail-catch: grow a single segment over any non-noise island still straddling a cut.
     encompass = encompass_straddling_islands(ctx, pass_id=pass_id, cfg=conf)
     rounds_doc["encompassed"] = encompass.get("applied") or 0
     split_qc = assert_no_split_suspect_islands(ctx)
@@ -1160,138 +1753,14 @@ def run_connector_fuse_pass(
         level="info",
         stage="connector_fuse_pass",
         action_id="connector_fuse.pass",
-        detail={"pass_id": pass_id, "applied": total_applied, "encompassed": rounds_doc["encompassed"]},
+        detail={
+            "pass_id": pass_id,
+            "total_applied": total_applied,
+            "hv_cluster_applied": hv_applied,
+            "fixed_point": rounds_doc["fixed_point"],
+        },
     )
     return rounds_doc
-
-
-def encompass_straddling_islands(
-    ctx: RunContext,
-    *,
-    pass_id: str = "",
-    cfg: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Grow the earlier segment to cover non-noise islands still split across a cut."""
-    conf = connector_fuse_cfg(cfg)
-    segments = _load_segments(ctx)
-    if len(segments) < 2:
-        return {"applied": 0}
-    islands: list[dict[str, Any]] = []
-    try:
-        from interview_mux.low_conf_islands import load_islands
-
-        islands = [
-            i
-            for i in (load_islands(ctx).get("islands") or [])
-            if isinstance(i, dict) and i.get("failure_mode") != "noise"
-        ]
-    except Exception:
-        return {"applied": 0}
-    if not islands:
-        return {"applied": 0}
-
-    words = _load_words(ctx)
-    by_id = {str(s["segment_id"]): dict(s) for s in segments}
-    order = [str(s["segment_id"]) for s in segments]
-    applied: list[dict[str, Any]] = []
-    consumed: set[str] = set()
-
-    for earlier_id, later_id in zip(order, order[1:]):
-        if earlier_id in consumed or later_id in consumed:
-            continue
-        earlier, later = by_id.get(earlier_id), by_id.get(later_id)
-        if earlier is None or later is None:
-            continue
-        if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(earlier) != _speaker_of(later):
-            continue
-        a_end, b_start = _ms(earlier, "end_ms"), _ms(later, "start_ms")
-        straddle, _ = _island_hints(islands, earlier_end_ms=a_end, later_start_ms=b_start)
-        if not straddle:
-            continue
-        # Prefer fuse rewrite into earlier when island still straddles.
-        start_ms = min(_ms(earlier, "start_ms"), _ms(later, "start_ms"))
-        end_ms = max(_ms(earlier, "end_ms"), _ms(later, "end_ms"))
-        joined = " ".join(
-            t for t in (str(earlier.get("text") or ""), str(later.get("text") or "")) if t
-        )
-        earlier["start_ms"] = start_ms
-        earlier["end_ms"] = end_ms
-        earlier["duration_ms"] = max(0, end_ms - start_ms)
-        earlier["text"] = _rebuild_text(words, start_ms, end_ms, fallback=joined)
-        earlier["fused_from"] = list(
-            dict.fromkeys([*(earlier.get("fused_from") or [earlier_id]), later_id])
-        )
-        earlier["fuse_reason"] = "island_encompass"
-        earlier["fuse_pass_id"] = pass_id or None
-        by_id[earlier_id] = earlier
-        consumed.add(later_id)
-        applied.append(
-            {
-                "pair_id": f"{earlier_id}__{later_id}",
-                "fused_into": earlier_id,
-                "absorbed_segment_id": later_id,
-                "reason_code": "island_encompass",
-                "pass_id": pass_id or None,
-            }
-        )
-
-    if not applied:
-        return {"applied": 0, "applied_fuses": []}
-    surviving = [by_id[sid] for sid in order if sid not in consumed and sid in by_id]
-    surviving.sort(key=lambda s: _ms(s, "start_ms"))
-    _write_manifest(ctx, surviving)
-    _write_boundaries(ctx, surviving, consumed=consumed, pass_id=pass_id or "island_encompass")
-    remap = {row["absorbed_segment_id"]: row["fused_into"] for row in applied}
-    _remap_downstream_ids(ctx, remap)
-    result = {
-        "applied": len(applied),
-        "applied_fuses": applied,
-        "id_remap": remap,
-        "stay_independent": [],
-        "skipped": [],
-        "pass_id": pass_id or None,
-    }
-    _append_audit(ctx, result, verdicts=[], pass_id=pass_id or "island_encompass")
-    return result
-
-
-def assert_no_split_suspect_islands(ctx: RunContext) -> dict[str, Any]:
-    """QC: non-noise islands must not remain split across two surviving segment edges."""
-    segments = _load_segments(ctx)
-    try:
-        from interview_mux.low_conf_islands import load_islands
-
-        islands = [
-            i
-            for i in (load_islands(ctx).get("islands") or [])
-            if isinstance(i, dict) and i.get("failure_mode") != "noise" and not i.get("soft")
-        ]
-    except Exception:
-        return {"ok": True, "split_islands": []}
-    splits: list[dict[str, Any]] = []
-    for isl in islands:
-        s, e = _ms(isl, "start_ms"), _ms(isl, "end_ms")
-        hits = [
-            str(seg.get("segment_id"))
-            for seg in segments
-            if _ms(seg, "end_ms") > s and _ms(seg, "start_ms") < e
-        ]
-        if len(hits) >= 2:
-            splits.append(
-                {
-                    "island_id": isl.get("island_id"),
-                    "segment_ids": hits,
-                    "start_ms": s,
-                    "end_ms": e,
-                }
-            )
-    doc = {
-        "version": 1,
-        "ok": not splits,
-        "split_islands": splits,
-    }
-    ctx.write_json("analysis/connector_fuse_split_island_qc.json", doc)
-    return doc
 
 
 def analyze_connector_fuses(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1325,8 +1794,11 @@ __all__ = [
     "encompass_straddling_islands",
     "enumerate_seam_packets",
     "fused_id_remap",
+    "plan_cluster_fuses",
+    "plan_high_value_fuses",
     "remap_fused_ids",
     "rerun_air_bounds_on_fused",
     "run_connector_fuse_pass",
+    "run_high_value_cluster_fuse_rounds",
     "words_in_span",
 ]

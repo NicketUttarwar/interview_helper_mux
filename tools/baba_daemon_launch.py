@@ -50,12 +50,21 @@ def rotate_e2e_console() -> None:
     E2E_CONSOLE.replace(archive / f"baba_e2e_console.{stamp}.log")
 
 
+# Removed skips: MusicGen must always run the real ladder (large → medium → small).
+_MUSICGEN_SKIP_ENV = (
+    "MUX_E2E_MUSICGEN_FAST_STUB",
+    "MUX_E2E_MUSICGEN_FORCE_STUB",
+)
+
+
 def _popen(cmd: list[str], log_path: Path, env: dict[str, str] | None = None) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     out = open(log_path, "a", buffering=1)
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
+    for key in _MUSICGEN_SKIP_ENV:
+        full_env.pop(key, None)
     proc = subprocess.Popen(
         cmd,
         cwd=str(ROOT),
@@ -102,15 +111,9 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
         [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser"],
         ASSETS / "baba_server.log",
         env={
+            # Soft last-resort after the full MusicGen ladder (+ MMAudio) fails —
+            # never skip MusicGen itself.
             "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
-            # Unattended e2e: skip hour-long musicgen-large CPU stems; mix still
-            # gets deterministic musical-note stubs (fail_closed_on_stub soft).
-            "MUX_E2E_MUSICGEN_FAST_STUB": os.environ.get(
-                "MUX_E2E_MUSICGEN_FAST_STUB", "1"
-            ),
-            "MUX_E2E_MUSICGEN_TIMEOUT_SEC": os.environ.get(
-                "MUX_E2E_MUSICGEN_TIMEOUT_SEC", "180"
-            ),
             "MUX_E2E_SOFT_LISTENABILITY": "1",
         },
     )
@@ -125,17 +128,18 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
 def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = False) -> int | None:
     if e2e_alive() and not fresh and not force:
         return None
+    # Never inherit a MusicGen skip flag into the driver process.
+    for key in _MUSICGEN_SKIP_ENV:
+        os.environ.pop(key, None)
     subprocess.run(["pkill", "-f", "_baba_e2e_driver.py"], check=False)
     time.sleep(1)
     env = {
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
-        "MUX_INPUT_AUDIO": os.environ.get("MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav"),
-        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
-        "MUX_E2E_MUSICGEN_FAST_STUB": os.environ.get("MUX_E2E_MUSICGEN_FAST_STUB", "1"),
-        "MUX_E2E_MUSICGEN_TIMEOUT_SEC": os.environ.get(
-            "MUX_E2E_MUSICGEN_TIMEOUT_SEC", "180"
+        "MUX_INPUT_AUDIO": os.environ.get(
+            "MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav"
         ),
+        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
     }
     if fresh:
         rotate_e2e_console()

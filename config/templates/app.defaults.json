@@ -6,6 +6,20 @@
   "executions_root": "ASSETS/executions",
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
+  "ingest": {
+    "loudness_stabilize": {
+      "enabled": true,
+      "target_lufs": -18.0,
+      "true_peak_dbtp": -1.5,
+      "lra": 11.0,
+      "dual_mono": true,
+      "dynaudnorm": true,
+      "dynaudnorm_frame_ms": 150,
+      "dynaudnorm_gausssize": 15,
+      "dynaudnorm_peak": 0.95,
+      "dynaudnorm_maxgain": 10.0
+    }
+  },
   "master": {
     "safety_limiter_enabled": true,
     "safety_limiter_limit_db": -1.0,
@@ -284,6 +298,21 @@
         "min_bricks_in_window": 4,
         "segment_soft_density": 0.12,
         "null_confidence_as": "mid"
+      }
+    },
+    "high_value_speech_islands": {
+      "enabled": true,
+      "cluster_join_max_gap_ms": 8000,
+      "flow_break_min_high_conf_ms": 12000,
+      "flow_break_min_high_conf_segments": 1,
+      "multi_cluster_min_islands": 2,
+      "max_island_cluster_rounds": 32,
+      "per_cluster_fuse": true,
+      "island_cluster_structure": {
+        "llm_tier": "economy",
+        "fail_open_deterministic": true,
+        "lock_forced_seams": true,
+        "max_block_chars": 48000
       }
     },
     "connector_fuse": {

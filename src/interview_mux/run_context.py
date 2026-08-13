@@ -227,9 +227,15 @@ class RunContext:
         meta["execution_number"] = int(seq) if seq and str(seq).isdigit() else meta.get("execution_number")
         meta["execution_id"] = self.run_id
         resolved_input = self._resolve_input_audio_ref(input_audio_path)
+        original_stored = repo_relative_path(self.root, resolved_input)
         wav_input = ensure_wav_asset(resolved_input)
         stored_input = repo_relative_path(self.root, wav_input)
         meta["input_audio_path"] = stored_input
+        # Preserve the operator-selected file when we converted mp3/mp4/etc. → wav.
+        if wav_input.resolve() != resolved_input.resolve():
+            meta["input_audio_path_original"] = original_stored
+        else:
+            meta.pop("input_audio_path_original", None)
         if source_audio_hash and source_audio_hash_short:
             meta["source_audio_hash"] = source_audio_hash
             meta["source_audio_hash_short"] = source_audio_hash_short

@@ -86,7 +86,8 @@
   "ingest": {
     "reads": [],
     "writes": [
-      "ingest/checksums.json"
+      "ingest/checksums.json",
+      "ingest/loudness.json"
     ]
   },
   "interview_spine_stage": {
@@ -110,6 +111,14 @@
     "reads": [
       "master/assembly.wav",
       "master/selection.json"
+    ],
+    "writes": []
+  },
+  "music_palette_compose": {
+    "reads": [
+      "master/narrative_plan.json",
+      "master/selection.json",
+      "understanding/music_brief.json"
     ],
     "writes": []
   },
@@ -152,6 +161,8 @@
   },
   "selection": {
     "reads": [
+      "analysis/high_value_speech_boosts.json",
+      "analysis/high_value_speech_islands.json",
       "master/coverage_audit.json",
       "master/narrative_plan.json",
       "master/selection.json",
@@ -199,7 +210,8 @@
       "sound_design/sfx_prompts.json",
       "understanding/analysis_state.json",
       "understanding/content_brief.json",
-      "understanding/gap_report.json"
+      "understanding/gap_report.json",
+      "understanding/music_brief.json"
     ],
     "writes": [
       "run_meta.json",

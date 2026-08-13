@@ -37,13 +37,32 @@ def run_low_conf_island_scan(ctx: RunContext) -> None:
     with logged_step(f"{stage}/scan", ctx=ctx, stage=stage):
         islands = scan_low_conf_islands_for_ctx(ctx)
         ranking = compute_density_ranking(ctx, islands)
+        hv_doc: dict[str, Any] = {"island_count": 0, "segment_ids_touched": []}
+        try:
+            from interview_mux.high_value_speech_islands import (
+                mark_segments_high_value,
+                scan_high_value_speech_islands,
+            )
+
+            hv_doc = scan_high_value_speech_islands(ctx, low_conf_islands=islands)
+            mark_segments_high_value(
+                ctx, set(hv_doc.get("segment_ids_touched") or [])
+            )
+        except Exception as exc:
+            ctx.log(
+                f"high_value_speech_islands scan failed open: {exc}",
+                level="warning",
+                stage=stage,
+                action_id="high_value.scan.fail_open",
+            )
         must_keep = write_low_conf_must_keep(ctx, ranking)
 
     ctx.log(
         f"Low-conf islands: {islands.get('island_count')} found "
         f"({islands.get('suspect_count')} suspect) — "
         f"{len(must_keep.get('must_keep_segment_ids') or [])} segment(s) hard-included "
-        f"at top {must_keep.get('top_percentile')}",
+        f"at top {must_keep.get('top_percentile')}; "
+        f"high_value={hv_doc.get('island_count')}",
         stage=stage,
         action_id="low_conf.scan",
         detail={
@@ -52,6 +71,8 @@ def run_low_conf_island_scan(ctx: RunContext) -> None:
             "positive_count": ranking.get("positive_count"),
             "must_keep": (must_keep.get("must_keep_segment_ids") or [])[:20],
             "enforcement_mode": must_keep.get("enforcement_mode"),
+            "high_value_count": hv_doc.get("island_count"),
+            "high_value_segments": (hv_doc.get("segment_ids_touched") or [])[:20],
         },
     )
 
@@ -75,13 +96,15 @@ def run_connector_fuse_pass(ctx: RunContext, **kwargs: Any) -> None:
 
     ctx.log(
         f"Connector fuse pass '{pass_id}' complete — {result.get('total_applied')} fuse(s), "
-        f"fixed_point={result.get('fixed_point')}",
+        f"fixed_point={result.get('fixed_point')}, "
+        f"hv_cluster={((result.get('high_value_cluster_fuse') or {}).get('total_applied'))}",
         stage=stage,
         action_id="connector_fuse.complete",
         detail={
             "pass_id": pass_id,
             "total_applied": result.get("total_applied"),
             "rounds": len(result.get("rounds") or []),
+            "hv_cluster": result.get("high_value_cluster_fuse"),
             "skip_reason": result.get("skip_reason"),
         },
     )

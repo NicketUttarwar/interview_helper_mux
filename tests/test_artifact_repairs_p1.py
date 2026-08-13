@@ -104,6 +104,62 @@ def test_repair_edl_audit_normalizes_verdict(tmp_path, monkeypatch: pytest.Monke
     assert applied
 
 
+def test_repair_edl_audit_demotes_premature_vo_nle_placement(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_edl_vo")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_005")),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_005",
+                    "targets_segment_id": "seg_005",
+                    "severity": "high",
+                    "required": True,
+                    "delivery": "synthesize",
+                    "gap_type": "nugget_layup",
+                    "placement": "before",
+                    "text": "Stevia roadblock?",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    vo = ctx.final_path("vo_pickup")
+    vo.mkdir(parents=True, exist_ok=True)
+    (vo / "vo_layup_seg_005.wav").write_bytes(b"RIFF....")
+    doc = {
+        "verdict": "fail",
+        "blocking_issues": [
+            {
+                "issue": (
+                    "Required high-severity setup and continuity lines have no "
+                    "evidenced VO-ingest or NLE placement."
+                ),
+                "evidence": [
+                    "gap_report.interviewer_lines[0].line_id=vo_layup_seg_005",
+                    "nle_edits={}",
+                ],
+                "recommended_action": "rerun vo_ingest, then rerun edl",
+            }
+        ],
+        "warnings": [],
+    }
+    patched, applied = repair_edl_audit(ctx, doc)
+    assert patched["verdict"] in ("pass", "warn")
+    assert not patched.get("blocking_issues")
+    assert any(
+        row.get("action") == "demote_premature_vo_nle_placement" for row in applied
+    )
+
+
 def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_cov")

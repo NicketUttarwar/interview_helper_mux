@@ -10,6 +10,7 @@
 | `connector_fuse_pass` | process | analysis/connector_fuse_audit.json |
 | `connector_fuse_pass_pre_ranking` | process | analysis/connector_fuse_rounds.json |
 | `connector_seam_adjudicate` | llm_full | analysis/connector_seam_verdicts.json |
+| `island_cluster_structure_adjudicate` | llm_advisory | analysis/island_cluster_structure_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | — |
@@ -44,6 +45,7 @@
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | — |
 | `mmaudio_sfx` | process | — |
+| `music_palette_compose` | llm_full | sound_design/music_palette_compose.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | deterministic | — |
 | `nugget_corpus_mine` | llm_full | understanding/nugget_corpus.json |

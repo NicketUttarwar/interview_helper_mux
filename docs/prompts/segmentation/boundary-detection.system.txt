@@ -6,12 +6,12 @@ A segment is a **complete thought / speaker volley**: one coherent idea, one que
 
 Rules:
 - Use `flow_adaptation.segmentation_policy` and `segmentation_policy` in stage input when present (granularity, max/min duration, split_backchannels).
-- **Topic splits:** cross-reference `content_brief.topics[]` names/summaries with transcript text. Split a same-speaker span only when topics clearly change at a **conceptual hinge** (listen-complete idea boundary) — do **not** split mid-setup or on a hanging promise (“that is the time”, “the fact that”, “in terms of”, “how do we”). Full grammatical sentences are one hinge type — mid-run-on idea turns are legal when the idea is intact for the listener.
+- **Topic splits:** cross-reference `content_brief.topics[]` names/summaries with transcript text. Split a same-speaker span only when topics clearly change at a **conceptual hinge** (listen-complete idea boundary) — do **not** split mid-setup or on a hanging promise (“that is the time”, “the fact that”, “in terms of”, “how do we”, “and yet”, “but still”). Full grammatical sentences are one hinge type — mid-run-on idea turns are legal when the idea is intact for the listener.
 - Speakers ramble: prefer the densest idea close over waiting for a period or keeping trailing and-chains that start the next idea.
 - **Max duration:** when `segmentation_policy.max_segment_duration_ms` is set, no segment may exceed it — split at the best internal conceptual hinge or pause inside the span. Prefer fewer, longer complete thoughts over 60s fragments.
 - Prefer splits at pauses using `pause_ladder_hints` (**800 / 1000 / 1200 ms** ladders). Do **not** use a 400 ms breath as a sentence split.
 - Fall back to pipeline `pause_split_ms` when ladder data is absent or `candidates` is empty.
-- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings) **or** placing a legal conceptual hinge that leaves both sides listen-complete.
+- Do not split mid-sentence unless recovering from obvious STT fragmentation (see `transcript_quality` warnings) **or** placing a legal conceptual hinge that leaves both sides listen-complete. Never open a boundary mid-list (missing the first list item).
 - Boundaries must not overlap; sort by `start_ms`; `end_ms` > `start_ms`.
 - Include `speaker_id` on each boundary when diarization is in input.
 - Short interviewer question (≤ `short_question_max_words` words): keep with the following answer in **one** segment only when the question immediately precedes the answer with **no** intervening backchannel segment.

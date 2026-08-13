@@ -911,6 +911,51 @@ def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     return line
 
 
+def dedupe_gap_report_nugget_claims(
+    gap_report: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Keep the first owner of each nugget_id across interviewer_lines.
+
+    Dense-package injection can stamp the same package nuggets onto an empty
+    layup row that later rows already claim explicitly — strip later/dup claims.
+    """
+    report = dict(gap_report) if isinstance(gap_report, dict) else {}
+    lines = [ln for ln in (report.get("interviewer_lines") or []) if isinstance(ln, dict)]
+    owner: dict[str, str] = {}
+    notes: list[dict[str, Any]] = []
+    out_lines: list[dict[str, Any]] = []
+    for ln in lines:
+        lid = str(ln.get("line_id") or ln.get("targets_segment_id") or "")
+        nids = [str(x) for x in (ln.get("nugget_ids") or []) if x]
+        if not nids:
+            out_lines.append(ln)
+            continue
+        kept: list[str] = []
+        dropped: list[str] = []
+        for nid in nids:
+            if nid in owner and owner[nid] != lid:
+                dropped.append(nid)
+                continue
+            owner.setdefault(nid, lid)
+            kept.append(nid)
+        if dropped:
+            ln = dict(ln)
+            ln["nugget_ids"] = kept
+            notes.append(
+                {
+                    "action": "dedupe_nugget_claim",
+                    "line_id": lid,
+                    "dropped_nugget_ids": dropped,
+                    "kept_by": {nid: owner[nid] for nid in dropped},
+                }
+            )
+        out_lines.append(ln)
+    if not notes:
+        return report, []
+    report["interviewer_lines"] = out_lines
+    return report, notes
+
+
 def publish_layup_plan_to_gap_report(
     ctx: RunContext,
     plan: dict[str, Any] | None = None,
@@ -951,15 +996,29 @@ def publish_layup_plan_to_gap_report(
     except Exception:
         dense_meta = {}
 
+    # Explicit plan claims win over dense-package backfill so package-shared
+    # nugget lists cannot collide with later layups that already own them.
+    claimed_nugs: set[str] = set()
+    for row in plan.get("layups") or []:
+        if isinstance(row, dict):
+            claimed_nugs.update(row_nugget_ids(row))
+
     for row in plan.get("layups") or []:
         row_d = dict(row) if isinstance(row, dict) else {}
         tid = str(row_d.get("target_segment_id") or "").strip()
         if tid and tid in dense_meta:
             row_d["detail_budget"] = "dense"
             row_d["information_package_id"] = dense_meta[tid].get("package_id")
-            # Prefer package-cited nuggets when the layup row is empty.
+            # Prefer unclaimed package-cited nuggets when the layup row is empty.
             if not row_nugget_ids(row_d) and dense_meta[tid].get("nugget_ids"):
-                row_d["nugget_ids"] = list(dense_meta[tid]["nugget_ids"])
+                injected = [
+                    str(n)
+                    for n in (dense_meta[tid].get("nugget_ids") or [])
+                    if n and str(n) not in claimed_nugs
+                ]
+                if injected:
+                    row_d["nugget_ids"] = injected
+                    claimed_nugs.update(injected)
         line = layup_line_from_row(row_d)
         if not line:
             continue
@@ -984,6 +1043,7 @@ def publish_layup_plan_to_gap_report(
         "interviewer_lines": orientation + body,
         "nugget_layup_authority": True,
     }
+    report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
     ordered = _ordered_ids(ctx)
     report, _notes = ensure_episode_orientation(ctx, report, ordered)
     write_validated_artifact(
@@ -1448,3 +1508,189 @@ def assert_layup_qc_or_raise(ctx: RunContext, qc: dict[str, Any]) -> None:
         stage="nugget_layup_compose",
         reason="nugget_layup_qc_failed",
     )
+
+def materialize_over_skipped_layups(
+    ctx: RunContext,
+    plan: dict[str, Any] | None = None,
+    *,
+    target_coverage: float | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Turn analysis-rich skip rows into spoken before-VO when LLM over-skipped.
+
+    Uses forward_unlock / target_beat / corpus nuggets already attached to the
+    row (or open must-keep talking points) so coverage can recover without canned hinges.
+    """
+    cfg = nugget_layup_cfg()
+    floor = float(target_coverage if target_coverage is not None else cfg["min_layup_coverage"])
+    notes: list[str] = []
+    if plan is None:
+        plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    plan = normalize_layup_talking_point_ledger(ctx, plan if isinstance(plan, dict) else {})
+    layups = [r for r in (plan.get("layups") or []) if isinstance(r, dict)]
+    if not layups:
+        return plan, ["no_layups"]
+
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in (corpus.get("nuggets") or [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
+    tp_doc = (
+        ctx.read_json("understanding/talking_points.json")
+        if ctx.artifact_exists("understanding/talking_points.json")
+        else {}
+    )
+    tp_by_id = {
+        str(tp.get("id") or tp.get("talking_point_id") or ""): tp
+        for tp in (tp_doc.get("talking_points") or [])
+        if isinstance(tp, dict)
+    }
+
+    ordered = [str(x) for x in (plan.get("ordered_segment_ids") or []) if x]
+    by_target = {str(r.get("target_segment_id") or ""): r for r in layups if r.get("target_segment_id")}
+    present = sum(
+        1
+        for sid in ordered
+        if (row := by_target.get(sid))
+        and not row.get("skip")
+        and str(row.get("text") or "").strip()
+    )
+    need = max(0, int(round(floor * len(ordered) + 1e-9)) - present)
+    open_tps = [str(x) for x in (plan.get("open_talking_point_ids") or []) if x]
+    claimed_nugs: set[str] = set()
+    for row in layups:
+        for nid in row_nugget_ids(row):
+            claimed_nugs.add(nid)
+
+    filled = 0
+    for row in layups:
+        if filled >= need and not open_tps:
+            break
+        if not row.get("skip") and str(row.get("text") or "").strip():
+            continue
+        reason = str(row.get("skip_reason_code") or "")
+        if reason == "episode_open_native_self_orients" and filled >= need:
+            continue
+        unlock = str(row.get("forward_unlock") or "").strip()
+        beat = str(row.get("target_beat") or "").strip()
+        setup = str(row.get("setup_from_nuggets") or "").strip()
+        listener = str(row.get("listener_need_entering_T") or "").strip()
+        tid = str(row.get("target_segment_id") or "")
+        assigned_tps = [str(x) for x in (row.get("talking_point_ids") or []) if x]
+        if not assigned_tps and open_tps:
+            assigned_tps = [open_tps.pop(0)]
+            row["talking_point_ids"] = list(
+                dict.fromkeys([*(row.get("talking_point_ids") or []), *assigned_tps])
+            )
+        nug_bits: list[str] = []
+        for nid in row_nugget_ids(row):
+            nug = nug_by_id.get(nid)
+            if not isinstance(nug, dict):
+                continue
+            bit = str(
+                nug.get("text")
+                or nug.get("text_claim")
+                or nug.get("claim")
+                or nug.get("summary")
+                or ""
+            ).strip()
+            if bit:
+                nug_bits.append(bit.rstrip(".") + ".")
+                claimed_nugs.add(nid)
+        if not nug_bits:
+            for tpid in assigned_tps:
+                tp = tp_by_id.get(tpid) or {}
+                bit = str(tp.get("text") or tp.get("point") or tp.get("summary") or "").strip()
+                if bit:
+                    nug_bits.append(bit.rstrip(".") + ".")
+                    break
+            if not nug_bits:
+                for nug in corpus.get("nuggets") or []:
+                    if not isinstance(nug, dict):
+                        continue
+                    nid = str(nug.get("nugget_id") or "")
+                    if not nid or nid in claimed_nugs:
+                        continue
+                    covers = {
+                        str(x)
+                        for x in (
+                            nug.get("talking_point_ids")
+                            or nug.get("covers_talking_point_ids")
+                            or []
+                        )
+                        if x
+                    }
+                    if assigned_tps and covers.isdisjoint(assigned_tps):
+                        continue
+                    bit = str(
+                        nug.get("text")
+                        or nug.get("text_claim")
+                        or nug.get("claim")
+                        or nug.get("summary")
+                        or ""
+                    ).strip()
+                    if not bit:
+                        continue
+                    nug_bits.append(bit.rstrip(".") + ".")
+                    row["selected_nugget_ids"] = list(
+                        dict.fromkeys([*(row.get("selected_nugget_ids") or []), nid])
+                    )
+                    row["nugget_ids"] = list(dict.fromkeys([*(row.get("nugget_ids") or []), nid]))
+                    claimed_nugs.add(nid)
+                    break
+        parts = [
+            p
+            for p in (
+                setup,
+                *nug_bits[:2],
+                unlock or beat,
+                listener if len(listener) < 120 else "",
+            )
+            if p
+        ]
+        text = " ".join(parts).strip()
+        text = " ".join(text.split())
+        if len(text.split()) < int(cfg.get("min_layup_words") or 18):
+            if beat and beat.lower() not in text.lower():
+                text = f"{text} {beat}".strip() if text else beat
+            text = " ".join(text.split())
+        if len(text.split()) < 8:
+            notes.append(f"skip_unmaterializable:{tid}")
+            continue
+        # Ensure last sentence satisfies has_forward_cue (question / next-beat cue).
+        if unlock and not text.rstrip().endswith("?"):
+            cue = unlock if unlock.endswith("?") else (
+                unlock.rstrip(".!")
+                if unlock.lower().startswith(("what", "how", "why", "where", "when", "which"))
+                else f"What happens when {unlock[0].lower() + unlock[1:].rstrip('.!')}?"
+            )
+            if not cue.endswith("?"):
+                cue = cue.rstrip(".!") + "?"
+            text = f"{text.rstrip('.!?')}. {cue}"
+            text = " ".join(text.split())
+        elif not text.rstrip().endswith("?"):
+            text = f"{text.rstrip('.!?')}. What comes next?"
+            text = " ".join(text.split())
+        row["skip"] = False
+        row.pop("skip_reason_code", None)
+        row["text"] = text
+        row["word_count"] = _word_count(text)
+        row["forward_cue_ok"] = True
+        row["materialized_from_skip"] = True
+        filled += 1
+        notes.append(f"materialized:{tid}")
+
+    discharged = {str(x) for x in (plan.get("discharged_talking_point_ids") or []) if x}
+    for row in layups:
+        if row.get("skip") or not str(row.get("text") or "").strip():
+            continue
+        for tpid in row.get("talking_point_ids") or []:
+            if tpid:
+                discharged.add(str(tpid))
+    plan["discharged_talking_point_ids"] = sorted(discharged)
+    plan["layups"] = layups
+    plan = normalize_layup_talking_point_ledger(ctx, plan)
+    notes.append(f"filled={filled}")
+    return plan, notes
+

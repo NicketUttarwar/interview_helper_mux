@@ -167,8 +167,21 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
             meta["sonic_context_hash"] = sonic_hash
             meta["prompt_text"] = params["prompt"]
             generation_meta[asset_id] = meta
+            backend = str(meta.get("backend") or "").strip().lower()
+            if backend.startswith("musicgen") or backend == "musicgen":
+                provider = "musicgen"
+                label = "MusicGen"
+            elif backend in {"mmaudio", "mmaudio_backup"}:
+                provider = "mmaudio"
+                label = "MMAudio"
+            elif backend == "musical_stub":
+                provider = "musical_stub"
+                label = "Musical stub"
+            else:
+                provider = backend or "musicgen"
+                label = "MusicGen" if musicgen_enabled() else "MMAudio"
             ctx.log(
-                f"MMAudio generated {asset_id}.wav",
+                f"{label} generated {asset_id}.wav",
                 level="info",
                 stage=stage,
                 detail={
@@ -180,14 +193,16 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
                     "num_steps": meta.get("num_steps"),
                     "seed": meta.get("seed"),
                     "variant": meta.get("variant"),
-                    "provider": "mmaudio",
+                    "provider": provider,
+                    "backend": meta.get("backend"),
                     "model_id": meta.get("model_id"),
+                    "model_ladder": meta.get("model_ladder"),
                     "artifact": f"sound_design/assets/{asset_id}.wav",
                 },
             )
             _log_sfx_event(
                 ctx,
-                f"MMAudio generated {asset_id}",
+                f"{label} generated {asset_id}",
                 stage=stage,
                 asset_id=asset_id,
                 event="generate",
@@ -740,7 +755,6 @@ def _generate_with_retry(
             # MusicGen hang/timeout path ends in musical_stub — try MMAudio before shipping stub.
             if (
                 str(meta.get("backend") or "") == "musical_stub"
-                and not meta.get("e2e_fast_stub")
                 and bool(meta.get("mmaudio_backup_suggested", True))
             ):
                 try:
@@ -930,6 +944,18 @@ def _should_skip_generation(
         return False
     if asset_id in regen_ids:
         return False
+    # Never skip when the on-disk stem is a stub / e2e soft-stub — MusicGen must run.
+    gen_side = out_file.with_suffix(".gen.json")
+    if gen_side.is_file():
+        try:
+            gmeta = json.loads(gen_side.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            gmeta = {}
+        backend = str((gmeta or {}).get("backend") or "").strip().lower()
+        if backend in {"musical_stub", "music_stub", "sine_stub"} or (gmeta or {}).get(
+            "e2e_fast_stub"
+        ) or (gmeta or {}).get("e2e_soft_stub"):
+            return False
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     hashes = meta.get("sfx_generation_plan_hashes") or {}
     if not isinstance(hashes, dict):
@@ -972,7 +998,7 @@ def _resolve_generation_params(
     if prompt_row:
         prompt = prompt_row.get("sfx_prompt") or prompt
         negative_prompt = str(prompt_row.get("negative_prompt") or negative_prompt)
-        if "prompt_influence" in prompt_row:
+        if prompt_row.get("prompt_influence") is not None:
             influence = float(prompt_row["prompt_influence"])
         if prompt_row.get("cfg_strength") is not None:
             cfg_strength = float(prompt_row["cfg_strength"])

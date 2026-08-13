@@ -134,8 +134,6 @@ def main() -> int:
         }
     )
     mg.musicgen_cfg = lambda: base  # type: ignore[assignment]
-    if hasattr(mg, "e2e_musicgen_fast_stub"):
-        mg.e2e_musicgen_fast_stub = lambda: False  # type: ignore[assignment]
 
     effective = mg.effective_musicgen_device()
     ladder_preview = [primary]

@@ -185,6 +185,79 @@
       "consumers": [],
       "has_write_validator": false
     },
+    "analysis/high_value_speech_islands.json": {
+      "schemas_by_producer": {
+        "low_conf_island_scan": null
+      },
+      "producers": [
+        "low_conf_island_scan"
+      ],
+      "consumers": [
+        "connector_fuse_pass",
+        "full_master_ranking"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/high_value_speech_boosts.json": {
+      "schemas_by_producer": {
+        "low_conf_island_scan": null
+      },
+      "producers": [
+        "low_conf_island_scan"
+      ],
+      "consumers": [
+        "full_master_ranking"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/high_value_island_clusters.json": {
+      "schemas_by_producer": {
+        "connector_fuse_pass": null
+      },
+      "producers": [
+        "connector_fuse_pass"
+      ],
+      "consumers": [
+        "connector_fuse_pass"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/island_cluster_structure_packets.json": {
+      "schemas_by_producer": {
+        "island_cluster_structure_adjudicate": null
+      },
+      "producers": [
+        "connector_fuse_pass"
+      ],
+      "consumers": [
+        "connector_fuse_pass"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/island_cluster_structure_verdicts.json": {
+      "schemas_by_producer": {
+        "island_cluster_structure_adjudicate": "island_cluster_structure_adjudicate.schema.json"
+      },
+      "producers": [
+        "connector_fuse_pass"
+      ],
+      "consumers": [
+        "connector_fuse_pass"
+      ],
+      "has_write_validator": false
+    },
+    "analysis/connector_fuse_locked_seams.json": {
+      "schemas_by_producer": {
+        "connector_fuse_pass": null
+      },
+      "producers": [
+        "connector_fuse_pass"
+      ],
+      "consumers": [
+        "connector_fuse_pass"
+      ],
+      "has_write_validator": false
+    },
     "analysis/connector_fuse_audit.json": {
       "schemas_by_producer": {
         "connector_fuse_pass": null

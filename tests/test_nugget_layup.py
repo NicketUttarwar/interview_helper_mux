@@ -14,6 +14,7 @@ from interview_mux.nugget_layup import (
     build_corpus_mine_input,
     build_layup_compose_input,
     canned_air_violations,
+    dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
     gap_has_layup_before,
     layup_freshness_errors,
@@ -685,3 +686,160 @@ def test_missing_analysis_fields_rejected():
     qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
     assert qc["ok"] is False
     assert qc["insufficient_analysis_targets"] == ["seg_028"]
+
+
+def test_materialize_over_skipped_layups_recovers_coverage(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.nugget_layup import (
+        evaluate_layup_qc,
+        materialize_over_skipped_layups,
+    )
+
+    ctx = RunContext("exec_nugget_layup_mat", create=True)
+    ordered = [f"seg_{i:03d}" for i in range(1, 11)]
+    _seed_air_order(ctx, ordered, {})
+    ctx.write_json(
+        "understanding/nugget_corpus.json",
+        {
+            "nuggets": [
+                {
+                    "nugget_id": f"nug_{i:03d}",
+                    "text_claim": (
+                        f"Beat {i} showed shop-floor partners shared ESOP upside number {i} "
+                        f"when the company sold, reshaping loyalty talk for cohort {i}."
+                    ),
+                    "evidence_quote": f"everyone had ESOP {i}",
+                    "in_selection": True,
+                }
+                for i in range(1, 11)
+            ]
+        },
+        skip_handoff=True,
+    )
+    plan = {
+        "ordered_segment_ids": ordered,
+        "open_talking_point_ids": [],
+        "discharged_talking_point_ids": [],
+        "layups": [
+            {
+                "target_segment_id": sid,
+                "skip": True,
+                "skip_reason_code": "already_covered",
+                "text": "",
+                "forward_unlock": f"What changed for workers after beat {i}?",
+                "target_beat": f"worker outcome {i}",
+                "selected_nugget_ids": [f"nug_{i:03d}"],
+                "nugget_ids": [f"nug_{i:03d}"],
+                "talking_point_ids": [],
+                "listener_need_entering_T": "why this moment matters",
+                "setup_from_nuggets": "",
+            }
+            for i, sid in enumerate(ordered, start=1)
+        ],
+    }
+    before = evaluate_layup_qc(ctx, plan)
+    assert before["ok"] is False
+    assert any("layup_coverage" in e for e in (before.get("errors") or []))
+    fixed, notes = materialize_over_skipped_layups(ctx, plan)
+    assert any(str(n).startswith("materialized:") for n in notes)
+    after = evaluate_layup_qc(ctx, fixed)
+    cov = float(after.get("coverage") or after.get("layup_coverage") or 0.0)
+    assert cov >= 0.9
+    assert not any("layup_coverage" in e for e in (after.get("errors") or []))
+    # Overlap may still warn depending on QC strictness; coverage is the fail we heal.
+    assert after.get("ok") is True or not any(
+        "layup_coverage" in e for e in (after.get("errors") or [])
+    )
+
+
+def test_dedupe_gap_report_nugget_claims_keeps_first_owner():
+    report, notes = dedupe_gap_report_nugget_claims(
+        {
+            "interviewer_lines": [
+                {"line_id": "vo_a", "nugget_ids": ["nug_1", "nug_2"]},
+                {"line_id": "vo_b", "nugget_ids": ["nug_2", "nug_3"]},
+            ]
+        }
+    )
+    assert notes and notes[0]["dropped_nugget_ids"] == ["nug_2"]
+    assert report["interviewer_lines"][1]["nugget_ids"] == ["nug_3"]
+
+
+def test_publish_skips_dense_nuggets_already_claimed_by_later_layups(monkeypatch):
+    """Dense package backfill must not stamp nuggets owned by other plan rows."""
+    from interview_mux import information_packages as ip
+    from interview_mux import nugget_layup as nl
+
+    ctx = RunContext("exec_nugget_dense_claim", create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_002", "seg_006"], "selected_segment_ids": ["seg_002", "seg_006"]},
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "information_packages": [
+                {
+                    "package_id": "info_pkg_1",
+                    "before_segment_ids": ["seg_002"],
+                    "nugget_ids": ["nug_001", "nug_002"],
+                    "detail_budget": "dense",
+                }
+            ]
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_006"],
+        "selection_fingerprint": "test",
+        "layups": [
+            {
+                "target_segment_id": "seg_002",
+                "line_id": "vo_layup_seg_002",
+                "text": "What blocked the Stevia pivot before the protein bar launch?",
+                "nugget_ids": [],
+                "forward_cue_ok": True,
+                "skip": False,
+                **_ANALYSIS,
+            },
+            {
+                "target_segment_id": "seg_006",
+                "line_id": "vo_layup_seg_006",
+                "text": "How did the Stevia roadblock force the nutrition-bar decision?",
+                "nugget_ids": ["nug_001"],
+                "forward_cue_ok": True,
+                "skip": False,
+                **_ANALYSIS,
+            },
+        ],
+        "discharged_talking_point_ids": [],
+        "open_talking_point_ids": [],
+        "discharged_nugget_ids": ["nug_001"],
+        "open_high_salience_nugget_ids": [],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    ctx.write_json(GAP_REL, {"interviewer_lines": []})
+
+    monkeypatch.setattr(ip, "packages_affect_air", lambda: True)
+    monkeypatch.setattr(
+        ip,
+        "dense_targets_from_plan",
+        lambda _mp: {
+            "seg_002": {
+                "package_id": "info_pkg_1",
+                "nugget_ids": ["nug_001", "nug_002"],
+                "detail_budget": "dense",
+            }
+        },
+    )
+    monkeypatch.setattr(nl, "assert_layup_fresh_vs_selection", lambda *_a, **_k: None)
+
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    by_id = {
+        str(ln.get("line_id") or ""): ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    }
+    # Explicit plan claim on seg_006 wins; empty dense row only keeps unclaimed nug_002.
+    assert "nug_001" not in (by_id["vo_layup_seg_002"].get("nugget_ids") or [])
+    assert by_id["vo_layup_seg_006"].get("nugget_ids") == ["nug_001"]
+    assert lint_gap_report_layup_authority(ctx, report) == []

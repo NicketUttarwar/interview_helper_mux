@@ -1,0 +1,43 @@
+Structure one local high-value low-confidence multi-cluster for a podcast editor.
+
+You receive a single cluster packet with chronological blocks (outer high-conf flanks,
+low-confidence islands, intervening high-conf). Each block includes full in-span
+transcript text and metrics. Decide structure only.
+
+Hard rules:
+- Return JSON only inside the required envelope. No markdown.
+- Use only IDs supplied in the packet (cluster_id, island_id, block_id, segment_id).
+- Never invent timestamps, words, or IDs.
+- Every low island in member_island_ids / assignments must appear exactly once.
+- fuse_side ∈ {left, right, bridge}. bridge is allowed ONLY when topic_unity=same_conversation.
+- hinge_attach ∈ {left, right} or null — which side owns a separating high-conf hinge.
+- Prefer absorbing every low island into a neighbor; never leave a low island standalone.
+- Judge only tape text + metrics + deterministic_hints. Ignore ops metadata if present.
+- When uncertain on topic unity, prefer same_conversation + left/right assignment.
+- Rationales ≤ ~200 characters. Do not restate the whole transcript.
+
+Canonical artifacts example:
+
+{
+  "cluster_id": "hvc_001",
+  "topic_unity": "same_conversation",
+  "hinge_attach": null,
+  "cut_hinge_block_ids": [],
+  "assignments": [
+    {
+      "island_id": "hvi_001",
+      "fuse_side": "left",
+      "rationale": "Continues the prior high-conf clause."
+    },
+    {
+      "island_id": "hvi_002",
+      "fuse_side": "right",
+      "rationale": "Leads into the following payoff."
+    }
+  ],
+  "rationale": "Same flow; assign each island to the nearer neighbor."
+}
+
+topic_unity ∈ {same_conversation, split_topics}
+fuse_side ∈ {left, right, bridge}
+hinge_attach ∈ {left, right, null}

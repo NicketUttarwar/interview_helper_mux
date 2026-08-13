@@ -45,6 +45,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `sample_rate` | Ingest / mastering expectation | Wrong SR → Transcribe or mux issues |
 | `flow1_target_lufs` / `flow2_target_lufs` | Mastering targets (when enforced) | Wrong loudness “sound” |
 | `target_lufs` | Preferred alias for podcast master LUFS (falls back to `flow1_target_lufs`) | Wrong loudness |
+| `ingest` | Source format + loudness stabilize after optional preclean | Quiet/hot source stays unleveled through STT/review |
 | `master` | Final safety limiter before loudness normalization | Disabled or unsafe settings reduce peak protection |
 | `creative_delivery` | Selection trim requirements and exclusion floors | Selection can over-trim or retain low-value material |
 | `local_chatterbox` | Local Chatterbox VO: `enabled`, `model_id`, `device` (`auto`→MPS), `timeout_sec`, `fail_open` | Gap VO synthesis unavailable or stalls |
@@ -133,13 +134,25 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.low_conf_selection.top_percentile` | `write_low_conf_must_keep` | Hard-include fraction of natives (default **0.10**) |
 | `analysis.low_conf_selection.enforcement_mode` | `authoritative_low_conf_must_keep_ids` | `authoritative` (default) or soft |
 | `analysis.low_conf_selection.cluster.*` | `scan_low_conf_islands` | Ladder thresholds (loose sprinkle, windows, soft density) |
+| `analysis.high_value_speech_islands.enabled` | `scan_high_value_speech_islands` | Volume-gated STT-skip / multi low-conf detector (default **true**) |
+| `analysis.high_value_speech_islands.min_gap_ms` | STT-skip energy spans | Default **2000** — word-gap with speech RMS |
+| `analysis.high_value_speech_islands.min_cluster_ms` / `min_cluster_words` | low-conf cluster promote | Default **1500** / **3** |
+| `analysis.high_value_speech_islands.level_ratio_min` / `max` | volume gate vs tape median RMS | Default **0.55** / **1.45** |
+| `analysis.high_value_speech_islands.ranking_boost` / `importance_score` | pack + ranking priors | Default **0.85** / **0.92** |
+| `analysis.high_value_speech_islands.cluster_join_max_gap_ms` | `group_high_value_island_clusters` | Max gap to join L islands into one multi-cluster (default **8000**) |
+| `analysis.high_value_speech_islands.flow_break_min_high_conf_ms` | cluster separate | Long comprehensible H break (default **12000**) |
+| `analysis.high_value_speech_islands.flow_break_min_high_conf_segments` | cluster separate | With topic/subtopic change, **1** intervening H segment is enough |
+| `analysis.high_value_speech_islands.multi_cluster_min_islands` | density class | Default **2** → economy structure path |
+| `analysis.high_value_speech_islands.max_island_cluster_rounds` | `run_high_value_cluster_fuse_rounds` | Default **32** |
+| `analysis.high_value_speech_islands.per_cluster_fuse` | connector fuse HV path | Default **true** |
+| `analysis.high_value_speech_islands.island_cluster_structure.*` | `island_cluster_structure_adjudicate` | `llm_tier=economy`, fail-open, lock_forced_seams, max_block_chars |
 | `analysis.connector_fuse.enabled` | `connector_fuse_pass` | Seam LLM fuse loop (default **true**) |
 | `analysis.connector_fuse.max_fuses_per_pass` / `max_fuse_rounds` | `run_connector_fuse_pass` | **0** = unbounded until fixed point or oscillation halt |
 | `analysis.connector_fuse.tail_words` / `head_words` / `llm_batch_size` | seam packets | Defaults **16** / **16** / **16** |
 | `analysis.connector_fuse.allow_cross_speaker_fuse` | adjudicate | Default **false** |
 | `analysis.connector_fuse.llm_tier` | `connector_seam_adjudicate` | Default **economy** |
-| `analysis.connector_fuse.max_seam_gap_ms` | seam short-circuit / apply | Default **8000**; large gaps stay independent unless island-straddle |
-| `analysis.connector_fuse.same_topic_score_floor` | apply fuse | Default **0.15**; refuse fuse when declared topics barely overlap |
+| `analysis.connector_fuse.max_seam_gap_ms` | seam short-circuit / apply | Default **8000**; large gaps stay independent unless island-straddle / high-value force |
+| `analysis.connector_fuse.same_topic_score_floor` | apply fuse / high-value bridge | Default **0.15**; refuse fuse when declared topics barely overlap (high-value force bypasses) |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
@@ -197,6 +210,25 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `master.safety_limiter_limit_db` | `-1.0` | FFmpeg `alimiter` | Too low over-compresses; above 0 is rejected |
 | `master.safety_limiter_attack_ms` | `5` | FFmpeg `alimiter` | Outside FFmpeg's 0.1–80 ms range is rejected |
 | `master.safety_limiter_release_ms` | `50` | FFmpeg `alimiter` | Outside FFmpeg's 1–8000 ms range is rejected |
+
+### `ingest` — source format + loudness stabilize
+
+Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `preclean/isolated.wav` when present). Default on: mild `dynaudnorm` then `loudnorm` to −18 LUFS headroom so review/STT audio is enjoyable; `master_finalize` still targets podcast −16 LUFS.
+
+| Key | Default | Used by | If wrong |
+|-----|---------|---------|----------|
+| `ingest.loudness_stabilize.enabled` | `true` | `stages/ingest.py`, `source_loudness.py` | `false` keeps format-only ingest (quiet/hot source unchanged) |
+| `ingest.loudness_stabilize.target_lufs` | `-18.0` | FFmpeg `loudnorm` I= | Too hot leaves no headroom for master; too quiet hurts listenability |
+| `ingest.loudness_stabilize.true_peak_dbtp` | `-1.5` | FFmpeg `loudnorm` TP= | Outside −9…0 rejected |
+| `ingest.loudness_stabilize.lra` | `11.0` | FFmpeg `loudnorm` LRA= | Outside 1…50 rejected |
+| `ingest.loudness_stabilize.dual_mono` | `true` | FFmpeg `loudnorm` | Mono podcast on stereo meters reads wrong without it |
+| `ingest.loudness_stabilize.dynaudnorm` | `true` | FFmpeg `dynaudnorm` before loudnorm | `false` only sets integrated LUFS (within-file wander remains) |
+| `ingest.loudness_stabilize.dynaudnorm_frame_ms` | `150` | `dynaudnorm` f= | Outside 10–8000 rejected |
+| `ingest.loudness_stabilize.dynaudnorm_gausssize` | `15` | `dynaudnorm` g= | Must be odd and ≥ 3 |
+| `ingest.loudness_stabilize.dynaudnorm_peak` | `0.95` | `dynaudnorm` p= | Outside (0, 1] rejected |
+| `ingest.loudness_stabilize.dynaudnorm_maxgain` | `10.0` | `dynaudnorm` m= | Cap on boost for very quiet sources (1–100) |
+
+Artifact: `ingest/loudness.json` (filter lineage). See [ingest README](../pipeline/ingest/README.md).
 
 ---
 
@@ -474,7 +506,10 @@ Talking-points-first cut authority — `ideal_cuts.py`, stages `talking_points_c
 | `enable` | `true` | Run the holistic talking-points / ideal-cuts path |
 | `bind_mode` | `both` | `off` (artifacts only) · `seed_ranking` · `boundaries` · `both` |
 | `min_cut_ms` / `max_cut_ms` | `2500` / `180000` | Clamp snapped native windows |
-| `word_snap_margin_ms` / `word_snap_max_shift_ms` | `40` / `600` | Snap LLM times to transcript word edges |
+| `word_snap_margin_ms` / `word_snap_max_shift_ms` | `0` / `150` | Tight snap of LLM times to transcript word edges (no large free shift) |
+| `semantic_edge_buffer_ms` | `5000` | Lookback/lookahead budget when auto-fixing illegal opens/ends |
+| `acoustic_edge_refine` | `true` | After word pins, micro-nudge into silence valleys on `ingest/normalized.wav` |
+| `acoustic_search_ms` | `120` | ±search window for silence-valley micro-snap (never across neighbor words) |
 | `skip_boundary_llm_when_bound` | `true` | When materialize published boundaries, skip `boundary_detection` LLM |
 | `skip_topic_resplit_when_bound` | `true` | Skip `boundary_topic_resplit` when ideal-cuts boundaries are authoritative |
 | `skip_classification_llm_when_bound` | `true` | Skip `segment_classification` LLM; build manifest from cuts + speakers |
@@ -1080,7 +1115,7 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `max_best_of_n` | `1` | Hard cap (also clamps production-profile overrides) |
 | `use_melody_conditioning` | `false` | Condition later stems on motif/cold-open melody |
 | `prefer_medium_on_cpu` | `false` | When true, skip large on CPU if medium is cached — **default off** (large first) |
-| `mmaudio_backup_on_stub` | `true` | After MusicGen stub (non-e2e), try MMAudio before accepting stub audio |
+| `mmaudio_backup_on_stub` | `true` | After the MusicGen ladder ends in a stub, try MMAudio before accepting stub audio |
 | `min_duration_sec` | `4.0` | Soft floor only |
 | `max_duration_sec` | `24.0` | Soft advisory only — not enforced as a hard ceiling in `clamp_music_duration` |
 | `prefetch_models` | large + melody-large + medium + small | Bootstrap cache list |

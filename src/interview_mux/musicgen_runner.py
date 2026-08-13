@@ -43,23 +43,13 @@ def fail_closed_on_stub() -> bool:
     return bool(musicgen_cfg().get("fail_closed_on_stub", True))
 
 
-def e2e_musicgen_fast_stub() -> bool:
-    """When set, skip MusicGen subprocess and write the musical-note stub immediately.
-
-    Used by unattended baba e2e so musicgen-large-on-CPU cannot burn an hour per
-    stem (six stems would otherwise exceed the operator session).
-    """
-    return _env_truthy("MUX_E2E_MUSICGEN_FAST_STUB") or _env_truthy(
-        "MUX_E2E_MUSICGEN_FORCE_STUB"
-    )
-
-
 def e2e_musicgen_timeout_sec(default: int) -> int:
+    """Optional override for MusicGen request timeout (seconds).
+
+    MusicGen always runs the real model ladder first; this only caps hang safety.
+    """
     raw = str(os.environ.get("MUX_E2E_MUSICGEN_TIMEOUT_SEC") or "").strip()
     if not raw:
-        # Soft e2e runs still try real MusicGen, but not for a full hour per clip.
-        if _env_truthy("MUX_E2E_MUSICGEN_ALLOW_STUB"):
-            return min(int(default), 180)
         return int(default)
     try:
         return max(30, int(float(raw)))
@@ -394,13 +384,6 @@ def generate_music_clip(
         "negative_prompt": (negative_prompt or "")[:200],
         "device": device,
     }
-    if e2e_musicgen_fast_stub():
-        _write_musical_stub_wav(out_wav, duration_sec=dur, seed=int(seed or 0))
-        meta["backend"] = "musical_stub"
-        meta["warning"] = "MUX_E2E_MUSICGEN_FAST_STUB; wrote deterministic musical-note stub"
-        meta["e2e_fast_stub"] = True
-        _write_generation_meta(out_wav, meta)
-        return meta
     if py and script.is_file():
         cfg_block = musicgen_cfg()
         base_timeout = int(cfg_block.get("request_timeout_sec") or 900)

@@ -96,6 +96,23 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         if priors:
             payload["stt_trust_priors"] = priors
             payload["stt_lexicon_island_boosts"] = priors
+        if c.artifact_exists("analysis/high_value_speech_boosts.json"):
+            try:
+                hv = c.read_json("analysis/high_value_speech_boosts.json")
+                if isinstance(hv, dict) and hv.get("priors"):
+                    payload["high_value_speech_boosts"] = hv
+            except Exception:
+                pass
+        if c.artifact_exists("analysis/high_value_speech_islands.json"):
+            try:
+                hv_islands = c.read_json("analysis/high_value_speech_islands.json")
+                if isinstance(hv_islands, dict):
+                    payload["high_value_speech_islands"] = {
+                        "island_count": hv_islands.get("island_count"),
+                        "segment_ids_touched": hv_islands.get("segment_ids_touched") or [],
+                    }
+            except Exception:
+                pass
         return attach_disfluency_context(payload, c)
 
     def persist(c: RunContext, artifacts: dict) -> None:

@@ -27,8 +27,12 @@ def ideal_cuts_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "bind_mode": "both",
         "min_cut_ms": 2500,
         "max_cut_ms": 180_000,
-        "word_snap_margin_ms": 40,
-        "word_snap_max_shift_ms": 600,
+        # Tight word snap only — large free shifts steal list items / leave hangs.
+        "word_snap_margin_ms": 0,
+        "word_snap_max_shift_ms": 150,
+        "semantic_edge_buffer_ms": 5_000,
+        "acoustic_edge_refine": True,
+        "acoustic_search_ms": 120,
         "skip_boundary_llm_when_bound": True,
         # Ideal-cut windows are sole native keep authority — skip topic resplit.
         "skip_topic_resplit_when_bound": True,
@@ -123,28 +127,70 @@ def _snap_ms(
     margin_ms: int,
     max_shift_ms: int,
 ) -> int:
-    from interview_mux.audio_timeline import snap_cut_to_word_boundary
+    """Snap to the nearest word start (open) or word end (close) within max_shift.
 
-    snapped = snap_cut_to_word_boundary(
-        int(ms),
+    Margin padding is disabled by default — acoustic refine owns breath room.
+    """
+    if not words:
+        return max(0, int(ms))
+    best = int(ms)
+    best_dist = max_shift_ms + 1
+    for word in words:
+        if not isinstance(word, dict):
+            continue
+        key = "start_ms" if prefer == "start" else "end_ms"
+        try:
+            boundary = int(float(word.get(key) or word.get("start_ms") or 0))
+        except (TypeError, ValueError):
+            continue
+        if boundary < 0:
+            continue
+        dist = abs(boundary - int(ms))
+        if dist <= max_shift_ms and dist < best_dist:
+            best = max(0, boundary)
+            best_dist = dist
+    if prefer == "end" and margin_ms > 0:
+        best = best + int(margin_ms)
+    return max(0, best)
+
+
+def _resolve_cut_edge_ms(
+    cut: dict[str, Any],
+    words: list[dict[str, Any]],
+    *,
+    prefer: str,
+    approx_ms: int,
+    margin_ms: int,
+    max_shift_ms: int,
+) -> int:
+    """Prefer LLM word index / anchor quote, then tight word snap."""
+    from interview_mux.cut_edge_refine import (
+        resolve_ms_from_anchor_text,
+        resolve_ms_from_word_index,
+    )
+
+    idx_key = "start_word_index" if prefer == "start" else "end_word_index"
+    anchor_key = "start_anchor" if prefer == "start" else "end_anchor"
+    indexed = resolve_ms_from_word_index(
+        words, cut.get(idx_key), prefer=prefer
+    )
+    if indexed is not None:
+        return indexed
+    anchored = resolve_ms_from_anchor_text(
         words,
+        cut.get(anchor_key) if isinstance(cut.get(anchor_key), str) else None,
+        approx_ms=approx_ms,
+        prefer=prefer,
+    )
+    if anchored is not None:
+        return anchored
+    return _snap_ms(
+        approx_ms,
+        words,
+        prefer=prefer,
         margin_ms=margin_ms,
         max_shift_ms=max_shift_ms,
     )
-    if prefer == "start":
-        # Prefer nearby word starts for open cuts.
-        best = snapped
-        best_dist = max_shift_ms + 1
-        for word in words:
-            boundary = int(word.get("start_ms") or 0)
-            if boundary <= 0:
-                continue
-            dist = abs(boundary - int(ms))
-            if dist <= max_shift_ms and dist < best_dist:
-                best = max(0, boundary)
-                best_dist = dist
-        return best
-    return max(0, snapped)
 
 
 def _majority_speaker(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str | None:
@@ -190,14 +236,20 @@ def snap_ideal_cuts(
     transcript: dict[str, Any],
     *,
     cfg: dict[str, Any] | None = None,
+    wav_path: Any | None = None,
 ) -> dict[str, Any]:
-    """Snap proposed cut windows to word boundaries and clamp durations."""
+    """Snap proposed cut windows to word hinges, repair illegal opens/ends, acoustic refine."""
+    from pathlib import Path
+
     conf = ideal_cuts_cfg(cfg)
     words = _word_list(transcript)
     min_ms = int(conf.get("min_cut_ms") or 2500)
     max_ms = int(conf.get("max_cut_ms") or 180_000)
-    margin = int(conf.get("word_snap_margin_ms") or 40)
-    max_shift = int(conf.get("word_snap_max_shift_ms") or 600)
+    margin = int(conf.get("word_snap_margin_ms") or 0)
+    max_shift = int(conf.get("word_snap_max_shift_ms") or 150)
+    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 5_000)
+    acoustic_on = bool(conf.get("acoustic_edge_refine", True))
+    acoustic_search = int(conf.get("acoustic_search_ms") or 120)
 
     raw_cuts = list(cuts_doc.get("cuts") or []) if isinstance(cuts_doc, dict) else []
     snapped: list[dict[str, Any]] = []
@@ -214,8 +266,22 @@ def snap_ideal_cuts(
         if end <= start:
             warnings.append(f"cut[{index}] end<=start")
             continue
-        start = _snap_ms(start, words, prefer="start", margin_ms=margin, max_shift_ms=max_shift)
-        end = _snap_ms(end, words, prefer="end", margin_ms=margin, max_shift_ms=max_shift)
+        start = _resolve_cut_edge_ms(
+            cut,
+            words,
+            prefer="start",
+            approx_ms=start,
+            margin_ms=margin,
+            max_shift_ms=max_shift,
+        )
+        end = _resolve_cut_edge_ms(
+            cut,
+            words,
+            prefer="end",
+            approx_ms=end,
+            margin_ms=margin,
+            max_shift_ms=max_shift,
+        )
         if end <= start:
             end = start + min_ms
         dur = end - start
@@ -228,12 +294,35 @@ def snap_ideal_cuts(
         priority = str(cut.get("priority") or "should_keep").strip().lower()
         if priority not in {"must_keep", "should_keep", "optional"}:
             priority = "should_keep"
-        # Hard-reject / auto-fix hanging-setup ends after snap.
         from interview_mux.gap_vo_prior_context import (
             clause_continues_after,
+            clause_continues_before,
             is_legal_conceptual_hinge,
+            is_legal_conceptual_open,
         )
 
+        # Start-side: walk back when the open drops mid-list / mid-clause.
+        start_text = _span_text(words, start, min(end, start + 8_000), max_chars=400)
+        if not is_legal_conceptual_open(
+            start_text, words=words, start_ms=start, prev_pause_ms=None
+        ) or clause_continues_before(words, start):
+            fixed_start = first_legal_open_start_ms(
+                words,
+                from_ms=start,
+                hard_floor_ms=max(0, start - edge_buf),
+                hard_ceil_ms=end,
+            )
+            if fixed_start is not None and end - fixed_start >= min_ms:
+                start = fixed_start
+                warnings.append(
+                    f"cut[{index}] auto-fixed illegal open start → {start}"
+                )
+            else:
+                warnings.append(
+                    f"cut[{index}] open may be mid-clause (could not walk back)"
+                )
+
+        # Hard-reject / auto-fix hanging-setup ends after snap.
         end_text = _span_text(words, max(start, end - 8_000), end, max_chars=400)
         legal = is_legal_conceptual_hinge(
             end_text, words=words, end_ms=end, next_pause_ms=None
@@ -244,7 +333,7 @@ def snap_ideal_cuts(
             )
             if fixed is None:
                 fixed = next_legal_hinge_end_ms(
-                    words, from_ms=end, max_extend_ms=12_000
+                    words, from_ms=end, max_extend_ms=max(edge_buf, 12_000)
                 )
             if fixed is not None and fixed - start >= min_ms:
                 end = fixed
@@ -256,6 +345,22 @@ def snap_ideal_cuts(
                     f"cut[{index}] rejected: illegal hanging / unfinished end"
                 )
                 continue
+
+        # Exact word pins + optional acoustic silence valley (no large free shift).
+        from interview_mux.cut_edge_refine import refine_cut_edges
+
+        path = Path(wav_path) if wav_path else None
+        start, end, edge_meta = refine_cut_edges(
+            start_ms=start,
+            end_ms=end,
+            words=words,
+            wav_path=path if path and path.is_file() else None,
+            search_ms=acoustic_search,
+            apply_exact_words=True,
+            apply_acoustic=acoustic_on,
+        )
+        if end - start < min_ms:
+            end = start + min_ms
         row = {
             **cut,
             "start_ms": int(start),
@@ -268,6 +373,8 @@ def snap_ideal_cuts(
             or _span_text(words, start, end),
             "snapped": True,
             "legal_conceptual_hinge": True,
+            "legal_conceptual_open": True,
+            "edge_refine": edge_meta,
         }
         snapped.append(row)
 
@@ -563,10 +670,16 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
         if ctx.artifact_exists("transcript/full.json")
         else {}
     )
+    wav_path = None
+    try:
+        wav_path = ctx.read_path("ingest", "normalized.wav")
+    except Exception:
+        wav_path = None
     snapped = snap_ideal_cuts(
         cuts_doc if isinstance(cuts_doc, dict) else {},
         transcript if isinstance(transcript, dict) else {},
         cfg=conf,
+        wav_path=wav_path,
     )
 
     wrote_boundaries = False
@@ -717,6 +830,69 @@ def overlapping_ideal_window(
     return best[1], best[2]
 
 
+def first_legal_open_start_ms(
+    words: list[dict[str, Any]],
+    *,
+    from_ms: int,
+    hard_floor_ms: int = 0,
+    hard_ceil_ms: int | None = None,
+    max_lookback_ms: int | None = None,
+) -> int | None:
+    """Walk backward from ``from_ms`` to the nearest legal conceptual open."""
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_open
+
+    floor = max(0, int(hard_floor_ms))
+    if max_lookback_ms is not None:
+        floor = max(floor, int(from_ms) - int(max_lookback_ms))
+    ceil = int(hard_ceil_ms) if hard_ceil_ms is not None else int(from_ms)
+    if ceil <= floor:
+        return None
+    window = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and floor <= int(w.get("start_ms") or 0) <= int(from_ms)
+        and str(w.get("text") or w.get("word") or "").strip()
+    ]
+    if not window:
+        return None
+    window.sort(key=lambda w: int(w.get("start_ms") or 0))
+    # Nearest earlier legal open (do not jump to the earliest word in the buffer).
+    for i in range(len(window) - 1, -1, -1):
+        w = window[i]
+        cand = int(w.get("start_ms") or 0)
+        if cand > ceil:
+            continue
+        pause: int | None = None
+        if i > 0:
+            pause = max(
+                0,
+                cand - int(window[i - 1].get("end_ms") or cand),
+            )
+        else:
+            prev = None
+            for x in words:
+                if not isinstance(x, dict):
+                    continue
+                xe = int(x.get("end_ms") or 0)
+                if xe <= cand and str(x.get("text") or x.get("word") or "").strip():
+                    if prev is None or xe > int(prev.get("end_ms") or 0):
+                        prev = x
+            if prev is not None:
+                pause = max(0, cand - int(prev.get("end_ms") or cand))
+        ahead = [
+            str(x.get("text") or x.get("word") or "").strip()
+            for x in window[i : i + 12]
+            if str(x.get("text") or x.get("word") or "").strip()
+        ]
+        text = " ".join(ahead)
+        if is_legal_conceptual_open(
+            text, words=words, start_ms=cand, prev_pause_ms=pause
+        ):
+            return cand
+    return None
+
+
 def last_complete_thought_end_ms(
     words: list[dict[str, Any]],
     *,
@@ -851,18 +1027,30 @@ def resolve_keeper_air_bounds(
     min_keep_ms: int = 2500,
     max_extend_ms: int = 12_000,
     next_keeper_start_ms: int | None = None,
+    prev_keeper_end_ms: int | None = None,
     meta_out: dict[str, Any] | None = None,
+    wav_path: Any | None = None,
 ) -> tuple[int, int]:
     """Tighten keeper source bounds to a legal conceptual hinge.
 
     Ideal-window match is optional; boundary trim is not — every keeper with
     words runs the legal-hinge path. Keepers stay disjoint: extend never
-    crosses ``next_keeper_start_ms``.
+    crosses ``next_keeper_start_ms``, and open never walks before
+    ``prev_keeper_end_ms``.
     """
+    from pathlib import Path
+
     from interview_mux.gap_vo_prior_context import (
         clause_continues_after,
+        clause_continues_before,
         is_legal_conceptual_hinge,
+        is_legal_conceptual_open,
     )
+
+    conf = ideal_cuts_cfg()
+    edge_buf = int(conf.get("semantic_edge_buffer_ms") or 5_000)
+    acoustic_on = bool(conf.get("acoustic_edge_refine", True))
+    acoustic_search = int(conf.get("acoustic_search_ms") or 120)
 
     orig_start = int(source_start_ms)
     orig_end = int(source_end_ms)
@@ -913,8 +1101,51 @@ def resolve_keeper_air_bounds(
     hard_cap = None
     if next_keeper_start_ms is not None:
         hard_cap = int(next_keeper_start_ms) - 80
+    prev_floor = None
+    if prev_keeper_end_ms is not None:
+        prev_floor = int(prev_keeper_end_ms) + 80
+
+    # After ideal-window clamp, do not walk the open earlier than the clamped start.
+    open_floor = (
+        start
+        if meta.get("air_bound_reason") == "ideal_window_clamp"
+        else max(0, start - edge_buf)
+    )
+    if prev_floor is not None:
+        open_floor = max(open_floor, prev_floor)
+        if start < prev_floor:
+            start = prev_floor
+            meta["air_bound_reason"] = "disjoint_prev_floor"
 
     if words:
+        # Start-side: walk back when open is mid-list / mid-clause.
+        start_toks = [
+            str(w.get("text") or w.get("word") or "").strip()
+            for w in words
+            if isinstance(w, dict)
+            and start <= int(w.get("start_ms") or 0) <= min(end, start + 8_000)
+            and str(w.get("text") or w.get("word") or "").strip()
+        ]
+        start_text = " ".join(start_toks[:16]) if start_toks else ""
+        if (
+            start_text
+            and (
+                not is_legal_conceptual_open(
+                    start_text, words=words, start_ms=start, prev_pause_ms=None
+                )
+                or clause_continues_before(words, start)
+            )
+        ):
+            fixed_start = first_legal_open_start_ms(
+                words,
+                from_ms=start,
+                hard_floor_ms=open_floor,
+                hard_ceil_ms=end,
+            )
+            if fixed_start is not None and end - fixed_start >= min_keep_ms:
+                start = fixed_start
+                meta["air_bound_reason"] = "extend_open_to_legal_hinge"
+
         # Always snap end to a legal hinge inside the current slab when possible.
         snapped = last_complete_thought_end_ms(words, start_ms=start, end_ms=end)
         if snapped is not None and snapped - start >= min_keep_ms:
@@ -945,7 +1176,7 @@ def resolve_keeper_air_bounds(
             extended = next_legal_hinge_end_ms(
                 words,
                 from_ms=end,
-                max_extend_ms=max_extend_ms,
+                max_extend_ms=max(int(max_extend_ms), edge_buf),
                 hard_cap_ms=hard_cap if hard_cap is not None else (
                     start + int(max_keep_ms) if max_keep_ms else None
                 ),
@@ -994,6 +1225,38 @@ def resolve_keeper_air_bounds(
             if retreated is not None and retreated - start >= min_keep_ms:
                 end = retreated
         meta["air_bound_reason"] = "disjoint_cap"
+
+    # Exact word pins + acoustic valley micro-nudge (no large free shift).
+    if words or (wav_path and acoustic_on):
+        from interview_mux.cut_edge_refine import refine_cut_edges
+
+        path = Path(wav_path) if wav_path else None
+        start, end, edge_meta = refine_cut_edges(
+            start_ms=start,
+            end_ms=end,
+            words=words or [],
+            wav_path=path if path and path.is_file() else None,
+            search_ms=acoustic_search,
+            apply_exact_words=bool(words),
+            apply_acoustic=acoustic_on,
+        )
+        meta["edge_refine"] = edge_meta
+        if edge_meta.get("steps"):
+            if meta["air_bound_reason"] == "unchanged":
+                meta["air_bound_reason"] = "edge_refine"
+            else:
+                meta["air_bound_reason"] = f"{meta['air_bound_reason']}+edge_refine"
+
+    # Re-assert keeper disjointness after edge refine (acoustic can walk open back).
+    if prev_floor is not None and start < prev_floor:
+        start = prev_floor
+        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_prev_floor"
+    if hard_cap is not None and end > hard_cap:
+        end = hard_cap
+        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_cap"
+    if end < start + min_keep_ms and hard_cap is not None and hard_cap > start:
+        # Prefer a short keep over reverting into an overlapping slab.
+        end = min(hard_cap, max(end, start + min_keep_ms))
 
     meta["after_start_ms"] = start
     meta["after_end_ms"] = end

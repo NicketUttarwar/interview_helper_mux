@@ -33,9 +33,9 @@ ANALYSIS_STAGES_PRE_G0: tuple[StageInfo, ...] = (
     StageInfo(
         "ingest",
         "Ingest",
-        "Normalize your source recording to a standard WAV format and record checksums for traceability.",
+        "Normalize source to standard WAV, stabilize loudness for listening (−18 LUFS), and record checksums.",
         "analysis",
-        ("ingest/checksums.json",),
+        ("ingest/checksums.json", "ingest/loudness.json"),
         (),
         ("ingest/normalized.wav",),
     ),

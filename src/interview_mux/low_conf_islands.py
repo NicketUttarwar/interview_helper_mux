@@ -702,6 +702,43 @@ def write_low_conf_must_keep(
     total = len(rows)
     top_k = max(1, math.ceil(float(conf.get("top_percentile") or 0.10) * total)) if total else 0
     picked = positives[: min(top_k, len(positives))]
+    must_ids = [str(r["segment_id"]) for r in picked]
+    hv_ids: list[str] = []
+    try:
+        from interview_mux.high_value_speech_islands import high_value_must_keep_segment_ids
+
+        hv_ids = sorted(high_value_must_keep_segment_ids(ctx))
+    except Exception:
+        hv_ids = []
+    for sid in hv_ids:
+        if sid not in must_ids:
+            must_ids.append(sid)
+
+    scores = [
+        {
+            "segment_id": str(r["segment_id"]),
+            "density": r.get("density"),
+            "rank": r.get("rank"),
+            "percentile": r.get("percentile"),
+            "cluster_kinds": r.get("cluster_kinds") or [],
+            "source": "low_conf_density_decile",
+        }
+        for r in picked
+    ]
+    picked_set = {str(r["segment_id"]) for r in picked}
+    for sid in hv_ids:
+        if sid in picked_set:
+            continue
+        scores.append(
+            {
+                "segment_id": sid,
+                "density": None,
+                "rank": None,
+                "percentile": None,
+                "cluster_kinds": ["high_value_speech"],
+                "source": "high_value_speech_island",
+            }
+        )
 
     out = {
         "version": 1,
@@ -711,17 +748,9 @@ def write_low_conf_must_keep(
         "top_k": top_k,
         "segment_count": total,
         "positive_count": len(positives),
-        "must_keep_segment_ids": [str(r["segment_id"]) for r in picked],
-        "scores": [
-            {
-                "segment_id": str(r["segment_id"]),
-                "density": r.get("density"),
-                "rank": r.get("rank"),
-                "percentile": r.get("percentile"),
-                "cluster_kinds": r.get("cluster_kinds") or [],
-            }
-            for r in picked
-        ],
+        "must_keep_segment_ids": must_ids,
+        "high_value_segment_ids": hv_ids,
+        "scores": scores,
     }
     ctx.write_json(MUST_KEEP_PATH, out)
     _write_soft_boosts_for_non_decile(ctx, positives, must_keep=set(out["must_keep_segment_ids"]), cfg=conf)
@@ -814,7 +843,16 @@ def authoritative_low_conf_must_keep_ids(
             doc = None
         if isinstance(doc, dict) and str(doc.get("enforcement_mode") or "").lower() != "authoritative":
             return set()
-    return low_conf_must_keep_ids(ctx)
+    ids = low_conf_must_keep_ids(ctx)
+    try:
+        from interview_mux.high_value_speech_islands import (
+            authoritative_high_value_must_keep_ids,
+        )
+
+        ids |= authoritative_high_value_must_keep_ids(ctx, cfg=cfg)
+    except Exception:
+        pass
+    return ids
 
 
 __all__ = [

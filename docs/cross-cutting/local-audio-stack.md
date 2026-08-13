@@ -2,6 +2,8 @@
 
 Interview MUX runs **noise reduction** and **theme music generation** locally via isolated venvs under `ASSETS/`. No ElevenLabs API keys or cloud audio spend. STT and diarization are likewise local (MLX, `ASSETS/local_speech/venv`) — AWS Transcribe was removed.
 
+**Source audio:** Non-WAV drops under `ASSETS/` (mp3, mp4, m4a, flac, …) are converted once to a sibling `.wav` (`ffmpeg` → `pcm_s16le`, video stripped) on run init / `input_audio()`. DeepFilter and the rest of the pipeline always read that WAV; `run_meta.input_audio_path` points at it (`input_audio_path_original` keeps the operator file when converted).
+
 | Tool | Upstream | Stage use | Venv |
 |------|----------|-----------|------|
 | DeepFilterNet | DeepFilterNet | preclean | `ASSETS/local_deepfilter/venv` |
@@ -12,7 +14,7 @@ Interview MUX runs **noise reduction** and **theme music generation** locally vi
 
 **MusicGen resources:** Default device is **`auto`** — prefers **MPS** on Apple Silicon (or CUDA when present), else CPU. PyTorch **MPS** can still `abort()` inside Metal (`MTLReportFailure` / `Python quit unexpectedly`). After a SIGABRT the runner bans MPS for the rest of the run and retries once on CPU (`ban_mps_on_abort`). Generation is serialized via the machine-wide **`local_gpu`** gate (shared with Chatterbox / MMAudio / MLX / DeepFilter) and launched via the framework CLI `python3.12`, not `Python.app`. After each GPU subprocess exits, **`cooldown_sec` (default 5)** elapses before the next consumer may start. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set for missing Metal ops.
 
-**Model ladder (large first):** `musicgen-large` → `musicgen-medium` → `musicgen-small` (same prompt + planned duration), then **MMAudio** backup, then a deterministic musical-note stub. `prefer_medium_on_cpu` defaults **false**. Step-downs stay on the same accelerator (MPS/CUDA); CPU is only used when device resolves to cpu or after an MPS abort retry. `request_timeout_sec` (default **900**) is hang safety for the primary on GPU; `cpu_request_timeout_sec` is tighter so CPU thrash steps down. Unattended e2e may set `MUX_E2E_MUSICGEN_FAST_STUB` to skip generation entirely. `fail_closed_on_stub` defaults **false** so last-resort audio still reaches mix.
+**Model ladder (large first):** `musicgen-large` → `musicgen-medium` → `musicgen-small` (same prompt + planned duration), then **MMAudio** backup, then a deterministic musical-note stub. MusicGen **always** runs this ladder first (including unattended e2e — there is no fast-stub skip). `prefer_medium_on_cpu` defaults **false**. Step-downs stay on the same accelerator (MPS/CUDA); CPU is only used when device resolves to cpu or after an MPS abort retry. `request_timeout_sec` (default **900**) is hang safety for the primary on GPU; `cpu_request_timeout_sec` is tighter so CPU thrash steps down. `fail_closed_on_stub` defaults **false** so last-resort audio still reaches mix after the ladder.
 
 **Local runtime JSON:** scripts emit one JSON object on stdout `{ok, error?, out_wav?, warnings?}`. Progress stays on stderr. `run_runtime_json` parses stdout then stderr, logs `gui_log` + `vo_pickup/local_runtime_last_error.json` with `likely_cause`. G1 synthesize-all collects per-line errors instead of aborting the batch.
 

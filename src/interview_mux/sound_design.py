@@ -1282,7 +1282,8 @@ def flow1_overlays_from_sdp(
         asset = assets_by_id.get(asset_id, {})
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
-        level_db = float(cue.get("level_db", -28.0))
+        raw_level = cue.get("level_db")
+        level_db = float(raw_level) if raw_level is not None else -28.0
         from interview_mux.creative_delivery import audibility_level_db
         from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
@@ -2087,7 +2088,8 @@ def _preview_cue_for_asset(ctx: RunContext, asset_id: str) -> tuple[int, float, 
                 continue
             if cue.get("skip") is True:
                 continue
-            level_db = float(cue.get("level_db", -20.0))
+            raw_level = cue.get("level_db")
+            level_db = float(raw_level) if raw_level is not None else -20.0
             role = str(cue.get("role") or "")
             if cue.get("position_ms") is not None:
                 return int(cue["position_ms"]), level_db, role

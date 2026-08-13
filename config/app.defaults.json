@@ -7,6 +7,21 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
+  "_comment_ingest": "After optional preclean: dynaudnorm + loudnorm on source (−18 LUFS headroom; master still −16).",
+  "ingest": {
+    "loudness_stabilize": {
+      "enabled": true,
+      "target_lufs": -18.0,
+      "true_peak_dbtp": -1.5,
+      "lra": 11.0,
+      "dual_mono": true,
+      "dynaudnorm": true,
+      "dynaudnorm_frame_ms": 150,
+      "dynaudnorm_gausssize": 15,
+      "dynaudnorm_peak": 0.95,
+      "dynaudnorm_maxgain": 10.0
+    }
+  },
   "master": {
     "safety_limiter_enabled": true,
     "safety_limiter_limit_db": -1.0,
@@ -841,6 +856,32 @@
         "null_confidence_as": "mid"
       }
     },
+    "_comment_high_value_speech": "Volume-gated STT-skip / multi low-conf clusters → force-fuse to neighbors → hard must_keep.",
+    "high_value_speech_islands": {
+      "enabled": true,
+      "min_gap_ms": 2000,
+      "min_cluster_ms": 1500,
+      "min_cluster_words": 3,
+      "min_island_ms": 1200,
+      "max_island_ms": 20000,
+      "level_ratio_min": 0.55,
+      "level_ratio_max": 1.45,
+      "speech_rms_floor_ratio": 0.35,
+      "ranking_boost": 0.85,
+      "importance_score": 0.92,
+      "cluster_join_max_gap_ms": 8000,
+      "flow_break_min_high_conf_ms": 12000,
+      "flow_break_min_high_conf_segments": 1,
+      "multi_cluster_min_islands": 2,
+      "max_island_cluster_rounds": 32,
+      "per_cluster_fuse": true,
+      "island_cluster_structure": {
+        "llm_tier": "economy",
+        "fail_open_deterministic": true,
+        "lock_forced_seams": true,
+        "max_block_chars": 48000
+      }
+    },
     "_comment_connector_fuse": "Economy-LLM seam adjudication over every chronological pair; fuse mid-thought chops into one segment.",
     "connector_fuse": {
       "enabled": true,
@@ -922,8 +963,11 @@
       "bind_mode": "both",
       "min_cut_ms": 2500,
       "max_cut_ms": 180000,
-      "word_snap_margin_ms": 40,
-      "word_snap_max_shift_ms": 600,
+      "word_snap_margin_ms": 0,
+      "word_snap_max_shift_ms": 150,
+      "semantic_edge_buffer_ms": 5000,
+      "acoustic_edge_refine": true,
+      "acoustic_search_ms": 120,
       "skip_boundary_llm_when_bound": true,
       "skip_topic_resplit_when_bound": true,
       "skip_classification_llm_when_bound": true,

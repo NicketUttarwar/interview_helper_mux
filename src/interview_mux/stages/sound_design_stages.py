@@ -270,7 +270,7 @@ def run_sound_design_plan(ctx: RunContext) -> None:
                     "asset_id": str(unders["asset_id"]),
                     "role": str(unders.get("role") or "theme_underscore"),
                     "placement": "under_segment",
-                    "level_db": -22,
+                    "level_db": -26,
                     "crossfade_ms": 1500,
                 }
             )

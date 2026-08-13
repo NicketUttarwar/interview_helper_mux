@@ -50,7 +50,7 @@ Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Ski
 
 | Field | Type | Required | Notes |
 |-------|------|----------|--------|
-| `input_audio_path` | string | yes | Repo-relative path to source audio (typically from `GET /api/assets` → `files[].path`, e.g. `ASSETS/input/interview.wav`) |
+| `input_audio_path` | string | yes | Repo-relative path under `ASSETS/` (file directly in that folder). Any non-WAV (mp3, mp4, m4a, …) is converted to a sibling `.wav` on run init; DeepFilter/ingest use that WAV. Prefer e.g. `ASSETS/interview.mp4` or `ASSETS/interview.wav`. |
 | `run_id` | string \| null | no | If omitted, server allocates new `exec_*` id |
 
 ### `ActiveBody`

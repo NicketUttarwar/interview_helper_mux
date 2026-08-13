@@ -1,0 +1,49 @@
+stage_id: island_cluster_structure_adjudicate
+tier: llm_advisory
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: analysis/island_cluster_structure_verdicts.json
+  schema: island_cluster_structure_adjudicate.schema.json
+  staging: true
+- path: analysis/island_cluster_structure_packets.json
+  schema: null
+  staging: false
+inputs:
+  hard:
+  - path: analysis/high_value_speech_islands.json
+    producer: low_conf_island_scan
+  - path: analysis/high_value_island_clusters.json
+    producer: connector_fuse_pass
+  soft:
+  - path: segments/manifest.json
+    producer: segment_classification
+  - path: transcript/full.json
+    producer: transcribe
+sufficiency:
+- path: assignments
+  rule: min_rows
+  min_count: 0
+propagation:
+  invalidates_stages: []
+consumers:
+- connector_fuse_pass
+- connector_fuse_pass_pre_ranking
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- topic_unity
+- assignments
+nullable_fields:
+- hinge_attach
+- cut_hinge_block_ids
+- assignments[].rationale
+- rationale

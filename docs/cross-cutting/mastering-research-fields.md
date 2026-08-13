@@ -13,7 +13,7 @@ Each field: mint system prompt → research volley → acceptance → optional c
 | Field id | Knowledge | Artifacts / stages | Operator flows | Skip if |
 |----------|-----------|--------------------|----------------|---------|
 | `preclean_lineage` | Noise reduction choices | `preclean/*`, `operator/preclean_decisions.json`; `audio_preclean` | Preclean offer | Preclean dismissed |
-| `ingest_normalization` | Sample rate, checksum | `ingest/normalized.wav`, `checksums.json`; `ingest` | Start / new run | — |
+| `ingest_normalization` | Sample rate, checksum, loudness stabilize | `ingest/normalized.wav`, `checksums.json`, `loudness.json`; `ingest` | Start / new run | — |
 | `source_acoustic_profile` | Pacing, energy, SAP mix | `source_acoustic_profile.json`, overrides; `source_acoustic_profile` | Acoustic / SAP panels | — |
 | `source_readiness_band` | Green/yellow/red readiness | `source_readiness.json` | First-try / reuse | — |
 

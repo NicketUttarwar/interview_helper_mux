@@ -22,6 +22,7 @@ DEFAULT_STAGE_TIERS: dict[str, str] = {
     "boundary_detection": "standard",
     "boundary_topic_resplit": "standard",
     "connector_seam_adjudicate": "economy",
+    "island_cluster_structure_adjudicate": "economy",
     "segment_classification": "standard",
     "sound_design_palettes": "economy",
     "missing_framing": "flagship",

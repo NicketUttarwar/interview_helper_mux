@@ -3,18 +3,19 @@
 Audacity-class **order**, not a full DAW UI. Speech / [speaker volleys](./volley-glossary.md) first.
 
 1. Preclean / hygiene (optional DeepFilter, or FFmpeg `afftdn` fallback)  
-2. Edit — keep speaker volleys intact; fades at edges  
-3. Per-speaker level match (`mix.per_speaker_level_match`, median LUFS/RMS, ±6 dB clamp)  
-4. Place VO at volley boundaries / framing-before-impact  
-5. Place beds under active speaker volleys; stingers at hinges  
-6. Duck — speech-wins envelope sidechain under volleys (`mix.sidechain_duck`; static fallback)  
-7. Glue / safety limiter (`master.safety_limiter_*` → FFmpeg `alimiter`)  
-8. Loudnorm → `master/master.wav` (−16 LUFS podcast)  
-9. QC — `verify_master`, intelligibility, soundscape remux capped  
+2. Ingest loudness stabilize (default: `dynaudnorm` + `loudnorm` −18 LUFS on `ingest/normalized.wav`)  
+3. Edit — keep speaker volleys intact; fades at edges  
+4. Per-speaker level match (`mix.per_speaker_level_match`, median LUFS/RMS, ±6 dB clamp)  
+5. Place VO at volley boundaries / framing-before-impact  
+6. Place beds under active speaker volleys; stingers at hinges  
+7. Duck — speech-wins envelope sidechain under volleys (`mix.sidechain_duck`; static fallback)  
+8. Glue / safety limiter (`master.safety_limiter_*` → FFmpeg `alimiter`)  
+9. Loudnorm → `master/master.wav` (−16 LUFS podcast)  
+10. QC — `verify_master`, intelligibility, soundscape remux capped  
 
 ## Speech-wins ducking / VO↔native harmony (Plan 4)
 
-Step 6 is **speech-wins** by construction, not just by name: `sidechain_duck.envelope_duck`
+Step 7 is **speech-wins** by construction, not just by name: `sidechain_duck.envelope_duck`
 follows a speech-RMS envelope (attack 20 ms / release 200 ms defaults) and attenuates the
 bed under *any* active voice on the timeline — recorded/native speech **and** synthetic VO
 pickups alike, since both render through the same speech clip path before beds overlay.
@@ -23,7 +24,7 @@ contract keeps beds out of the way of whichever voice is speaking, so a VO bridg
 native answer either side of it duck identically. `pause_ride_db` (`mix.sidechain_duck` /
 `mix.pause_ride_db`) is the one intentional asymmetry: beds are allowed to ride *up* during
 intentional air (post-VO gaps, pauses) precisely because no voice — native or synthetic —
-is competing for the band there. Per-speaker level match (step 3, `speaker_level_match.py`)
+is competing for the band there. Per-speaker level match (step 4, `speaker_level_match.py`)
 runs *before* ducking so the envelope follower sees a level-matched speech signal rather
 than chasing per-speaker gain differences.
 

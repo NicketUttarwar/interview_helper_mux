@@ -198,12 +198,14 @@ def build_flow1_edl(
     ideal_cuts: dict | list | None = None,
     transcript_words: list | None = None,
     max_keeper_ms: int | None = None,
+    normalized_wav: Path | str | None = None,
 ) -> dict:
     """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors.
 
     When ``ideal_cuts`` / ``transcript_words`` are provided, speech clips use
     tightened air bounds (ideal window + complete-thought trim) instead of the
-    full coarse segment slab.
+    full coarse segment slab. ``normalized_wav`` enables acoustic silence-valley
+    micro-snaps at keeper edges.
     """
     from interview_mux.listenability_guards import air_pad_ms, listenability_guards_cfg
     from interview_mux.ideal_cuts import resolve_keeper_air_bounds
@@ -287,6 +289,7 @@ def build_flow1_edl(
     duration_fn = vo_duration_ms or _wav_duration_ms
     emitted_line_ids: set[str] = set()
     emitted_text_keys: set[tuple[str, str, str]] = set()
+    prev_speech_end_ms: int | None = None
 
     def _last_non_silence_type() -> str:
         for clip in reversed(clips):
@@ -435,7 +438,9 @@ def build_flow1_edl(
                 segment_id=str(sid),
                 max_keep_ms=max_keeper_ms,
                 next_keeper_start_ms=next_keeper_start,
+                prev_keeper_end_ms=prev_speech_end_ms,
                 meta_out=air_meta,
+                wav_path=normalized_wav,
             )
         speech_dur = max(0, speech_end - speech_start)
         if clips and str(clips[-1].get("type") or "") == "silence":
@@ -464,6 +469,7 @@ def build_flow1_edl(
             ]
         clips.append(speech_clip)
         timeline_ms += speech_dur
+        prev_speech_end_ms = speech_end
 
         after_lines = _gap_lines_for_segment(
             gap_report,
@@ -768,6 +774,11 @@ def run_edl(ctx: RunContext) -> None:
         from interview_mux.ideal_cuts import load_air_bound_inputs
 
         ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
+        wav_path = None
+        try:
+            wav_path = ctx.read_path("ingest", "normalized.wav")
+        except Exception:
+            wav_path = None
         edl = build_flow1_edl(
             selection=selection,
             segments_by_id=by_id,
@@ -778,6 +789,7 @@ def run_edl(ctx: RunContext) -> None:
             resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
             ideal_cuts=ideal_cuts_doc,
             transcript_words=transcript_words,
+            normalized_wav=wav_path,
         )
         edl = stamp_order_hash(edl)
         try:

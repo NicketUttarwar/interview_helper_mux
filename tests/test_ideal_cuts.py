@@ -11,15 +11,32 @@ from interview_mux.ideal_cuts import (
 
 
 def _words() -> list[dict]:
-    # 0–10s of words at 500ms each
+    # Two listen-complete spans with a pause between them.
     out = []
-    for i in range(20):
+    for i in range(10):
+        tok = f"a{i}"
+        if i == 4:
+            tok = f"a{i}."
         out.append(
             {
-                "word": f"w{i}",
+                "word": tok,
                 "start_ms": i * 500,
                 "end_ms": i * 500 + 480,
-                "speaker_id": "spk_0" if i < 10 else "spk_1",
+                "speaker_id": "spk_0",
+            }
+        )
+    # 1.2s pause then second span
+    base = 3700
+    for i in range(10):
+        tok = f"b{i}"
+        if i == 9:
+            tok = f"b{i}."
+        out.append(
+            {
+                "word": tok,
+                "start_ms": base + i * 500,
+                "end_ms": base + i * 500 + 480,
+                "speaker_id": "spk_1",
             }
         )
     return out
@@ -31,7 +48,7 @@ def test_snap_ideal_cuts_and_seed_order():
             {
                 "cut_id": "c1",
                 "talking_point_id": "tp_1",
-                "start_ms": 510,
+                "start_ms": 0,
                 "end_ms": 2490,
                 "priority": "must_keep",
                 "rationale": "proof",
@@ -39,14 +56,18 @@ def test_snap_ideal_cuts_and_seed_order():
             {
                 "cut_id": "c2",
                 "talking_point_id": "tp_2",
-                "start_ms": 3000,
-                "end_ms": 8000,
+                "start_ms": 3700,
+                "end_ms": 8200,
                 "priority": "should_keep",
                 "rationale": "color",
             },
         ]
     }
-    snapped = snap_ideal_cuts(cuts, {"words": _words()})
+    snapped = snap_ideal_cuts(
+        cuts,
+        {"words": _words()},
+        cfg={"analysis": {"ideal_cuts": {"acoustic_edge_refine": False, "min_cut_ms": 2000}}},
+    )
     assert snapped["cut_count"] == 2
     assert all(c.get("snapped") for c in snapped["cuts"])
     bounds = boundaries_from_snapped_cuts(snapped)
@@ -131,3 +152,26 @@ def test_resolve_ideal_cuts_air_order_appends_missing():
     )
     assert bind["order_authority"] == "ideal_cuts"
     assert bind["ordered_segment_ids"] == ["seg_001", "seg_003", "seg_002"]
+
+
+def test_resolve_keeper_air_bounds_respects_prev_keeper_floor():
+    from interview_mux.ideal_cuts import resolve_keeper_air_bounds
+
+    # Previous keeper ended at 5000; open must not walk back into that slab.
+    start, end = resolve_keeper_air_bounds(
+        source_start_ms=5100,
+        source_end_ms=9000,
+        cuts_doc=None,
+        words=[
+            {"text": "and", "start_ms": 4800, "end_ms": 4950},
+            {"text": "then", "start_ms": 5100, "end_ms": 5300},
+            {"text": "we", "start_ms": 5400, "end_ms": 5500},
+            {"text": "shipped.", "start_ms": 5600, "end_ms": 6000},
+        ],
+        segment_id="seg_002",
+        prev_keeper_end_ms=5000,
+        next_keeper_start_ms=12000,
+        meta_out={},
+    )
+    assert start >= 5080  # prev_end + 80
+    assert end > start

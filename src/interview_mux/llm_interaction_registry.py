@@ -31,6 +31,7 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "narrative_arc_plan": "OF-02",
     "full_master_ranking": "OF-03",
     "connector_seam_adjudicate": "OF-02a",
+    "island_cluster_structure_adjudicate": "OF-02b",
     "nugget_corpus_mine": "OF-03a",
     "nugget_layup_compose": "OF-03b",
     "transitions": "OF-04",
@@ -139,6 +140,11 @@ def _build_registry() -> dict[str, dict[str, Any]]:
         "connector_seam_adjudicate": (
             "segment_fuse.adjudicate_seams_llm",
             "segmentation/connector-seam-adjudicate",
+            "full",
+        ),
+        "island_cluster_structure_adjudicate": (
+            "island_cluster_structure.adjudicate_island_cluster_structure",
+            "segmentation/island-cluster-structure-adjudicate",
             "full",
         ),
         "full_master_ranking": ("selection.run_full_master_ranking", "selection/full-master-ranking", "full/shard/collate"),
@@ -405,6 +411,7 @@ _OF_GOALS: dict[str, str] = {
     "topic_coverage_audit": "Theme coverage score",
     "narrative_arc_plan": "Chapter arc",
     "connector_seam_adjudicate": "Fuse vs stay_independent for every chronological seam",
+    "island_cluster_structure_adjudicate": "Per multi-cluster structure: topic unity + left/right/bridge per low island",
     "full_master_ranking": "Ordered segment_ids",
     "nugget_corpus_mine": "Full-tape grounded nuggets",
     "nugget_layup_compose": "Per-native before-VO layups",

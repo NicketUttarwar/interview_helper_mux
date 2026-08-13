@@ -784,6 +784,11 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
         ):
             if _gap_vo_targets_on_selection(ctx):
                 continue
+        # Pre-EDL audits often demand NLE/EDL VO placement; wavs on disk are enough.
+        from interview_mux.artifact_repairs import _edl_issue_premature_vo_nle_placement
+
+        if _edl_issue_premature_vo_nle_placement(ctx, item):
+            continue
         remaining.append(item)
     if not remaining:
         return []

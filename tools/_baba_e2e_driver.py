@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Fresh baba_all_vocals E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
+"""Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
 Creates a new run from ASSETS/baba_all_vocals.wav (MUX_FRESH=1, default when
 MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator gates until master/master.wav.
+Override with MUX_INPUT_AUDIO (e.g. ASSETS/Baba_zydus_town_hall.mp4).
 """
 
 from __future__ import annotations
@@ -95,6 +96,7 @@ DELIVERY_ORDER = (
     "edl",
     "assembly_preview",
     "listen_delight_audit",
+    "music_palette_compose",
     "sfx_prompt_craft",
     "mmaudio_sfx",
     "mix",
@@ -868,6 +870,17 @@ def heal_layup_spoken_copy() -> int:
             setup = str(row.get("setup_from_nuggets") or "").strip()
             new = " ".join(p for p in (setup, beat, unlock) if p).strip() or text
             new = _re.sub(r"(?i)\s*[—\-–,]?\s*stay\s+tuned\b.*$", ".", new).strip()
+            # Drop pipeline-ops jargon phrases that snuck into otherwise good copy.
+            new = _re.sub(
+                r"(?i)\b(?:pipeline\s+stage|from_stage|until_stage|stage_done|"
+                r"edit\s+timeline|gap report|source segment|native segment|"
+                r"selection order|quality control|qc(?:\s+pass|\s+fail)?)\b",
+                "",
+                new,
+            )
+            new = _re.sub(r"\s{2,}", " ", new).strip(" ,.—–-")
+            if new and not new.endswith((".", "?", "!")):
+                new = new + "."
         if not new or spoken_copy_violations(new, evidence={}):
             continue
         if new != text:
@@ -1082,6 +1095,15 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
     # Span-coverage / redistribute failures always belong to ideal_cuts_propose.
     if "span coverage" in low or "clustered early" in low or "redistribute across" in low:
         return "ideal_cuts_propose"
+    # "VO-ingest" / "vo_ingest" must not resolve to audio `ingest` (hyphen/underscore).
+    if (
+        "edl_narrative_audit" in low
+        or "edl narrative audit" in low
+        or "vo-ingest" in low
+        or "vo_ingest" in low
+        or "nle placement" in low
+    ) and "edl_narrative_audit" in pipeline_stages:
+        return "edl_narrative_audit"
     # Scan error text for the longest matching pipeline stage id (prefix or token).
     # Catches messages like "ideal_cuts_propose span coverage 0.098 < min 0.450".
     named = sorted(
@@ -1092,15 +1114,16 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
     if named:
         # Prefer explicit stage tokens over accidental substrings of longer names.
         for cand in named:
-            # word-ish boundary: start, non-alnum before, or after a path slash
+            # word-ish boundary: start, non-alnum before, or after a path slash.
+            # Treat '-' as part of the token so "ingest" does not match inside "vo-ingest".
             idx = low.find(cand)
             if idx < 0:
                 continue
             before = low[idx - 1] if idx > 0 else " "
             after_i = idx + len(cand)
             after = low[after_i] if after_i < len(low) else " "
-            if (not before.isalnum() and before != "_") and (
-                not after.isalnum() and after != "_"
+            if (not before.isalnum() and before not in "_-") and (
+                not after.isalnum() and after not in "_-"
             ):
                 return cand
     if (
@@ -2022,7 +2045,27 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
     # Coherence / operator profile — must run before the generic "blocked…missing" matcher,
     # which otherwise mis-routes coherence_report.json missing → content_brief_reanchor.
-    if "profile not operator-verified" in low or "coherence_report" in low or "mark verified" in low:
+    if (
+        "profile not operator-verified" in low
+        or "coherence_report" in low
+        or "mark verified" in low
+        or "analysis_state.json is partial" in low
+        or "analysis_state.json is not complete" in low
+    ):
+        try:
+            from interview_mux.analysis_memory import (
+                hydrate_analysis_state_for_profile_gate,
+                update_completion_from_analysis,
+            )
+            from interview_mux.run_context import RunContext
+
+            ctx_h = RunContext(RUN_ID, create=False)
+            if hydrate_analysis_state_for_profile_gate(ctx_h):
+                log("analysis_state hydrated (tone/format)")
+            update_completion_from_analysis(ctx_h)
+            log("analysis_state completion refreshed")
+        except Exception as exc:
+            log(f"analysis_state hydrate: {exc}")
         try:
             api("POST", f"/api/runs/{RUN_ID}/recompute-coherence", {"phase": "post_reanchor"}, timeout=300)
             log("coherence recomputed")
@@ -2059,9 +2102,33 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         execute(body)
         return "continue"
 
+    # Transitions must run before G1 synth when both are missing from an EDL gate.
+    if "missing master/transitions.json" in low or (
+        "transitions.json" in low and "missing" in low and "edl" in low
+    ):
+        resume = "selection_framing_apply"
+        try:
+            from interview_mux.run_context import RunContext
+
+            ctx_t = RunContext(RUN_ID, create=False)
+            if ctx_t.is_done("selection_framing_apply"):
+                resume = "transitions"
+            elif not ctx_t.is_done("gap_framing_recompose"):
+                resume = "gap_framing_recompose"
+        except Exception:
+            resume = "transitions"
+        log(f"gate: transitions missing — resume delivery from {resume}")
+        execute({"mode": "delivery", "from_stage": resume})
+        return "continue"
+
     # G1 VO missing must run before the generic blocked+missing matcher
     # (that matcher would otherwise treat "G1 VO pickup missing" as stale-artifact).
     if stage == "g1_vo_pickup" or ("g1" in low and "vo" in low and "pickup" in low):
+        # If transitions are also missing, do not attempt G1 yet.
+        if "transitions.json" in low and "missing" in low:
+            log("gate: G1 blocked behind missing transitions — defer to transitions heal")
+            execute({"mode": "delivery", "from_stage": "transitions"})
+            return "continue"
         if not synthesize_g1():
             try:
                 if heal_layup_spoken_copy() and synthesize_g1():
@@ -2448,7 +2515,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         )
                         execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
                         return "continue"
-            for sid in ("assembly_preview", "listen_delight_audit", "sfx_prompt_craft", "mmaudio_sfx"):
+            for sid in ("assembly_preview", "listen_delight_audit", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
                 ctx.mark_done(sid, force=True)
             log(f"mix gate heal: mmaudio_qa assets={len((doc or {}).get('assets') or [])}")
             # Mix requires master/edl.json — restore from archive before entering mix.
@@ -2535,6 +2602,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 "edl_narrative_refine",
                 "assembly_preview",
                 "listen_delight_audit",
+                "music_palette_compose",
                 "sfx_prompt_craft",
                 "mmaudio_sfx",
             ):
@@ -3313,6 +3381,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         "edl",
                         "assembly_preview",
                         "listen_delight_audit",
+                        "music_palette_compose",
                         "sfx_prompt_craft",
                         "mmaudio_sfx",
                         "mix",
@@ -3787,6 +3856,7 @@ def delivery_resume_stage() -> str | None:
                 "edl",
                 "assembly_preview",
                 "listen_delight_audit",
+                "music_palette_compose",
                 "sfx_prompt_craft",
                 "sfx_prompt_refine",
                 "mmaudio_sfx",
@@ -3843,6 +3913,7 @@ def delivery_resume_stage() -> str | None:
                     "edl",
                     "assembly_preview",
                     "listen_delight_audit",
+                    "music_palette_compose",
                     "sfx_prompt_craft",
                     "mmaudio_sfx",
                     "mix",
@@ -3977,6 +4048,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "edl",
                 "assembly_preview",
                 "listen_delight_audit",
+                "music_palette_compose",
                 "sfx_prompt_craft",
                 "mmaudio_sfx",
                 "mix",
@@ -4019,6 +4091,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "edl",
                         "assembly_preview",
                         "listen_delight_audit",
+                        "music_palette_compose",
                         "sfx_prompt_craft",
                         "mmaudio_sfx",
                         "mix",
@@ -4332,8 +4405,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "nugget_layup_plan_stale" in low_err
                 or "nugget_layup_authority_violated" in low_err
                 or "layup authority violated" in low_err
-                or "layup coverage" in low_err
-                or "min_layup_coverage" in low_err
                 or "canned_air_under_layup_authority" in low_err
                 or "stale vs selection" in low_err
                 or "canned seam air blocked" in low_err
@@ -4341,13 +4412,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 try:
                     from interview_mux.nugget_layup import (
                         PLAN_REL,
+                        assert_gap_report_layup_authority,
+                        dedupe_gap_report_nugget_claims,
                         publish_layup_plan_to_gap_report,
                         restore_layup_lines,
                     )
                     from interview_mux.run_context import RunContext
 
                     ctx = RunContext(RUN_ID, create=False)
-                    # Prefer restore+republish over full remine when a plan exists.
+                    # Prefer restore+dedupe+republish over full remine when a plan exists.
                     if ctx.artifact_exists(PLAN_REL) and ctx.artifact_exists(
                         "understanding/gap_report.json"
                     ):
@@ -4355,6 +4428,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         restored, notes = restore_layup_lines(
                             ctx, gr if isinstance(gr, dict) else {}
                         )
+                        if not isinstance(restored, dict):
+                            restored = gr if isinstance(gr, dict) else {}
+                        restored, dedupe_notes = dedupe_gap_report_nugget_claims(restored)
+                        notes = list(notes or []) + list(dedupe_notes or [])
                         if isinstance(restored, dict):
                             ctx.write_json(
                                 "understanding/gap_report.json",
@@ -4365,9 +4442,21 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             publish_layup_plan_to_gap_report(ctx)
                         except Exception as pub_exc:
                             log(f"layup republish after restore: {pub_exc}")
-                        log(f"layup authority restore notes={notes[-4:]}")
-                        execute({"mode": "delivery", "from_stage": "edl"})
-                        continue
+                        log(
+                            f"layup authority restore notes={notes[-6:]} "
+                            f"dedupe={len(dedupe_notes or [])}"
+                        )
+                        try:
+                            assert_gap_report_layup_authority(ctx)
+                            execute(
+                                {
+                                    "mode": "delivery",
+                                    "from_stage": "refinement_agenda",
+                                }
+                            )
+                            continue
+                        except Exception as auth_exc:
+                            log(f"layup authority still dirty after restore: {auth_exc}")
                     if refresh_nugget_layup_plan(
                         ctx, reason="plan stale / authority violated / canned air"
                     ):
@@ -4415,11 +4504,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "nugget layup qc failed" in low_err
                 or "open_must_keep_talking_points" in low_err
                 or "nugget_layup_qc_failed" in low_err
+                or "min_layup_coverage" in low_err
+                or "layup_coverage=" in low_err
+                or "layup coverage" in low_err
             ):
                 try:
                     from interview_mux.nugget_layup import (
                         PLAN_REL,
                         evaluate_layup_qc,
+                        materialize_over_skipped_layups,
                         normalize_layup_talking_point_ledger,
                         publish_layup_plan_to_gap_report,
                     )
@@ -4447,9 +4540,28 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ):
                         continue
                     plan = normalize_layup_talking_point_ledger(ctx, ctx.read_json(PLAN_REL))
-                    ctx.write_json(PLAN_REL, plan, stage_key="nugget_layup_compose")
-                    publish_layup_plan_to_gap_report(ctx, plan)
                     qc = evaluate_layup_qc(ctx, plan)
+                    if not qc.get("ok") and (
+                        float(qc.get("layup_coverage") or 0) < 0.9
+                        or qc.get("open_must_keep_talking_point_ids")
+                    ):
+                        plan, mat_notes = materialize_over_skipped_layups(ctx, plan)
+                        log(f"layup over-skip materialize: {mat_notes[-8:]}")
+                        ctx.write_json(PLAN_REL, plan, stage_key="nugget_layup_compose")
+                        publish_layup_plan_to_gap_report(ctx, plan)
+                        qc = evaluate_layup_qc(ctx, plan)
+                    # Strip production-jargon false positives / rewrite blocked air copy
+                    # before discharging must-keeps or giving up.
+                    if not qc.get("ok") and any(
+                        "spoken_copy[" in str(e) for e in (qc.get("errors") or [])
+                    ):
+                        healed_n = heal_layup_spoken_copy()
+                        if healed_n:
+                            plan = normalize_layup_talking_point_ledger(
+                                ctx, ctx.read_json(PLAN_REL)
+                            )
+                            qc = evaluate_layup_qc(ctx, plan)
+                            log(f"layup spoken-copy heal during QC: rewrote={healed_n}")
                     if not qc.get("ok"):
                         # Last-resort: discharge remaining must_keep that selection
                         # already covers via layup text / native order — keep open empty.
@@ -4463,12 +4575,20 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         publish_layup_plan_to_gap_report(ctx, plan)
                         qc = evaluate_layup_qc(ctx, plan)
                     if not qc.get("ok"):
-                        raise RuntimeError("nugget layup QC still failing after ledger heal: " + str(qc.get("errors")))
+                        if refresh_nugget_layup_plan(
+                            ctx, reason="layup QC still failing after materialize"
+                        ):
+                            continue
+                        raise RuntimeError(
+                            "nugget layup QC still failing after ledger heal: "
+                            + str(qc.get("errors"))
+                        )
                     ctx.write_json("understanding/nugget_layup_qc.json", qc)
                     ctx.mark_done("nugget_layup_compose", force=True)
                     log(
                         "nugget layup QC ledger heal ok → refinement_agenda "
-                        f"(open_must={qc.get('open_must_keep_talking_point_ids')})"
+                        f"(open_must={qc.get('open_must_keep_talking_point_ids')} "
+                        f"coverage={qc.get('layup_coverage')})"
                     )
                     execute({"mode": "delivery", "from_stage": "refinement_agenda"})
                     continue
@@ -5871,6 +5991,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "edl",
                         "assembly_preview",
                         "listen_delight_audit",
+                        "music_palette_compose",
                         "sfx_prompt_craft",
                         "mmaudio_sfx",
                     ):
@@ -5960,60 +6081,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             p.unlink(missing_ok=True)
                 except Exception as exc:
                     log(f"musicgen pending clear: {exc}")
-                # After two hard failures, soft-write musical stubs so the serve
-                # process is not killed in a MusicGen OOM / quit loop.
-                if spent >= 2:
-                    try:
-                        import os as _os
-                        from interview_mux.musicgen_runner import (
-                            clamp_music_duration,
-                            _write_musical_stub_wav,
-                            _write_generation_meta,
-                        )
-                        from interview_mux.run_context import RunContext
-
-                        _os.environ["MUX_E2E_MUSICGEN_ALLOW_STUB"] = "1"
-                        ctx = RunContext(RUN_ID, create=False)
-                        out_dir = ctx.final_path("sound_design") / "assets"
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        # Names must match sound_design_plan asset_ids (v2 motif family).
-                        for role, name, dur in (
-                            ("theme_cold_open", "show_theme_v2_cold_open.wav", 8.0),
-                            ("theme_underscore", "show_theme_v2_underscore_calm.wav", 12.0),
-                            ("theme_underscore", "show_theme_v2_underscore_lift.wav", 12.0),
-                            ("theme_emphasis", "show_theme_v2_emphasis.wav", 6.0),
-                            ("theme_chapter_resolve", "show_theme_v2_chapter_resolve.wav", 6.0),
-                            ("theme_outro", "show_theme_v2_outro.wav", 6.0),
-                        ):
-                            path = out_dir / name
-                            if not (path.is_file() and path.stat().st_size > 1000):
-                                _write_musical_stub_wav(
-                                    path,
-                                    duration_sec=clamp_music_duration(dur, role=role),
-                                    seed=hash(role) % 1000,
-                                )
-                            _write_generation_meta(
-                                path,
-                                {
-                                    "backend": "musical_stub",
-                                    "role": role,
-                                    "warning": "e2e soft-stub after MusicGen failures",
-                                    "e2e_soft_stub": True,
-                                },
-                            )
-                            log(f"MusicGen soft-stub ready {name}")
-                        meta = (
-                            ctx.read_json("run_meta.json")
-                            if ctx.artifact_exists("run_meta.json")
-                            else {}
-                        )
-                        if isinstance(meta, dict):
-                            meta["e2e_musicgen_soft_stub"] = True
-                            ctx.write_json("run_meta.json", meta, skip_handoff=True)
-                        execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
-                        continue
-                    except Exception as stub_exc:
-                        log(f"MusicGen soft-stub: {stub_exc}")
+                # Always retry MusicGen (large→medium→small). Do not plant stub WAVs —
+                # stubs are only a last resort inside musicgen_runner after the ladder.
                 execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
                 continue
             if (

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IslandClusterStructureAdjudicate",
+  "type": "object",
+  "required": ["cluster_id", "topic_unity", "assignments"],
+  "properties": {
+    "cluster_id": { "type": "string" },
+    "topic_unity": {
+      "type": "string",
+      "enum": ["same_conversation", "split_topics"]
+    },
+    "hinge_attach": {
+      "type": ["string", "null"],
+      "enum": ["left", "right", null]
+    },
+    "cut_hinge_block_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["island_id", "fuse_side"],
+        "properties": {
+          "island_id": { "type": "string" },
+          "fuse_side": {
+            "type": "string",
+            "enum": ["left", "right", "bridge"]
+          },
+          "rationale": { "type": "string" }
+        }
+      }
+    },
+    "rationale": { "type": "string" }
+  }
+}

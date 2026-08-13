@@ -905,20 +905,24 @@ def hydrate_analysis_state_for_profile_gate(ctx: RunContext) -> bool:
                 sync_speakers_to_state(ctx, speakers_doc)
                 state = load_analysis_state(ctx)
                 changed = True
-            else:
-                profile = speakers_doc.get("conversation_profile") or {}
-                if isinstance(profile, dict):
-                    state.setdefault("style", {})
-                    fc = profile.get("format_class_candidate")
-                    if validate_format_class(fc) and not state["style"].get("format_class"):
-                        state["style"]["format_class"] = fc
-                        changed = True
-                    tc = profile.get("tone_class_candidate")
-                    if validate_tone_class(tc) and not state["style"].get("tone_class"):
-                        state["style"]["tone_class"] = tc
-                        changed = True
+            # Always mirror locked enum candidates onto style (even after prior sync).
+            profile = speakers_doc.get("conversation_profile") or {}
+            if isinstance(profile, dict):
+                state.setdefault("style", {})
+                fc = validate_format_class(profile.get("format_class_candidate"))
+                if fc and not str(state["style"].get("format_class") or "").strip():
+                    state["style"]["format_class"] = fc
+                    changed = True
+                tc = validate_tone_class(profile.get("tone_class_candidate"))
+                if tc and not str(state["style"].get("tone_class") or "").strip():
+                    state["style"]["tone_class"] = tc
+                    changed = True
 
     state.setdefault("style", {})
+    if not str(state["style"].get("tone_class") or "").strip():
+        # Last-resort default so delivery is not permanently blocked on empty tone.
+        state["style"]["tone_class"] = "conversational"
+        changed = True
     if not str(state["style"].get("tone") or "").strip():
         tc = state["style"].get("tone_class")
         if validate_tone_class(tc):

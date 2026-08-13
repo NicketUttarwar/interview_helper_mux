@@ -252,7 +252,6 @@ def test_ladder_steps_large_then_medium_then_small_on_timeout(
     import interview_mux.musicgen_runner as mg
 
     monkeypatch.setattr(mg, "musicgen_enabled", lambda: True)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
     monkeypatch.setattr(mg, "musicgen_venv_python", lambda: tmp_path / "python")
     (tmp_path / "python").write_text("#!/bin/sh\n")
     monkeypatch.setattr(
@@ -384,8 +383,6 @@ def test_live_musicgen_ladder_reports_winning_model(
 
     import interview_mux.musicgen_runner as mg
 
-    monkeypatch.delenv("MUX_E2E_MUSICGEN_FAST_STUB", raising=False)
-    monkeypatch.setattr(mg, "e2e_musicgen_fast_stub", lambda: False)
 
     # Short large budget: if large is the 1765 hang path, step down quickly.
     base = dict(mg.musicgen_cfg() or {})

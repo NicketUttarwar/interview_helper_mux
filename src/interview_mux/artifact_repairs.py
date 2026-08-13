@@ -2668,6 +2668,40 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
             )
             blocking = kept_blocking
 
+    # Demote pre-EDL "VO-ingest / NLE placement" fails when pickup WAVs already exist.
+    # edl_narrative_audit runs before edl; empty nle_edits is expected until then.
+    if isinstance(blocking, list) and blocking:
+        kept_blocking = []
+        demoted_vo: list[dict[str, Any]] = []
+        for row in blocking:
+            if isinstance(row, dict) and _edl_issue_premature_vo_nle_placement(ctx, row):
+                demoted_vo.append(row)
+                continue
+            if isinstance(row, dict):
+                kept_blocking.append(row)
+        if demoted_vo:
+            warnings = [
+                dict(row)
+                for row in (out.get("warnings") or [])
+                if isinstance(row, dict)
+            ]
+            for row in demoted_vo:
+                warning = dict(row)
+                warning["issue"] = (
+                    str(warning.get("issue") or "vo_placement")
+                    + " (demoted: vo_pickup WAVs present; NLE placement is edl's job)"
+                )
+                warnings.append(warning)
+            out["warnings"] = warnings
+            out["blocking_issues"] = kept_blocking
+            applied.append(
+                {
+                    "action": "demote_premature_vo_nle_placement",
+                    "count": len(demoted_vo),
+                }
+            )
+            blocking = kept_blocking
+
     # Demote "restore excluded / expand ranking" false fails. Creative packs may
     # intentionally drop early-act chapters; selection exclusions are authoritative.
     if isinstance(blocking, list) and blocking:
@@ -2735,6 +2769,78 @@ def _edl_issue_demands_restore_excluded(row: dict[str, Any]) -> bool:
         "source segments were dropped",
     )
     return any(m in text for m in restore_markers)
+
+
+def _edl_issue_premature_vo_nle_placement(ctx: Any, row: dict[str, Any]) -> bool:
+    """True when audit blocks on missing NLE/EDL VO placement but pickup WAVs exist.
+
+    ``edl_narrative_audit`` runs before ``edl``; empty ``nle_edits`` / no timeline
+    VO clips is expected. Required lines are covered once ``vo_pickup/*.wav`` exist
+    (full speech-QA resolve is ``edl`` / ``vo_ingest`` work).
+    """
+    text = " ".join(
+        str(x)
+        for x in (
+            row.get("issue"),
+            row.get("detail"),
+            row.get("recommended_action"),
+            " ".join(str(e) for e in (row.get("evidence") or [])),
+        )
+        if x
+    ).lower()
+    placement_markers = (
+        "vo-ingest",
+        "vo_ingest",
+        "nle placement",
+        "nle_edits",
+        "no evidenced vo",
+        "evidenced vo-ingest",
+    )
+    if not any(m in text for m in placement_markers):
+        return False
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return False
+
+    def _wav_exists(line: dict[str, Any]) -> bool:
+        pickup = ctx.final_path("vo_pickup")
+        lid = str(line.get("line_id") or "")
+        seg = str(line.get("targets_segment_id") or "")
+        for base in (
+            pickup / "matched",
+            pickup / "synthesized",
+            pickup / "clean",
+            pickup / "normalized",
+            pickup,
+        ):
+            for key in (lid, seg):
+                if key and (base / f"{key}.wav").is_file():
+                    return True
+        return False
+
+    report = ctx.read_json("understanding/gap_report.json")
+    lines = [
+        ln
+        for ln in (report.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+        and bool(ln.get("required"))
+        and str(ln.get("severity") or "").lower() == "high"
+        and str(ln.get("delivery") or "").lower() in {"record", "synthesize", ""}
+        and not ln.get("skipped_optional")
+    ]
+    if not lines:
+        cited = {
+            m.group(0)
+            for m in __import__("re").finditer(r"vo_[a-z0-9_]+", text)
+        }
+        lines = [
+            ln
+            for ln in (report.get("interviewer_lines") or [])
+            if isinstance(ln, dict)
+            and str(ln.get("line_id") or "") in cited
+        ]
+    if not lines:
+        return False
+    return all(_wav_exists(ln) for ln in lines)
 
 
 def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:

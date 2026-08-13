@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["complete", "partial", "needs_input", "blocked"]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["cluster_id", "topic_unity", "assignments"],
+      "properties": {
+        "cluster_id": { "type": "string" },
+        "topic_unity": {
+          "type": "string",
+          "enum": ["same_conversation", "split_topics"]
+        },
+        "hinge_attach": {
+          "type": ["string", "null"],
+          "enum": ["left", "right", null]
+        },
+        "cut_hinge_block_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["island_id", "fuse_side"],
+            "properties": {
+              "island_id": { "type": "string" },
+              "fuse_side": {
+                "type": "string",
+                "enum": ["left", "right", "bridge"]
+              },
+              "rationale": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "rationale": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "confidence": { "type": ["number", "null"] },
+    "notes": { "type": ["string", "null"] }
+  },
+  "required": ["status", "artifacts"],
+  "additionalProperties": false
+}

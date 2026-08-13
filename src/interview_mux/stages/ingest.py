@@ -1,4 +1,4 @@
-"""Ingest stage — normalize source audio and record checksums."""
+"""Ingest stage — normalize source audio (format + loudness) and record checksums."""
 
 from __future__ import annotations
 
@@ -10,6 +10,11 @@ from interview_mux.config import merged_config
 from interview_mux.operator_subprocess import format_command, run_logged_command, touch_job_message
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
+from interview_mux.source_loudness import (
+    build_ingest_loudness_filter,
+    loudness_lineage_payload,
+    loudness_stabilize_cfg,
+)
 
 _HASH_PROGRESS_BYTES = 32 << 20  # 32 MiB
 _HASH_PROGRESS_SECONDS = 30.0
@@ -82,28 +87,53 @@ def run_ingest(ctx: RunContext) -> Path:
     rate = int(cfg.get("sample_rate", 48000))
 
     source_label = "preclean/isolated.wav" if preclean is not None else str(ctx.input_audio())
+    loud_cfg = loudness_stabilize_cfg(cfg)
+    af_filter = build_ingest_loudness_filter(loud_cfg)
     touch_job_message(ctx, "Ingest: normalizing audio…")
+    stabilize_note = (
+        f" + loudness stabilize ({loud_cfg['target_lufs']:g} LUFS)"
+        if af_filter
+        else " (format only)"
+    )
     ctx.log(
-        f"Ingest: normalizing {source_label} → ingest/normalized.wav ({rate} Hz mono).",
+        f"Ingest: normalizing {source_label} → ingest/normalized.wav "
+        f"({rate} Hz mono{stabilize_note}).",
         level="action",
         stage="ingest",
-        detail={"journey_kind": "execute", "source": str(src), "output": "ingest/normalized.wav"},
+        detail={
+            "journey_kind": "execute",
+            "source": str(src),
+            "output": "ingest/normalized.wav",
+            "loudness_stabilize": af_filter is not None,
+            "af_filter": af_filter,
+        },
     )
-    touch_job_message(ctx, "Ingest: running ffmpeg normalize…")
+    touch_job_message(
+        ctx,
+        "Ingest: running ffmpeg loudness stabilize…"
+        if af_filter
+        else "Ingest: running ffmpeg normalize…",
+    )
 
     cmd = [
         "ffmpeg",
         "-y",
         "-i",
         str(src),
-        "-ar",
-        str(rate),
-        "-ac",
-        "1",
-        "-c:a",
-        "pcm_s16le",
-        str(normalized),
     ]
+    if af_filter:
+        cmd.extend(["-af", af_filter])
+    cmd.extend(
+        [
+            "-ar",
+            str(rate),
+            "-ac",
+            "1",
+            "-c:a",
+            "pcm_s16le",
+            str(normalized),
+        ]
+    )
     with logged_step("ingest/ffmpeg_normalize", ctx=ctx, stage="ingest"):
         run_logged_command(
             ctx,
@@ -112,6 +142,10 @@ def run_ingest(ctx: RunContext) -> Path:
             label=format_command(cmd),
             action_id="subprocess.ffmpeg",
         )
+
+    lineage = loudness_lineage_payload(loud_cfg, af_filter=af_filter)
+    with logged_step("ingest/loudness_lineage", ctx=ctx, stage="ingest"):
+        ctx.write_json("ingest/loudness.json", lineage)
 
     touch_job_message(ctx, "Ingest: computing checksums…")
     with logged_step("ingest/checksums", ctx=ctx, stage="ingest"):
@@ -125,6 +159,7 @@ def run_ingest(ctx: RunContext) -> Path:
             "source_sha256": source_sha,
             "normalized_sha256": normalized_sha,
             "sample_rate": rate,
+            "loudness_stabilize": bool(lineage.get("enabled")),
         }
         if preclean is not None:
             ctx.log("Ingest: hashing preclean audio…", level="info", stage="ingest", detail={"journey_kind": "execute", "action_id": "ingest.hash"}, action_id="ingest.hash", origin="pipeline")
@@ -134,7 +169,8 @@ def run_ingest(ctx: RunContext) -> Path:
         ctx.write_json("ingest/checksums.json", checksums)
     touch_job_message(ctx, "Ingest: finishing…")
     ctx.log(
-        f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono).",
+        f"Ingest complete — normalized audio at ingest/normalized.wav ({rate} Hz mono"
+        f"{stabilize_note}).",
         level="success",
         stage="ingest",
         detail={"journey_kind": "milestone", "source_sha256": source_sha[:12]},

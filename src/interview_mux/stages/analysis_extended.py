@@ -256,6 +256,25 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 "(no invent / no canned / spine-first unlock). Errors: "
                 + "; ".join((qc.get("errors") or [])[:4]),
             )
+        # LLM over-skip: materialize skip rows from unlock/beat/nuggets before fail-closed.
+        if not qc.get("ok") and any(
+            "layup_coverage" in str(e) or "min_layup_coverage" in str(e)
+            for e in (qc.get("errors") or [])
+        ):
+            from interview_mux.nugget_layup import materialize_over_skipped_layups
+
+            doc, mat_notes = materialize_over_skipped_layups(c, doc)
+            if any(str(n).startswith("materialized:") for n in mat_notes):
+                doc = normalize_layup_talking_point_ledger(c, doc)
+                persist_plan(c, doc)
+                report = publish_layup_plan_to_gap_report(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "materialized over-skipped layups: "
+                    + "; ".join(str(n) for n in mat_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
         # After exhaustion: thinner grounded unlock may still pass grace floors;
         # fail-closed only when analysis minimum / canned / invent remain.
         assert_layup_qc_or_raise(c, qc)

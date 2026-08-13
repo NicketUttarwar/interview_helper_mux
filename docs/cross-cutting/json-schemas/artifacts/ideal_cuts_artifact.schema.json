@@ -15,6 +15,24 @@
           "talking_point_id": { "type": "string" },
           "start_ms": { "type": "integer", "minimum": 0 },
           "end_ms": { "type": "integer", "minimum": 0 },
+          "start_word_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional 0-based index into transcript.words for the first included word."
+          },
+          "end_word_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional 0-based index into transcript.words for the last included word."
+          },
+          "start_anchor": {
+            "type": "string",
+            "description": "Optional 2–6 word quote at the open hinge; preferred over free-floating start_ms."
+          },
+          "end_anchor": {
+            "type": "string",
+            "description": "Optional 2–6 word quote at the close hinge; preferred over free-floating end_ms."
+          },
           "priority": {
             "type": "string",
             "enum": ["must_keep", "should_keep", "optional"]
