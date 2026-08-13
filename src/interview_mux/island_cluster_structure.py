@@ -346,12 +346,49 @@ def build_island_cluster_structure_packet(
         )
 
     pair_hints: list[dict[str, Any]] = []
+    try:
+        from interview_mux.gap_vo_prior_context import clause_continues_after, ends_hanging_setup
+        from interview_mux.low_conf_islands import load_islands as _load_lci
+        from interview_mux.segment_fuse import _island_hints, words_in_span
+    except Exception:
+        clause_continues_after = None  # type: ignore[assignment]
+        ends_hanging_setup = None  # type: ignore[assignment]
+        _load_lci = None  # type: ignore[assignment]
+        _island_hints = None  # type: ignore[assignment]
+        words_in_span = None  # type: ignore[assignment]
+
+    low_islands: list[dict[str, Any]] = []
+    if _load_lci is not None:
+        try:
+            low_islands = [
+                i
+                for i in (_load_lci(ctx).get("islands") or [])
+                if isinstance(i, dict)
+            ]
+        except Exception:
+            low_islands = []
+
     for a_sid, b_sid in zip(interest, interest[1:]):
         a, b = by_id.get(a_sid), by_id.get(b_sid)
         if not a or not b:
             continue
         gap = max(0, _ms(b, "start_ms") - _ms(a, "end_ms"))
         score = _topic_overlap(a, b)
+        a_end, b_start = _ms(a, "end_ms"), _ms(b, "start_ms")
+        hanging = False
+        continues = False
+        if ends_hanging_setup is not None and words_in_span is not None:
+            a_words = words_in_span(words, _ms(a, "start_ms"), a_end)
+            tail = " ".join(_word_text(w) for w in a_words[-16:]) if a_words else str(a.get("text") or "")
+            hanging = bool(ends_hanging_setup(tail))
+            if clause_continues_after is not None:
+                continues = bool(words) and clause_continues_after(words, a_end)
+        straddle = False
+        loose = False
+        if _island_hints is not None:
+            straddle, loose = _island_hints(
+                low_islands, earlier_end_ms=a_end, later_start_ms=b_start
+            )
         pair_hints.append(
             {
                 "earlier_segment_id": a_sid,
@@ -361,6 +398,10 @@ def build_island_cluster_structure_packet(
                 "gap_over_cap": gap > max_gap,
                 "same_speaker": (a.get("speaker_id") or a.get("speaker"))
                 == (b.get("speaker_id") or b.get("speaker")),
+                "hanging_setup_end": hanging,
+                "clause_continues_after": continues,
+                "island_straddle": bool(straddle),
+                "loose_cluster_on_seam": bool(loose),
             }
         )
 
@@ -406,7 +447,7 @@ def build_island_cluster_structure_packet(
             }
         )
 
-    # Soft editorial context (window-filtered, best-effort)
+    # Soft editorial context (window-filtered, best-effort) + shared attach helpers.
     soft: dict[str, Any] = {}
     speakers_in = {
         str(r.get("speaker_id") or "")
@@ -414,15 +455,14 @@ def build_island_cluster_structure_packet(
         if r.get("speaker_id")
     }
     roles = _soft_json(ctx, "understanding/speaker_roles.json") or _soft_json(
-        ctx, "analysis/speaker_roles.json"
-    )
+        ctx, "understanding/speakers.json"
+    ) or _soft_json(ctx, "analysis/speaker_roles.json")
     if roles:
         soft["speaker_roles"] = roles
     brief = _soft_json(ctx, "understanding/content_context.json") or _soft_json(
         ctx, "understanding/content_brief.json"
     )
     if brief:
-        # Keep compact: top-level keys only plus any topic overlap mentions.
         soft["content_context_keys"] = sorted(str(k) for k in brief.keys())[:40]
         topics_in = {
             str(t).casefold()
@@ -477,6 +517,74 @@ def build_island_cluster_structure_packet(
             )
         if tp_rows:
             soft["talking_points_in_window"] = tp_rows[:40]
+
+    # Window-filter spine / conversation / disfluency helpers when available.
+    helper_payload: dict[str, Any] = {
+        "cluster_id": cluster.get("cluster_id"),
+        "window_start_ms": window_start,
+        "window_end_ms": window_end,
+        "segment_ids": interest,
+    }
+    try:
+        from interview_mux.interview_spine.compact import compact_for_volley, load_spine
+
+        spine_doc = load_spine(ctx)
+        if spine_doc:
+            compact = compact_for_volley(ctx, max_windows=4, max_chars=160)
+            if isinstance(compact, dict):
+                # Keep windows overlapping the cluster span when timestamps exist.
+                windows = []
+                for w in compact.get("windows") or []:
+                    if not isinstance(w, dict):
+                        continue
+                    w0, w1 = _ms(w, "start_ms"), _ms(w, "end_ms")
+                    if w1 and w0 and (w1 <= window_start or w0 >= window_end):
+                        continue
+                    windows.append(w)
+                if windows:
+                    compact = {**compact, "windows": windows[:4]}
+                soft["interview_spine"] = compact
+    except Exception:
+        pass
+    try:
+        from interview_mux.conversation_context import attach_conversation_context
+
+        helper_payload = attach_conversation_context(
+            ctx, helper_payload, STAGE_KEY
+        )
+        for key in ("conversation_context", "speaker_context", "roles_brief"):
+            if key in helper_payload:
+                soft[key] = helper_payload[key]
+    except Exception:
+        pass
+    try:
+        from interview_mux.stage_input_helpers import attach_disfluency_context
+
+        helper_payload = attach_disfluency_context(helper_payload, ctx)
+        # Scope must-keep / island excerpts to in-window segment ids.
+        mk = [
+            sid
+            for sid in (helper_payload.get("must_keep_segment_ids") or [])
+            if str(sid) in set(interest)
+        ]
+        if mk:
+            soft["must_keep_segment_ids_in_window"] = mk
+        excerpts = []
+        for row in helper_payload.get("stt_island_excerpts") or helper_payload.get(
+            "disfluency_excerpts"
+        ) or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("segment_id") or "") in set(interest) or not row.get("segment_id"):
+                excerpts.append(row)
+        if excerpts:
+            soft["disfluency_excerpts_in_window"] = excerpts[:40]
+        for key in ("vernacular_must_keep_ids", "stt_lexicon_island_ids"):
+            if key in helper_payload:
+                soft[key] = helper_payload[key]
+    except Exception:
+        pass
+    _ = speakers_in  # available for future speaker-scoped role trim
 
     packet = {
         "task": (
@@ -666,23 +774,24 @@ def adjudicate_island_cluster_structure(
     *,
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One economy LLM call per multi-cluster; fail-open deterministic."""
+    """One economy LLM call per multi-cluster; simple clusters skip LLM + full packet."""
     s_cfg = structure_cfg(cfg)
-    packet = build_island_cluster_structure_packet(ctx, cluster, cfg=cfg)
-    _append_packet(ctx, packet)
 
     if str(cluster.get("density") or "") != "multi":
-        verdict = deterministic_structure_for_cluster(cluster, packet)
+        # Lightweight deterministic path — no rich packet build / no LLM.
+        verdict = deterministic_structure_for_cluster(cluster, packet=None)
         verdict["adjudication_fallback"] = True
         verdict["skip_reason"] = "simple_cluster"
         _append_verdict(ctx, verdict)
         return verdict
 
+    packet = build_island_cluster_structure_packet(ctx, cluster, cfg=cfg)
+    _append_packet(ctx, packet)
+
     fail_open = bool(s_cfg.get("fail_open_deterministic", True))
     envelope = _llm_structure_call(ctx, packet, cfg=s_cfg)
     parsed = parse_island_cluster_structure_envelope(envelope, packet, cluster)
     if parsed is None and fail_open:
-        # One retry already inside _llm; fail open.
         parsed = deterministic_structure_for_cluster(cluster, packet)
     if parsed is None:
         parsed = deterministic_structure_for_cluster(cluster, packet)
@@ -704,7 +813,7 @@ def _llm_structure_call(
         from interview_mux.required_response_format import build_required_response_block
 
         format_block = build_required_response_block(
-            STAGE_KEY, variant="full", task_kind="advisory"
+            STAGE_KEY, variant="full", task_kind="primary"
         )
     except Exception:
         format_block = ""
@@ -716,6 +825,18 @@ def _llm_structure_call(
     system = f"{base.rstrip()}\n\n{format_block}".strip() if format_block else base
     user = json.dumps(packet, indent=2, ensure_ascii=False)
     tier = str(cfg.get("llm_tier") or "economy")
+
+    response_format: dict[str, Any] | None
+    try:
+        from interview_mux.openai_structured_output import resolve_response_format
+
+        # Use primary so composed json_schema resolves; fall back to json_object.
+        response_format = resolve_response_format(STAGE_KEY, "primary")
+    except Exception:
+        response_format = None
+    if not response_format:
+        response_format = {"type": "json_object"}
+
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
@@ -725,16 +846,20 @@ def _llm_structure_call(
                 user,
                 ctx=ctx,
                 include_preamble=False,
-                task_kind="advisory",
+                task_kind="primary",
                 explicit_tier=tier,
                 bump_tier=False,
-                response_format={"type": "json_object"},
+                response_format=response_format,
                 system_override=system,
             )
             if isinstance(envelope, dict):
                 return envelope
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
+            # Retry once with loose json_object if strict schema rejected.
+            if attempt == 0 and response_format.get("type") == "json_schema":
+                response_format = {"type": "json_object"}
+                continue
             continue
     ctx.log(
         f"island_cluster_structure LLM unavailable: {last_exc}",

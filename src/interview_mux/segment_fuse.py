@@ -1529,7 +1529,9 @@ def run_high_value_cluster_fuse_rounds(
     last_sig = ""
 
     for round_index in range(max_rounds):
-        grouped = group_high_value_island_clusters(ctx, cfg=cfg, write=True)
+        grouped = group_high_value_island_clusters(
+            ctx, cfg=cfg, write=True, pass_id=pass_id
+        )
         segments = _load_segments(ctx)
         pending: list[dict[str, Any]] = []
         for raw in grouped.get("clusters") or []:

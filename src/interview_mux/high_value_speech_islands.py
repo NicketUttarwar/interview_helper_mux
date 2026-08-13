@@ -607,6 +607,63 @@ def _boundary_topic_shift(
     return False
 
 
+def _load_narrative_chapters(ctx: RunContext) -> list[dict[str, Any]]:
+    for rel in (
+        "understanding/narrative_arc.json",
+        "understanding/narrative_plan.json",
+        "master/selection.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        chapters = doc.get("chapters")
+        if isinstance(chapters, list) and chapters:
+            return [c for c in chapters if isinstance(c, dict)]
+    return []
+
+
+def _chapter_id_at(
+    chapters: list[dict[str, Any]],
+    *,
+    ms: int,
+    segment_id: str | None = None,
+) -> str | None:
+    if segment_id:
+        for ch in chapters:
+            sids = [str(x) for x in (ch.get("segment_ids") or []) if x]
+            if segment_id in sids:
+                return str(ch.get("chapter_id") or ch.get("id") or ch.get("title") or "")
+    for ch in chapters:
+        s0 = _ms(ch, "start_ms") or _ms(ch, "source_start_ms")
+        s1 = _ms(ch, "end_ms") or _ms(ch, "source_end_ms")
+        if s1 > s0 and s0 <= ms < s1:
+            return str(ch.get("chapter_id") or ch.get("id") or ch.get("title") or "")
+    return None
+
+
+def _narrative_chapter_change(
+    ctx: RunContext,
+    *,
+    left_end_ms: int,
+    right_start_ms: int,
+    left_segment_id: str | None = None,
+    right_segment_id: str | None = None,
+) -> bool:
+    chapters = _load_narrative_chapters(ctx)
+    if not chapters:
+        return False
+    left_ch = _chapter_id_at(chapters, ms=max(0, left_end_ms - 1), segment_id=left_segment_id)
+    right_ch = _chapter_id_at(chapters, ms=right_start_ms, segment_id=right_segment_id)
+    if left_ch and right_ch and left_ch != right_ch:
+        return True
+    return False
+
+
 def _should_separate_islands(
     ctx: RunContext,
     left: dict[str, Any],
@@ -614,17 +671,15 @@ def _should_separate_islands(
     segments: list[dict[str, Any]],
     *,
     conf: dict[str, Any],
+    use_narrative_chapters: bool = False,
 ) -> tuple[bool, str | None, list[str]]:
     """Return (separate, reason, hinge_segment_ids)."""
     left_end = _ms(left, "end_ms")
     right_start = _ms(right, "start_ms")
     gap = max(0, right_start - left_end)
     join_max = int(conf.get("cluster_join_max_gap_ms") or 8000)
-    if gap > join_max:
-        return True, "gap_over_join_max", []
 
     intervening = _segments_between(segments, after_ms=left_end, before_ms=right_start)
-    # Exclude segments that heavily overlap either island.
     filtered: list[dict[str, Any]] = []
     for seg in intervening:
         s0, s1 = _ms(seg, "start_ms"), _ms(seg, "end_ms")
@@ -639,7 +694,7 @@ def _should_separate_islands(
     hinge_ids = [str(s.get("segment_id")) for s in intervening if s.get("segment_id")]
     inter_ms = sum(max(0, _ms(s, "end_ms") - _ms(s, "start_ms")) for s in intervening)
     break_ms = int(conf.get("flow_break_min_high_conf_ms") or 12000)
-    if inter_ms >= break_ms:
+    if inter_ms >= break_ms or gap >= break_ms:
         return True, "long_high_conf_break", hinge_ids
 
     topic_floor = 0.15
@@ -651,10 +706,9 @@ def _should_separate_islands(
         pass
 
     topic_change = False
+    left_seg = None
+    right_seg = None
     if intervening:
-        # Compare topics of material immediately left of gap vs intervening, and intervening vs right.
-        left_seg = None
-        right_seg = None
         for seg in segments:
             if _ms(seg, "end_ms") <= left_end and (
                 left_seg is None or _ms(seg, "end_ms") > _ms(left_seg, "end_ms")
@@ -673,7 +727,6 @@ def _should_separate_islands(
             score = _topic_overlap_tags(mid, right_seg)
             if score > 0 and score < topic_floor:
                 topic_change = True
-        # Also left island-touching vs right island-touching via mid tags vs both sides.
         if left_seg is not None and right_seg is not None:
             lr = _topic_overlap_tags(left_seg, right_seg)
             if lr > 0 and lr < topic_floor:
@@ -682,11 +735,23 @@ def _should_separate_islands(
     if _boundary_topic_shift(ctx, after_ms=left_end, before_ms=right_start):
         topic_change = True
 
+    if use_narrative_chapters and _narrative_chapter_change(
+        ctx,
+        left_end_ms=left_end,
+        right_start_ms=right_start,
+        left_segment_id=str((left_seg or {}).get("segment_id") or "") or None,
+        right_segment_id=str((right_seg or {}).get("segment_id") or "") or None,
+    ):
+        return True, "narrative_chapter_change", hinge_ids
+
     min_segs = int(conf.get("flow_break_min_high_conf_segments") or 1)
     if topic_change and len(intervening) >= min_segs:
         return True, "topic_subtopic_change", hinge_ids
     if topic_change and gap > 0:
         return True, "topic_subtopic_change", hinge_ids
+
+    if gap > join_max:
+        return True, "gap_over_join_max", hinge_ids
 
     return False, None, []
 
@@ -726,9 +791,14 @@ def group_high_value_island_clusters(
     *,
     cfg: dict[str, Any] | None = None,
     write: bool = True,
+    use_narrative_chapters: bool = False,
+    pass_id: str | None = None,
 ) -> dict[str, Any]:
     """Group HV islands into flow-preserving clusters (simple vs multi)."""
     conf = high_value_speech_cfg(cfg)
+    # Pre-ranking (and later) passes may use narrative arc chapters when present.
+    if pass_id and "pre_ranking" in str(pass_id):
+        use_narrative_chapters = True
     hv = load_high_value_islands(ctx)
     islands = [
         i
@@ -745,6 +815,7 @@ def group_high_value_island_clusters(
             "version": 1,
             "cluster_count": 0,
             "clusters": [],
+            "use_narrative_chapters": bool(use_narrative_chapters),
             "config": {
                 "cluster_join_max_gap_ms": conf.get("cluster_join_max_gap_ms"),
                 "flow_break_min_high_conf_ms": conf.get("flow_break_min_high_conf_ms"),
@@ -764,7 +835,12 @@ def group_high_value_island_clusters(
     for nxt in islands[1:]:
         prev = current_members[-1]
         separate, reason, hinge_ids = _should_separate_islands(
-            ctx, prev, nxt, segments, conf=conf
+            ctx,
+            prev,
+            nxt,
+            segments,
+            conf=conf,
+            use_narrative_chapters=use_narrative_chapters,
         )
         if separate:
             hinge_segs = [s for s in segments if str(s.get("segment_id")) in set(hinge_ids)]
@@ -814,6 +890,8 @@ def group_high_value_island_clusters(
         "cluster_count": len(clusters),
         "clusters": clusters,
         "splits": split_meta,
+        "use_narrative_chapters": bool(use_narrative_chapters),
+        "pass_id": pass_id,
         "config": {
             "cluster_join_max_gap_ms": conf.get("cluster_join_max_gap_ms"),
             "flow_break_min_high_conf_ms": conf.get("flow_break_min_high_conf_ms"),

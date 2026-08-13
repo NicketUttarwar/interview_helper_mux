@@ -66,6 +66,8 @@ Artifacts: `analysis/high_value_speech_islands.json`, `analysis/high_value_speec
 
 Config: `analysis.high_value_speech_islands.*` — see [config-keys.md](./config-keys.md).
 
+On **`connector_fuse_pass_pre_ranking`**, cluster separation also consults narrative arc / plan chapters when present (`narrative_chapter_change`).
+
 ## Seam LLM loop
 
 Deterministic code enumerates **every** chronological adjacent pair (`tail_words` + `head_words` → packet). The economy stage `connector_seam_adjudicate` decides `fuse` vs `stay_independent`. Locked seams from HV cluster cuts stay independent. Code applies fuses by rewriting `segments/manifest.json` + `segments/boundaries.json` into **one** complete-thought segment (`fused_from`).

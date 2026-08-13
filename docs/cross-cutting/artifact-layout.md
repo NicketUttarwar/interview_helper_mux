@@ -110,6 +110,17 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/value_features.json` | optional; value-analysis extractor (`tools/extract_value_features.py` or auto after `content_context`) |
 | `segments/boundaries.json` | boundary detection |
 | `segments/manifest.json` | segment classification |
+| `analysis/low_conf_islands.json` | `low_conf_island_scan` (ladder clusters) |
+| `analysis/low_conf_density_ranking.json` | `low_conf_island_scan` |
+| `analysis/low_conf_must_keep.json` | `low_conf_island_scan` (top-decile + high-value union) |
+| `analysis/high_value_speech_islands.json` | `low_conf_island_scan` (volume-gated STT-skip / multi low-conf) |
+| `analysis/high_value_speech_boosts.json` | `low_conf_island_scan` |
+| `analysis/high_value_island_clusters.json` | `connector_fuse_pass` (flow-preserving simple/multi groups) |
+| `analysis/island_cluster_structure_packets.json` | per multi-cluster LLM packets (audit) |
+| `analysis/island_cluster_structure_verdicts.json` | `island_cluster_structure_adjudicate` (economy structure) |
+| `analysis/connector_fuse_locked_seams.json` | H-edge forced seams locked against global seam undo |
+| `analysis/connector_seam_packets.json` / `connector_seam_verdicts.json` | `connector_fuse_pass` global seam loop |
+| `analysis/connector_fuse_audit.json` / `connector_fuse_rounds.json` | connector fuse apply audit |
 
 ## Sound design — `sound_design/` (run root; Flow 1 + Flow 2 SDP path)
 

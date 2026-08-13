@@ -443,6 +443,261 @@ def test_plan_cluster_and_apply_simple(tmp_path: Path):
     assert len(man["segments"]) < 3
 
 
+def test_simple_cluster_skips_llm_and_packet(tmp_path: Path, monkeypatch):
+    ctx = _FakeCtx(tmp_path)
+    calls = {"packet": 0, "llm": 0}
+
+    def _no_packet(*_a, **_k):
+        calls["packet"] += 1
+        return {}
+
+    def _no_llm(*_a, **_k):
+        calls["llm"] += 1
+        return None
+
+    monkeypatch.setattr(
+        "interview_mux.island_cluster_structure.build_island_cluster_structure_packet",
+        _no_packet,
+    )
+    monkeypatch.setattr(
+        "interview_mux.island_cluster_structure._llm_structure_call",
+        _no_llm,
+    )
+    from interview_mux.island_cluster_structure import adjudicate_island_cluster_structure
+
+    cluster = {
+        "cluster_id": "hvc_simple",
+        "density": "simple",
+        "member_island_ids": ["hvi_001"],
+        "islands": [{"island_id": "hvi_001", "start_ms": 1, "end_ms": 2}],
+    }
+    out = adjudicate_island_cluster_structure(ctx, cluster)
+    assert out.get("skip_reason") == "simple_cluster"
+    assert calls["packet"] == 0
+    assert calls["llm"] == 0
+    assert ctx.artifact_exists("analysis/island_cluster_structure_verdicts.json")
+    assert not ctx.artifact_exists("analysis/island_cluster_structure_packets.json")
+
+
+def test_multi_packet_persisted_and_soft_context(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    words = (
+        _words_span(0, 2000, "high conf left flank words here", 0.95)
+        + _words_span(2000, 4000, "low conf garble domain", 0.4)
+        + _words_span(4000, 6000, "high conf right flank words", 0.96)
+    )
+    ctx.write_json("transcript/full.json", {"words": words})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "h1",
+                    "start_ms": 0,
+                    "end_ms": 2000,
+                    "text": "high conf left flank words here",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["t"],
+                },
+                {
+                    "segment_id": "l1",
+                    "start_ms": 2000,
+                    "end_ms": 4000,
+                    "text": "low conf garble domain",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["t"],
+                },
+                {
+                    "segment_id": "h2",
+                    "start_ms": 4000,
+                    "end_ms": 6000,
+                    "text": "high conf right flank words",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["t"],
+                },
+            ]
+        },
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {"speakers": [{"speaker_id": "spk_0", "role": "host"}]},
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {"thesis": "funding story", "topics": ["t"]},
+    )
+    cluster = {
+        "cluster_id": "hvc_001",
+        "density": "multi",
+        "member_island_ids": ["hvi_001", "hvi_002"],
+        "islands": [
+            {
+                "island_id": "hvi_001",
+                "start_ms": 2000,
+                "end_ms": 3000,
+                "segment_ids_touched": ["l1"],
+            },
+            {
+                "island_id": "hvi_002",
+                "start_ms": 3000,
+                "end_ms": 4000,
+                "segment_ids_touched": ["l1"],
+            },
+        ],
+        "start_ms": 2000,
+        "end_ms": 4000,
+        "segment_ids_touched": ["l1"],
+    }
+    packet = build_island_cluster_structure_packet(ctx, cluster)
+    assert packet["pair_hints"]
+    assert "hanging_setup_end" in packet["pair_hints"][0]
+    assert "island_straddle" in packet["pair_hints"][0]
+    soft = packet.get("soft_context") or {}
+    assert soft.get("speaker_roles") or soft.get("content_context_excerpts")
+    from interview_mux.island_cluster_structure import _append_packet
+
+    _append_packet(ctx, packet)
+    stored = ctx.read_json("analysis/island_cluster_structure_packets.json")
+    assert any(
+        (p.get("cluster") or {}).get("cluster_id") == "hvc_001"
+        for p in (stored.get("packets") or [])
+    )
+
+
+def test_long_high_conf_break_splits(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "l1",
+                    "start_ms": 0,
+                    "end_ms": 1500,
+                    "text": "garble",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+                {
+                    "segment_id": "long_h",
+                    "start_ms": 1500,
+                    "end_ms": 15000,
+                    "text": "long comprehensible high confidence monologue about funding",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+                {
+                    "segment_id": "l2",
+                    "start_ms": 15000,
+                    "end_ms": 16500,
+                    "text": "garble2",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+            ]
+        },
+    )
+    ctx.write_json("segments/boundaries.json", {"boundaries": []})
+    ctx.write_json(
+        "analysis/high_value_speech_islands.json",
+        {
+            "islands": [
+                {
+                    "island_id": "hvi_001",
+                    "start_ms": 100,
+                    "end_ms": 1400,
+                    "segment_ids_touched": ["l1"],
+                },
+                {
+                    "island_id": "hvi_002",
+                    "start_ms": 15100,
+                    "end_ms": 16400,
+                    "segment_ids_touched": ["l2"],
+                },
+            ],
+            "island_count": 2,
+            "segment_ids_touched": ["l1", "l2"],
+        },
+    )
+    grouped = group_high_value_island_clusters(ctx, write=True)
+    assert grouped["cluster_count"] == 2
+    assert any(s.get("separate_reason") == "long_high_conf_break" for s in grouped["splits"])
+
+
+def test_pre_ranking_uses_narrative_chapter_split(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "l1",
+                    "start_ms": 0,
+                    "end_ms": 2000,
+                    "text": "garble",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+                {
+                    "segment_id": "h_mid",
+                    "start_ms": 2000,
+                    "end_ms": 4000,
+                    "text": "short bridge",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+                {
+                    "segment_id": "l2",
+                    "start_ms": 4000,
+                    "end_ms": 6000,
+                    "text": "garble2",
+                    "speaker_id": "spk_0",
+                    "topic_tags": ["funding"],
+                },
+            ]
+        },
+    )
+    ctx.write_json("segments/boundaries.json", {"boundaries": []})
+    ctx.write_json(
+        "understanding/narrative_arc.json",
+        {
+            "chapters": [
+                {"chapter_id": "ch1", "start_ms": 0, "end_ms": 3000},
+                {"chapter_id": "ch2", "start_ms": 3000, "end_ms": 7000},
+            ]
+        },
+    )
+    ctx.write_json(
+        "analysis/high_value_speech_islands.json",
+        {
+            "islands": [
+                {
+                    "island_id": "hvi_001",
+                    "start_ms": 100,
+                    "end_ms": 1900,
+                    "segment_ids_touched": ["l1"],
+                },
+                {
+                    "island_id": "hvi_002",
+                    "start_ms": 4100,
+                    "end_ms": 5900,
+                    "segment_ids_touched": ["l2"],
+                },
+            ],
+            "island_count": 2,
+            "segment_ids_touched": ["l1", "l2"],
+        },
+    )
+    grouped = group_high_value_island_clusters(
+        ctx, write=True, pass_id="pre_ranking"
+    )
+    assert grouped["use_narrative_chapters"] is True
+    assert grouped["cluster_count"] == 2
+    assert any(
+        s.get("separate_reason") == "narrative_chapter_change" for s in grouped["splits"]
+    )
+
+
 def test_run_high_value_cluster_rounds_absorbs(tmp_path: Path):
     ctx = _FakeCtx(tmp_path)
     ctx.write_json(
