@@ -21,6 +21,22 @@ LOG = ASSETS / "baba_watchdog.log"
 RUN_POINTER = ASSETS / "baba_current_run.txt"
 
 
+def web_port() -> int:
+    try:
+        from baba_daemon_launch import web_port as _wp
+
+        return int(_wp())
+    except Exception:
+        try:
+            return int(os.environ.get("MUX_WEB_PORT") or 8765)
+        except ValueError:
+            return 8765
+
+
+def api_base() -> str:
+    return f"http://127.0.0.1:{web_port()}"
+
+
 def log(msg: str) -> None:
     # stdout is redirected to LOG by baba_daemon_launch; a second file write duplicates lines.
     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}", flush=True)
@@ -36,7 +52,7 @@ def launch(mode: str, *extra: str) -> None:
 
 def server_alive() -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=5) as resp:
+        with urllib.request.urlopen(f"{api_base()}/api/health", timeout=5) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -103,7 +119,9 @@ def write_status(run_id: str | None) -> None:
         status["cover"] = (done_dir / "episode_cover_generate").is_file()
         status["complete"] = pipeline_complete(run_id)
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:8765/api/runs/{run_id}/job", timeout=15) as resp:
+            with urllib.request.urlopen(
+                f"{api_base()}/api/runs/{run_id}/job", timeout=15
+            ) as resp:
                 job = json.loads(resp.read().decode())
             status["job_status"] = job.get("status")
             status["stage"] = job.get("stage") or job.get("current_stage")

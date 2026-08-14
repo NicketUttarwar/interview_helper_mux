@@ -96,7 +96,7 @@ def test_transition_resolver_rejects_stale_copy(tmp_path, monkeypatch) -> None:
             {
                 "after_segment_id": "seg_a",
                 "before_segment_id": "seg_b",
-                "text": "What changed after that?",
+                "text": "Protein buyers rewrote the addressable market.",
                 "source_gap_ms": 1000,
             }
         ]
@@ -123,7 +123,7 @@ def test_transition_resolver_rejects_stale_copy(tmp_path, monkeypatch) -> None:
         handle.writeframes(b"\x00\x00" * 4800)
     line = {
         "line_id": "tr_seg_a_seg_b",
-        "text": "What changed after that?",
+        "text": "Protein buyers rewrote the addressable market.",
         "targets_segment_id": "seg_a",
         "placement": "after",
         "after_segment_id": "seg_a",
@@ -236,7 +236,7 @@ def test_synthesize_transitions_writeback_guarded_text(tmp_path, monkeypatch) ->
         encoding="utf-8",
     )
 
-    def _fake_guard(text, *, evidence=None, purpose=""):
+    def _fake_guard(text, *, evidence=None, purpose="", seen_texts=None, ctx=None, exclude_line_id=None):
         return {
             "text": "Guarded rewrite about the buyer deal.",
             "action": "rewrite",

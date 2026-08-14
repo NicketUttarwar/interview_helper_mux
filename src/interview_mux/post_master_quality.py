@@ -244,6 +244,11 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                     for row in ((manifest or {}).get("segments") or [])
                     if isinstance(row, dict) and row.get("segment_id")
                 }
+            synthetic = (
+                ctx.read_json("understanding/synthetic_framing_plan.json")
+                if ctx.artifact_exists("understanding/synthetic_framing_plan.json")
+                else None
+            )
             vo_errs.extend(
                 artifact_spoken_copy_errors(
                     gap_report=gr if isinstance(gr, dict) else None,
@@ -256,6 +261,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                         if ctx.artifact_exists("understanding/content_brief.json")
                         else None
                     ),
+                    synthetic_framing=synthetic if isinstance(synthetic, dict) else None,
                 )
             )
             vo_errs = list(dict.fromkeys(vo_errs))

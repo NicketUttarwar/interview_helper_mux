@@ -2012,17 +2012,19 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         )
         orig_text = str(row.get("text") or "").strip()
         new_text = str(decision.get("text") or "").strip()
-        repeated_sentence = any(
-            str(violation).startswith("spoken_repeated_")
+        from interview_mux.spoken_meta_lint import is_hard_structure_violation
+
+        hard_structure = any(
+            is_hard_structure_violation(str(violation).split(":", 1)[0])
             for violation in (decision.get("violations") or [])
         )
-        # Never replace a substantive episode orientation with a guard hinge
-        # (thin "What changed after that?" or long "How did A founder explains…").
+        # Never replace a substantive episode orientation with a guard hinge,
+        # but never keep metadata / structure / repeated-sentence violations.
         if (
             is_episode_orientation(row)
             and len(orig_text.split()) >= 6
             and decision.get("action") in {"fallback", "omit", "block"}
-            and not repeated_sentence
+            and not hard_structure
         ):
             fixed = dict(row)
             guarded_lines.append(fixed)
@@ -2040,7 +2042,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             required
             and len(orig_text.split()) >= 6
             and len(new_text.split()) < 6
-            and not repeated_sentence
+            and not hard_structure
         ):
             fixed = dict(row)
             guarded_lines.append(fixed)
@@ -2059,7 +2061,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             bool(out.get("nugget_layup_authority"))
             and str(row.get("origin") or "") == "nugget_layup"
             and orig_text
-            and not repeated_sentence
+            and not hard_structure
             and (
                 decision.get("action") in {"omit", "fallback"}
                 or (

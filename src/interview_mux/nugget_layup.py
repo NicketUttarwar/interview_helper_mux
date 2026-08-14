@@ -1245,8 +1245,15 @@ def restore_layup_lines(
         if str(ln.get("origin") or "") == "nugget_layup"
         and str(ln.get("text") or "").strip()
     }
+    seen_texts = [
+        str(ln.get("text") or "")
+        for ln in lines
+        if str(ln.get("text") or "").strip() and not ln.get("skipped_optional")
+    ]
     ordered = set(_ordered_ids(ctx))
     restored: list[dict[str, Any]] = []
+    from interview_mux.spoken_copy_guard import spoken_copy_violations
+
     for row in plan.get("layups") or []:
         line = layup_line_from_row(row if isinstance(row, dict) else {})
         if not line:
@@ -1254,8 +1261,12 @@ def restore_layup_lines(
         tid = str(line["targets_segment_id"])
         if tid in have or (ordered and tid not in ordered):
             continue
+        text = str(line.get("text") or "").strip()
+        if spoken_copy_violations(text, evidence={}, seen_texts=seen_texts):
+            continue
         have.add(tid)
         lines.append(line)
+        seen_texts.append(text)
         restored.append({"action": "restore_nugget_layup_line", "line_id": line["line_id"]})
     if not restored:
         return report, []
@@ -1440,6 +1451,7 @@ def evaluate_layup_craft(
     invented: list[str] = []
     owner: dict[str, str] = {}
     texts: list[tuple[str, set[str]]] = []
+    seen_air_texts: list[str] = []
     grace_floor = int(deg.get("grace_min_layup_words") or 12)
 
     for row in layups:
@@ -1469,7 +1481,21 @@ def evaluate_layup_craft(
                 errors.append(f"canned_air[{tid}]: " + "; ".join(violations[:2]))
         from interview_mux.spoken_copy_guard import spoken_copy_violations
 
-        copy_hits = spoken_copy_violations(text, evidence={})
+        target_text = str(
+            mask.get("comprehensible_text")
+            or (by_id.get(tid) or {}).get("text")
+            or ""
+        )
+        copy_hits = spoken_copy_violations(
+            text,
+            evidence={
+                "target_excerpt": target_text,
+                "before_excerpt": str(row.get("listener_need_entering_T") or ""),
+                "after_topic": str(row.get("target_beat") or ""),
+                "strict_grounding": False,
+            },
+            seen_texts=seen_air_texts,
+        )
         if copy_hits:
             errors.append(f"spoken_copy[{tid}]: " + ", ".join(copy_hits[:3]))
         # Invented island claim: air text contains bracket placeholders / "unclear audio".
@@ -1482,11 +1508,6 @@ def evaluate_layup_craft(
         # compose budget without a hard craft fail on short fixtures).
         if degraded and words < grace_floor:
             errors.append(f"thin_layup[{tid}]: words={words} below grace_floor={grace_floor}")
-        target_text = str(
-            mask.get("comprehensible_text")
-            or (by_id.get(tid) or {}).get("text")
-            or ""
-        )
         if target_text:
             restate = _overlap(_tokens(text), _tokens(target_text))
             if restate >= float(settings["max_target_restate_overlap"]):
@@ -1508,6 +1529,7 @@ def evaluate_layup_craft(
                     f"cross_layup_overlap[{other_tid}->{tid}]: overlap={overlap:.2f}"
                 )
         texts.append((tid, tokens))
+        seen_air_texts.append(text)
 
     return {
         "errors": list(dict.fromkeys(errors)),

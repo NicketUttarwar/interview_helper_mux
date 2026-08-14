@@ -18,6 +18,7 @@
         "excluded_segment_ids",
         "notes",
         "order_content_hash",
+        "order_lock",
         "order_authority",
         "optimizer_candidate_id",
         "optimizer_score"
@@ -87,6 +88,66 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "order_lock": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "revision": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "authority": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ordered_segment_ids": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "order_content_hash": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_by": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "supersedes": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "revision",
+            "authority",
+            "ordered_segment_ids",
+            "order_content_hash",
+            "created_by",
+            "supersedes"
           ]
         },
         "order_authority": {

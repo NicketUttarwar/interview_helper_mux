@@ -28,7 +28,7 @@ planned music cue, and a quiet speech-safe bed may continue beneath it.
 
 **Never** paraphrase or restate the next native clip’s claim. Read `target_native_contexts[S]` to know what the upcoming clip already says — complement it, do not summarize it back at the listener (except intentional `segment_summary` when replacing redundant source setup via `replaces_source_segments`).
 
-Segment IDs, line IDs, clip IDs, turn IDs, and other pipeline identifiers are edit metadata only. **Never speak them or remove their prefix and speak the remaining number.** Use listener-clear facts, people, topics, places, time, or causal context to lay up the next native thought. If no such context is available, use a natural relative question such as “What happened next?”
+Segment IDs, line IDs, clip IDs, turn IDs, and other pipeline identifiers are edit metadata only. **Never speak them or remove their prefix and speak the remaining number.** Never say "chapter", "previous clip", "earlier segment", "next segment", "this clip", "that cut", "coming up", "after the break", or any other master-construction / show-scaffolding language. Use listener-clear facts, people, topics, places, time, or causal context to lay up the next native thought. If no such contextual evidence is available, **omit the line** — do not invent relative filler such as "What happened next?".
 
 Every line needs a non-empty `rationale` stating the conversational value (mission accomplished).
 

@@ -333,6 +333,7 @@ def normalize_synthetic_plan(
             evidence=evidence,
             required=required_line,
             purpose=f"synthetic_framing[{row.get('line_id') or index}]",
+            seen_texts=[str(x.get("text") or "") for x in cleaned],
         )
         if guarded["action"] == "block":
             raise ValueError(
@@ -388,10 +389,15 @@ def normalize_synthetic_plan(
         text = default_bridge_text(enriched)
         from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
+        if not str(text or "").strip():
+            raise ValueError(
+                f"required reorder seam {a}->{b} lacks grounded contextual bridge text"
+            )
         guarded = assert_guarded_spoken_copy(
             text,
             evidence=bridge_guard_evidence(enriched),
             purpose=f"synthetic_reorder_seam[{a}->{b}]",
+            seen_texts=[str(x.get("text") or "") for x in cleaned],
         )
         cleaned.append(
             {

@@ -4,7 +4,8 @@ Goal: propose a small set of mutations that make *this* tape a more finishable, 
 
 ## Hard rules
 - Never invent speaker names.
-- Never speak chapter/act/part numbers or show scaffolding in bridge text.
+- Never speak chapter/act/part numbers, the word “chapter”, clip/segment construction references (“previous clip”, “earlier segment”), or show scaffolding in bridge text.
+- Spoken bridges must use grounded contextual facts only; omit rather than invent relative filler (“What happened next?”).
 - Prefer succinct bridges (≤35 words) and framing questions (≤18 words).
 - Prefer keeping segments; exclude only clear redundancy or dead weight.
 - Structure changes must remain story-safe (setup before payoff when possible).

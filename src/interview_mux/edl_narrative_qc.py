@@ -485,6 +485,25 @@ def _validate_gap_placements(
                 f'({placement}) appears {count}x ("{snippet}"). Dedupe before edl.'
             )
 
+    # Global spoken-sentence uniqueness across all non-skipped interviewer lines.
+    from interview_mux.spoken_copy_guard import sentence_keys
+
+    seen_sentence_owners: dict[str, str] = {}
+    for line in report.get("interviewer_lines") or []:
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        lid = _as_id(line.get("line_id")) or _as_id(line.get("targets_segment_id")) or "?"
+        for key in sentence_keys(str(line.get("text") or "")):
+            prior = seen_sentence_owners.get(key)
+            if prior and prior != lid:
+                errors.append(
+                    f'understanding/gap_report.json: spoken sentence key collision '
+                    f'between "{prior}" and "{lid}" ({key!r}). '
+                    "Regenerate unique synthetic copy before edl."
+                )
+            else:
+                seen_sentence_owners[key] = lid
+
     vo_clip_ids: dict[str, int] = {}
     for clip in clips:
         if clip.get("type") != "vo_pickup":

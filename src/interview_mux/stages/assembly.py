@@ -163,9 +163,15 @@ def _gap_lines_for_segment(
         line_sentence_keys = sentence_keys(str(line.get("text") or ""))
         # This is deliberately global, not scoped to a target or placement.
         # A repeated spoken sentence is unacceptable even if it was authored
-        # for two different native segments.
-        if set(line_sentence_keys) & seen_sentences:
-            continue
+        # for two different native segments — fail closed rather than silent-drop.
+        collision = set(line_sentence_keys) & seen_sentences
+        if collision:
+            sample = next(iter(collision))
+            raise ValueError(
+                "EDL refused duplicate spoken sentence across VO lines "
+                f"(line_id={lid or '?'}, targets={segment_id}, key={sample!r}). "
+                "Regenerate or omit colliding synthetic copy before edl."
+            )
         if lid:
             seen_ids.add(lid)
         seen_sentences.update(line_sentence_keys)

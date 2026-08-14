@@ -16,4 +16,13 @@ export const master_edl_jsonSchema = z.object({
   "warnings": z.record(z.string(), z.unknown()).optional(),
   "mux_scope": z.string().optional(),
   "order_content_hash": z.string().optional(),
+  "order_lock": z.object({
+  "version": z.number().optional(),
+  "revision": z.number().optional(),
+  "authority": z.string().optional(),
+  "ordered_segment_ids": z.array(z.string()).optional(),
+  "order_content_hash": z.string().optional(),
+  "created_by": z.string().optional(),
+  "supersedes": z.string().nullable().optional(),
+}).optional(),
 });

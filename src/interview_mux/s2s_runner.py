@@ -183,6 +183,8 @@ def synthesize_line(
         raw_text,
         evidence=evidence,
         purpose=f"vo[{lid}]",
+        ctx=ctx,
+        exclude_line_id=lid,
     )
     final_text = str(guarded.get("text") or "").strip()
     if not final_text:

@@ -91,7 +91,10 @@ def heal_layup_spoken_copy(ctx: RunContext) -> int:
     """Rewrite layup lines that spoken_copy_guard would block (generic heuristics only)."""
     from interview_mux.file_store import write_json as fs_write_json
     from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
-    from interview_mux.spoken_copy_guard import spoken_copy_violations
+    from interview_mux.spoken_copy_guard import (
+        artifact_spoken_copy_errors,
+        spoken_copy_violations,
+    )
 
     if not ctx.artifact_exists(PLAN_REL):
         return 0
@@ -99,11 +102,15 @@ def heal_layup_spoken_copy(ctx: RunContext) -> int:
     if not isinstance(plan, dict):
         return 0
     n = 0
+    seen: list[str] = []
     for row in plan.get("layups") or []:
         if not isinstance(row, dict) or row.get("skip"):
             continue
         text = str(row.get("text") or "").strip()
-        if not spoken_copy_violations(text, evidence={}):
+        if not text:
+            continue
+        if not spoken_copy_violations(text, evidence={}, seen_texts=seen):
+            seen.append(text)
             continue
         beat = str(row.get("target_beat") or "").strip()
         unlock = str(row.get("forward_unlock") or "").strip()
@@ -112,22 +119,58 @@ def heal_layup_spoken_copy(ctx: RunContext) -> int:
         new = re.sub(r"(?i)\s*[—\-–,]?\s*stay\s+tuned\b.*$", ".", new).strip()
         new = re.sub(
             r"(?i)\b(?:pipeline\s+stage|from_stage|until_stage|stage_done|"
-            r"edit\s+timeline|gap report|unaired\s+corpus|corpus\s+nugget)\b",
+            r"edit\s+timeline|gap report|unaired\s+corpus|corpus\s+nugget|"
+            r"previous\s+clip|earlier\s+segment|next\s+segment|this\s+clip|"
+            r"that\s+segment|chapters?|native\s+segment|synthetic\s+vo)\b",
             "",
             new,
         )
         new = re.sub(r"\s{2,}", " ", new).strip(" ,.—–-")
         if new and not new.endswith((".", "?", "!")):
             new = new + "."
-        if not new or spoken_copy_violations(new, evidence={}):
+        if not new or spoken_copy_violations(new, evidence={}, seen_texts=seen):
+            # Fail closed: leave the bad line so craft/post-master QC can block.
             continue
         if new != text:
             row["text"] = new
             row["word_count"] = len(new.split())
             n += 1
+            seen.append(new)
+        else:
+            seen.append(text)
     if n:
         fs_write_json(ctx.final_path(PLAN_REL), plan)
         publish_layup_plan_to_gap_report(ctx, plan)
+        gap = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        transitions = (
+            ctx.read_json("master/transitions.json")
+            if ctx.artifact_exists("master/transitions.json")
+            else None
+        )
+        remaining = artifact_spoken_copy_errors(
+            gap_report=gap if isinstance(gap, dict) else None,
+            transitions=transitions if isinstance(transitions, dict) else None,
+        )
+        hard = [
+            e
+            for e in remaining
+            if "spoken_repeated_" in e
+            or "spoken_edit_structure_ref" in e
+            or "spoken_chapter" in e
+            or "spoken_construction_meta" in e
+            or "spoken_show_scaffold" in e
+        ]
+        if hard:
+            ctx.log(
+                "heal_layup_spoken_copy: residual spoken-copy errors remain: "
+                + "; ".join(hard[:4]),
+                level="warning",
+                stage="delivery_recovery",
+            )
     return n
 
 

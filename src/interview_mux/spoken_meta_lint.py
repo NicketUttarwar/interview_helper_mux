@@ -1,7 +1,8 @@
-"""Reject spoken show-scaffolding in synthetic VO/transition text.
+"""Reject spoken show-scaffolding and edit-structure language in synthetic VO.
 
-Chapters/acts live in business logic only. Spoken lines must not say
-\"Chapter Four\", \"Act 2\", \"in today's episode\", etc.
+Chapters, clips, segments, acts, and other master-construction labels live in
+business logic only. Listener-facing lines must convey grounded contextual
+facts and a layup into the next native thought — never metadata or structure.
 """
 
 from __future__ import annotations
@@ -23,11 +24,55 @@ _CHAPTER_NUM = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+# Bare "chapter(s)" is never listener-facing — numbered or not.
+_BARE_CHAPTER = re.compile(r"\bchapters?\b", re.IGNORECASE)
 _THIS_CHAPTER = re.compile(
     r"\b(?:"
-    r"(?:this|our)\s+chapter|"
+    r"(?:this|our|the)\s+chapter|"
     r"in\s+(?:this|the|our)\s+chapter|"
     r"previous\s+chapter\s+(?:we|of\s+the\s+(?:show|podcast|episode))"
+    r")\b",
+    re.IGNORECASE,
+)
+# Edit / construction units: previous clip, earlier segment, next cut, etc.
+# Do not flag ordinary English such as "a segment of the market".
+_EDIT_STRUCTURE_REF = re.compile(
+    r"\b(?:"
+    r"(?:previous|earlier|prior|last|next|upcoming|following|preceding)\s+"
+    r"(?:clips?|segments?|chapters?|scenes?|cuts?|takes?|parts?|sections?|acts?)|"
+    r"(?:this|that|our)\s+"
+    r"(?:previous\s+|earlier\s+|prior\s+|last\s+|next\s+|upcoming\s+|following\s+)?"
+    r"(?:clips?|segments?)|"
+    r"(?:the)\s+"
+    r"(?:previous\s+|earlier\s+|prior\s+|last\s+|next\s+|upcoming\s+|following\s+)"
+    r"(?:clips?|segments?)|"
+    r"(?:a|an|the|this|that|our)\s+clips?|"
+    r"in\s+(?:this|the|our|that)\s+(?:clip|segment|chapter|scene|cut|part|section|act)|"
+    r"(?:from|after|before|into|out\s+of)\s+(?:the\s+)?"
+    r"(?:previous|earlier|prior|last|next|upcoming|following)\s+"
+    r"(?:clip|segment|chapter|scene|cut|take|part)|"
+    r"(?:as|like)\s+(?:in|with)\s+the\s+(?:previous|earlier|prior|last)\s+"
+    r"(?:clip|segment|chapter)"
+    r")\b",
+    re.IGNORECASE,
+)
+_CONSTRUCTION_META = re.compile(
+    r"\b(?:"
+    r"edit\s+decision(?:\s+list)?|"
+    r"master(?:ing)?\s+podcast|"
+    r"construction\s+of\s+the\s+(?:master|episode|show)|"
+    r"ordered\s+segment|"
+    r"air(?:ing)?\s+order|"
+    r"native\s+(?:segment|clip|take)|"
+    r"synthetic\s+(?:vo|voice[- ]?over|line|bridge)|"
+    r"voice[- ]?over\s+(?:line|bridge|script)|"
+    r"gap\s+(?:report|framing|vo)|"
+    r"nugget\s+lay[- ]?up|"
+    r"selection\s+order|"
+    r"pipeline(?:\s+stage)?|"
+    r"stage_done|from_stage|until_stage|"
+    r"artifact|schema\s+validation|"
+    r"edl\b"
     r")\b",
     re.IGNORECASE,
 )
@@ -35,11 +80,15 @@ _SCAFFOLD = re.compile(
     r"\b(?:"
     r"welcome\s+back|"
     r"in\s+today'?s\s+episode|"
-    r"on\s+(?:today'?s|this)\s+(?:show|podcast|episode)|"
-    r"as\s+we\s+(?:discussed|talked\s+about)\s+earlier|"
-    r"coming\s+up\s+(?:next|on\s+the\s+show)|"
+    r"in\s+(?:this|the|our)\s+episode|"
+    r"on\s+(?:today'?s|this|our)\s+(?:show|podcast|episode)|"
+    r"as\s+(?:we|i)\s+(?:discussed|talked\s+about|mentioned|said|heard)\s+earlier|"
+    r"as\s+mentioned\s+earlier|"
+    r"coming\s+up(?:\s+(?:next|on\s+the\s+show))?|"
+    r"after\s+the\s+break|"
     r"stay\s+tuned|"
-    r"don'?t\s+forget\s+to\s+subscribe"
+    r"don'?t\s+forget\s+to\s+subscribe|"
+    r"in\s+(?:this|the|our)\s+part\s+of\s+the\s+(?:show|podcast|episode)"
     r")\b",
     re.IGNORECASE,
 )
@@ -89,22 +138,47 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
     if not t:
         return []
     hits: list[str] = []
-    if _CHAPTER_NUM.search(t):
+    if _CHAPTER_NUM.search(t) or _BARE_CHAPTER.search(t):
         hits.append("spoken_chapter_or_act_number")
     if _THIS_CHAPTER.search(t):
         hits.append("spoken_chapter_meta")
+    if _EDIT_STRUCTURE_REF.search(t):
+        hits.append("spoken_edit_structure_ref")
+    if _CONSTRUCTION_META.search(t):
+        hits.append("spoken_construction_meta")
     if not allow_scaffold and _SCAFFOLD.search(t):
         hits.append("spoken_show_scaffold")
     if _INTERNAL_ID.search(t) or _DISGUISED_SEGMENT_ID.search(t):
         hits.append("spoken_internal_identifier")
     if _EDITORIAL_QC.search(t):
         hits.append("spoken_editorial_qc_prose")
-    return hits
+    return list(dict.fromkeys(hits))
 
 
 def is_editorial_qc_prose(text: str) -> bool:
     """True when text looks like gap-eval diagnostics rather than on-air VO."""
     return "spoken_editorial_qc_prose" in spoken_structure_hits(text)
+
+
+def is_hard_structure_violation(code: str) -> bool:
+    """True when a spoken_copy / meta lint code must never be kept or spoken."""
+    c = str(code or "")
+    if c.startswith("spoken_repeated_"):
+        return True
+    return c in {
+        "spoken_chapter_or_act_number",
+        "spoken_chapter_meta",
+        "spoken_edit_structure_ref",
+        "spoken_construction_meta",
+        "spoken_show_scaffold",
+        "spoken_internal_identifier",
+        "spoken_editorial_qc_prose",
+        "spoken_production_jargon",
+        "spoken_path_or_filename",
+        "spoken_placeholder",
+        "spoken_stock_copy",
+        "spoken_generic_filler",
+    }
 
 
 def lint_spoken_text(

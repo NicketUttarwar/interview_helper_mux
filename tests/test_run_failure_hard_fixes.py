@@ -120,7 +120,7 @@ def test_spoken_copy_entity_rewrite_before_omit():
 
     ev = {
         "strict_grounding": True,
-        "target_excerpt": "we kept the tape rolling",
+        "target_excerpt": "the interview continued quietly",
         "before_excerpt": "the room went quiet",
     }
     decision = guard_spoken_copy(

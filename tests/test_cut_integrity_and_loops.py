@@ -31,13 +31,23 @@ def _reverse_pair(after: str, before: str) -> dict:
 
 
 def test_default_bridge_dedupes_used_hinges() -> None:
-    p1 = _reverse_pair("seg_029", "seg_030")
-    p2 = _reverse_pair("seg_030", "seg_031")
+    p1 = {
+        **_reverse_pair("seg_029", "seg_030"),
+        "after_topic": "reinvestment pressure",
+        "before_topic": "cash runway",
+    }
+    p2 = {
+        **_reverse_pair("seg_030", "seg_031"),
+        "after_topic": "cash runway",
+        "before_topic": "market opening",
+    }
     t1 = default_bridge_text(p1)
     t2 = default_bridge_text(p2, used_texts={t1})
     assert t1
     assert t2
     assert t1.strip().lower() != t2.strip().lower()
+    # No evidence → fail closed with empty text rather than relative filler.
+    assert default_bridge_text(_reverse_pair("seg_a", "seg_b")) == ""
 
 
 def test_bridge_completeness_threshold_two_identical() -> None:

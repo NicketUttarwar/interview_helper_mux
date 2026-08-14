@@ -37,6 +37,7 @@ def _guard_candidate_spoken_copy(
         }
 
     transitions = out.get("transitions")
+    seen_texts: list[str] = []
     if isinstance(transitions, dict):
         for row in transitions.get("transitions") or []:
             if not isinstance(row, dict) or not str(row.get("text") or "").strip():
@@ -56,11 +57,14 @@ def _guard_candidate_spoken_copy(
                 evidence=evidence,
                 required=True,
                 purpose=f"optimizer_promote_transition[{a}->{b}]",
+                seen_texts=seen_texts,
             )
             if decision["action"] == "block":
                 errors.append(f"transition {a}->{b}: {','.join(decision['violations'])}")
             else:
                 row["text"] = decision["text"]
+                if decision["text"]:
+                    seen_texts.append(str(decision["text"]))
 
     gap = out.get("gap_report")
     if isinstance(gap, dict):
@@ -79,6 +83,7 @@ def _guard_candidate_spoken_copy(
                 evidence=evidence,
                 required=required,
                 purpose=f"optimizer_promote_gap[{row.get('line_id') or target}]",
+                seen_texts=seen_texts,
             )
             if decision["action"] == "block":
                 errors.append(
@@ -89,6 +94,8 @@ def _guard_candidate_spoken_copy(
             if decision["action"] == "omit":
                 continue
             row["text"] = decision["text"]
+            if decision["text"]:
+                seen_texts.append(str(decision["text"]))
             kept.append(row)
         gap["interviewer_lines"] = kept
     return out, errors

@@ -24,8 +24,77 @@ def _e2e_soft() -> bool:
     return e2e_soft_enabled()
 
 
+_DECISIONS: list[dict[str, Any]] = []
+REPO = Path(__file__).resolve().parents[1]
+MASTER = Path()  # bound in bind_run()
+LOG = Path()  # bound in bind_run()
+
+
+def log(msg: str) -> None:
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
+    print(line, flush=True)
+    try:
+        # LOG is Path() until bind_run; skip file mirror until then.
+        if LOG.name:
+            LOG.parent.mkdir(parents=True, exist_ok=True)
+            with LOG.open("a") as f:
+                f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def log_decision(
+    severity: str,
+    *,
+    stage: str = "",
+    action: str = "",
+    reason: str = "",
+    detail: Any = None,
+) -> None:
+    """Operator-visible heal / soft-waiver / re-execute decision.
+
+    severity: ``major`` (soft ship / force-done / S3 / teardown) or ``minor``
+    (gate accept / remutate / re-execute without waiver).
+    """
+    sev = "major" if str(severity).lower().startswith("maj") else "minor"
+    parts = [f"[DECISION {sev}]"]
+    if stage:
+        parts.append(f"stage={stage}")
+    if action:
+        parts.append(f"action={action}")
+    if reason:
+        parts.append(f"reason={reason}")
+    if detail is not None:
+        text = detail if isinstance(detail, str) else json.dumps(detail, default=str)
+        parts.append(f"detail={text[:240]}")
+    entry = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "severity": sev,
+        "stage": stage,
+        "action": action,
+        "reason": reason,
+        "detail": detail,
+    }
+    _DECISIONS.append(entry)
+    log(" ".join(parts))
+
+
+def summarize_decisions(*, label: str = "ship") -> None:
+    majors = [d for d in _DECISIONS if d.get("severity") == "major"]
+    minors = [d for d in _DECISIONS if d.get("severity") == "minor"]
+    log(
+        f"[DECISION summary] at={label} major={len(majors)} minor={len(minors)} "
+        f"total={len(_DECISIONS)}"
+    )
+    for d in majors[-40:]:
+        log(
+            f"[DECISION summary major] stage={d.get('stage')} action={d.get('action')} "
+            f"reason={d.get('reason')}"
+        )
+
+
 def _install_mark_done_gate() -> None:
-    """Refuse force-complete unless INTERVIEW_MUX_E2E_SOFT=1."""
+    """Refuse force-complete unless INTERVIEW_MUX_E2E_SOFT=1; log force as major."""
     from interview_mux.run_context import RunContext
 
     orig = RunContext.mark_done
@@ -33,6 +102,13 @@ def _install_mark_done_gate() -> None:
     def _gated(self, stage: str, *, force: bool = False) -> None:
         if force and not _e2e_soft():
             return orig(self, stage, force=False)
+        if force:
+            log_decision(
+                "major",
+                stage=str(stage),
+                action="force_mark_done",
+                reason="e2e_soft_force_complete",
+            )
         return orig(self, stage, force=force)
 
     RunContext.mark_done = _gated  # type: ignore[method-assign]
@@ -117,7 +193,10 @@ PREPARE_STAGES = (
     "transcript_review_build",
 )
 
-BASE = os.environ.get("MUX_BASE", "http://127.0.0.1:8765")
+BASE = os.environ.get(
+    "MUX_BASE",
+    f"http://127.0.0.1:{os.environ.get('MUX_WEB_PORT', '8765')}",
+)
 INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/Baba_zydus_town_hall.mp4")
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
@@ -129,9 +208,6 @@ _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
 POLL_SEC = int(os.environ.get("MUX_POLL_SEC", "20"))
 MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
-REPO = Path(__file__).resolve().parents[1]
-MASTER = Path()  # bound in bind_run()
-LOG = Path()  # bound in bind_run()
 
 
 def bind_run(run_id: str) -> None:
@@ -158,15 +234,34 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
 
     _NARRATIVE_REMUTATE_DRIVES += 1
     if _NARRATIVE_REMUTATE_DRIVES > 2:
+        log_decision(
+            "major",
+            stage="edl_narrative_audit",
+            action="stop",
+            reason=f"remutate_budget_exhausted:{label}",
+        )
         log(f"STOP: edl_narrative remutate drive budget ({label})")
         raise SystemExit(f"HARD: edl_narrative_audit remutate exhausted ({label})")
     plan = plan_edl_narrative_remutate(
         ctx, audit if isinstance(audit, dict) else {"verdict": "fail"}
     )
     if plan.get("exhausted"):
+        log_decision(
+            "major",
+            stage="edl_narrative_audit",
+            action="stop",
+            reason=f"remutate_exhausted:{label}",
+        )
         log(f"STOP: edl_narrative remutate exhausted ({label})")
         raise SystemExit(f"HARD: edl_narrative_audit still fail after remutate ({label})")
     applied = apply_edl_narrative_remutate(ctx, plan)
+    log_decision(
+        "minor",
+        stage="edl_narrative_audit",
+        action="remutate",
+        reason=label,
+        detail={"actions": plan.get("actions"), "from_stage": applied.get("from_stage")},
+    )
     log(
         f"edl_narrative remutate ({label}): actions={plan.get('actions')} "
         f"→ {applied.get('from_stage')}"
@@ -178,17 +273,6 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
         }
     )
     return "continue"
-
-
-def log(msg: str) -> None:
-    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
-    print(line, flush=True)
-    try:
-        LOG.parent.mkdir(parents=True, exist_ok=True)
-        with LOG.open("a") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
 
 
 def api(method: str, path: str, body: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
@@ -427,6 +511,13 @@ def finish_complete_run() -> int:
     """Ship bar: layer contract + S3 sync + DONE. Tear down serve/keepalive and exit."""
     assert_fresh_layer_contract()
     s3_info = sync_publish_to_s3()
+    log_decision(
+        "major",
+        stage="podcast_publish",
+        action="s3_sync",
+        reason="ship_bar_complete",
+        detail=s3_info,
+    )
     write_baba_status(
         job_status="idle",
         stage="podcast_publish",
@@ -434,11 +525,19 @@ def finish_complete_run() -> int:
         **s3_info,
     )
     log(f"DONE master={MASTER} size={MASTER.stat().st_size} publish=yes")
+    summarize_decisions(label="ship")
     # End the whole baba stack: keepalive must die first so it cannot relaunch serve/e2e.
     try:
         from baba_daemon_launch import shutdown_baba_stack
 
         info = shutdown_baba_stack(kill_e2e=False, exclude_pid=os.getpid())
+        log_decision(
+            "major",
+            stage="podcast_publish",
+            action="stack_shutdown",
+            reason="ship_complete",
+            detail=info,
+        )
         log(f"stack shutdown: {info}")
     except Exception as exc:
         log(f"stack shutdown failed: {exc}")
@@ -481,6 +580,16 @@ def wait_job(label: str = "") -> dict[str, Any]:
 
 def execute(body: dict[str, Any]) -> None:
     body = {**body, "api_consents": {"local": True, "openai": True}}
+    from_stage = str(body.get("from_stage") or "")
+    mode = str(body.get("mode") or "")
+    if from_stage or mode:
+        log_decision(
+            "minor",
+            stage=from_stage or mode,
+            action="re_execute",
+            reason=mode or "execute",
+            detail={"from_stage": from_stage or None, "mode": mode or None},
+        )
     for attempt in range(24):
         try:
             api("POST", f"/api/runs/{RUN_ID}/execute", body)
@@ -639,6 +748,12 @@ def accept_preclean() -> None:
             {"checkpoint": "before_ingest", "action": "accept", "scope": "full_source"},
         )
         log("preclean accepted (default run)")
+        log_decision(
+            "minor",
+            stage="audio_preclean",
+            action="gate_auto_accept",
+            reason="preclean_accept",
+        )
     except RuntimeError as exc:
         log(f"preclean note: {exc}")
     except Exception as exc:
@@ -700,6 +815,12 @@ def clear_optimizer_remaster_for_finalize() -> None:
 def complete_g0() -> None:
     try:
         api("POST", f"/api/runs/{RUN_ID}/transcript-review/complete", {"accept_unreviewed": True})
+        log_decision(
+            "minor",
+            stage="transcript_review",
+            action="gate_auto_accept",
+            reason="g0_accept_unreviewed",
+        )
         log("G0 accepted")
     except RuntimeError as exc:
         log(f"G0 note: {exc}")
@@ -713,6 +834,12 @@ def accept_gap_framing_defaults() -> None:
         return
     if gate.get("gap_framing_decision_pending"):
         api("POST", f"/api/runs/{RUN_ID}/gap-framing/enable", {"enabled": True})
+        log_decision(
+            "minor",
+            stage="gap_framing",
+            action="gate_auto_accept",
+            reason="enable_framing_defaults",
+        )
         log("gap framing enabled")
     # Operator chose framing — force gap-fill active so auto-skip cannot no-op compose.
     try:
@@ -929,6 +1056,12 @@ def synthesize_g1() -> bool:
 def approve_sfx_prompts() -> None:
     try:
         result = api("POST", f"/api/runs/{RUN_ID}/sfx-prompts/approve", {})
+        log_decision(
+            "minor",
+            stage="sfx_prompt_craft",
+            action="gate_auto_accept",
+            reason="sfx_prompts_approve",
+        )
         log(f"sfx-prompts approve: {result}")
     except Exception as exc:
         log(f"sfx-prompts approve: {exc}")
@@ -941,6 +1074,12 @@ def decline_reuse(stage_id: str) -> None:
     full analysis/delivery body so remaining stages are not abandoned after one stage.
     """
     api("POST", f"/api/runs/{RUN_ID}/stages/{stage_id}/reuse", {"action": "decline"})
+    log_decision(
+        "minor",
+        stage=str(stage_id),
+        action="reuse_decline",
+        reason="run_fresh",
+    )
     log(f"declined reuse {stage_id}")
 
 
@@ -1577,6 +1716,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     stage = str(job.get("stage") or job.get("current_stage") or "")
     msg = str(job.get("message") or "")
     low = msg.lower()
+    log_decision(
+        "minor",
+        stage=stage or (body.get("mode") or "gate"),
+        action="handle_gate",
+        reason=str(status or "gate"),
+        detail=msg[:200],
+    )
 
     if "missing master/assembly.wav" in low or ("assembly.wav" in low and "missing" in low):
         try:
@@ -3206,6 +3352,12 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     else:
                         row["covered"] = True
                         row["coverage_note"] = "e2e: soft-covered (no native clip in selection)"
+                log_decision(
+                    "major",
+                    stage="topic_coverage_audit",
+                    action="soft_cover",
+                    reason="no_native_clip_in_selection",
+                )
                 ctx.write_json(
                     "master/coverage_audit.json",
                     cov,
@@ -5194,6 +5346,17 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                     applied = apply_listen_delight_remutate(ctx, plan)
                     from_stage = applied.get("from_stage") or "full_master_ranking"
+                    log_decision(
+                        "minor",
+                        stage="listen_delight_audit",
+                        action="remutate",
+                        reason="listen_delight_floors",
+                        detail={
+                            "failed_dimensions": failed_dims,
+                            "from_stage": from_stage,
+                            "overall": overall,
+                        },
+                    )
                     log(f"listen_delight remutate → from_stage={from_stage}")
                     execute({"mode": "delivery", "from_stage": from_stage})
                     continue
@@ -6948,6 +7111,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             write_autopsy(ctx, autopsy)
                     ctx.mark_done("junction_snip_qa", force=True)
                     ctx.mark_done("mix", force=True)
+                    log_decision(
+                        "major",
+                        stage="junction_snip_qa",
+                        action="soft_waiver",
+                        reason="seam_commitment_soft_heal",
+                        detail={"status": status},
+                    )
                     log(f"post-master seam_commitment soft-heal status={status} → master_finalize")
                     execute({"mode": "delivery", "from_stage": "master_finalize"})
                     continue
@@ -7005,6 +7175,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 "HARD: listen_delight floors still failing after remutate (pmq)"
                             )
                         applied = apply_listen_delight_remutate(ctx, plan)
+                        log_decision(
+                            "minor",
+                            stage="listen_delight_audit",
+                            action="remutate",
+                            reason="post_master_quality_listen_delight",
+                            detail={
+                                "failed_dimensions": failed_dims,
+                                "from_stage": applied.get("from_stage"),
+                            },
+                        )
                         execute(
                             {
                                 "mode": "delivery",
@@ -7018,6 +7198,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         m["e2e_soft_post_master_quality"] = True
 
                     ctx.mutate_run_meta(_soft_pmq)
+                    log_decision(
+                        "major",
+                        stage="master_finalize",
+                        action="soft_waiver",
+                        reason="e2e_soft_post_master_quality",
+                        detail=low_err[:200],
+                    )
                     if has_pending_writes(ctx, "master_finalize"):
                         try:
                             approve_stage_writes(ctx, "master_finalize")

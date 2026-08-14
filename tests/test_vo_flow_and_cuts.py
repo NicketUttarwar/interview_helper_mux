@@ -35,19 +35,19 @@ def test_gap_lines_for_segment_dedupes_line_id(tmp_path: Path) -> None:
                 "targets_segment_id": "seg_014",
                 "placement": "before",
                 "delivery": "synthesize",
-                "text": "What changed next?",
+                "text": "What reshaped the buyer demand?",
             }
             for _ in range(4)
         ]
     }
     emitted_ids: set[str] = set()
-    emitted_text: set[tuple[str, str, str]] = set()
+    emitted_sentences: set[str] = set()
     lines = _gap_lines_for_segment(
         gap,
         "seg_014",
         "before",
         emitted_line_ids=emitted_ids,
-        emitted_text_keys=emitted_text,
+        emitted_sentence_keys=emitted_sentences,
     )
     assert len(lines) == 1
     assert list(emitted_ids) == ["vo_seed_seg_013"]

@@ -238,13 +238,13 @@
       "min_stingers": 1,
       "min_foley": 0,
       "min_bed_coverage_ratio": 0.28,
-      "min_audible_bed_level_db": -28,
-      "max_audible_bed_level_db": -24,
-      "min_audible_stinger_level_db": -18,
-      "min_audible_cold_open_level_db": -12,
-      "max_audible_cold_open_level_db": -8,
-      "min_audible_emphasis_level_db": -18,
-      "max_audible_emphasis_level_db": -14
+      "min_audible_bed_level_db": -25,
+      "max_audible_bed_level_db": -21,
+      "min_audible_stinger_level_db": -15,
+      "min_audible_cold_open_level_db": -9,
+      "max_audible_cold_open_level_db": -5,
+      "min_audible_emphasis_level_db": -15,
+      "max_audible_emphasis_level_db": -11
     },
     "remediation": {
       "max_remux_cycles": 2,
@@ -298,16 +298,16 @@
       "max_foley": 12,
       "music_preset": "music_forward_documentary",
       "mix_overrides": {
-        "bed_under_dialogue_db": -28,
-        "foley_under_dialogue_db": -28,
-        "punctuator_peak_db": -12,
+        "bed_under_dialogue_db": -25,
+        "foley_under_dialogue_db": -25,
+        "punctuator_peak_db": -9,
         "pause_ride_db": 2.5
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -28,
-        "max_audible_bed_level_db": -24,
-        "min_audible_cold_open_level_db": -12,
-        "max_audible_cold_open_level_db": -8
+        "min_audible_bed_level_db": -25,
+        "max_audible_bed_level_db": -21,
+        "min_audible_cold_open_level_db": -9,
+        "max_audible_cold_open_level_db": -5
       }
     },
     "music_forward_documentary": {
@@ -322,16 +322,16 @@
         "best_of_n_underscore": 1
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -26,
-        "foley_under_dialogue_db": -26,
-        "punctuator_peak_db": -10,
+        "bed_under_dialogue_db": -23,
+        "foley_under_dialogue_db": -23,
+        "punctuator_peak_db": -7,
         "pause_ride_db": 3.0
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -28,
-        "max_audible_bed_level_db": -24,
-        "min_audible_cold_open_level_db": -10,
-        "max_audible_cold_open_level_db": -6
+        "min_audible_bed_level_db": -25,
+        "max_audible_bed_level_db": -21,
+        "min_audible_cold_open_level_db": -7,
+        "max_audible_cold_open_level_db": -3
       }
     },
     "speech_maximal": {
@@ -346,16 +346,16 @@
         "best_of_n_underscore": 1
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -30,
-        "foley_under_dialogue_db": -30,
-        "punctuator_peak_db": -14,
+        "bed_under_dialogue_db": -27,
+        "foley_under_dialogue_db": -27,
+        "punctuator_peak_db": -11,
         "pause_ride_db": 2.0
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -30,
-        "max_audible_bed_level_db": -26,
-        "min_audible_cold_open_level_db": -14,
-        "max_audible_cold_open_level_db": -10
+        "min_audible_bed_level_db": -27,
+        "max_audible_bed_level_db": -23,
+        "min_audible_cold_open_level_db": -11,
+        "max_audible_cold_open_level_db": -7
       }
     },
     "tbiy_narrative": {
@@ -365,9 +365,9 @@
       "max_beds": 24,
       "max_foley": 12,
       "mix_overrides": {
-        "punctuator_peak_db": -10,
-        "bed_under_dialogue_db": -28,
-        "foley_under_dialogue_db": -28,
+        "punctuator_peak_db": -7,
+        "bed_under_dialogue_db": -25,
+        "foley_under_dialogue_db": -25,
         "pause_ride_db": 2.5,
         "bed_duck_db": 20
       },

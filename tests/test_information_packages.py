@@ -261,7 +261,7 @@ def test_layup_publish_singleton_and_dense_stamp(monkeypatch):
             "layups": [
                 {
                     "target_segment_id": "seg_002",
-                    "text": "Before the exit, bootstrap and snack facts set the stakes. What changed next?",
+                    "text": "Before the exit, bootstrap and snack facts set the stakes for the scale cliff.",
                     "nugget_ids": ["nug_a"],
                     "skip": False,
                 },

@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GapReport",
+  "description": "Listener-facing synthetic VO lines. Code-enforced: non-skipped interviewer_lines must have unique sentence_keys across the corpus (with transitions); text must not reference chapters/clips/segments/edit metadata and must only convey grounded contextual facts plus a layup into the next native beat.",
   "type": "object",
   "required": ["interviewer_lines"],
   "properties": {
@@ -23,10 +24,23 @@
               "extracted_context"
             ]
           },
-          "text": { "type": "string" },
+          "text": {
+            "type": "string",
+            "description": "Speakable host VO only — contextual facts + forward layup; never chapter/clip/segment/construction metadata."
+          },
           "targets_segment_id": { "type": "string" },
           "placement": { "enum": ["before", "after"] },
           "delivery": { "enum": ["record", "synthesize"] },
+          "spoken_copy_guard": {
+            "type": "object",
+            "description": "Optional audit of the last spoken_copy_guard decision for this line.",
+            "properties": {
+              "action": { "type": "string" },
+              "script_hash": { "type": "string" },
+              "context_hash": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
           "rationale": { "type": "string" },
           "voice_speaker_id": { "type": "string" },
           "supports_segment_ids": {

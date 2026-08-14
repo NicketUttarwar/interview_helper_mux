@@ -15,6 +15,24 @@ VENV_PY = ROOT / ".venv" / "bin" / "python"
 E2E_CONSOLE = ASSETS / "baba_e2e_console.log"
 
 
+def web_port() -> int:
+    """GUI serve port from config (fallback 8765)."""
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from interview_mux.config import merged_config
+
+        return int(merged_config().get("web_port", 8765))
+    except Exception:
+        try:
+            return int(os.environ.get("MUX_WEB_PORT") or 8765)
+        except ValueError:
+            return 8765
+
+
+def health_url() -> str:
+    return f"http://127.0.0.1:{web_port()}/api/health"
+
+
 def _pipeline_complete(run_dir: Path) -> bool:
     master = run_dir / "master" / "master.wav"
     done = run_dir / ".stage_done"
@@ -82,7 +100,7 @@ def server_alive() -> bool:
     try:
         import urllib.request
 
-        with urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=3) as resp:
+        with urllib.request.urlopen(health_url(), timeout=3) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -98,24 +116,26 @@ def e2e_alive() -> bool:
 
 def ensure_server(*, force_restart: bool = False) -> int | None:
     """Start GUI serve if down. With force_restart, recycle to load current code."""
+    port = web_port()
     if server_alive() and not force_restart:
         return None
     # Recycle listeners so Python module edits load. SIGTERM first, then SIGKILL
-    # leftovers (a second serve can bind 8765 while an old worker keeps synthesizing).
+    # leftovers (a second serve can bind while an old worker keeps synthesizing).
     subprocess.run(["pkill", "-f", "interview_mux serve"], check=False)
     time.sleep(1.0)
     subprocess.run(["pkill", "-9", "-f", "interview_mux serve"], check=False)
-    _kill_pids_on_port(8765)
+    _kill_pids_on_port(port)
     time.sleep(1.5)
     pid = _popen(
-        [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser"],
+        [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser", "--port", str(port)],
         ASSETS / "baba_server.log",
         env={
             # Soft last-resort after the full MusicGen ladder (+ MMAudio) fails —
-            # never skip MusicGen itself.
+            # never skip MusicGen itself. Full-auto / Baba E2E parity.
             "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
             "MUX_E2E_SOFT_LISTENABILITY": "1",
             "INTERVIEW_MUX_E2E_SOFT": "1",
+            "MUX_WEB_PORT": str(port),
         },
     )
     (ASSETS / "baba_server.pid").write_text(str(pid))
@@ -134,6 +154,7 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         os.environ.pop(key, None)
     subprocess.run(["pkill", "-f", "_baba_e2e_driver.py"], check=False)
     time.sleep(1)
+    port = web_port()
     env = {
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
@@ -144,6 +165,9 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         "MUX_E2E_SOFT_LISTENABILITY": "1",
         "INTERVIEW_MUX_E2E_SOFT": "1",
         "MUX_BABA_E2E": "1",
+        "MUX_RUN_MODE": os.environ.get("MUX_RUN_MODE", "full-auto"),
+        "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
+        "MUX_WEB_PORT": str(port),
     }
     if fresh:
         rotate_e2e_console()
@@ -171,9 +195,11 @@ def ensure_keepalive() -> int | None:
             return None
     except subprocess.CalledProcessError:
         pass
+    port = web_port()
     pid = _popen(
         [str(VENV_PY), str(ROOT / "tools" / "baba_keepalive_loop.py")],
         ASSETS / "baba_watchdog.log",
+        env={"MUX_WEB_PORT": str(port)},
     )
     (ASSETS / "baba_keepalive.pid").write_text(str(pid))
     return pid
@@ -213,8 +239,10 @@ def ensure_g1_resynth(*, run_id: str | None = None, force: bool = False) -> int 
     return pid
 
 
-def _kill_pids_on_port(port: int = 8765) -> list[int]:
+def _kill_pids_on_port(port: int | None = None) -> list[int]:
     """SIGTERM anything listening on the GUI serve port."""
+    if port is None:
+        port = web_port()
     killed: list[int] = []
     try:
         out = subprocess.check_output(
@@ -273,13 +301,15 @@ def shutdown_baba_stack(
     kill_e2e: bool = True,
     kill_keepalive: bool = True,
     exclude_pid: int | None = None,
-    port: int = 8765,
+    port: int | None = None,
 ) -> dict[str, object]:
     """Tear down serve + e2e + keepalive after a completed (or abandoned) run.
 
     Call from the e2e driver with kill_e2e=False so this process can exit cleanly.
     Call from keepalive with kill_keepalive=False for the same reason.
     """
+    if port is None:
+        port = web_port()
     ASSETS.mkdir(parents=True, exist_ok=True)
     killed_port: list[int] = []
     if kill_keepalive:
@@ -334,7 +364,8 @@ def main() -> int:
         pid = ensure_g1_resynth(run_id=run_id, force=force_e2e or fresh)
         print(f"g1-resynth pid={pid or 'already-up'}")
     print(
-        f"health={server_alive()} e2e={e2e_alive()} g1_resynth={g1_resynth_alive()}"
+        f"health={server_alive()} e2e={e2e_alive()} g1_resynth={g1_resynth_alive()} "
+        f"port={web_port()}"
     )
     return 0
 

@@ -68,7 +68,7 @@ def test_unsafe_topic_label_is_not_spoken() -> None:
     assert decision["text"] == ""
 
 
-def test_nonchronological_next_phrase_is_repaired() -> None:
+def test_nonchronological_next_phrase_is_blocked_without_topics() -> None:
     decision = guard_spoken_copy(
         "What happened next?",
         evidence={
@@ -79,8 +79,8 @@ def test_nonchronological_next_phrase_is_repaired() -> None:
         required=True,
         purpose="transition",
     )
-    assert decision["action"] == "fallback"
-    assert decision["text"].startswith("Stepping back")
+    assert decision["action"] == "block"
+    assert "spoken_generic_filler" in decision["violations"] or "spoken_stock_copy" in decision["violations"]
 
 
 def test_editorial_filler_without_context_fails_closed() -> None:
@@ -91,7 +91,46 @@ def test_editorial_filler_without_context_fails_closed() -> None:
         purpose="transition",
     )
     assert decision["action"] == "block"
-    assert "spoken_generic_filler" in decision["violations"]
+    assert "spoken_generic_filler" in decision["violations"] or "spoken_stock_copy" in decision["violations"]
+
+
+def test_edit_structure_and_chapter_language_are_rejected() -> None:
+    for text in (
+        "In the previous clip, gym buyers showed up.",
+        "The earlier segment ended on snack demand.",
+        "Turning to the next segment, what changed?",
+        "Welcome to this chapter of the story.",
+        "Chapter Four opens on ownership.",
+        "As we discussed earlier on the show.",
+    ):
+        hits = spoken_copy_violations(text, evidence={})
+        assert hits, f"expected violations for {text!r}"
+        assert any(
+            h.startswith("spoken_")
+            and (
+                "chapter" in h
+                or "edit_structure" in h
+                or "scaffold" in h
+                or "construction" in h
+            )
+            for h in hits
+        ), hits
+
+
+def test_contextual_english_without_edit_structure_is_allowed() -> None:
+    text = (
+        "After the gym-buyer beat, protein-aware snacking rewrote the market. "
+        "What nearly broke the supply chain?"
+    )
+    assert spoken_copy_violations(text, evidence={}) == []
+    assert spoken_copy_violations(
+        "A segment of the market preferred the protein bar.",
+        evidence={},
+    ) == []
+    assert "spoken_production_jargon" not in spoken_copy_violations(
+        "On the timeline of his career, the choice was clear.",
+        evidence={},
+    )
 
 
 def test_repeated_copy_and_next_clip_restatement_are_rejected() -> None:
@@ -122,6 +161,68 @@ def test_repeated_sentence_is_rejected_within_or_across_vo_lines() -> None:
         seen_texts=["What changed after the deal?"],
     )
     assert "spoken_repeated_sentence" in repeated_across_lines
+
+
+def test_assert_guarded_loads_sibling_seen_texts(tmp_path) -> None:
+    from interview_mux.spoken_copy_guard import (
+        assert_guarded_spoken_copy,
+        load_persisted_spoken_texts,
+        sentence_keys,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "run_seen_siblings")
+    sibling = "Protein buyers rewrote the addressable market."
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_a",
+                    "gap_type": "missing_setup",
+                    "text": sibling,
+                    "targets_segment_id": "seg_1",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    loaded = load_persisted_spoken_texts(ctx, exclude_line_id="vo_b")
+    assert sibling in loaded
+    colliding = f"{sibling} What broke next?"
+    # No topic evidence → cannot fallback; must block before TTS.
+    try:
+        assert_guarded_spoken_copy(
+            colliding,
+            evidence={},
+            purpose="vo[vo_b]",
+            ctx=ctx,
+            exclude_line_id="vo_b",
+        )
+        raise AssertionError("expected sibling sentence collision to raise")
+    except ValueError as exc:
+        assert "spoken_repeated_sentence" in str(exc)
+    # With topic evidence, fallback may rewrite — but never keep the colliding key.
+    decision = assert_guarded_spoken_copy(
+        colliding,
+        evidence={"before_topic": "snack pivot", "after_topic": "supply cliff"},
+        purpose="vo[vo_b]",
+        ctx=ctx,
+        exclude_line_id="vo_b",
+    )
+    assert not (set(sentence_keys(decision["text"])) & set(sentence_keys(sibling)))
+
+
+def test_orientation_keep_rejects_structure_hits() -> None:
+    decision = guard_spoken_copy(
+        "In this chapter, a founder explains the sale to Zydus Wellness.",
+        evidence={"strict_grounding": True, "target_excerpt": "Asha founded Acme."},
+        required=True,
+        purpose="vo[vo_preface_episode_orientation]",
+    )
+    assert decision["action"] in {"block", "fallback", "omit"}
+    assert not decision.get("kept_orientation")
 
 
 def test_dedupe_sentences_keeps_the_final_question_form() -> None:
@@ -211,7 +312,7 @@ def test_stale_script_hash_rejects_generated_wav(
     _wav(wav)
     original = {
         "line_id": "line_1",
-        "text": "What changed after that?",
+        "text": "Protein buyers rewrote the addressable market.",
         "targets_segment_id": "seg_1",
         "placement": "before",
     }
@@ -272,3 +373,37 @@ def test_early_stage_is_not_production_jargon() -> None:
     assert "spoken_production_jargon" in spoken_copy_violations(
         "The pipeline stage failed QC", evidence={}
     )
+
+
+def test_edl_raises_on_duplicate_spoken_sentence(tmp_path) -> None:
+    from interview_mux.stages.assembly import _gap_lines_for_segment
+
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_1",
+                "targets_segment_id": "seg_a",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "Protein buyers rewrote the market.",
+            },
+            {
+                "line_id": "vo_2",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "Protein buyers rewrote the market. What broke next?",
+            },
+        ]
+    }
+    seen: set[str] = set()
+    first = _gap_lines_for_segment(
+        gap, "seg_a", "before", emitted_sentence_keys=seen
+    )
+    assert len(first) == 1
+    try:
+        _gap_lines_for_segment(gap, "seg_b", "before", emitted_sentence_keys=seen)
+        raise AssertionError("expected duplicate sentence to raise")
+    except ValueError as exc:
+        assert "duplicate spoken sentence" in str(exc)
+

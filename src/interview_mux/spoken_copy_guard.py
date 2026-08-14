@@ -8,7 +8,7 @@ import json
 import re
 from typing import Any, Iterable
 
-from interview_mux.spoken_meta_lint import lint_spoken_text
+from interview_mux.spoken_meta_lint import is_hard_structure_violation, lint_spoken_text
 
 _PATH_OR_FILE = re.compile(
     r"(?:^|[\s(\"'])(?:[A-Za-z]:\\|/[\w.-]+/|\.{0,2}/[\w.-]+)|"
@@ -25,7 +25,8 @@ _PRODUCTION_JARGON = re.compile(
     r"quality control|qc(?:\s+pass|\s+fail)?|lint|validator|"
     r"selection order|source segment|native segment|gap report|"
     r"synthesis report|fallback backend|confidence score|"
-    r"listener confusion|missing setup|missing question"
+    r"listener confusion|missing setup|missing question|"
+    r"unaired\s+corpus|corpus\s+nugget"
     r")\b",
     re.IGNORECASE,
 )
@@ -36,11 +37,20 @@ _PLACEHOLDER = re.compile(
 )
 _MALFORMED_END = re.compile(r"(?:\.\.\.|…|[—–,:;/(\[])\s*$")
 _NEXT_WORD = re.compile(r"\b(?:next|then|after that|what followed)\b", re.IGNORECASE)
+# Relative / stock hinges are never acceptable air copy — even with evidence.
 _GENERIC_FILLER = re.compile(
     r"\b(?:"
-    r"what (?:happened|changed|comes) next|what follows|next beat|"
-    r"coming up|where does this stretch lead|broader story changing|"
-    r"there is more to that story"
+    r"what (?:happened|changed|comes) next|"
+    r"what changed after that|"
+    r"what happened after that|"
+    r"what follows|"
+    r"what shifted from there|"
+    r"next beat|"
+    r"coming up|"
+    r"where does this stretch lead|"
+    r"broader story changing|"
+    r"there is more to that story|"
+    r"stepping back,? what set this part of the story in motion"
     r")\b",
     re.IGNORECASE,
 )
@@ -52,6 +62,10 @@ _STOCK = {
     "next the focus shifts",
     "meanwhile what happened next",
     "coming up where does this stretch lead",
+    "what changed after that",
+    "what happened next",
+    "what shifted from there",
+    "stepping back what set this part of the story in motion",
 }
 _ENTITY_IGNORE = {
     "And",
@@ -344,18 +358,8 @@ def spoken_copy_violations(
         source_gap = None
     if source_gap is not None and source_gap < 0 and _NEXT_WORD.search(clean):
         errors.append("spoken_chronology_mismatch")
-    semantic_relative_ok = bool(
-        source_gap is not None
-        and source_gap >= 0
-        and str(ev.get("before_excerpt") or "").strip()
-        and str(
-            ev.get("after_excerpt")
-            or ev.get("target_excerpt")
-            or ev.get("next_clip_text")
-            or ""
-        ).strip()
-    )
-    if _GENERIC_FILLER.search(clean) and not semantic_relative_ok:
+    # Generic relative hinges are banned under every circumstance.
+    if _GENERIC_FILLER.search(clean):
         errors.append("spoken_generic_filler")
     target = str(
         ev.get("after_excerpt")
@@ -389,6 +393,7 @@ def spoken_copy_violations(
 
 
 def _grounded_fallback(evidence: dict[str, Any]) -> str:
+    """Evidence-only fallback. Never emit relative filler questions."""
     before_topic = _safe_context(evidence.get("before_topic"))
     after_topic = _safe_context(evidence.get("after_topic"))
     if before_topic and after_topic and before_topic.casefold() != after_topic.casefold():
@@ -410,25 +415,7 @@ def _grounded_fallback(evidence: dict[str, Any]) -> str:
         return f"What changed in {place}?"
     if time:
         return f"What changed around {time}?"
-
-    before_excerpt = _safe_context(evidence.get("before_excerpt"))
-    after_excerpt = _safe_context(
-        evidence.get("after_excerpt") or evidence.get("target_excerpt")
-    )
-    try:
-        source_gap = (
-            int(evidence["source_gap_ms"])
-            if evidence.get("source_gap_ms") is not None
-            else None
-        )
-    except (TypeError, ValueError):
-        source_gap = None
-    if source_gap is not None and source_gap < 0 and (before_excerpt or after_excerpt):
-        return "Stepping back, what set this part of the story in motion?"
-    if before_excerpt and after_excerpt:
-        return "What changed after that?"
-    if before_excerpt or after_excerpt:
-        return "What changed after that?"
+    # Excerpts alone are not enough for a speakable contextual hinge — omit.
     return ""
 
 
@@ -467,6 +454,62 @@ def _is_orientation_purpose(purpose: str, evidence: dict[str, Any] | None = None
 def grounded_fallback_for_evidence(evidence: dict[str, Any] | None) -> str:
     """Return listener-safe grounded glue, or empty when evidence is insufficient."""
     return _grounded_fallback(dict(evidence or {}))
+
+
+def load_persisted_spoken_texts(
+    ctx: Any,
+    *,
+    exclude_line_id: str | None = None,
+    exclude_text: str | None = None,
+) -> list[str]:
+    """Collect listener-facing VO already persisted for this run."""
+    seen: list[str] = []
+    exclude_norm = normalize_script(exclude_text or "").casefold()
+    exclude_lid = str(exclude_line_id or "").strip()
+
+    def _maybe_add(text: str, line_id: str = "") -> None:
+        clean = normalize_script(text)
+        if not clean:
+            return
+        if exclude_lid and line_id and line_id == exclude_lid:
+            return
+        if exclude_norm and clean.casefold() == exclude_norm:
+            return
+        seen.append(clean)
+
+    try:
+        if getattr(ctx, "artifact_exists", lambda _p: False)("understanding/gap_report.json"):
+            report = ctx.read_json("understanding/gap_report.json")
+            if isinstance(report, dict):
+                for row in report.get("interviewer_lines") or []:
+                    if not isinstance(row, dict) or row.get("skipped_optional"):
+                        continue
+                    _maybe_add(
+                        str(row.get("text") or ""),
+                        str(row.get("line_id") or ""),
+                    )
+        if getattr(ctx, "artifact_exists", lambda _p: False)("master/transitions.json"):
+            transitions = ctx.read_json("master/transitions.json")
+            if isinstance(transitions, dict):
+                for row in transitions.get("transitions") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    _maybe_add(str(row.get("text") or ""))
+        if getattr(ctx, "artifact_exists", lambda _p: False)(
+            "understanding/synthetic_framing_plan.json"
+        ):
+            plan = ctx.read_json("understanding/synthetic_framing_plan.json")
+            if isinstance(plan, dict):
+                for row in plan.get("lines") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    _maybe_add(
+                        str(row.get("text") or ""),
+                        str(row.get("line_id") or ""),
+                    )
+    except Exception:
+        pass
+    return seen
 
 
 def guard_spoken_copy(
@@ -512,11 +555,13 @@ def guard_spoken_copy(
         if fallback
         else ["no_grounded_fallback"]
     )
+    hard = any(is_hard_structure_violation(v.split(":", 1)[0]) for v in violations)
     keep_orientation = (
         required
         and len(original.split()) >= 6
         and _is_orientation_purpose(purpose, ev)
-        and not any(v.startswith("spoken_repeated_") for v in violations)
+        and not hard
+        and entity_only
     )
     if keep_orientation:
         return {
@@ -552,9 +597,23 @@ def assert_guarded_spoken_copy(
     *,
     evidence: dict[str, Any] | None = None,
     purpose: str,
+    seen_texts: Iterable[str] | None = None,
+    ctx: Any = None,
+    exclude_line_id: str | None = None,
 ) -> dict[str, Any]:
+    corpus = list(seen_texts) if seen_texts is not None else None
+    if corpus is None and ctx is not None:
+        corpus = load_persisted_spoken_texts(
+            ctx,
+            exclude_line_id=exclude_line_id,
+            exclude_text=text,
+        )
     decision = guard_spoken_copy(
-        text, evidence=evidence, required=True, purpose=purpose
+        text,
+        evidence=evidence,
+        required=True,
+        purpose=purpose,
+        seen_texts=corpus,
     )
     if decision["action"] == "block":
         raise ValueError(
@@ -570,6 +629,7 @@ def artifact_spoken_copy_errors(
     transitions: dict[str, Any] | None,
     segments_by_id: dict[str, dict[str, Any]] | None = None,
     grounding_context: Any = None,
+    synthetic_framing: dict[str, Any] | None = None,
 ) -> list[str]:
     """Validate all persisted listener-facing copy with target-aware evidence."""
     errors: list[str] = []
@@ -592,6 +652,26 @@ def artifact_spoken_copy_errors(
         if violations:
             errors.append(
                 f"gap[{row.get('line_id') or target}]:" + ",".join(violations)
+            )
+        seen.append(str(row.get("text") or ""))
+    for row in ((synthetic_framing or {}).get("lines") or []):
+        if not isinstance(row, dict) or not str(row.get("text") or "").strip():
+            continue
+        evidence = {
+            "before_excerpt": row.get("before_excerpt"),
+            "after_excerpt": row.get("after_excerpt"),
+            "target_excerpt": row.get("target_excerpt")
+            or (by_id.get(str(row.get("anchor_segment_id") or "")) or {}).get("text"),
+            "source_gap_ms": row.get("source_gap_ms"),
+            "strict_grounding": True,
+        }
+        violations = spoken_copy_violations(
+            str(row.get("text") or ""), evidence=evidence, seen_texts=seen
+        )
+        if violations:
+            errors.append(
+                f"synthetic[{row.get('line_id') or row.get('anchor_segment_id')}]:"
+                + ",".join(violations)
             )
         seen.append(str(row.get("text") or ""))
     for row in ((transitions or {}).get("transitions") or []):

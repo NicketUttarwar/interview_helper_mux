@@ -614,6 +614,13 @@ def run_transitions(ctx: RunContext) -> None:
         }
         from interview_mux.spoken_copy_guard import enrich_evidence_from_run
 
+        seen_texts: list[str] = []
+        if isinstance(gap_report, dict):
+            for ln in gap_report.get("interviewer_lines") or []:
+                if isinstance(ln, dict) and not ln.get("skipped_optional"):
+                    txt = str(ln.get("text") or "").strip()
+                    if txt:
+                        seen_texts.append(txt)
         for row in artifacts.get("transitions") or []:
             if not isinstance(row, dict) or not str(row.get("text") or "").strip():
                 continue
@@ -634,6 +641,8 @@ def run_transitions(ctx: RunContext) -> None:
                 str(row.get("text") or ""),
                 evidence=evidence,
                 purpose=f"transition_plan[{a}->{b}]",
+                seen_texts=seen_texts,
+                ctx=c,
             )
             row["text"] = decision["text"]
             row["spoken_copy_guard"] = {
@@ -641,6 +650,8 @@ def run_transitions(ctx: RunContext) -> None:
                 "script_hash": decision["script_hash"],
                 "context_hash": decision["context_hash"],
             }
+            if decision["text"]:
+                seen_texts.append(str(decision["text"]))
         persist(c, artifacts)
 
     with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):

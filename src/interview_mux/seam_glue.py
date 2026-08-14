@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -43,10 +42,9 @@ FORWARD_HINGES = (
     "How did that lead into the later decision?",
     "What did that moment make possible?",
 )
-GENERIC_RELATIVE_HINGES = (
-    "Stepping back, what set this part of the story in motion?",
-    "What changed after that?",
-)
+# Relative filler hinges are banned; keep the empty tuple for callers that
+# still check membership when preferring grounded topic fallbacks.
+GENERIC_RELATIVE_HINGES: tuple[str, ...] = ()
 
 
 def _chapter_ends_from_plan(plan: dict[str, Any] | None) -> set[str]:
@@ -199,43 +197,24 @@ def default_bridge_text(
     """Deterministic listener-facing hinge with no internal metadata.
 
     Do **not** embed the next native excerpt ("And then—{before_excerpt}").
-    Prefer topic labels when available. Otherwise use a semantic relative hinge;
-    segment IDs are edit metadata and must never be spoken.
+    Prefer topic / person / place / time / causal evidence only. Relative filler
+    hinges are banned — return empty when evidence cannot ground a speakable line.
+    Segment IDs are edit metadata and must never be spoken.
 
-    When ``used_texts`` is provided, walk the hinge menu from the hash index
-    until an unused line is found so adjacent seams don't collide.
+    When ``used_texts`` is provided, refuse a grounded fallback that collides.
     """
-    from interview_mux.spoken_copy_guard import grounded_fallback_for_evidence
+    from interview_mux.spoken_copy_guard import (
+        grounded_fallback_for_evidence,
+        spoken_copy_violations,
+    )
 
     fallback = grounded_fallback_for_evidence(bridge_guard_evidence(pair))
-    if fallback not in set(GENERIC_RELATIVE_HINGES):
-        return fallback
-    # Reverse-order joins without topic labels previously all received the same
-    # stock sentence, so three or more seams failed bridge completeness. Keep
-    # the language chronology-safe while deterministically varying it per pair.
-    reverse_hinges = REVERSE_HINGES
-    forward_hinges = FORWARD_HINGES
-    pair_key = (
-        f"{pair.get('after_segment_id') or pair.get('after_id') or ''}->"
-        f"{pair.get('before_segment_id') or pair.get('before_id') or ''}"
-    )
-    index = int(hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:8], 16)
-    try:
-        reverse = int(pair.get("source_gap_ms") or 0) < 0
-    except (TypeError, ValueError):
-        reverse = False
-    hinges = reverse_hinges if reverse else forward_hinges
-    used_norm = {
-        " ".join(str(t or "").strip().lower().split())
-        for t in (used_texts or set())
-        if str(t or "").strip()
-    }
-    for offset in range(len(hinges)):
-        candidate = hinges[(index + offset) % len(hinges)]
-        norm = " ".join(candidate.strip().lower().split())
-        if norm not in used_norm:
-            return candidate
-    return hinges[index % len(hinges)]
+    if not fallback:
+        return ""
+    used = [str(t) for t in (used_texts or set()) if str(t or "").strip()]
+    if spoken_copy_violations(fallback, evidence=bridge_guard_evidence(pair), seen_texts=used):
+        return ""
+    return fallback
 
 
 def is_chapter_scale_pair(pair: dict[str, Any]) -> bool:
@@ -398,10 +377,23 @@ def mint_missing_transitions(
                 text = default_bridge_text(pair, used_texts=used_bridge_texts)
                 canned = False
                 unplanned.append(f"{a}->{b}")
+            if not str(text or "").strip():
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    "Reorder seam missing grounded contextual bridge text: "
+                    f"{a}->{b} (no topic/person/place evidence for speakable VO)",
+                    stage="edl",
+                    reason="ungrounded_seam_bridge",
+                    detail={"after_segment_id": a, "before_segment_id": b},
+                )
             decision = assert_guarded_spoken_copy(
                 text,
                 evidence=bridge_guard_evidence(pair),
                 purpose=f"transition[{a}->{b}]",
+                seen_texts=sorted(used_bridge_texts),
+                ctx=ctx,
             )
             text = str(decision["text"])
             canned = bool(canned and decision["action"] == "allow")
@@ -434,6 +426,8 @@ def mint_missing_transitions(
             text,
             evidence=bridge_guard_evidence(pair),
             purpose=f"transition[{a}->{b}]",
+            seen_texts=sorted(used_bridge_texts),
+            ctx=ctx,
         )
         text = str(decision["text"])
         tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"

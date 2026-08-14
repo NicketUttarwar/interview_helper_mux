@@ -107,9 +107,10 @@ def _reorder_ctx(tmp_path: Path):
                     "end_ms": 5000,
                     "speaker_id": "guest",
                     "speaker_role": "interviewee",
-                    "text": "A complete thought.",
+                    "text": "A complete thought about fundraising constraints.",
+                    "topic": "fundraising constraints",
                     "type": "interviewee_answer",
-                    "topic_tags": [],
+                    "topic_tags": ["fundraising constraints"],
                     "flags": [],
                 },
                 {
@@ -118,9 +119,10 @@ def _reorder_ctx(tmp_path: Path):
                     "end_ms": 126000,
                     "speaker_id": "guest",
                     "speaker_role": "interviewee",
-                    "text": "A later complete thought.",
+                    "text": "A later complete thought about the strategic sale.",
+                    "topic": "the strategic sale",
                     "type": "interviewee_answer",
-                    "topic_tags": [],
+                    "topic_tags": ["the strategic sale"],
                     "flags": [],
                 },
             ]
@@ -165,7 +167,10 @@ def test_canned_bridge_disabled_uses_grounded_contextual_fallback(
     doc = mint_missing_transitions(
         ctx, _MISSING_PAIR, transitions={"transitions": []}
     )
-    assert doc["transitions"][0]["text"] == "What changed after that?"
+    text = doc["transitions"][0]["text"]
+    assert "fundraising constraints" in text.casefold() or "strategic sale" in text.casefold()
+    assert "what happened next" not in text.casefold()
+    assert "what changed after that" not in text.casefold()
     assert doc["transitions"][0]["canned_bridge_fallback"] is False
 
 
@@ -182,9 +187,10 @@ def test_canned_bridge_enabled_still_replaces_unsafe_canned_copy(
     doc = mint_missing_transitions(ctx, _MISSING_PAIR, transitions={"transitions": []})
     minted = list(doc["transitions"])
     assert len(minted) == 1
-    assert minted[0]["text"] == "What changed after that?"
+    text = minted[0]["text"]
+    assert "fundraising constraints" in text.casefold() or "strategic sale" in text.casefold()
     assert minted[0]["canned_bridge_fallback"] is False
-    assert minted[0]["spoken_copy_guard"]["action"] == "fallback"
+    assert minted[0]["spoken_copy_guard"]["action"] in {"allow", "fallback"}
     assert minted[0]["auto_minted"] is True
 
 

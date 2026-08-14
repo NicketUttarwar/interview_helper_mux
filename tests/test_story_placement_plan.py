@@ -103,8 +103,13 @@ def test_ordering_constraint_errors():
 
 def test_spoken_meta_rejects_chapter_numbers():
     assert spoken_structure_hits("Chapter Four—Ownership for Everyone.")
+    assert spoken_structure_hits("Welcome to this chapter of ownership.")
+    assert spoken_structure_hits("In the previous clip, gym buyers showed up.")
     assert lint_spoken_text("Welcome back to Act 2 of our show.")
     assert not spoken_structure_hits("On ownership for everyone—Vijay opens the ESOP.")
+    assert not spoken_structure_hits(
+        "After the gym-buyer beat, protein-aware snacking rewrote the market."
+    )
 
 
 def test_nle_overlay_does_not_tail_dump():

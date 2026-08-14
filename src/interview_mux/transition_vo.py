@@ -206,6 +206,7 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
                 text,
                 evidence=evidence,
                 purpose=f"transition[{after_id}->{before_id}]",
+                ctx=ctx,
             )
             text = str(guarded["text"])
             if text != str(item.get("text") or "").strip():

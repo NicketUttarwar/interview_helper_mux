@@ -22,8 +22,9 @@ Hard rules:
 - duration_ratio must be 0.4..2.0 of anchor native duration. Openers and true
   explanatory setups may be longer when justified.
 - The 0.2..0.8 synthetic-input-share range is guidance, never a quota.
-- No canned phrases such as "Next, the focus shifts" or "what happened next."
+- No canned phrases such as "Next, the focus shifts", "what happened next", or "what changed after that."
 - Do not invent facts, dialogue, credentials, or claims.
+- Never speak chapter/act/part labels, the word “chapter”, clip/segment construction references (“previous clip”, “earlier segment”, “this clip”), or pipeline/artifact/EDL metadata. Spoken lines carry only grounded contextual facts plus a forward unlock into the next native beat. If evidence is missing, omit the line.
 - Treat the single `episode_preface` in `prior_gap_report` as mandatory opening
   orientation. Do not duplicate or replace it. Preserve this opening grammar:
   native hook → music → preface → body when an explicit native cold open exists;

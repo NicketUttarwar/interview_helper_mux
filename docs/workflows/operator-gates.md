@@ -8,7 +8,7 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 
 Product stages record bounded repairs in `operator/resilience_report.json` and open structured cards under `operator/escalations/{stage}.json` when attempts are exhausted. GUI surfaces open escalations on the phase banner; resolve via `POST /api/runs/{id}/escalations/{stage}/resolve` with a documented option (`retry_stage`, `skip_optional_vo`, `prepare_local_package_only`, …).
 
-**Never auto-published:** `force_publish` / `soft_ship` / quality waivers are rejected. Soft e2e ship remains opt-in via `INTERVIEW_MUX_E2E_SOFT=1` only.
+**Never auto-published (Manual GUI):** `force_publish` / `soft_ship` / quality waivers are rejected from the interactive operator path. Soft e2e ship remains opt-in via `INTERVIEW_MUX_E2E_SOFT=1` only — enabled automatically when launching **Full-auto** from `./scripts/run.sh` (or legacy `MUX_BABA_E2E=1`). Full-auto mirrors Baba E2E: heal/remutate/re-execute with soft waivers, and logs each choice as `[DECISION major|minor]` in `ASSETS/baba_e2e_console.log`.
 
 Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/runs/{id}/delivery/recover` and `GET /api/runs/{id}/resilience`.
 

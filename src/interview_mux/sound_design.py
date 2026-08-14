@@ -80,8 +80,8 @@ def _check_bed_presence_band(
             mins = dict(sc)
     except Exception:
         mins = {}
-    floor = float(mins.get("min_audible_bed_level_db", -28.0))
-    ceiling = float(mins.get("max_audible_bed_level_db", -24.0))
+    floor = float(mins.get("min_audible_bed_level_db", -25.0))
+    ceiling = float(mins.get("max_audible_bed_level_db", -21.0))
     windows = collect_flow1_bed_speech_windows(
         ctx, segment_timing=segment_timing, contract=contract
     )
@@ -1283,7 +1283,7 @@ def flow1_overlays_from_sdp(
         wav = resolve_asset_path(ctx, asset_id=asset_id, generated=plan.get("generated"))
         placement = str(cue.get("placement") or "")
         raw_level = cue.get("level_db")
-        level_db = float(raw_level) if raw_level is not None else -28.0
+        level_db = float(raw_level) if raw_level is not None else -25.0
         from interview_mux.creative_delivery import audibility_level_db
         from interview_mux.music_motif import THEME_BED_ROLES, THEME_PUNCTUATOR_ROLES, is_theme_role
 
@@ -2066,9 +2066,9 @@ def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float
     pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
     if speech_active_ratio >= 0.75:
-        return min(default_level_db, -28.0 if creative_delivery_required() else -30.0)
+        return min(default_level_db, -25.0 if creative_delivery_required() else -27.0)
     if speech_active_ratio >= 0.6:
-        return min(default_level_db, -26.0 if creative_delivery_required() else -28.0)
+        return min(default_level_db, -23.0 if creative_delivery_required() else -25.0)
     return default_level_db
 
 

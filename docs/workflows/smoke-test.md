@@ -173,15 +173,23 @@ python scripts/sync_podcast_episodes.py --execution-id "$RUN_ID" --dry-run
 
 See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terraform/README.md](../../terraform/README.md). Session restore: `./scripts/tf-plan.sh --use-session`.
 
-## Detached e2e companion (optional)
+## Detached e2e / Full-auto companion
 
-For unattended long runs against a live GUI server:
+Unattended long runs use the same Baba E2E soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Decision lines are logged as `[DECISION major|minor]` in `ASSETS/baba_e2e_console.log`.
 
 ```bash
-MUX_BABA_E2E=1 ./scripts/run.sh
-# or explicitly:
+# Interactive (TTY): choose Full-auto, then pick source audio under ASSETS/
+./scripts/run.sh
+
+# Non-interactive Full-auto
+MUX_RUN_MODE=full-auto MUX_INPUT_AUDIO=ASSETS/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+
+# Legacy alias (same soft E2E stack)
+MUX_BABA_E2E=1 MUX_INPUT_AUDIO=ASSETS/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+
+# Or explicitly:
 python tools/baba_daemon_launch.py e2e --fresh
 python tools/baba_daemon_launch.py keepalive
 ```
 
-`MUX_BABA_E2E=1` waits for `/api/health`, then detaches `tools/_baba_e2e_driver.py` + keepalive (`tools/baba_keepalive_loop.py`). Honors `MUX_RUN_ID` / `MUX_FRESH`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1` for gate defaults. Prefer `tools/e2e_pipeline_driver.py` for one-shot headless drivers.
+`Full-auto` / `MUX_BABA_E2E=1` detaches serve (no browser), then `_baba_e2e_driver.py` + keepalive. Honors `MUX_RUN_ID` / `MUX_FRESH` / `MUX_INPUT_AUDIO`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`, `INTERVIEW_MUX_E2E_SOFT=1`, and soft listenability. Prefer `tools/e2e_pipeline_driver.py` for leaner one-shot headless drivers (stage list may lag Baba).

@@ -7,19 +7,20 @@ Rules:
 - Do not repeat the upcoming answer; tee it up only.
 - Match `style.tone`, `style.tone_class`, and `interviewer_sample_lines` when provided.
 - When `style.format_class` is `panel`, prefer shorter bridges — do not re-introduce every guest by full title.
-- Avoid "In this next segment" clichés unless necessary.
+- Avoid "In this next segment" clichés — ban them entirely.
 - Do not duplicate `gap_report` VO lines — complement them.
 - Omit transitions between segment pairs already bridged by **any** gap `placement: before` VO (questions included) — one spoken host turn per seam.
 - Return `transitions: []` when adjacent segments already flow naturally.
-- **Never speak chapter/act/part numbers or show scaffolding** (“Chapter Four”, “Act 2”, “in this chapter”, “welcome back”, “in today’s episode”). `type: chapter` means a thematic hinge only — use topic/emotion language (e.g. “On ownership for everyone…”), never numbered labels. Structure stays in subtext.
-- `after_segment_id`, `before_segment_id`, line IDs, and clip IDs are edit metadata only. **Never mention, paraphrase, or read an internal ID in `text`** (for example, never say “segment 153”, “what happens as we get to 153?”, or “where does 167 take this?”).
-- If a bridge is necessary, orient the listener with relevant topic, person, place, time, or causal context from the supplied native material, then lay up the next native thought. If there is no listener-clear context, use a natural relative question such as “What happened next?” rather than exposing metadata.
+- **Never speak chapter/act/part numbers, the word “chapter”, or show scaffolding** (“Chapter Four”, “Act 2”, “in this chapter”, “welcome back”, “in today’s episode”, “coming up”, “after the break”). `type: chapter` means a thematic hinge only — use topic/emotion language (e.g. “On ownership for everyone…”), never numbered labels or the word chapter. Structure stays in subtext.
+- **Never reference edit construction:** “previous clip”, “earlier segment”, “next segment”, “this clip”, “that cut”, pipeline/artifact/EDL/metadata language. `after_segment_id`, `before_segment_id`, line IDs, and clip IDs are edit metadata only. **Never mention, paraphrase, or read an internal ID in `text`** (for example, never say “segment 153”, “what happens as we get to 153?”, or “where does 167 take this?”).
+- If a bridge is necessary, orient the listener with relevant topic, person, place, time, or causal context from the supplied native material, then lay up the next native thought. If there is no listener-clear contextual evidence, **omit the transition** — do not invent relative filler such as “What happened next?” or “What changed after that?”.
 
 Do not:
 - Summarize the answer that follows.
 - Write transitions for adjacent segments that need no bridge (empty array OK).
-- Expose show scaffolding or numbered chapters/acts/parts.
+- Expose show scaffolding or numbered chapters/acts/parts, or say the word “chapter”.
 - Expose internal segment, line, clip, turn, or other pipeline identifiers—even with prefixes removed.
+- Reference clips, segments, cuts, or other master-construction units as spoken objects.
 
 Examples: see `docs/prompts/_shared/examples/transitions.examples.md`
 
@@ -62,4 +63,4 @@ Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
 - Prefer known guest names; if unknown, use context-appropriate group terms (“friends”, “the founders”, “speakers”) — never invent names.
 - Third-person orientation is allowed when `suggested_pov` / documentary mode needs a short place/time reset; otherwise host may speak second-person questions.
 
-**Quality bar:** 3–20 words (hinge max 30); no answer summary; no spoken chapter numbers; empty array when flow is natural.
+**Quality bar:** 3–20 words (hinge max 30); no answer summary; no spoken chapter/clip/segment construction language; empty array when flow is natural or evidence is insufficient.

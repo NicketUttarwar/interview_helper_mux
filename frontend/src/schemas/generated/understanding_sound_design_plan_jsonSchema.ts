@@ -57,5 +57,7 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "energy_curve_by_act": z.array(z.unknown()).optional(),
   "prompt_dna": z.string().optional(),
   "stems": z.array(z.string()).optional(),
+  "palette_counts": z.record(z.string(), z.unknown()).optional(),
 }).optional(),
+  "palette_counts": z.record(z.string(), z.unknown()).optional(),
 });

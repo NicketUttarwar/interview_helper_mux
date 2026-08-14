@@ -13,6 +13,11 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
 | `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, stale locks inside exec_*; never deletes execution dirs) |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
+| `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI only; `full-auto` detaches Baba E2E soft automation (heal/remutate/re-execute + soft waivers + S3). TTY prompts when unset |
+| `MUX_INPUT_AUDIO` | picker / Baba default | Full-auto / `_baba_e2e_driver` | Relative path under repo (e.g. `ASSETS/….mp4`); required for non-TTY Full-auto |
+| `MUX_BABA_E2E` | `0` | `./scripts/run.sh` | `1` aliases Full-auto (same soft stack as historical Baba overnight runs) |
+| `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
+| `MUX_DETACH_SERVE` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` starts serve in its own session so Full-auto survives shell exit |
 
 ---
 
@@ -1157,7 +1162,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `soundscape.remediation.max_regen_per_asset` | `2` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
 | `soundscape.min_density.min_bed_coverage_ratio` | `0.28` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
 | `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `1` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
-| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-28` / `-24` | Bed level plausibility bounds | Speech-first audible band — beds stay present but must not drown native/synthetic dialogue |
+| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-25` / `-21` | Bed level plausibility bounds | Speech-first audible band (+3 dB vs prior −28/−24) — beds stay present but must not drown native/synthetic dialogue |
 
 **Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.28`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
