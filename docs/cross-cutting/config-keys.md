@@ -1356,6 +1356,17 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/dr
 
 ---
 
+## `resilience` (stage resilience runtime)
+
+| Key | Default | Used by | Notes |
+|-----|---------|---------|-------|
+| `resilience.quality_first` | `true` | `stage_resilience`, escalation resolve | Never auto-publish a waived master |
+| `resilience.commit_barrier` | `true` | `write_staging.approve_stage_writes` | Validate staged overlay before flush |
+| `resilience.unattended_defaults.enabled` | `false` | operator escalation resolve | Documented defaults write the same decision artifacts as humans |
+| `resilience.source_profiles` | (object) | `stage_families.select_source_profile`, ingest | Recipes for clean / town-hall / noisy / video / short / long |
+
+---
+
 ## Related
 
 - [model-routing.md](./model-routing.md) — tier registry and v1 mapping

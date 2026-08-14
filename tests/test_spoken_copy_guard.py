@@ -6,6 +6,7 @@ import sys
 
 from interview_mux.spoken_copy_guard import (
     _grounded_fallback,
+    dedupe_sentences,
     guard_spoken_copy,
     normalize_script,
     shorten_spoken_text,
@@ -106,6 +107,27 @@ def test_repeated_copy_and_next_clip_restatement_are_rejected() -> None:
     )
     assert "spoken_repeated_copy" in violations
     assert "spoken_next_clip_restatement" in violations
+
+
+def test_repeated_sentence_is_rejected_within_or_across_vo_lines() -> None:
+    repeated_in_line = spoken_copy_violations(
+        "What changed after the deal? What changed after the deal?",
+        evidence={},
+    )
+    assert "spoken_repeated_sentence_in_line" in repeated_in_line
+
+    repeated_across_lines = spoken_copy_violations(
+        "What changed after the deal? Why did it matter?",
+        evidence={},
+        seen_texts=["What changed after the deal?"],
+    )
+    assert "spoken_repeated_sentence" in repeated_across_lines
+
+
+def test_dedupe_sentences_keeps_the_final_question_form() -> None:
+    assert dedupe_sentences(
+        "Why did the founder sell? Why did the founder sell?"
+    ) == "Why did the founder sell?"
 
 
 def test_fragment_safe_shortening() -> None:

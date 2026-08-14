@@ -336,6 +336,22 @@ def test_layup_line_skips():
     assert line["origin"] == "nugget_layup"
 
 
+def test_layup_line_removes_repeated_question_sentence():
+    line = layup_line_from_row(
+        {
+            "target_segment_id": "seg_1",
+            "text": (
+                "The company reached a decision. "
+                "Why did the founder sell? Why did the founder sell?"
+            ),
+        }
+    )
+    assert line is not None
+    assert line["text"] == (
+        "The company reached a decision. Why did the founder sell?"
+    )
+
+
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True

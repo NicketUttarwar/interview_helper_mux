@@ -521,6 +521,24 @@ export interface RunData {
   timeline_ready?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
+  resilience?: {
+    quality_first?: boolean;
+    open_escalations?: Array<{
+      stage_id: string;
+      failed_invariant: string;
+      recommended_option: string;
+      resume_stage?: string;
+      options?: Array<{ id: string; label: string }>;
+      status?: string;
+    }>;
+    order_lock?: {
+      revision?: number;
+      order_content_hash?: string;
+      created_by?: string;
+    } | null;
+    suggest_delivery_resume?: string | null;
+    report?: Record<string, unknown> | null;
+  };
   g1_5_preview_pickup_pending?: string[];
   g1_5_preview_pickup_clear?: boolean;
   pickup_speaker_pending?: boolean;

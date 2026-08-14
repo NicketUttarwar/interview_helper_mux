@@ -93,7 +93,7 @@ from interview_mux.sonic_context import compact_for_volley as compact_sonic_cont
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm"}
+AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm", ".mp4"}
 
 
 @contextmanager
@@ -708,6 +708,7 @@ def create_app() -> FastAPI:
             "log_tail": read_log(ctx.run_dir, tail=100),
             "llm_verification_alerts": llm_verification_alerts,
             "segment_lineage_warnings": segment_lineage_warnings,
+            "resilience": _resilience_payload(ctx),
         }
 
     @app.get("/api/runs/{run_id}/delivery-readiness")
@@ -729,6 +730,73 @@ def create_app() -> FastAPI:
             target_stage=target_stage or None,
             include_flow1_spine=target_stage not in (None, "", "topic_coverage_audit"),
         )
+
+    @app.get("/api/runs/{run_id}/resilience")
+    def get_resilience(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        payload = _resilience_payload(ctx)
+        try:
+            from interview_mux.delivery_recovery import suggest_delivery_resume
+
+            payload["suggest_delivery_resume"] = suggest_delivery_resume(ctx)
+        except Exception:
+            pass
+        return payload
+
+    @app.get("/api/runs/{run_id}/escalations")
+    def list_escalations(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.stage_resilience import list_open_escalations
+
+        return {"escalations": list_open_escalations(ctx), "quality_first": True}
+
+    @app.post("/api/runs/{run_id}/escalations/{stage_id}/resolve")
+    def resolve_escalation_endpoint(
+        run_id: str,
+        stage_id: str,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.stage_resilience import resolve_escalation
+
+            payload = body or {}
+            chosen = str(payload.get("chosen_option") or "").strip()
+            if not chosen:
+                raise HTTPException(400, "chosen_option required")
+            unattended = bool(payload.get("unattended"))
+            try:
+                doc = resolve_escalation(
+                    ctx, stage_id, chosen_option=chosen, unattended=unattended
+                )
+            except FileNotFoundError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            refresh_journey_meta(ctx)
+            return {"ok": True, "escalation": doc}
+
+    @app.post("/api/runs/{run_id}/delivery/recover")
+    def delivery_recover(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.delivery_recovery import (
+                ensure_g1_pickups,
+                restore_master_bundle,
+                suggest_delivery_resume,
+            )
+
+            payload = body or {}
+            actions = payload.get("actions") or ["restore", "g1", "resume"]
+            out: dict[str, Any] = {"ok": True}
+            if "restore" in actions:
+                out["restored"] = restore_master_bundle(ctx)
+            if "g1" in actions:
+                out["g1"] = ensure_g1_pickups(ctx, promote=True, max_rounds=1)
+            if "resume" in actions:
+                out["suggest_delivery_resume"] = suggest_delivery_resume(ctx)
+            refresh_journey_meta(ctx)
+            return out
 
     @app.get("/api/runs/{run_id}/log")
     def get_log(
@@ -3084,50 +3152,22 @@ def create_app() -> FastAPI:
             ctx = _ctx(run_id)
             if not ctx.artifact_exists("understanding/gap_report.json"):
                 raise HTTPException(404, "gap_report.json not found")
-            report = ctx.read_json("understanding/gap_report.json")
-            from interview_mux import s2s_runner
+            from interview_mux.delivery_recovery import ensure_g1_pickups
             from interview_mux.loud_fail import LoudStageFailure
-            from interview_mux.synthesis_fallback import SynthesisFallbackToManual
 
-            synthesized: list[str] = []
-            fallbacks: list[dict[str, Any]] = []
-            errors: list[dict[str, Any]] = []
-            for line in report.get("interviewer_lines") or []:
-                if not isinstance(line, dict):
-                    continue
-                if str(line.get("delivery") or "").lower() != "synthesize":
-                    continue
-                if line.get("skipped_optional"):
-                    continue
-                lid = str(line.get("line_id") or "")
-                try:
-                    from interview_mux.stages.assembly import resolve_vo_pickup_path
+            try:
+                result = ensure_g1_pickups(ctx, promote=True, max_rounds=2)
+            except LoudStageFailure:
+                raise
+            except Exception as exc:
+                raise HTTPException(503, f"VO synthesis failed: {exc}") from exc
 
-                    existing = resolve_vo_pickup_path(ctx, line)
-                    if existing is not None and existing.is_file():
-                        synthesized.append(lid)
-                        continue
-                    s2s_runner.synthesize_line(ctx, line, mode="synthesize")
-                    synthesized.append(lid)
-                except SynthesisFallbackToManual as fb:
-                    # Opt-in legacy path only (fallback_to_manual_on_failure=true).
-                    fallbacks.append({"line_id": lid, "notice": fb.notice})
-                except Exception as exc:
-                    ctx.log(
-                        f"Batch VO synthesis failed for {lid or 'line'}: {exc}",
-                        level="error",
-                        stage="g1_vo_pickup",
-                        action_id="gui.g1.vo.synthesize_all",
-                        detail={
-                            "line_id": lid,
-                            "hard_stop": False,
-                        },
-                    )
-                    errors.append({"line_id": lid, "error": str(exc)[:500]})
-                    continue
+            synthesized = list(result.get("synthesized") or [])
+            errors = list(result.get("errors") or [])
+            fallbacks = list(result.get("fallbacks") or [])
             refresh_journey_meta(ctx)
             notice = fallbacks[-1]["notice"] if fallbacks else None
-            missing = check_g1_vo(ctx)
+            missing = list(result.get("g1_missing") or check_g1_vo(ctx))
             framing_hard = False
             try:
                 from interview_mux.gap_vo_gates import (
@@ -3155,6 +3195,7 @@ def create_app() -> FastAPI:
                 "fallback": "record" if fallbacks else None,
                 "notice": notice,
                 "g1_missing": missing,
+                "job": result.get("job"),
             }
 
     @app.post("/api/runs/{run_id}/gap-fill/skip")
@@ -3458,6 +3499,45 @@ def refresh_journey_meta(ctx: RunContext) -> None:
         meta["operator_phase"] = phase
 
     ctx.mutate_run_meta(patch)
+
+
+def _resilience_payload(ctx: RunContext) -> dict[str, Any]:
+    """Operator-visible resilience rollup for GUI / unattended decisioning."""
+    from interview_mux.durable_jobs import list_stage_jobs
+    from interview_mux.order_hash import get_order_lock
+    from interview_mux.stage_resilience import (
+        RESILIENCE_REPORT_REL,
+        list_open_escalations,
+    )
+
+    report = None
+    if ctx.artifact_exists(RESILIENCE_REPORT_REL):
+        try:
+            report = ctx.read_json(RESILIENCE_REPORT_REL)
+        except Exception:
+            report = None
+    order_lock = None
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                order_lock = get_order_lock(sel)
+        except Exception:
+            order_lock = None
+    jobs: list[dict[str, Any]] = []
+    for stage_id in ("g1_vo", "mmaudio_sfx", "music_palette_compose", "episode_cover_generate"):
+        try:
+            jobs.extend(list_stage_jobs(ctx, stage_id)[:5])
+        except Exception:
+            pass
+    return {
+        "report": report,
+        "open_escalations": list_open_escalations(ctx),
+        "order_lock": order_lock,
+        "jobs": jobs[:20],
+        "quality_first": True,
+        "suggest_delivery_resume": None,
+    }
 
 
 def _journey_blocking(

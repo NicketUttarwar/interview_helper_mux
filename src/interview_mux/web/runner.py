@@ -434,6 +434,15 @@ class JobRunner:
         if mode in delivery_orders:
             order = list(delivery_orders[mode])
             start = from_stage or stage
+            if not start and mode == "delivery":
+                try:
+                    from interview_mux.delivery_recovery import suggest_delivery_resume
+
+                    suggested = suggest_delivery_resume(ctx)
+                    if suggested and suggested in order:
+                        start = suggested
+                except Exception:
+                    start = None
             if start and start in order:
                 order = order[order.index(start) :]
             if until_stage and until_stage in order:

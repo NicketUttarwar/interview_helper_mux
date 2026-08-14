@@ -1431,31 +1431,44 @@ def apply_junction_repairs(
         ordered = [s for s in (new_edl.get("ordered_segment_ids") or []) if str(s) not in excluded]
         if ordered != list(new_edl.get("ordered_segment_ids") or []):
             changed = True
-        new_edl["ordered_segment_ids"] = ordered
-        from interview_mux.order_hash import stamp_order_hash
-
-        new_edl = stamp_order_hash(new_edl)
+        # Selection is authority: bump lock on exclude, then copy onto EDL.
         _exclude_from_selection(ctx, excluded, reasons=exclude_reasons)
+        new_edl["ordered_segment_ids"] = ordered
+        from interview_mux.order_hash import copy_order_lock, stamp_order_hash
+
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                new_edl = copy_order_lock(sel, stamp_order_hash(new_edl))
+            else:
+                new_edl = stamp_order_hash(new_edl)
+        else:
+            new_edl = stamp_order_hash(new_edl)
         changed = True
 
     if changed:
-        from interview_mux.order_hash import stamp_order_hash, sync_selection_order_to_edl
+        from interview_mux.order_hash import copy_order_lock, stamp_order_hash
         from interview_mux.write_staging import write_committed_json
 
         # Persist bound repairs immediately — StageInfo does not claim edl/selection,
         # so a normal flush would delete them and leave commitment diverged.
         new_edl = stamp_order_hash(new_edl)
-        write_committed_json(ctx, "master/edl.json", new_edl, stage_key=STAGE_ID)
         if ctx.artifact_exists("master/selection.json"):
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict):
-                # EDL air order is authoritative after junction repairs.
-                write_committed_json(
-                    ctx,
-                    "master/selection.json",
-                    sync_selection_order_to_edl(sel, new_edl),
-                    stage_key=STAGE_ID,
-                )
+                # Selection leads: copy lock onto EDL; never rewrite selection from EDL.
+                new_edl = copy_order_lock(sel, new_edl)
+                from interview_mux.order_hash import assert_selection_leads_edl
+
+                try:
+                    assert_selection_leads_edl(sel, new_edl)
+                except ValueError as exc:
+                    ctx.log(
+                        f"junction repair EDL/selection divergence (selection leads): {exc}",
+                        level="warning",
+                        stage=STAGE_ID,
+                    )
+        write_committed_json(ctx, "master/edl.json", new_edl, stage_key=STAGE_ID)
 
     return new_edl, applied, changed
 
@@ -1487,7 +1500,7 @@ def _exclude_from_selection(
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
         return
-    from interview_mux.order_hash import stamp_order_hash
+    from interview_mux.order_hash import bump_order_lock
     from interview_mux.write_staging import write_committed_json
 
     ordered = [s for s in (sel.get("ordered_segment_ids") or []) if str(s) not in excluded]
@@ -1506,7 +1519,12 @@ def _exclude_from_selection(
     sel["excluded_segment_ids"] = excl_list
     # Commit immediately — staging-only writes are invisible to commitment verify
     # when StageInfo does not claim selection.json.
-    write_committed_json(ctx, "master/selection.json", stamp_order_hash(sel), stage_key=STAGE_ID)
+    write_committed_json(
+        ctx,
+        "master/selection.json",
+        bump_order_lock(sel, source="junction_snip_qa:exclude"),
+        stage_key=STAGE_ID,
+    )
 
 
 def _merge_placement_adjustments(ctx: RunContext, rows: list[dict[str, Any]]) -> None:
@@ -2109,28 +2127,43 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             )
 
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
-    from interview_mux.order_hash import order_hashes_match, stamp_order_hash, sync_selection_order_to_edl
+    from interview_mux.order_hash import (
+        assert_selection_leads_edl,
+        copy_order_lock,
+        order_hashes_match,
+        stamp_order_hash,
+    )
     from interview_mux.write_staging import write_committed_json
 
-    # Final air-order lock: selection must match EDL before commitment verify.
-    # Do not rewrite EDL when hashes already match — bumping edl.json mtime makes
-    # a valid assembly look stale (assembly_not_rendered_from_current_edl).
+    # Final air-order lock: EDL must match selection. Never rewrite selection from EDL.
     if isinstance(current_edl, dict):
         current_edl = stamp_order_hash(current_edl)
         if ctx.artifact_exists("master/selection.json"):
             sel = ctx.read_json("master/selection.json")
             if isinstance(sel, dict) and not order_hashes_match(sel, current_edl):
                 ctx.log(
-                    "junction_snip_qa: syncing selection.ordered_segment_ids to EDL before autopsy",
+                    "junction_snip_qa: EDL diverges from selection — aligning EDL to selection lock",
                     level="warning",
                     stage=STAGE_ID,
                 )
-                write_committed_json(
-                    ctx,
-                    "master/selection.json",
-                    sync_selection_order_to_edl(sel, current_edl),
-                    stage_key=STAGE_ID,
-                )
+                # Align EDL ordered ids to selection (selection leads).
+                current_edl = dict(current_edl)
+                current_edl["ordered_segment_ids"] = list(sel.get("ordered_segment_ids") or [])
+                current_edl = copy_order_lock(sel, stamp_order_hash(current_edl))
+                try:
+                    assert_selection_leads_edl(sel, current_edl)
+                except ValueError as exc:
+                    from interview_mux.loud_fail import raise_loud_failure
+
+                    raise_loud_failure(
+                        ctx,
+                        str(exc),
+                        stage=STAGE_ID,
+                        reason="order_lock_selection_leads",
+                        cause=exc,
+                    )
+            elif isinstance(sel, dict):
+                current_edl = copy_order_lock(sel, current_edl)
         # Persist in-memory EDL only when disk copy differs (repairs / order stamp).
         disk_edl = (
             ctx.read_json("master/edl.json")

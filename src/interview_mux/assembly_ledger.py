@@ -327,7 +327,9 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
         seam["naked"] = bool(seam.get("requires_glue") and not glue)
 
     naked = [s for s in seams if s.get("naked")]
-    return {
+    from interview_mux.order_hash import copy_order_lock, get_order_lock
+
+    ledger: dict[str, Any] = {
         "version": 1,
         "order_content_hash": str(edl.get("order_content_hash") or ordered_segment_ids_hash(ordered)),
         "ordered_segment_ids": ordered,
@@ -340,6 +342,16 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
         "complete": len(naked) == 0,
         "chapter_scale_gap_ms": CHAPTER_SCALE_GAP_MS,
     }
+    if get_order_lock(edl):
+        ledger = copy_order_lock(edl, ledger)
+    elif ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict) and get_order_lock(sel):
+                ledger = copy_order_lock(sel, ledger)
+        except Exception:
+            pass
+    return ledger
 
 
 def write_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None) -> dict[str, Any]:

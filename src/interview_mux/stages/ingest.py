@@ -177,6 +177,30 @@ def run_ingest(ctx: RunContext) -> Path:
     )
     ctx.mark_done("ingest")
     try:
+        from interview_mux.stage_families import select_source_profile
+        from interview_mux.file_store import write_json as fs_write_json
+
+        is_video = str(ctx.input_audio()).lower().endswith((".mp4", ".mov", ".mkv", ".webm"))
+        profile = select_source_profile(is_video=is_video)
+        dest = ctx.run_dir / "operator" / "source_profile.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fs_write_json(
+            dest,
+            {
+                "version": 1,
+                "profile": profile,
+                "is_video": is_video,
+                "selected_at_stage": "ingest",
+            },
+        )
+
+        def _patch_profile(meta: dict) -> None:
+            meta["source_profile"] = profile
+
+        ctx.mutate_run_meta(_patch_profile)
+    except Exception as exc:  # noqa: BLE001 — profile selection is fail-open
+        ctx.log(f"source_profile selection failed: {exc}", level="warning", stage="ingest")
+    try:
         from interview_mux.source_readiness import maybe_auto_dismiss_preclean, write_source_readiness
 
         write_source_readiness(ctx, stage="ingest")

@@ -104,6 +104,45 @@ def normalize_script(text: str) -> str:
     return " ".join(str(text or "").strip().split())
 
 
+def sentence_keys(text: str) -> list[str]:
+    """Return punctuation-insensitive keys for listener-facing sentences.
+
+    Repeating words across a native/VO seam is permitted. Repeating a complete
+    sentence in synthetic speech is not: it sounds like a synthesis failure,
+    regardless of its target or placement in the EDL.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", normalize_script(text))
+    keys: list[str] = []
+    for sentence in sentences:
+        tokens = [token.casefold() for token in _TOKEN.findall(sentence)]
+        # Ignore isolated interjections, but retain short questions such as
+        # "What changed?" so they cannot recur as canned VO.
+        if len(tokens) >= 2:
+            keys.append(" ".join(tokens))
+    return keys
+
+
+def dedupe_sentences(text: str) -> str:
+    """Remove repeated complete sentences, retaining the final voiced form.
+
+    Authoring can produce a bare question title followed by the same question
+    with terminal punctuation. Keeping the final form preserves the forward
+    cue while preventing the TTS from saying it twice.
+    """
+    sentences = re.findall(r"[^.!?]+[.!?]+|[^.!?]+$", normalize_script(text))
+    seen: set[str] = set()
+    kept_reversed: list[str] = []
+    for sentence in reversed(sentences):
+        keys = sentence_keys(sentence)
+        key = keys[0] if len(keys) == 1 else ""
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        kept_reversed.append(sentence.strip())
+    return normalize_script(" ".join(reversed(kept_reversed)))
+
+
 def script_hash(text: str) -> str:
     return hashlib.sha256(normalize_script(text).encode("utf-8")).hexdigest()
 
@@ -287,6 +326,14 @@ def spoken_copy_violations(
     seen = {normalize_script(x).casefold() for x in (seen_texts or []) if x}
     if clean.casefold() in seen:
         errors.append("spoken_repeated_copy")
+    keys = sentence_keys(clean)
+    if len(keys) != len(set(keys)):
+        errors.append("spoken_repeated_sentence_in_line")
+    seen_sentence_keys = {
+        key for seen_text in (seen_texts or []) for key in sentence_keys(str(seen_text))
+    }
+    if set(keys) & seen_sentence_keys:
+        errors.append("spoken_repeated_sentence")
 
     ev = evidence if isinstance(evidence, dict) else {}
     try:
@@ -469,6 +516,7 @@ def guard_spoken_copy(
         required
         and len(original.split()) >= 6
         and _is_orientation_purpose(purpose, ev)
+        and not any(v.startswith("spoken_repeated_") for v in violations)
     )
     if keep_orientation:
         return {

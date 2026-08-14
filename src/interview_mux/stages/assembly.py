@@ -137,13 +137,17 @@ def _gap_lines_for_segment(
     placement: str,
     *,
     emitted_line_ids: set[str] | None = None,
-    emitted_text_keys: set[tuple[str, str, str]] | None = None,
+    emitted_sentence_keys: set[str] | None = None,
 ) -> list[dict]:
     if not gap_report:
         return []
     out: list[dict] = []
     seen_ids = emitted_line_ids if emitted_line_ids is not None else set()
-    seen_text = emitted_text_keys if emitted_text_keys is not None else set()
+    seen_sentences = (
+        emitted_sentence_keys if emitted_sentence_keys is not None else set()
+    )
+    from interview_mux.spoken_copy_guard import sentence_keys
+
     for line in gap_report.get("interviewer_lines") or []:
         if line.get("skipped_optional"):
             continue
@@ -156,17 +160,15 @@ def _gap_lines_for_segment(
         lid = str(line.get("line_id") or "").strip()
         if lid and lid in seen_ids:
             continue
-        text_key = (
-            str(segment_id),
-            str(placement),
-            _normalize_vo_text(str(line.get("text") or "")),
-        )
-        if text_key[2] and text_key in seen_text:
+        line_sentence_keys = sentence_keys(str(line.get("text") or ""))
+        # This is deliberately global, not scoped to a target or placement.
+        # A repeated spoken sentence is unacceptable even if it was authored
+        # for two different native segments.
+        if set(line_sentence_keys) & seen_sentences:
             continue
         if lid:
             seen_ids.add(lid)
-        if text_key[2]:
-            seen_text.add(text_key)
+        seen_sentences.update(line_sentence_keys)
         out.append(line)
     return out
 
@@ -288,7 +290,7 @@ def build_flow1_edl(
 
     duration_fn = vo_duration_ms or _wav_duration_ms
     emitted_line_ids: set[str] = set()
-    emitted_text_keys: set[tuple[str, str, str]] = set()
+    emitted_sentence_keys: set[str] = set()
     prev_speech_end_ms: int | None = None
 
     def _last_non_silence_type() -> str:
@@ -315,7 +317,7 @@ def build_flow1_edl(
                 nxt,
                 "before",
                 emitted_line_ids=set(emitted_line_ids),
-                emitted_text_keys=set(emitted_text_keys),
+                emitted_sentence_keys=set(emitted_sentence_keys),
             )
         )
 
@@ -324,7 +326,7 @@ def build_flow1_edl(
             sid,
             "before",
             emitted_line_ids=emitted_line_ids,
-            emitted_text_keys=emitted_text_keys,
+            emitted_sentence_keys=emitted_sentence_keys,
         )
         if skip_before_vo:
             # Contiguous same-speaker source usually needs no seam hinge, but
@@ -476,7 +478,7 @@ def build_flow1_edl(
             sid,
             "after",
             emitted_line_ids=emitted_line_ids,
-            emitted_text_keys=emitted_text_keys,
+            emitted_sentence_keys=emitted_sentence_keys,
         )
         # Prefer a before-VO layup on the next clip over an after-VO on this one.
         # Keep episode orientation — cold-open grammar requires it after the hook.
@@ -700,11 +702,11 @@ def run_edl(ctx: RunContext) -> None:
             if ctx.artifact_exists("master/transitions.json")
             else {"transitions": []}
         )
-        from interview_mux.order_hash import stamp_order_hash
+        from interview_mux.order_hash import bump_order_lock
         from interview_mux.seam_glue import ensure_seam_glue
 
         ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
-        selection = stamp_order_hash(selection)
+        selection = bump_order_lock(selection, source="edl")
         ctx.write_json("master/selection.json", selection)
 
         soft = False
@@ -770,7 +772,7 @@ def run_edl(ctx: RunContext) -> None:
             assert_required_bridge_synth_ok(ctx, synth_rows)
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
-        from interview_mux.order_hash import stamp_order_hash
+        from interview_mux.order_hash import copy_order_lock, stamp_order_hash
         from interview_mux.ideal_cuts import load_air_bound_inputs
 
         ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
@@ -791,7 +793,7 @@ def run_edl(ctx: RunContext) -> None:
             transcript_words=transcript_words,
             normalized_wav=wav_path,
         )
-        edl = stamp_order_hash(edl)
+        edl = copy_order_lock(selection, stamp_order_hash(edl))
         try:
             from interview_mux.gap_vo_gates import gap_framing_enabled
             from interview_mux.opening_orientation import validate_opening_orientation
@@ -909,6 +911,23 @@ def run_mix(ctx: RunContext) -> Path:
     from interview_mux.sound_design import mix
 
     require_spend_artifacts_complete(ctx, "mix")
+
+    # Soft heal: restore missing MMAudio QA from archive before loud-fail.
+    try:
+        from interview_mux.delivery_recovery import ensure_mmaudio_qa_before_mix
+
+        qa_state = ensure_mmaudio_qa_before_mix(ctx)
+        if not qa_state.get("ok"):
+            from interview_mux.stage_resilience import escalate_stage_failure
+
+            escalate_stage_failure(
+                ctx,
+                "mix",
+                failed_invariant="mmaudio_qa_missing",
+                evidence=qa_state,
+            )
+    except Exception:
+        pass
 
     if ctx.artifact_exists("master/selection.json") and ctx.artifact_exists("master/edl.json"):
         sel = ctx.read_json("master/selection.json")

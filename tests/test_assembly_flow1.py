@@ -86,6 +86,44 @@ def test_edl_inserts_vo_before_and_after_with_timeline_offsets(tmp_path: Path) -
     assert edl["timeline_duration_ms"] >= 10_000 + 2_000 + 15_000
 
 
+def test_edl_never_emits_a_sentence_twice_for_different_targets(tmp_path: Path) -> None:
+    vo_files: dict[str, Path] = {}
+    for lid in ("line_a", "line_b"):
+        path = tmp_path / f"{lid}.wav"
+        path.write_bytes(b"\x00")
+        vo_files[lid] = path
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "line_a",
+                "text": "What changed after the deal?",
+                "targets_segment_id": "seg_a",
+                "placement": "before",
+                "delivery": "record",
+            },
+            {
+                "line_id": "line_b",
+                "text": "What changed after the deal?",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+                "delivery": "record",
+            },
+        ]
+    }
+
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        resolve_vo_path=lambda line: vo_files.get(line.get("line_id", "")),
+        vo_duration_ms=lambda _path: 2_000,
+    )
+
+    assert [
+        clip["line_id"] for clip in edl["clips"] if clip.get("type") == "vo_pickup"
+    ] == ["line_a"]
+
+
 def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
     monkeypatch.setattr(assembly, "check_narrative_qc", lambda *_a, **_k: None)
     monkeypatch.setattr(assembly, "check_edl_qc", lambda *_a, **_k: None)

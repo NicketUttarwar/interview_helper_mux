@@ -451,7 +451,34 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
             if hasattr(ctx, "_lifecycle_consumer_stage"):
                 delattr(ctx, "_lifecycle_consumer_stage")
 
-    run_wrapped_stage(ctx, stage, _impl)
+    try:
+        from interview_mux.stage_resilience import record_resilience_event
+
+        record_resilience_event(ctx, stage, event="stage_start", action="pass")
+    except Exception:
+        pass
+    try:
+        run_wrapped_stage(ctx, stage, _impl)
+    except Exception as exc:
+        try:
+            from interview_mux.stage_resilience import escalate_stage_failure, record_resilience_event
+
+            record_resilience_event(
+                ctx,
+                stage,
+                event="stage_fail",
+                action="halt",
+                reasons=[str(exc)[:240]],
+            )
+            escalate_stage_failure(
+                ctx,
+                stage,
+                failed_invariant=str(exc)[:400],
+                evidence={"error_class": type(exc).__name__},
+            )
+        except Exception:
+            pass
+        raise
 
 
 def run_analysis(

@@ -12,6 +12,19 @@
   "properties": {
     "version": { "type": "integer" },
     "order_content_hash": { "type": "string" },
+    "order_lock": {
+      "type": "object",
+      "properties": {
+        "version": { "type": "integer" },
+        "revision": { "type": "integer" },
+        "authority": { "type": "string" },
+        "ordered_segment_ids": { "type": "array", "items": { "type": "string" } },
+        "order_content_hash": { "type": "string" },
+        "created_by": { "type": "string" },
+        "supersedes": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
     "ordered_segment_ids": {
       "type": "array",
       "items": { "type": "string" }

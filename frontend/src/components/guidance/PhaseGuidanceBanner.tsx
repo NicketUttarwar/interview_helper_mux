@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { OperatorPhase, RunData } from "../../types";
 import { PHASE_LABELS, phaseLabel } from "../../constants/phases";
 import { ActionMarker } from "./ActionMarker";
@@ -6,6 +7,7 @@ import { WORKFLOW_STEPS } from "../../utils/workflowSteps";
 import { isPhaseFullyComplete } from "../../utils/phaseSubsteps";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 import { firstTodoStepId } from "../../utils/resolveActiveStep";
+import { api } from "../../api/client";
 
 interface Props {
   run: RunData;
@@ -13,10 +15,12 @@ interface Props {
 }
 
 export function PhaseGuidanceBanner({ run, compact }: Props) {
-  const { setActiveTab, selectStage, setActiveStepId } = useApp();
+  const { setActiveTab, selectStage, setActiveStepId, refreshRun } = useApp();
   const phase = run.journey?.phase ?? "prepare";
   const phaseGuidance = run.journey?.phase_guidance?.[phase];
   const blocking = run.journey?.blocking ?? run.blocking;
+  const escalations = run.resilience?.open_escalations || [];
+  const [busy, setBusy] = useState<string | null>(null);
 
   const goal =
     phaseGuidance?.goal ||
@@ -35,6 +39,19 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
     if (stepId) setActiveStepId(stepId);
   };
 
+  const resolveEscalation = async (stageId: string, optionId: string) => {
+    setBusy(`${stageId}:${optionId}`);
+    try {
+      await api(`/api/runs/${run.run_id}/escalations/${stageId}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ chosen_option: optionId }),
+      });
+      await refreshRun();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <section className={`phase-guidance-banner panel-inset${phaseComplete ? " phase-complete" : ""}`} aria-label="Phase guidance">
       {phaseComplete ? <StepDoneBanner variant="phase" title={`${PHASE_LABELS[phase] || phase} phase complete`} /> : null}
@@ -49,6 +66,36 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
         </h3>
       </div>
       {goal ? <p className="hint phase-guidance-goal">{goal}</p> : null}
+      {escalations.length > 0 ? (
+        <ul className="stage-guidance-list phase-guidance-actions" aria-label="Open escalations">
+          {escalations.slice(0, compact ? 1 : 3).map((esc) => (
+            <li key={esc.stage_id} className="stage-guidance-item status-todo">
+              <ActionMarker status="todo" />
+              <span className="stage-guidance-label">
+                Escalation ({esc.stage_id}): {esc.failed_invariant}
+              </span>
+              <button
+                type="button"
+                className="btn ghost sm"
+                onClick={() => goToStage(esc.resume_stage || esc.stage_id)}
+              >
+                Go to step
+              </button>
+              {(esc.options || []).slice(0, 2).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="btn sm"
+                  disabled={busy === `${esc.stage_id}:${opt.id}`}
+                  onClick={() => void resolveEscalation(esc.stage_id, opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {blocking?.blocked && blocking.message ? (
         <ul className="stage-guidance-list phase-guidance-actions">
           <li className="stage-guidance-item status-todo">

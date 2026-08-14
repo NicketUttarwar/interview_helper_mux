@@ -115,6 +115,7 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
             # never skip MusicGen itself.
             "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
             "MUX_E2E_SOFT_LISTENABILITY": "1",
+            "INTERVIEW_MUX_E2E_SOFT": "1",
         },
     )
     (ASSETS / "baba_server.pid").write_text(str(pid))
@@ -137,9 +138,12 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
         "MUX_INPUT_AUDIO": os.environ.get(
-            "MUX_INPUT_AUDIO", "ASSETS/baba_all_vocals.wav"
+            "MUX_INPUT_AUDIO", "ASSETS/Baba_zydus_town_hall.mp4"
         ),
         "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
+        "MUX_E2E_SOFT_LISTENABILITY": "1",
+        "INTERVIEW_MUX_E2E_SOFT": "1",
+        "MUX_BABA_E2E": "1",
     }
     if fresh:
         rotate_e2e_console()
@@ -172,6 +176,40 @@ def ensure_keepalive() -> int | None:
         ASSETS / "baba_watchdog.log",
     )
     (ASSETS / "baba_keepalive.pid").write_text(str(pid))
+    return pid
+
+
+def g1_resynth_alive() -> bool:
+    try:
+        out = subprocess.check_output(["pgrep", "-f", "_g1_resynth_missing.py"], text=True)
+        return bool(out.strip())
+    except subprocess.CalledProcessError:
+        return False
+
+
+def ensure_g1_resynth(*, run_id: str | None = None, force: bool = False) -> int | None:
+    """macOS-safe detached G1 VO resynth (start_new_session; survives parent exit)."""
+    if g1_resynth_alive() and not force:
+        return None
+    if force:
+        _pkill_pattern("_g1_resynth_missing.py")
+        _pkill_pattern("chatterbox_generate.py")
+        time.sleep(1)
+    rid = (run_id or newest_incomplete_run() or "").strip()
+    if not rid:
+        raise RuntimeError("no run_id for g1-resynth")
+    log_path = ASSETS / "g1_resynth3.log"
+    # Rotate only when forcing a fresh pass so monitors can append to one file.
+    if force and log_path.is_file():
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        archive = ASSETS / "logs_archive"
+        archive.mkdir(parents=True, exist_ok=True)
+        log_path.replace(archive / f"g1_resynth3.{stamp}.log")
+    pid = _popen(
+        [str(VENV_PY), "-u", str(ROOT / "tools" / "_g1_resynth_missing.py"), rid],
+        log_path,
+    )
+    (ASSETS / "g1_resynth3.pid").write_text(str(pid))
     return pid
 
 
@@ -292,7 +330,12 @@ def main() -> int:
     if "keepalive" in modes:
         pid = ensure_keepalive()
         print(f"keepalive pid={pid or 'already-up'}")
-    print(f"health={server_alive()} e2e={e2e_alive()}")
+    if "g1-resynth" in modes:
+        pid = ensure_g1_resynth(run_id=run_id, force=force_e2e or fresh)
+        print(f"g1-resynth pid={pid or 'already-up'}")
+    print(
+        f"health={server_alive()} e2e={e2e_alive()} g1_resynth={g1_resynth_alive()}"
+    )
     return 0
 
 

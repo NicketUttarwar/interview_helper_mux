@@ -1765,6 +1765,137 @@ def run_connector_fuse_pass(
     return rounds_doc
 
 
+def encompass_straddling_islands(
+    ctx: RunContext,
+    *,
+    pass_id: str = "",
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Grow the earlier segment to cover non-noise islands still split across a cut."""
+    conf = connector_fuse_cfg(cfg)
+    segments = _load_segments(ctx)
+    if len(segments) < 2:
+        return {"applied": 0}
+    islands: list[dict[str, Any]] = []
+    try:
+        from interview_mux.low_conf_islands import load_islands
+
+        islands = [
+            i
+            for i in (load_islands(ctx).get("islands") or [])
+            if isinstance(i, dict) and i.get("failure_mode") != "noise"
+        ]
+    except Exception:
+        return {"applied": 0}
+    if not islands:
+        return {"applied": 0}
+
+    words = _load_words(ctx)
+    by_id = {str(s["segment_id"]): dict(s) for s in segments}
+    order = [str(s["segment_id"]) for s in segments]
+    applied: list[dict[str, Any]] = []
+    consumed: set[str] = set()
+
+    for earlier_id, later_id in zip(order, order[1:]):
+        if earlier_id in consumed or later_id in consumed:
+            continue
+        earlier, later = by_id.get(earlier_id), by_id.get(later_id)
+        if earlier is None or later is None:
+            continue
+        if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(earlier) != _speaker_of(
+            later
+        ):
+            continue
+        a_end, b_start = _ms(earlier, "end_ms"), _ms(later, "start_ms")
+        straddle, _ = _island_hints(islands, earlier_end_ms=a_end, later_start_ms=b_start)
+        if not straddle:
+            continue
+        # Prefer fuse rewrite into earlier when island still straddles.
+        start_ms = min(_ms(earlier, "start_ms"), _ms(later, "start_ms"))
+        end_ms = max(_ms(earlier, "end_ms"), _ms(later, "end_ms"))
+        joined = " ".join(
+            t for t in (str(earlier.get("text") or ""), str(later.get("text") or "")) if t
+        )
+        earlier["start_ms"] = start_ms
+        earlier["end_ms"] = end_ms
+        earlier["duration_ms"] = max(0, end_ms - start_ms)
+        earlier["text"] = _rebuild_text(words, start_ms, end_ms, fallback=joined)
+        earlier["fused_from"] = list(
+            dict.fromkeys([*(earlier.get("fused_from") or [earlier_id]), later_id])
+        )
+        earlier["fuse_reason"] = "island_encompass"
+        earlier["fuse_pass_id"] = pass_id or None
+        by_id[earlier_id] = earlier
+        consumed.add(later_id)
+        applied.append(
+            {
+                "pair_id": f"{earlier_id}__{later_id}",
+                "fused_into": earlier_id,
+                "absorbed_segment_id": later_id,
+                "reason_code": "island_encompass",
+                "pass_id": pass_id or None,
+            }
+        )
+
+    if not applied:
+        return {"applied": 0, "applied_fuses": []}
+    surviving = [by_id[sid] for sid in order if sid not in consumed and sid in by_id]
+    surviving.sort(key=lambda s: _ms(s, "start_ms"))
+    _write_manifest(ctx, surviving)
+    _write_boundaries(ctx, surviving, consumed=consumed, pass_id=pass_id or "island_encompass")
+    remap = {row["absorbed_segment_id"]: row["fused_into"] for row in applied}
+    _remap_downstream_ids(ctx, remap)
+    result = {
+        "applied": len(applied),
+        "applied_fuses": applied,
+        "id_remap": remap,
+        "stay_independent": [],
+        "skipped": [],
+        "pass_id": pass_id or None,
+    }
+    _append_audit(ctx, result, verdicts=[], pass_id=pass_id or "island_encompass")
+    return result
+
+
+def assert_no_split_suspect_islands(ctx: RunContext) -> dict[str, Any]:
+    """QC: non-noise islands must not remain split across two surviving segment edges."""
+    segments = _load_segments(ctx)
+    try:
+        from interview_mux.low_conf_islands import load_islands
+
+        islands = [
+            i
+            for i in (load_islands(ctx).get("islands") or [])
+            if isinstance(i, dict) and i.get("failure_mode") != "noise" and not i.get("soft")
+        ]
+    except Exception:
+        return {"ok": True, "split_islands": []}
+    splits: list[dict[str, Any]] = []
+    for isl in islands:
+        s, e = _ms(isl, "start_ms"), _ms(isl, "end_ms")
+        hits = [
+            str(seg.get("segment_id"))
+            for seg in segments
+            if _ms(seg, "end_ms") > s and _ms(seg, "start_ms") < e
+        ]
+        if len(hits) >= 2:
+            splits.append(
+                {
+                    "island_id": isl.get("island_id"),
+                    "segment_ids": hits,
+                    "start_ms": s,
+                    "end_ms": e,
+                }
+            )
+    doc = {
+        "version": 1,
+        "ok": not splits,
+        "split_islands": splits,
+    }
+    ctx.write_json("analysis/connector_fuse_split_island_qc.json", doc)
+    return doc
+
+
 def analyze_connector_fuses(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Public analyze entry: enumerate packets + adjudicate without applying."""
     packets_doc = enumerate_seam_packets(ctx, cfg=cfg)

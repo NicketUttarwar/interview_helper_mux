@@ -470,6 +470,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         else:
             artifacts.pop("native_cold_open_segment_id", None)
 
+        from interview_mux.order_hash import bump_order_lock
+
+        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
         write_validated_artifact(
             c,
             "master/selection.json",

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OperatorEscalation",
+  "type": "object",
+  "required": [
+    "version",
+    "stage_id",
+    "status",
+    "failed_invariant",
+    "recommended_option",
+    "options",
+    "resume_stage"
+  ],
+  "properties": {
+    "version": { "type": "integer" },
+    "stage_id": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["open", "resolved", "waived_unattended", "cancelled"]
+    },
+    "failed_invariant": { "type": "string" },
+    "evidence": { "type": "object" },
+    "preserved_work": { "type": "array", "items": { "type": "string" } },
+    "recommended_option": { "type": "string" },
+    "options": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "resume_stage": { "type": "string" },
+          "safety": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "resume_stage": { "type": "string" },
+    "created_at": { "type": "string" },
+    "resolved_at": { "type": ["string", "null"] },
+    "chosen_option": { "type": ["string", "null"] },
+    "family": { "type": "string" },
+    "quality_first": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

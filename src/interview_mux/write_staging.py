@@ -863,6 +863,27 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
 
             sync_content_brief_topic_segment_ids(ctx, overlay_stage=stage_id)
+        # Commit barrier: validate staged overlay BEFORE flush so mark_done cannot
+        # race ahead of promoted files.
+        from interview_mux.stage_resilience import (
+            after_flush_resilience,
+            record_resilience_event,
+            validate_staged_before_flush,
+        )
+
+        pre = validate_staged_before_flush(ctx, stage_id)
+        if pre.action == "halt" and pre.acceptance_ok is False:
+            record_resilience_event(
+                ctx,
+                stage_id,
+                event="commit_barrier_halt",
+                action="halt",
+                reasons=pre.reasons,
+            )
+            raise WriteApprovalBlockedError(
+                stage_id,
+                "Pre-flush commit barrier failed: " + "; ".join(pre.reasons[:4] or ["unacceptable"]),
+            )
         flushed = flush_stage_writes(ctx, stage_id)
         from interview_mux.artifact_lifecycle import apply_fingerprints_on_flush, post_commit_validate
 
@@ -886,7 +907,20 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
         from interview_mux.stage_completion import assert_stage_artifacts_complete
 
         assert_stage_artifacts_complete(ctx, stage_id)
+        post = after_flush_resilience(ctx, stage_id, flushed)
+        if post.action == "halt" and post.acceptance_ok is False:
+            raise ValueError(
+                "Post-flush resilience failed: " + "; ".join(post.reasons[:4] or ["unacceptable"])
+            )
         ctx.mark_done(stage_id)
+        record_resilience_event(
+            ctx,
+            stage_id,
+            event="stage_committed",
+            action="pass",
+            reasons=[],
+            detail={"flushed": flushed[:40]},
+        )
         end_action(
             trace_id,
             run_dir=ctx.run_dir,

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DurableJob",
+  "type": "object",
+  "required": ["version", "job_id", "stage_id", "status", "units"],
+  "properties": {
+    "version": { "type": "integer" },
+    "job_id": { "type": "string" },
+    "stage_id": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "completed", "failed", "partial"]
+    },
+    "input_hash": { "type": "string" },
+    "ladder_step": { "type": "string" },
+    "attempts": { "type": "integer" },
+    "heartbeat_at": { "type": "string" },
+    "terminal_error": { "type": ["string", "null"] },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["unit_id", "status"],
+        "properties": {
+          "unit_id": { "type": "string" },
+          "status": { "type": "string" },
+          "output_path": { "type": "string" },
+          "checksum": { "type": "string" },
+          "attempts": { "type": "integer" },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

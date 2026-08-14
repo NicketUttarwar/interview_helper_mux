@@ -167,14 +167,14 @@ def take_best_candidate(
     sel["optimizer_candidate_id"] = best.get("candidate_id")
     sel["optimizer_score"] = best.get("score")
     from interview_mux.artifact_writes import write_validated_artifact
-    from interview_mux.order_hash import stamp_order_hash
+    from interview_mux.order_hash import bump_order_lock
 
     prev_sel = (
         ctx.read_json("master/selection.json")
         if ctx.artifact_exists("master/selection.json")
         else None
     )
-    sel = stamp_order_hash(sel)
+    sel = bump_order_lock(sel, source="timeline_optimizer")
     ctx.write_json("master/optimizer_pending_selection.json", sel)
     write_validated_artifact(
         ctx,
@@ -299,7 +299,7 @@ def take_best_candidate(
                 remaster_sync(ctx, until_mix=True)
                 remaster_started = True
                 try:
-                    from interview_mux.order_hash import stamp_order_hash, sync_selection_order_to_edl
+                    from interview_mux.order_hash import assert_selection_leads_edl, copy_order_lock, stamp_order_hash
 
                     if ctx.artifact_exists("master/edl.json") and ctx.artifact_exists(
                         "master/selection.json"
@@ -307,14 +307,23 @@ def take_best_candidate(
                         edl = ctx.read_json("master/edl.json")
                         cur = ctx.read_json("master/selection.json")
                         if isinstance(edl, dict) and isinstance(cur, dict):
-                            synced = stamp_order_hash(sync_selection_order_to_edl(cur, edl))
+                            # Selection leads: copy lock onto EDL; never sync selection←EDL.
+                            aligned = copy_order_lock(cur, stamp_order_hash(dict(edl)))
+                            if list(aligned.get("ordered_segment_ids") or []) != list(
+                                cur.get("ordered_segment_ids") or []
+                            ):
+                                aligned["ordered_segment_ids"] = list(
+                                    cur.get("ordered_segment_ids") or []
+                                )
+                                aligned = copy_order_lock(cur, stamp_order_hash(aligned))
                             write_validated_artifact(
                                 ctx,
-                                "master/selection.json",
-                                synced,
+                                "master/edl.json",
+                                aligned,
                                 merge_from_disk=False,
                                 stage_key="timeline_optimizer",
                             )
+                            assert_selection_leads_edl(cur, aligned)
                 except Exception:
                     pass
                 try:

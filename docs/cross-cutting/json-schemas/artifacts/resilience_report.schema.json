@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResilienceReport",
+  "type": "object",
+  "required": ["version", "events"],
+  "properties": {
+    "version": { "type": "integer" },
+    "updated_at": { "type": "string" },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ts", "stage_id", "event"],
+        "properties": {
+          "ts": { "type": "string" },
+          "stage_id": { "type": "string" },
+          "event": { "type": "string" },
+          "action": { "type": "string" },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "detail": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "last_action": { "type": "string" },
+          "attempts": { "type": "integer" },
+          "status": { "type": "string" },
+          "last_reasons": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "active_escalations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

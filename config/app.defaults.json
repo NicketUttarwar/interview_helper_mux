@@ -1596,5 +1596,43 @@
     "llm_max_attempts": 2,
     "lint_blocking": false,
     "cross_validate_blocking": false
+  },
+  "_comment_resilience": "Stage resilience runtime — quality-first (never auto-waive publish).",
+  "resilience": {
+    "quality_first": true,
+    "commit_barrier": true,
+    "unattended_defaults": {
+      "enabled": false,
+      "note": "When enabled, documented defaults write the same escalation decision artifacts as a human; never force_publish."
+    },
+    "source_profiles": {
+      "clean_interview": {
+        "stt_chunk_s": 0,
+        "diarization_retry": 1,
+        "prefer_native_framing": true
+      },
+      "town_hall_multi": {
+        "stt_chunk_s": 0,
+        "diarization_retry": 2,
+        "speaker_count_hint_min": 4,
+        "prefer_native_framing": true
+      },
+      "noisy_mono": {
+        "preclean_aggressiveness": "high",
+        "diarization_retry": 2
+      },
+      "video_container": {
+        "extract_audio_from_video": true
+      },
+      "short_source": {
+        "min_duration_s": 0,
+        "max_duration_s": 180,
+        "thin_source_recipe": true
+      },
+      "long_source": {
+        "min_duration_s": 7200,
+        "batch_layup": true
+      }
+    }
   }
 }

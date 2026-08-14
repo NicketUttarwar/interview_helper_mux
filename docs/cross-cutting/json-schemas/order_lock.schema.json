@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrderLock",
+  "type": "object",
+  "required": ["version", "revision", "authority", "ordered_segment_ids", "order_content_hash"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "authority": { "type": "string", "const": "master/selection.json" },
+    "ordered_segment_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "order_content_hash": { "type": "string", "minLength": 8 },
+    "air_bounds_hash": { "type": "string" },
+    "selection_content_hash": { "type": "string" },
+    "nle_revision": { "type": "string" },
+    "segment_manifest_hash": { "type": "string" },
+    "created_by": { "type": "string" },
+    "supersedes": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

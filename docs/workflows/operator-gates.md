@@ -4,6 +4,14 @@ Canonical charter: [NORTH_STAR.md](../../NORTH_STAR.md).
 
 **Why these gates exist:** G0 protects **idea transmission** — a wrong word or mis-attributed clause at the source poisons every downstream stage (analysis, gap detection, VO, EDL) that trusts the transcript. Ship (`master_finalize` / publish) is blocked on **hard delight** — the `listen_delight_audit` floors (`mastering.listen_delight.mode: authoritative`, default) — so a master that fails the human-listen bar cannot silently go out the door. See [NORTH_STAR.md#essence](../../NORTH_STAR.md#essence) and [NORTH_STAR.md#human-listen-rubric-ship-checklist](../../NORTH_STAR.md#human-listen-rubric-ship-checklist).
 
+## Resilience escalations (quality-first)
+
+Product stages record bounded repairs in `operator/resilience_report.json` and open structured cards under `operator/escalations/{stage}.json` when attempts are exhausted. GUI surfaces open escalations on the phase banner; resolve via `POST /api/runs/{id}/escalations/{stage}/resolve` with a documented option (`retry_stage`, `skip_optional_vo`, `prepare_local_package_only`, …).
+
+**Never auto-published:** `force_publish` / `soft_ship` / quality waivers are rejected. Soft e2e ship remains opt-in via `INTERVIEW_MUX_E2E_SOFT=1` only.
+
+Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/runs/{id}/delivery/recover` and `GET /api/runs/{id}/resilience`.
+
 ## Hard gates
 
 | Gate | ID | Behavior |

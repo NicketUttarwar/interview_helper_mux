@@ -182,6 +182,21 @@ def layup_freshness_errors(
             "nugget_layup_plan ordered_segment_ids do not match master/selection.json "
             f"(missing={missing[:8]}, stale={extra[:8]})"
         )
+    # Order-lock revision mismatch even when lists somehow match.
+    try:
+        from interview_mux.order_hash import get_order_lock, order_locks_match
+
+        if ctx.artifact_exists("master/selection.json"):
+            sel_doc = ctx.read_json("master/selection.json")
+            if isinstance(sel_doc, dict) and get_order_lock(sel_doc) and get_order_lock(plan):
+                if not order_locks_match(sel_doc, plan):
+                    errors.append(
+                        "nugget_layup_plan order_lock diverges from selection "
+                        f"(sel_rev={(get_order_lock(sel_doc) or {}).get('revision')}, "
+                        f"plan_rev={(get_order_lock(plan) or {}).get('revision')})"
+                    )
+    except Exception:
+        pass
     return errors
 
 
@@ -880,6 +895,9 @@ def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if row.get("skip"):
         return None
     text = str(row.get("text") or "").strip()
+    from interview_mux.spoken_copy_guard import dedupe_sentences
+
+    text = dedupe_sentences(text)
     tid = str(row.get("target_segment_id") or "").strip()
     if not text or not tid:
         return None
@@ -956,6 +974,22 @@ def dedupe_gap_report_nugget_claims(
     return report, notes
 
 
+def attach_selection_order_lock(ctx: RunContext, plan: dict[str, Any]) -> dict[str, Any]:
+    """Copy selection order_lock onto a layup plan document."""
+    out = dict(plan)
+    if not ctx.artifact_exists("master/selection.json"):
+        return out
+    try:
+        from interview_mux.order_hash import copy_order_lock, get_order_lock
+
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict) and (get_order_lock(sel) or sel.get("ordered_segment_ids")):
+            out = copy_order_lock(sel, out)
+    except Exception:
+        pass
+    return out
+
+
 def publish_layup_plan_to_gap_report(
     ctx: RunContext,
     plan: dict[str, Any] | None = None,
@@ -971,6 +1005,7 @@ def publish_layup_plan_to_gap_report(
         plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     if not isinstance(plan, dict):
         plan = {}
+    plan = attach_selection_order_lock(ctx, plan)
     # Publishing a plan built for a different air order silently mis-times every
     # before-VO — refuse instead.
     assert_layup_fresh_vs_selection(ctx, plan)

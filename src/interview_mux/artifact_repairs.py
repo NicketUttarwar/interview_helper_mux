@@ -922,14 +922,17 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             applied.extend(align_notes)
         except Exception:
             pass
-    from interview_mux.order_hash import stamp_order_hash
+    from interview_mux.order_hash import bump_order_lock
 
-    stamped = stamp_order_hash(out)
-    if stamped.get("order_content_hash") != out.get("order_content_hash"):
+    stamped = bump_order_lock(out, source="artifact_repairs.repair_selection")
+    if stamped.get("order_content_hash") != out.get("order_content_hash") or stamped.get(
+        "order_lock"
+    ) != out.get("order_lock"):
         applied.append(
             {
                 "action": "stamp_order_content_hash",
                 "order_content_hash": stamped.get("order_content_hash"),
+                "order_lock_revision": (stamped.get("order_lock") or {}).get("revision"),
             }
         )
     out = stamped
@@ -2009,12 +2012,17 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         )
         orig_text = str(row.get("text") or "").strip()
         new_text = str(decision.get("text") or "").strip()
+        repeated_sentence = any(
+            str(violation).startswith("spoken_repeated_")
+            for violation in (decision.get("violations") or [])
+        )
         # Never replace a substantive episode orientation with a guard hinge
         # (thin "What changed after that?" or long "How did A founder explains…").
         if (
             is_episode_orientation(row)
             and len(orig_text.split()) >= 6
             and decision.get("action") in {"fallback", "omit", "block"}
+            and not repeated_sentence
         ):
             fixed = dict(row)
             guarded_lines.append(fixed)
@@ -2032,6 +2040,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             required
             and len(orig_text.split()) >= 6
             and len(new_text.split()) < 6
+            and not repeated_sentence
         ):
             fixed = dict(row)
             guarded_lines.append(fixed)
@@ -2050,6 +2059,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             bool(out.get("nugget_layup_authority"))
             and str(row.get("origin") or "") == "nugget_layup"
             and orig_text
+            and not repeated_sentence
             and (
                 decision.get("action") in {"omit", "fallback"}
                 or (

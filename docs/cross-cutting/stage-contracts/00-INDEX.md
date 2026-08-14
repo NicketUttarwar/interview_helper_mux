@@ -10,7 +10,6 @@
 | `connector_fuse_pass` | process | analysis/connector_fuse_audit.json |
 | `connector_fuse_pass_pre_ranking` | process | analysis/connector_fuse_rounds.json |
 | `connector_seam_adjudicate` | llm_full | analysis/connector_seam_verdicts.json |
-| `island_cluster_structure_adjudicate` | llm_advisory | analysis/island_cluster_structure_verdicts.json |
 | `content_brief_reanchor` | llm_full | understanding/content_brief.json |
 | `content_context` | llm_full | understanding/content_brief.json |
 | `delivery_brief_build` | process | — |
@@ -30,6 +29,7 @@
 | `information_package_plan` | process | — |
 | `ingest` | process | — |
 | `interview_spine_build` | deterministic | — |
+| `island_cluster_structure_adjudicate` | llm_advisory | analysis/island_cluster_structure_verdicts.json, analysis/island_cluster_structure_packets.json |
 | `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
 | `junction_snip_qa` | process | — |
 | `listen_delight_audit` | process | — |

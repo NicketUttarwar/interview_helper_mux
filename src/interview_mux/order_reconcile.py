@@ -123,7 +123,7 @@ def _apply_reconciled_order(
     """Persist selection order + stamp hash. Returns the order written."""
     if not ordered:
         return ordered
-    from interview_mux.order_hash import stamp_order_hash
+    from interview_mux.order_hash import bump_order_lock
 
     if not ctx.artifact_exists("master/selection.json"):
         return ordered
@@ -145,7 +145,7 @@ def _apply_reconciled_order(
     sel = dict(sel)
     sel["ordered_segment_ids"] = cleaned
     sel["order_reconcile_source"] = source
-    stamped = stamp_order_hash(sel)
+    stamped = bump_order_lock(sel, source=f"order_reconcile:{source}")
     try:
         from interview_mux.write_staging import write_committed_json
 
