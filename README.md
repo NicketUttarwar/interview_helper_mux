@@ -47,7 +47,7 @@ Episode covers use OpenAI Images (`podcast.cover_image`) — see [docs/cross-cut
 | Launch GUI | `./scripts/run.sh` |
 | Headless | `./scripts/run.sh --cli` |
 | Rebuild GUI only | `MUX_REBUILD_GUI=1 ./scripts/run.sh` |
-| Detached e2e companion | `MUX_BABA_E2E=1 ./scripts/run.sh` (see [smoke-test](docs/workflows/smoke-test.md)) |
+| Detached Full-auto companion | `MUX_FULL_AUTO=1 ./scripts/run.sh` or GUI Start Full-auto (see [smoke-test](docs/workflows/smoke-test.md)) |
 
 Runs and artifacts: `ASSETS/executions/exec_*`
 
@@ -106,11 +106,11 @@ scripts/sync_podcast_tf_secrets.sh # outputs → PODCAST_* in secrets.env
 scripts/seed_podcast_origin.py     # seed feed.xml + show art (boto3)
 scripts/sync_podcast_episodes.py   # upload one execution (or --all for explicit bulk)
 scripts/invalidate_podcast_cf.sh   # CloudFront invalidation (boto3; no AWS CLI)
-scripts/run.sh                     # launch (MUX_BABA_E2E=1 for detached e2e)
+scripts/run.sh                     # launch (MUX_FULL_AUTO=1 for detached Full-auto)
 terraform/                         # S3 + CloudFront OAC (README + committed state/)
 src/interview_mux/                 # pipeline + API
 frontend/                          # React GUI
 config/                            # defaults + secrets + podcast cover + tfvars.example
 docs/                              # specs and prompts
-tools/                             # CLI helpers + baba e2e launchers
+tools/                             # CLI helpers + Full-auto launchers
 ```

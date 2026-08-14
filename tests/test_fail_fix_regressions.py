@@ -27,7 +27,7 @@ def test_hyphen_boundary_keeps_ingest_out_of_vo_ingest() -> None:
     assert idx > 0
     before = low[idx - 1]
     after = low[idx + len(cand)]
-    # Same rule as tools/_baba_e2e_driver.parse_failed_stage
+    # Same rule as tools/full_auto_driver.parse_failed_stage
     is_token = (not before.isalnum() and before not in "_-") and (
         not after.isalnum() and after not in "_-"
     )

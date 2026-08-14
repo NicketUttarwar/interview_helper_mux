@@ -16,8 +16,14 @@ sys.path.insert(0, str(ROOT / "src"))
 def main() -> int:
     run_id = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
     if not run_id:
-        pointer = ROOT / "ASSETS" / "baba_current_run.txt"
-        run_id = pointer.read_text(encoding="utf-8").strip() if pointer.is_file() else ""
+        for name in ("full_auto_current_run.txt", "baba_current_run.txt"):
+            pointer = ROOT / "ASSETS" / name
+            if pointer.is_file():
+                run_id = pointer.read_text(encoding="utf-8").strip()
+                if run_id:
+                    break
+        else:
+            run_id = ""
     if not run_id:
         print("usage: _g1_resynth_missing.py <run_id>", flush=True)
         return 2

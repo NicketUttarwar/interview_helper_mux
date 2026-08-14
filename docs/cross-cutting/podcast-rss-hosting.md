@@ -155,7 +155,7 @@ python scripts/seed_podcast_origin.py   # re-seed feed/catalog/show after wipe
 | `episode_cover_generate` | candidates + `publish/cover.jpg` (3000²) |
 | `podcast_publish` | Local package finalize (`package_ready.json`) — **no S3** |
 
-S3 upload is **not** a pipeline stage. App paths (G-Publish, baba/e2e) always pass the current `execution_id`. CLI: `scripts/sync_podcast_episodes.py --execution-id …` (or `--all` for explicit bulk). Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
+S3 upload is **not** a pipeline stage. App paths (G-Publish, Full-auto/e2e) always pass the current `execution_id`. CLI: `scripts/sync_podcast_episodes.py --execution-id …` (or `--all` for explicit bulk). Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
 
 ## Art style contract
 

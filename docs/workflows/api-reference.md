@@ -40,17 +40,17 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | `GET` | `/api/session` | — | — | `server`, `active` (run id + optional `selected_stage_id`, `active_tab`, `pipeline_sub_tab`, `activity_log_tab`, `activity_log_collapsed`); if active run valid: `log` (tail 200 entries), `run_summary` | Active run cleared if resolve fails |
 | `PUT` | `/api/session/active` | — | **ActiveBody** | Merged `active_execution.json` payload, or `{ok, active: null}` when `run_id` null | **400** invalid tab; **409** source lock |
 | `DELETE` | `/api/session/active` | — | — | `{ok: true, active: null}` — clears active execution | — |
-| `GET` | `/api/assets` | `recursive` (bool, default `true`) | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
+| `GET` | `/api/assets` | — | — | `assets_root`, `files[]` with `path`, `name`, `size_bytes`, `modified_at` | — |
 
-Lists discoverable **source** audio under `assets_root` (default `ASSETS/`). Skips top-level `executions` and `.gui`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
+Lists discoverable **source** audio directly under `ASSETS/input/`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 | `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields; with `enrich=1`: `progress` (`done`/`total`), `last_stage`, `last_log`, `job_status`, `operator_phase`, `next_action` (truncated), `blocking_message`, `attention_count` | Per-run errors swallowed → `progress: {0,0}` |
-| `POST` | `/api/runs` | — | **CreateRunBody** | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short` | **404** if `input_audio_path` file missing |
+| `POST` | `/api/runs` | — | **CreateRunBody** (`input_audio_path`, optional `run_id`, optional `run_mode`: `manual`\|`full-auto`, optional `full_auto`) | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `run_mode`, `full_auto`; when Full-auto also `full_auto_launch` | **404** if `input_audio_path` file missing; **500** if Full-auto worker launch fails after create |
 
 ### `CreateRunBody`
 
 | Field | Type | Required | Notes |
 |-------|------|----------|--------|
-| `input_audio_path` | string | yes | Repo-relative path under `ASSETS/` (file directly in that folder). Any non-WAV (mp3, mp4, m4a, …) is converted to a sibling `.wav` on run init; DeepFilter/ingest use that WAV. Prefer e.g. `ASSETS/interview.mp4` or `ASSETS/interview.wav`. |
+| `input_audio_path` | string | yes | Repo-relative path directly under `ASSETS/input/`. Any non-WAV (MP3, MP4, M4A, …) is converted to a sibling PCM `.wav` on run init; DeepFilter/ingest use that WAV. Prefer e.g. `ASSETS/input/interview.mp3` or `ASSETS/input/interview.wav`. |
 | `run_id` | string \| null | no | If omitted, server allocates new `exec_*` id |
 
 ### `ActiveBody`

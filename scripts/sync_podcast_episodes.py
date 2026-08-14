@@ -4,7 +4,7 @@
 Additive only — never deletes remote objects. Skips executions already listed
 in catalog/by_execution_id.json. Skips PutObject when remote size matches.
 
-App paths (GUI / baba e2e) always sync one ``execution_id``. This CLI matches
+App paths (GUI / Full-auto) always sync one ``execution_id``. This CLI matches
 that default; use ``--all`` only for an explicit bulk of every ready package.
 
 Usage:

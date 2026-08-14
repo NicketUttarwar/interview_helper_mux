@@ -1,6 +1,6 @@
 """Novel GPU-first MusicGen / palette tests inspired by exec_1765 failure.
 
-exec_1765 (baba e2e) facts:
+exec_1765 (Full-auto) facts:
 - Primary was facebook/musicgen-large on **CPU**
 - cold_open sat ~18+ minutes then recovered via MMAudio / e2e stub
 - Prompts were long essays; medium/small often uncached
@@ -45,7 +45,7 @@ _EXEC_1765 = (
     / "exec_1765_1311e28fffa1_20260811T230442Z"
 )
 
-_BABA_BRIEF = {
+_FULL_AUTO_BRIEF = {
     "show_identity": {
         "genre_hint": "acoustic conversational documentary instrumental",
         "mood": "determined",
@@ -83,8 +83,8 @@ def _musicgen_ready(*, need: str = "facebook/musicgen-large") -> bool:
 
 def _succinct_prompts(*, role: str, palette_kind: str) -> tuple[str, str]:
     return compile_musicgen_prompt(
-        brief=_BABA_BRIEF,
-        motif=default_motif_family(_BABA_BRIEF),
+        brief=_FULL_AUTO_BRIEF,
+        motif=default_motif_family(_FULL_AUTO_BRIEF),
         role=role,
         palette_kind=palette_kind,
         wpm=140,

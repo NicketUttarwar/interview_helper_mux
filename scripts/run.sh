@@ -13,7 +13,8 @@
 #   MUX_SKIP_ASSETS_CLEANUP=1    Skip ephemeral ASSETS/ cleanup (debug)
 #   MUX_NO_BROWSER=1             Pass --no-browser to serve (headless / e2e)
 #   MUX_RUN_MODE=manual|full-auto  Skip interactive mode prompt
-#   MUX_BABA_E2E=1               Alias for Full-auto (Baba E2E soft automation)
+#   MUX_FULL_AUTO=1              Alias for Full-auto (soft automation)
+#   MUX_BABA_E2E=1               Legacy alias for MUX_FULL_AUTO
 #                                (MUX_INPUT_AUDIO / MUX_FRESH / MUX_RUN_ID honored)
 #   MUX_DETACH_SERVE=1           Start serve in its own session and return
 #                                (unattended e2e: server survives parent shell exit)
@@ -49,18 +50,20 @@ Setup once:  ./scripts/bootstrap_venv.sh
 Launch:      ./scripts/run.sh
 
 Interactive (TTY): choose Manual (default) or Full-auto, then pick source audio
-for Full-auto. Full-auto is Baba E2E — heal/remutate/re-execute with soft waivers,
-cover art, local publish, and S3 upload.
+for Full-auto. Full-auto heal/remutates/re-executes with soft waivers,
+cover art, local publish, and S3 upload. Prefer the GUI Start-page control
+for Full-auto when launching Manual (opens the browser).
 
 Environment:
   MUX_RUN_MODE=manual|full-auto  Skip mode prompt
-  MUX_INPUT_AUDIO=ASSETS/….wav   Skip audio picker (Full-auto)
+  MUX_INPUT_AUDIO=ASSETS/input/… Skip audio picker (Full-auto; mp3 is converted to WAV)
   MUX_PRESERVE_SESSION=1         Keep GUI session across launches
   MUX_REBUILD_GUI=1              npm build before serve
   MUX_REFRESH_DEPS=1             Refresh core .venv after git pull
   MUX_SKIP_ASSETS_CLEANUP=1      Skip ephemeral ASSETS/ cleanup
   MUX_NO_BROWSER=1               Do not open a browser tab
-  MUX_BABA_E2E=1                 Alias for Full-auto (same soft E2E stack)
+  MUX_FULL_AUTO=1                Alias for Full-auto (same soft stack)
+  MUX_BABA_E2E=1                 Legacy alias for MUX_FULL_AUTO
   MUX_DETACH_SERVE=1             Detach serve into its own session and return
   MUX_FRESH / MUX_RUN_ID         Fresh create vs resume for Full-auto
 EOF
@@ -148,14 +151,24 @@ _normalize_run_mode() {
   esac
 }
 
+_full_auto_env_set() {
+  # Prefer MUX_FULL_AUTO; accept legacy MUX_BABA_E2E.
+  local v
+  v="$(printf '%s' "${MUX_FULL_AUTO:-${MUX_BABA_E2E:-0}}" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 pick_run_mode() {
-  local preset normalized
+  local preset
   preset="$(_normalize_run_mode "${MUX_RUN_MODE:-}")"
   if [[ -n "$preset" ]]; then
     echo "$preset"
     return
   fi
-  if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
+  if _full_auto_env_set; then
     echo "full-auto"
     return
   fi
@@ -167,8 +180,8 @@ pick_run_mode() {
   echo "" >&2
   echo "Run mode" >&2
   echo "  [ Manual ●──────── Full-auto ]" >&2
-  echo "  1) Manual     — GUI; you click gates (default)" >&2
-  echo "  2) Full-auto  — Baba E2E: heal/remutate/re-execute, soft waivers," >&2
+  echo "  1) Manual     — GUI; pick Manual/Full-auto on Start (default)" >&2
+  echo "  2) Full-auto  — headless: heal/remutate/re-execute, soft waivers," >&2
   echo "                  cover art, publish package, S3 upload" >&2
   echo "" >&2
   while true; do
@@ -185,7 +198,7 @@ list_assets_audio() {
   python - <<'PY'
 from pathlib import Path
 exts = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".webm", ".mp4"}
-root = Path("ASSETS")
+root = Path("ASSETS/input")
 if not root.is_dir():
     raise SystemExit(0)
 for p in sorted(root.iterdir()):
@@ -200,6 +213,10 @@ pick_input_audio() {
       echo "ERROR: MUX_INPUT_AUDIO not found: ${MUX_INPUT_AUDIO}" >&2
       exit 1
     fi
+    case "${MUX_INPUT_AUDIO}" in
+      ASSETS/input/*) ;;
+      *) echo "ERROR: MUX_INPUT_AUDIO must be directly under ASSETS/input/" >&2; exit 1 ;;
+    esac
     echo "${MUX_INPUT_AUDIO}"
     return
   fi
@@ -209,7 +226,7 @@ pick_input_audio() {
     [[ -n "$line" ]] && files+=("$line")
   done < <(list_assets_audio)
   if ((${#files[@]} == 0)); then
-    echo "ERROR: No audio files in ASSETS/ (expected .wav/.mp4/…)" >&2
+    echo "ERROR: No audio files in ASSETS/input/ (expected .wav/.mp3/…)" >&2
     exit 1
   fi
   if [[ ! -t 0 ]]; then
@@ -217,7 +234,7 @@ pick_input_audio() {
     exit 1
   fi
   echo "" >&2
-  echo "Source audio (ASSETS/)" >&2
+  echo "Source audio (ASSETS/input/)" >&2
   local i
   for i in "${!files[@]}"; do
     printf "  %2d) %s\n" "$((i + 1))" "${files[$i]}" >&2
@@ -238,16 +255,16 @@ RUN_MODE="$(pick_run_mode)"
 export MUX_RUN_MODE="$RUN_MODE"
 
 if [[ "$RUN_MODE" == "full-auto" ]]; then
-  export MUX_BABA_E2E=1
+  export MUX_FULL_AUTO=1
   export MUX_NO_BROWSER=1
   export MUX_DETACH_SERVE=1
   INPUT_PICKED="$(pick_input_audio)"
   export MUX_INPUT_AUDIO="$INPUT_PICKED"
   echo ""
-  echo "Full-auto selected — Baba E2E soft automation"
+  echo "Full-auto selected — soft automation"
   echo "  input:  ${MUX_INPUT_AUDIO}"
-  echo "  logs:   ASSETS/baba_e2e_console.log"
-  echo "  stop:   python tools/baba_daemon_launch.py stop"
+  echo "  logs:   ASSETS/full_auto_console.log"
+  echo "  stop:   python tools/full_auto_daemon_launch.py stop"
   echo "  gui:    http://127.0.0.1:${WEB_PORT} (detached, no browser)"
   echo ""
 fi
@@ -275,22 +292,22 @@ fi
 
 # Unattended mode: serve runs in its own session so it outlives this shell.
 # Foreground `exec serve` dies with the parent (SIGHUP/process-group kill), which
-# interrupts in-flight stages, so e2e / Full-auto launches must use this path.
+# interrupts in-flight stages, so Full-auto launches must use this path.
 if [[ "${MUX_DETACH_SERVE:-0}" == "1" ]]; then
-  python "$ROOT/tools/baba_daemon_launch.py" server
-  if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
-    python "$ROOT/tools/baba_daemon_launch.py" "${E2E_ARGS[@]}"
+  python "$ROOT/tools/full_auto_daemon_launch.py" server
+  if _full_auto_env_set; then
+    python "$ROOT/tools/full_auto_daemon_launch.py" "${E2E_ARGS[@]}"
   fi
   echo "Web GUI → http://127.0.0.1:${WEB_PORT} (detached)"
-  if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
-    echo "Full-auto driver + keepalive detached — watch ASSETS/baba_e2e_console.log"
+  if _full_auto_env_set; then
+    echo "Full-auto driver + keepalive detached — watch ASSETS/full_auto_console.log"
   fi
   exit 0
 fi
 
-if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
-  # Detach durable e2e companion before serve (serve is exec'd and replaces this shell).
-  # Start detached e2e after a short delay so serve binds first.
+if _full_auto_env_set; then
+  # Detach durable Full-auto companion before serve (serve is exec'd and replaces this shell).
+  # Start detached driver after a short delay so serve binds first.
   (
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
       if curl -sf "http://127.0.0.1:${WEB_PORT}/api/health" >/dev/null 2>&1; then
@@ -298,7 +315,7 @@ if [[ "${MUX_BABA_E2E:-0}" == "1" ]]; then
       fi
       sleep 1
     done
-    python "$ROOT/tools/baba_daemon_launch.py" "${E2E_ARGS[@]}"
+    python "$ROOT/tools/full_auto_daemon_launch.py" "${E2E_ARGS[@]}"
   ) >/dev/null 2>&1 &
   disown || true
 fi

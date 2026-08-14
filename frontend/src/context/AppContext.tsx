@@ -157,6 +157,8 @@ interface AppContextValue {
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string) => Promise<void>;
+  startRunMode: "manual" | "full-auto";
+  setStartRunMode: (mode: "manual" | "full-auto") => void;
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
@@ -213,6 +215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [run, setRun] = useState<RunData | null>(null);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto">("manual");
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [homeLog, setHomeLog] = useState<LogEntry[]>([]);
@@ -1387,20 +1390,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const body: Record<string, string> = { input_audio_path: inputPath };
-        showToast("Creating execution…", "info");
-        const res = await api<{ run_id: string }>("/api/runs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        appendClientLog(`Created execution ${res.run_id}`, "success");
+        const body: Record<string, unknown> = {
+          input_audio_path: inputPath,
+          run_mode: startRunMode,
+          full_auto: startRunMode === "full-auto",
+        };
+        showToast(
+          startRunMode === "full-auto"
+            ? "Creating execution and launching Full-auto…"
+            : "Creating execution…",
+          "info",
+        );
+        const res = await api<{ run_id: string; run_mode?: string }>(
+          "/api/runs",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        appendClientLog(
+          startRunMode === "full-auto"
+            ? `Created execution ${res.run_id} (Full-auto)`
+            : `Created execution ${res.run_id}`,
+          "success",
+        );
+        if (startRunMode === "full-auto") {
+          showToast(
+            "Full-auto running — gates, package, and S3 publish are automatic.",
+            "info",
+          );
+        }
         await openRun(res.run_id, { preferFirstStage: true });
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Failed to start run", "error");
       }
     },
-    [appendClientLog, openRun, showToast, runId, sessionReady],
+    [appendClientLog, openRun, showToast, runId, sessionReady, startRunMode],
   );
 
   const clearSession = useCallback(async () => {
@@ -2144,6 +2170,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearSession,
     refreshHome,
     startRun,
+    startRunMode,
+    setStartRunMode,
     openRun,
     retryOpenRun,
     refreshRun,

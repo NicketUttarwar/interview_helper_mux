@@ -33,6 +33,8 @@ export function StartTab() {
     selectStage,
     setActiveSubstepId,
     actionBusy,
+    startRunMode,
+    setStartRunMode,
   } = useApp();
   const sessionLocked = Boolean(runId);
 
@@ -96,6 +98,7 @@ export function StartTab() {
   if (sessionLocked && run) {
     const sourcePath = run.meta?.input_audio_path || "Unknown source";
     const sourceName = sourcePath.split("/").pop() || sourcePath;
+    const isFullAuto = run.meta?.run_mode === "full-auto" || Boolean(run.meta?.full_auto);
     return (
       <main className="view tab-view">
         <section className="panel hero hero-compact">
@@ -104,6 +107,12 @@ export function StartTab() {
             Source audio is locked for this session. Continue in Pipeline — use{" "}
             <strong>Menu → Clear session</strong> only when you want to start over.
           </p>
+          {isFullAuto ? (
+            <p className="hint" data-testid="start-full-auto-active">
+              Full-auto is running — gates, package, and S3 publish are handled automatically.
+              Watch Pipeline / Logs for progress.
+            </p>
+          ) : null}
           <p className="hint start-live-subline">
             <strong>{live.headline}</strong>
             {live.subline ? <> — {live.subline}</> : null}
@@ -161,6 +170,8 @@ export function StartTab() {
     );
   }
 
+  const fullAutoSelected = startRunMode === "full-auto";
+
   return (
     <main className="view tab-view start-tab-view">
       <section className="panel hero hero-compact">
@@ -170,6 +181,54 @@ export function StartTab() {
         </h2>
       </section>
       <StartPhaseGuidance />
+      <section
+        className="panel panel-compact start-run-mode-panel"
+        data-testid="start-run-mode"
+        aria-label="Run mode"
+      >
+        <div className="panel-head">
+          <h3>Run mode</h3>
+        </div>
+        <div
+          className="start-run-mode-slider"
+          role="radiogroup"
+          aria-label="Manual or Full-auto"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!fullAutoSelected}
+            className={`start-run-mode-option${!fullAutoSelected ? " selected" : ""}`}
+            data-testid="start-mode-manual"
+            onClick={() => setStartRunMode("manual")}
+          >
+            <span className="start-run-mode-title">Manual</span>
+            <span className="start-run-mode-desc">
+              You review transcript, framing, VO, and publish steps in the GUI.
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={fullAutoSelected}
+            className={`start-run-mode-option full-auto${fullAutoSelected ? " selected" : ""}`}
+            data-testid="start-mode-full-auto"
+            onClick={() => setStartRunMode("full-auto")}
+          >
+            <span className="start-run-mode-title">Full-auto</span>
+            <span className="start-run-mode-desc">
+              After Start, the app accepts every gate, builds the master, prepares the package,
+              and uploads this run to S3.
+            </span>
+          </button>
+        </div>
+        {fullAutoSelected ? (
+          <p className="hint start-run-mode-warning" data-testid="start-full-auto-hint">
+            Full-auto bypasses transcript review and voice-clone consent. Use only when you want
+            an unattended end-to-end ship including S3 publish.
+          </p>
+        ) : null}
+      </section>
       <section
         className="panel panel-compact"
         data-testid="start-tab-ready"
@@ -220,7 +279,8 @@ export function StartTab() {
                     void startRun(f.path);
                   }}
                 >
-                  <ActionMarker status="todo" /> Start
+                  <ActionMarker status="todo" />{" "}
+                  {fullAutoSelected ? "Start Full-auto" : "Start"}
                 </button>
               </div>
             ))

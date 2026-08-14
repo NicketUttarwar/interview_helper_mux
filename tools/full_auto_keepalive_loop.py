@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Keep baba server + e2e driver alive until podcast_publish completes.
+"""Keep Full-auto server + driver alive until podcast_publish completes.
 
 When the pointed run reaches the ship bar (master + cover + publish), this
-loop tears down serve + e2e and exits — it does not relaunch a finished run.
+loop tears down serve + driver and exits — it does not relaunch a finished run.
+When ``MUX_FULL_AUTO_KEEP_SERVER=1`` (in-app GUI launch), the GUI serve process
+is left running so the operator can keep watching status in the browser.
 """
 
 from __future__ import annotations
@@ -16,14 +18,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
-STATUS = ASSETS / "baba_status.json"
-LOG = ASSETS / "baba_watchdog.log"
-RUN_POINTER = ASSETS / "baba_current_run.txt"
+STATUS = ASSETS / "full_auto_status.json"
+LOG = ASSETS / "full_auto_watchdog.log"
+RUN_POINTER = ASSETS / "full_auto_current_run.txt"
+_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
 
 
 def web_port() -> int:
     try:
-        from baba_daemon_launch import web_port as _wp
+        from full_auto_daemon_launch import web_port as _wp
 
         return int(_wp())
     except Exception:
@@ -38,7 +41,7 @@ def api_base() -> str:
 
 
 def log(msg: str) -> None:
-    # stdout is redirected to LOG by baba_daemon_launch; a second file write duplicates lines.
+    # stdout is redirected to LOG by full_auto_daemon_launch; a second file write duplicates lines.
     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}", flush=True)
 
 
@@ -46,7 +49,7 @@ def launch(mode: str, *extra: str) -> None:
     import subprocess
 
     py = ROOT / ".venv" / "bin" / "python"
-    cmd = [str(py), str(ROOT / "tools" / "baba_daemon_launch.py"), mode, *extra]
+    cmd = [str(py), str(ROOT / "tools" / "full_auto_daemon_launch.py"), mode, *extra]
     subprocess.run(cmd, cwd=str(ROOT), check=False)
 
 
@@ -62,21 +65,32 @@ def e2e_alive() -> bool:
     import subprocess
 
     try:
-        out = subprocess.check_output(["pgrep", "-f", "_baba_e2e_driver.py"], text=True)
+        out = subprocess.check_output(["pgrep", "-f", _DRIVER_PGREP], text=True)
         return bool(out.strip())
     except subprocess.CalledProcessError:
         return False
 
 
+def _keep_gui_server() -> bool:
+    return str(os.environ.get("MUX_FULL_AUTO_KEEP_SERVER") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def latest_run() -> str | None:
     # The driver writes this on bind — authoritative and race-free at fresh start.
-    if RUN_POINTER.is_file():
-        pointed = RUN_POINTER.read_text(encoding="utf-8").strip()
-        if pointed and (ASSETS / "executions" / pointed).is_dir():
-            return pointed
+    for pointer in (RUN_POINTER, ASSETS / "baba_current_run.txt"):
+        if pointer.is_file():
+            pointed = pointer.read_text(encoding="utf-8").strip()
+            if pointed and (ASSETS / "executions" / pointed).is_dir():
+                return pointed
     # Fall back to explicit resume/create lines from the current driver.
-    console = ASSETS / "baba_e2e_console.log"
-    if console.is_file():
+    for console_name in ("full_auto_console.log", "baba_e2e_console.log"):
+        console = ASSETS / console_name
+        if not console.is_file():
+            continue
         for line in reversed(console.read_text(errors="ignore").splitlines()):
             if "resuming existing run=" in line or "created fresh run=" in line:
                 m = re.search(r"exec_\d+_[a-f0-9]+_\d{8}T\d{6}Z", line)
@@ -136,11 +150,12 @@ def write_status(run_id: str | None) -> None:
 
 
 def pointed_run() -> str | None:
-    if not RUN_POINTER.is_file():
-        return None
-    pointed = RUN_POINTER.read_text(encoding="utf-8").strip()
-    if pointed and (ASSETS / "executions" / pointed).is_dir():
-        return pointed
+    for pointer in (RUN_POINTER, ASSETS / "baba_current_run.txt"):
+        if not pointer.is_file():
+            continue
+        pointed = pointer.read_text(encoding="utf-8").strip()
+        if pointed and (ASSETS / "executions" / pointed).is_dir():
+            return pointed
     return None
 
 
@@ -161,9 +176,13 @@ def main() -> None:
             write_status(pointed)
             log(f"DONE pipeline complete run={pointed} — shutting down stack")
             try:
-                from baba_daemon_launch import shutdown_baba_stack
+                from full_auto_daemon_launch import shutdown_full_auto_stack
 
-                info = shutdown_baba_stack(kill_keepalive=False, exclude_pid=os.getpid())
+                info = shutdown_full_auto_stack(
+                    kill_keepalive=False,
+                    kill_server=not _keep_gui_server(),
+                    exclude_pid=os.getpid(),
+                )
                 log(f"stack shutdown: {info}")
             except Exception as exc:
                 log(f"stack shutdown failed: {exc}")
@@ -197,9 +216,13 @@ def main() -> None:
                 log(f"DONE incomplete pointer but run complete — shutting down stack run={run_id}")
                 write_status(run_id)
                 try:
-                    from baba_daemon_launch import shutdown_baba_stack
+                    from full_auto_daemon_launch import shutdown_full_auto_stack
 
-                    info = shutdown_baba_stack(kill_keepalive=False, exclude_pid=os.getpid())
+                    info = shutdown_full_auto_stack(
+                        kill_keepalive=False,
+                        kill_server=not _keep_gui_server(),
+                        exclude_pid=os.getpid(),
+                    )
                     log(f"stack shutdown: {info}")
                 except Exception as exc:
                     log(f"stack shutdown failed: {exc}")

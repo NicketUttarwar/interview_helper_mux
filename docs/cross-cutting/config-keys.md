@@ -13,9 +13,10 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
 | `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, stale locks inside exec_*; never deletes execution dirs) |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
-| `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI only; `full-auto` detaches Baba E2E soft automation (heal/remutate/re-execute + soft waivers + S3). TTY prompts when unset |
-| `MUX_INPUT_AUDIO` | picker / Baba default | Full-auto / `_baba_e2e_driver` | Relative path under repo (e.g. `ASSETS/….mp4`); required for non-TTY Full-auto |
-| `MUX_BABA_E2E` | `0` | `./scripts/run.sh` | `1` aliases Full-auto (same soft stack as historical Baba overnight runs) |
+| `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI (pick Manual/Full-auto on Start); `full-auto` detaches soft automation (heal/remutate/re-execute + soft waivers + S3). TTY prompts when unset |
+| `MUX_INPUT_AUDIO` | picker | Full-auto / `full_auto_driver` | Relative path directly under `ASSETS/input/` (e.g. `ASSETS/input/interview.mp3`); required for non-TTY Full-auto. Non-WAV files are converted to sibling PCM WAV before stages run. |
+| `MUX_FULL_AUTO` | `0` | `./scripts/run.sh` / GUI Start | `1` enables Full-auto soft stack (heal/remutate/re-execute, soft waivers, publish + S3) |
+| `MUX_BABA_E2E` | `0` | legacy | Alias for `MUX_FULL_AUTO` (accepted once during rename transition) |
 | `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
 | `MUX_DETACH_SERVE` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` starts serve in its own session so Full-auto survives shell exit |
 

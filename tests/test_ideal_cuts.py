@@ -123,7 +123,7 @@ def test_evaluate_boundary_quality_accepts_fine_map_with_minor_coverage_hole():
     duration_ms = 3_347_860
     boundaries = []
     t = 0
-    # ~84.5% coverage with hundreds of short segments (baba-like turn map).
+    # ~84.5% coverage with hundreds of short segments (Full-auto-like turn map).
     while t < int(duration_ms * 0.845):
         end = min(t + 8_500, int(duration_ms * 0.845))
         if end <= t:

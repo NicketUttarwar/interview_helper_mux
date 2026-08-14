@@ -1,6 +1,6 @@
 """Real-world MusicGen / palette tests inspired by exec_1765 hang + MMAudio fallback.
 
-exec_1765 facts (baba e2e):
+exec_1765 facts (Full-auto):
 - cold_open MusicGen on facebook/musicgen-large sat on CPU for ~18+ minutes
   (operator log shows 0s…1110s) before recovery
 - Final assets logged as MMAudio provider; later gen.json shows e2e fast-stub
@@ -55,7 +55,7 @@ _LEGACY_COLD_OPEN_ESSAY = (
     "presence and a clean final cadence Topics: conviction, gratitude, reflection"
 )
 
-_BABA_BRIEF = {
+_FULL_AUTO_BRIEF = {
     "show_identity": {
         "genre_hint": "acoustic conversational documentary instrumental",
         "mood": "determined",
@@ -127,7 +127,7 @@ def test_exec_1765_legacy_assets_harden_to_fixed_palette(exec_1765_sdp: dict | N
         "stingers": 2,
         "full_beds": 2,
     }
-    out = harden_palette_inventory(exec_1765_sdp, _BABA_BRIEF, counts=counts)
+    out = harden_palette_inventory(exec_1765_sdp, _FULL_AUTO_BRIEF, counts=counts)
     kinds = [str(a.get("palette_kind")) for a in out["assets"]]
     assert kinds.count("motif") == 1
     assert kinds.count("underscore_loop") == 1
@@ -153,9 +153,9 @@ def test_legacy_essay_prompt_replaced_by_succinct_compile(exec_1765_prompts: dic
     cold = next(r for r in rows if r.get("asset_id") == "show_theme_v2_cold_open")
     assert len(str(cold.get("sfx_prompt") or "").split()) > 60
 
-    motif = default_motif_family(_BABA_BRIEF)
+    motif = default_motif_family(_FULL_AUTO_BRIEF)
     pos, neg = compile_musicgen_prompt(
-        brief=_BABA_BRIEF,
+        brief=_FULL_AUTO_BRIEF,
         motif=motif,
         role="theme_cold_open",
         palette_kind="full_bed",
@@ -170,7 +170,7 @@ def test_legacy_essay_prompt_replaced_by_succinct_compile(exec_1765_prompts: dic
     assert len(_LEGACY_COLD_OPEN_ESSAY.split()) > 60
 
 
-def test_baba_like_palette_counts_from_narrative() -> None:
+def test_full_auto_like_palette_counts_from_narrative() -> None:
     """Dense multi-chapter stewardship interview → richer palette, not sparse."""
     ctx = _FakeCtx(
         {
@@ -201,7 +201,7 @@ def test_baba_like_palette_counts_from_narrative() -> None:
     assert counts["stingers"] >= 2
 
 
-def test_compose_reuses_palette_across_baba_like_order(exec_1765_sdp: dict | None) -> None:
+def test_compose_reuses_palette_across_full_auto_like_order(exec_1765_sdp: dict | None) -> None:
     """Compose must place/reuse palette ids — not invent N unique beds."""
     counts = {
         "motif": 1,
@@ -211,7 +211,7 @@ def test_compose_reuses_palette_across_baba_like_order(exec_1765_sdp: dict | Non
         "full_beds": 2,
     }
     base = exec_1765_sdp or {"assets": [], "flow_plans": {"podcast": {"cues": []}}}
-    sdp = harden_palette_inventory(base, _BABA_BRIEF, counts=counts)
+    sdp = harden_palette_inventory(base, _FULL_AUTO_BRIEF, counts=counts)
     ordered = [f"seg_{i:03d}" for i in range(12)]
     chapters = [
         {"title": "a", "segment_ids": ordered[:4]},
@@ -315,8 +315,8 @@ def test_ladder_steps_large_then_medium_then_small_on_timeout(
     monkeypatch.setattr(mg, "_spawn_musicgen", fake_spawn)
     out = tmp_path / "cold_open.wav"
     prompt = compile_musicgen_prompt(
-        brief=_BABA_BRIEF,
-        motif=default_motif_family(_BABA_BRIEF),
+        brief=_FULL_AUTO_BRIEF,
+        motif=default_motif_family(_FULL_AUTO_BRIEF),
         role="theme_cold_open",
         palette_kind="full_bed",
     )[0]
@@ -397,9 +397,9 @@ def test_live_musicgen_ladder_reports_winning_model(
     )
     monkeypatch.setattr(mg, "musicgen_cfg", lambda: base)
 
-    motif = default_motif_family(_BABA_BRIEF)
+    motif = default_motif_family(_FULL_AUTO_BRIEF)
     prompt, neg = compile_musicgen_prompt(
-        brief=_BABA_BRIEF,
+        brief=_FULL_AUTO_BRIEF,
         motif=motif,
         role="theme_emphasis",
         palette_kind="stinger",

@@ -580,6 +580,8 @@ export interface RunMeta {
   source_audio_hash?: string;
   source_audio_hash_short?: string;
   updated_at?: string;
+  run_mode?: "manual" | "full-auto" | string;
+  full_auto?: boolean;
   operator_phase?: OperatorPhase;
   journey_milestones?: Record<string, boolean>;
   preview_listened_at?: string;

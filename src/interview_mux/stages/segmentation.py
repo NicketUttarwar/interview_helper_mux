@@ -253,7 +253,7 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
 
     Models often self-label fine-grained long-tape cuts as "coarse" / "token limit"
     even when hundreds of valid edit blocks exist. Keyword-matching those warnings
-    falsely blocked a previously shippable baba run. Fail only on structural defects
+    falsely blocked a previously shippable Full-auto run. Fail only on structural defects
     or metric evidence of time-boxed coarse fallback.
 
     Before rejecting on over-max spans, attempt a deterministic max-duration split

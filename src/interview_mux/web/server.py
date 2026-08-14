@@ -147,6 +147,8 @@ def _append_api_error_log(
 class CreateRunBody(BaseModel):
     input_audio_path: str
     run_id: str | None = None
+    run_mode: str = "manual"  # manual | full-auto
+    full_auto: bool | None = None  # optional explicit flag (overrides run_mode when true)
 
 
 class InvestigationPatchBody(BaseModel):
@@ -430,19 +432,15 @@ def create_app() -> FastAPI:
         return {"ok": True, "provider": body.provider, "granted": body.granted, "grants": grants}
 
     @app.get("/api/assets")
-    def list_assets(recursive: bool = False) -> dict[str, Any]:
+    def list_assets() -> dict[str, Any]:
+        """List operator-selectable audio from the canonical ASSETS/input drop zone."""
         cfg = merged_config()
         assets = repo_root() / cfg.get("assets_root", "ASSETS")
-        assets.mkdir(parents=True, exist_ok=True)
+        input_dir = assets / "input"
+        input_dir.mkdir(parents=True, exist_ok=True)
         files: list[dict[str, Any]] = []
-        iterator = assets.rglob("*") if recursive else assets.iterdir()
-        for p in sorted(iterator):
+        for p in sorted(input_dir.iterdir()):
             if not p.is_file():
-                continue
-            rel_parts = p.relative_to(assets).parts
-            if not recursive and len(rel_parts) != 1:
-                continue
-            if any(part in SKIP_ASSET_PARTS for part in rel_parts):
                 continue
             if p.suffix.lower() not in AUDIO_EXTS:
                 continue
@@ -456,7 +454,7 @@ def create_app() -> FastAPI:
                     "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
                 }
             )
-        return {"assets_root": assets.relative_to(repo_root()).as_posix(), "files": files}
+        return {"assets_root": input_dir.relative_to(repo_root()).as_posix(), "files": files}
 
     @app.get("/api/runs")
     def list_runs(enrich: bool = False, enrich_limit: int = 50) -> dict[str, Any]:
@@ -527,8 +525,12 @@ def create_app() -> FastAPI:
         _assert_asset_input_path(body.input_audio_path)
         if body.run_id and RunContext.exists(body.run_id):
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
+        from interview_mux.full_auto_launch import normalize_run_mode
         from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
 
+        run_mode = normalize_run_mode(body.run_mode)
+        if body.full_auto is True:
+            run_mode = "full-auto"
         wav_src = pipeline_wav_path(src)
         full_hash, short_hash = source_audio_hash_pair(wav_src)
         run_id = body.run_id or RunContext.allocate_run_id(source_hash=short_hash)
@@ -539,6 +541,12 @@ def create_app() -> FastAPI:
             source_audio_hash_short=short_hash,
         )
         ensure_analysis_workspace(ctx)
+
+        def _stamp_run_mode(meta: dict[str, Any]) -> None:
+            meta["run_mode"] = run_mode
+            meta["full_auto"] = run_mode == "full-auto"
+
+        ctx.mutate_run_meta(_stamp_run_mode)
         refresh_journey_meta(ctx)
         from interview_mux.session_lineage import record_immediate_previous_on_create
 
@@ -549,14 +557,45 @@ def create_app() -> FastAPI:
             input_audio_path=meta.get("input_audio_path"),
             source_locked=True,
         )
-        return {
+        payload: dict[str, Any] = {
             "run_id": ctx.run_id,
             "run_dir": str(ctx.run_dir.relative_to(ctx.root)),
             "execution_number": meta.get("execution_number"),
             "input_audio_path": meta.get("input_audio_path"),
             "source_audio_hash": meta.get("source_audio_hash"),
             "source_audio_hash_short": meta.get("source_audio_hash_short"),
+            "run_mode": run_mode,
+            "full_auto": run_mode == "full-auto",
         }
+        if run_mode == "full-auto":
+            from interview_mux.full_auto_launch import launch_full_auto_for_run
+
+            try:
+                launch_info = launch_full_auto_for_run(
+                    run_id=ctx.run_id,
+                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                    keep_gui_server=True,
+                )
+                payload["full_auto_launch"] = launch_info
+                append_log(
+                    ctx.run_dir,
+                    "Full-auto worker launched (gates auto-accepted; package + S3 on ship).",
+                    level="info",
+                    stage="setup",
+                    detail={"journey_kind": "full_auto", **launch_info},
+                )
+            except Exception as exc:
+                append_log(
+                    ctx.run_dir,
+                    f"Full-auto launch failed: {exc}",
+                    level="error",
+                    stage="setup",
+                )
+                raise HTTPException(
+                    500,
+                    f"Execution created but Full-auto launch failed: {exc}",
+                ) from exc
+        return payload
 
     @app.get("/api/runs/{run_id}/summary")
     def get_run_summary(run_id: str) -> dict[str, Any]:
@@ -3818,23 +3857,24 @@ def _start_podcast_sync_job(
 
 
 def _assert_asset_input_path(rel: str) -> None:
-    """Source audio for a new execution must live under assets_root (not executions/.gui)."""
+    """Source audio for a new execution must live directly under ASSETS/input/."""
     cfg = merged_config()
     assets = (repo_root() / cfg.get("assets_root", "ASSETS")).resolve()
+    input_dir = assets / "input"
     resolved = _resolve_repo_path(rel)
     try:
-        resolved.relative_to(assets)
+        resolved.relative_to(input_dir)
     except ValueError as exc:
         raise HTTPException(
             400,
-            f"input_audio_path must be under {assets.relative_to(repo_root()).as_posix()}/",
+            f"input_audio_path must be under {input_dir.relative_to(repo_root()).as_posix()}/",
         ) from exc
-    rel_parts = resolved.relative_to(assets).parts
+    rel_parts = resolved.relative_to(input_dir).parts
     if len(rel_parts) != 1:
         raise HTTPException(
             400,
             f"input_audio_path must be a file directly under "
-            f"{assets.relative_to(repo_root()).as_posix()}/ (not in subfolders)",
+            f"{input_dir.relative_to(repo_root()).as_posix()}/ (not in subfolders)",
         )
     if any(part in SKIP_ASSET_PARTS for part in rel_parts):
         raise HTTPException(400, "input_audio_path cannot be under executions/ or .gui/")

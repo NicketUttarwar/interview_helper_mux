@@ -47,7 +47,7 @@ Low-conf fuse + density must_keep: [low-conf-connector-fuse.md](./low-conf-conne
 | **No canned air** | `evaluate_layup_craft`, `seam_glue.mint_missing_transitions` | The hinge menu, `default_bridge_text`, `CANNED_BRIDGE_TEXT`, and generic unlocks (“What changed after that?”) are rejected as air copy. A known native with no composed lay-up and no planned transition fails instead of shipping filler. |
 | **No invented islands** | `evaluate_layup_craft` | Air text must not contain unclear placeholders or “unclear audio” narration. |
 
-Coverage-heal and ranking-heal paths in `tools/_baba_e2e_driver.py` clear `.stage_done` for both nugget stages and schedule a re-run (`refresh_nugget_layup_plan`) instead of marking them done. Manifest/boundary heals re-schedule fuse via `refresh_connector_fuse_passes`.
+Coverage-heal and ranking-heal paths in `tools/full_auto_driver.py` clear `.stage_done` for both nugget stages and schedule a re-run (`refresh_nugget_layup_plan`) instead of marking them done. Manifest/boundary heals re-schedule fuse via `refresh_connector_fuse_passes`.
 
 ## Next-native construction
 

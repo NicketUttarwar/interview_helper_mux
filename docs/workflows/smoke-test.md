@@ -175,21 +175,21 @@ See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terra
 
 ## Detached e2e / Full-auto companion
 
-Unattended long runs use the same Baba E2E soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Decision lines are logged as `[DECISION major|minor]` in `ASSETS/baba_e2e_console.log`.
+Unattended long runs use the Full-auto soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Prefer the **large Manual / Full-auto control on the GUI Start page** when the browser is open. Decision lines are logged as `[DECISION major|minor]` in `ASSETS/full_auto_console.log`.
 
 ```bash
-# Interactive (TTY): choose Full-auto, then pick source audio under ASSETS/
+# Interactive GUI (default Manual): pick Full-auto on the Start page, then Start
 ./scripts/run.sh
 
-# Non-interactive Full-auto
-MUX_RUN_MODE=full-auto MUX_INPUT_AUDIO=ASSETS/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+# Non-interactive headless Full-auto
+MUX_RUN_MODE=full-auto MUX_INPUT_AUDIO=ASSETS/input/Baba_zydus_town_hall.mp4 ./scripts/run.sh
 
-# Legacy alias (same soft E2E stack)
-MUX_BABA_E2E=1 MUX_INPUT_AUDIO=ASSETS/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+# Explicit env alias
+MUX_FULL_AUTO=1 MUX_INPUT_AUDIO=ASSETS/input/Baba_zydus_town_hall.mp4 ./scripts/run.sh
 
 # Or explicitly:
-python tools/baba_daemon_launch.py e2e --fresh
-python tools/baba_daemon_launch.py keepalive
+python tools/full_auto_daemon_launch.py e2e --fresh
+python tools/full_auto_daemon_launch.py keepalive
 ```
 
-`Full-auto` / `MUX_BABA_E2E=1` detaches serve (no browser), then `_baba_e2e_driver.py` + keepalive. Honors `MUX_RUN_ID` / `MUX_FRESH` / `MUX_INPUT_AUDIO`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`, `INTERVIEW_MUX_E2E_SOFT=1`, and soft listenability. Prefer `tools/e2e_pipeline_driver.py` for leaner one-shot headless drivers (stage list may lag Baba).
+`Full-auto` / `MUX_FULL_AUTO=1` (legacy `MUX_BABA_E2E=1`) detaches serve (no browser) for headless launches, then `full_auto_driver.py` + keepalive. Honors `MUX_RUN_ID` / `MUX_FRESH` / `MUX_INPUT_AUDIO`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`, `INTERVIEW_MUX_E2E_SOFT=1`, and soft listenability. Prefer `tools/e2e_pipeline_driver.py` for leaner one-shot headless drivers (stage list may lag Full-auto).

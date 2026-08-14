@@ -37,7 +37,7 @@ def _env_truthy(name: str) -> bool:
 
 
 def fail_closed_on_stub() -> bool:
-    # E2E soft-escape after MusicGen OOM / quit loops (set by baba e2e driver).
+    # E2E soft-escape after MusicGen OOM / quit loops (set by Full-auto driver).
     if _env_truthy("MUX_E2E_MUSICGEN_ALLOW_STUB"):
         return False
     return bool(musicgen_cfg().get("fail_closed_on_stub", True))

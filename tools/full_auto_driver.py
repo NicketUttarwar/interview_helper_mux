@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
-Creates a new run from ASSETS/Baba_zydus_town_hall.mp4 (MUX_FRESH=1, default when
+Creates a new run from ASSETS/input/Baba_zydus_town_hall.mp4 (MUX_FRESH=1, default when
 MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator gates until master/master.wav.
-Override with MUX_INPUT_AUDIO (e.g. ASSETS/baba_all_vocals.wav).
+Override with MUX_INPUT_AUDIO (e.g. ASSETS/input/interview.mp3).
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ BASE = os.environ.get(
     "MUX_BASE",
     f"http://127.0.0.1:{os.environ.get('MUX_WEB_PORT', '8765')}",
 )
-INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/Baba_zydus_town_hall.mp4")
+INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/input/Baba_zydus_town_hall.mp4")
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
 RUN_ID = os.environ.get("MUX_RUN_ID", "")
@@ -217,7 +217,7 @@ def bind_run(run_id: str) -> None:
     LOG = REPO / "ASSETS" / "executions" / RUN_ID / "operator_e2e.log"
     # Authoritative pointer for the keepalive watchdog — log scraping races a fresh start.
     try:
-        pointer = REPO / "ASSETS" / "baba_current_run.txt"
+        pointer = REPO / "ASSETS" / "full_auto_current_run.txt"
         pointer.parent.mkdir(parents=True, exist_ok=True)
         pointer.write_text(run_id + "\n", encoding="utf-8")
     except OSError:
@@ -486,9 +486,9 @@ def sync_publish_to_s3() -> dict[str, Any]:
     return info
 
 
-def write_baba_status(**extra: Any) -> None:
+def write_full_auto_status(**extra: Any) -> None:
     """Persist a completion-oriented status snapshot for keepalive / operators."""
-    status_path = REPO / "ASSETS" / "baba_status.json"
+    status_path = REPO / "ASSETS" / "full_auto_status.json"
     payload: dict[str, Any] = {
         "ts": time.time(),
         "run": RUN_ID,
@@ -504,11 +504,23 @@ def write_baba_status(**extra: Any) -> None:
     try:
         status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError as exc:
-        log(f"baba_status write failed: {exc}")
+        log(f"full_auto_status write failed: {exc}")
+
+
+def _keep_gui_server() -> bool:
+    return str(os.environ.get("MUX_FULL_AUTO_KEEP_SERVER") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 def finish_complete_run() -> int:
-    """Ship bar: layer contract + S3 sync + DONE. Tear down serve/keepalive and exit."""
+    """Ship bar: layer contract + S3 sync + DONE. Tear down serve/keepalive and exit.
+
+    When ``MUX_FULL_AUTO_KEEP_SERVER=1`` (in-app GUI launch), leave the GUI serve
+    process running so the operator can keep watching status in the browser.
+    """
     assert_fresh_layer_contract()
     s3_info = sync_publish_to_s3()
     log_decision(
@@ -518,7 +530,7 @@ def finish_complete_run() -> int:
         reason="ship_bar_complete",
         detail=s3_info,
     )
-    write_baba_status(
+    write_full_auto_status(
         job_status="idle",
         stage="podcast_publish",
         message="complete + S3 uploaded" if s3_info.get("uploaded") else "complete",
@@ -526,27 +538,33 @@ def finish_complete_run() -> int:
     )
     log(f"DONE master={MASTER} size={MASTER.stat().st_size} publish=yes")
     summarize_decisions(label="ship")
-    # End the whole baba stack: keepalive must die first so it cannot relaunch serve/e2e.
+    keep_server = _keep_gui_server()
+    # End Full-auto workers: keepalive must die first so it cannot relaunch the driver.
+    # Optionally leave interview_mux serve up for browser-launched Full-auto.
     try:
-        from baba_daemon_launch import shutdown_baba_stack
+        from full_auto_daemon_launch import shutdown_full_auto_stack
 
-        info = shutdown_baba_stack(kill_e2e=False, exclude_pid=os.getpid())
+        info = shutdown_full_auto_stack(
+            kill_e2e=False,
+            kill_server=not keep_server,
+            exclude_pid=os.getpid(),
+        )
         log_decision(
             "major",
             stage="podcast_publish",
             action="stack_shutdown",
             reason="ship_complete",
-            detail=info,
+            detail={**info, "keep_gui_server": keep_server},
         )
-        log(f"stack shutdown: {info}")
+        log(f"stack shutdown: {info} keep_gui_server={keep_server}")
     except Exception as exc:
         log(f"stack shutdown failed: {exc}")
-    write_baba_status(
-        server=False,
+    write_full_auto_status(
+        server=keep_server,
         e2e=False,
         job_status="idle",
         stage="podcast_publish",
-        message="complete — stack stopped",
+        message="complete — GUI kept" if keep_server else "complete — stack stopped",
         **s3_info,
     )
     return 0
@@ -848,7 +866,7 @@ def accept_gap_framing_defaults() -> None:
 
         ctx = RunContext(RUN_ID, create=False)
         if clear_gap_fill_skip:
-            clear_gap_fill_skip(ctx, reason="baba_e2e_gap_framing_enabled")
+            clear_gap_fill_skip(ctx, reason="full_auto_gap_framing_enabled")
 
         def patch(meta: dict[str, Any]) -> None:
             meta["gap_fill_mode"] = "active"
@@ -939,7 +957,7 @@ def accept_gap_framing_defaults() -> None:
                     "speaker_id": sid,
                     "scopes": ["cold_open", "bridges", "outro"],
                     "disclosure": "none",
-                    "granted_by": "baba_e2e_driver",
+                    "granted_by": "full_auto_driver",
                 },
             )
             log("clone consent granted")
@@ -1164,7 +1182,7 @@ def auto_pass_post_listen() -> None:
         api(
             "POST",
             f"/api/runs/{RUN_ID}/sfx-prompts/listen-result",
-            {"asset_id": aid, "result": "pass", "note": "baba e2e auto-pass"},
+            {"asset_id": aid, "result": "pass", "note": "full-auto auto-pass"},
         )
     if asset_ids:
         log(f"post-listen passed {len(asset_ids)}")
@@ -1184,7 +1202,7 @@ def approve_music_listen() -> None:
             set_music_listen_approved(
                 RunContext(RUN_ID, create=False),
                 approved=True,
-                approved_by="baba_e2e_driver",
+                approved_by="full_auto_driver",
             )
             log("music-listen approve via run_meta")
         except Exception as exc2:
@@ -1981,7 +1999,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 # Selection leads: align EDL to selection lock (never selection←EDL).
                 from interview_mux.order_hash import bump_order_lock, copy_order_lock
 
-                sel = bump_order_lock(sel, source="baba_order_ledger_heal")
+                sel = bump_order_lock(sel, source="full_auto_order_ledger_heal")
                 fs_write_json(sel_path, sel)
                 edl = copy_order_lock(
                     sel,
@@ -3900,7 +3918,7 @@ def write_e2e_failure_brief(
         "suggested_fix_class": suggested_fix_class,
         "next_action": next_action,
     }
-    if str(os.environ.get("BABA_E2E_SELF_HEAL") or "").strip().lower() in {"1", "true", "yes"}:
+    if str(os.environ.get("FULL_AUTO_SELF_HEAL") or "").strip().lower() in {"1", "true", "yes"}:
         brief["self_heal"] = True
     try:
         fs_write_json(_P(ctx.run_dir) / "e2e_failure_brief.json", brief)
@@ -4270,7 +4288,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 _sp.run(
                     [
                         str(_Proot(__file__).resolve().parents[1] / ".venv" / "bin" / "python"),
-                        str(_Proot(__file__).resolve().parents[1] / "tools" / "baba_daemon_launch.py"),
+                        str(_Proot(__file__).resolve().parents[1] / "tools" / "full_auto_daemon_launch.py"),
                         "server",
                         "--restart-server",
                     ],
@@ -5386,14 +5404,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     # Soft ship when assembly already exists: reminting glue→EDL
                     # forces MusicGen+mix again and can loop forever on
                     # claimed_repairs_missing_from_edl bookkeeping.
-                    # Soft-ship when assembly exists: baba e2e always prefers ship over
+                    # Soft-ship when assembly exists: Full-auto always prefers ship over
                     # remint→MusicGen loops; INTERVIEW_MUX_E2E_SOFT also opts in.
                     soft_ok = (
                         asm.is_file()
                         and asm.stat().st_size > 1000
                         and (
                             bool(_e2e_soft())
-                            or os.environ.get("MUX_BABA_E2E", "").strip() in {"1", "true", "yes"}
+                            or os.environ.get("MUX_FULL_AUTO", os.environ.get("MUX_BABA_E2E", "")).strip() in {"1", "true", "yes"}
                         )
                     )
                     if soft_ok:
@@ -5608,7 +5626,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         from interview_mux.order_hash import bump_order_lock, copy_order_lock
 
                         # Selection leads — do not rewrite selection from EDL.
-                        sel = bump_order_lock(sel, source="baba_order_drift_error_heal")
+                        sel = bump_order_lock(sel, source="full_auto_order_drift_error_heal")
                         fs_write_json(_P(ctx.run_dir) / "master" / "selection.json", sel)
                         edl = copy_order_lock(
                             sel,
@@ -7730,7 +7748,7 @@ def main() -> int:
         return 2
     grant_consent()
     created = ensure_run()
-    log(f"=== baba e2e start run={RUN_ID} created={created} ===")
+    log(f"=== full-auto start run={RUN_ID} created={created} ===")
     dismiss_preclean()
     heal_stage_done_markers()
     hard_fail_rounds = 0

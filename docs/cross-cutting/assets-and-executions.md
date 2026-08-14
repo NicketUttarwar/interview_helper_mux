@@ -10,7 +10,7 @@
 
 | Goal | Rule |
 |------|------|
-| No hardcoded WAV path for normal use | Operators do **not** set `INPUT_AUDIO_PATH` or edit `input_audio_path` to use the GUI. They drop audio under `ASSETS/` and pick a file in the home screen. |
+| No hardcoded WAV path for normal use | Operators do **not** set `INPUT_AUDIO_PATH` or edit `input_audio_path` to use the GUI. They drop audio under `ASSETS/input/` and pick a file in the home screen. |
 | Single filesystem root for operator media | Everything the app reads or writes for a session lives under **`ASSETS/`** (gitignored). |
 | Durable executions | Each pipeline run is a folder under `ASSETS/executions/` with a stable `exec_NNN_<hash12>_TIMESTAMP` id. The hash fingerprints the canonical pipeline WAV (same bytes → same hash → reuse offers). Stopping `./scripts/run.sh` does not destroy progress. |
 | Resume after relaunch | `./scripts/run.sh` → home screen lists **Previous executions** → open one → active run + stage list + logs restore from disk. |
@@ -23,8 +23,7 @@ Legacy `data/run_NNN/` runs remain readable for older clones; **new work** uses 
 
 ```
 ASSETS/
-  input/                          # recommended drop zone for raw interview WAVs (any filename)
-  …/other.wav                     # optional: any .wav under ASSETS/ except executions/ and .gui/
+  input/                          # canonical drop zone for raw interview audio (WAV, MP3, MP4, …)
   executions/
     exec_001_a1b2c3d4e5f6_20260523T120000Z/    # one folder per run — hash12 = source_audio_hash_short (see artifact-layout)
       run_meta.json

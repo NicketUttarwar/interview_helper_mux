@@ -3944,6 +3944,71 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   max-width: 1400px;
 }
 
+.start-run-mode-panel {
+  margin-bottom: var(--space-3);
+}
+
+.start-run-mode-slider {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .start-run-mode-slider {
+    grid-template-columns: 1fr;
+  }
+}
+
+.start-run-mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-height: 8.5rem;
+  padding: 1.25rem 1.35rem;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.start-run-mode-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.start-run-mode-option.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent-subtle);
+}
+
+.start-run-mode-option.full-auto.selected {
+  border-color: color-mix(in srgb, var(--accent) 80%, #2a8f5b);
+}
+
+.start-run-mode-title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.start-run-mode-desc {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--muted, color-mix(in srgb, var(--text) 72%, transparent));
+}
+
+.start-run-mode-warning {
+  margin-top: 0.85rem;
+  margin-bottom: 0;
+}
+
 .pipeline-tab .tab-view,
 .pipeline-tab {
   max-width: none;

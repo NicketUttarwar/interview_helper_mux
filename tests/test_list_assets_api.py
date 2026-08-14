@@ -17,6 +17,7 @@ def _seed_assets(tmp_path, monkeypatch) -> TestClient:
     (assets / "executions" / "exec_bad").mkdir(parents=True)
     (assets / "baba1_Vocals.wav").write_bytes(b"RIFF")
     (assets / "input" / "interview.wav").write_bytes(b"RIFF")
+    (assets / "input" / "interview.mp3").write_bytes(b"fake-mp3")
     (assets / "executions" / "exec_bad" / "ingest.wav").write_bytes(b"RIFF")
 
     return TestClient(create_app())
@@ -28,19 +29,30 @@ def test_list_assets_excludes_executions_and_gui(tmp_path, monkeypatch) -> None:
     assert res.status_code == 200
     body = res.json()
     paths = {f["path"] for f in body["files"]}
-    assert paths == {"ASSETS/baba1_Vocals.wav"}
+    assert body["assets_root"] == "ASSETS/input"
+    assert paths == {"ASSETS/input/interview.wav", "ASSETS/input/interview.mp3"}
     assert not any("executions" in p for p in paths)
-    assert not any("/input/" in p for p in paths)
+    assert not any("baba1_Vocals" in p for p in paths)
 
 
-def test_list_assets_recursive_includes_subfolders(tmp_path, monkeypatch) -> None:
+def test_list_assets_ignores_recursive_request_outside_input_drop_zone(tmp_path, monkeypatch) -> None:
     client = _seed_assets(tmp_path, monkeypatch)
     res = client.get("/api/assets?recursive=1")
     assert res.status_code == 200
     paths = {f["path"] for f in res.json()["files"]}
-    assert "ASSETS/baba1_Vocals.wav" in paths
     assert "ASSETS/input/interview.wav" in paths
+    assert "ASSETS/input/interview.mp3" in paths
+    assert "ASSETS/baba1_Vocals.wav" not in paths
     assert not any("executions" in p for p in paths)
+
+
+def test_create_run_rejects_audio_outside_input_drop_zone(tmp_path, monkeypatch) -> None:
+    client = _seed_assets(tmp_path, monkeypatch)
+
+    res = client.post("/api/runs", json={"input_audio_path": "ASSETS/baba1_Vocals.wav"})
+
+    assert res.status_code == 400
+    assert "ASSETS/input" in res.json()["detail"]
 
 
 def test_list_runs_default_skips_stage_enrichment(tmp_path, monkeypatch) -> None:
@@ -90,6 +102,6 @@ def test_list_assets_survives_corrupt_run_summary(tmp_path, monkeypatch) -> None
     runs_res = client.get("/api/runs")
     assert assets_res.status_code == 200
     assert runs_res.status_code == 200
-    assert len(assets_res.json()["files"]) == 1
+    assert len(assets_res.json()["files"]) == 2
     run_ids = {r["run_id"] for r in runs_res.json()["runs"]}
     assert "exec_099_20260101T000099Z" in run_ids

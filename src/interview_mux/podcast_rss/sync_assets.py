@@ -1,6 +1,6 @@
 """Upload ready episode packages from ASSETS/executions to S3 (additive only).
 
-App paths (GUI G-Publish, baba/e2e drivers) must pass ``execution_id`` so only the
+App paths (GUI G-Publish, Full-auto/e2e drivers) must pass ``execution_id`` so only the
 current run's complete ``publish/`` package is uploaded — never sibling executions.
 
 Never deletes remote objects. Skips executions already present in by_execution_id.

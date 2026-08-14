@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch long-running baba e2e processes detached from the parent session (macOS-safe)."""
+"""Launch long-running Full-auto processes detached from the parent session (macOS-safe)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
 VENV_PY = ROOT / ".venv" / "bin" / "python"
-E2E_CONSOLE = ASSETS / "baba_e2e_console.log"
+E2E_CONSOLE = ASSETS / "full_auto_console.log"
+
+# Legacy process patterns (pre-rename) — still matched for stop/status during transition.
+_DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
+_KEEPALIVE_PGREP = r"full_auto_keepalive_loop\.py|baba_keepalive_loop\.py"
 
 
 def web_port() -> int:
@@ -59,13 +63,22 @@ def newest_incomplete_run() -> str | None:
 
 def rotate_e2e_console() -> None:
     """Archive the driver console log so run discovery never latches a stale run."""
+    (ASSETS / "full_auto_current_run.txt").unlink(missing_ok=True)
+    # Also clear legacy pointer if present.
     (ASSETS / "baba_current_run.txt").unlink(missing_ok=True)
     if not E2E_CONSOLE.is_file() or E2E_CONSOLE.stat().st_size == 0:
+        # Migrate legacy console if present.
+        legacy = ASSETS / "baba_e2e_console.log"
+        if legacy.is_file() and legacy.stat().st_size > 0:
+            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            archive = ASSETS / "logs_archive"
+            archive.mkdir(parents=True, exist_ok=True)
+            legacy.replace(archive / f"full_auto_console.{stamp}.log")
         return
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     archive = ASSETS / "logs_archive"
     archive.mkdir(parents=True, exist_ok=True)
-    E2E_CONSOLE.replace(archive / f"baba_e2e_console.{stamp}.log")
+    E2E_CONSOLE.replace(archive / f"full_auto_console.{stamp}.log")
 
 
 # Removed skips: MusicGen must always run the real ladder (large → medium → small).
@@ -108,7 +121,7 @@ def server_alive() -> bool:
 
 def e2e_alive() -> bool:
     try:
-        out = subprocess.check_output(["pgrep", "-f", "_baba_e2e_driver.py"], text=True)
+        out = subprocess.check_output(["pgrep", "-f", _DRIVER_PGREP], text=True)
         return bool(out.strip())
     except subprocess.CalledProcessError:
         return False
@@ -128,17 +141,17 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
     time.sleep(1.5)
     pid = _popen(
         [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser", "--port", str(port)],
-        ASSETS / "baba_server.log",
+        ASSETS / "full_auto_server.log",
         env={
             # Soft last-resort after the full MusicGen ladder (+ MMAudio) fails —
-            # never skip MusicGen itself. Full-auto / Baba E2E parity.
+            # never skip MusicGen itself. Full-auto parity.
             "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
             "MUX_E2E_SOFT_LISTENABILITY": "1",
             "INTERVIEW_MUX_E2E_SOFT": "1",
             "MUX_WEB_PORT": str(port),
         },
     )
-    (ASSETS / "baba_server.pid").write_text(str(pid))
+    (ASSETS / "full_auto_server.pid").write_text(str(pid))
     for _ in range(40):
         if server_alive():
             return pid
@@ -146,29 +159,46 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
     raise RuntimeError("server failed to become healthy")
 
 
-def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = False) -> int | None:
+def ensure_e2e(
+    *,
+    fresh: bool = False,
+    run_id: str | None = None,
+    force: bool = False,
+    input_audio: str | None = None,
+    keep_gui_server: bool = False,
+) -> int | None:
+    """Launch or resume the Full-auto driver.
+
+    When ``keep_gui_server`` is True (browser / in-app launch), the driver is told
+    not to tear down ``interview_mux serve`` on ship so the GUI stays observable.
+    """
     if e2e_alive() and not fresh and not force:
         return None
     # Never inherit a MusicGen skip flag into the driver process.
     for key in _MUSICGEN_SKIP_ENV:
         os.environ.pop(key, None)
-    subprocess.run(["pkill", "-f", "_baba_e2e_driver.py"], check=False)
+    _pkill_pattern(_DRIVER_PGREP)
     time.sleep(1)
     port = web_port()
+    audio = (
+        input_audio
+        or os.environ.get("MUX_INPUT_AUDIO")
+        or "ASSETS/input/Baba_zydus_town_hall.mp4"
+    )
     env = {
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
-        "MUX_INPUT_AUDIO": os.environ.get(
-            "MUX_INPUT_AUDIO", "ASSETS/Baba_zydus_town_hall.mp4"
-        ),
+        "MUX_INPUT_AUDIO": audio,
         "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
         "MUX_E2E_SOFT_LISTENABILITY": "1",
         "INTERVIEW_MUX_E2E_SOFT": "1",
-        "MUX_BABA_E2E": "1",
+        "MUX_FULL_AUTO": "1",
         "MUX_RUN_MODE": os.environ.get("MUX_RUN_MODE", "full-auto"),
         "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
         "MUX_WEB_PORT": str(port),
     }
+    if keep_gui_server:
+        env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"
     if fresh:
         rotate_e2e_console()
         env["MUX_FRESH"] = "1"
@@ -180,28 +210,71 @@ def ensure_e2e(*, fresh: bool = False, run_id: str | None = None, force: bool = 
         env["MUX_FRESH"] = "0"
         env["MUX_RUN_ID"] = rid
     pid = _popen(
-        [str(VENV_PY), str(ROOT / "tools" / "_baba_e2e_driver.py")],
+        [str(VENV_PY), str(ROOT / "tools" / "full_auto_driver.py")],
         E2E_CONSOLE,
         env=env,
     )
-    (ASSETS / "baba_e2e.pid").write_text(str(pid))
+    (ASSETS / "full_auto.pid").write_text(str(pid))
     return pid
 
 
-def ensure_keepalive() -> int | None:
+def launch_full_auto_for_run(
+    *,
+    run_id: str,
+    input_audio: str,
+    keep_gui_server: bool = True,
+) -> dict[str, object]:
+    """In-app / API entry: attach Full-auto to an already-created run.
+
+    Does not recycle the GUI server. Forces a fresh driver process scoped to
+    ``run_id`` (kills any prior Full-auto driver so the explicit run wins).
+    """
+    rid = (run_id or "").strip()
+    if not rid:
+        raise ValueError("run_id is required")
+    audio = (input_audio or "").strip()
+    if not audio:
+        raise ValueError("input_audio is required")
+    pid = ensure_e2e(
+        fresh=False,
+        run_id=rid,
+        force=True,
+        input_audio=audio,
+        keep_gui_server=keep_gui_server,
+    )
+    # Optional keepalive so a crashed driver is resumed for this run.
+    ka_pid = ensure_keepalive(keep_gui_server=keep_gui_server)
+    return {
+        "ok": True,
+        "run_id": rid,
+        "driver_pid": pid,
+        "keepalive_pid": ka_pid,
+        "console_log": str(E2E_CONSOLE.relative_to(ROOT)),
+        "keep_gui_server": keep_gui_server,
+    }
+
+
+def ensure_keepalive(*, keep_gui_server: bool = False) -> int | None:
     try:
-        out = subprocess.check_output(["pgrep", "-f", "baba_keepalive_loop.py"], text=True)
+        out = subprocess.check_output(["pgrep", "-f", _KEEPALIVE_PGREP], text=True)
         if out.strip():
             return None
     except subprocess.CalledProcessError:
         pass
     port = web_port()
+    env = {"MUX_WEB_PORT": str(port)}
+    if keep_gui_server or str(os.environ.get("MUX_FULL_AUTO_KEEP_SERVER") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"
     pid = _popen(
-        [str(VENV_PY), str(ROOT / "tools" / "baba_keepalive_loop.py")],
-        ASSETS / "baba_watchdog.log",
-        env={"MUX_WEB_PORT": str(port)},
+        [str(VENV_PY), str(ROOT / "tools" / "full_auto_keepalive_loop.py")],
+        ASSETS / "full_auto_watchdog.log",
+        env=env,
     )
-    (ASSETS / "baba_keepalive.pid").write_text(str(pid))
+    (ASSETS / "full_auto_keepalive.pid").write_text(str(pid))
     return pid
 
 
@@ -295,7 +368,7 @@ def _pkill_pattern(pattern: str, *, exclude_pid: int | None = None) -> None:
             subprocess.run(["kill", "-15", str(pid)], check=False)
 
 
-def shutdown_baba_stack(
+def shutdown_full_auto_stack(
     *,
     kill_server: bool = True,
     kill_e2e: bool = True,
@@ -303,9 +376,9 @@ def shutdown_baba_stack(
     exclude_pid: int | None = None,
     port: int | None = None,
 ) -> dict[str, object]:
-    """Tear down serve + e2e + keepalive after a completed (or abandoned) run.
+    """Tear down serve + Full-auto driver + keepalive after a completed (or abandoned) run.
 
-    Call from the e2e driver with kill_e2e=False so this process can exit cleanly.
+    Call from the driver with kill_e2e=False so this process can exit cleanly.
     Call from keepalive with kill_keepalive=False for the same reason.
     """
     if port is None:
@@ -313,9 +386,9 @@ def shutdown_baba_stack(
     ASSETS.mkdir(parents=True, exist_ok=True)
     killed_port: list[int] = []
     if kill_keepalive:
-        _pkill_pattern("baba_keepalive_loop.py", exclude_pid=exclude_pid)
+        _pkill_pattern(_KEEPALIVE_PGREP, exclude_pid=exclude_pid)
     if kill_e2e:
-        _pkill_pattern("_baba_e2e_driver.py", exclude_pid=exclude_pid)
+        _pkill_pattern(_DRIVER_PGREP, exclude_pid=exclude_pid)
     if kill_server:
         _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)
         killed_port = _kill_pids_on_port(port)
@@ -323,13 +396,25 @@ def shutdown_baba_stack(
         time.sleep(0.6)
         killed_port.extend(_kill_pids_on_port(port))
         _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)
-    for name in ("baba_server.pid", "baba_e2e.pid", "baba_keepalive.pid"):
+    for name in (
+        "full_auto_server.pid",
+        "full_auto.pid",
+        "full_auto_keepalive.pid",
+        # Legacy pid files
+        "baba_server.pid",
+        "baba_e2e.pid",
+        "baba_keepalive.pid",
+    ):
         (ASSETS / name).unlink(missing_ok=True)
     return {
         "server_alive": server_alive() if kill_server else None,
         "e2e_alive": e2e_alive() if kill_e2e else None,
         "port_killed": sorted(set(killed_port)),
     }
+
+
+# Back-compat alias
+shutdown_baba_stack = shutdown_full_auto_stack
 
 
 def main() -> int:
@@ -344,7 +429,7 @@ def main() -> int:
     skip = {"--fresh", "--run-id", "--restart-server", "--force-e2e", run_id}
     modes = {a for a in args if a not in skip and not a.startswith("--")}
     if "stop" in modes or "shutdown" in modes:
-        info = shutdown_baba_stack()
+        info = shutdown_full_auto_stack()
         print(f"shutdown={info}")
         return 0
     if not modes or "all" in modes:
