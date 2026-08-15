@@ -31,6 +31,85 @@ def _selection_ids(ctx: RunContext) -> set[str]:
     return {str(x) for x in (sel.get("ordered_segment_ids") or [])}
 
 
+def _ordered_selection_ids(ctx: RunContext) -> list[str]:
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    sel = ctx.read_json("master/selection.json")
+    return [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+
+
+def _avoidable_same_loop_runs(
+    cues: list[dict[str, Any]],
+    assets: list[dict[str, Any]],
+    ordered: list[str],
+) -> list[str]:
+    """Flag only runs that could alternate to an existing optional loop."""
+    from interview_mux.music_motif import palette_kind_for_role
+
+    by_id = {
+        str(asset.get("asset_id")): asset
+        for asset in assets
+        if asset.get("asset_id")
+    }
+    optional_ids = {
+        aid
+        for aid, asset in by_id.items()
+        if str(asset.get("palette_kind") or "")
+        == "optional_loop"
+        or palette_kind_for_role(
+            str(asset.get("role") or ""), energy=str(asset.get("energy") or "") or None
+        )
+        == "optional_loop"
+    }
+    if not optional_ids:
+        return []
+
+    cfg = merged_config()
+    mix = cfg.get("mix") if isinstance(cfg.get("mix"), dict) else {}
+    arrangement = (
+        mix.get("underbed_arrangement")
+        if isinstance(mix.get("underbed_arrangement"), dict)
+        else {}
+    )
+    try:
+        max_run = max(1, int(arrangement.get("max_scene_segments", 4)))
+    except (TypeError, ValueError):
+        max_run = 4
+
+    bed_by_segment: dict[str, str] = {}
+    for cue in cues:
+        if str(cue.get("placement") or "") != "under_segment":
+            continue
+        sid = str(cue.get("under_segment_id") or cue.get("segment_id") or "")
+        aid = str(cue.get("asset_id") or "")
+        asset = by_id.get(aid) or {}
+        kind = str(asset.get("palette_kind") or "") or palette_kind_for_role(
+            str(asset.get("role") or cue.get("role") or ""),
+            energy=str(asset.get("energy") or "") or None,
+        )
+        if sid and kind in {"underscore_loop", "optional_loop"}:
+            bed_by_segment[sid] = aid
+
+    errors: list[str] = []
+    run_asset = ""
+    run_start = ""
+    run_length = 0
+    for sid in [*ordered, ""]:
+        aid = bed_by_segment.get(sid, "")
+        if aid and aid == run_asset:
+            run_length += 1
+            continue
+        if run_asset and run_length > max_run:
+            errors.append(
+                f"avoidable same-loop run {run_asset} spans {run_length} selected segments "
+                f"from {run_start}; optional_loop exists (max {max_run})"
+            )
+        run_asset = aid
+        run_start = sid if aid else ""
+        run_length = 1 if aid else 0
+    return errors
+
+
 def validate_post_sound_palettes(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     sdp = _sdp(ctx)
@@ -179,6 +258,13 @@ def validate_post_sound_plan(ctx: RunContext) -> list[str]:
     from interview_mux.music_lane import validate_music_cue_coherence
 
     errors.extend(validate_music_cue_coherence(cues, [a for a in assets if isinstance(a, dict)]))
+    errors.extend(
+        _avoidable_same_loop_runs(
+            [cue for cue in cues if isinstance(cue, dict)],
+            [asset for asset in assets if isinstance(asset, dict)],
+            _ordered_selection_ids(ctx),
+        )
+    )
     return errors
 
 

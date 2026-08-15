@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from interview_mux.run_context import RunContext
 from interview_mux.stages import sfx_mmaudio
 
@@ -166,6 +168,137 @@ def test_hash_generation_plan_changes_with_sonic_context_hash():
     h1 = sfx_mmaudio._hash_generation_plan(item, prompt_row, params, sonic_context_hash="abc")
     h2 = sfx_mmaudio._hash_generation_plan(item, prompt_row, params, sonic_context_hash="def")
     assert h1 != h2
+
+
+def test_score_musicgen_underscore_rejects_weak_seam():
+    strong = sfx_mmaudio.score_musicgen_candidate(
+        role="theme_underscore",
+        qa={
+            "verdict": "pass",
+            "loop_seam_score": 0.8,
+            "musicality": {
+                "pulse_clarity": 0.7,
+                "tonal_center_score": 0.8,
+                "speech_band_roughness": 0.1,
+            },
+        },
+    )
+    weak = sfx_mmaudio.score_musicgen_candidate(
+        role="theme_underscore",
+        qa={
+            "verdict": "pass",
+            "loop_seam_score": 0.4,
+            "musicality": {
+                "pulse_clarity": 0.7,
+                "tonal_center_score": 0.8,
+                "speech_band_roughness": 0.1,
+            },
+        },
+    )
+
+    assert strong["rejected"] is False
+    assert weak["rejected"] is True
+    assert weak["rejection_reasons"] == ["loop_seam_below_threshold"]
+    assert strong["score"] > weak["score"]
+    assert weak["score_components"]["weak_loop_seam_penalty"] == -20.0
+
+
+def test_musicgen_selection_chooses_best_actual_candidate_when_all_rejected():
+    selected = sfx_mmaudio._select_musicgen_candidate(
+        [
+            {"index": 0, "score": -12.0, "rejected": True},
+            {"index": 1, "score": -4.0, "rejected": True},
+            {"index": 2, "score": -8.0, "rejected": True},
+        ]
+    )
+    assert selected["index"] == 1
+
+
+def test_musicgen_best_of_n_persists_candidates_and_selected_sidecar(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_candidates", create=True)
+    out = ctx.path("sound_design", "assets", "theme_underscore_a.wav")
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    def fake_music(**kwargs):
+        candidate = kwargs["out_wav"]
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        index = int(candidate.stem.split("_")[-1])
+        candidate.write_bytes(f"candidate-{index}".encode())
+        meta = {
+            "backend": "musicgen",
+            "seed": kwargs["seed"],
+            "prompt_hash": "prompt-123",
+            "model_id": "fake-musicgen",
+        }
+        candidate.with_suffix(".gen.json").write_text(json.dumps(meta), encoding="utf-8")
+        return meta
+
+    qa_by_index = {
+        0: (0.40, 1.0, 1.0, 0.0),
+        1: (0.90, 0.8, 0.8, 0.1),
+        2: (0.70, 0.3, 0.3, 0.5),
+    }
+
+    def fake_analyze(*, path, **_kwargs):
+        index = int(path.stem.split("_")[-1])
+        seam, pulse, tonal, roughness = qa_by_index[index]
+        return {
+            "verdict": "pass",
+            "loop_seam_score": seam,
+            "musicality": {
+                "fail_reasons": [],
+                "warn_reasons": [],
+                "pulse_clarity": pulse,
+                "tonal_center_score": tonal,
+                "speech_band_roughness": roughness,
+            },
+        }
+
+    monkeypatch.setattr(sfx_mmaudio, "generate_music_clip", fake_music)
+    monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: True)
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner.best_of_n_for_role",
+        lambda _role: 3,
+    )
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner.musicgen_cfg",
+        lambda: {"max_best_of_n": 3},
+    )
+    monkeypatch.setattr(
+        "interview_mux.mmaudio_asset_qa.analyze_asset_wav",
+        fake_analyze,
+    )
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {"musicgen": {"keep_candidates": False}},
+    )
+
+    meta = sfx_mmaudio._generate_with_retry(
+        ctx=ctx,
+        stage="mmaudio_sfx",
+        asset_id="theme_underscore_a",
+        params={
+            "prompt": "warm guitar pulse",
+            "negative_prompt": "no vocals",
+            "duration_seconds": 6.0,
+            "role": "theme_underscore",
+            "seed": 100,
+        },
+        out_file=out,
+    )
+
+    assert meta["best_of_n_index"] == 1
+    assert out.read_bytes() == b"candidate-1"
+    assert json.loads(out.with_suffix(".gen.json").read_text())["seed"] == 100 + 9973
+    candidate_dir = out.parent / "_candidates" / "theme_underscore_a"
+    assert len(list(candidate_dir.glob("cand_*.wav"))) == 3
+    artifact = ctx.read_json("sound_design/musicgen_candidates.json")
+    record = artifact["assets"][0]
+    assert record["selected_index"] == 1
+    assert record["canonical_path"] == "sound_design/assets/theme_underscore_a.wav"
+    assert record["candidates"][0]["rejected"] is True
+    assert record["candidates"][1]["qa"]["loop_seam_score"] == 0.9
 
 
 def test_generate_with_retry_retries_once(tmp_path, monkeypatch):

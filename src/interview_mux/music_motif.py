@@ -275,10 +275,19 @@ def analysis_palette_counts(ctx: RunContext) -> dict[str, int]:
         counts["stingers"] = max(2, min(5, chapters or 2))
         counts["full_beds"] = 2 if ordered_n >= 10 else 1
 
+    hard_zero_bed = max_beds <= 0
+    if ctx.artifact_exists("understanding/soundscape_policy.json"):
+        raw_policy = ctx.read_json("understanding/soundscape_policy.json")
+        if isinstance(raw_policy, dict):
+            hard_zero_bed = hard_zero_bed or str(
+                raw_policy.get("underscore_policy") or ""
+            ) in {"skip", "sparse_or_skip"}
+    if hard_zero_bed:
+        counts["optional_loop"] = 0
+    elif chapters >= 2 or ordered_n >= 8:
+        counts["optional_loop"] = 1
     if max_punct > 0:
         counts["stingers"] = max(1, min(counts["stingers"], max_punct))
-    if max_beds <= 1:
-        counts["optional_loop"] = 0
     return counts
 
 
@@ -300,7 +309,10 @@ def build_fixed_palette_assets(
             "asset_id": f"{dna_slug}_motif",
             "role": "theme_cold_open",
             "palette_kind": "motif",
-            "description": f"Show motif / cold-open seed: {phrase}; instruments: {instruments}",
+            "description": (
+                f"Warm, light rhythmic show motif and cold-open seed: {phrase}; "
+                f"instruments: {instruments}; instrumental only, speech-clear midrange"
+            ),
             "duration_seconds": 14,
         },
         {
@@ -309,7 +321,8 @@ def build_fixed_palette_assets(
             "palette_kind": "underscore_loop",
             "energy": "calm",
             "description": (
-                f"Primary loopable underscore under dialogue: {phrase}; instruments: {instruments}"
+                f"Primary warm, light rhythmic, motif-led loopable underscore under dialogue: "
+                f"{phrase}; instruments: {instruments}; restrained kit and soft transients"
             ),
             "duration_seconds": 12,
         },
@@ -322,8 +335,8 @@ def build_fixed_palette_assets(
                 "palette_kind": "optional_loop",
                 "energy": "lift",
                 "description": (
-                    f"Alternate underscore loop (anti-repetition lift): {phrase}; "
-                    f"instruments: {instruments}"
+                    f"Related alternate motif-led underscore with a light lift and tonal contrast: "
+                    f"{phrase}; instruments: {instruments}; warm, duck-safe, restrained transients"
                 ),
                 "duration_seconds": 12,
             }
@@ -754,9 +767,9 @@ def compile_musicgen_prompt(
     tempo = tempo_clause_for_wpm(wpm)
 
     form_by_kind = {
-        "motif": "short show motif / cold-open seed, clear melodic lead",
-        "underscore_loop": "loopable duck-safe underscore under dialogue, soft midrange",
-        "optional_loop": "alternate lift underscore loop, still duck-safe under dialogue",
+        "motif": "short warm show motif / cold-open seed, light rhythmic melodic lead",
+        "underscore_loop": "primary warm light-rhythmic motif-led loop, duck-safe under dialogue",
+        "optional_loop": "related alternate motif loop with gentle lift and tonal contrast, duck-safe",
         "stinger": "short hinge stinger phrase of musical notes, not a sound effect",
         "full_bed": "complex enjoyable full bed with layered ensemble, speech-free presence",
     }
@@ -796,7 +809,8 @@ def compile_musicgen_prompt(
 
     negative = (
         "vocals, lyrics, speech, singing, choir, whoosh, riser, foley, sound effects, "
-        "tick, woodblock, HVAC, murmur, pad-only drone, room tone"
+        "tick, woodblock, HVAC, murmur, pad-only drone, room tone, dense 1-4 kHz hooks, "
+        "loud drum kits, repetitive hard transients"
     )
     return positive, negative
 
@@ -867,7 +881,7 @@ def harden_palette_inventory(
                 {
                     **row,
                     "asset_id": str(src.get("asset_id") or row["asset_id"]),
-                    "description": str(src.get("description") or row.get("description") or ""),
+                    "description": str(row.get("description") or ""),
                     "duration_seconds": src.get("duration_seconds") or row.get("duration_seconds"),
                     "energy": src.get("energy") or row.get("energy"),
                     "role": str(src.get("role") or row.get("role")),

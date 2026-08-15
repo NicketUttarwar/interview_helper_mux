@@ -377,6 +377,17 @@ def validate_mmaudio_qa(data: dict[str, Any]) -> list[str]:
     """Validate `sound_design/mmaudio_qa.json`."""
     return _validate_by_artifact_schema("mmaudio_qa.schema.json", data)
 
+
+def validate_musicgen_candidates(data: dict[str, Any]) -> list[str]:
+    """Validate `sound_design/musicgen_candidates.json`."""
+    return _validate_by_artifact_schema("musicgen_candidates.schema.json", data)
+
+
+def validate_underbed_ab_qc(data: dict[str, Any]) -> list[str]:
+    """Validate `master/underbed_ab_qc.json`."""
+    return _validate_by_artifact_schema("underbed_ab_qc.schema.json", data)
+
+
 def validate_placement_adjustments(data: dict[str, Any]) -> list[str]:
     """Validate `sound_design/placement_adjustments.json`."""
     return _validate_dict(data, _load_root_schema("placement_adjustments.schema.json"))
@@ -494,7 +505,9 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "segments/manifest.json": validate_manifest,
     "sound_design/sfx_prompts.json": validate_sfx_prompts,
     "sound_design/mmaudio_qa.json": validate_mmaudio_qa,
+    "sound_design/musicgen_candidates.json": validate_musicgen_candidates,
     "sound_design/placement_adjustments.json": validate_placement_adjustments,
+    "master/underbed_ab_qc.json": validate_underbed_ab_qc,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
     "transcript/review_queue.json": validate_transcript_review_queue,

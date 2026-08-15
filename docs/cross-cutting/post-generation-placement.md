@@ -10,8 +10,8 @@ How generated SFX assets are placed on the timeline **after** `mmaudio_sfx_flow*
 
 ```mermaid
 flowchart LR
-    SDP[sound_design_plan] --> GEN[mmaudio_sfx_flow*]
-    GEN --> QA[Post-listen QA]
+    SDP[sound_design_plan] --> GEN[MusicGen_candidates]
+    GEN --> QA[Automatic_loop_and_music_QA]
     QA --> MIX[mix_flow*]
     MIX --> MASTER[master_flow*]
 ```
@@ -114,9 +114,15 @@ Ambient beds (`placement: under_segment`) are looped to segment duration, ducked
 
 1. Resolve segment `[start_ms, end_ms]` from EDL / selection timing map.
 2. `dur = end_ms - start_ms`; skip if `dur ≤ 0`.
-3. `loop_to_duration(base, dur)` — trim or tile asset to exact window.
-4. Apply soft speech-gate duck (`level_db` then up to `duck_under_speech_db`, floor `MIN_DUCK_DB` = 12).
-5. **Fade in 120 ms**, **fade out 150 ms** at segment edges.
+3. Apply the cached broad 1.5–4 kHz speech-presence carve to the selected source stem.
+4. `loop_to_duration(base, dur)` — trim or tile asset to exact window.
+5. Apply soft speech-gate duck (`level_db` then up to `duck_under_speech_db`, floor `MIN_DUCK_DB` = 12).
+6. **Fade in 120 ms**, **fade out 150 ms** at segment edges.
+
+After overlay, automated A/B QC compares the known rendered bed and speech-only
+stems. It writes `master/underbed_ab_qc.json`; masking receives bounded carve/duck
+remediation, while an inaudible bed receives a bounded lift. Valid beds are never
+silently removed to satisfy the presence check.
 
 ### Trim rules
 

@@ -56,6 +56,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [sonic_context.schema.json](./json-schemas/sonic_context.schema.json) | `understanding/sonic_context.json` — tags, scenario policy, cue opportunities (BUILD-SFX-01) |
 | [soundscape_policy.schema.json](./json-schemas/soundscape_policy.schema.json) | `understanding/soundscape_policy.json` — unified soundscape standards + cue slots (BUILD-SS-01) |
 | [artifacts/mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) | `sound_design/mmaudio_qa.json` post-generation QA |
+| [artifacts/musicgen_candidates.schema.json](./json-schemas/artifacts/musicgen_candidates.schema.json) | `sound_design/musicgen_candidates.json` candidate selection audit |
+| [artifacts/underbed_ab_qc.schema.json](./json-schemas/artifacts/underbed_ab_qc.schema.json) | `master/underbed_ab_qc.json` automated stem-derived masking/presence audit |
 | [refinement_agenda.schema.json](./json-schemas/refinement_agenda.schema.json) | `understanding/refinement_agenda.json` — L0 eligible-class agenda ([refinement-passes.md](./refinement-passes.md)) |
 | [refinement_ledger.schema.json](./json-schemas/refinement_ledger.schema.json) | `understanding/refinement_ledger.json` — CFI call ledger, second-run cap |
 | [refinement_plan.schema.json](./json-schemas/refinement_plan.schema.json) | `understanding/refinement_plan.json` — L1 activate/skip gate decisions |
@@ -92,6 +94,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_sonic_context` | `understanding/sonic_context.json` | Yes (BUILD-SFX-01) |
 | `validate_soundscape_policy` | `understanding/soundscape_policy.json` | Yes (BUILD-SS-01) |
 | `validate_mmaudio_qa` | `sound_design/mmaudio_qa.json` | Yes (BUILD-SFX-01) |
+| `validate_musicgen_candidates` | `sound_design/musicgen_candidates.json` | Yes |
+| `validate_underbed_ab_qc` | `master/underbed_ab_qc.json` | Yes |
 | `validate_placement_adjustments` | `sound_design/placement_adjustments.json` | Yes (BUILD-SFX-01) |
 | `validate_refinement_agenda` | `understanding/refinement_agenda.json` | Yes |
 | `validate_refinement_ledger` | `understanding/refinement_ledger.json` | Yes |
@@ -138,6 +142,8 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `understanding/sonic_context.json` | `sonic_context.schema.json` | Yes (`sonic_context_build` + cross-validate) |
 | `understanding/soundscape_policy.json` | `soundscape_policy.schema.json` | Yes (`soundscape_policy_build`) |
 | `sound_design/mmaudio_qa.json` | `mmaudio_qa.schema.json` | Yes (post-`mmaudio_sfx_flow*`) |
+| `sound_design/musicgen_candidates.json` | `musicgen_candidates.schema.json` | Yes (`mmaudio_sfx`) |
+| `master/underbed_ab_qc.json` | `underbed_ab_qc.schema.json` | Yes (`mix`) |
 | `sound_design/placement_adjustments.json` | `placement_adjustments.schema.json` | Yes (mix-time QA hints) |
 | `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |
 | `run_meta.json` | `run_meta.schema.json` | Yes (`write_json`) |

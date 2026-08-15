@@ -131,8 +131,10 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 |------|-------|
 | `sound_design/sfx_prompts.json` | `sfx_prompt_craft` (canonical; operator mirror at `operator/sfx_prompts.json`) |
 | `sound_design/mmaudio_qa.json` | post-`mmaudio_sfx_flow*` deterministic QA — [mmaudio_qa.schema.json](./json-schemas/artifacts/mmaudio_qa.schema.json) |
+| `sound_design/musicgen_candidates.json` | Three-candidate underscore generation, loop/musicality scores, rejection reasons, and selected canonical stem |
 | `sound_design/placement_adjustments.json` | post-SFX placement QA hints; applied at mix via `apply_placement_adjustments` — [placement_adjustments.schema.json](./json-schemas/placement_adjustments.schema.json) |
-| `sound_design/assets/{asset_id}.wav` | MMAudio generated beds/stingers (canonical SDP path) |
+| `sound_design/assets/{asset_id}.wav` | Selected MusicGen music stem (canonical SDP path) |
+| `sound_design/assets/_candidates/{asset_id}/cand_{n}.wav` | Retained underscore candidates through mix diagnostics |
 
 ## Flow 1 — `master/`
 
@@ -148,6 +150,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `edl.json` | edit decision list — speech + `vo_pickup` + transition timeline ([edl.schema.json](./json-schemas/artifacts/edl.schema.json)); consumed by `mix` |
 | `assembly_preview.wav` | speech + VO preview before SFX (BUILD-069, shipped) |
 | `assembly.wav` | pre-master mix (`mix`) |
+| `underbed_ab_qc.json` | Automated per-window bed-presence and speech-masking A/B report; includes targeted remux evidence |
 | `master.wav` | final export |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
 

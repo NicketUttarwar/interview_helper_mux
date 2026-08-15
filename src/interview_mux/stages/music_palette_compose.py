@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.artifact_writes import write_validated_artifact
+from interview_mux.config import merged_config
 from interview_mux.music_motif import (
     analysis_palette_counts,
     harden_palette_inventory,
@@ -19,6 +20,7 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
 _COMPOSE_REL = "sound_design/music_palette_compose.json"
+_BED_SLOT_ROLES = frozenset({"theme_underscore", "underscore_loop", "optional_loop", "ambient_bed"})
 
 
 def _optional_json(ctx: RunContext, rel_path: str) -> dict[str, Any]:
@@ -148,6 +150,231 @@ def _default_cues(
             }
         )
     return cues
+
+
+def _arrangement_config() -> dict[str, int]:
+    """Read underbed scene controls from the canonical mix config block."""
+    cfg = merged_config()
+    mix = cfg.get("mix") if isinstance(cfg.get("mix"), dict) else {}
+    arrangement = (
+        mix.get("underbed_arrangement")
+        if isinstance(mix.get("underbed_arrangement"), dict)
+        else {}
+    )
+    try:
+        max_scene_segments = max(1, int(arrangement.get("max_scene_segments", 4)))
+    except (TypeError, ValueError):
+        max_scene_segments = 4
+    try:
+        dry_break_chapters = max(0, int(arrangement.get("dry_break_chapters", 1)))
+    except (TypeError, ValueError):
+        dry_break_chapters = 1
+    try:
+        scene_crossfade_ms = max(1500, int(arrangement.get("scene_crossfade_ms", 1800)))
+    except (TypeError, ValueError):
+        scene_crossfade_ms = 1800
+    return {
+        "max_scene_segments": max_scene_segments,
+        "dry_break_chapters": dry_break_chapters,
+        "scene_crossfade_ms": scene_crossfade_ms,
+    }
+
+
+def _is_bed_slot(slot: dict[str, Any]) -> bool:
+    if str(slot.get("placement") or "") not in {"", "under_segment"}:
+        return False
+    allowed = {str(role) for role in (slot.get("allowed_roles") or [])}
+    return bool(allowed & _BED_SLOT_ROLES)
+
+
+def _contiguous_runs(segment_ids: list[str], ordered_index: dict[str, int]) -> list[list[str]]:
+    runs: list[list[str]] = []
+    for sid in segment_ids:
+        if not runs or ordered_index[sid] != ordered_index[runs[-1][-1]] + 1:
+            runs.append([sid])
+        else:
+            runs[-1].append(sid)
+    return runs
+
+
+def _normalize_arrangement(
+    sdp: dict[str, Any],
+    cues: list[dict[str, Any]],
+    *,
+    ordered: list[str],
+    chapters: list[dict[str, Any]],
+    policy: dict[str, Any] | None = None,
+    overlap_high: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Deterministically replace only bed cues with slot-safe contiguous scenes."""
+    assets = _assets_by_id(sdp)
+    loop_assets: dict[str, dict[str, Any]] = {}
+    stingers: list[dict[str, Any]] = []
+    for asset in assets.values():
+        kind = str(asset.get("palette_kind") or "") or palette_kind_for_role(
+            str(asset.get("role") or ""), energy=str(asset.get("energy") or "") or None
+        )
+        if kind in {"underscore_loop", "optional_loop"} and kind not in loop_assets:
+            loop_assets[kind] = asset
+        elif kind == "stinger":
+            stingers.append(asset)
+
+    non_beds: list[dict[str, Any]] = []
+    existing_beds: dict[str, dict[str, Any]] = {}
+    for cue in cues:
+        aid = str(cue.get("asset_id") or "")
+        asset = assets.get(aid) or {}
+        kind = str(asset.get("palette_kind") or "") or palette_kind_for_role(
+            str(asset.get("role") or cue.get("role") or ""),
+            energy=str(asset.get("energy") or "") or None,
+        )
+        is_bed = str(cue.get("placement") or "") == "under_segment" and kind in {
+            "underscore_loop",
+            "optional_loop",
+        }
+        if is_bed:
+            sid = str(cue.get("under_segment_id") or cue.get("segment_id") or "")
+            if sid:
+                existing_beds.setdefault(sid, cue)
+        else:
+            non_beds.append(dict(cue))
+
+    pol = policy if isinstance(policy, dict) else {}
+    density = pol.get("sfx_density") if isinstance(pol.get("sfx_density"), dict) else {}
+    underscore_policy = str(pol.get("underscore_policy") or "normal")
+    hard_zero_bed = underscore_policy in {"skip", "sparse_or_skip"} or (
+        density.get("max_beds") is not None and int(density.get("max_beds") or 0) <= 0
+    )
+    primary = loop_assets.get("underscore_loop")
+    if hard_zero_bed or not primary or not ordered:
+        return non_beds
+
+    slots = [slot for slot in (pol.get("cue_slots") or []) if isinstance(slot, dict)]
+    if pol and not slots:
+        return non_beds
+    slot_by_sid = {
+        str(slot.get("segment_id")): slot
+        for slot in slots
+        if slot.get("segment_id") and _is_bed_slot(slot)
+    }
+    allowed_ids = set(slot_by_sid) if pol else set(ordered)
+    allowed_ids -= set(overlap_high or set())
+    ordered_index = {sid: i for i, sid in enumerate(ordered)}
+
+    chapter_rows: list[tuple[int, list[str]]] = []
+    for chapter_index, chapter in enumerate(chapters):
+        raw_ids = chapter.get("segment_ids") or chapter.get("segments") or []
+        chapter_ids = {
+            str(sid) for sid in raw_ids if sid and str(sid) in ordered_index
+        }
+        eligible = [
+            sid for sid in ordered if sid in chapter_ids and sid in allowed_ids
+        ]
+        if eligible:
+            chapter_rows.append((chapter_index, eligible))
+    if not chapter_rows:
+        fallback = [sid for sid in ordered if sid in allowed_ids]
+        if fallback:
+            chapter_rows = [(0, fallback)]
+
+    optional = loop_assets.get("optional_loop")
+    arrangement = _arrangement_config()
+    max_scene_segments = arrangement["max_scene_segments"]
+    dry_break_chapters = arrangement["dry_break_chapters"]
+    scene_crossfade_ms = arrangement["scene_crossfade_ms"]
+    scene_rows: list[tuple[int, list[str]]] = []
+    next_bed_chapter = 0
+    for chapter_index, eligible in chapter_rows:
+        if not optional and chapter_index < next_bed_chapter:
+            continue
+        runs = _contiguous_runs(eligible, ordered_index)
+        if optional:
+            for run in runs:
+                scene_rows.extend(
+                    (chapter_index, run[start : start + max_scene_segments])
+                    for start in range(0, len(run), max_scene_segments)
+                )
+        else:
+            scene_rows.extend(
+                (chapter_index, run[:max_scene_segments])
+                for run in runs
+                if run[:max_scene_segments]
+            )
+            next_bed_chapter = chapter_index + dry_break_chapters + 1
+
+    bed_cues: list[dict[str, Any]] = []
+    for scene_index, (_, scene) in enumerate(scene_rows):
+        asset = optional if optional and scene_index % 2 else primary
+        assert asset is not None
+        for segment_index, sid in enumerate(scene):
+            prior = existing_beds.get(sid) or {}
+            slot = slot_by_sid.get(sid) or {}
+            level = prior.get("level_db")
+            if level is None:
+                level = slot.get("max_level_db", -26)
+            try:
+                crossfade = max(
+                    scene_crossfade_ms,
+                    int(prior.get("crossfade_ms") or scene_crossfade_ms),
+                )
+            except (TypeError, ValueError):
+                crossfade = scene_crossfade_ms
+            bed_cues.append(
+                {
+                    "cue_id": f"arrange_scene_{scene_index+1:02d}_{segment_index+1:02d}",
+                    "asset_id": str(asset["asset_id"]),
+                    "role": str(asset.get("role") or "theme_underscore"),
+                    "placement": "under_segment",
+                    "under_segment_id": sid,
+                    "segment_id": sid,
+                    "level_db": level,
+                    "crossfade_ms": crossfade,
+                }
+            )
+
+    # With one loop, musical hinges help reset the ear between bedded chapters.
+    if not optional and stingers and chapters:
+        max_punctuators = density.get("max_punctuators")
+        budget = len(stingers)
+        if max_punctuators is not None:
+            budget = min(budget, max(0, int(max_punctuators or 0)))
+        existing_stingers = [
+            cue
+            for cue in non_beds
+            if palette_kind_for_role(
+                str((assets.get(str(cue.get("asset_id") or "")) or {}).get("role") or cue.get("role") or "")
+            )
+            == "stinger"
+        ]
+        remaining = max(0, budget - len(existing_stingers))
+        occupied = {str(cue.get("after_segment_id") or "") for cue in existing_stingers}
+        for chapter_index, chapter in enumerate(chapters[:-1]):
+            if remaining <= 0:
+                break
+            ids = [
+                str(sid)
+                for sid in (chapter.get("segment_ids") or chapter.get("segments") or [])
+                if sid and str(sid) in ordered_index
+            ]
+            if not ids:
+                continue
+            hinge = max(ids, key=ordered_index.__getitem__)
+            if hinge in occupied:
+                continue
+            asset = stingers[(budget - remaining) % len(stingers)]
+            non_beds.append(
+                {
+                    "cue_id": f"arrange_hinge_{chapter_index+1:02d}",
+                    "asset_id": str(asset["asset_id"]),
+                    "role": str(asset.get("role") or "theme_emphasis"),
+                    "placement": "after_segment",
+                    "after_segment_id": hinge,
+                    "level_db": -14,
+                }
+            )
+            occupied.add(hinge)
+            remaining -= 1
+    return non_beds + bed_cues
 
 
 def _apply_cues(sdp: dict[str, Any], cues: list[dict[str, Any]]) -> dict[str, Any]:
@@ -301,12 +528,40 @@ def run_music_palette_compose(ctx: RunContext) -> None:
         if not isinstance(raw_cues, list) or not raw_cues:
             raw_cues = _default_cues(sdp, ordered=ordered, chapters=chapters)
 
-        sdp = _apply_cues(sdp, [c for c in raw_cues if isinstance(c, dict)])
+        policy = (
+            c.read_json("understanding/soundscape_policy.json")
+            if c.artifact_exists("understanding/soundscape_policy.json")
+            else {}
+        )
+        sonic = (
+            c.read_json("understanding/sonic_context.json")
+            if c.artifact_exists("understanding/sonic_context.json")
+            else {}
+        )
+        flags = sonic.get("segment_flags") if isinstance(sonic, dict) and isinstance(sonic.get("segment_flags"), dict) else {}
+        overlap_high = {str(sid) for sid in (flags.get("overlap_high") or [])}
+        normalized = _normalize_arrangement(
+            sdp,
+            [cue for cue in raw_cues if isinstance(cue, dict)],
+            ordered=ordered,
+            chapters=chapters,
+            policy=policy if isinstance(policy, dict) else {},
+            overlap_high=overlap_high,
+        )
+        sdp = _apply_cues(sdp, normalized)
         # If LLM returned only invalid asset_ids, fall back.
         podcast = ((sdp.get("flow_plans") or {}).get("podcast") or {}) if isinstance(sdp.get("flow_plans"), dict) else {}
         if not (podcast.get("cues") or []):
+            fallback = _normalize_arrangement(
+                sdp,
+                _default_cues(sdp, ordered=ordered, chapters=chapters),
+                ordered=ordered,
+                chapters=chapters,
+                policy=policy if isinstance(policy, dict) else {},
+                overlap_high=overlap_high,
+            )
             sdp = _apply_cues(
-                sdp, _default_cues(sdp, ordered=ordered, chapters=chapters)
+                sdp, fallback
             )
 
         write_validated_artifact(

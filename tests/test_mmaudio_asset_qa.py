@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import struct
 import wave
 from pathlib import Path
@@ -10,6 +11,7 @@ from interview_mux.mmaudio_asset_qa import (
     _expected_bucket_from_room_timbre,
     _peak_density,
     analyze_asset_wav,
+    loop_seam_score,
     run_mmaudio_asset_qa,
 )
 from run_fixtures import (
@@ -88,6 +90,21 @@ def test_peak_density_detects_transients(tmp_path):
     samples, rate = _read_wav_frames(wav)
     density = _peak_density(samples, rate)
     assert density >= 0.3
+
+
+def test_loop_seam_score_uses_waveform_boundary_and_correlation():
+    rate = 1000
+    seamless = [0.5 * math.sin(2 * math.pi * i / 100) for i in range(1000)]
+    discontinuous = list(seamless)
+    discontinuous[-80:] = [-value for value in seamless[:80]]
+    discontinuous[-1] = -0.9
+
+    good = loop_seam_score(seamless, rate)
+    bad = loop_seam_score(discontinuous, rate)
+
+    assert 0.0 <= bad < good <= 1.0
+    assert good >= 0.8
+    assert bad < 0.55
 
 
 def test_run_mmaudio_qa_room_timbre_mismatch(tmp_path, monkeypatch):

@@ -45,114 +45,101 @@ def _check_bed_presence_band(
     segment_timing: dict[str, tuple[int, int]],
     contract: dict[str, Any],
     remux_cycle: int,
+    overlays: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Return ``ok`` / ``remux`` / ``fail`` for ghost/drowning beds under speech."""
-    from interview_mux.master_qc import (
-        collect_flow1_bed_speech_windows,
-        speech_band_rms,
+    """Write stem-aware A/B QC and return ``ok`` / ``remux_*`` / ``fail``."""
+    del assembly_path, segment_timing
+    from interview_mux.underbed_ab_qc import (
+        analyze_underbed_ab_qc,
+        underbed_eq_settings,
+        underbed_qc_settings,
     )
 
-    presence_cfg = _mix_cfg().get("bed_presence_qc")
-    if isinstance(presence_cfg, dict) and presence_cfg.get("enabled") is False:
+    mix_cfg = _mix_cfg()
+    settings = underbed_qc_settings(mix_cfg)
+    if not settings["enabled"]:
         return "ok"
-    # Require realized underscore/bed cues — skip when mix has no beds.
-    try:
-        coverage = (
-            ctx.read_json("master/music_cue_coverage.json")
-            if ctx.artifact_exists("master/music_cue_coverage.json")
-            else {}
-        )
-        realized = coverage.get("realized_cues") or [] if isinstance(coverage, dict) else []
-        has_bed = any(
-            isinstance(r, dict)
-            and str(r.get("music_role") or "") == "theme_underscore"
-            for r in realized
-        )
-        if not has_bed:
-            return "ok"
-    except Exception:
-        return "ok"
-
-    mins: dict[str, Any] = {}
-    try:
-        sc = (merged_config().get("soundscape") or {}).get("min_density") or {}
-        if isinstance(sc, dict):
-            mins = dict(sc)
-    except Exception:
-        mins = {}
-    floor = float(mins.get("min_audible_bed_level_db", -22.0))
-    ceiling = float(mins.get("max_audible_bed_level_db", -18.0))
-    windows = collect_flow1_bed_speech_windows(
-        ctx, segment_timing=segment_timing, contract=contract
+    eq = underbed_eq_settings(
+        mix_cfg,
+        depth_override_db=(
+            float(contract["underbed_eq_depth_db"])
+            if contract.get("underbed_eq_depth_db") is not None
+            else None
+        ),
     )
-    if not windows:
-        return "ok"
-    assembly = AudioSegment.from_file(str(assembly_path))
-    ghost = 0
-    drowning = 0
-    for win in windows:
-        start = max(0, int(win.start_ms))
-        end = max(start, int(win.end_ms))
-        mix_slice = assembly[start:end]
-        speech_slice = speech_stem[start:end] if len(speech_stem) > start else None
-        if len(mix_slice) <= 0:
-            continue
-        try:
-            mix_rms = speech_band_rms(mix_slice) or 1e-9
-            sp_rms = (
-                speech_band_rms(speech_slice)
-                if speech_slice is not None and len(speech_slice) > 0
-                else 1e-9
-            )
-            residual = max(1e-9, mix_rms - 0.85 * (sp_rms or 0.0))
-            bed_db = 20.0 * math.log10(residual)
-        except Exception:
-            bed_db = float(mix_slice.dBFS) if mix_slice.dBFS != float("-inf") else -90.0
-        if bed_db < floor - 2.0:
-            ghost += 1
-        if bed_db > ceiling + 4.0:
-            drowning += 1
-    report = {
-        "version": 1,
-        "ghost_windows": ghost,
-        "drowning_windows": drowning,
-        "windows_checked": len(windows),
-        "floor_db": floor,
-        "ceiling_db": ceiling,
+    report = analyze_underbed_ab_qc(
+        speech_stem,
+        list(overlays or []),
+        mix_cfg=mix_cfg,
+        eq_settings=eq,
+    )
+    report["remux_cycle"] = remux_cycle
+    report["adjustments"] = {
+        "duck_boost_db": float(contract.get("underbed_duck_boost_db") or 0.0),
+        "bed_lift_db": float(contract.get("underbed_level_adjust_db") or 0.0),
+        "carve_depth_db": float(eq["depth_db"]),
     }
-    ctx.write_json("master/bed_presence_qc.json", report)
-    fail_closed = True
-    if isinstance(presence_cfg, dict) and "fail_closed" in presence_cfg:
-        fail_closed = bool(presence_cfg.get("fail_closed"))
-    if drowning and remux_cycle < 2:
-        return "remux_duck"
-    if ghost and remux_cycle < 2:
+    ctx.write_json("master/underbed_ab_qc.json", report)
+    # Keep the established artifact path as a compact compatibility summary.
+    legacy = {
+        "version": 2,
+        "ghost_windows": int(report["inaudible_windows"]),
+        "drowning_windows": int(report["masking_windows"]),
+        "windows_checked": int(report["windows_checked"]),
+        "verdict": report["verdict"],
+    }
+    ctx.write_json("master/bed_presence_qc.json", legacy)
+
+    verdict = str(report["verdict"])
+    max_cycles = int(settings["max_remux_cycles"])
+    if verdict == "remux_masking" and remux_cycle < max_cycles:
+        duck_step = float(settings["duck_step_db"])
+        carve_step = float(settings["carve_step_db"])
+        current_duck = float(contract.get("underbed_duck_boost_db") or 0.0)
+        current_depth = float(eq["depth_db"])
+
+        def _deepen(m: dict) -> None:
+            m["mix_underbed_duck_boost_db"] = min(12.0, current_duck + duck_step)
+            m["mix_underbed_carve_depth_db"] = min(
+                float(eq["max_depth_db"]), current_depth + carve_step
+            )
+
         try:
-            current = float(contract.get("bed_under_dialogue_db") or floor)
+            ctx.mutate_run_meta(_deepen)
+        except Exception:
+            pass
+        return "remux_masking"
+    if verdict == "remux_lift" and remux_cycle < max_cycles:
+        current_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
+        lift = min(
+            float(settings["max_total_bed_lift_db"]),
+            current_lift + float(settings["bed_lift_step_db"]),
+        )
 
-            def _lift(m: dict) -> None:
-                m["mix_bed_presence_lift_db"] = min(ceiling, current + 2.0)
+        def _lift(m: dict) -> None:
+            m["mix_underbed_lift_db"] = lift
 
+        try:
             ctx.mutate_run_meta(_lift)
         except Exception:
             pass
         return "remux_lift"
-    if drowning and fail_closed and remux_cycle < 2:
-        return "fail"
-    if drowning:
+    if verdict == "remux_masking":
+        if settings["fail_closed"]:
+            return "fail"
         ctx.log(
-            f"mix: drowning beds remain after remux ({drowning}/{len(windows)} windows) — continue",
+            "mix: underbed masking remains after automated A/B remux cap — continue",
             level="warning",
             stage="mix",
+            detail=report,
         )
-        return "ok"
-    if ghost:
+    elif verdict == "remux_lift":
         ctx.log(
-            f"mix: ghost beds remain after remux ({ghost}/{len(windows)} windows) — continue",
+            "mix: underbed remains below audibility floor after automated A/B remux cap — continue",
             level="warning",
             stage="mix",
+            detail=report,
         )
-        return "ok"
     return "ok"
 
 
@@ -358,6 +345,26 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                             **contract,
                             "bed_under_dialogue_db": float(
                                 meta["mix_bed_presence_lift_db"]
+                            ),
+                        }
+                    duck_boost = float(meta.get("mix_underbed_duck_boost_db") or 0.0)
+                    if duck_boost:
+                        contract = {
+                            **contract,
+                            "underbed_duck_boost_db": duck_boost,
+                        }
+                    if meta.get("mix_underbed_carve_depth_db") is not None:
+                        contract = {
+                            **contract,
+                            "underbed_eq_depth_db": float(
+                                meta["mix_underbed_carve_depth_db"]
+                            ),
+                        }
+                    if meta.get("mix_underbed_lift_db") is not None:
+                        contract = {
+                            **contract,
+                            "underbed_level_adjust_db": float(
+                                meta["mix_underbed_lift_db"]
                             ),
                         }
         except Exception:
@@ -837,23 +844,17 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             segment_timing=segment_timing,
             contract=contract,
             remux_cycle=remux_cycle,
+            overlays=overlays,
         )
-        if presence.startswith("remux") and remux_cycle < 2:
+        from interview_mux.underbed_ab_qc import underbed_qc_settings
+
+        max_presence_remux = int(underbed_qc_settings(_mix_cfg())["max_remux_cycles"])
+        if presence.startswith("remux") and remux_cycle < max_presence_remux:
             ctx.log(
                 f"mix: bed presence remux ({presence}, cycle {remux_cycle})",
                 level="warning",
                 stage="mix",
             )
-            if presence == "remux_duck":
-                prev = float(contract.get("duck_under_speech_db") or 16.0)
-
-                def _boost(m: dict) -> None:
-                    m["mix_intelligibility_remux_duck_db"] = prev + 4.0
-
-                try:
-                    ctx.mutate_run_meta(_boost)
-                except Exception:
-                    pass
             return mix(ctx, remux_cycle=remux_cycle + 1)
         if presence == "fail":
             raise RuntimeError("mix bed presence QC failed (ghost or drowning beds)")
@@ -1218,6 +1219,8 @@ def flow1_overlays_from_sdp(
     max_stingers = stinger_cap * timeline_minutes
     stinger_count = 0
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
+    underbed_duck_boost_db = float(contract.get("underbed_duck_boost_db") or 0.0)
+    underbed_level_adjust_db = float(contract.get("underbed_level_adjust_db") or 0.0)
     sonic = load_sonic_context(ctx) or {}
     scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
     atlas_bucket = str(scenario.get("atlas_bucket") or "")
@@ -1356,11 +1359,15 @@ def flow1_overlays_from_sdp(
                 continue
             if bool((_mix_cfg()).get("adaptive_level_from_sap", True)):
                 level_db = _adaptive_bed_level_db(ctx, default_level_db=level_db)
+            level_db += underbed_level_adjust_db
             verb = str(cue.get("music_transition") or "").strip()
             duck_for_cue = float(_verb_duck.get(verb, duck_default))
             if verb == "silence_as_transition":
                 continue
-            duck_db = max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
+            duck_db = (
+                max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
+                + underbed_duck_boost_db
+            )
             fade_in, fade_out, fade_curve = _bed_fade_ms(
                 placement=placement, cue=cue, profile=profile if isinstance(profile, dict) else None
             )
@@ -1369,6 +1376,20 @@ def flow1_overlays_from_sdp(
             fade_out = min(fade_out, max(80, (dur * 2) // 3))
             bed = loop_to_duration(base, dur)
             bed = apply_pan_position(bed, cue.get("pan_position"))
+            from interview_mux.underbed_ab_qc import (
+                apply_underbed_eq,
+                underbed_eq_settings,
+            )
+
+            eq_settings = underbed_eq_settings(
+                _mix_cfg(),
+                depth_override_db=(
+                    float(contract["underbed_eq_depth_db"])
+                    if contract.get("underbed_eq_depth_db") is not None
+                    else None
+                ),
+            )
+            bed = apply_underbed_eq(bed, eq_settings)
             speech_window = None
             if speech_stem is not None and len(speech_stem) > 0:
                 speech_window = speech_stem[max(0, start_ms) : max(start_ms, end_ms)]
@@ -1389,6 +1410,11 @@ def flow1_overlays_from_sdp(
                     "role": "bed",
                     "music_role": "theme_underscore",
                     "asset_id": asset_id,
+                    "cue_id": str(cue.get("cue_id") or ""),
+                    "segment_ids": span_ids,
+                    "level_db": level_db,
+                    "duck_db": duck_db,
+                    "underbed_eq": eq_settings,
                 }
             )
             continue

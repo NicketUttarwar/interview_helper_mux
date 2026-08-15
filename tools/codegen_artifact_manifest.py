@@ -18,6 +18,19 @@ from interview_mux.prompt_validation import (  # noqa: E402
     STAGE_ARTIFACT_SCHEMAS,
 )
 
+DIAGNOSTIC_ARTIFACTS = {
+    "sound_design/musicgen_candidates.json": {
+        "schema": "musicgen_candidates.schema.json",
+        "producer": "mmaudio_sfx",
+        "consumers": ["mix"],
+    },
+    "master/underbed_ab_qc.json": {
+        "schema": "underbed_ab_qc.schema.json",
+        "producer": "mix",
+        "consumers": ["mix"],
+    },
+}
+
 
 def _load_contract(stage_id: str) -> dict | None:
     path = ROOT / "docs" / "cross-cutting" / "stage-contracts" / f"{stage_id}.yaml"
@@ -66,6 +79,14 @@ def build_manifest() -> dict:
                             rel = out["path"]
                             if stage_id not in by_path[rel]["consumers"]:
                                 by_path[rel]["consumers"].append(stage_id)
+    for rel, diagnostic in DIAGNOSTIC_ARTIFACTS.items():
+        producer = str(diagnostic["producer"])
+        by_path[rel] = {
+            "schemas_by_producer": {producer: str(diagnostic["schema"])},
+            "producers": [producer],
+            "consumers": list(diagnostic["consumers"]),
+            "has_write_validator": rel in ARTIFACT_WRITE_VALIDATORS,
+        }
     return {"version": 1, "artifacts": by_path}
 
 

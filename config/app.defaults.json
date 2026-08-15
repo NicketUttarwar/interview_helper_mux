@@ -198,6 +198,29 @@
     "bed_presence_qc": {
       "enabled": true,
       "fail_closed": true
+    },
+    "underbed_eq": {
+      "enabled": true,
+      "low_hz": 1500,
+      "high_hz": 4000,
+      "carve_db": 3.0,
+      "max_carve_db": 6.0
+    },
+    "underbed_ab_qc": {
+      "enabled": true,
+      "min_bed_relative_db": -38.0,
+      "max_speech_band_excess_db": 3.0,
+      "lift_step_db": 2.0,
+      "duck_step_db": 2.0,
+      "carve_step_db": 1.5,
+      "max_remux_cycles": 2,
+      "fail_closed_on_masking": true
+    },
+    "underbed_arrangement": {
+      "enabled": true,
+      "max_scene_segments": 4,
+      "dry_break_chapters": 1,
+      "scene_crossfade_ms": 1800
     }
   },
   "_comment_audio_preclean": "DeepFilterNet primary; ffmpeg denoise when local stack unavailable",
@@ -326,7 +349,7 @@
       "music_preset": "music_forward_documentary",
       "musicgen_overrides": {
         "best_of_n_speech_free": 1,
-        "best_of_n_underscore": 1
+        "best_of_n_underscore": 3
       },
       "mix_overrides": {
         "bed_under_dialogue_db": -18,
@@ -351,7 +374,7 @@
       "music_preset": "speech_maximal",
       "musicgen_overrides": {
         "best_of_n_speech_free": 1,
-        "best_of_n_underscore": 1
+        "best_of_n_underscore": 3
       },
       "mix_overrides": {
         "bed_under_dialogue_db": -22,
@@ -415,7 +438,7 @@
     "enabled": true
   },
   "g1_5_require_prompt_approval": true,
-  "g1_5_require_music_listen": true,
+  "g1_5_require_music_listen": false,
   "narrative_qc": {
     "strict": true
   },
@@ -774,9 +797,11 @@
     "prefer_medium_on_cpu": false,
     "mmaudio_backup_on_stub": true,
     "best_of_n_speech_free": 1,
-    "best_of_n_underscore": 1,
-    "max_best_of_n": 1,
-    "keep_candidates": false,
+    "best_of_n_underscore": 3,
+    "max_best_of_n": 3,
+    "keep_candidates": true,
+    "min_loop_seam_score": 0.55,
+    "candidate_selection_version": 1,
     "max_regen_per_asset": 2,
     "semantic_qa_fail_on_low": true,
     "prefetch_models": [

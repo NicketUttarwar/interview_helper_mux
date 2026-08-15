@@ -94,7 +94,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
 | `autopilot_enabled` / `operator.autopilot_enabled` | — | **Inert.** Autopilot removed; no code reads these keys |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
-| `g1_5_require_music_listen` | `music_listen_review`, `mix`, GUI music listen | When `true`, blocks mix until operator listens to cold open + one underscore bed |
+| `g1_5_require_music_listen` | `music_listen_review`, `mix`, GUI music listen | Default `false`: automated candidate selection + underbed A/B QC gate mix; set `true` to additionally require operator listening |
 | `narrative_qc.strict` | `gates.check_narrative_qc`, `selection`, `assembly` | When `true`, blocks `full_master_ranking` / `edl` on topic/chapter failures (production default `true`) |
 | `edl_qc.strict` | `gates.check_edl_qc`, `assembly`, `tools/validate_edl.py` | When `true`, blocks invalid EDL timeline mechanics before mix/export |
 | `edl_narrative_qc.strict` | `gates.check_edl_narrative_qc`, `assembly`, `tools/validate_narrative.py --include-edl` | When `true`, blocks `edl` when final EDL breaks coverage, chapter continuity, ordering constraints, transitions, gap placements, or flagship audit findings |
@@ -1123,15 +1123,17 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `step_down_timeout_sec` | `480` | Hang budget for medium/small ladder steps |
 | `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after ladder + MMAudio backup so mix always has music |
 | `best_of_n_speech_free` | `1` | Candidates for cold open / outro / accents |
-| `best_of_n_underscore` | `1` | Candidates for underscore beds |
-| `max_best_of_n` | `1` | Hard cap (also clamps production-profile overrides) |
+| `best_of_n_underscore` | `3` | Candidates generated for each underscore loop before automatic musical/loop-safe selection |
+| `max_best_of_n` | `3` | Hard cap (also clamps production-profile overrides) |
 | `use_melody_conditioning` | `false` | Condition later stems on motif/cold-open melody |
 | `prefer_medium_on_cpu` | `false` | When true, skip large on CPU if medium is cached — **default off** (large first) |
 | `mmaudio_backup_on_stub` | `true` | After the MusicGen ladder ends in a stub, try MMAudio before accepting stub audio |
 | `min_duration_sec` | `4.0` | Soft floor only |
 | `max_duration_sec` | `24.0` | Soft advisory only — not enforced as a hard ceiling in `clamp_music_duration` |
 | `prefetch_models` | large + melody-large + medium + small | Bootstrap cache list |
-| `keep_candidates` | `false` | Keep losing best-of-N WAVs under `_candidates/` |
+| `keep_candidates` | `true` | Keep best-of-N WAVs under `_candidates/` through mix diagnostics |
+| `min_loop_seam_score` | `0.55` | Strongly penalize underbed candidates below the loop-safety threshold |
+| `candidate_selection_version` | `1` | Audit version written to `sound_design/musicgen_candidates.json` |
 
 ---
 
@@ -1202,6 +1204,15 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
 | `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls soft speech-gate response and envelope resolution (defaults ~40 / 900 / 20) |
 | `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~1.0; keep modest so adjacent VO stays on top) |
+| `mix.underbed_arrangement.enabled` | `music_palette_compose` | Enables chapter-aware bed scenes and primary/alternate loop rotation |
+| `mix.underbed_arrangement.max_scene_segments` / `dry_break_chapters` | `music_palette_compose` | Bounds repeated-loop runs and inserts dry chapter breaks when no alternate loop exists |
+| `mix.underbed_arrangement.scene_crossfade_ms` | `music_palette_compose`, `sound_design` | Minimum handoff/crossfade length for underbed scenes |
+| `mix.underbed_eq.enabled` | `sound_design` | Applies a cached speech-presence carve to underbed stems before ducking |
+| `mix.underbed_eq.low_hz` / `high_hz` / `carve_db` / `max_carve_db` | `sound_design` | Configures the broad 1.5–4 kHz carve and remediation ceiling |
+| `mix.underbed_ab_qc.enabled` | `sound_design`, `underbed_ab_qc` | Runs automated speech-vs-rendered-bed A/B measurements after mix |
+| `mix.underbed_ab_qc.min_bed_relative_db` / `max_speech_band_excess_db` | `underbed_ab_qc` | Presence floor and masking ceiling |
+| `mix.underbed_ab_qc.lift_step_db` / `duck_step_db` / `carve_step_db` | `sound_design` | Bounded targeted remux adjustments |
+| `mix.underbed_ab_qc.max_remux_cycles` / `fail_closed_on_masking` | `sound_design` | Caps automatic retries; persistent masking blocks while presence-only misses warn |
 | `mix.music_presence.cold_open_lead_in_fade_ms` | `sound_design.py` | Fade-in for speech-free cold open / outro bookends |
 | `mix.music_presence.cold_open_air_ms` | `sound_design.py` / `_cold_open_bridge_budget_ms` | Air reserved after preface VO for the cold-open bridge before the question |
 | `mix.music_presence.chapter_resolve_breathe_ms` | `sound_design.py` | Dry micro-gap after chapter resolve before speech resumes |

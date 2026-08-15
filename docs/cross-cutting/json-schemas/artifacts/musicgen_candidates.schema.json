@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MusicGenCandidatesArtifact",
+  "type": "object",
+  "required": ["version", "selection_version", "assets"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "selection_version": { "type": "string", "minLength": 1 },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "role",
+          "prompt_hash",
+          "seeds",
+          "candidate_paths",
+          "generation_metadata",
+          "candidates",
+          "selected_index",
+          "selected_path",
+          "canonical_path",
+          "selection_version"
+        ],
+        "properties": {
+          "asset_id": { "type": "string", "minLength": 1 },
+          "role": { "type": "string" },
+          "prompt_hash": { "type": "string", "minLength": 1 },
+          "seeds": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "candidate_paths": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "generation_metadata": { "type": "object" },
+          "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "index",
+                "seed",
+                "path",
+                "generation_metadata",
+                "qa",
+                "score",
+                "score_components",
+                "rejection_reasons",
+                "rejected",
+                "loop_seam_threshold"
+              ],
+              "properties": {
+                "index": { "type": "integer", "minimum": 0 },
+                "seed": { "type": "integer" },
+                "path": { "type": "string", "minLength": 1 },
+                "generation_metadata": { "type": "object" },
+                "qa": { "type": "object" },
+                "score": { "type": "number" },
+                "score_components": {
+                  "type": "object",
+                  "additionalProperties": { "type": "number" }
+                },
+                "rejection_reasons": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "rejected": { "type": "boolean" },
+                "loop_seam_threshold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "selected_index": { "type": "integer", "minimum": 0 },
+          "selected_path": { "type": "string", "minLength": 1 },
+          "canonical_path": { "type": "string", "minLength": 1 },
+          "selection_version": { "type": "string", "minLength": 1 },
+          "all_candidates_rejected": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

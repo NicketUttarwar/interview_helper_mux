@@ -19,7 +19,12 @@ from interview_mux.music_motif import (
 )
 from interview_mux.music_lane import LANE_BED, LANE_BOOKEND, LANE_PUNCTUATOR, music_lane_for_role
 from interview_mux.musicgen_runner import clamp_music_duration
-from interview_mux.stages.music_palette_compose import _apply_cues, _default_cues
+from interview_mux.sdp_cross_validate import _avoidable_same_loop_runs
+from interview_mux.stages.music_palette_compose import (
+    _apply_cues,
+    _default_cues,
+    _normalize_arrangement,
+)
 
 
 class _FakeCtx:
@@ -51,7 +56,7 @@ def test_analysis_palette_counts_sparse_vs_dense() -> None:
     sc = analysis_palette_counts(sparse)  # type: ignore[arg-type]
     assert sc["motif"] == 1
     assert sc["underscore_loop"] == 1
-    assert sc["optional_loop"] == 0
+    assert sc["optional_loop"] == 1
     assert sc["full_beds"] == 1
     assert sc["stingers"] <= 2
 
@@ -150,6 +155,119 @@ def test_compose_cues_reuse_palette_only() -> None:
     assert podcast.get("composed_by") == "music_palette_compose"
 
 
+def test_arrangement_alternates_slot_safe_contiguous_scenes() -> None:
+    assets = build_fixed_palette_assets(
+        {"show_identity": {}, "motif_seeds": {}, "narrative_spine": {"acts": []}},
+        {"motif": 1, "underscore_loop": 1, "optional_loop": 1, "stingers": 1, "full_beds": 1},
+    )
+    sdp = {"assets": assets}
+    ordered = [f"s{i}" for i in range(1, 9)]
+    chapters = [
+        {"chapter_id": "c1", "segment_ids": ordered[:4]},
+        {"chapter_id": "c2", "segment_ids": ordered[4:]},
+    ]
+    policy = {
+        "underscore_policy": "normal",
+        "sfx_density": {"max_beds": 4, "max_punctuators": 1},
+        "cue_slots": [
+            {
+                "segment_id": sid,
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+                "max_level_db": -28,
+            }
+            for sid in ("s1", "s2", "s3", "s5", "s6", "s7")
+        ],
+    }
+    motif = next(a for a in assets if a.get("palette_kind") == "motif")
+    cues = _normalize_arrangement(
+        sdp,
+        [
+            {
+                "cue_id": "keep_open",
+                "asset_id": motif["asset_id"],
+                "placement": "before_segment",
+                "before_segment_id": "s1",
+            }
+        ],
+        ordered=ordered,
+        chapters=chapters,
+        policy=policy,
+        overlap_high={"s2"},
+    )
+    assert any(c.get("cue_id") == "keep_open" for c in cues)
+    beds = [c for c in cues if c.get("placement") == "under_segment"]
+    assert [c["segment_id"] for c in beds] == ["s1", "s3", "s5", "s6", "s7"]
+    scene_assets = [
+        beds[0]["asset_id"],
+        beds[1]["asset_id"],
+        beds[2]["asset_id"],
+    ]
+    assert scene_assets[0] != scene_assets[1]
+    assert scene_assets[0] == scene_assets[2]
+    assert len({c["asset_id"] for c in beds[2:]}) == 1
+    assert all(c["level_db"] == -28 and c["crossfade_ms"] >= 1500 for c in beds)
+
+
+def test_single_loop_caps_scenes_and_leaves_dry_chapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import interview_mux.stages.music_palette_compose as compose
+
+    monkeypatch.setattr(
+        compose,
+        "merged_config",
+        lambda: {
+            "mix": {
+                "underbed_arrangement": {
+                    "max_scene_segments": 2,
+                    "dry_break_chapters": 1,
+                }
+            }
+        },
+    )
+    assets = build_fixed_palette_assets(
+        {"show_identity": {}, "motif_seeds": {}, "narrative_spine": {"acts": []}},
+        {"motif": 1, "underscore_loop": 1, "optional_loop": 0, "stingers": 2, "full_beds": 1},
+    )
+    ordered = [f"s{i}" for i in range(1, 10)]
+    chapters = [
+        {"chapter_id": "c1", "segment_ids": ordered[:3]},
+        {"chapter_id": "c2", "segment_ids": ordered[3:6]},
+        {"chapter_id": "c3", "segment_ids": ordered[6:]},
+    ]
+    policy = {
+        "underscore_policy": "normal",
+        "sfx_density": {"max_beds": 2, "max_punctuators": 2},
+        "cue_slots": [
+            {
+                "segment_id": sid,
+                "placement": "under_segment",
+                "allowed_roles": ["theme_underscore"],
+            }
+            for sid in ordered
+        ],
+    }
+    cues = _normalize_arrangement(
+        {"assets": assets},
+        [],
+        ordered=ordered,
+        chapters=chapters,
+        policy=policy,
+    )
+    bed_segments = [
+        c["segment_id"] for c in cues if c.get("placement") == "under_segment"
+    ]
+    assert bed_segments == ["s1", "s2", "s7", "s8"]
+    assert not set(bed_segments) & set(ordered[3:6])
+    stingers = [
+        c
+        for c in cues
+        if c.get("placement") == "after_segment"
+    ]
+    assert len(stingers) <= 2
+
+
 def test_compile_musicgen_prompt_is_succinct() -> None:
     motif = default_motif_family(
         {
@@ -173,6 +291,68 @@ def test_compile_musicgen_prompt_is_succinct() -> None:
     assert "guitar" in pos.lower() or "piano" in pos.lower()
     assert "vocals" in neg.lower()
     assert "whoosh" in neg.lower()
+    assert "dense 1-4 khz hooks" in neg.lower()
+    assert "loud drum kits" in neg.lower()
+    assert "repetitive hard transients" in neg.lower()
+    alternate, _ = compile_musicgen_prompt(
+        brief={},
+        motif=motif,
+        role="theme_underscore",
+        palette_kind="optional_loop",
+        wpm=140,
+    )
+    assert "related alternate" in alternate.lower()
+    assert "lift" in alternate.lower()
+    assert "tonal contrast" in alternate.lower()
+
+
+def test_fixed_palette_describes_primary_and_related_alternate() -> None:
+    assets = build_fixed_palette_assets(
+        {"show_identity": {}, "motif_seeds": {}, "narrative_spine": {"acts": []}},
+        {"motif": 1, "underscore_loop": 1, "optional_loop": 1, "stingers": 0, "full_beds": 1},
+    )
+    descriptions = {
+        str(asset["palette_kind"]): str(asset.get("description") or "").lower()
+        for asset in assets
+    }
+    assert all(word in descriptions["underscore_loop"] for word in ("warm", "rhythmic", "motif-led"))
+    assert "related alternate" in descriptions["optional_loop"]
+    assert "lift" in descriptions["optional_loop"]
+    assert "contrast" in descriptions["optional_loop"]
+
+
+def test_validation_flags_only_avoidable_same_loop_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import interview_mux.sdp_cross_validate as cross_validate
+
+    monkeypatch.setattr(
+        cross_validate,
+        "merged_config",
+        lambda: {"mix": {"underbed_arrangement": {"max_scene_segments": 2}}},
+    )
+    assets = [
+        {
+            "asset_id": "primary",
+            "role": "theme_underscore",
+            "palette_kind": "underscore_loop",
+        },
+        {
+            "asset_id": "alternate",
+            "role": "theme_underscore",
+            "palette_kind": "optional_loop",
+        },
+    ]
+    cues = [
+        {
+            "asset_id": "primary",
+            "placement": "under_segment",
+            "segment_id": sid,
+        }
+        for sid in ("s1", "s2", "s3")
+    ]
+    assert _avoidable_same_loop_runs(cues, assets, ["s1", "s2", "s3"])
+    assert not _avoidable_same_loop_runs(cues, assets[:1], ["s1", "s2", "s3"])
 
 
 def test_clamp_music_duration_no_hard_ceiling() -> None:

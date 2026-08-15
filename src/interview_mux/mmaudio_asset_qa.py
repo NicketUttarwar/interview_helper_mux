@@ -320,7 +320,7 @@ def analyze_asset_wav(
             row["suggested_level_db_delta"] = -2.0
             row["reasons"].append("default_speech_first_bed_lower")
         if role in {"ambient_bed", "theme_underscore"}:
-            row["loop_seam_score"] = round(_loop_seam_score(samples, rate), 4)
+            row["loop_seam_score"] = round(loop_seam_score(samples, rate), 4)
 
     # Tick/murmur density gate for theme music — reject percussive woodtick-like stems.
     if is_theme_role(role) or role in THEME_ROLES:
@@ -487,17 +487,49 @@ def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
     return doc
 
 
-def _loop_seam_score(samples: list[float], rate: int) -> float:
+def loop_seam_score(samples: list[float], rate: int) -> float:
+    """Score loop continuity using level, boundary, and waveform agreement."""
     if not samples or rate <= 0:
         return 0.0
     window = max(1, int(rate * 0.08))
     if len(samples) < window * 2:
         return 0.0
-    head = _rms(samples[:window])
-    tail = _rms(samples[-window:])
-    denom = max(head, tail, 1e-6)
-    delta = abs(head - tail) / denom
-    return max(0.0, min(1.0, 1.0 - delta))
+    head_samples = samples[:window]
+    tail_samples = samples[-window:]
+    head_rms = _rms(head_samples)
+    tail_rms = _rms(tail_samples)
+    level_scale = max(head_rms, tail_rms, 1e-6)
+    level_score = 1.0 - min(1.0, abs(head_rms - tail_rms) / level_scale)
+
+    # A loop splice must not introduce a sample step. Normalize by local signal
+    # energy so this remains useful for both quiet beds and mastered stems.
+    boundary_delta = abs(samples[0] - samples[-1])
+    boundary_scale = max(level_scale * 2.0, 1e-5)
+    boundary_score = 1.0 - min(1.0, boundary_delta / boundary_scale)
+
+    head_mean = sum(head_samples) / window
+    tail_mean = sum(tail_samples) / window
+    head_centered = [value - head_mean for value in head_samples]
+    tail_centered = [value - tail_mean for value in tail_samples]
+    head_energy = math.sqrt(sum(value * value for value in head_centered))
+    tail_energy = math.sqrt(sum(value * value for value in tail_centered))
+    if head_energy > 1e-8 and tail_energy > 1e-8:
+        correlation = sum(
+            head * tail for head, tail in zip(head_centered, tail_centered)
+        ) / (head_energy * tail_energy)
+        correlation_score = max(0.0, min(1.0, (correlation + 1.0) / 2.0))
+    else:
+        # Constant windows have no defined correlation. Treat matching values
+        # as continuous and differing DC levels as discontinuous.
+        correlation_score = boundary_score
+
+    score = 0.25 * level_score + 0.35 * boundary_score + 0.40 * correlation_score
+    return max(0.0, min(1.0, score))
+
+
+def _loop_seam_score(samples: list[float], rate: int) -> float:
+    """Backward-compatible private alias for older callers."""
+    return loop_seam_score(samples, rate)
 
 
 def _theme_fit_score(prompt: str, sonic_keywords: set[str]) -> float:

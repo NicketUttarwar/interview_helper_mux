@@ -688,6 +688,134 @@ def _sonic_context_hash(ctx: RunContext) -> str:
     return str(stored) if stored else ""
 
 
+MUSICGEN_SELECTION_VERSION = "musicgen_role_aware_v1"
+MUSICGEN_CANDIDATES_PATH = "sound_design/musicgen_candidates.json"
+
+
+def _musicgen_selection_settings() -> dict[str, Any]:
+    from interview_mux.config import merged_config
+
+    cfg = merged_config().get("musicgen") or {}
+    version = max(1, int(cfg.get("candidate_selection_version") or 1))
+    return {
+        "loop_seam_threshold": max(
+            0.0, min(1.0, float(cfg.get("min_loop_seam_score", 0.55)))
+        ),
+        "selection_version": f"musicgen_role_aware_v{version}",
+    }
+
+
+def score_musicgen_candidate(
+    *,
+    role: str,
+    qa: dict[str, Any],
+    loop_seam_threshold: float = 0.55,
+) -> dict[str, Any]:
+    """Return role-aware MusicGen score components and rejection reasons."""
+    verdict = str(qa.get("verdict") or "fail").lower()
+    verdict_score = {"pass": 10.0, "warn": 4.0}.get(verdict, -5.0)
+    musicality = qa.get("musicality") if isinstance(qa.get("musicality"), dict) else {}
+    fail_reasons = list(musicality.get("fail_reasons") or [])
+    warn_reasons = list(musicality.get("warn_reasons") or [])
+    components: dict[str, float] = {
+        "qa_verdict": verdict_score,
+        "musicality_failures": -3.0 * len(fail_reasons),
+        "musicality_warnings": -0.5 * len(warn_reasons),
+    }
+    semantic = qa.get("semantic_similarity")
+    if semantic is not None:
+        semantic_score = max(0.0, min(1.0, float(semantic)))
+        components["semantic_relevance"] = 4.0 * semantic_score
+    rejection_reasons: list[str] = []
+
+    if "underscore" in role:
+        pulse = max(0.0, min(1.0, float(musicality.get("pulse_clarity") or 0.0)))
+        tonal = max(0.0, min(1.0, float(musicality.get("tonal_center_score") or 0.0)))
+        roughness = max(
+            0.0,
+            min(1.0, float(musicality.get("speech_band_roughness") or 0.0)),
+        )
+        seam = max(0.0, min(1.0, float(qa.get("loop_seam_score") or 0.0)))
+        components.update(
+            {
+                "pulse_clarity": 4.0 * pulse,
+                "tonal_coherence": 3.0 * tonal,
+                "speech_band_roughness": -4.0 * roughness,
+                "loop_seam": 8.0 * seam,
+            }
+        )
+        if "musicality_no_onset_structure" in fail_reasons:
+            components["missing_onset_structure"] = -6.0
+        if seam < loop_seam_threshold:
+            components["weak_loop_seam_penalty"] = -20.0
+            rejection_reasons.append("loop_seam_below_threshold")
+
+    score = sum(components.values())
+    return {
+        "score": round(score, 6),
+        "score_components": {
+            key: round(value, 6) for key, value in components.items()
+        },
+        "rejection_reasons": rejection_reasons,
+        "rejected": bool(rejection_reasons),
+        "loop_seam_threshold": float(loop_seam_threshold),
+    }
+
+
+def _is_underbed_role(role: str) -> bool:
+    normalized = str(role or "").lower()
+    return "underscore" in normalized or normalized.endswith("_bed") or normalized == "ambient_bed"
+
+
+def _select_musicgen_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    if not candidates:
+        raise ValueError("no MusicGen candidates to select")
+    accepted = [row for row in candidates if not row.get("rejected")]
+    pool = accepted or candidates
+    return max(pool, key=lambda row: (float(row["score"]), -int(row["index"])))
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _persist_musicgen_candidate_record(ctx: RunContext, record: dict[str, Any]) -> None:
+    doc: dict[str, Any] = {}
+    if ctx.artifact_exists(MUSICGEN_CANDIDATES_PATH):
+        try:
+            loaded = ctx.read_json(MUSICGEN_CANDIDATES_PATH)
+            if isinstance(loaded, dict):
+                doc = loaded
+        except (OSError, ValueError, json.JSONDecodeError):
+            doc = {}
+    records = [
+        row
+        for row in (doc.get("assets") or [])
+        if isinstance(row, dict) and row.get("asset_id") != record.get("asset_id")
+    ]
+    records.append(_json_safe(record))
+    settings = _musicgen_selection_settings()
+    payload = {
+        "version": 1,
+        "selection_version": settings["selection_version"],
+        "assets": records,
+    }
+    ctx.write_json(
+        MUSICGEN_CANDIDATES_PATH,
+        payload,
+        stage_key="mmaudio_sfx",
+        skip_handoff=True,
+    )
+
+
 def _generate_with_retry(
     *,
     ctx: RunContext,
@@ -789,19 +917,23 @@ def _generate_with_retry(
                     )
             return meta
 
-        from interview_mux.config import merged_config
         from interview_mux.mmaudio_asset_qa import analyze_asset_wav
+        from interview_mux.config import merged_config
 
         keep = bool((merged_config().get("musicgen") or {}).get("keep_candidates", False))
+        retain_candidates = keep or _is_underbed_role(role)
         base_seed = int(seed) if seed is not None else abs(hash(asset_id)) % 10_000_000
-        best_score = -1e9
-        best_meta: dict[str, Any] = {}
+        candidates: list[dict[str, Any]] = []
         cand_dir = assets_dir / "_candidates" / asset_id
-        if keep:
+        if retain_candidates:
             cand_dir.mkdir(parents=True, exist_ok=True)
         for i in range(n):
             cand_seed = base_seed + i * 9973
-            cand_path = (cand_dir / f"cand_{i}.wav") if keep else out_file.with_suffix(f".cand{i}.wav")
+            cand_path = (
+                cand_dir / f"cand_{i}.wav"
+                if retain_candidates
+                else out_file.with_suffix(f".cand{i}.wav")
+            )
             meta = generate_music_clip(
                 prompt=str(params.get("prompt") or ""),
                 negative_prompt=str(params.get("negative_prompt") or ""),
@@ -816,53 +948,120 @@ def _generate_with_retry(
                 path=cand_path,
                 plan_row={"role": role, "duration_seconds": params.get("duration_seconds")},
             )
-            score = 0.0
-            if qa.get("verdict") == "pass":
-                score += 10.0
-            elif qa.get("verdict") == "warn":
-                score += 4.0
-            else:
-                score -= 5.0
-            score += float(qa.get("peak_dbfs") or -60) * 0.05
-            mus = qa.get("musicality") if isinstance(qa.get("musicality"), dict) else {}
-            score -= 3.0 * len(mus.get("fail_reasons") or [])
-            score -= 0.5 * len(mus.get("warn_reasons") or [])
-            # Prefer clear soft pulse / onset structure over flat pads.
-            pulse = float(mus.get("pulse_clarity") or 0.0)
-            score += 4.0 * pulse
-            if "musicality_no_onset_structure" in (mus.get("fail_reasons") or []):
-                score -= 6.0
-            speech_band = float(mus.get("speech_band_roughness") or 0.0)
-            if "underscore" in str(role or ""):
-                score -= 3.0 * speech_band
-            tonal = float(mus.get("tonal_center_score") or 0.0)
-            score += 2.0 * tonal
-            if score > best_score and cand_path.is_file():
-                best_score = score
-                best_meta = {
-                    **meta,
-                    "best_of_n": n,
-                    "best_of_n_index": i,
-                    "best_of_n_score": score,
-                    "pulse_clarity": pulse,
-                }
-                if cand_path != out_file:
-                    import shutil
+            try:
+                from interview_mux.semantic_audio_qa import (
+                    apply_semantic_verdict,
+                    maybe_semantic_similarity,
+                )
 
-                    shutil.copy2(cand_path, out_file)
-            if not keep and cand_path != out_file and cand_path.is_file():
-                try:
-                    cand_path.unlink()
-                except OSError:
-                    pass
+                apply_semantic_verdict(
+                    qa,
+                    maybe_semantic_similarity(
+                        wav_path=cand_path,
+                        prompt_text=str(params.get("prompt") or ""),
+                        asset_id=asset_id,
+                    ),
+                )
+            except Exception:
+                pass
+            selection_settings = _musicgen_selection_settings()
+            scoring = score_musicgen_candidate(
+                role=role,
+                qa=qa,
+                loop_seam_threshold=float(selection_settings["loop_seam_threshold"]),
+            )
+            if cand_path.is_file():
+                candidate_rel = (
+                    f"sound_design/assets/_candidates/{asset_id}/cand_{i}.wav"
+                    if retain_candidates
+                    else f"sound_design/assets/{cand_path.name}"
+                )
+                candidates.append(
+                    {
+                        "index": i,
+                        "seed": cand_seed,
+                        "path": candidate_rel,
+                        "file_path": cand_path,
+                        "generation_metadata": _json_safe(meta),
+                        "qa": _json_safe(qa),
+                        **scoring,
+                    }
+                )
+        if not candidates:
+            raise RuntimeError(f"best_of_n generation produced no candidates for {asset_id}")
+
+        selectable = [row for row in candidates if not row["rejected"]]
+        selected = _select_musicgen_candidate(candidates)
+        selected_path = selected["file_path"]
+        import shutil
+
+        shutil.copy2(selected_path, out_file)
+        selected_sidecar = selected_path.with_suffix(".gen.json")
+        canonical_sidecar = out_file.with_suffix(".gen.json")
+        if selected_sidecar.is_file():
+            shutil.copy2(selected_sidecar, canonical_sidecar)
+        else:
+            canonical_sidecar.write_text(
+                json.dumps(selected["generation_metadata"], indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+        best_meta = {
+            **selected["generation_metadata"],
+            "best_of_n": n,
+            "best_of_n_index": selected["index"],
+            "best_of_n_score": selected["score"],
+            "selection_version": selection_settings["selection_version"],
+        }
+        prompt_hash = str(
+            selected["generation_metadata"].get("prompt_hash")
+            or hashlib.sha256(
+                (
+                    str(params.get("prompt") or "")
+                    + "\0"
+                    + str(params.get("negative_prompt") or "")
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        _persist_musicgen_candidate_record(
+            ctx,
+            {
+                "asset_id": asset_id,
+                "role": role,
+                "prompt_hash": prompt_hash,
+                "seeds": [row["seed"] for row in candidates],
+                "candidate_paths": [row["path"] for row in candidates],
+                "generation_metadata": {
+                    "requested_duration_seconds": float(params.get("duration_seconds") or 12.0),
+                    "best_of_n": n,
+                    "melody_path": str(melody) if melody else None,
+                },
+                "candidates": [
+                    {key: value for key, value in row.items() if key != "file_path"}
+                    for row in candidates
+                ],
+                "selected_index": selected["index"],
+                "selected_path": selected["path"],
+                "canonical_path": f"sound_design/assets/{asset_id}.wav",
+                "selection_version": selection_settings["selection_version"],
+                "all_candidates_rejected": not bool(selectable),
+            },
+        )
+
+        if not retain_candidates:
+            for row in candidates:
+                cand_path = row["file_path"]
+                if cand_path != out_file and cand_path.is_file():
+                    try:
+                        cand_path.unlink()
+                    except OSError:
+                        pass
                 gen_side = cand_path.with_suffix(".gen.json")
                 if gen_side.is_file():
                     try:
                         gen_side.unlink()
                     except OSError:
                         pass
-        if not best_meta:
-            raise RuntimeError(f"best_of_n generation produced no candidates for {asset_id}")
         return best_meta
 
     # Legacy MMAudio path — only if musicgen disabled (should not run for creative delivery).
@@ -1054,6 +1253,7 @@ def _resolve_generation_params(
                     brief=brief,
                     motif=motif,
                     role=str(role),
+                    palette_kind=str(cue.get("palette_kind") or "") or None,
                     wpm=wpm,
                 )
                 # Crafted prompt wins if present; else use motif compile.

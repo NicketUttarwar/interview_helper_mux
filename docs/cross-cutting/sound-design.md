@@ -38,8 +38,13 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 1. **Discover** sonic opportunities during analysis (themes, entities, beats, gaps, VO).
 2. **Plan** a **motif family** (`motif_family` + music-only `theme_*` assets) with restrained cues (~28–40% underscore).
 3. **Craft** MusicGen prompts via OpenAI (shared `prompt_dna` / melodic phrase).
-4. **Generate** one file per `asset_id` via local MusicGen (same WAV referenced by many cues).
-5. **Mix** with ducking, pause-ride in air, semantic placement, dense host VO bridges.
+4. **Generate and select** three candidates per underscore loop; score musicality,
+   speech-band restraint, and loop safety, then promote the best stem to the canonical
+   `asset_id` WAV. Candidate evidence lives in `sound_design/musicgen_candidates.json`.
+5. **Arrange** chapter-aware scenes that alternate the primary and related lift loop,
+   with deliberate dry breaks rather than one tiled bed across the entire show.
+6. **Mix** with a modest speech-presence EQ carve, soft-gate ducking, pause-ride in air,
+   and automated underbed A/B QC with bounded targeted remux.
 
 **Open grammar (mix):** after show-open/hook VO, play a speech-free `theme_cold_open` bridge, then the interviewer question, then the answer (soft underscore under speech). Cue roles resolve from the asset when the cue omits `role`. Music lanes (`theme_bookend` / `theme_punctuator` / `theme_bed`) are exclusive beyond a short crossfade — no stacked cold_open + emphasis + bed at the same instant. Emphasis/resolve/outro cues must bind to matching `theme_*` assets (`music_lane.py` + SDP repair).
 
@@ -358,6 +363,18 @@ per-segment `under_segment` cues that share an `asset_id` and sit on adjacent
 selected segments into one `under_segment_span` scene bed (fade only at the
 span edges) when `mastering.music_continuity.prefer_contiguous_beds` is set
 (default `true`) — see [mix-house-chain.md](./mix-house-chain.md#prefer_contiguous_beds-plan-4-wired)
+
+**Scene variation:** `music_palette_compose` normalizes bed cues after composition.
+Eligible chapter/cue-slot anchors alternate `underscore_loop` and `optional_loop`.
+If only one loop exists, a scene is capped and followed by a dry chapter break;
+an existing stinger may mark a pause-safe hinge. This prevents both per-cut restart
+chatter and long-loop boredom.
+
+**Automated enjoyment/presence check:** mix measures the known rendered bed stem
+against the speech-only stem per underbed window. Masking triggers more carve/duck;
+an inaudible bed receives a bounded level lift. Persistent masking remains blocking,
+while a presence-only miss warns after the two-cycle remediation cap. The evidence
+is written to `master/underbed_ab_qc.json`.
 and [seam-autopsy.md](./seam-autopsy.md#music). Ducking (step 4's under-speech
 attenuation) is **speech-wins** regardless of whether the speech is native or a
 recorded VO pickup — same envelope-follower contract, see

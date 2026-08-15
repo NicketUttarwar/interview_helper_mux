@@ -335,6 +335,30 @@
       ],
       "consumers": [],
       "has_write_validator": true
+    },
+    "sound_design/musicgen_candidates.json": {
+      "schemas_by_producer": {
+        "mmaudio_sfx": "musicgen_candidates.schema.json"
+      },
+      "producers": [
+        "mmaudio_sfx"
+      ],
+      "consumers": [
+        "mix"
+      ],
+      "has_write_validator": true
+    },
+    "master/underbed_ab_qc.json": {
+      "schemas_by_producer": {
+        "mix": "underbed_ab_qc.schema.json"
+      },
+      "producers": [
+        "mix"
+      ],
+      "consumers": [
+        "mix"
+      ],
+      "has_write_validator": true
     }
   }
 }
