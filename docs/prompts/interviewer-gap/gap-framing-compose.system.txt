@@ -46,6 +46,11 @@ Place VO **only** at true conversational seams:
 - missing question or setup the native tape never asked
 - required reorder glue
 
+When the VO clones the same speaker as its immediate native target, do not use a
+generic question, bridge, or orientation line. That placement is reserved for an
+explanatory nugget lay-up that explicitly recovers information from native
+segments excluded from the final selection.
+
 Do **not** break long same-speaker monologues just to hit a coverage percentage. Native points stay intact; VO complements them.
 
 Variety still matters when seams exist (~not all questions): framing questions, short reactions, bridges/summaries, and at most one preface per act.

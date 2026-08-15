@@ -447,8 +447,20 @@ export function useTimelineEditor() {
       const id = segmentIdForTime(segments, span.start_ms);
       if (id) ids.add(id);
     }
+    for (const seg of segments) {
+      const id = seg.segment_id || "";
+      if (!id) continue;
+      const grade = seg.edge_grade || seg.start_edge?.grade || seg.end_edge?.grade;
+      if (grade === "low" || grade === "reject") ids.add(id);
+      if (typeof seg.boundary_confidence === "number" && seg.boundary_confidence < 0.65) {
+        ids.add(id);
+      }
+    }
+    for (const item of timeline?.boundary_review_queue?.items || []) {
+      if (item?.segment_id && item.needs_review !== false) ids.add(item.segment_id);
+    }
     return ids;
-  }, [lowConfSpans, segments]);
+  }, [lowConfSpans, segments, timeline?.boundary_review_queue?.items]);
 
   const qcSegmentIds = useMemo(() => {
     const ids = new Set<string>();

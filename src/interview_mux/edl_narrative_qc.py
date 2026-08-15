@@ -397,6 +397,9 @@ def _validate_gap_placements(
         if isinstance(p, dict)
     }
     missing_vo = set((edl.get("warnings") or {}).get("missing_vo_files") or [])
+    suppressed_clone_adjacency = set(
+        (edl.get("warnings") or {}).get("suppressed_clone_adjacency") or []
+    )
 
     from interview_mux.gates import vo_gap_line_effectively_optional
 
@@ -426,7 +429,11 @@ def _validate_gap_placements(
             continue
         key = (line_id, target, placement)
         if key not in vo_keys:
-            warning_ok = line_id in missing_vo or target in missing_vo
+            warning_ok = (
+                line_id in missing_vo
+                or target in missing_vo
+                or line_id in suppressed_clone_adjacency
+            )
             if delivery == "synthesize" and not require_synth:
                 warning_ok = True
             if not warning_ok:
@@ -520,6 +527,82 @@ def _validate_gap_placements(
             )
 
 
+def _validate_clone_voice_adjacency(
+    ctx: RunContext,
+    edl: dict[str, Any],
+    selection: dict[str, Any],
+    errors: list[str],
+) -> None:
+    """Reject clone/native self-dialogue unless the VO recovers excluded tape."""
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return
+    manifest = ctx.read_json("segments/manifest.json")
+    segments = {
+        _as_id(row.get("segment_id")): row
+        for row in ((manifest if isinstance(manifest, dict) else {}).get("segments") or [])
+        if isinstance(row, dict) and _as_id(row.get("segment_id"))
+    }
+    report = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else {}
+    )
+    lines = {
+        _as_id(line.get("line_id")): line
+        for line in ((report if isinstance(report, dict) else {}).get("interviewer_lines") or [])
+        if isinstance(line, dict) and _as_id(line.get("line_id"))
+    }
+    corpus = (
+        ctx.read_json("understanding/nugget_corpus.json")
+        if ctx.artifact_exists("understanding/nugget_corpus.json")
+        else {}
+    )
+    from interview_mux.gap_framing import is_cut_recovery_vo
+
+    ordered = _id_list(selection.get("ordered_segment_ids"))
+    audible = [
+        clip
+        for clip in (edl.get("clips") or [])
+        if isinstance(clip, dict) and clip.get("type") != "silence"
+    ]
+    for index, clip in enumerate(audible):
+        clip_type = str(clip.get("type") or "")
+        if clip_type not in {"vo_pickup", "transition"}:
+            continue
+        line = lines.get(_as_id(clip.get("line_id"))) if clip_type == "vo_pickup" else None
+        voice = _as_id(clip.get("voice_speaker_id") or (line or {}).get("voice_speaker_id"))
+        if not voice:
+            continue
+        exempt = bool(
+            clip_type == "vo_pickup"
+            and line
+            and is_cut_recovery_vo(
+                line,
+                ordered_segment_ids=ordered,
+                nugget_corpus=corpus if isinstance(corpus, dict) else {},
+            )
+        )
+        if exempt:
+            continue
+        neighbor_segments = [
+            _as_id(neighbor.get("segment_id"))
+            for neighbor in (
+                audible[max(0, index - 1) : index]
+                + audible[index + 1 : index + 2]
+            )
+            if neighbor.get("type") == "speech"
+        ]
+        for segment_id in neighbor_segments:
+            speaker = _as_id((segments.get(segment_id) or {}).get("speaker_id"))
+            if speaker == voice:
+                errors.append(
+                    f'master/edl.json: {clip_type} "{_as_id(clip.get("line_id")) or clip.get("after_segment_id") or "?"}" '
+                    f"uses cloned voice {voice!r} adjacent to native segment {segment_id!r}. "
+                    "Retarget/drop generic VO; only proven excluded-tape nugget layups may remain."
+                )
+                break
+
+
 def _validate_audit_artifact(ctx: RunContext, errors: list[str]) -> None:
     if not ctx.artifact_exists("master/edl_narrative_audit.json"):
         return
@@ -580,6 +663,7 @@ def validate_flow1_edl_narrative(
     _validate_ordering_constraints(narrative_plan, speech, errors)
     _validate_transitions(transitions, edl, speech, errors)
     _validate_gap_placements(ctx, edl, speech, errors)
+    _validate_clone_voice_adjacency(ctx, edl, selection, errors)
     _validate_framing_before_impact(ctx, edl, speech, errors)
     _validate_framing_succinct_exclusions(ctx, selection, speech, errors)
     _validate_speaker_volley_integrity(ctx, speech, errors)

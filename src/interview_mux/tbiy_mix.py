@@ -47,9 +47,9 @@ def tbiy_level_adjustment_db(ctx: Any, cue: dict[str, Any], asset: dict[str, Any
         peak = float(rules.get("punctuator_peak_db", -10))
         return peak - float(cue.get("level_db", -24))
     if role in ("era_music_bed", "ambient_bed"):
-        return float(rules.get("bed_under_dialogue_db", -26)) - float(cue.get("level_db", -24))
+        return float(rules.get("bed_under_dialogue_db", -20)) - float(cue.get("level_db", -20))
     if role == "environmental_foley":
-        return float(rules.get("foley_under_dialogue_db", -26)) - float(cue.get("level_db", -24))
+        return float(rules.get("foley_under_dialogue_db", -20)) - float(cue.get("level_db", -20))
     return 0.0
 
 
@@ -58,7 +58,7 @@ def tbiy_duck_db(ctx: Any, cue: dict[str, Any], default: float) -> float:
     if not is_tbiy(ctx):
         return default
     rules = mix_rules(ctx)
-    return max(20.0, float(cue.get("duck_under_speech_db", rules.get("bed_duck_db", default))))
+    return max(12.0, float(cue.get("duck_under_speech_db", rules.get("bed_duck_db", default))))
 
 
 def annotate_cue_speaker_volley(

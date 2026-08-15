@@ -164,7 +164,7 @@ def _collect_metrics(path: Path) -> MasterMetrics:
             "-i",
             str(path),
             "-af",
-            "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+            "loudnorm=I=-16:TP=-1.5:LRA=11:dual_mono=true:print_format=json",
             "-f",
             "null",
             "-",

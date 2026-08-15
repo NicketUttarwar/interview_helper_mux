@@ -25,6 +25,7 @@ const FILTER_CHIPS: { id: ReviewFilter; label: string }[] = [
   { id: "aside", label: "Asides" },
   { id: "redo", label: "Redo" },
   { id: "low_confidence", label: "Low conf." },
+  { id: "hanging_edge", label: "Hang edges" },
   { id: "off_selection", label: "Off selection" },
   { id: "qc_issue", label: "QC" },
 ];

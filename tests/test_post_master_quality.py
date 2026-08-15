@@ -118,6 +118,25 @@ def test_scorecard_dimension_floors_block_publish(tmp_path, monkeypatch):
     assert "scorecard_dimension_floors" in quality["failed_checks"] or (
         "scorecard_overall_floor" in quality["failed_checks"]
     )
+
+
+def test_omit_ledger_contract_is_a_publish_check(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_pmq_omit_contract")
+    master = ctx.path("master", "master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF....")
+    _write_raw(ctx, "understanding/omit_ledger.json", {"version": 1, "entries": [], "summary": {}})
+    monkeypatch.setattr(
+        "interview_mux.omit_ledger.air_contract_errors",
+        lambda *_args, **_kwargs: ["omit_ledger_gap_line_still_in_edl:vo_001"],
+    )
+
+    quality = evaluate_post_master_quality(ctx)
+    check = next(
+        row for row in quality["checks"] if row["check_id"] == "omit_ledger_air_contract"
+    )
+    assert check["passed"] is False
+    assert check["detail"]["errors"] == ["omit_ledger_gap_line_still_in_edl:vo_001"]
     card = build_listener_scorecard(ctx, {"status": "pass", "publish_allowed": True})
     assert "synthetic_fit" in card["dimensions"]
 

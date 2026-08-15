@@ -205,6 +205,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         nugget_layup_cfg,
         nugget_layup_enabled,
         publish_layup_plan_to_gap_report,
+        repair_or_skip_spoken_copy_layups,
     )
     from interview_mux.operator_trace import log_step
 
@@ -232,9 +233,24 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         if "ordered_segment_ids" not in doc:
             sel = c.read_json("master/selection.json") if c.artifact_exists("master/selection.json") else {}
             doc["ordered_segment_ids"] = list((sel or {}).get("ordered_segment_ids") or [])
-        from interview_mux.nugget_layup import normalize_layup_talking_point_ledger
+        from interview_mux.nugget_layup import (
+            normalize_layup_talking_point_ledger,
+            prepare_layup_plan_for_persist,
+            strip_model_order_lock,
+        )
 
+        doc = strip_model_order_lock(doc)
         doc = normalize_layup_talking_point_ledger(c, doc)
+        doc, copy_repairs = repair_or_skip_spoken_copy_layups(c, doc)
+        if copy_repairs:
+            c.log(
+                "nugget_layup_compose: repaired/skipped unsafe spoken copy "
+                f"({len(copy_repairs)} row(s))",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+        # Selection is the only order_lock authority — stamp before freshness.
+        doc = prepare_layup_plan_for_persist(c, doc)
         assert_layup_fresh_vs_selection(c, doc)
         persist_plan(c, doc)
         report = publish_layup_plan_to_gap_report(c, doc)
@@ -265,7 +281,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
 
             doc, mat_notes = materialize_over_skipped_layups(c, doc)
             if any(str(n).startswith("materialized:") for n in mat_notes):
-                doc = normalize_layup_talking_point_ledger(c, doc)
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
+                doc = prepare_layup_plan_for_persist(c, doc)
                 persist_plan(c, doc)
                 report = publish_layup_plan_to_gap_report(c, doc)
                 qc = evaluate_layup_qc(c, doc)
@@ -359,6 +377,8 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 return packet
 
             def persist_shard(c: RunContext, artifacts: dict) -> None:
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
                 doc = dict(artifacts) if isinstance(artifacts, dict) else {}
                 # Intermediate write so later shards see claimed nuggets via prior_plan.
                 # ordered_segment_ids stays shard-local here; final merge restores full order.
@@ -366,7 +386,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                     parts + [doc],
                     ordered_segment_ids=ordered,
                 )
-                c.write_json(PLAN_REL, merged_so_far)
+                c.write_json(PLAN_REL, prepare_layup_plan_for_persist(c, merged_so_far))
                 shard_box["doc"] = doc
 
             log_step(

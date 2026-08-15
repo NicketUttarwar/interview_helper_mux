@@ -91,20 +91,20 @@ def test_validate_cue_segment_anchors(tmp_path, monkeypatch):
 
 def test_apply_creative_mix_contract_upgrades_sparse():
     out = apply_creative_mix_contract(
-        {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 16}
+        {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 8}
     )
     assert out["underscore_policy"] == "normal"
-    # Creative path forces audible bed band (−25…−21 by default).
-    assert out["bed_level_db_range"][0] >= -25
-    assert out["bed_level_db_range"][1] >= -21
-    assert out["duck_under_speech_db"] >= 20
+    # Creative path forces audible bed band (−22…−18 by default).
+    assert out["bed_level_db_range"][0] >= -22
+    assert out["bed_level_db_range"][1] >= -18
+    assert out["duck_under_speech_db"] >= 12
 
 
 def test_audibility_level_db_role_aware():
     from interview_mux.creative_delivery import audibility_level_db
 
     bed = audibility_level_db(role="bed", default=-30.0)
-    assert -25.0 <= bed <= -21.0
+    assert -22.0 <= bed <= -18.0
     cold = audibility_level_db(role="theme_cold_open", default=-20.0)
     assert cold >= -9.0
     emph = audibility_level_db(role="theme_emphasis", default=-20.0)

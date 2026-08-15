@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BoundaryReviewQueue",
+  "type": "object",
+  "required": ["version", "items"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string" },
+    "low_confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "item_count": { "type": "integer", "minimum": 0 },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "segment_id",
+          "edge",
+          "time_ms",
+          "overall",
+          "grade",
+          "rank"
+        ],
+        "properties": {
+          "item_id": { "type": "string" },
+          "rank": { "type": "integer", "minimum": 1 },
+          "segment_id": { "type": "string" },
+          "neighbor_segment_id": { "type": "string" },
+          "edge": { "type": "string", "enum": ["start", "end", "seam"] },
+          "time_ms": { "type": "integer", "minimum": 0 },
+          "original_ms": { "type": "integer", "minimum": 0 },
+          "suggested_ms": { "type": "integer", "minimum": 0 },
+          "overall": { "type": "number", "minimum": 0, "maximum": 1 },
+          "grade": {
+            "type": "string",
+            "enum": ["high", "medium", "low", "reject"]
+          },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "left_text": { "type": "string" },
+          "right_text": { "type": "string" },
+          "repaired": { "type": "boolean" },
+          "needs_review": { "type": "boolean" },
+          "kind": {
+            "type": "string",
+            "description": "hanging_edge | low_confidence | continuity | anchor_mismatch | mid_word"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

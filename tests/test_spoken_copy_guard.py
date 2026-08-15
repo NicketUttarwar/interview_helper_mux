@@ -261,6 +261,22 @@ def test_discourse_markers_are_not_unsupported_entities() -> None:
     assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
 
 
+def test_sentence_initial_gerund_is_not_unsupported_entity() -> None:
+    """Capitalized sentence-start gerunds like Choosing are not proper names."""
+    violations = spoken_copy_violations(
+        "Choosing the right participant is only the first hurdle. "
+        "Once treatment starts, the next question is timing.",
+        evidence={
+            "strict_grounding": True,
+            "before_excerpt": "participant selection for the trial",
+            "after_excerpt": "clinicians wait months to see a response on scans",
+            "before_topic": "participant selection",
+            "after_topic": "response timing",
+        },
+    )
+    assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
+
+
 def test_required_orientation_keeps_preface_despite_unsupported_entities() -> None:
     preface = (
         "In this conversation, a founder explains how consumer insight, "

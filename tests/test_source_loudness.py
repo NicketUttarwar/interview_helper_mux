@@ -28,16 +28,19 @@ def _write_wav(path: Path, *, seconds: float = 0.25, sample_rate: int = 16000, a
         wav.writeframes(sample * frames)
 
 
-def test_loudness_stabilize_defaults_enabled() -> None:
+def test_loudness_stabilize_defaults_upward_only() -> None:
     cfg = loudness_stabilize_cfg({})
     assert cfg["enabled"] is True
     assert cfg["target_lufs"] == -18.0
     assert cfg["dynaudnorm"] is True
+    assert cfg["dynaudnorm_mode"] == "upward_only"
     af = build_ingest_loudness_filter(cfg)
     assert af is not None
-    assert af.startswith("dynaudnorm=")
+    assert af.startswith("acompressor=mode=upward")
+    assert "threshold=0.125" in af
     assert "loudnorm=I=-18" in af
     assert "dual_mono=true" in af
+    assert "dynaudnorm=" not in af
 
 
 def test_loudness_stabilize_can_disable() -> None:
@@ -55,11 +58,50 @@ def test_loudness_stabilize_loudnorm_only() -> None:
     assert af == "loudnorm=I=-18:TP=-1.5:LRA=11:dual_mono=true"
 
 
+def test_loudness_stabilize_classic_dynaudnorm() -> None:
+    cfg = loudness_stabilize_cfg(
+        {
+            "ingest": {
+                "loudness_stabilize": {
+                    "enabled": True,
+                    "dynaudnorm": True,
+                    "dynaudnorm_mode": "classic",
+                    "dynaudnorm_frame_ms": 500,
+                    "dynaudnorm_gausssize": 31,
+                }
+            }
+        }
+    )
+    af = build_ingest_loudness_filter(cfg)
+    assert af is not None
+    assert af.startswith("dynaudnorm=")
+    assert "v='max(p\\,0.95)'" in af
+    assert "loudnorm=I=-18" in af
+    assert "acompressor=" not in af
+    lineage = loudness_lineage_payload(cfg, af_filter=af)
+    assert lineage["dynaudnorm_mode"] == "classic"
+
+
 def test_loudness_stabilize_rejects_bad_gausssize() -> None:
     cfg = loudness_stabilize_cfg(
-        {"ingest": {"loudness_stabilize": {"dynaudnorm_gausssize": 14}}}
+        {
+            "ingest": {
+                "loudness_stabilize": {
+                    "dynaudnorm_mode": "classic",
+                    "dynaudnorm_gausssize": 14,
+                }
+            }
+        }
     )
     with pytest.raises(ValueError, match="gausssize"):
+        build_ingest_loudness_filter(cfg)
+
+
+def test_loudness_stabilize_rejects_bad_upward_threshold() -> None:
+    cfg = loudness_stabilize_cfg(
+        {"ingest": {"loudness_stabilize": {"upward_threshold": 2.0}}}
+    )
+    with pytest.raises(ValueError, match="upward_threshold"):
         build_ingest_loudness_filter(cfg)
 
 
@@ -92,10 +134,11 @@ def test_run_ingest_applies_loudness_af_by_default(tmp_path, monkeypatch) -> Non
     cmd = captured["cmd"]
     assert "-af" in cmd
     af = cmd[cmd.index("-af") + 1]
-    assert "dynaudnorm=" in af
+    assert "acompressor=mode=upward" in af
     assert "loudnorm=I=-18" in af
     lineage = ctx.read_json("ingest/loudness.json")
     assert lineage["enabled"] is True
+    assert lineage["dynaudnorm_mode"] == "upward_only"
     assert "loudnorm=" in str(lineage["af_filter"])
     checksums = ctx.read_json("ingest/checksums.json")
     assert checksums["loudness_stabilize"] is True

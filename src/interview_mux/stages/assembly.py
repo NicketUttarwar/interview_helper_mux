@@ -226,6 +226,7 @@ def build_flow1_edl(
     missing_targets: list[str] = []
     missing_segments: list[str] = []
     missing_transitions: list[str] = []
+    suppressed_clone_adjacency: list[str] = []
     air_cfg = listenability_guards_cfg()
     words = [w for w in (transcript_words or []) if isinstance(w, dict)]
     if max_keeper_ms is None:
@@ -376,6 +377,15 @@ def build_flow1_edl(
 
         def _emit_vo_line(line: dict, *, placement: str) -> None:
             nonlocal timeline_ms
+            voice_speaker_id = str(line.get("voice_speaker_id") or "").strip()
+            target_speaker_id = str(seg.get("speaker_id") or "").strip()
+            if (
+                voice_speaker_id
+                and voice_speaker_id == target_speaker_id
+                and not bool(line.get("clone_adjacency_exempt"))
+            ):
+                suppressed_clone_adjacency.append(str(line.get("line_id") or sid))
+                return
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
@@ -399,6 +409,8 @@ def build_flow1_edl(
                 "line_id": line.get("line_id"),
                 "targets_segment_id": sid,
                 "placement": placement,
+                "voice_speaker_id": voice_speaker_id,
+                "clone_adjacency_exempt": bool(line.get("clone_adjacency_exempt")),
                 "gap_type": line.get("gap_type"),
                 "line_category": line.get("line_category"),
                 "episode_orientation": bool(line.get("episode_orientation")),
@@ -512,6 +524,14 @@ def build_flow1_edl(
                 elif _last_non_silence_type() == "vo_pickup":
                     tr = None
             if tr:
+                transition_voice = str(tr.get("voice_speaker_id") or "").strip()
+                if transition_voice and transition_voice in {
+                    str((segments_by_id.get(sid) or {}).get("speaker_id") or "").strip(),
+                    str((segments_by_id.get(nxt) or {}).get("speaker_id") or "").strip(),
+                }:
+                    suppressed_clone_adjacency.append(f"transition:{sid}->{nxt}")
+                    tr = None
+            if tr:
                 text = str(tr.get("text") or "")
                 from interview_mux.spoken_copy_guard import script_hash
 
@@ -532,6 +552,7 @@ def build_flow1_edl(
                         "before_segment_id": nxt,
                         "text": text,
                         "transition_type": tr.get("type", "bridge"),
+                        "voice_speaker_id": tr.get("voice_speaker_id"),
                         "source_path": tr_rel,
                         "duration_ms": tr_dur,
                         "timeline_start_ms": timeline_ms,
@@ -559,6 +580,7 @@ def build_flow1_edl(
             "gap_targets_not_in_selection": sorted(set(missing_targets)),
             "missing_segment_lookups": sorted(set(missing_segments)),
             "missing_transition_audio": sorted(set(missing_transitions)),
+            "suppressed_clone_adjacency": sorted(set(suppressed_clone_adjacency)),
         },
         "mux_scope": "full_mix",
     }

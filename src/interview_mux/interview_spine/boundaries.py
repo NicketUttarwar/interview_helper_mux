@@ -181,17 +181,57 @@ def _merge_nearby_events(events: list[dict[str, Any]], *, min_sources: int = 1) 
             prev_sources = set(prev.get("sources") or [])
             prev_sources.update(ev.get("sources") or [])
             prev["sources"] = sorted(prev_sources)
-            prev["confidence"] = round(
-                min(1.0, max(float(prev.get("confidence") or 0), float(ev.get("confidence") or 0))),
-                3,
-            )
-            if ev.get("type") != prev.get("type"):
+            prev_types = list(prev.get("fused_types") or [prev.get("type")])
+            if ev.get("type") and ev.get("type") not in prev_types:
+                prev_types.append(ev["type"])
+            prev["fused_types"] = prev_types
+            # Prefer non-silence types as the primary label when fusing.
+            if prev.get("type") == "silence_valley" and ev.get("type") not in (
+                None,
+                "silence_valley",
+            ):
                 prev["type"] = ev["type"]
+            elif ev.get("type") != prev.get("type") and ev.get("type") != "silence_valley":
+                prev["type"] = ev["type"]
+            # Multi-source fusion boosts confidence; silence-only stays capped.
+            base = max(float(prev.get("confidence") or 0), float(ev.get("confidence") or 0))
+            if len(prev_sources) >= 2:
+                prev["confidence"] = round(min(1.0, base + 0.12), 3)
+                prev["multi_source"] = True
+            else:
+                prev["confidence"] = round(min(1.0, base), 3)
+                prev["multi_source"] = False
             continue
-        merged.append(dict(ev))
+        row = dict(ev)
+        row["fused_types"] = [ev.get("type")] if ev.get("type") else []
+        row["multi_source"] = len(row.get("sources") or []) >= 2
+        merged.append(row)
     if min_sources > 1:
         merged = [e for e in merged if len(e.get("sources") or []) >= min_sources]
     return merged
+
+
+def spine_event_support_level(event: dict[str, Any] | None) -> str:
+    """Classify spine event corroboration for edge scoring.
+
+    ``silence_only`` is supporting evidence; ``corroborated`` means turn/pause/
+    prosody/topic sources accompany (or replace) silence.
+    """
+    if not isinstance(event, dict):
+        return "none"
+    sources = [str(s) for s in (event.get("sources") or [])]
+    if not sources:
+        return "none"
+    non_silence = [
+        s
+        for s in sources
+        if "rms" not in s.lower() and "vad" not in s.lower()
+    ]
+    if non_silence:
+        return "corroborated"
+    if len(sources) >= 2:
+        return "multi_silence"
+    return "silence_only"
 
 
 def spine_event_timeline_ms(events: list[dict[str, Any]]) -> list[int]:

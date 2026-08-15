@@ -191,7 +191,7 @@ def test_mix_applies_speaker_gains_not_vo(tmp_path: Path, monkeypatch) -> None:
 def test_envelope_duck_recovers_in_silence() -> None:
     bed = _tone(120, 2000, gain_db=-6.0)
     speech = _tone(440, 1000, gain_db=-6.0) + AudioSegment.silent(duration=1000, frame_rate=48000)
-    ducked = envelope_duck(bed, speech, depth_db=16.0, attack_ms=20, release_ms=200, hop_ms=10)
+    ducked = envelope_duck(bed, speech, depth_db=16.0, attack_ms=40, release_ms=200, hop_ms=20)
     speech_half = ducked[:900]
     silence_half = ducked[1200:]
     assert speech_half.rms < silence_half.rms
@@ -199,6 +199,21 @@ def test_envelope_duck_recovers_in_silence() -> None:
     static_full = bed.apply_gain(-16.0)
     assert speech_half.rms <= static_full[:900].rms * 1.35
     assert silence_half.rms > speech_half.rms * 2.0
+
+
+def test_envelope_duck_steady_under_amplitude_modulation() -> None:
+    """Soft gate should not pump with syllable-like amplitude swings."""
+    bed = _tone(120, 2000, gain_db=-6.0)
+    loud = _tone(440, 200, gain_db=-3.0)
+    quiet = _tone(440, 200, gain_db=-18.0)
+    speech = (loud + quiet) * 5
+    ducked = envelope_duck(bed, speech, depth_db=12.0, attack_ms=40, release_ms=900, hop_ms=20)
+    # Mid-window under continuous speech should stay near full duck, not swing with loud/quiet.
+    early = ducked[200:400]
+    late = ducked[1400:1600]
+    assert abs(early.dBFS - late.dBFS) < 2.5
+    static = bed.apply_gain(-12.0)
+    assert abs(early.dBFS - static[200:400].dBFS) < 2.0
 
 
 def test_duck_bed_static_fallback_when_speech_unusable() -> None:

@@ -305,6 +305,7 @@ def mint_missing_transitions(
     from interview_mux.nugget_layup import (
         PLAN_REL,
         gap_has_layup_before,
+        is_justified_skip_row,
         nugget_layup_cfg,
         nugget_layup_enabled,
     )
@@ -324,11 +325,20 @@ def mint_missing_transitions(
         and ctx.artifact_exists(PLAN_REL)
     )
     layup_targets: set[str] = set()
+    justified_skip_targets: set[str] = set()
     if ban_canned_air:
         plan = ctx.read_json(PLAN_REL)
         if isinstance(plan, dict):
-            # A deliberate skip (self-explanatory clip) may still take a hinge;
-            # a target the plan never composed for must not.
+            # A deliberate typed skip may omit spoken layup; unjustified skips still
+            # must not accept canned hinge air under authority.
+            for row in plan.get("layups") or []:
+                if not isinstance(row, dict):
+                    continue
+                tid = str(row.get("target_segment_id") or "")
+                if not tid:
+                    continue
+                if row.get("skip") and is_justified_skip_row(row, soft_migrate=True):
+                    justified_skip_targets.add(tid)
             skipped = {
                 str(row.get("target_segment_id") or "")
                 for row in (plan.get("layups") or [])
@@ -352,6 +362,10 @@ def mint_missing_transitions(
             continue
         # Contentful lay-up before the next native already covers the seam.
         if suppress_when_layup and gap_has_layup_before(gap_report if isinstance(gap_report, dict) else None, b):
+            existing.add((a, b))
+            continue
+        # Justified omit / opening ownership: do not mint canned hinge.
+        if b in justified_skip_targets:
             existing.add((a, b))
             continue
         planned = planned_transition_for_pair(synthetic_plan, a, b)

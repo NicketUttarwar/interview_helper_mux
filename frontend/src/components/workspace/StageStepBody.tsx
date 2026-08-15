@@ -20,6 +20,7 @@ import { PreviewPickupPanel } from "../gates/PreviewPickupPanel";
 import { SfxPromptReviewPanel } from "../gates/SfxPromptReviewPanel";
 import { GapFramingGatePanel } from "../gates/GapFramingGatePanel";
 import { GapFramingScriptPanel } from "../gates/GapFramingScriptPanel";
+import { OmitLedgerPanel } from "../gates/OmitLedgerPanel";
 import { ImpactBlockPreview } from "../gates/ImpactBlockPreview";
 import { VoiceReferencePanel } from "../gates/VoiceReferencePanel";
 import { GapDeliveryPanel } from "../gates/GapDeliveryPanel";
@@ -222,7 +223,12 @@ export function StageStepBody({ step, stage }: Props) {
     case "transcript_review":
       return <TranscriptReviewPanel />;
     case "gap_framing_script":
-      return <GapFramingScriptPanel stage={stage} />;
+      return (
+        <>
+          <GapFramingScriptPanel stage={stage} />
+          <OmitLedgerPanel stageId={stage.id} />
+        </>
+      );
     case "impact_preview":
       return <ImpactBlockPreview />;
     case "gap_framing":
@@ -234,7 +240,12 @@ export function StageStepBody({ step, stage }: Props) {
     case "pickup_speaker":
       return <PickupSpeakerPanel stage={stage} />;
     case "vo_pickup":
-      return <VoPickupPanel voLines={timeline?.vo_lines || []} />;
+      return (
+        <>
+          <OmitLedgerPanel stageId={stage.id} />
+          <VoPickupPanel voLines={timeline?.vo_lines || []} />
+        </>
+      );
     case "preview_pickup":
       return <PreviewPickupPanel voLines={timeline?.vo_lines || []} />;
     case "sfx_prompt_review":

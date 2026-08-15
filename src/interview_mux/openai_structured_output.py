@@ -233,6 +233,41 @@ def compose_envelope_schema(stage_key: str, *, strict: bool = True) -> dict[str,
     if not artifact:
         raise FileNotFoundError(f"Missing artifact schema: {artifact_file}")
 
+    # Selection owns order_lock — LLM must not invent rev/hash (nugget layup).
+    if stage_key == "nugget_layup_compose":
+        artifact = copy.deepcopy(artifact)
+        props = artifact.get("properties")
+        if isinstance(props, dict):
+            props.pop("order_lock", None)
+            props.pop("order_content_hash", None)
+        required = artifact.get("required")
+        if isinstance(required, list):
+            artifact["required"] = [
+                r for r in required if r not in ("order_lock", "order_content_hash")
+            ]
+
+    # Boundary edge confidence is deterministic post-persist — keep LLM schema lean.
+    if stage_key in ("boundary_detection", "boundary_topic_resplit"):
+        artifact = copy.deepcopy(artifact)
+        artifact.pop("$defs", None)
+        items = (
+            ((artifact.get("properties") or {}).get("boundaries") or {}).get("items")
+            if isinstance(artifact.get("properties"), dict)
+            else None
+        )
+        if isinstance(items, dict) and isinstance(items.get("properties"), dict):
+            for drop in (
+                "confidence",
+                "edge_grade",
+                "start_edge",
+                "end_edge",
+                "overlong_unsplit",
+                "airable",
+            ):
+                items["properties"].pop(drop, None)
+            # OpenAI strict: no free-form extras on LLM boundary rows.
+            items["additionalProperties"] = False
+
     if strict:
         artifact_body = strictify_schema(artifact)
     else:

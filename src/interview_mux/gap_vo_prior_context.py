@@ -226,8 +226,21 @@ def ends_hanging_setup(text: str) -> bool:
     stripped = (text or "").strip()
     if not stripped:
         return False
-    if stripped[-1] in ".!?…":
+    # Ellipsis / unfinished trail always hangs, even if a prior clause had punct.
+    if stripped.endswith("...") or stripped.endswith("…"):
+        return True
+    if stripped[-1] in ".!?":
         return False
+    # Trailing comma without terminal close is an unfinished clause.
+    if stripped.endswith(","):
+        return True
+    # Dangling interrogative stubs: "like, do..." / "what if" / "how do"
+    if re.search(
+        r"(?i)\b(?:do|does|did|is|are|was|were|can|could|would|will|should|"
+        r"what|how|why|when|where)\s*$",
+        stripped,
+    ):
+        return True
     if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
         return True
     return bool(_HANGING_SETUP_RE.search(stripped))
@@ -251,7 +264,10 @@ def ends_complete_thought(
     stripped = (text or "").strip()
     if not stripped:
         return False
-    if stripped[-1] in ".!?…":
+    # Ellipsis is never a complete thought, even if listed among unicode dots.
+    if stripped.endswith("...") or stripped.endswith("…"):
+        return False
+    if stripped[-1] in ".!?":
         return True
     if ends_hanging_setup(stripped):
         return False
@@ -964,6 +980,11 @@ _GENERIC_ORIGIN_RE = re.compile(
     r"founding story|how did you (?:get|start))\b",
     re.IGNORECASE,
 )
+_GENERIC_HANDOFF_RE = re.compile(
+    r"\b(?:let['’]?s hear how it unfolded|let['’]?s hear the story|"
+    r"now let['’]?s hear|let['’]?s get into it)\b",
+    re.IGNORECASE,
+)
 
 
 def last_spoken_sentence(text: str) -> str:
@@ -1001,6 +1022,8 @@ def cold_open_layup_ok(
         return False
     if not has_forward_cue(last):
         return False
+    if _GENERIC_HANDOFF_RE.search(last):
+        return False
     tgt = str(target_text or "").strip()
     if not tgt:
         return True
@@ -1010,6 +1033,67 @@ def cold_open_layup_ok(
     if _GENERIC_ORIGIN_RE.search(last) and not _GENERIC_ORIGIN_RE.search(tgt):
         return False
     return True
+
+
+def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
+    """Grounded last-sentence candidates that survive spoken_copy + cold-open checks."""
+    tgt_l = str(target_text or "").lower()
+    cues: list[str] = []
+    if "contrast" in tgt_l or "versus" in tgt_l or "vs." in tgt_l:
+        cues.append("What does that contrast reveal?")
+    if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
+        cues.append(
+            "What made that deal possible?"
+            if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
+            else "What was at stake in that exit?"
+        )
+    if any(
+        tok in tgt_l
+        for tok in (
+            "who is",
+            "who are",
+            "on the show",
+            "we've got",
+            "we have",
+            "introduce",
+            "introduction",
+            "co-founder",
+            "ceo",
+            "founder",
+        )
+    ):
+        cues.extend(
+            [
+                "Who is he — and why start there?",
+                "Why open by establishing who he is?",
+                "What should we know about him before that introduction lands?",
+            ]
+        )
+    if category == "episode_preface":
+        cues.extend(
+            [
+                "What should we listen for as that opens?",
+                "Why open on that beat?",
+                "What makes that the right place to begin?",
+            ]
+        )
+    else:
+        cues.extend(
+            [
+                "What changed next in that stretch?",
+                "How does that set up what follows?",
+            ]
+        )
+    # Preserve order while dropping empties/dupes.
+    seen: set[str] = set()
+    out: list[str] = []
+    for cue in cues:
+        key = cue.lower()
+        if not cue or key in seen:
+            continue
+        seen.add(key)
+        out.append(cue)
+    return out
 
 
 def repair_last_sentence_layup(
@@ -1022,23 +1106,47 @@ def repair_last_sentence_layup(
 ) -> str:
     """Rewrite only the last sentence into a unique forward unlock from prior+target context."""
     stripped = str(text or "").strip()
-    if not stripped:
-        return courtesy_seed_text(prior, category=category, target_segment_id=target_segment_id)
-    parts = re.split(r"(?<=[.!?…])\s+", stripped)
+    parts = re.split(r"(?<=[.!?…])\s+", stripped) if stripped else []
     parts = [p.strip() for p in parts if p.strip()]
     body = " ".join(parts[:-1]) if len(parts) > 1 else ""
-    cue = courtesy_seed_text(prior, category=category, target_segment_id=target_segment_id)
-    # If target looks like M&A / deal / exit, prefer that hinge over origin stock.
-    tgt_l = str(target_text or "").lower()
-    if any(tok in tgt_l for tok in ("m&a", "acquisition", "merger", "exit", "deal", "crore", "rupee")):
-        cue = (
-            "What made that deal possible?"
-            if "deal" in tgt_l or "m&a" in tgt_l or "acquisition" in tgt_l or "merger" in tgt_l
-            else "What was at stake in that exit?"
-        )
+
+    from interview_mux.spoken_copy_guard import spoken_copy_violations
+
+    # Prefer target-grounded hinges before the generic courtesy seed so a
+    # contrast/intro clip does not get a weaker stock cue first.
+    candidates = list(_target_aware_forward_cues(target_text, category=category))
+    seeded = courtesy_seed_text(prior, category=category, target_segment_id=target_segment_id)
+    if seeded:
+        candidates.append(seeded)
+
+    evidence = {
+        "target_excerpt": str(target_text or ""),
+        "before_excerpt": str((prior or {}).get("quote_span") or "") if isinstance(prior, dict) else "",
+        "strict_grounding": False,
+    }
+    for cue in candidates:
+        cue = " ".join(str(cue or "").split()).strip()
+        if not cue:
+            continue
+        if spoken_copy_violations(cue, evidence=evidence, seen_texts=[]):
+            continue
+        candidate = f"{body} {cue}".strip() if body else cue
+        probe = {
+            "text": candidate,
+            "line_category": category,
+            "targets_segment_id": str(target_segment_id or ""),
+        }
+        if category == "episode_preface" and not cold_open_layup_ok(
+            probe, target_text=target_text, ordered_ids=[str(target_segment_id or "")]
+        ):
+            continue
+        return candidate
+
+    # Last resort: keep body + a minimal interrogative that still has a forward cue.
+    fallback = "What should we listen for next?"
     if body:
-        return f"{body} {cue}".strip()
-    return cue
+        return f"{body} {fallback}".strip()
+    return fallback or seeded or stripped
 
 
 def vo_value_violations(
@@ -1138,9 +1246,12 @@ def courtesy_seed_text(
         quote = quote[:107].rstrip() + "…"
     if category == "episode_preface":
         if impact and quote:
-            candidate = "That landing stays with you — where does the next beat take us?"
+            candidate = "That landing stays with you — what should we listen for next?"
         else:
-            candidate = "Coming up — where does this stretch lead?"
+            # Avoid show-scaffold phrases that spoken_copy_guard omits entirely
+            # ("Coming up — where does this stretch lead?"), which left orientation
+            # with no forward cue and failed cold_open_layup_ok.
+            candidate = "What should we listen for as that opens?"
     elif category == "segment_summary":
         if quote:
             candidate = "Keep that beat in mind — what claim follows?"

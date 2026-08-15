@@ -63,8 +63,8 @@ def begin_job(
     ladder_step: str | None = None,
 ) -> dict[str, Any]:
     existing = load_job(ctx, stage_id, job_id)
-    if existing and existing.get("status") == "completed":
-        return existing
+    # Do not early-return a completed job: callers may need to reopen units
+    # whose on-disk outputs became stale (e.g. G1 script-hash drift).
     unit_docs = []
     prev_units = {
         str(u.get("unit_id")): u
@@ -111,6 +111,35 @@ def heartbeat_job(ctx: RunContext, stage_id: str, job_id: str) -> None:
         return
     doc["heartbeat_at"] = _utc_now()
     save_job(ctx, doc)
+
+
+def reset_unit(
+    ctx: RunContext,
+    stage_id: str,
+    job_id: str,
+    unit_id: str,
+    *,
+    reason: str = "reopen",
+) -> dict[str, Any]:
+    """Mark a unit pending again so stale outputs can be regenerated."""
+    doc = load_job(ctx, stage_id, job_id) or begin_job(
+        ctx, stage_id=stage_id, job_id=job_id, units=[unit_id]
+    )
+    units = []
+    for u in doc.get("units") or []:
+        if not isinstance(u, dict):
+            continue
+        if str(u.get("unit_id")) == unit_id:
+            u = dict(u)
+            u["status"] = "pending"
+            u["error"] = reason[:800]
+        units.append(u)
+    doc["units"] = units
+    doc["status"] = "running"
+    doc["terminal_error"] = None
+    doc["heartbeat_at"] = _utc_now()
+    save_job(ctx, doc)
+    return doc
 
 
 def complete_unit(

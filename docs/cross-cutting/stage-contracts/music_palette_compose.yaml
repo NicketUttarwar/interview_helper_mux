@@ -15,7 +15,10 @@ outputs:
 inputs:
   hard: []
   soft: []
-sufficiency: []
+sufficiency:
+- path: cues
+  rule: min_rows
+  min_count: 1
 propagation:
   invalidates_stages: []
 consumers: []

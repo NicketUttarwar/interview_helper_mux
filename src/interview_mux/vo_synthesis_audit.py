@@ -327,6 +327,67 @@ def synthesis_entry_matches_line(
     return True, "match"
 
 
+def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
+    """Refresh EDL vo_pickup script_hash / duration_ms from current gap text + WAVs.
+
+    Orientation/layup text can be repaired after EDL build (and WAVs resynthesized)
+    without rebuilding the full EDL. Post-master hash agreement then fails on stale
+    clip metadata even when the audible take matches the current script. Sync the
+    clip fields in place so QC judges the same authority as synthesis.
+    """
+    from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
+
+    if not ctx.artifact_exists("master/edl.json"):
+        return {"updated": 0, "clips": []}
+    edl = ctx.read_json("master/edl.json")
+    if not isinstance(edl, dict):
+        return {"updated": 0, "clips": []}
+    clips = edl.get("clips") if isinstance(edl.get("clips"), list) else []
+    gap_lines: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        report = ctx.read_json("understanding/gap_report.json")
+        gap_lines = {
+            str(row.get("line_id") or ""): row
+            for row in ((report or {}).get("interviewer_lines") or [])
+            if isinstance(row, dict) and row.get("line_id")
+        }
+    changed: list[str] = []
+    for clip in clips:
+        if not isinstance(clip, dict) or str(clip.get("type") or "") != "vo_pickup":
+            continue
+        lid = str(clip.get("line_id") or "")
+        line = gap_lines.get(lid)
+        if not isinstance(line, dict):
+            continue
+        expected_script = script_hash(str(line.get("text") or ""))
+        expected_context = context_hash(evidence_for_line(line))
+        dur = 0
+        src = str(clip.get("source_path") or "")
+        if src and ctx.artifact_exists(src):
+            dur = _wav_duration_ms(ctx.read_path(src))
+        patch = False
+        if expected_script and str(clip.get("script_hash") or "") != expected_script:
+            clip["script_hash"] = expected_script
+            patch = True
+        if expected_context and str(clip.get("context_hash") or "") != expected_context:
+            clip["context_hash"] = expected_context
+            patch = True
+        if dur > 0 and int(clip.get("duration_ms") or 0) != dur:
+            clip["duration_ms"] = dur
+            patch = True
+        if patch:
+            changed.append(lid)
+    if changed:
+        edl["clips"] = clips
+        ctx.write_json("master/edl.json", edl)
+        ctx.log(
+            f"synced EDL VO metadata for {len(changed)} clip(s)",
+            stage="vo_synthesis_audit",
+            detail=changed[:12],
+        )
+    return {"updated": len(changed), "clips": changed}
+
+
 def audible_script_hash_errors(
     ctx: RunContext, edl: dict[str, Any] | None
 ) -> list[str]:

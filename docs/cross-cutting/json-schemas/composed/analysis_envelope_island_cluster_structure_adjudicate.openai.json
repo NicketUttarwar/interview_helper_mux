@@ -3,42 +3,90 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["complete", "partial", "needs_input", "blocked"]
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
     },
     "artifacts": {
       "type": "object",
-      "required": ["cluster_id", "topic_unity", "assignments"],
+      "required": [
+        "cluster_id",
+        "topic_unity",
+        "hinge_attach",
+        "cut_hinge_block_ids",
+        "assignments",
+        "rationale"
+      ],
       "properties": {
-        "cluster_id": { "type": "string" },
+        "cluster_id": {
+          "type": "string"
+        },
         "topic_unity": {
           "type": "string",
-          "enum": ["same_conversation", "split_topics"]
+          "enum": [
+            "same_conversation",
+            "split_topics"
+          ]
         },
         "hinge_attach": {
-          "type": ["string", "null"],
-          "enum": ["left", "right", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "left",
+            "right"
+          ]
         },
         "cut_hinge_block_ids": {
-          "type": "array",
-          "items": { "type": "string" }
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "assignments": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["island_id", "fuse_side"],
+            "required": [
+              "island_id",
+              "fuse_side",
+              "rationale"
+            ],
             "properties": {
-              "island_id": { "type": "string" },
+              "island_id": {
+                "type": "string"
+              },
               "fuse_side": {
                 "type": "string",
-                "enum": ["left", "right", "bridge"]
+                "enum": [
+                  "left",
+                  "right",
+                  "bridge"
+                ]
               },
-              "rationale": { "type": ["string", "null"] }
+              "rationale": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             },
             "additionalProperties": false
           }
         },
-        "rationale": { "type": ["string", "null"] }
+        "rationale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false
     },
@@ -50,11 +98,77 @@
     },
     "needs": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
     },
-    "confidence": { "type": ["number", "null"] },
-    "notes": { "type": ["string", "null"] }
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
   },
-  "required": ["status", "artifacts"],
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
   "additionalProperties": false
 }

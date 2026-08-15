@@ -279,7 +279,78 @@ def segmentation_review_report(ctx: RunContext) -> dict[str, Any]:
         "cross_validate_errors": cross_errors[:12],
         "pending_paths": list_segmentation_review_paths(ctx),
         "ready": not bundle.errors and not parity_errors and not cross_errors,
+        "suspect_edges": _suspect_edges_from_ctx(ctx),
+        "boundary_review_queue": _boundary_review_summary(ctx),
     }
+
+
+def _boundary_review_summary(ctx: RunContext) -> dict[str, Any]:
+    rel = "segments/boundary_review_queue.json"
+    if not ctx.artifact_exists(rel):
+        return {"item_count": 0, "items": []}
+    doc = ctx.read_json(rel)
+    if not isinstance(doc, dict):
+        return {"item_count": 0, "items": []}
+    items = [it for it in (doc.get("items") or []) if isinstance(it, dict)]
+    return {
+        "item_count": int(doc.get("item_count") or len(items)),
+        "low_confidence_threshold": doc.get("low_confidence_threshold"),
+        "items": items[:40],
+    }
+
+
+def _suspect_edges_from_ctx(ctx: RunContext) -> list[dict[str, Any]]:
+    """Flatten low/reject boundary edges for timeline review chips."""
+    out: list[dict[str, Any]] = []
+    queue = _boundary_review_summary(ctx)
+    for it in queue.get("items") or []:
+        if not isinstance(it, dict):
+            continue
+        out.append(
+            {
+                "segment_id": it.get("segment_id"),
+                "edge": it.get("edge"),
+                "time_ms": it.get("time_ms"),
+                "overall": it.get("overall"),
+                "grade": it.get("grade"),
+                "kind": it.get("kind"),
+                "reasons": it.get("reasons") or [],
+                "needs_review": bool(it.get("needs_review", True)),
+            }
+        )
+    if out:
+        return out
+    # Fallback: read scores directly from boundaries when queue is absent.
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return []
+    doc = ctx.read_json("segments/boundaries.json")
+    if not isinstance(doc, dict):
+        return []
+    for row in doc.get("boundaries") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        for edge_name, key in (("start", "start_edge"), ("end", "end_edge")):
+            edge = row.get(key)
+            if not isinstance(edge, dict):
+                continue
+            grade = str(edge.get("grade") or "")
+            overall = float(edge.get("overall") or 1.0)
+            if grade not in {"low", "reject"} and overall >= 0.65:
+                continue
+            out.append(
+                {
+                    "segment_id": sid,
+                    "edge": edge_name,
+                    "time_ms": edge.get("selected_ms") or row.get(f"{edge_name}_ms"),
+                    "overall": overall,
+                    "grade": grade or "low",
+                    "kind": "low_confidence",
+                    "reasons": edge.get("reasons") or [],
+                    "needs_review": not bool(edge.get("repaired")),
+                }
+            )
+    return out
 
 
 def list_segmentation_review_paths(ctx: RunContext) -> list[str]:

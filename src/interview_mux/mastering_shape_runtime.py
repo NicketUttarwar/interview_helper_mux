@@ -193,7 +193,7 @@ def run_mastering_shape_agenda(ctx: RunContext) -> None:
                     "description": (
                         "Essence mutation axis — synthetic inserts + music/SFX/air (optional/"
                         "informational): native + synthetic + music/SFX/air read as one "
-                        "conversation; soft bands are bed coverage 0.28-0.88, hinge stinger 0.3-1.0"
+                        "conversation; soft bands are bed coverage 0.40-0.88, hinge stinger 0.3-1.0"
                     ),
                     "weight": 0.0,
                     "higher_is_better": True,

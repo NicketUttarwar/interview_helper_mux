@@ -449,6 +449,170 @@ def drop_contiguous_light_bridge_lines(
     return out, notes
 
 
+def _excluded_source_ids(
+    *,
+    ordered_segment_ids: list[str],
+    nugget_corpus: dict[str, Any] | None = None,
+) -> tuple[set[str], dict[str, set[str]]]:
+    """Return excluded source ids and claimed-nugget provenance."""
+    selected = {str(s) for s in ordered_segment_ids if str(s).strip()}
+    sources_by_nugget: dict[str, set[str]] = {}
+    all_sources: set[str] = set()
+    for nugget in (nugget_corpus or {}).get("nuggets") or []:
+        if not isinstance(nugget, dict):
+            continue
+        nugget_id = str(nugget.get("nugget_id") or "").strip()
+        sources = {
+            str(s)
+            for s in (nugget.get("source_segment_ids") or [])
+            if str(s).strip()
+        }
+        all_sources.update(sources)
+        if nugget_id:
+            sources_by_nugget[nugget_id] = sources
+    return all_sources - selected, sources_by_nugget
+
+
+def is_cut_recovery_vo(
+    line: dict[str, Any],
+    *,
+    ordered_segment_ids: list[str],
+    nugget_corpus: dict[str, Any] | None = None,
+) -> bool:
+    """Whether a line proves it recovers content excluded from final selection."""
+    if not isinstance(line, dict) or line.get("skipped_optional"):
+        return False
+    if str(line.get("delivery") or "").strip().lower() not in {"record", "synthesize"}:
+        return False
+    if str(line.get("origin") or "").strip() != "nugget_layup":
+        return False
+    nugget_ids = {
+        str(nugget_id)
+        for nugget_id in (line.get("nugget_ids") or [])
+        if str(nugget_id).strip()
+    }
+    excluded_ids, sources_by_nugget = _excluded_source_ids(
+        ordered_segment_ids=ordered_segment_ids,
+        nugget_corpus=nugget_corpus,
+    )
+    if nugget_ids and any(
+        sources_by_nugget.get(nugget_id, set()) & excluded_ids
+        for nugget_id in nugget_ids
+    ):
+        return True
+    claimed_sources = {
+        str(segment_id)
+        for key in ("replaces_source_segments", "supports_segment_ids")
+        for segment_id in (line.get(key) or [])
+        if str(segment_id).strip()
+    }
+    return bool(nugget_ids and claimed_sources & excluded_ids)
+
+
+def avoid_clone_voice_adjacency(
+    gap_report: dict[str, Any],
+    segments_by_id: dict[str, dict[str, Any]],
+    *,
+    ordered_segment_ids: list[str],
+    clone_speaker_id: str = "",
+    nugget_corpus: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Retarget or drop non-recovery VO that would abut its clone source."""
+    if not isinstance(gap_report, dict) or not isinstance(segments_by_id, dict):
+        return gap_report, []
+    ordered = [str(s) for s in ordered_segment_ids if str(s).strip()]
+    position = {sid: index for index, sid in enumerate(ordered)}
+
+    def speaker_id(segment_id: str) -> str:
+        row = segments_by_id.get(segment_id) or {}
+        return str(row.get("speaker_id") or "").strip()
+
+    notes: list[dict[str, str]] = []
+    kept: list[dict[str, Any]] = []
+    changed = False
+    for raw_line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(raw_line, dict):
+            continue
+        line = dict(raw_line)
+        target = str(line.get("targets_segment_id") or "").strip()
+        placement = str(line.get("placement") or "before").strip() or "before"
+        voice = str(line.get("voice_speaker_id") or clone_speaker_id).strip()
+        exempt = is_cut_recovery_vo(
+            line, ordered_segment_ids=ordered, nugget_corpus=nugget_corpus
+        )
+        if exempt:
+            line["clone_adjacency_exempt"] = True
+            changed = changed or raw_line.get("clone_adjacency_exempt") is not True
+        elif "clone_adjacency_exempt" in line:
+            line.pop("clone_adjacency_exempt", None)
+            changed = True
+        if not voice or not target or target not in position or exempt:
+            kept.append(line)
+            continue
+
+        target_speaker = speaker_id(target)
+        prior = ordered[position[target] - 1] if position[target] else ""
+        prior_speaker = speaker_id(prior)
+        adjacent_to_clone = (
+            (placement == "before" and target_speaker == voice)
+            or (placement == "after" and target_speaker == voice)
+        )
+        if not adjacent_to_clone:
+            kept.append(line)
+            continue
+
+        replacement = next(
+            (
+                candidate
+                for candidate in ordered[position[target] + 1 :]
+                if speaker_id(candidate) and speaker_id(candidate) != voice
+            ),
+            "",
+        )
+        if replacement:
+            line["targets_segment_id"] = replacement
+            line["placement"] = "before"
+            line["prior_segment_id"] = target
+            changed = True
+            notes.append(
+                {
+                    "action": "retarget_clone_adjacency",
+                    "line_id": str(line.get("line_id") or target),
+                    "from": target,
+                    "to": replacement,
+                }
+            )
+            kept.append(line)
+            continue
+        if prior and prior_speaker and prior_speaker != voice:
+            line["targets_segment_id"] = prior
+            line["placement"] = "after"
+            changed = True
+            notes.append(
+                {
+                    "action": "retarget_clone_adjacency",
+                    "line_id": str(line.get("line_id") or target),
+                    "from": target,
+                    "to": prior,
+                }
+            )
+            kept.append(line)
+            continue
+        notes.append(
+            {
+                "action": "drop_clone_adjacency",
+                "line_id": str(line.get("line_id") or target),
+                "from": target,
+                "to": "",
+            }
+        )
+    if not notes and not changed:
+        return gap_report, []
+    out = dict(gap_report)
+    out["interviewer_lines"] = kept
+    return out, notes
+
+
 def ranking_exclude_segment_ids(ctx: RunContext) -> set[str]:
     """Segments that succinct-master framing replaces in ranking.
 

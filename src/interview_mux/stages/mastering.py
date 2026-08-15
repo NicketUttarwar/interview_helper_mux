@@ -77,10 +77,26 @@ def master_wav(ctx: RunContext, assembly_rel: str, master_rel: str, *, flow: str
                 f"duration_s={bus.duration_seconds:.2f}"
             ),
         )
+
+    # Two-pass loudnorm: single-pass routinely undershoots long sparse podcasts
+    # (this run landed at −18.9 vs −16 ±1.5). Probe measured_* then apply linear.
+    with logged_step(f"{stage}/loudnorm_probe", ctx=ctx, stage=stage):
+        measured = _ffmpeg_loudnorm_probe(
+            assembly, target=target, true_peak=true_peak
+        )
+        ctx.log(
+            (
+                f"loudnorm probe input_i={measured.get('input_i')} "
+                f"input_tp={measured.get('input_tp')} "
+                f"target_offset={measured.get('target_offset')}"
+            ),
+            stage=stage,
+        )
         loudnorm_filter = _master_filter_chain(
             cfg,
             target_lufs=target,
             true_peak_dbtp=true_peak,
+            measured=measured,
         )
 
     with logged_step(f"{stage}/loudnorm_render", ctx=ctx, stage=stage):
@@ -125,12 +141,26 @@ def _master_filter_chain(
     *,
     target_lufs: float,
     true_peak_dbtp: float,
+    measured: dict[str, str] | None = None,
 ) -> str:
     """Build limiter-before-loudnorm chain with validated FFmpeg parameters."""
-    loudnorm = (
-        f"loudnorm=I={target_lufs}:TP={true_peak_dbtp}:"
-        "LRA=11:print_format=summary"
-    )
+    if measured:
+        loudnorm = (
+            f"loudnorm=I={target_lufs}:TP={true_peak_dbtp}:LRA=11:"
+            f"measured_I={measured['input_i']}:"
+            f"measured_LRA={measured['input_lra']}:"
+            f"measured_TP={measured['input_tp']}:"
+            f"measured_thresh={measured['input_thresh']}:"
+            f"offset={measured['target_offset']}:"
+            # Podcast masters are mono but played on stereo systems — without
+            # dual_mono, integrated LUFS reads ~3 LU quiet and fails ship QC.
+            "dual_mono=true:linear=true:print_format=summary"
+        )
+    else:
+        loudnorm = (
+            f"loudnorm=I={target_lufs}:TP={true_peak_dbtp}:"
+            "LRA=11:dual_mono=true:print_format=summary"
+        )
     master_cfg = cfg.get("master") if isinstance(cfg.get("master"), dict) else {}
     if not bool(master_cfg.get("safety_limiter_enabled", True)):
         return loudnorm
@@ -165,7 +195,7 @@ def _ffmpeg_loudnorm_probe(assembly: Path, *, target: float, true_peak: float) -
             "-i",
             str(assembly),
             "-af",
-            f"loudnorm=I={target}:TP={true_peak}:LRA=11:print_format=json",
+            f"loudnorm=I={target}:TP={true_peak}:LRA=11:dual_mono=true:print_format=json",
             "-f",
             "null",
             "-",
@@ -190,6 +220,11 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
 
 def run_master_finalize(ctx: RunContext) -> Path:
     from interview_mux.gates import require_g_listen_clear, require_timeline_optimizer_clear
+    from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
+
+    # VO text/WAV may have been repaired after EDL build; refresh clip hashes first
+    # so post-master audible_script_hash_agreement judges current authority.
+    sync_edl_vo_script_metadata(ctx)
 
     require_timeline_optimizer_clear(ctx, stage="master_finalize")
     require_g_listen_clear(ctx, stage="master_finalize")

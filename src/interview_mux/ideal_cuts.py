@@ -33,6 +33,9 @@ def ideal_cuts_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "semantic_edge_buffer_ms": 5_000,
         "acoustic_edge_refine": True,
         "acoustic_search_ms": 120,
+        # Max |anchored_ms - approx_ms| before treating the pair as mismatched.
+        "anchor_max_delta_ms": 8_000,
+        "reject_unresolved_must_keep_anchors": True,
         "skip_boundary_llm_when_bound": True,
         # Ideal-cut windows are sole native keep authority — skip topic resplit.
         "skip_topic_resplit_when_bound": True,
@@ -162,8 +165,13 @@ def _resolve_cut_edge_ms(
     approx_ms: int,
     margin_ms: int,
     max_shift_ms: int,
-) -> int:
-    """Prefer LLM word index / anchor quote, then tight word snap."""
+    anchor_max_delta_ms: int = 8_000,
+) -> tuple[int, dict[str, Any]]:
+    """Prefer LLM word index / anchor quote, then tight word snap.
+
+    Returns ``(ms, resolve_meta)``. Explicit anchors that fail to resolve near
+    ``approx_ms`` are marked reject so callers can skip free-snapping.
+    """
     from interview_mux.cut_edge_refine import (
         resolve_ms_from_anchor_text,
         resolve_ms_from_word_index,
@@ -171,26 +179,118 @@ def _resolve_cut_edge_ms(
 
     idx_key = "start_word_index" if prefer == "start" else "end_word_index"
     anchor_key = "start_anchor" if prefer == "start" else "end_anchor"
+    meta: dict[str, Any] = {
+        "prefer": prefer,
+        "approx_ms": int(approx_ms),
+        "matched": False,
+        "source": "approx_snap",
+    }
     indexed = resolve_ms_from_word_index(
         words, cut.get(idx_key), prefer=prefer
     )
     if indexed is not None:
-        return indexed
-    anchored = resolve_ms_from_anchor_text(
-        words,
-        cut.get(anchor_key) if isinstance(cut.get(anchor_key), str) else None,
-        approx_ms=approx_ms,
-        prefer=prefer,
-    )
-    if anchored is not None:
-        return anchored
-    return _snap_ms(
+        meta.update(
+            {
+                "matched": True,
+                "source": "word_index",
+                "resolved_ms": int(indexed),
+                "delta_ms": abs(int(indexed) - int(approx_ms)),
+            }
+        )
+        return indexed, meta
+
+    anchor_raw = cut.get(anchor_key) if isinstance(cut.get(anchor_key), str) else None
+    if anchor_raw and str(anchor_raw).strip():
+        anchored = resolve_ms_from_anchor_text(
+            words,
+            anchor_raw,
+            approx_ms=approx_ms,
+            prefer=prefer,
+            window_ms=max(1_000, int(anchor_max_delta_ms)),
+        )
+        if anchored is None:
+            meta.update(
+                {
+                    "matched": False,
+                    "source": "anchor_unresolved",
+                    "anchor": str(anchor_raw).strip(),
+                    "reject": True,
+                    "reason": "anchor_not_found_near_approx",
+                }
+            )
+            return int(approx_ms), meta
+        delta = abs(int(anchored) - int(approx_ms))
+        meta.update(
+            {
+                "matched": True,
+                "source": "anchor",
+                "anchor": str(anchor_raw).strip(),
+                "resolved_ms": int(anchored),
+                "delta_ms": delta,
+            }
+        )
+        if delta > int(anchor_max_delta_ms):
+            meta["reject"] = True
+            meta["reason"] = "anchor_delta_exceeds_tolerance"
+            return int(approx_ms), meta
+        return int(anchored), meta
+
+    snapped = _snap_ms(
         approx_ms,
         words,
         prefer=prefer,
         margin_ms=margin_ms,
         max_shift_ms=max_shift_ms,
     )
+    meta.update(
+        {
+            "matched": True,
+            "source": "approx_snap",
+            "resolved_ms": int(snapped),
+            "delta_ms": abs(int(snapped) - int(approx_ms)),
+        }
+    )
+    return snapped, meta
+
+
+def _anchors_inside_window(
+    words: list[dict[str, Any]],
+    cut: dict[str, Any],
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, Any]:
+    """Verify start/end anchors (when present) land inside the selected window."""
+    from interview_mux.cut_edge_refine import resolve_ms_from_anchor_text
+
+    evidence: dict[str, Any] = {"ok": True, "checks": []}
+    for prefer, key in (("start", "start_anchor"), ("end", "end_anchor")):
+        anchor = cut.get(key)
+        if not isinstance(anchor, str) or not anchor.strip():
+            continue
+        approx = start_ms if prefer == "start" else end_ms
+        resolved = resolve_ms_from_anchor_text(
+            words,
+            anchor,
+            approx_ms=approx,
+            prefer=prefer,
+            window_ms=max(2_000, end_ms - start_ms + 1_000),
+        )
+        check: dict[str, Any] = {
+            "anchor": anchor.strip(),
+            "prefer": prefer,
+            "resolved_ms": resolved,
+            "in_window": False,
+        }
+        if resolved is None:
+            evidence["ok"] = False
+            check["reason"] = "unresolved"
+        elif not (start_ms - 80 <= int(resolved) <= end_ms + 80):
+            evidence["ok"] = False
+            check["reason"] = "outside_window"
+        else:
+            check["in_window"] = True
+        evidence["checks"].append(check)
+    return evidence
 
 
 def _majority_speaker(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str | None:
@@ -250,6 +350,8 @@ def snap_ideal_cuts(
     edge_buf = int(conf.get("semantic_edge_buffer_ms") or 5_000)
     acoustic_on = bool(conf.get("acoustic_edge_refine", True))
     acoustic_search = int(conf.get("acoustic_search_ms") or 120)
+    anchor_max_delta = int(conf.get("anchor_max_delta_ms") or 8_000)
+    reject_unresolved = bool(conf.get("reject_unresolved_must_keep_anchors", True))
 
     raw_cuts = list(cuts_doc.get("cuts") or []) if isinstance(cuts_doc, dict) else []
     snapped: list[dict[str, Any]] = []
@@ -266,22 +368,40 @@ def snap_ideal_cuts(
         if end <= start:
             warnings.append(f"cut[{index}] end<=start")
             continue
-        start = _resolve_cut_edge_ms(
+        start, start_meta = _resolve_cut_edge_ms(
             cut,
             words,
             prefer="start",
             approx_ms=start,
             margin_ms=margin,
             max_shift_ms=max_shift,
+            anchor_max_delta_ms=anchor_max_delta,
         )
-        end = _resolve_cut_edge_ms(
+        end, end_meta = _resolve_cut_edge_ms(
             cut,
             words,
             prefer="end",
             approx_ms=end,
             margin_ms=margin,
             max_shift_ms=max_shift,
+            anchor_max_delta_ms=anchor_max_delta,
         )
+        priority = str(cut.get("priority") or "should_keep").strip().lower()
+        if priority not in {"must_keep", "should_keep", "optional"}:
+            priority = "should_keep"
+        anchor_reject = bool(start_meta.get("reject") or end_meta.get("reject"))
+        if anchor_reject:
+            reason = start_meta.get("reason") or end_meta.get("reason") or "anchor_mismatch"
+            warnings.append(
+                f"cut[{index}] anchor verification failed ({reason}) "
+                f"start={start_meta.get('source')} end={end_meta.get('source')}"
+            )
+            if reject_unresolved:
+                warnings.append(
+                    f"cut[{index}] rejected: anchor/time mismatch"
+                    + (" (must_keep)" if priority == "must_keep" else "")
+                )
+                continue
         if end <= start:
             end = start + min_ms
         dur = end - start
@@ -291,9 +411,6 @@ def snap_ideal_cuts(
         elif dur > max_ms:
             end = start + max_ms
             warnings.append(f"cut[{index}] clamped to max_cut_ms")
-        priority = str(cut.get("priority") or "should_keep").strip().lower()
-        if priority not in {"must_keep", "should_keep", "optional"}:
-            priority = "should_keep"
         from interview_mux.gap_vo_prior_context import (
             clause_continues_after,
             clause_continues_before,
@@ -346,6 +463,17 @@ def snap_ideal_cuts(
                 )
                 continue
 
+        window_check = _anchors_inside_window(words, cut, start, end)
+        if not window_check.get("ok") and reject_unresolved and priority == "must_keep":
+            warnings.append(
+                f"cut[{index}] rejected: must_keep anchors not in window"
+            )
+            continue
+        if not window_check.get("ok"):
+            warnings.append(
+                f"cut[{index}] anchors outside selected window after snap"
+            )
+
         # Exact word pins + optional acoustic silence valley (no large free shift).
         from interview_mux.cut_edge_refine import refine_cut_edges
 
@@ -375,6 +503,11 @@ def snap_ideal_cuts(
             "legal_conceptual_hinge": True,
             "legal_conceptual_open": True,
             "edge_refine": edge_meta,
+            "anchor_resolve": {
+                "start": start_meta,
+                "end": end_meta,
+                "window_check": window_check,
+            },
         }
         snapped.append(row)
 

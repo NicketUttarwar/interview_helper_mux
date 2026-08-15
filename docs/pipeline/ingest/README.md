@@ -8,7 +8,7 @@ BUILD-020
 
 ## Tools
 
-**ffmpeg** (`dynaudnorm` + `loudnorm`) — version anchor: [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#system-binaries)
+**ffmpeg** (upward soft boost + `loudnorm`) — version anchor: [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md#system-binaries)
 
 ## Inputs
 
@@ -21,9 +21,9 @@ Run workspace: `ASSETS/executions/exec_NNN_…/` ([assets-and-executions.md](../
 
 ## Loudness stabilize (default on)
 
-After optional preclean, ingest applies a mild **dynaudnorm** (within-file leveling) then **loudnorm** to **−18 LUFS** / −1.5 dBTP so quiet captures are enjoyable for STT review and listening. Final `master_finalize` still loudnorms the mix to podcast **−16 LUFS**.
+After optional preclean, ingest applies an **upward-only soft boost** (`acompressor` mode=`upward` — raises quiet passages, leaves louder speech alone) then **loudnorm** to **−18 LUFS** / −1.5 dBTP so quiet captures are enjoyable for STT review and listening without mid-word ducking. Final `master_finalize` still loudnorms the mix to podcast **−16 LUFS**.
 
-Config: `ingest.loudness_stabilize.*` — [config-keys.md](../../cross-cutting/config-keys.md). Set `enabled: false` for format-only ingest.
+Config: `ingest.loudness_stabilize.*` — [config-keys.md](../../cross-cutting/config-keys.md). Default `dynaudnorm_mode=upward_only`; set `classic` only if you want legacy bidirectional `dynaudnorm`. Set `enabled: false` for format-only ingest.
 
 ## Outputs
 

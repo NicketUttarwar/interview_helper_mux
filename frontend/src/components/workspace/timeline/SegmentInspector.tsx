@@ -77,6 +77,12 @@ export function SegmentInspector({
         {segment._excluded ? <span className="badge excluded">Excluded</span> : null}
         {segment._mark_redo ? <span className="badge redo">Redo</span> : null}
       </div>
+      {segment._exclude_reason ? (
+        <p className="hint sm">Exclude reason: {segment._exclude_reason}</p>
+      ) : null}
+      {segment._omit_recovery ? (
+        <p className="hint sm">Recovery path: {segment._omit_recovery}</p>
+      ) : null}
       <p className="segment-inspector-text">{segment.text || "(no transcript text)"}</p>
       <dl className="segment-inspector-meta">
         <dt>Type</dt>
@@ -89,6 +95,17 @@ export function SegmentInspector({
         <dd>
           {formatMs(bounds.start)} – {formatMs(bounds.end)}
         </dd>
+        {segment.edge_grade || segment.boundary_confidence != null ? (
+          <>
+            <dt>Edge conf.</dt>
+            <dd>
+              {segment.edge_grade || "—"}
+              {segment.boundary_confidence != null
+                ? ` (${segment.boundary_confidence.toFixed(2)})`
+                : ""}
+            </dd>
+          </>
+        ) : null}
         {anchorChapter ? (
           <>
             <dt>Chapter</dt>
@@ -102,6 +119,38 @@ export function SegmentInspector({
           </>
         ) : null}
       </dl>
+
+      {(segment.start_edge || segment.end_edge) && (
+        <div className="segment-inspector-qc">
+          <h5>Boundary edges</h5>
+          <ul>
+            {segment.start_edge ? (
+              <li>
+                Start {segment.start_edge.grade || "—"}{" "}
+                {segment.start_edge.overall != null
+                  ? `(${segment.start_edge.overall.toFixed(2)})`
+                  : ""}
+                {segment.start_edge.repaired ? " · repaired" : ""}
+                {(segment.start_edge.reasons || []).length
+                  ? ` — ${(segment.start_edge.reasons || []).slice(0, 4).join(", ")}`
+                  : ""}
+              </li>
+            ) : null}
+            {segment.end_edge ? (
+              <li>
+                End {segment.end_edge.grade || "—"}{" "}
+                {segment.end_edge.overall != null
+                  ? `(${segment.end_edge.overall.toFixed(2)})`
+                  : ""}
+                {segment.end_edge.repaired ? " · repaired" : ""}
+                {(segment.end_edge.reasons || []).length
+                  ? ` — ${(segment.end_edge.reasons || []).slice(0, 4).join(", ")}`
+                  : ""}
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      )}
 
       {(segment.flags || []).length ? (
         <ul className="segment-inspector-flags">

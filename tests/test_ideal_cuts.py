@@ -175,3 +175,103 @@ def test_resolve_keeper_air_bounds_respects_prev_keeper_floor():
     )
     assert start >= 5080  # prev_end + 80
     assert end > start
+
+
+def test_snap_rejects_must_keep_with_unresolved_anchor():
+    from interview_mux.ideal_cuts import snap_ideal_cuts
+
+    words = [
+        {"text": "Hello", "start_ms": 0, "end_ms": 200, "speaker_id": "spk_0"},
+        {"text": "world.", "start_ms": 220, "end_ms": 500, "speaker_id": "spk_0"},
+        {"text": "Goodbye", "start_ms": 2000, "end_ms": 2300, "speaker_id": "spk_0"},
+        {"text": "now.", "start_ms": 2320, "end_ms": 2600, "speaker_id": "spk_0"},
+    ]
+    cuts = {
+        "cuts": [
+            {
+                "cut_id": "c1",
+                "talking_point_id": "tp_1",
+                "start_ms": 0,
+                "end_ms": 500,
+                "priority": "must_keep",
+                "rationale": "wrong anchors",
+                "start_anchor": "tissue biopsy",
+                "end_anchor": "treatment is given",
+            }
+        ]
+    }
+    snapped = snap_ideal_cuts(
+        cuts,
+        {"words": words},
+        cfg={
+            "analysis": {
+                "ideal_cuts": {
+                    "min_cut_ms": 200,
+                    "acoustic_edge_refine": False,
+                    "reject_unresolved_must_keep_anchors": True,
+                    "anchor_max_delta_ms": 2000,
+                }
+            }
+        },
+    )
+    assert snapped["cut_count"] == 0
+    assert any("anchor" in w.lower() for w in snapped.get("snap_warnings") or [])
+
+
+def test_snap_prefers_verified_anchor_near_approx():
+    from interview_mux.ideal_cuts import snap_ideal_cuts
+
+    words = []
+    phrase = "tissue biopsy is important.".split()
+    t = 10_000
+    for tok in phrase:
+        words.append(
+            {
+                "text": tok if tok != "important." else "important.",
+                "start_ms": t,
+                "end_ms": t + 300,
+                "speaker_id": "spk_1",
+            }
+        )
+        t += 350
+    # Pad duration
+    for i in range(10):
+        words.append(
+            {
+                "text": f"more{i}.",
+                "start_ms": t,
+                "end_ms": t + 280,
+                "speaker_id": "spk_1",
+            }
+        )
+        t += 400
+    cuts = {
+        "cuts": [
+            {
+                "cut_id": "c1",
+                "talking_point_id": "tp_1",
+                "start_ms": 10_050,
+                "end_ms": words[-1]["end_ms"],
+                "priority": "must_keep",
+                "rationale": "anchor match",
+                "start_anchor": "tissue biopsy",
+            }
+        ]
+    }
+    snapped = snap_ideal_cuts(
+        cuts,
+        {"words": words},
+        cfg={
+            "analysis": {
+                "ideal_cuts": {
+                    "min_cut_ms": 2000,
+                    "acoustic_edge_refine": False,
+                    "reject_unresolved_must_keep_anchors": True,
+                }
+            }
+        },
+    )
+    assert snapped["cut_count"] == 1
+    resolve = snapped["cuts"][0].get("anchor_resolve") or {}
+    assert (resolve.get("start") or {}).get("source") == "anchor"
+    assert (resolve.get("start") or {}).get("matched") is True

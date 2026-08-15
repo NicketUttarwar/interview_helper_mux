@@ -102,6 +102,9 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `understanding/source_acoustic_profile.json` | source_acoustic_profile |
 | `understanding/gap_evaluations.json` | missing framing |
 | `understanding/gap_report.json` | optimal questions aggregate |
+| `understanding/nugget_layup_plan.json` | per-native grounded layup / typed-skip plan |
+| `understanding/nugget_layup_qc.json` | layup coverage and craft QC report |
+| `understanding/omit_ledger.json` | schema-backed omit / suppress / defer / waive decisions; see [omit_ledger.schema.json](./json-schemas/artifacts/omit_ledger.schema.json) |
 | `understanding/delivery_brief.json` | adaptive soft targets (duration, question/chapter budgets, SFX density) |
 | `understanding/soundscape_policy.json` | unified soundscape standards + cue slots (BUILD-SS-01) |
 | `sound_design/soundscape_report.json` | post-mix verify / remux audit (BUILD-SS-04) |

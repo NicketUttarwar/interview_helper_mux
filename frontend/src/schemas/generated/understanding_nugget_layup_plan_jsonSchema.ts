@@ -1,0 +1,48 @@
+// Auto-generated — do not edit. Run: python tools/codegen_zod_schemas.py
+import { z } from "zod";
+
+export const understanding_nugget_layup_plan_jsonSchema = z.object({
+  "ordered_segment_ids": z.array(z.string()),
+  "layups": z.array(z.object({
+  "target_segment_id": z.string(),
+  "line_id": z.string().nullable().optional(),
+  "text": z.string().nullable().optional(),
+  "nugget_ids": z.array(z.string()).optional(),
+  "target_beat": z.string().nullable().optional(),
+  "listener_need_entering_T": z.string().nullable().optional(),
+  "selected_nugget_ids": z.array(z.string()).optional(),
+  "setup_from_nuggets": z.string().nullable().optional(),
+  "forward_unlock": z.string().nullable().optional(),
+  "why_relevant_to_target": z.string().nullable().optional(),
+  "forward_cue_ok": z.boolean().optional(),
+  "word_count": z.number().nullable().optional(),
+  "skip": z.boolean().optional(),
+  "skip_reason_code": z.string().nullable().optional(),
+  "evidence_refs": z.array(z.string()).nullable().optional(),
+  "value_forgone": z.array(z.string()).nullable().optional(),
+  "compensating_path": z.string().nullable().optional(),
+  "revisit_if": z.array(z.string()).nullable().optional(),
+  "decision_confidence": z.number().nullable().optional(),
+  "owner_stage": z.string().nullable().optional(),
+  "talking_point_ids": z.array(z.string()).optional(),
+})),
+  "discharged_talking_point_ids": z.array(z.string()).optional(),
+  "open_talking_point_ids": z.array(z.string()).optional(),
+  "discharged_nugget_ids": z.array(z.string()).optional(),
+  "open_high_salience_nugget_ids": z.array(z.string()).optional(),
+  "waived_nugget_ids": z.array(z.object({
+  "nugget_id": z.string().optional(),
+  "reason": z.string().optional(),
+})).optional(),
+  "warnings": z.array(z.string()).optional(),
+  "order_content_hash": z.string().optional(),
+  "order_lock": z.object({
+  "version": z.number().optional(),
+  "revision": z.number().optional(),
+  "authority": z.string().optional(),
+  "ordered_segment_ids": z.array(z.string()).optional(),
+  "order_content_hash": z.string().optional(),
+  "created_by": z.string().optional(),
+  "supersedes": z.string().nullable().optional(),
+}).optional(),
+});

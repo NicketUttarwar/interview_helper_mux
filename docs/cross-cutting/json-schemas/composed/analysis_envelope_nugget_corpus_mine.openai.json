@@ -35,6 +35,9 @@
               "salience",
               "grounding_quality",
               "evidence_partial",
+              "supports_targets",
+              "conflicts_with",
+              "speakability",
               "themes"
             ],
             "properties": {
@@ -119,6 +122,36 @@
                 "type": [
                   "boolean",
                   "null"
+                ]
+              },
+              "supports_targets": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "conflicts_with": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "speakability": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "high",
+                  "medium",
+                  "low",
+                  "unspeakable"
                 ]
               },
               "themes": {

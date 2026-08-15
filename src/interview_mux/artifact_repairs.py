@@ -2087,6 +2087,20 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             )
             continue
         if decision["action"] == "block":
+            # Authoritative layups that still cannot speak cleanly must be
+            # omitted rather than hard-stopping publish/recompose forever.
+            if (
+                bool(out.get("nugget_layup_authority"))
+                and str(row.get("origin") or "") == "nugget_layup"
+            ):
+                applied.append(
+                    {
+                        "action": "omit_unspeakable_layup",
+                        "line_id": row.get("line_id"),
+                        "violations": decision["violations"],
+                    }
+                )
+                continue
             raise ValueError(
                 f"required gap VO blocked by spoken_copy_guard "
                 f"({row.get('line_id') or target}): "

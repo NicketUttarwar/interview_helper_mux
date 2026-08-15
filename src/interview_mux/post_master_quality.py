@@ -271,6 +271,37 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         vo_errs = [str(exc)[:160]]
     add("spoken_vo_speakable", vo_ok, {"errors": vo_errs[:8]})
 
+    omit_contract_ok = True
+    omit_contract_errors: list[str] = []
+    omit_summary: dict[str, Any] = {}
+    try:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, air_contract_errors
+
+        ledger = (
+            ctx.read_json(OMIT_LEDGER_REL)
+            if ctx.artifact_exists(OMIT_LEDGER_REL)
+            else None
+        )
+        if isinstance(ledger, dict):
+            omit_summary = (
+                dict(ledger.get("summary") or {})
+                if isinstance(ledger.get("summary"), dict)
+                else {}
+            )
+            omit_contract_errors = air_contract_errors(ctx, ledger=ledger)
+            omit_contract_ok = not omit_contract_errors
+    except Exception as exc:
+        omit_contract_ok = False
+        omit_contract_errors = [str(exc)[:160]]
+    add(
+        "omit_ledger_air_contract",
+        omit_contract_ok,
+        {
+            "errors": omit_contract_errors[:8],
+            "summary": omit_summary,
+        },
+    )
+
     audible_hash_errors: list[str] = []
     try:
         from interview_mux.vo_synthesis_audit import audible_script_hash_errors
@@ -531,9 +562,10 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         )
 
     if soft_pmq:
+        # Spoken VO speakability + audible script-hash agreement stay hard even
+        # under e2e soft — soft-waiving them ships masters that disagree with the
+        # current gap scripts / synthesized WAVs.
         waivable = {
-            "spoken_vo_speakable",
-            "audible_script_hash_agreement",
             "no_critical_junction_residuals",
             "episode_close_outro_present",
             "planned_music_preserved",

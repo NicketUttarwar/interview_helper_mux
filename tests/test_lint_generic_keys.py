@@ -159,3 +159,31 @@ def test_reconcile_content_context_skips_when_rows_low() -> None:
     }
     assert reconcile_envelope_confidence("content_context", envelope) is False
     assert envelope["confidence"] == 0.23
+
+
+def test_reconcile_boundary_detection_row_and_edge_confidence() -> None:
+    envelope = {
+        "status": "complete",
+        "confidence": 0.4,
+        "artifacts": {
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "proposed_split_reason": "pause",
+                    "confidence": 0.91,
+                },
+                {
+                    "segment_id": "seg_002",
+                    "start_ms": 1000,
+                    "end_ms": 2000,
+                    "proposed_split_reason": "topic_shift",
+                    "start_edge": {"overall": 0.88},
+                    "end_edge": {"overall": 0.72},
+                },
+            ]
+        },
+    }
+    assert reconcile_envelope_confidence("boundary_detection", envelope) is True
+    assert envelope["confidence"] == 0.72

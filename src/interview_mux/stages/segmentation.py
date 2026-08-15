@@ -73,6 +73,16 @@ def run_boundaries(ctx: RunContext) -> None:
                 level="info",
                 stage="boundary_detection",
             )
+            try:
+                from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+                apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
+            except Exception as exc:
+                ctx.log(
+                    f"boundary edge confidence pass skipped: {exc}",
+                    level="warning",
+                    stage="boundary_detection",
+                )
             return
         if not report.get("reject") and not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
             if not ctx.is_done("boundary_detection"):
@@ -82,6 +92,16 @@ def run_boundaries(ctx: RunContext) -> None:
                 level="info",
                 stage="boundary_detection",
             )
+            try:
+                from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+                apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
+            except Exception as exc:
+                ctx.log(
+                    f"boundary edge confidence pass skipped: {exc}",
+                    level="warning",
+                    stage="boundary_detection",
+                )
             return
         ctx.log(
             "boundary_detection: ideal_cuts bind too coarse "
@@ -141,6 +161,17 @@ def run_boundaries(ctx: RunContext) -> None:
             build_input,
             persist,
         )
+    with logged_step("boundary_detection/edge_confidence", ctx=ctx, stage="boundary_detection"):
+        try:
+            from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+            apply_boundary_confidence_pass(ctx, stage="boundary_detection", repair=True)
+        except Exception as exc:
+            ctx.log(
+                f"boundary edge confidence pass skipped: {exc}",
+                level="warning",
+                stage="boundary_detection",
+            )
     _assert_boundary_quality(ctx)
 
 
@@ -351,6 +382,28 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
     from interview_mux.stage_coupling import publish_boundary_contract
     from interview_mux.v2.config import ANALYSIS_ORDER
 
+    def _run_post_reanchor_edge_confidence() -> None:
+        """Score existing boundaries even when no re-split is necessary.
+
+        A no-overload result is the normal fast path, not evidence that the
+        original cut edges were editorially safe.  Re-running the scorer here
+        is also what lets its post-reanchor context inform the review queue.
+        """
+        try:
+            from interview_mux.boundary_edge_score import apply_boundary_confidence_pass
+
+            apply_boundary_confidence_pass(
+                ctx,
+                stage="boundary_topic_resplit",
+                repair=True,
+            )
+        except Exception as exc:
+            ctx.log(
+                f"boundary post-reanchor edge confidence pass skipped: {exc}",
+                level="warning",
+                stage="boundary_topic_resplit",
+            )
+
     # One invalidation cycle per run — re-entering after resume-from-classification
     # must not clear markers again (clear_from(from_stage) would wipe this stage's
     # .stage_done and loop forever).
@@ -361,6 +414,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             level="info",
             stage="boundary_topic_resplit",
         )
+        _run_post_reanchor_edge_confidence()
         ctx.mark_done("boundary_topic_resplit", force=True)
         return
 
@@ -380,6 +434,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             level="info",
             stage="boundary_topic_resplit",
         )
+        _run_post_reanchor_edge_confidence()
         ctx.mark_done("boundary_topic_resplit", force=True)
         return
 
@@ -406,6 +461,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             m["boundary_topic_resplit_cycle_done"] = True
 
         ctx.mutate_run_meta(_mark_cycle)
+        _run_post_reanchor_edge_confidence()
         ctx.mark_done("boundary_topic_resplit", force=True)
         return
 
@@ -484,6 +540,9 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
                 )
     except Exception as exc:
         ctx.log(f"split_plan skipped: {exc}", level="warning", stage="boundary_topic_resplit")
+
+    # Propose → score → repair: primary confidence pass (post-reanchor context).
+    _run_post_reanchor_edge_confidence()
 
     _assert_boundary_quality(ctx)
     ctx.mark_done("boundary_topic_resplit", force=True)

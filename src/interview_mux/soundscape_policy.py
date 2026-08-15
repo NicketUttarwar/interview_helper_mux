@@ -42,7 +42,7 @@ _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_who
 
 _MIN_BED_SEGMENT_MS = 12_000
 _MIN_BED_SEGMENT_MS_FINE = 6_000
-_DEFAULT_BED_LEVEL = -23.0
+_DEFAULT_BED_LEVEL = -20.0
 
 
 def _min_bed_segment_ms(cfg: dict[str, Any] | None = None) -> int:
@@ -140,7 +140,10 @@ def _density_from_sources(
     if underscore in {"skip", "sparse_or_skip"}:
         dens["max_beds"] = 0
     elif underscore == "sparse":
-        dens["max_beds"] = min(dens["max_beds"], 1)
+        from interview_mux.creative_delivery import creative_delivery_required
+
+        # Creative delivery still wants more frequent undersores than a hard single-bed clamp.
+        dens["max_beds"] = min(dens["max_beds"], 2 if creative_delivery_required() else 1)
     return dens
 
 
@@ -208,11 +211,11 @@ def score_cue_slots(
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     sap = load_profile(ctx) or {}
     music_risk = str(sap.get("source_music_risk") or "low")
-    bed_range = mix_contract.get("bed_level_db_range") or [-25.0, -21.0]
+    bed_range = mix_contract.get("bed_level_db_range") or [-22.0, -18.0]
     bed_level = float(bed_range[0] + bed_range[-1]) / 2.0 if isinstance(bed_range, list) and len(bed_range) == 2 else _DEFAULT_BED_LEVEL
     if pace in {"brisk", "dense"}:
-        # Prefer quieter beds under dense dialogue — never hotter than −22.
-        bed_level = min(bed_level, -22.0)
+        # Prefer quieter beds under dense dialogue — never hotter than −20.
+        bed_level = min(bed_level, -20.0)
 
     sdp = {}
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -328,31 +331,39 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         min_density_cfg,
     )
 
-    if str(sap.get("source_music_risk") or "low") == "high" and not creative_delivery_required():
+    music_risk = str(sap.get("source_music_risk") or "low")
+    if music_risk == "high" and not creative_delivery_required():
         underscore = "skip"
+    # Creative delivery: medium risk becomes normal so dens/coverage are not sparse-clamped.
+    # High risk stays restrained (sparse), not upgraded to wallpaper beds.
+    if creative_delivery_required():
+        if music_risk == "medium" and underscore in {"sparse", "sparse_or_skip"}:
+            underscore = "normal"
+        elif music_risk == "high":
+            underscore = "sparse"
     dens = _density_from_sources(brief=brief, sonic=sonic, underscore=underscore)
     dens = apply_creative_sfx_density(dens)
     pacing = sap.get("pacing") if isinstance(sap.get("pacing"), dict) else {}
     pace = _norm_pace(str(pacing.get("pace_class") or "conversational"))
 
-    duck = float(sap_mix.get("duck_under_speech_db") or 16.0)
+    duck = float(sap_mix.get("duck_under_speech_db") or 12.0)
     if pace in {"brisk", "dense"}:
-        duck = max(duck, 20.0)
+        duck = max(duck, 14.0)
     stinger_cap = float(
         sonic_mix.get("stinger_cap_per_minute")
         or sap_mix.get("stinger_max_per_minute")
         or 4
     )
-    bed_range = sap_mix.get("bed_level_db_range") or [-25.0, -21.0]
+    bed_range = sap_mix.get("bed_level_db_range") or [-22.0, -18.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
-        bed_range = [-25.0, -21.0]
-    coverage = 0.4
+        bed_range = [-22.0, -18.0]
+    coverage = 0.55
     if underscore == "sparse":
-        coverage = 0.28
+        coverage = 0.40
     if underscore in {"skip", "sparse_or_skip"}:
         coverage = 0.0
     elif pace == "dense":
-        coverage = 0.28
+        coverage = 0.40
 
     mix = {
         "bed_level_db_range": [float(bed_range[0]), float(bed_range[1])],
@@ -366,10 +377,18 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
     }
     mix = apply_creative_mix_contract(mix)
     if creative_delivery_required():
-        min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.08)
+        min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.40)
         coverage = max(coverage, min_cov)
         mix["max_bed_coverage_ratio"] = coverage
         underscore = str(mix.get("underscore_policy") or underscore)
+        # Re-assert high-risk restraint after creative upgrade of sparse→normal.
+        if music_risk == "high":
+            underscore = "sparse"
+            mix["underscore_policy"] = "sparse"
+            dens = dict(dens)
+            dens["max_beds"] = min(max(int(dens.get("max_beds") or 2), 2), 2)
+            coverage = max(0.40, min(float(mix.get("max_bed_coverage_ratio") or 0.40), 0.55))
+            mix["max_bed_coverage_ratio"] = coverage
     standards = _standards_for_pace(pace, underscore)
     standards["max_bed_coverage_ratio"] = coverage
 
@@ -378,8 +397,8 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         f"underscore={underscore}",
         f"sfx_density={dens}",
     ]
-    if str(sap.get("source_music_risk") or "low") != "low":
-        rationale.append(f"source_music_risk={sap.get('source_music_risk')}")
+    if music_risk != "low":
+        rationale.append(f"source_music_risk={music_risk}")
 
     # Prefer Shape narrative_mode soft targets when plan is present.
     plan_mode = None
@@ -398,10 +417,13 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
             if plan_mode in {"sparse_source", "conversational_host"}:
                 underscore = "sparse"
                 dens = dict(dens)
-                dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
+                if creative_delivery_required():
+                    dens["max_beds"] = min(max(int(dens.get("max_beds") or 2), 2), 2)
+                else:
+                    dens["max_beds"] = min(int(dens.get("max_beds") or 1), 1)
                 dens["max_foley"] = 0
                 # Soft modes still allow musically dense beds up to the product max.
-                coverage = min(max(coverage, 0.28), 0.75)
+                coverage = min(max(coverage, 0.40), 0.75)
                 mix["max_bed_coverage_ratio"] = coverage
                 mix["underscore_policy"] = underscore
                 standards["max_bed_coverage_ratio"] = coverage

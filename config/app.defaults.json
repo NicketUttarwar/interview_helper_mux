@@ -7,7 +7,7 @@
   "sample_rate": 48000,
   "flow1_target_lufs": -16.0,
   "target_lufs": -16.0,
-  "_comment_ingest": "After optional preclean: dynaudnorm + loudnorm on source (−18 LUFS headroom; master still −16).",
+  "_comment_ingest": "After optional preclean: upward-only soft boost + loudnorm (−18 LUFS headroom; master still −16). Never ducks loud syllables.",
   "ingest": {
     "loudness_stabilize": {
       "enabled": true,
@@ -16,8 +16,14 @@
       "lra": 11.0,
       "dual_mono": true,
       "dynaudnorm": true,
-      "dynaudnorm_frame_ms": 150,
-      "dynaudnorm_gausssize": 15,
+      "dynaudnorm_mode": "upward_only",
+      "upward_threshold": 0.125,
+      "upward_ratio": 3.0,
+      "upward_attack_ms": 50.0,
+      "upward_release_ms": 300.0,
+      "upward_knee": 2.5,
+      "dynaudnorm_frame_ms": 500,
+      "dynaudnorm_gausssize": 31,
       "dynaudnorm_peak": 0.95,
       "dynaudnorm_maxgain": 10.0
     }
@@ -146,10 +152,10 @@
     },
     "sidechain_duck": {
       "enabled": true,
-      "attack_ms": 15,
-      "release_ms": 480,
-      "hop_ms": 10,
-      "pause_ride_db": 2.5
+      "attack_ms": 40,
+      "release_ms": 900,
+      "hop_ms": 20,
+      "pause_ride_db": 1.0
     },
     "music_presence": {
       "cold_open_lead_in_fade_ms": 900,
@@ -168,11 +174,11 @@
     },
     "tbiy_narrative": {
       "punctuator_pause_min_ms": 400,
-      "bed_duck_db": 20,
+      "bed_duck_db": 12,
       "vo_silence_threshold": 0.02,
       "punctuator_peak_db": -10,
-      "bed_under_dialogue_db": -28,
-      "foley_under_dialogue_db": -28,
+      "bed_under_dialogue_db": -20,
+      "foley_under_dialogue_db": -20,
       "transition_whoosh_peak_db": -8
     },
     "completeness_gate": {
@@ -234,12 +240,12 @@
     "fail_closed_default": true,
     "min_density": {
       "min_assets": 3,
-      "min_beds": 1,
+      "min_beds": 2,
       "min_stingers": 1,
       "min_foley": 0,
-      "min_bed_coverage_ratio": 0.28,
-      "min_audible_bed_level_db": -25,
-      "max_audible_bed_level_db": -21,
+      "min_bed_coverage_ratio": 0.40,
+      "min_audible_bed_level_db": -22,
+      "max_audible_bed_level_db": -18,
       "min_audible_stinger_level_db": -15,
       "min_audible_cold_open_level_db": -9,
       "max_audible_cold_open_level_db": -5,
@@ -261,7 +267,7 @@
       "host_vo_duration_min_ratio": 0.04,
       "host_vo_duration_max_ratio": 0.45,
       "host_vo_quartile_presence_min_ratio": 0.5,
-      "bed_coverage_min_ratio": 0.28,
+      "bed_coverage_min_ratio": 0.40,
       "bed_coverage_max_ratio": 0.88,
       "bed_quartile_presence_min_ratio": 0.5,
       "hinge_stinger_coverage_min_ratio": 0.3,
@@ -298,14 +304,15 @@
       "max_foley": 12,
       "music_preset": "music_forward_documentary",
       "mix_overrides": {
-        "bed_under_dialogue_db": -25,
-        "foley_under_dialogue_db": -25,
+        "bed_under_dialogue_db": -20,
+        "foley_under_dialogue_db": -20,
         "punctuator_peak_db": -9,
-        "pause_ride_db": 2.5
+        "pause_ride_db": 1.0,
+        "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -25,
-        "max_audible_bed_level_db": -21,
+        "min_audible_bed_level_db": -22,
+        "max_audible_bed_level_db": -18,
         "min_audible_cold_open_level_db": -9,
         "max_audible_cold_open_level_db": -5
       }
@@ -322,14 +329,15 @@
         "best_of_n_underscore": 1
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -23,
-        "foley_under_dialogue_db": -23,
+        "bed_under_dialogue_db": -18,
+        "foley_under_dialogue_db": -18,
         "punctuator_peak_db": -7,
-        "pause_ride_db": 3.0
+        "pause_ride_db": 1.5,
+        "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -25,
-        "max_audible_bed_level_db": -21,
+        "min_audible_bed_level_db": -22,
+        "max_audible_bed_level_db": -18,
         "min_audible_cold_open_level_db": -7,
         "max_audible_cold_open_level_db": -3
       }
@@ -346,14 +354,15 @@
         "best_of_n_underscore": 1
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -27,
-        "foley_under_dialogue_db": -27,
+        "bed_under_dialogue_db": -22,
+        "foley_under_dialogue_db": -22,
         "punctuator_peak_db": -11,
-        "pause_ride_db": 2.0
+        "pause_ride_db": 0.5,
+        "bed_duck_db": 14
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -27,
-        "max_audible_bed_level_db": -23,
+        "min_audible_bed_level_db": -24,
+        "max_audible_bed_level_db": -20,
         "min_audible_cold_open_level_db": -11,
         "max_audible_cold_open_level_db": -7
       }
@@ -366,10 +375,10 @@
       "max_foley": 12,
       "mix_overrides": {
         "punctuator_peak_db": -7,
-        "bed_under_dialogue_db": -25,
-        "foley_under_dialogue_db": -25,
-        "pause_ride_db": 2.5,
-        "bed_duck_db": 20
+        "bed_under_dialogue_db": -20,
+        "foley_under_dialogue_db": -20,
+        "pause_ride_db": 1.0,
+        "bed_duck_db": 12
       },
       "adaptation_defaults": {
         "require_moat": true,
@@ -968,6 +977,8 @@
       "semantic_edge_buffer_ms": 5000,
       "acoustic_edge_refine": true,
       "acoustic_search_ms": 120,
+      "anchor_max_delta_ms": 8000,
+      "reject_unresolved_must_keep_anchors": true,
       "skip_boundary_llm_when_bound": true,
       "skip_topic_resplit_when_bound": true,
       "skip_classification_llm_when_bound": true,
@@ -1371,7 +1382,24 @@
       "boundary_merge_threshold_ms": 200,
       "micro_segment_lint_max": 400,
       "min_bed_segment_ms_fine": 6000,
-      "reject_coarse_fallback": true
+      "reject_coarse_fallback": true,
+      "edge_confidence": {
+        "enabled": true,
+        "repair_enabled": true,
+        "search_window_ms": 1500,
+        "min_improvement": 0.08,
+        "grade_high": 0.8,
+        "grade_medium": 0.65,
+        "grade_low": 0.45,
+        "repair_below": 0.65,
+        "queue_below": 0.65,
+        "spine_align_ms": 800,
+        "word_snap_tol_ms": 40,
+        "pause_good_ms": 400,
+        "pause_strong_ms": 1000,
+        "asr_window_ms": 800,
+        "require_multi_source_for_high": true
+      }
     }
   },
   "structure": {

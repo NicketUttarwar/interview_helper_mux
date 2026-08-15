@@ -25,7 +25,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.sonic_context import load_sonic_context
 
 DEFAULT_FRAME_RATE = 48_000
-MIN_DUCK_DB = 20.0
+MIN_DUCK_DB = 12.0
 
 
 def _mix_cfg() -> dict[str, Any]:
@@ -80,8 +80,8 @@ def _check_bed_presence_band(
             mins = dict(sc)
     except Exception:
         mins = {}
-    floor = float(mins.get("min_audible_bed_level_db", -25.0))
-    ceiling = float(mins.get("max_audible_bed_level_db", -21.0))
+    floor = float(mins.get("min_audible_bed_level_db", -22.0))
+    ceiling = float(mins.get("max_audible_bed_level_db", -18.0))
     windows = collect_flow1_bed_speech_windows(
         ctx, segment_timing=segment_timing, contract=contract
     )
@@ -937,6 +937,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             ctx.write_json("master/listen_critic.json", critic)
             if critic.get("g_listen_recommended"):
                 def _glisten(m: dict) -> None:
+                    if m.get("g_listen_skipped") or m.get("g_listen_cleared"):
+                        return
                     m["g_listen_pending"] = True
                     m["g_listen_quality_score"] = critic.get("quality_score")
 
@@ -2066,9 +2068,9 @@ def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float
     pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
     if speech_active_ratio >= 0.75:
-        return min(default_level_db, -25.0 if creative_delivery_required() else -27.0)
+        return min(default_level_db, -22.0 if creative_delivery_required() else -24.0)
     if speech_active_ratio >= 0.6:
-        return min(default_level_db, -23.0 if creative_delivery_required() else -25.0)
+        return min(default_level_db, -20.0 if creative_delivery_required() else -22.0)
     return default_level_db
 
 

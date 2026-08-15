@@ -255,6 +255,23 @@ def vo_gap_line_effectively_optional(ctx: RunContext, line: dict) -> bool:
     """True when a gap VO line should not block downstream narrative QC."""
     if line.get("skipped_optional"):
         return True
+    try:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, effective_air_contract
+
+        ledger = (
+            ctx.read_json(OMIT_LEDGER_REL)
+            if ctx.artifact_exists(OMIT_LEDGER_REL)
+            else None
+        )
+        contract = effective_air_contract(
+            ledger,
+            line_id=str(line.get("line_id") or "") or None,
+            target_segment_id=str(line.get("targets_segment_id") or "") or None,
+        )
+        if contract.get("status") in ("omitted", "deferred", "suppressed"):
+            return True
+    except Exception:
+        pass
     from interview_mux.v2.config import v2_g1_optional
 
     if not v2_g1_optional():

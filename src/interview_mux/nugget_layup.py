@@ -6,6 +6,7 @@ Authoritative planner for contentful ``before`` synthetic VO. Publishes into
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -281,23 +282,52 @@ def build_corpus_mine_input(ctx: RunContext) -> dict[str, Any]:
     max_chars = int(cfg["segment_text_max_chars"])
     ordered = _ordered_ids(ctx)
     oset = set(ordered)
+    excluded_meta: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            for ex in sel.get("excluded_segment_ids") or []:
+                if isinstance(ex, dict):
+                    sid = str(ex.get("segment_id") or "")
+                    if sid:
+                        excluded_meta[sid] = {
+                            "reason": str(ex.get("reason") or "excluded"),
+                            "why_dropped": str(
+                                ex.get("why_dropped") or ex.get("reason") or "excluded"
+                            ),
+                            "recovery_value": str(
+                                ex.get("recovery_value")
+                                or ex.get("salience")
+                                or "medium"
+                            ),
+                        }
+                else:
+                    sid = str(ex or "")
+                    if sid:
+                        excluded_meta[sid] = {
+                            "reason": "excluded",
+                            "why_dropped": "excluded_from_selection",
+                            "recovery_value": "medium",
+                        }
     segments: list[dict[str, Any]] = []
     for row in _manifest_segments(ctx):
         sid = str(row.get("segment_id") or "")
         if not sid:
             continue
-        segments.append(
-            {
-                "segment_id": sid,
-                "speaker_id": row.get("speaker_id"),
-                "speaker_role": row.get("speaker_role"),
-                "start_ms": row.get("start_ms"),
-                "end_ms": row.get("end_ms"),
-                "type": row.get("type"),
-                "in_selection": sid in oset,
-                "text": _clip_text(str(row.get("text") or ""), max_chars),
-            }
-        )
+        seg: dict[str, Any] = {
+            "segment_id": sid,
+            "speaker_id": row.get("speaker_id"),
+            "speaker_role": row.get("speaker_role"),
+            "start_ms": row.get("start_ms"),
+            "end_ms": row.get("end_ms"),
+            "type": row.get("type"),
+            "in_selection": sid in oset,
+            "text": _clip_text(str(row.get("text") or ""), max_chars),
+        }
+        if sid in excluded_meta:
+            seg["why_dropped"] = excluded_meta[sid]["why_dropped"]
+            seg["recovery_value"] = excluded_meta[sid]["recovery_value"]
+        segments.append(seg)
     talking_points = (
         ctx.read_json("understanding/talking_points.json")
         if ctx.artifact_exists("understanding/talking_points.json")
@@ -431,6 +461,10 @@ def compact_nugget_corpus_for_compose(corpus: dict[str, Any]) -> dict[str, Any]:
                 "source_segment_ids": [
                     str(x) for x in (nug.get("source_segment_ids") or []) if x
                 ][:6],
+                "supports_targets": [
+                    str(x) for x in (nug.get("supports_targets") or []) if x
+                ][:8],
+                "speakability": nug.get("speakability"),
             }
         )
     return {"nuggets": nuggets_out, "version": (corpus or {}).get("version", 1)}
@@ -491,6 +525,63 @@ def merge_layup_plan_parts(
         "waived_nugget_ids": waived,
         "warnings": warnings,
     }
+
+
+def dedupe_layup_rows_by_target(plan: dict[str, Any] | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Keep one deterministic layup row per native target before QC or publish.
+
+    LLM retries and shard merges can emit both a skip and a thin non-skip row for
+    one target.  Prefer a contentful row with construction analysis, but never
+    publish both: duplicate rows make the spoken-copy corpus self-collide.
+    """
+    out = dict(plan) if isinstance(plan, dict) else {}
+    rows = [dict(row) for row in (out.get("layups") or []) if isinstance(row, dict)]
+    chosen: dict[str, dict[str, Any]] = {}
+    notes: list[dict[str, Any]] = []
+
+    def score(row: dict[str, Any]) -> tuple[int, int, int]:
+        text = str(row.get("text") or "").strip()
+        fields = sum(bool(str(row.get(key) or "").strip()) for key in ANALYSIS_FIELDS)
+        return (
+            int(not row.get("skip") and bool(text)),
+            fields,
+            len(text.split()),
+        )
+
+    for row in rows:
+        target = str(row.get("target_segment_id") or "").strip()
+        if not target:
+            continue
+        current = chosen.get(target)
+        if current is None:
+            chosen[target] = row
+            continue
+        if score(row) > score(current):
+            kept, dropped = row, current
+            chosen[target] = row
+        else:
+            kept, dropped = current, row
+        notes.append(
+            {
+                "action": "dedupe_layup_target",
+                "target_segment_id": target,
+                "kept_line_id": kept.get("line_id"),
+                "dropped_line_id": dropped.get("line_id"),
+            }
+        )
+
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    order_index = {sid: index for index, sid in enumerate(ordered)}
+    out["layups"] = sorted(
+        chosen.values(),
+        key=lambda row: (
+            order_index.get(str(row.get("target_segment_id") or ""), len(order_index)),
+            str(row.get("target_segment_id") or ""),
+        ),
+    )
+    if notes:
+        out["layup_dedupe_notes"] = notes
+    return out, notes
 
 
 def degraded_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -725,6 +816,18 @@ def build_layup_compose_input(
         for r in ((prior_plan.get("layups") or []) if isinstance(prior_plan, dict) else [])
         if isinstance(r, dict) and r.get("target_segment_id")
     }
+    opening_owned = _opening_owned_targets(ctx)
+    gap_need_by_sid: dict[str, str] = {}
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        try:
+            ge = ctx.read_json("understanding/gap_evaluations.json")
+            for row in _compact_gap_evals(ge if isinstance(ge, dict) else {}):
+                sid = str(row.get("segment_id") or "")
+                need = str(row.get("listener_confusion") or row.get("recommended_framing") or "").strip()
+                if sid and need:
+                    gap_need_by_sid[sid] = need
+        except Exception:
+            gap_need_by_sid = {}
 
     natives: list[dict[str, Any]] = []
     aired_ids: list[str] = []
@@ -755,6 +858,9 @@ def build_layup_compose_input(
         if include_row:
             comp = _clip_text(spine, max_chars)
             text = _clip_text(verbatim, max_chars if not degraded else max(max_chars, 2200))
+            handoff = gap_need_by_sid.get(sid) or ""
+            if not handoff:
+                handoff = _seam_reason(prev_row, row)
             native_row: dict[str, Any] = {
                 "segment_id": sid,
                 "air_index": index,
@@ -779,6 +885,8 @@ def build_layup_compose_input(
                     int(cfg["prior_close_excerpt_chars"]),
                 ),
                 "seam_reason": _seam_reason(prev_row, row),
+                "handoff_need": _clip_text(handoff, 220),
+                "opening_owner": sid in opening_owned,
                 "already_aired_nugget_ids": list(aired_ids),
                 "already_claimed_facts": [
                     _clip_text(f, 120) for f in claimed_facts[-24:]
@@ -843,6 +951,7 @@ def build_layup_compose_input(
     return {
         "ordered_segment_ids": scope_ids,
         "full_ordered_segment_ids": list(ordered),
+        "opening_owned_segment_ids": sorted(opening_owned),
         "natives": natives,
         "nugget_corpus": compact_nugget_corpus_for_compose(
             corpus if isinstance(corpus, dict) else {"nuggets": []}
@@ -859,6 +968,15 @@ def build_layup_compose_input(
         "banned_air_phrases": sorted(canned_air_phrases()) if cfg["ban_canned_air"] else [],
         "degraded_layup": deg,
         "slim_open_nuggets": slim_open,
+        "typed_skip_required_fields": [
+            "skip_reason_code",
+            "evidence_refs",
+            "value_forgone",
+            "compensating_path",
+            "revisit_if",
+            "decision_confidence",
+            "owner_stage",
+        ],
         "uniqueness_rule": (
             "Each nugget_id may be claimed by at most one lay-up. Honor each "
             "native's already_aired_nugget_ids / already_claimed_facts. "
@@ -869,6 +987,10 @@ def build_layup_compose_input(
             "When degraded_lexicon_island is true: work around missing context; "
             "convey what IS known from comprehensible_text + corpus; never invent "
             "unclear tokens; keep air text speakable (no bracket placeholders)."
+        ),
+        "order_lock_note": (
+            "Do not emit order_lock or order_content_hash — code stamps them "
+            "from master/selection.json after compose."
         ),
     }
 
@@ -927,6 +1049,389 @@ def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if row.get("information_package_id"):
         line["information_package_id"] = row.get("information_package_id")
     return line
+
+
+def _opening_owned_targets(ctx: RunContext) -> set[str]:
+    """Segment ids whose before-VO slot is owned by episode orientation."""
+    owned: set[str] = set()
+    ordered = _ordered_ids(ctx)
+    if ordered:
+        owned.add(str(ordered[0]))
+    try:
+        from interview_mux.opening_orientation import native_cold_open_segment_id
+
+        hook = native_cold_open_segment_id(ctx, ordered)
+        if hook:
+            owned.add(str(hook))
+    except Exception:
+        pass
+    return {sid for sid in owned if sid}
+
+
+_COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
+    {
+        "spoken_copy_unhealable",
+        "opening_orientation_owns_target",
+    }
+)
+
+# Closed skip codes that may count toward coverage when typed fields are present
+# (or soft-migrated from known exempt codes).
+JUSTIFIED_SKIP_REASON_CODES = frozenset(
+    {
+        "spoken_copy_unhealable",
+        "opening_orientation_owns_target",
+        "episode_open_native_self_orients",
+        "self_explanatory_native",
+        "no_unrecovered_high_salience",
+        "listener_already_oriented",
+        "superseded_by_dense_package",
+        "operator_waive",
+        "compensated_by_prior_layup",
+    }
+)
+
+_DEFAULT_COMPENSATING_PATHS = {
+    "spoken_copy_unhealable": "omit_unsafe_spoken_copy",
+    "opening_orientation_owns_target": "opening_orientation",
+    "episode_open_native_self_orients": "native_self_orients",
+    "self_explanatory_native": "native_self_orients",
+    "no_unrecovered_high_salience": "no_open_high_salience_need",
+    "listener_already_oriented": "prior_layup_or_native",
+    "superseded_by_dense_package": "information_package_dense",
+    "operator_waive": "operator_waive",
+    "compensated_by_prior_layup": "prior_layup",
+}
+
+
+def stamp_typed_skip(
+    row: dict[str, Any],
+    *,
+    reason_code: str,
+    evidence_refs: list[str] | None = None,
+    value_forgone: list[str] | None = None,
+    compensating_path: str | None = None,
+    revisit_if: list[str] | None = None,
+    decision_confidence: float = 0.85,
+    owner_stage: str = "nugget_layup_compose",
+) -> dict[str, Any]:
+    """Stamp a skip row with full decision metadata (mutates and returns ``row``)."""
+    row["skip"] = True
+    row["text"] = ""
+    row["word_count"] = 0
+    row["skip_reason_code"] = reason_code
+    refs = list(evidence_refs or [])
+    tid = str(row.get("target_segment_id") or "")
+    if tid and f"target:{tid}" not in refs:
+        refs.append(f"target:{tid}")
+    if reason_code and f"skip_reason:{reason_code}" not in refs:
+        refs.append(f"skip_reason:{reason_code}")
+    row["evidence_refs"] = refs
+    forgone = list(value_forgone) if value_forgone is not None else list(
+        row.get("value_forgone") or []
+    )
+    if not forgone:
+        forgone = [str(x) for x in row_nugget_ids(row) if x]
+    row["value_forgone"] = forgone
+    path = compensating_path or _DEFAULT_COMPENSATING_PATHS.get(reason_code) or "typed_skip"
+    row["compensating_path"] = path
+    row["revisit_if"] = list(
+        revisit_if
+        if revisit_if is not None
+        else (row.get("revisit_if") or ["selection_change", "new_grounded_copy"])
+    )
+    row["decision_confidence"] = float(decision_confidence)
+    row["owner_stage"] = owner_stage
+    return row
+
+
+def is_justified_skip_row(
+    row: dict[str, Any] | None,
+    *,
+    soft_migrate: bool = True,
+) -> bool:
+    """True when a skip row is intentional listener coverage (not a bare hole).
+
+    Requires a known reason code and a compensating path. Known exempt codes
+    soft-migrate without requiring previously stamped typed fields.
+    """
+    if not isinstance(row, dict) or not row.get("skip"):
+        return False
+    reason = str(row.get("skip_reason_code") or "").strip()
+    if not reason or reason == "empty_or_skip":
+        return False
+    if reason not in JUSTIFIED_SKIP_REASON_CODES:
+        return False
+    path = str(row.get("compensating_path") or "").strip()
+    if path:
+        return True
+    if soft_migrate and reason in _COVERAGE_EXEMPT_SKIP_REASONS:
+        return True
+    if soft_migrate and reason in _DEFAULT_COMPENSATING_PATHS:
+        return True
+    return False
+
+
+def coverage_exempt_target_ids(
+    ctx: RunContext,
+    plan: dict[str, Any] | None = None,
+) -> set[str]:
+    """Targets that do not count against layup coverage denominator."""
+    exempt = set(_opening_owned_targets(ctx))
+    doc = plan if isinstance(plan, dict) else (
+        ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    )
+    for row in (doc.get("layups") or []) if isinstance(doc, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        tid = str(row.get("target_segment_id") or "")
+        if not tid:
+            continue
+        if is_justified_skip_row(row, soft_migrate=True):
+            exempt.add(tid)
+    return exempt
+
+
+def uncovered_high_value_forgone(
+    ctx: RunContext,
+    plan: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """High-salience value_forgone claims with no compensating path / discharge."""
+    if plan is None:
+        plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    plan = plan if isinstance(plan, dict) else {}
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in ((corpus.get("nuggets") or []) if isinstance(corpus, dict) else [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
+    discharged = {str(x) for x in (plan.get("discharged_nugget_ids") or []) if x}
+    waived = {
+        str(x.get("nugget_id") or x)
+        for x in (plan.get("waived_nugget_ids") or [])
+        if isinstance(x, (dict, str))
+    }
+    claimed: set[str] = set()
+    for row in plan.get("layups") or []:
+        if isinstance(row, dict) and not row.get("skip"):
+            claimed.update(row_nugget_ids(row))
+    out: list[dict[str, Any]] = []
+    for row in plan.get("layups") or []:
+        if not isinstance(row, dict) or not row.get("skip"):
+            continue
+        if is_justified_skip_row(row, soft_migrate=True) and str(
+            row.get("compensating_path") or ""
+        ).strip():
+            continue
+        for nid in [str(x) for x in (row.get("value_forgone") or row_nugget_ids(row)) if x]:
+            if nid in discharged or nid in waived or nid in claimed:
+                continue
+            nug = nug_by_id.get(nid) or {}
+            sal = str(nug.get("salience") or "")
+            if sal not in ("high", "critical") and nid not in {
+                str(x) for x in (plan.get("open_high_salience_nugget_ids") or []) if x
+            }:
+                continue
+            out.append(
+                {
+                    "nugget_id": nid,
+                    "target_segment_id": row.get("target_segment_id"),
+                    "salience": sal or "high",
+                    "skip_reason_code": row.get("skip_reason_code"),
+                }
+            )
+    return out
+
+
+def strip_model_order_lock(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Discard any LLM-authored selection lock before stamping from selection."""
+    out = dict(plan) if isinstance(plan, dict) else {}
+    out.pop("order_lock", None)
+    out.pop("order_content_hash", None)
+    meta = out.get("_meta")
+    if isinstance(meta, dict):
+        meta = dict(meta)
+        meta.pop("stale", None)
+        meta.pop("stale_reason", None)
+        out["_meta"] = meta
+    return out
+
+
+def prepare_layup_plan_for_persist(ctx: RunContext, plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize, strip model lock, attach selection lock — before freshness assert."""
+    doc = strip_model_order_lock(plan)
+    doc = normalize_layup_talking_point_ledger(ctx, doc)
+    return attach_selection_order_lock(ctx, doc)
+
+
+def repair_or_skip_spoken_copy_layups(
+    ctx: RunContext, plan: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Use grounded recovery copy, otherwise explicitly skip unsafe layups.
+
+    A target beat commonly paraphrases the following native verbatim.  It is
+    useful planning metadata but is not safe listener-facing copy by itself.
+    Never leave that row required after it fails the spoken-copy guard: G1 and
+    EDL would both be unable to make progress.
+    """
+    out, notes = dedupe_layup_rows_by_target(plan)
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    nuggets = {
+        str(nugget.get("nugget_id") or ""): nugget
+        for nugget in (corpus.get("nuggets") or []) if isinstance(nugget, dict)
+    }
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in _manifest_segments(ctx)
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    from interview_mux.spoken_copy_guard import spoken_copy_violations
+    from interview_mux.gap_vo_prior_context import (
+        _target_aware_forward_cues,
+        has_forward_cue,
+        repair_last_sentence_layup,
+        vo_target_overlap_ratio,
+    )
+
+    opening_targets = _opening_owned_targets(ctx)
+
+    seen: list[str] = []
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or row.get("skip"):
+            continue
+        target = str(row.get("target_segment_id") or "")
+        if target and target in opening_targets:
+            stamp_typed_skip(
+                row,
+                reason_code="opening_orientation_owns_target",
+                evidence_refs=[
+                    f"target:{target}",
+                    "opening_orientation:owns_before_slot",
+                ],
+                value_forgone=row_nugget_ids(row),
+                compensating_path="opening_orientation",
+                revisit_if=["orientation_disabled", "opening_slot_freed"],
+                decision_confidence=0.95,
+                owner_stage="nugget_layup_compose",
+            )
+            notes.append(
+                {
+                    "action": "skip_unhealable_spoken_copy_layup",
+                    "target_segment_id": target,
+                    "line_id": row.get("line_id"),
+                    "violations": ["opening_adjacency_with_orientation"],
+                }
+            )
+            continue
+        target_text = str((by_id.get(target) or {}).get("text") or "")
+        text = str(row.get("text") or "").strip()
+        evidence = {
+            "target_excerpt": target_text,
+            "before_excerpt": str(row.get("listener_need_entering_T") or ""),
+            "after_topic": str(row.get("target_beat") or ""),
+            "strict_grounding": False,
+        }
+        violations = spoken_copy_violations(text, evidence=evidence, seen_texts=seen)
+        # vo_value restatement / missing forward cue can fail delivery even when
+        # spoken_copy_guard's coarser restatement check is quiet.
+        soft_bad = False
+        if text and not has_forward_cue(text):
+            soft_bad = True
+            violations = list(violations) + ["missing_forward_cue"]
+        if (
+            text
+            and target_text
+            and vo_target_overlap_ratio(text, target_text) > 0.75
+        ):
+            soft_bad = True
+            if "spoken_next_clip_restatement" not in violations:
+                violations = list(violations) + ["spoken_next_clip_restatement"]
+        if not violations and not soft_bad:
+            seen.append(text)
+            continue
+
+        unlock = str(row.get("forward_unlock") or "").strip()
+        nugget_bits = [
+            str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
+            for nid in row_nugget_ids(row)
+        ]
+        restates = bool(
+            target_text and text and vo_target_overlap_ratio(text, target_text) > 0.75
+        )
+        # Restating bodies cannot be salvaged by appending a cue — that still
+        # fails spoken_copy on publish. Prefer unlock/nugget/cue-only recovery.
+        seed_for_repair = "" if restates else text
+        candidates = [
+            " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
+            unlock,
+            repair_last_sentence_layup(
+                seed_for_repair,
+                target_text=target_text,
+                category=str(row.get("line_category") or "extracted_context"),
+                target_segment_id=target,
+            ),
+        ]
+        if restates:
+            candidates.extend(
+                _target_aware_forward_cues(
+                    target_text,
+                    category=str(row.get("line_category") or "extracted_context"),
+                )
+            )
+        recovered = ""
+        for candidate in candidates:
+            candidate = " ".join(candidate.split()).strip()
+            if candidate and candidate[-1:] not in ".!?":
+                candidate += "?"
+            if not candidate:
+                continue
+            if spoken_copy_violations(candidate, evidence=evidence, seen_texts=seen):
+                continue
+            if not has_forward_cue(candidate):
+                continue
+            if target_text and vo_target_overlap_ratio(candidate, target_text) > 0.75:
+                continue
+            recovered = candidate
+            break
+        if recovered:
+            row["text"] = recovered
+            row["word_count"] = _word_count(recovered)
+            row["spoken_copy_recovered"] = True
+            row["forward_cue_ok"] = True
+            notes.append(
+                {
+                    "action": "repair_spoken_copy_layup",
+                    "target_segment_id": target,
+                    "line_id": row.get("line_id"),
+                }
+            )
+            seen.append(recovered)
+            continue
+
+        stamp_typed_skip(
+            row,
+            reason_code="spoken_copy_unhealable",
+            evidence_refs=[
+                f"target:{target}",
+                *[f"spoken_copy:{v}" for v in violations[:6]],
+            ],
+            value_forgone=row_nugget_ids(row),
+            compensating_path="omit_unsafe_spoken_copy",
+            revisit_if=["grounded_recovery_copy", "target_text_change"],
+            decision_confidence=0.9,
+            owner_stage="nugget_layup_compose",
+        )
+        row["spoken_copy_violations"] = violations
+        notes.append(
+            {
+                "action": "skip_unhealable_spoken_copy_layup",
+                "target_segment_id": target,
+                "line_id": row.get("line_id"),
+                "violations": violations,
+            }
+        )
+    return out, notes
 
 
 def dedupe_gap_report_nugget_claims(
@@ -1005,6 +1510,7 @@ def publish_layup_plan_to_gap_report(
         plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     if not isinstance(plan, dict):
         plan = {}
+    plan, _ = dedupe_layup_rows_by_target(plan)
     plan = attach_selection_order_lock(ctx, plan)
     # Publishing a plan built for a different air order silently mis-times every
     # before-VO — refuse instead.
@@ -1038,9 +1544,30 @@ def publish_layup_plan_to_gap_report(
         if isinstance(row, dict):
             claimed_nugs.update(row_nugget_ids(row))
 
+    # Orientation already owns the opening handoff into the first native. A
+    # second before-VO on that same target is the opening-adjacency conflict
+    # that edl_narrative_audit rejects (orientation + opening layup both fire
+    # before clip one). Suppress the duplicate layup row at publish time.
+    orientation_targets = _opening_owned_targets(ctx)
+
     for row in plan.get("layups") or []:
         row_d = dict(row) if isinstance(row, dict) else {}
         tid = str(row_d.get("target_segment_id") or "").strip()
+        if tid and tid in orientation_targets:
+            stamp_typed_skip(
+                row_d,
+                reason_code=str(
+                    row_d.get("skip_reason_code") or "opening_orientation_owns_target"
+                ),
+                evidence_refs=[
+                    f"target:{tid}",
+                    "opening_orientation:owns_before_slot",
+                ],
+                compensating_path="opening_orientation",
+                revisit_if=["orientation_disabled", "opening_slot_freed"],
+                decision_confidence=0.95,
+            )
+            continue
         if tid and tid in dense_meta:
             row_d["detail_budget"] = "dense"
             row_d["information_package_id"] = dense_meta[tid].get("package_id")
@@ -1059,6 +1586,8 @@ def publish_layup_plan_to_gap_report(
             continue
         tid = str(line["targets_segment_id"])
         if tid in seen_targets:
+            continue
+        if tid in orientation_targets:
             continue
         seen_targets.add(tid)
         body.append(line)
@@ -1081,6 +1610,32 @@ def publish_layup_plan_to_gap_report(
     report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
     ordered = _ordered_ids(ctx)
     report, _notes = ensure_episode_orientation(ctx, report, ordered)
+    if ctx.artifact_exists("segments/manifest.json"):
+        from interview_mux.gap_framing import avoid_clone_voice_adjacency
+        from interview_mux.source_topology import pickup_eligible_speaker_id
+
+        manifest = ctx.read_json("segments/manifest.json")
+        segments_by_id = {
+            str(segment.get("segment_id")): segment
+            for segment in ((manifest if isinstance(manifest, dict) else {}).get("segments") or [])
+            if isinstance(segment, dict) and segment.get("segment_id")
+        }
+        corpus = (
+            ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+        )
+        report, clone_notes = avoid_clone_voice_adjacency(
+            report,
+            segments_by_id,
+            ordered_segment_ids=ordered,
+            clone_speaker_id=pickup_eligible_speaker_id(ctx),
+            nugget_corpus=corpus if isinstance(corpus, dict) else {},
+        )
+        if clone_notes:
+            ctx.log(
+                f"nugget_layup: adjusted {len(clone_notes)} clone-adjacent VO line(s)",
+                level="info",
+                stage="nugget_layup_compose",
+            )
     write_validated_artifact(
         ctx,
         GAP_REL,
@@ -1088,6 +1643,16 @@ def publish_layup_plan_to_gap_report(
         merge_from_disk=False,
         stage_key="nugget_layup_compose",
     )
+    try:
+        from interview_mux.omit_ledger import rebuild_and_write_omit_ledger
+
+        rebuild_and_write_omit_ledger(ctx, plan=plan, gap_report=report)
+    except Exception as exc:
+        ctx.log(
+            f"omit_ledger rebuild failed (non-fatal): {exc}",
+            level="warning",
+            stage="nugget_layup_compose",
+        )
     return report
 
 
@@ -1162,6 +1727,7 @@ def lint_gap_report_layup_authority(
         )
 
     ordered = _ordered_ids(ctx)
+    exempt = coverage_exempt_target_ids(ctx)
     covered = {
         str(ln.get("targets_segment_id") or "")
         for ln in body
@@ -1169,8 +1735,9 @@ def lint_gap_report_layup_authority(
         and str(ln.get("placement") or "") == "before"
         and str(ln.get("text") or "").strip()
     }
-    if ordered:
-        coverage = len(covered & set(ordered)) / len(ordered)
+    eligible = [sid for sid in ordered if sid not in exempt]
+    if eligible:
+        coverage = len(covered & set(eligible)) / len(eligible)
         floor = float(cfg["min_layup_coverage"])
         if coverage + 1e-9 < floor:
             errors.append(
@@ -1251,6 +1818,7 @@ def restore_layup_lines(
         if str(ln.get("text") or "").strip() and not ln.get("skipped_optional")
     ]
     ordered = set(_ordered_ids(ctx))
+    opening_targets = _opening_owned_targets(ctx)
     restored: list[dict[str, Any]] = []
     from interview_mux.spoken_copy_guard import spoken_copy_violations
 
@@ -1259,6 +1827,10 @@ def restore_layup_lines(
         if not line:
             continue
         tid = str(line["targets_segment_id"])
+        if tid in opening_targets:
+            continue
+        if isinstance(row, dict) and is_justified_skip_row(row, soft_migrate=True):
+            continue
         if tid in have or (ordered and tid not in ordered):
             continue
         text = str(line.get("text") or "").strip()
@@ -1334,6 +1906,7 @@ def evaluate_layup_qc(
         plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     if corpus is None:
         corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    plan, _ = dedupe_layup_rows_by_target(plan)
     plan = normalize_layup_talking_point_ledger(ctx, plan if isinstance(plan, dict) else {})
     corpus = corpus if isinstance(corpus, dict) else {}
 
@@ -1359,7 +1932,12 @@ def evaluate_layup_qc(
             continue
         present += 1
 
-    coverage = (present / len(ordered)) if ordered else 1.0
+    eligible = [
+        sid
+        for sid in ordered
+        if sid not in coverage_exempt_target_ids(ctx, plan)
+    ]
+    coverage = (present / len(eligible)) if eligible else 1.0
     open_must = [str(x) for x in (plan.get("open_talking_point_ids") or []) if x]
 
     open_high = [str(x) for x in (plan.get("open_high_salience_nugget_ids") or []) if x]
@@ -1392,12 +1970,13 @@ def evaluate_layup_qc(
                 open_high.append(nid)
 
     errors: list[str] = []
-    if ordered and coverage + 1e-9 < float(cfg["min_layup_coverage"]):
+    if eligible and coverage + 1e-9 < float(cfg["min_layup_coverage"]):
         errors.append(
             f"layup_coverage={coverage:.3f} below min_layup_coverage={cfg['min_layup_coverage']}"
         )
-    if missing and cfg.get("require_layup_per_native"):
-        errors.append(f"missing_layup_rows={missing[:12]}")
+    missing_required = [sid for sid in missing if sid not in set(ordered) - set(eligible)]
+    if missing_required and cfg.get("require_layup_per_native"):
+        errors.append(f"missing_layup_rows={missing_required[:12]}")
     if open_must and cfg.get("block_on_open_must_keep"):
         errors.append(f"open_must_keep_talking_points={open_must[:12]}")
 
@@ -1606,14 +2185,17 @@ def materialize_over_skipped_layups(
 
     ordered = [str(x) for x in (plan.get("ordered_segment_ids") or []) if x]
     by_target = {str(r.get("target_segment_id") or ""): r for r in layups if r.get("target_segment_id")}
+    exempt = coverage_exempt_target_ids(ctx, plan)
     present = sum(
         1
         for sid in ordered
-        if (row := by_target.get(sid))
+        if sid not in exempt
+        and (row := by_target.get(sid))
         and not row.get("skip")
         and str(row.get("text") or "").strip()
     )
-    need = max(0, int(round(floor * len(ordered) + 1e-9)) - present)
+    eligible_n = max(1, len([sid for sid in ordered if sid not in exempt])) if ordered else 1
+    need = max(0, int(math.ceil(floor * eligible_n - 1e-12)) - present)
     open_tps = [str(x) for x in (plan.get("open_talking_point_ids") or []) if x]
     claimed_nugs: set[str] = set()
     for row in layups:
@@ -1626,14 +2208,23 @@ def materialize_over_skipped_layups(
             break
         if not row.get("skip") and str(row.get("text") or "").strip():
             continue
+        tid = str(row.get("target_segment_id") or "")
         reason = str(row.get("skip_reason_code") or "")
+        if is_justified_skip_row(row, soft_migrate=True):
+            notes.append(f"preserve_justified_skip:{tid}:{reason or 'typed'}")
+            continue
+        if reason == "spoken_copy_unhealable":
+            notes.append(f"preserve_unhealable_skip:{tid}")
+            continue
+        if reason == "opening_orientation_owns_target":
+            notes.append(f"preserve_opening_owned_skip:{tid}")
+            continue
         if reason == "episode_open_native_self_orients" and filled >= need:
             continue
         unlock = str(row.get("forward_unlock") or "").strip()
         beat = str(row.get("target_beat") or "").strip()
         setup = str(row.get("setup_from_nuggets") or "").strip()
         listener = str(row.get("listener_need_entering_T") or "").strip()
-        tid = str(row.get("target_segment_id") or "")
         assigned_tps = [str(x) for x in (row.get("talking_point_ids") or []) if x]
         if not assigned_tps and open_tps:
             assigned_tps = [open_tps.pop(0)]

@@ -1,8 +1,8 @@
 """Envelope sidechain ducking for under-segment beds (mix house-chain step 6).
 
 Applies base cue level elsewhere; this module applies time-varying attenuation
-derived from a speech-window RMS envelope follower. Fail-open callers keep
-static duck when the speech window is unusable.
+derived from a soft speech *gate* (present vs air), not syllable-amplitude
+tracking. Fail-open callers keep static duck when the speech window is unusable.
 """
 
 from __future__ import annotations
@@ -14,11 +14,13 @@ from typing import Any
 import numpy as np
 from pydub import AudioSegment
 
-DEFAULT_ATTACK_MS = 15
-DEFAULT_RELEASE_MS = 480
-DEFAULT_HOP_MS = 10
+DEFAULT_ATTACK_MS = 40
+DEFAULT_RELEASE_MS = 900
+DEFAULT_HOP_MS = 20
 _SILENCE_DBFS = -55.0
 _FULL_SPEECH_DBFS = -22.0
+# Gate opens once speech clears silence by this many dB (avoids syllable pumping).
+_GATE_OPEN_ABOVE_SILENCE_DB = 8.0
 
 
 def sidechain_duck_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -34,7 +36,7 @@ def sidechain_duck_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     except Exception:
         pass
     raw = mix.get("sidechain_duck") if isinstance(mix.get("sidechain_duck"), dict) else {}
-    pause = raw.get("pause_ride_db", mix.get("pause_ride_db", 2.5))
+    pause = raw.get("pause_ride_db", mix.get("pause_ride_db", 1.0))
     return {
         "enabled": bool(raw.get("enabled", True)),
         "attack_ms": int(raw.get("attack_ms", DEFAULT_ATTACK_MS)),
@@ -70,10 +72,14 @@ def _hop_rms_db(speech: AudioSegment, hop_ms: int) -> list[float]:
     return out if out else [-120.0]
 
 
-def _amount_from_db(db: float, *, silence_db: float, full_db: float) -> float:
+def _gate_from_db(db: float, *, silence_db: float, open_db: float) -> float:
+    """Binary soft gate: 1.0 when speech is present, 0.0 in air."""
     if db <= silence_db:
         return 0.0
-    span = max(1e-6, full_db - silence_db)
+    if db >= open_db:
+        return 1.0
+    # Narrow transition band only — not continuous loudness tracking.
+    span = max(1e-6, open_db - silence_db)
     return max(0.0, min(1.0, (db - silence_db) / span))
 
 
@@ -146,11 +152,13 @@ def envelope_duck(
     hop_ms: float = DEFAULT_HOP_MS,
     pause_ride_db: float = 0.0,
 ) -> AudioSegment:
-    """Duck ``bed`` with a speech-RMS envelope; depth_db is max attenuation under speech.
+    """Duck ``bed`` with a soft speech gate; depth_db is max attenuation under speech.
 
-    Caller should apply base cue ``level_db`` before this. Under silence the envelope
+    Caller should apply base cue ``level_db`` before this. Under silence the gate
     recovers toward 0 dB attenuation (base level preserved), optionally boosted by
-    ``pause_ride_db`` so underscore rides up in intentional air.
+    ``pause_ride_db`` so underscore rides up in intentional air. Under continuous
+    speech the attenuation stays near ``−depth_db`` rather than pumping with
+    syllable amplitude.
     """
     if depth_db <= 0 or len(bed) <= 0:
         return bed
@@ -167,15 +175,16 @@ def envelope_duck(
         )
 
     hop_db = _hop_rms_db(speech, hop)
-    # Adaptive full-speech anchor from the window itself (fail-open to defaults)
+    # Adaptive silence / open anchors from the window itself (fail-open to defaults)
     finite = [d for d in hop_db if d > -119.0]
     if not finite:
         return bed.apply_gain(-float(depth_db))
     p90 = float(np.percentile(finite, 90))
     full_db = max(_FULL_SPEECH_DBFS, min(-6.0, p90))
     silence_db = min(_SILENCE_DBFS, full_db - 18.0)
+    open_db = silence_db + _GATE_OPEN_ABOVE_SILENCE_DB
 
-    amounts = [_amount_from_db(d, silence_db=silence_db, full_db=full_db) for d in hop_db]
+    amounts = [_gate_from_db(d, silence_db=silence_db, open_db=open_db) for d in hop_db]
     followed = _follow_envelope(
         amounts,
         hop_ms=hop,

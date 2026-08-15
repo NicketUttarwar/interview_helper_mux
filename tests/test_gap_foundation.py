@@ -17,7 +17,7 @@ def test_append_with_crossfade_increases_length(tmp_path):
 def test_mix_contract_defaults_when_profile_missing(tmp_path):
     ctx = RunContext("run_099", create=True)
     contract = mix_contract(ctx)
-    assert contract["duck_under_speech_db"] == 20.0
+    assert contract["duck_under_speech_db"] == 12.0
     assert contract["underscore_policy"] == "normal"
 
 

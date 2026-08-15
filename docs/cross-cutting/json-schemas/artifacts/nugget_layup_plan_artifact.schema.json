@@ -34,6 +34,21 @@
           "word_count": { "type": ["integer", "null"] },
           "skip": { "type": "boolean" },
           "skip_reason_code": { "type": ["string", "null"] },
+          "evidence_refs": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          },
+          "value_forgone": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          },
+          "compensating_path": { "type": ["string", "null"] },
+          "revisit_if": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          },
+          "decision_confidence": { "type": ["number", "null"] },
+          "owner_stage": { "type": ["string", "null"] },
           "talking_point_ids": {
             "type": "array",
             "items": { "type": "string" }

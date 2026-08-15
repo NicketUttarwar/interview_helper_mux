@@ -773,22 +773,22 @@ def _derive_source_music_risk(pacing: dict[str, Any], energy: dict[str, Any]) ->
 
 def _derive_mix_contract(pacing: dict[str, Any], source_music_risk: str) -> dict[str, Any]:
     pace = pacing.get("pace_class", "conversational")
-    # Audible beds under dialogue — presence via level + hard duck, never drowning speech.
+    # Audible beds under dialogue — presence via level + restrained duck, never drowning speech.
     if pace == "dense":
-        bed_range = [-25, -21]
-        duck = 22
+        bed_range = [-22, -18]
+        duck = 14
         max_stingers = 1
     elif pace == "brisk":
-        bed_range = [-25, -21]
-        duck = 20
+        bed_range = [-22, -18]
+        duck = 12
         max_stingers = 2
     elif pace == "calm":
-        bed_range = [-25, -21]
-        duck = 18
+        bed_range = [-22, -18]
+        duck = 12
         max_stingers = 3
     else:
-        bed_range = [-25, -21]
-        duck = 20
+        bed_range = [-22, -18]
+        duck = 12
         max_stingers = 2
 
     if source_music_risk == "high":

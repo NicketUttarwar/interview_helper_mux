@@ -10,19 +10,27 @@ from interview_mux.nugget_layup import (
     CORPUS_REL,
     GAP_REL,
     PLAN_REL,
+    attach_selection_order_lock,
     assert_layup_fresh_vs_selection,
     build_corpus_mine_input,
     build_layup_compose_input,
     canned_air_violations,
+    coverage_exempt_target_ids,
     dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
     gap_has_layup_before,
+    is_justified_skip_row,
     layup_freshness_errors,
     layup_line_from_row,
     lint_gap_report_layup_authority,
+    materialize_over_skipped_layups,
     nugget_layup_cfg,
+    prepare_layup_plan_for_persist,
     publish_layup_plan_to_gap_report,
+    repair_or_skip_spoken_copy_layups,
     restore_layup_lines,
+    stamp_typed_skip,
+    strip_model_order_lock,
 )
 from interview_mux.prompt_validation import (
     STAGE_ARTIFACT_DISK_PATHS,
@@ -200,8 +208,11 @@ def test_publish_layup_to_gap_report():
     lines = report.get("interviewer_lines") or []
     assert any(ln.get("episode_orientation") for ln in lines)
     layups = [ln for ln in lines if ln.get("origin") == "nugget_layup"]
-    assert len(layups) == 2
-    assert gap_has_layup_before(report, "seg_011")
+    # Orientation owns the opening handoff into seg_011 — do not also publish a
+    # before-VO layup on that same first target (opening-adjacency contract).
+    assert len(layups) == 1
+    assert layups[0]["targets_segment_id"] == "seg_028"
+    assert not any(ln.get("targets_segment_id") == "seg_011" for ln in layups)
     assert gap_has_layup_before(report, "seg_028")
     assert report.get("nugget_layup_authority") is True
 
@@ -352,6 +363,70 @@ def test_layup_line_removes_repeated_question_sentence():
     )
 
 
+def test_thin_target_beat_only_layup_is_skipped_and_not_published():
+    ctx = RunContext("exec_nugget_layup_unhealable", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_003", "seg_004"],
+        {
+            "seg_003": "Earlier setup for the diagnostic comparison.",
+            "seg_004": (
+                "Mohan contrasts invasive tissue biopsy with a blood-based liquid biopsy."
+            ),
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_003", "seg_004"],
+        "layups": [
+            {
+                "target_segment_id": "seg_003",
+                "line_id": "vo_layup_seg_003",
+                "text": "",
+                "skip": True,
+                "skip_reason_code": "opening_orientation_owns_target",
+            },
+            {
+                "target_segment_id": "seg_004",
+                "line_id": "vo_layup_seg_004",
+                "text": (
+                    "Mohan contrasts invasive tissue biopsy with a blood-based liquid biopsy."
+                ),
+                "target_beat": (
+                    "Mohan contrasts invasive tissue biopsy with a blood-based liquid biopsy."
+                ),
+                "listener_need_entering_T": "The diagnostic comparison needs context.",
+                "forward_unlock": "",
+                "skip": False,
+            },
+            {
+                "target_segment_id": "seg_004",
+                "line_id": "vo_layup_seg_004_skip",
+                "text": "",
+                "skip": True,
+            },
+        ],
+    }
+    fixed, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("target_segment_id") == "seg_004")
+    if row.get("skip"):
+        assert row["skip_reason_code"] == "spoken_copy_unhealable"
+        assert any(note["action"] == "skip_unhealable_spoken_copy_layup" for note in notes)
+    else:
+        # Deterministic last-sentence repair is also acceptable when the cue
+        # no longer restates the next native.
+        assert row.get("spoken_copy_recovered") is True
+        assert any(note["action"] == "repair_spoken_copy_layup" for note in notes)
+        assert "?" in str(row.get("text") or "")
+        assert row["text"] != row.get("target_beat")
+    ctx.write_json(PLAN_REL, fixed)
+    report = publish_layup_plan_to_gap_report(ctx, fixed)
+    if row.get("skip"):
+        assert not any(
+            line.get("line_id") == "vo_layup_seg_004"
+            for line in report.get("interviewer_lines") or []
+        )
+
+
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True
@@ -490,6 +565,33 @@ def test_stale_or_reordered_plan_fails_closed():
         assert_layup_fresh_vs_selection(ctx, stale_meta)
 
 
+@pytest.mark.parametrize(
+    "llm_lock",
+    [
+        {"version": 1, "revision": 1, "order_content_hash": "stale"},
+        {"version": 1, "order_content_hash": "stale"},
+    ],
+)
+def test_attach_selection_lock_overwrites_llm_authored_lock(llm_lock: dict):
+    ctx = RunContext("exec_nugget_layup_llm_lock", create=True)
+    ordered = ["seg_003", "seg_011"]
+    selection = {
+        "ordered_segment_ids": ordered,
+        "order_lock": {"version": 1, "revision": 2, "order_content_hash": "current"},
+    }
+    ctx.write_json("master/selection.json", selection)
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [_layup_row("seg_011", "Recovered ESOP breadth sets up the deal terms.")],
+        "order_lock": llm_lock,
+    }
+
+    assert layup_freshness_errors(ctx, plan)
+    stamped = attach_selection_order_lock(ctx, plan)
+    assert stamped["order_lock"] == selection["order_lock"]
+    assert layup_freshness_errors(ctx, stamped) == []
+
+
 def test_recompose_cannot_wipe_layups():
     ctx = RunContext("exec_nugget_layup_authority", create=True)
     ordered = ["seg_011", "seg_028"]
@@ -520,7 +622,9 @@ def test_recompose_cannot_wipe_layups():
     }
     ctx.write_json(PLAN_REL, plan)
     report = publish_layup_plan_to_gap_report(ctx, plan)
-    assert len([ln for ln in report["interviewer_lines"] if ln.get("origin") == "nugget_layup"]) == 2
+    layups = [ln for ln in report["interviewer_lines"] if ln.get("origin") == "nugget_layup"]
+    assert len(layups) == 1
+    assert layups[0]["targets_segment_id"] == "seg_028"
 
     # A recompose that rewrites the artifact without the layups.
     wiped = {
@@ -531,8 +635,11 @@ def test_recompose_cannot_wipe_layups():
     }
     assert lint_gap_report_layup_authority(ctx, wiped)
     restored, notes = restore_layup_lines(ctx, wiped)
-    assert len(notes) == 2
-    assert gap_has_layup_before(restored, "seg_011")
+    assert len(notes) == 1
+    assert not any(
+        ln.get("origin") == "nugget_layup" and ln.get("targets_segment_id") == "seg_011"
+        for ln in restored["interviewer_lines"]
+    )
     assert gap_has_layup_before(restored, "seg_028")
     assert lint_gap_report_layup_authority(ctx, restored) == []
 
@@ -540,6 +647,10 @@ def test_recompose_cannot_wipe_layups():
     repaired, applied = repair_gap_report(ctx, wiped)
     assert any(a.get("action") == "restore_nugget_layup_line" for a in applied)
     assert gap_has_layup_before(repaired, "seg_028")
+    assert not any(
+        ln.get("origin") == "nugget_layup" and ln.get("targets_segment_id") == "seg_011"
+        for ln in repaired["interviewer_lines"]
+    )
 
 
 def test_duplicate_nugget_across_layups_fails_qc():
@@ -787,9 +898,14 @@ def test_publish_skips_dense_nuggets_already_claimed_by_later_layups(monkeypatch
     from interview_mux import nugget_layup as nl
 
     ctx = RunContext("exec_nugget_dense_claim", create=True)
+    # Keep dense target off the opening segment so orientation adjacency does
+    # not suppress the row under test.
     ctx.write_json(
         "master/selection.json",
-        {"ordered_segment_ids": ["seg_002", "seg_006"], "selected_segment_ids": ["seg_002", "seg_006"]},
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002", "seg_006"],
+            "selected_segment_ids": ["seg_001", "seg_002", "seg_006"],
+        },
     )
     ctx.write_json(
         "mastering/mastering_plan.json",
@@ -805,7 +921,7 @@ def test_publish_skips_dense_nuggets_already_claimed_by_later_layups(monkeypatch
         },
     )
     plan = {
-        "ordered_segment_ids": ["seg_002", "seg_006"],
+        "ordered_segment_ids": ["seg_001", "seg_002", "seg_006"],
         "selection_fingerprint": "test",
         "layups": [
             {
@@ -859,3 +975,192 @@ def test_publish_skips_dense_nuggets_already_claimed_by_later_layups(monkeypatch
     assert "nug_001" not in (by_id["vo_layup_seg_002"].get("nugget_ids") or [])
     assert by_id["vo_layup_seg_006"].get("nugget_ids") == ["nug_001"]
     assert lint_gap_report_layup_authority(ctx, report) == []
+
+def test_prepare_persist_strips_llm_lock_before_assert():
+    ctx = RunContext("exec_nugget_layup_prep_lock", create=True)
+    ordered = ["seg_003", "seg_011"]
+    selection = {
+        "ordered_segment_ids": ordered,
+        "order_lock": {"version": 1, "revision": 2, "order_content_hash": "current"},
+    }
+    ctx.write_json("master/selection.json", selection)
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [_layup_row("seg_011", "Recovered ESOP breadth sets up the deal terms.")],
+        "order_lock": {"version": 1, "revision": 1, "order_content_hash": "invented"},
+    }
+    assert layup_freshness_errors(ctx, plan)
+    prepared = prepare_layup_plan_for_persist(ctx, plan)
+    assert prepared["order_lock"] == selection["order_lock"]
+    assert layup_freshness_errors(ctx, prepared) == []
+    stripped = strip_model_order_lock(plan)
+    assert "order_lock" not in stripped
+
+
+def test_compose_envelope_omits_order_lock():
+    from interview_mux.openai_structured_output import compose_envelope_schema
+
+    envelope = compose_envelope_schema("nugget_layup_compose", strict=True)
+    props = ((envelope.get("properties") or {}).get("artifacts") or {}).get("properties") or {}
+    assert "order_lock" not in props
+    assert "order_content_hash" not in props
+
+
+def test_justified_skip_excluded_from_coverage_denominator():
+    ctx = RunContext("exec_nugget_justified_cov", create=True)
+    ordered = ["seg_a", "seg_b", "seg_c"]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_a",
+                    "line_id": "vo_layup_seg_a",
+                    "nugget_ids": [],
+                },
+                reason_code="opening_orientation_owns_target",
+            ),
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_b",
+                    "line_id": "vo_layup_seg_b",
+                    "nugget_ids": ["nug_x"],
+                },
+                reason_code="spoken_copy_unhealable",
+                evidence_refs=["spoken_copy:restatement"],
+            ),
+            _layup_row(
+                "seg_c",
+                "Shop-floor partners shared ESOP upside when the company sold. "
+                "What did the buyer lock in writing?",
+                nugget_ids=["nug_y"],
+            ),
+        ],
+    }
+    assert is_justified_skip_row(plan["layups"][0])
+    assert is_justified_skip_row(plan["layups"][1])
+    exempt = coverage_exempt_target_ids(ctx, plan)
+    assert "seg_a" in exempt and "seg_b" in exempt
+    qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
+    assert qc["layup_coverage"] == 1.0
+    assert not any("layup_coverage" in e for e in (qc.get("errors") or []))
+
+
+def test_materialize_preserves_justified_skips(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("exec_nugget_preserve_justified", create=True)
+    ordered = [f"seg_{i:03d}" for i in range(1, 6)]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "open_talking_point_ids": [],
+        "discharged_talking_point_ids": [],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": ordered[0],
+                    "line_id": f"vo_layup_{ordered[0]}",
+                    "forward_unlock": "unused",
+                    "target_beat": "open",
+                    "nugget_ids": [],
+                },
+                reason_code="opening_orientation_owns_target",
+            ),
+            stamp_typed_skip(
+                {
+                    "target_segment_id": ordered[1],
+                    "line_id": f"vo_layup_{ordered[1]}",
+                    "forward_unlock": "unused",
+                    "target_beat": "unsafe",
+                    "nugget_ids": [],
+                },
+                reason_code="spoken_copy_unhealable",
+            ),
+            *[
+                {
+                    "target_segment_id": sid,
+                    "skip": True,
+                    "skip_reason_code": "already_covered",
+                    "text": "",
+                    "forward_unlock": f"What changed after beat {i}?",
+                    "target_beat": f"outcome {i}",
+                    "selected_nugget_ids": [],
+                    "nugget_ids": [],
+                    "talking_point_ids": [],
+                    "listener_need_entering_T": "why this moment matters",
+                    "setup_from_nuggets": "",
+                }
+                for i, sid in enumerate(ordered[2:], start=3)
+            ],
+        ],
+    }
+    fixed, notes = materialize_over_skipped_layups(ctx, plan)
+    by = {r["target_segment_id"]: r for r in fixed["layups"]}
+    assert by[ordered[0]].get("skip") is True
+    assert by[ordered[1]].get("skip") is True
+    assert any("preserve_justified_skip" in str(n) or "preserve_opening" in str(n) for n in notes)
+    assert any(str(n).startswith("materialized:") for n in notes)
+
+
+def test_compose_packet_exposes_handoff_and_opening():
+    ctx = RunContext("exec_nugget_compose_enrich", create=True)
+    ordered = ["seg_003", "seg_011"]
+    _seed_air_order(
+        ctx,
+        ordered,
+        {
+            "seg_003": "We started with a gym-buyer story.",
+            "seg_011": "Then demand nearly broke the supply chain.",
+        },
+    )
+    # Bypass schema — only handoff fields are read by compose packet builder.
+    path = ctx.path("understanding/gap_evaluations.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        __import__("json").dumps(
+            {
+                "evaluations": [
+                    {
+                        "segment_id": "seg_011",
+                        "listener_confusion": "Scale sounds unearned without the snack pivot",
+                        "recommended_framing": "question",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json(CORPUS_REL, {"nuggets": []}, skip_handoff=True)
+    packet = build_layup_compose_input(ctx)
+    assert "seg_003" in packet["opening_owned_segment_ids"]
+    native = next(n for n in packet["natives"] if n["segment_id"] == "seg_011")
+    assert native.get("handoff_need")
+    assert native.get("opening_owner") is False
+    assert packet.get("order_lock_note")
+
+
+def test_authority_lint_matches_qc_exempt_math():
+    ctx = RunContext("exec_nugget_lint_align", create=True)
+    ordered = ["seg_a", "seg_b"]
+    _seed_air_order(ctx, ordered, {"seg_a": "Open beat.", "seg_b": "Close beat about ESOP pools."})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            stamp_typed_skip(
+                {"target_segment_id": "seg_a", "line_id": "vo_a", "nugget_ids": []},
+                reason_code="opening_orientation_owns_target",
+            ),
+            _layup_row(
+                "seg_b",
+                "Shop-floor partners shared ESOP upside when the company sold. "
+                "What did the buyer lock in writing?",
+            ),
+        ],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    qc = evaluate_layup_qc(ctx, plan)
+    lint = lint_gap_report_layup_authority(ctx, report)
+    assert qc["ok"] or not any("layup_coverage" in e for e in (qc.get("errors") or []))
+    assert not any("layup coverage" in e for e in lint)

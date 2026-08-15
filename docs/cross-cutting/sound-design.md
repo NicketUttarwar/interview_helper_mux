@@ -45,7 +45,7 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
 
 Example: interview about **founders / ESOP** → motif family with warm acoustic + piano DNA → `theme_underscore` under important beats; `theme_chapter_resolve` cadences at chapter hinges — never woodtick/murmur.
 
-**Music elevates Shape structure, not coverage theater:** every `theme_*` cue is a mutation on the music/SFX/air axis of the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) (soft bands: bed coverage 0.28–0.88, hinge stinger 0.3–1.0). A cue earns its place by marking a real hinge, filling an actual dead-air gap, or selling a payoff the plan already decided on — never to check off "has music here." Mechanical, unmotivated cue placement shows up as `sonic_weave` degradation at the [hard-delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) downstream.
+**Music elevates Shape structure, not coverage theater:** every `theme_*` cue is a mutation on the music/SFX/air axis of the [Shape mutation engine](./mastering-shape-engine.md#shape-as-mutation-engine) (soft bands: bed coverage 0.40–0.88, hinge stinger 0.3–1.0). A cue earns its place by marking a real hinge, filling an actual dead-air gap, or selling a payoff the plan already decided on — never to check off "has music here." Mechanical, unmotivated cue placement shows up as `sonic_weave` degradation at the [hard-delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) downstream.
 
 ---
 
@@ -266,7 +266,7 @@ Stored on each row in `sound_design/sfx_prompts.json` when the asset uses pitch 
 
 ### Podcast-safe defaults
 
-- **Theme underscores (`theme_underscore`):** May carry a **restrained rhythmic pulse** (soft even meter, sparse plucked/perc ticks). Speech always wins via sidechain duck; beds sit in the audible-but-subordinate band (~−28…−24 dBFS). Forbid loud kits, vocal-like leads, dense midrange hooks.
+- **Theme underscores (`theme_underscore`):** May carry a **restrained rhythmic pulse** (soft even meter, sparse plucked/perc ticks). Speech always wins via soft speech-gate duck; beds sit in the audible-but-subordinate band (~−22…−18 dBFS). Forbid loud kits, vocal-like leads, dense midrange hooks.
 - **Ambient / MMAudio environmental beds (heritage):** No pitch center, no meter, no pulse — only environmental spectrum and motion (wind, room). Do not confuse these with MusicGen theme underscores.
 - **Chapter stingers:** At most **one** pitch gesture over ≤2 s; prefer noise+filter sweep over diatonic melody.
 - **Montage transitions:** Forward spectral motion; avoid memorable melodic hooks listeners would hum.
@@ -364,7 +364,7 @@ recorded VO pickup — same envelope-follower contract, see
 [mix-house-chain.md](./mix-house-chain.md#speech-wins-ducking--vonative-harmony-plan-4).
 
 Bed/hinge-stinger coverage floors are the same **Shape-owned soft bands**
-(`bed_coverage` `0.28–0.88`, `hinge_stinger_coverage` `0.3–1.0`) enforced by
+(`bed_coverage` `0.40–0.88`, `hinge_stinger_coverage` `0.3–1.0`) enforced by
 `soundscape_verify.py` post-mix — see [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 Post-mix remediation for a low ratio only seeds beds on real
 palette/quartile-mapped segments, preferring to extend an already-bedded

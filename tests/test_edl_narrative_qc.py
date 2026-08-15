@@ -6,7 +6,12 @@ from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
 from interview_mux.gates import check_edl_narrative_qc
 from interview_mux.operator_quality import qc_summary
 from interview_mux.run_context import RunContext
-from run_fixtures import minimal_gap_line, minimal_gap_report
+from run_fixtures import (
+    minimal_gap_line,
+    minimal_gap_report,
+    minimal_manifest,
+    minimal_manifest_segment,
+)
 
 
 def _write_story_artifacts(ctx: RunContext) -> None:
@@ -241,4 +246,45 @@ def test_validate_duplicate_line_id_is_blocking() -> None:
     edl = _good_edl()
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("appears 2x" in e and "line_id" in e for e in errors)
+
+
+def test_validate_clone_voice_adjacency_allows_only_cut_recovery() -> None:
+    ctx = RunContext("run_edl_clone_adjacency", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", speaker_id="spk_guest"),
+            minimal_manifest_segment("seg_b", speaker_id="spk_host"),
+            minimal_manifest_segment("seg_c", speaker_id="spk_guest"),
+        ),
+    )
+    report = ctx.read_json("understanding/gap_report.json")
+    report["interviewer_lines"][0].update(
+        {"voice_speaker_id": "spk_host", "origin": "nugget_layup", "nugget_ids": []}
+    )
+    ctx.write_json("understanding/gap_report.json", report)
+    edl = _good_edl()
+    edl["clips"][1]["voice_speaker_id"] = "spk_host"
+
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("cloned voice" in error for error in errors)
+
+    report["interviewer_lines"][0]["nugget_ids"] = ["cut_fact"]
+    ctx.write_json("understanding/gap_report.json", report)
+    ctx.write_json(
+        "understanding/nugget_corpus.json",
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "cut_fact",
+                    "source_segment_ids": ["seg_x"],
+                    "in_selection": False,
+                    "text_claim": "A fact recovered from the cut tape.",
+                    "evidence_quote": "The source states the recovered fact.",
+                }
+            ]
+        },
+    )
+    assert not any("cloned voice" in error for error in validate_flow1_edl_narrative(ctx, edl))
 

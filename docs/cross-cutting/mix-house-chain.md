@@ -3,7 +3,7 @@
 Audacity-class **order**, not a full DAW UI. Speech / [speaker volleys](./volley-glossary.md) first.
 
 1. Preclean / hygiene (optional DeepFilter, or FFmpeg `afftdn` fallback)  
-2. Ingest loudness stabilize (default: `dynaudnorm` + `loudnorm` −18 LUFS on `ingest/normalized.wav`)  
+2. Ingest loudness stabilize (default: upward-only soft boost + `loudnorm` −18 LUFS on `ingest/normalized.wav`)  
 3. Edit — keep speaker volleys intact; fades at edges  
 4. Per-speaker level match (`mix.per_speaker_level_match`, median LUFS/RMS, ±6 dB clamp)  
 5. Place VO at volley boundaries / framing-before-impact  
@@ -16,7 +16,7 @@ Audacity-class **order**, not a full DAW UI. Speech / [speaker volleys](./volley
 ## Speech-wins ducking / VO↔native harmony (Plan 4)
 
 Step 7 is **speech-wins** by construction, not just by name: `sidechain_duck.envelope_duck`
-follows a speech-RMS envelope (attack 20 ms / release 200 ms defaults) and attenuates the
+follows a soft speech gate (attack 40 ms / release 900 ms defaults) and attenuates the
 bed under *any* active voice on the timeline — recorded/native speech **and** synthetic VO
 pickups alike, since both render through the same speech clip path before beds overlay.
 There is no separate "VO mode" vs "native mode" duck depth; the same envelope-follower
@@ -30,7 +30,7 @@ than chasing per-speaker gain differences.
 
 ## Bed coverage / hinge stinger — Shape-owned soft bands (Plan 4)
 
-`bed_coverage` (**0.28–0.88** of selection duration) and `hinge_stinger_coverage`
+`bed_coverage` (**0.40–0.88** of selection duration) and `hinge_stinger_coverage`
 (**0.3–1.0** of chapter/topic hinges) are **Shape-owned soft bands** —
 `listenability_guards._DEFAULTS`, documented in
 [config-keys.md](./config-keys.md#creative_deliverylistenability_guards) — not a remux-theater

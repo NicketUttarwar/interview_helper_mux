@@ -22,6 +22,8 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./run_meta_jsonSchema")).run_meta_jsonSchema,
   "segments/boundaries.json": async () =>
     (await import("./segments_boundaries_jsonSchema")).segments_boundaries_jsonSchema,
+  "segments/boundary_review_queue.json": async () =>
+    (await import("./segments_boundary_review_queue_jsonSchema")).segments_boundary_review_queue_jsonSchema,
   "segments/manifest.json": async () =>
     (await import("./segments_manifest_jsonSchema")).segments_manifest_jsonSchema,
   "segments/nle_edits.json": async () =>
@@ -56,6 +58,10 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./understanding_interview_spine_jsonSchema")).understanding_interview_spine_jsonSchema,
   "understanding/investigation_queue.json": async () =>
     (await import("./understanding_investigation_queue_jsonSchema")).understanding_investigation_queue_jsonSchema,
+  "understanding/nugget_layup_plan.json": async () =>
+    (await import("./understanding_nugget_layup_plan_jsonSchema")).understanding_nugget_layup_plan_jsonSchema,
+  "understanding/omit_ledger.json": async () =>
+    (await import("./understanding_omit_ledger_jsonSchema")).understanding_omit_ledger_jsonSchema,
   "understanding/refinement_agenda.json": async () =>
     (await import("./understanding_refinement_agenda_jsonSchema")).understanding_refinement_agenda_jsonSchema,
   "understanding/refinement_ledger.json": async () =>

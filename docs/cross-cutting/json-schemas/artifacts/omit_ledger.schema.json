@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmitLedger",
+  "type": "object",
+  "required": ["version", "entries", "summary"],
+  "properties": {
+    "version": { "type": "integer" },
+    "order_content_hash": { "type": ["string", "null"] },
+    "order_lock": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry_id",
+          "kind",
+          "subject_id",
+          "decision",
+          "reason_code",
+          "owner_stage",
+          "active"
+        ],
+        "properties": {
+          "entry_id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "segment_exclude",
+              "layup_skip",
+              "nugget_waive",
+              "gap_line_skip",
+              "suppress",
+              "defer",
+              "structural_omit",
+              "asset_adjust"
+            ]
+          },
+          "subject_id": { "type": "string" },
+          "target_segment_id": { "type": ["string", "null"] },
+          "decision": {
+            "type": "string",
+            "enum": ["omit", "defer", "suppress", "waive"]
+          },
+          "reason_code": { "type": "string" },
+          "rationale": { "type": ["string", "null"] },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "value_forgone": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "compensating_path": { "type": ["string", "null"] },
+          "revisit_if": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "decision_confidence": { "type": ["number", "null"] },
+          "owner_stage": { "type": "string" },
+          "source_artifact": { "type": ["string", "null"] },
+          "replacement_ref": { "type": ["string", "null"] },
+          "active": { "type": "boolean" },
+          "superseded_by": { "type": ["string", "null"] },
+          "operator_override": { "type": "boolean" },
+          "decided_at": { "type": ["string", "null"] },
+          "provenance": {
+            "type": ["object", "null"],
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "active_count": { "type": "integer" },
+        "by_kind": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "unresolved_high_salience": { "type": "integer" },
+        "compensated_count": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "_meta": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

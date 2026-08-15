@@ -219,7 +219,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 
 ### `ingest` — source format + loudness stabilize
 
-Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `preclean/isolated.wav` when present). Default on: mild `dynaudnorm` then `loudnorm` to −18 LUFS headroom so review/STT audio is enjoyable; `master_finalize` still targets podcast −16 LUFS.
+Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `preclean/isolated.wav` when present). Default on: **upward-only** soft boost (`acompressor` mode=`upward`) then `loudnorm` to −18 LUFS headroom so quiet captures are enjoyable for STT/review **without ducking louder syllables**; `master_finalize` still targets podcast −16 LUFS.
 
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
@@ -228,11 +228,17 @@ Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `precle
 | `ingest.loudness_stabilize.true_peak_dbtp` | `-1.5` | FFmpeg `loudnorm` TP= | Outside −9…0 rejected |
 | `ingest.loudness_stabilize.lra` | `11.0` | FFmpeg `loudnorm` LRA= | Outside 1…50 rejected |
 | `ingest.loudness_stabilize.dual_mono` | `true` | FFmpeg `loudnorm` | Mono podcast on stereo meters reads wrong without it |
-| `ingest.loudness_stabilize.dynaudnorm` | `true` | FFmpeg `dynaudnorm` before loudnorm | `false` only sets integrated LUFS (within-file wander remains) |
-| `ingest.loudness_stabilize.dynaudnorm_frame_ms` | `150` | `dynaudnorm` f= | Outside 10–8000 rejected |
-| `ingest.loudness_stabilize.dynaudnorm_gausssize` | `15` | `dynaudnorm` g= | Must be odd and ≥ 3 |
-| `ingest.loudness_stabilize.dynaudnorm_peak` | `0.95` | `dynaudnorm` p= | Outside (0, 1] rejected |
-| `ingest.loudness_stabilize.dynaudnorm_maxgain` | `10.0` | `dynaudnorm` m= | Cap on boost for very quiet sources (1–100) |
+| `ingest.loudness_stabilize.dynaudnorm` | `true` | Within-file soft leveling before loudnorm | `false` only sets integrated LUFS (within-file wander remains) |
+| `ingest.loudness_stabilize.dynaudnorm_mode` | `upward_only` | `upward_only` = soft boost only; `classic` = bidirectional `dynaudnorm` | `classic` can mid-word duck loud syllables |
+| `ingest.loudness_stabilize.upward_threshold` | `0.125` | Linear amp (~−18 dBFS); below = boost | Too high over-lifts mid speech; too low leaves quiet sources soft |
+| `ingest.loudness_stabilize.upward_ratio` | `3.0` | Upward compression ratio | Outside 1–20 rejected |
+| `ingest.loudness_stabilize.upward_attack_ms` | `50.0` | Upward attack | Outside 0.01–2000 rejected |
+| `ingest.loudness_stabilize.upward_release_ms` | `300.0` | Upward release | Outside 0.01–9000 rejected |
+| `ingest.loudness_stabilize.upward_knee` | `2.5` | Soft knee | Outside 1–8 rejected |
+| `ingest.loudness_stabilize.dynaudnorm_frame_ms` | `500` | Classic `dynaudnorm` f= only | Outside 10–8000 rejected |
+| `ingest.loudness_stabilize.dynaudnorm_gausssize` | `31` | Classic `dynaudnorm` g= only | Must be odd and ≥ 3 |
+| `ingest.loudness_stabilize.dynaudnorm_peak` | `0.95` | Classic `dynaudnorm` p= only | Outside (0, 1] rejected |
+| `ingest.loudness_stabilize.dynaudnorm_maxgain` | `10.0` | Classic `dynaudnorm` m= only | Cap on boost for very quiet sources (1–100) |
 
 Artifact: `ingest/loudness.json` (filter lineage). See [ingest README](../pipeline/ingest/README.md).
 
@@ -878,7 +884,7 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 | `host_vo_coverage_min_ratio` / `max` | `0.12` / `0.85` | Share of selected segments near a host VO/transition |
 | `host_vo_duration_min_ratio` / `max` | `0.04` / `0.45` | Host vs total speech duration |
 | `host_vo_quartile_presence_min_ratio` | `0.5` | Quartiles with host presence |
-| `bed_coverage_min_ratio` / `max` | `0.28` / `0.88` | Selection duration under beds |
+| `bed_coverage_min_ratio` / `max` | `0.40` / `0.88` | Selection duration under beds |
 | `bed_quartile_presence_min_ratio` | `0.5` | Quartiles with a bed |
 | `hinge_stinger_coverage_min_ratio` / `max` | `0.3` / `1.0` | Chapter/topic hinges with punctuator |
 | `intentional_air_min_ratio` / `max` | `0.01` / `0.12` | Explicit silence pads in EDL |
@@ -1161,11 +1167,11 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `soundscape.fail_closed_default` | `true` | fail_closed fallback when key unset and not first-try | `journey_ui.first_try_mode=true` runs default this to `false` regardless |
 | `soundscape.remediation.max_remux_cycles` | `2` | `soundscape_verify` / `mix` | Caps post-mix remux loops (honest, palette-anchored bed seeding only — see `soundscape_verify.run_soundscape_verify`) |
 | `soundscape.remediation.max_regen_per_asset` | `2` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
-| `soundscape.min_density.min_bed_coverage_ratio` | `0.28` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
-| `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `1` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
-| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-25` / `-21` | Bed level plausibility bounds | Speech-first audible band (+3 dB vs prior −28/−24) — beds stay present but must not drown native/synthetic dialogue |
+| `soundscape.min_density.min_bed_coverage_ratio` | `0.40` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
+| `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `2` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
+| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-22` / `-18` | Bed level plausibility bounds | Speech-first audible band (+3 dB vs prior −25/−21) — beds stay present but must not drown native/synthetic dialogue |
 
-**Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.28`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
+**Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.40`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
 ---
 
@@ -1194,8 +1200,8 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.per_speaker_level_match.max_gain_db` | `speaker_level_match` | Caps per-speaker correction at ±6 dB by default |
 | `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
 | `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
-| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls attenuation response and envelope resolution (defaults ~15 / 480 / 10) |
-| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~2.5; keep modest so adjacent VO stays on top) |
+| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls soft speech-gate response and envelope resolution (defaults ~40 / 900 / 20) |
+| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~1.0; keep modest so adjacent VO stays on top) |
 | `mix.music_presence.cold_open_lead_in_fade_ms` | `sound_design.py` | Fade-in for speech-free cold open / outro bookends |
 | `mix.music_presence.cold_open_air_ms` | `sound_design.py` / `_cold_open_bridge_budget_ms` | Air reserved after preface VO for the cold-open bridge before the question |
 | `mix.music_presence.chapter_resolve_breathe_ms` | `sound_design.py` | Dry micro-gap after chapter resolve before speech resumes |

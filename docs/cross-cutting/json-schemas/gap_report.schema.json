@@ -68,12 +68,22 @@
           },
           "blocking": { "type": "boolean" },
           "skipped_optional": { "type": "boolean" },
+          "origin": { "type": "string" },
+          "nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recovery_of_talking_point_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "prior_segment_id": { "type": ["string", "null"] },
           "prior_impact_beat": { "type": "boolean" },
           "prior_complete_thought": { "type": "boolean" },
           "density_forced": { "type": "boolean" }
         }
       }
-    }
+    },
+    "nugget_layup_authority": { "type": "boolean" }
   }
 }

@@ -35,8 +35,48 @@ def segmentation_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "micro_segment_lint_max": 400,
         "min_bed_segment_ms_fine": 6000,
         "reject_coarse_fallback": True,
+        "edge_confidence": {
+            "enabled": True,
+            "repair_enabled": True,
+            "search_window_ms": 1500,
+            "min_improvement": 0.08,
+            "grade_high": 0.8,
+            "grade_medium": 0.65,
+            "grade_low": 0.45,
+            "repair_below": 0.65,
+            "queue_below": 0.65,
+            "spine_align_ms": 800,
+            "word_snap_tol_ms": 40,
+            "pause_good_ms": 400,
+            "pause_strong_ms": 1000,
+            "asr_window_ms": 800,
+            "require_multi_source_for_high": True,
+        },
     }
     return {**defaults, **raw}
+
+
+def edge_confidence_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    sc = segmentation_cfg(cfg)
+    block = sc.get("edge_confidence") if isinstance(sc.get("edge_confidence"), dict) else {}
+    defaults = {
+        "enabled": True,
+        "repair_enabled": True,
+        "search_window_ms": 1500,
+        "min_improvement": 0.08,
+        "grade_high": 0.8,
+        "grade_medium": 0.65,
+        "grade_low": 0.45,
+        "repair_below": 0.65,
+        "queue_below": 0.65,
+        "spine_align_ms": 800,
+        "word_snap_tol_ms": 40,
+        "pause_good_ms": 400,
+        "pause_strong_ms": 1000,
+        "asr_window_ms": 800,
+        "require_multi_source_for_high": True,
+    }
+    return {**defaults, **block}
 
 
 def segmentation_granularity(cfg: dict[str, Any] | None = None) -> str:

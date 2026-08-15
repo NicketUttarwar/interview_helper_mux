@@ -10,7 +10,7 @@ interface Props {
   onExcludeAsides: () => void;
   onTightenAll: (ids: string[]) => void;
   onExcludeOffSelection: (ids: string[]) => void;
-  onOpenReview: (filter: "flagged" | "redo" | "low_confidence" | "off_selection") => void;
+  onOpenReview: (filter: "flagged" | "redo" | "low_confidence" | "hanging_edge" | "off_selection") => void;
   onSilenceTrim: (ids: string[]) => void;
   selectedSegmentIds: string[];
 }

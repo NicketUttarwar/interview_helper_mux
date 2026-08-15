@@ -77,6 +77,66 @@ def test_boundary_topic_resplit_marks_done_when_not_overloaded(
     assert len(boundaries.get("boundaries") or []) == 1
 
 
+def test_boundary_topic_resplit_scores_no_overload_fast_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No overload must still receive the post-reanchor confidence pass."""
+    ctx = isolated_run_ctx(tmp_path, "resplit_score_fast_path")
+    patch_merged_config(
+        monkeypatch,
+        {"analysis": {"segmentation": {"fine_grained": False, "resegment_pass": False}}},
+    )
+    ctx.write_json(
+        "segments/boundaries.json",
+        {"boundaries": [_boundary("seg_001", 0, 5_000)]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001", start_ms=0, end_ms=5_000, topic_tags=["intro"])
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        minimal_content_brief(
+            topics=[{"name": "intro", "summary": "Intro topic.", "segment_ids": ["seg_001"]}]
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                {
+                    "text": "Complete.",
+                    "start_ms": 0,
+                    "end_ms": 500,
+                    "speaker_id": "spk_0",
+                    "confidence": 0.99,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+
+    calls: list[dict] = []
+
+    def _record_pass(_ctx, *, stage: str, repair: bool) -> dict:
+        calls.append({"stage": stage, "repair": repair})
+        return {}
+
+    monkeypatch.setattr(
+        "interview_mux.boundary_edge_score.apply_boundary_confidence_pass",
+        _record_pass,
+    )
+    run_boundary_topic_resplit(ctx)
+
+    assert calls == [{"stage": "boundary_topic_resplit", "repair": True}]
+    assert ctx.is_done("boundary_topic_resplit")
+
+
 def test_boundary_topic_resplit_enriches_without_llm_when_resegment_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -106,7 +166,14 @@ def test_boundary_topic_resplit_enriches_without_llm_when_resegment_disabled(
     )
     ctx.write_json(
         "segments/boundaries.json",
-        {"boundaries": [_boundary("seg_001", 0, 60_000)]},
+        {
+            "boundaries": [
+                {
+                    **_boundary("seg_001", 0, 60_000),
+                    "speaker_id": "spk_001",
+                }
+            ]
+        },
         skip_handoff=True,
     )
     ctx.write_json(
@@ -148,6 +215,14 @@ def test_boundary_topic_resplit_enriches_without_llm_when_resegment_disabled(
         "understanding/flow_adaptation.json",
         {"segmentation_policy": {"resegment_pass": False}},
         skip_handoff=True,
+    )
+    # This test covers deterministic boundary enrichment; do not invoke the
+    # separate LLM-backed nested classification stage.
+    monkeypatch.setattr(
+        "interview_mux.stages.segmentation.run_classification",
+        lambda _ctx: (_ for _ in ()).throw(
+            SystemExit("resume analysis from stage segment_classification")
+        ),
     )
 
     with pytest.raises(SystemExit, match="resume analysis from stage segment_classification"):

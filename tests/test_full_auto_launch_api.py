@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,11 @@ from fastapi.testclient import TestClient
 from interview_mux.config import repo_root as real_repo_root
 from interview_mux.full_auto_launch import normalize_run_mode
 from interview_mux.web.server import create_app
+
+_TOOLS = Path(__file__).resolve().parents[1] / "tools"
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
+import full_auto_driver  # noqa: E402
 
 
 def test_normalize_run_mode() -> None:
@@ -20,6 +26,51 @@ def test_normalize_run_mode() -> None:
     assert normalize_run_mode("full_auto") == "full-auto"
     assert normalize_run_mode("FULLAUTO") == "full-auto"
     assert normalize_run_mode("auto") == "full-auto"
+
+
+def test_full_auto_escalates_after_three_identical_vo_failures() -> None:
+    full_auto_driver._VO_REPAIR_FAILURES.clear()
+    error = (
+        "required gap VO blocked by spoken_copy_guard "
+        "(vo_layup_seg_004): spoken_generic_filler"
+    )
+    assert full_auto_driver.repeated_vo_repair_failure(error) is False
+    assert full_auto_driver.repeated_vo_repair_failure(error) is False
+    assert full_auto_driver.repeated_vo_repair_failure(error) is True
+
+
+def test_full_auto_circuit_breaker_writes_decision_brief(monkeypatch) -> None:
+    writes: list[tuple[str, dict]] = []
+
+    class FakeContext:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def artifact_exists(self, rel: str) -> bool:
+            return rel == "understanding/nugget_layup_plan.json"
+
+        def read_json(self, _rel: str) -> dict:
+            return {"layups": []}
+
+        def write_json(self, rel: str, data: dict) -> None:
+            writes.append((rel, data))
+
+    monkeypatch.setattr("interview_mux.run_context.RunContext", FakeContext)
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.uncovered_high_value_forgone",
+        lambda *_args, **_kwargs: [{"nugget_id": "nug_critical"}],
+    )
+    monkeypatch.setattr(full_auto_driver, "RUN_ID", "exec_decision_brief")
+    full_auto_driver._VO_REPAIR_FAILURES.clear()
+    full_auto_driver._VO_REPAIR_FAILURES["layup"] = 3
+
+    brief = full_auto_driver.write_vo_repair_decision_brief(
+        "vo_layup failed spoken_copy_guard"
+    )
+
+    assert brief and brief["failure_count"] == 3
+    assert brief["unresolved_needs"] == [{"nugget_id": "nug_critical"}]
+    assert writes and writes[0][0] == "analysis/decision_briefs/vo_repair_layup.json"
 
 
 def _seed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:

@@ -18,7 +18,7 @@ Every capability module below is a **mutator** over the Essence axes defined in 
 | `structure_candidates` | Overall shape, ordering/reorder/reprise, chapter boundaries, outro mirror | Native keep/order |
 | `inclusion_exclusion` | Segment keep / drop / soft-focus | Native keep/order, bounded by the **hard ~10% source-runtime floor** |
 | `pacing_density` | Target duration band, density, silence/transition budget | Duration (**soft ideal** vs `delivery_brief.target_duration_sec`) + air budget |
-| `vo_sfx_components` | Transitions/bridges, VO bridge lines, beds/stingers/punctuators/foley | Synthetic inserts + music/SFX/air (**bed coverage 0.28–0.88**, **hinge stinger 0.3–1.0**) |
+| `vo_sfx_components` | Transitions/bridges, VO bridge lines, beds/stingers/punctuators/foley | Synthetic inserts + music/SFX/air (**bed coverage 0.40–0.88**, **hinge stinger 0.3–1.0**) |
 
 None of these mutations are free-form: they stay inside the hard invariants (pickup-preferred voice, no invented dialogue, locked speaker volleys, clone consent) and are ultimately judged by the [hard delight audit](./mastering-audition-loop.md#auditions-and-hard-delight) — a failing dimension there points back at exactly one of these rows as the axis to remutate next.
 

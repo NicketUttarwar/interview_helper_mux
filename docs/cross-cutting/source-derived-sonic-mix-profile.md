@@ -123,8 +123,8 @@ One contract per run so beds, stingers, and accents feel like the same “show�
 
 | Field | Example intent |
 |-------|----------------|
-| `bed_level_db_range` | e.g. −26 to −30 under speech |
-| `duck_under_speech_db` | e.g. 14–20, tighten when `pace_class` is `dense` |
+| `bed_level_db_range` | e.g. −22 to −18 under speech |
+| `duck_under_speech_db` | e.g. 12–16, tighten slightly when `pace_class` is `dense` |
 | `stinger_max_per_minute` | Cap from `phrase_boundary_density` |
 | `midrange_policy` | Keep stinger energy out of 1–4 kHz when overlapping speech tails |
 | `rhythmic_presence_default` | `none` for Flow 1; `none` or rare `pulse` for Flow 2 montage |
@@ -298,8 +298,8 @@ Informative only — not validated in CI until schema ships.
   },
   "source_music_risk": "low",
   "mix_contract": {
-    "bed_level_db_range": [-30, -26],
-    "duck_under_speech_db": 16,
+    "bed_level_db_range": [-22, -18],
+    "duck_under_speech_db": 12,
     "stinger_max_per_minute": 2,
     "midrange_policy": "keep_stinger_energy_below_4khz_under_speech",
     "rhythmic_presence_default": "none",

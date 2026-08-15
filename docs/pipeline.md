@@ -6,7 +6,7 @@ One source interview → one deliverable: **`master/master.wav`**. Product Essen
 
 Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 28 delivery = 62 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
 
-**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.28–0.88**, hinge stinger **0.3–1.0**.
+**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.40–0.88**, hinge stinger **0.3–1.0**.
 
 ```mermaid
 flowchart TB

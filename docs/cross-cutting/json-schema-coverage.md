@@ -79,6 +79,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_manifest` | `segments/manifest.json` | Yes |
 | `validate_gap_evaluations` | `understanding/gap_evaluations.json` | Yes |
 | `validate_gap_report` | `understanding/gap_report.json` | Yes |
+| `validate_nugget_layup_plan` | `understanding/nugget_layup_plan.json` | Yes |
+| `validate_omit_ledger` | `understanding/omit_ledger.json` | Yes |
 | `validate_coverage_audit` | `master/coverage_audit.json` | Yes |
 | `validate_narrative_plan` | `master/narrative_plan.json` | Yes |
 | `validate_transitions` | `master/transitions.json` | Yes |

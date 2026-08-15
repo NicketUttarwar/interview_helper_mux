@@ -104,7 +104,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `GET` | `/api/runs/{run_id}/llm-calls` | — | — | `call_count`, `calls[]` (summaries), `tree`, `stages` — [llm-call-record-framework.md](../cross-cutting/llm-call-record-framework.md) | **404** |
 | `GET` | `/api/runs/{run_id}/llm-calls/record` | `path` (required, under `understanding/llm_calls/`) | — | Full call record + `_gui.openai_messages` | **404**, **400** |
 | `PUT` | `/api/runs/{run_id}/llm-calls/record` | — | **LlmCallRecordUpdateBody** `{path, volley?, raw_response?}` | `ok`, `record` | **404**, **400** |
-| `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments` (with `_manifest_*` bounds), `vo_lines`, `nle`, `normalized_audio` | **404** |
+| `GET` | `/api/runs/{run_id}/timeline` | — | — | `duration_ms`, `segments` (with `_manifest_*` bounds plus `_exclude_reason` / `_omit_recovery` when applicable), `vo_lines`, `nle`, `normalized_audio` | **404** |
 | `GET` | `/api/runs/{run_id}/assembly-timeline` | — | — | `ready`, `clips[]`, `chapters[]`, `timeline_duration_ms`, `preview_audio` | **404** |
 | `GET` | `/api/runs/{run_id}/waveform` | `path` (default `ingest/normalized.wav`) | — | `peaks[]`, `window_ms`, `duration_ms` | **404** |
 | `GET` | `/api/runs/{run_id}/transcript` | — | — | `ready`, `words[]`, `duration_ms`, `audio_path`, `low_confidence_threshold`, `review_applied_at` — see **Transcript dock word edits** | **404** |
@@ -129,6 +129,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | `POST` | `/api/runs/{run_id}/stages/{stage_id}/reuse` | — | **StageReuseBody** `{action, source_run_id?}` | `ok`, `stage_reuse`, `copied[]` on accept | **400** ineligible source, **404** |
 | `GET` | `/api/runs/{run_id}/segmentation-review` | — | — | Parity report: `source_paths`, `contract`, `parity_errors`, `cross_validate_errors`, `pending_paths`, `ready` | — |
 | `POST` | `/api/runs/{run_id}/g1/skip-optional` | — | optional `{line_ids?: string[]}` | `ok`, `skipped[]`, `g1_missing[]` — mark non-blocking VO optional | **404** |
+| `GET` | `/api/runs/{run_id}/omit-ledger` | — | — | `omit_ledger`, `active_entries[]`, `summary` — active omit / suppress / defer / waive decisions | **404** |
 
 **Removed:** the `pending-writes/*` write-approval routes and `POST …/handoff-ack`. Artifacts auto-commit (`v2.auto_commit_artifacts: true`) and there are no inter-stage handoff acks.
 

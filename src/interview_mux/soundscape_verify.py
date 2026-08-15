@@ -1,6 +1,6 @@
 """Post-mix soundscape verify against policy standards; capped remux remediation.
 
-Bed coverage (default floor/ceiling ``0.28``/``0.88``) and hinge-stinger coverage
+Bed coverage (default floor/ceiling ``0.40``/``0.88``) and hinge-stinger coverage
 (``0.3``/``1.0``) are **Shape-owned soft bands** — see
 ``listenability_guards._DEFAULTS`` and
 docs/cross-cutting/soundscape-policy.md — not a remux-theater target to be hit

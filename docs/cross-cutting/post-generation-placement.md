@@ -92,10 +92,10 @@ Recovery: update value features or transcript, then `--from-stage mix`. See [tro
 
 When enabled (default), `flow1_overlays_from_sdp()` adjusts bed `level_db` via `_adaptive_bed_level_db()`:
 
-| SAP `speech_active_ratio` | Effective bed ceiling |
-|---------------------------|------------------------|
-| ≥ 0.75 | `min(default_level_db, -28 dB)` |
-| ≥ 0.60 | `min(default_level_db, -26 dB)` |
+| SAP `speech_active_ratio` | Effective bed ceiling (creative delivery) |
+|---------------------------|---------------------------------------------|
+| ≥ 0.75 | `min(default_level_db, -22 dB)` |
+| ≥ 0.60 | `min(default_level_db, -20 dB)` |
 | else | `default_level_db` from SDP cue |
 
 Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech-first default; extra −2 dB for `panel`, `trauma_adjacent`, `noisy_room` buckets).
@@ -115,7 +115,7 @@ Ambient beds (`placement: under_segment`) are looped to segment duration, ducked
 1. Resolve segment `[start_ms, end_ms]` from EDL / selection timing map.
 2. `dur = end_ms - start_ms`; skip if `dur ≤ 0`.
 3. `loop_to_duration(base, dur)` — trim or tile asset to exact window.
-4. Apply `level_db - duck_under_speech_db` (default duck **16 dB**, floor `MIN_DUCK_DB`).
+4. Apply soft speech-gate duck (`level_db` then up to `duck_under_speech_db`, floor `MIN_DUCK_DB` = 12).
 5. **Fade in 120 ms**, **fade out 150 ms** at segment edges.
 
 ### Trim rules
@@ -125,11 +125,11 @@ Ambient beds (`placement: under_segment`) are looped to segment duration, ducked
 | Bed must not extend past segment end | Hard trim at `end_ms` | Prevents bleed into next speaker |
 | Bed on non-palette segment | Lint + crossval reject | `sdp_cross_validate` |
 | Loop seam | Regen if audible click | Operator post-listen fail |
-| Dense speech (high WPM) | Prefer no bed | SAP `underscore_policy: skip` or sparser cues |
+| Dense speech (high WPM) | Prefer quieter / sparser beds | SAP adaptive level + coverage caps |
 
 ### Bed entry overlap (plan intent)
 
-SDP may specify bed enters **200–400 ms before** segment start for emotional priming. Mix engine positions at `start_ms`; fade-in handles overlap under prior speech. Duck depth must keep consonants intelligible (14–22 dB range per [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md)).
+SDP may specify bed enters **200–400 ms before** segment start for emotional priming. Mix engine positions at `start_ms`; fade-in handles overlap under prior speech. Duck depth must keep consonants intelligible (typically **12–16 dB** per [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md)).
 
 ### VO bridge co-trim
 

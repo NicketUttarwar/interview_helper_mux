@@ -11,6 +11,7 @@ export type ReviewFilter =
   | "aside"
   | "redo"
   | "low_confidence"
+  | "hanging_edge"
   | "off_selection"
   | "qc_issue"
   | "all";
@@ -174,6 +175,25 @@ export function filterSegments(
   });
 }
 
+export function segmentHasWeakBoundary(seg: TimelineSegment): boolean {
+  const grade = seg.edge_grade || seg.start_edge?.grade || seg.end_edge?.grade;
+  if (grade === "low" || grade === "reject") return true;
+  if (typeof seg.boundary_confidence === "number" && seg.boundary_confidence < 0.65) {
+    return true;
+  }
+  return false;
+}
+
+export function segmentHasHangingEdge(seg: TimelineSegment): boolean {
+  const reasons = [
+    ...(seg.start_edge?.reasons || []),
+    ...(seg.end_edge?.reasons || []),
+  ];
+  return reasons.some((r) =>
+    /hang|dangling|continuation|parallel|clause_continues|mid_word/i.test(r),
+  );
+}
+
 export function reviewQueueForFilter(
   filter: ReviewFilter,
   segments: TimelineSegment[],
@@ -193,8 +213,13 @@ export function reviewQueueForFilter(
     case "low_confidence":
       return segments.filter((s) => {
         const id = s.segment_id || "";
-        return ctx.lowConfSegmentIds.has(id) && !s._excluded;
+        return (
+          !s._excluded &&
+          (ctx.lowConfSegmentIds.has(id) || segmentHasWeakBoundary(s))
+        );
       });
+    case "hanging_edge":
+      return segments.filter((s) => !s._excluded && segmentHasHangingEdge(s));
     case "off_selection":
       return segments.filter((s) => {
         const id = s.segment_id || "";

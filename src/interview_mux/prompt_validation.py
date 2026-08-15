@@ -305,6 +305,11 @@ def validate_speakers(data: dict[str, Any]) -> list[str]:
 def validate_boundaries(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("boundaries_artifact.schema.json", data)
 
+
+def validate_boundary_review_queue(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("boundary_review_queue.schema.json", data)
+
+
 def validate_manifest(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("manifest_artifact.schema.json", data)
 
@@ -320,6 +325,10 @@ def validate_nugget_corpus(data: dict[str, Any]) -> list[str]:
 
 def validate_nugget_layup_plan(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("nugget_layup_plan_artifact.schema.json", data)
+
+
+def validate_omit_ledger(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("omit_ledger.schema.json", data)
 
 def validate_coverage_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("coverage_audit_artifact.schema.json", data)
@@ -475,11 +484,13 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/gap_report.json": validate_gap_report,
     "understanding/nugget_corpus.json": validate_nugget_corpus,
     "understanding/nugget_layup_plan.json": validate_nugget_layup_plan,
+    "understanding/omit_ledger.json": validate_omit_ledger,
     "understanding/delivery_brief.json": validate_delivery_brief,
     "understanding/soundscape_policy.json": validate_soundscape_policy,
     "understanding/episode_structure.json": validate_episode_structure,
     "understanding/source_readiness.json": validate_source_readiness,
     "segments/boundaries.json": validate_boundaries,
+    "segments/boundary_review_queue.json": validate_boundary_review_queue,
     "segments/manifest.json": validate_manifest,
     "sound_design/sfx_prompts.json": validate_sfx_prompts,
     "sound_design/mmaudio_qa.json": validate_mmaudio_qa,

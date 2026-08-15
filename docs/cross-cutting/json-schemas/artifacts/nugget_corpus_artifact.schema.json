@@ -35,6 +35,18 @@
             "enum": ["high", "mixed", "weak"]
           },
           "evidence_partial": { "type": "boolean" },
+          "supports_targets": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "conflicts_with": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "speakability": {
+            "type": ["string", "null"],
+            "enum": ["high", "medium", "low", "unspeakable"]
+          },
           "themes": {
             "type": "array",
             "items": { "type": "string" }

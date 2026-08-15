@@ -11,9 +11,11 @@
       ]
     },
     "artifacts": {
+      "description": "Listener-facing synthetic VO lines. Code-enforced: non-skipped interviewer_lines must have unique sentence_keys across the corpus (with transitions); text must not reference chapters/clips/segments/edit metadata and must only convey grounded contextual facts plus a layup into the next native beat.",
       "type": "object",
       "required": [
-        "interviewer_lines"
+        "interviewer_lines",
+        "nugget_layup_authority"
       ],
       "properties": {
         "interviewer_lines": {
@@ -28,6 +30,7 @@
               "targets_segment_id",
               "placement",
               "delivery",
+              "spoken_copy_guard",
               "rationale",
               "voice_speaker_id",
               "supports_segment_ids",
@@ -40,6 +43,9 @@
               "severity",
               "blocking",
               "skipped_optional",
+              "origin",
+              "nugget_ids",
+              "recovery_of_talking_point_ids",
               "prior_segment_id",
               "prior_impact_beat",
               "prior_complete_thought",
@@ -70,7 +76,8 @@
                 ]
               },
               "text": {
-                "type": "string"
+                "type": "string",
+                "description": "Speakable host VO only \u2014 contextual facts + forward layup; never chapter/clip/segment/construction metadata."
               },
               "targets_segment_id": {
                 "type": "string"
@@ -88,6 +95,36 @@
                   "synthesize"
                 ],
                 "type": "string"
+              },
+              "spoken_copy_guard": {
+                "type": "object",
+                "description": "Optional audit of the last spoken_copy_guard decision for this line.",
+                "properties": {
+                  "action": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "script_hash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "context_hash": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "script_hash",
+                  "context_hash"
+                ]
               },
               "rationale": {
                 "type": [
@@ -197,6 +234,30 @@
                   "null"
                 ]
               },
+              "origin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nugget_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "recovery_of_talking_point_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "prior_segment_id": {
                 "type": [
                   "string",
@@ -224,6 +285,12 @@
             },
             "additionalProperties": false
           }
+        },
+        "nugget_layup_authority": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "additionalProperties": false

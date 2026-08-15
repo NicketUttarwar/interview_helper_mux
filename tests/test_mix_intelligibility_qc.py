@@ -117,7 +117,7 @@ def test_mix_intelligibility_warn_on_masking_bed(tmp_path: Path, monkeypatch) ->
     init_run_meta_for_test(ctx)
 
     speech = AudioSegment.silent(duration=1500, frame_rate=48000)
-    # Loud enough that even MIN_DUCK_DB (20) still exceeds silent speech ceiling.
+    # Loud enough that even MIN_DUCK_DB (12) still exceeds silent speech ceiling.
     bed = _tone(2000, 800, gain_db=12.0)
     _write_wav(ctx.path("ingest", "normalized.wav"), speech)
     _write_wav(ctx.path("sound_design", "assets", "speech_band_bed.wav"), bed)

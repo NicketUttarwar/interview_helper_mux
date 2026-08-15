@@ -97,6 +97,26 @@ def _artifact_row_confidences(stage_key: str, envelope: dict[str, Any]) -> list[
         out = _row_confidence_values(artifacts.get("topics"))
         out.extend(_row_confidence_values(artifacts.get("key_claims")))
         return out
+    if stage_key in ("boundary_detection", "boundary_topic_resplit"):
+        rows = artifacts.get("boundaries")
+        if not isinstance(rows, list):
+            return []
+        out: list[float] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            conf = row.get("confidence")
+            if isinstance(conf, (int, float)):
+                out.append(float(conf))
+                continue
+            edges: list[float] = []
+            for key in ("start_edge", "end_edge"):
+                edge = row.get(key)
+                if isinstance(edge, dict) and isinstance(edge.get("overall"), (int, float)):
+                    edges.append(float(edge["overall"]))
+            if edges:
+                out.append(min(edges))
+        return out
     return []
 
 

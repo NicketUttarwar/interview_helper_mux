@@ -289,3 +289,6 @@ terraform/state/session/*
 pytorch_model*.bin
 model*.safetensors.index.json
 
+*.mp4.part
+*.ytdl
+*Frag*.part

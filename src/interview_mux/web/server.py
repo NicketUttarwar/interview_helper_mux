@@ -915,16 +915,93 @@ def create_app() -> FastAPI:
                 s["segment_id"]: s for s in raw if s.get("segment_id")
             }
             segments = apply_segments_with_nle(raw, nle)
+            exclude_reasons: dict[str, str] = {}
+            recovery_hints: dict[str, str] = {}
+            if ctx.artifact_exists("master/selection.json"):
+                sel = ctx.read_json("master/selection.json")
+                if isinstance(sel, dict):
+                    for ex in sel.get("excluded_segment_ids") or []:
+                        if isinstance(ex, dict):
+                            sid = str(ex.get("segment_id") or "")
+                            if sid:
+                                exclude_reasons[sid] = str(
+                                    ex.get("reason") or ex.get("why_dropped") or "excluded"
+                                )
+                        else:
+                            sid = str(ex or "")
+                            if sid:
+                                exclude_reasons[sid] = "excluded"
+            try:
+                from interview_mux.omit_ledger import OMIT_LEDGER_REL, active_entries
+
+                ledger = (
+                    ctx.read_json(OMIT_LEDGER_REL)
+                    if ctx.artifact_exists(OMIT_LEDGER_REL)
+                    else None
+                )
+                for entry in active_entries(ledger, kind="layup_skip"):
+                    tid = str(entry.get("target_segment_id") or "")
+                    path = str(entry.get("compensating_path") or "")
+                    if tid and path:
+                        recovery_hints[tid] = path
+                for entry in active_entries(ledger, kind="segment_exclude"):
+                    sid = str(entry.get("subject_id") or "")
+                    path = str(entry.get("compensating_path") or "")
+                    if sid and path:
+                        recovery_hints[sid] = path
+            except Exception:
+                pass
             for seg in segments:
-                sid = seg.get("segment_id")
+                sid = str(seg.get("segment_id") or "")
+                if sid in exclude_reasons:
+                    seg["_exclude_reason"] = exclude_reasons[sid]
+                    seg["_excluded"] = True
+                if sid in recovery_hints:
+                    seg["_omit_recovery"] = recovery_hints[sid]
                 if sid and sid in manifest_by_id:
                     m = manifest_by_id[sid]
                     if m.get("start_ms") is not None:
                         seg["_manifest_start_ms"] = int(m["start_ms"])
                     if m.get("end_ms") is not None:
                         seg["_manifest_end_ms"] = int(m["end_ms"])
+            # Attach per-edge boundary confidence when scored.
+            if ctx.artifact_exists("segments/boundaries.json"):
+                try:
+                    bdoc = ctx.read_json("segments/boundaries.json")
+                    by_id = {
+                        str(r.get("segment_id")): r
+                        for r in (bdoc.get("boundaries") or [])
+                        if isinstance(r, dict) and r.get("segment_id")
+                    }
+                    for seg in segments:
+                        sid = str(seg.get("segment_id") or "")
+                        brow = by_id.get(sid)
+                        if not brow:
+                            continue
+                        if brow.get("confidence") is not None:
+                            seg["boundary_confidence"] = float(brow["confidence"])
+                        if brow.get("edge_grade"):
+                            seg["edge_grade"] = str(brow["edge_grade"])
+                        if isinstance(brow.get("start_edge"), dict):
+                            seg["start_edge"] = brow["start_edge"]
+                        if isinstance(brow.get("end_edge"), dict):
+                            seg["end_edge"] = brow["end_edge"]
+                except Exception:
+                    pass
             if segments:
                 duration_ms = max(s.get("end_ms", 0) for s in segments)
+        boundary_review: dict[str, Any] | None = None
+        if ctx.artifact_exists("segments/boundary_review_queue.json"):
+            try:
+                q = ctx.read_json("segments/boundary_review_queue.json")
+                if isinstance(q, dict):
+                    boundary_review = {
+                        "item_count": int(q.get("item_count") or len(q.get("items") or [])),
+                        "low_confidence_threshold": q.get("low_confidence_threshold"),
+                        "items": (q.get("items") or [])[:60],
+                    }
+            except Exception:
+                boundary_review = None
         vo_lines: list[dict[str, Any]] = []
         if ctx.artifact_exists("understanding/gap_report.json"):
             from interview_mux.gates_tbiy import post_preview_vo_satisfied
@@ -958,6 +1035,7 @@ def create_app() -> FastAPI:
             "vo_lines": vo_lines,
             "nle": nle,
             "normalized_audio": "ingest/normalized.wav" if ctx.artifact_exists("ingest/normalized.wav") else None,
+            "boundary_review_queue": boundary_review,
         }
 
     @app.get("/api/runs/{run_id}/nle")
@@ -1727,9 +1805,27 @@ def create_app() -> FastAPI:
                 skipped.append(lid)
             ctx.write_json("understanding/gap_report.json", report)
             from interview_mux.vo_synthesis_audit import record_skipped_vo
+            from interview_mux.omit_ledger import record_gap_line_skip
 
             for lid in skipped:
                 record_skipped_vo(ctx, lid, reason="g1_skip_optional")
+                try:
+                    target = None
+                    for line in lines:
+                        if not isinstance(line, dict):
+                            continue
+                        if str(line.get("line_id") or line.get("targets_segment_id") or "") == lid:
+                            target = str(line.get("targets_segment_id") or "") or None
+                            break
+                    record_gap_line_skip(
+                        ctx,
+                        line_id=lid,
+                        target_segment_id=target,
+                        reason_code="g1_skipped_optional",
+                        operator_override=True,
+                    )
+                except Exception:
+                    pass
 
             # Never set the meta flag on a no-op skip (empty skipped) — that
             # previously cascaded into repair_gap_report marking all synthesize lines skipped.
@@ -3049,11 +3145,41 @@ def create_app() -> FastAPI:
     def get_gap_framing_script(run_id: str) -> dict[str, Any]:
         from interview_mux.gap_framing import load_gap_framing_plan
         from interview_mux.gap_report_api import list_lines
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, build_omit_ledger
 
         ctx = _ctx(run_id)
+        ledger = (
+            ctx.read_json(OMIT_LEDGER_REL)
+            if ctx.artifact_exists(OMIT_LEDGER_REL)
+            else build_omit_ledger(ctx)
+        )
         return {
             "lines": list_lines(ctx),
             "plan": load_gap_framing_plan(ctx),
+            "omit_ledger": ledger if isinstance(ledger, dict) else {},
+            "omit_summary": (ledger or {}).get("summary") if isinstance(ledger, dict) else {},
+        }
+
+    @app.get("/api/runs/{run_id}/omit-ledger")
+    def get_omit_ledger(run_id: str) -> dict[str, Any]:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, build_omit_ledger
+
+        ctx = _ctx(run_id)
+        if ctx.artifact_exists(OMIT_LEDGER_REL):
+            ledger = ctx.read_json(OMIT_LEDGER_REL)
+        else:
+            ledger = build_omit_ledger(ctx)
+        if not isinstance(ledger, dict):
+            ledger = {"version": 1, "entries": [], "summary": {}}
+        active = [
+            e
+            for e in (ledger.get("entries") or [])
+            if isinstance(e, dict) and e.get("active")
+        ]
+        return {
+            "omit_ledger": ledger,
+            "active_entries": active,
+            "summary": ledger.get("summary") or {},
         }
 
     @app.post("/api/runs/{run_id}/gap-framing/enable")

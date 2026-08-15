@@ -17,7 +17,7 @@ _DEFAULTS: dict[str, float] = {
     "host_vo_duration_min_ratio": 0.05,
     "host_vo_duration_max_ratio": 0.45,
     "host_vo_quartile_presence_min_ratio": 0.75,
-    "bed_coverage_min_ratio": 0.22,
+    "bed_coverage_min_ratio": 0.40,
     "bed_coverage_max_ratio": 0.88,
     "bed_quartile_presence_min_ratio": 0.5,
     "hinge_stinger_coverage_min_ratio": 0.3,

@@ -649,6 +649,18 @@ export interface SfxListenResult {
   note?: string;
 }
 
+export interface BoundaryEdgeEvidence {
+  overall?: number;
+  grade?: "high" | "medium" | "low" | "reject" | string;
+  selected_ms?: number;
+  candidate_ms?: number;
+  signals?: Record<string, number>;
+  reasons?: string[];
+  repaired?: boolean;
+  repair_action?: string;
+  original_ms?: number;
+}
+
 export interface TimelineSegment {
   segment_id?: string;
   _nle_label?: string;
@@ -659,10 +671,16 @@ export interface TimelineSegment {
   text?: string;
   _mark_redo?: boolean;
   _excluded?: boolean;
+  _exclude_reason?: string;
+  _omit_recovery?: string;
   _manifest_start_ms?: number;
   _manifest_end_ms?: number;
   topic_tags?: string[];
   flags?: string[];
+  boundary_confidence?: number;
+  edge_grade?: "high" | "medium" | "low" | "reject" | string;
+  start_edge?: BoundaryEdgeEvidence;
+  end_edge?: BoundaryEdgeEvidence;
 }
 
 export interface VoLine {
@@ -820,6 +838,21 @@ export interface TimelineData {
   vo_lines: VoLine[];
   nle: NleState | null;
   normalized_audio?: string | null;
+  boundary_review_queue?: {
+    item_count?: number;
+    low_confidence_threshold?: number;
+    items?: Array<{
+      item_id?: string;
+      segment_id?: string;
+      edge?: string;
+      time_ms?: number;
+      overall?: number;
+      grade?: string;
+      kind?: string;
+      reasons?: string[];
+      needs_review?: boolean;
+    }>;
+  } | null;
 }
 
 export interface TranscriptReviewChunk {

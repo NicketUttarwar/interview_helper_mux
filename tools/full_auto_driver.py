@@ -206,6 +206,7 @@ _ORIENTATION_EDL_RESUMES = 0
 _NARRATIVE_REMUTATE_DRIVES = 0
 _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
+_VO_REPAIR_FAILURES: dict[str, int] = {}
 POLL_SEC = int(os.environ.get("MUX_POLL_SEC", "20"))
 MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
 
@@ -1032,6 +1033,66 @@ def heal_layup_spoken_copy() -> int:
         fs_write_json(ctx.final_path(PLAN_REL), plan)
         log(f"G1 spoken-copy heal: rewrote {n} layup line(s)")
     return n
+
+
+def repeated_vo_repair_failure(error: str) -> bool:
+    """Trip after three identical VO failures instead of replaying recompose."""
+    low = str(error or "").lower()
+    if not (
+        "spoken_copy_guard" in low
+        or "vo_layup" in low
+        or "vo_preface_episode_orientation" in low
+        or "cold_open_layup" in low
+        or "episode orientation" in low
+    ):
+        return False
+    key = "orientation" if "orientation" in low or "vo_preface" in low else "layup"
+    _VO_REPAIR_FAILURES[key] = _VO_REPAIR_FAILURES.get(key, 0) + 1
+    return _VO_REPAIR_FAILURES[key] >= 3
+
+
+def write_vo_repair_decision_brief(error: str) -> dict[str, Any] | None:
+    """Persist the evidence and recovery routes when the VO circuit trips."""
+    if not RUN_ID:
+        return None
+    low = str(error or "").lower()
+    key = "orientation" if "orientation" in low or "vo_preface" in low else "layup"
+    try:
+        from interview_mux.nugget_layup import PLAN_REL, uncovered_high_value_forgone
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+        plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+        uncovered = uncovered_high_value_forgone(
+            ctx, plan if isinstance(plan, dict) else {}
+        )
+        brief = {
+            "version": 1,
+            "kind": "vo_repair_circuit_breaker",
+            "failure_key": key,
+            "failure_count": _VO_REPAIR_FAILURES.get(key, 0),
+            "last_error": str(error or "")[:1200],
+            "unresolved_needs": uncovered[:20],
+            "recovery_routes": (
+                [
+                    "repair_or_skip_spoken_copy_layups",
+                    "publish_layup_plan_to_gap_report",
+                    "rebuild_from_transitions",
+                ]
+                if key == "layup"
+                else [
+                    "ensure_episode_orientation",
+                    "publish_layup_plan_to_gap_report",
+                    "rebuild_edl_orientation_audio",
+                ]
+            ),
+            "next_action": "product_repair_then_delivery_from_transitions",
+        }
+        ctx.write_json(f"analysis/decision_briefs/vo_repair_{key}.json", brief)
+        return brief
+    except Exception as exc:
+        log(f"VO repair decision brief unavailable: {exc}")
+        return None
 
 
 def synthesize_g1() -> bool:
@@ -3935,16 +3996,24 @@ def write_e2e_failure_brief(
 
 
 def soft_pass_pre_edl_delivery(ctx: Any) -> list[str]:
-    """Mark/stub early delivery stages so e2e resumes at transitions/edl, not mine."""
+    """Documented last-resort soft path; never the normal VO/EDL recovery."""
     from interview_mux.e2e_soft import e2e_soft_enabled
 
-    if not e2e_soft_enabled():
+    if not e2e_soft_enabled() or str(
+        os.environ.get("INTERVIEW_MUX_E2E_LAST_RESORT_SOFT") or ""
+    ).lower() not in {"1", "true", "yes"}:
         write_e2e_failure_brief(
             ctx,
             stage_id="nugget_layup_compose",
-            error="pre-EDL delivery QC incomplete — refusing e2e stub",
+            error=(
+                "pre-EDL delivery QC incomplete — refusing e2e stub without "
+                "INTERVIEW_MUX_E2E_LAST_RESORT_SOFT=1"
+            ),
             suggested_fix_class="e2e_stub",
-            next_action="fix the failing stage, then resume; do not waive QC",
+            next_action=(
+                "repair layups/orientation, run transitions and synthesize G1, "
+                "then resume EDL; last-resort soft mode must be explicit"
+            ),
         )
     from pathlib import Path as _P
 
@@ -4636,6 +4705,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 try:
                     from interview_mux.nugget_layup import (
                         PLAN_REL,
+                        attach_selection_order_lock,
                         assert_gap_report_layup_authority,
                         dedupe_gap_report_nugget_claims,
                         layup_freshness_errors,
@@ -4665,6 +4735,30 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             ]
                             extras = [s for s in planned if s not in set(selection)]
                             missing = [s for s in selection if s not in set(planned)]
+                            if selection and planned == selection and layup_freshness_errors(ctx, plan):
+                                # A matching air order with only an LLM-authored
+                                # stale lock does not need a costly remine.
+                                plan = attach_selection_order_lock(ctx, plan)
+                                ctx.write_json(
+                                    PLAN_REL, plan, stage_key="nugget_layup_compose"
+                                )
+                                ctx.mark_done("nugget_layup_compose", force=True)
+                                log("layup plan reattached to current selection order lock")
+                                if not layup_freshness_errors(ctx, plan):
+                                    execute(
+                                        {
+                                            "mode": "delivery",
+                                            "from_stage": "master_finalize"
+                                            if (
+                                                ctx.is_done("mix")
+                                                or ctx.artifact_exists(
+                                                    "master/assembly.wav"
+                                                )
+                                            )
+                                            else "edl",
+                                        }
+                                    )
+                                    continue
                             if selection and extras and not missing:
                                 plan = dict(plan)
                                 plan["ordered_segment_ids"] = list(selection)
@@ -4796,6 +4890,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         materialize_over_skipped_layups,
                         normalize_layup_talking_point_ledger,
                         publish_layup_plan_to_gap_report,
+                        uncovered_high_value_forgone,
                     )
                     from interview_mux.run_context import RunContext
 
@@ -4816,6 +4911,32 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "restates_target",
                         )
                     )
+                    uncovered = []
+                    try:
+                        uncovered = uncovered_high_value_forgone(
+                            ctx, ctx.read_json(PLAN_REL)
+                        )
+                    except Exception:
+                        uncovered = []
+                    # Coverage remine only when high-value forgone claims remain
+                    # uncovered — not for lock-only or justified-skip coverage math.
+                    if (
+                        not needs_recompose
+                        and uncovered
+                        and any(
+                            marker in low_err
+                            for marker in (
+                                "layup_coverage",
+                                "min_layup_coverage",
+                                "layup coverage",
+                            )
+                        )
+                    ):
+                        needs_recompose = True
+                        log(
+                            "layup remine: uncovered high-value forgone "
+                            + str([u.get("nugget_id") for u in uncovered[:8]])
+                        )
                     if needs_recompose and refresh_nugget_layup_plan(
                         ctx, reason="layup QC needs a fresh compose"
                     ):
@@ -4918,10 +5039,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "spoken_copy_guard" in low_err
                 or "spoken_unsupported_entity" in low_err
                 or "no_grounded_fallback" in low_err
+                or "cold_open_layup" in low_err
+                or "episode_orientation" in low_err
             ) and (
                 "vo_layup" in low_err
+                or "vo_preface_episode_orientation" in low_err
                 or "g1" in low_err
-                or stage in {"edl", "g1_vo_pickup"}
+                or stage in {"gap_framing_recompose", "edl", "g1_vo_pickup"}
             ):
                 try:
                     import re as _re
@@ -4933,6 +5057,25 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx = RunContext(RUN_ID, create=False)
                     if not ctx.artifact_exists(PLAN_REL):
                         raise RuntimeError("no layup plan")
+                    if repeated_vo_repair_failure(err):
+                        brief = write_vo_repair_decision_brief(err)
+                        # Product recovery mutates only unsafe plan rows (skip or
+                        # grounded rewrite) and publish repairs orientation.  Run
+                        # real transitions next; do not re-enter recompose or stub
+                        # empty transitions after the same failure three times.
+                        healed = heal_layup_spoken_copy()
+                        publish_layup_plan_to_gap_report(ctx)
+                        log(
+                            "repeated VO repair failure (>=3): applied product "
+                            f"layup/orientation repair ({healed} rows) → transitions"
+                            + (
+                                f" (brief={brief.get('failure_key')})"
+                                if isinstance(brief, dict)
+                                else ""
+                            )
+                        )
+                        execute({"mode": "delivery", "from_stage": "transitions"})
+                        continue
                     plan = ctx.read_json(PLAN_REL)
                     rewrites = {
                         "seg_083": (
@@ -7038,10 +7181,33 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         from pathlib import Path as _P
 
                         from interview_mux.run_context import RunContext
+                        from interview_mux.vo_synthesis_audit import (
+                            sync_edl_vo_script_metadata,
+                        )
 
                         globals()["_PMQ_HARD_REPAIR_N"] = hard_repair_n + 1
                         ctx = RunContext(RUN_ID, create=False)
                         root = _P(ctx.run_dir)
+                        sync_report = sync_edl_vo_script_metadata(ctx)
+                        log(f"pmq heal: synced EDL VO metadata {sync_report}")
+                        vo_hard = (
+                            "spoken_vo_speakable" in low_err
+                            or "audible_script_hash_agreement" in low_err
+                        )
+                        if vo_hard:
+                            def _clear_soft_vo(m: dict) -> None:
+                                m.pop("e2e_soft_post_master_quality", None)
+
+                            ctx.mutate_run_meta(_clear_soft_vo)
+                            done = root / ".stage_done" / "master_finalize"
+                            if done.is_file():
+                                done.unlink()
+                            log(
+                                "pmq heal: resume master_finalize after EDL VO sync "
+                                "(no soft waive for spoken VO / hash)"
+                            )
+                            execute({"mode": "delivery", "from_stage": "master_finalize"})
+                            continue
                         if not _e2e_soft():
                             write_e2e_failure_brief(
                                 ctx,
@@ -7089,7 +7255,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "junction_snip_qa",
                         ):
                             ctx.mark_done(sid, force=True)
-                        log("pmq heal: soft-waive + resume master_finalize (do not rewind EDL)")
+                        log(
+                            "pmq heal: soft-waive (non-VO) + resume master_finalize "
+                            "(do not rewind EDL)"
+                        )
                         execute({"mode": "delivery", "from_stage": "master_finalize"})
                         continue
                     except Exception as exc:
@@ -7291,9 +7460,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 except Exception as exc:
                     log(f"pmq soft-heal: {exc}")
             if "verify_master failed" in low_err and "Integrated LUFS" in low_err:
-                log(f"master QA LUFS heal soft-pass → resume publish: {err[:180]}")
-                execute({"mode": "delivery", "from_stage": "podcast_publish"})
-                continue
+                lufs_n = int(globals().get("_LUFS_HEAL_N") or 0)
+                if lufs_n >= 3:
+                    log(f"HARD STOP: LUFS heal repeated {lufs_n}x without progress: {err[:200]}")
+                    return {"status": "error", "error": err, "stage": stage}
+                try:
+                    from pathlib import Path as _P
+
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.stages.mastering import master_wav
+
+                    globals()["_LUFS_HEAL_N"] = lufs_n + 1
+                    ctx = RunContext(RUN_ID, create=False)
+                    root = _P(ctx.run_dir)
+                    # Re-export with current two-pass loudnorm — do not soft-loop publish.
+                    for sid in ("master_finalize", "podcast_encode_mp3", "podcast_publish"):
+                        done = root / ".stage_done" / sid
+                        if done.is_file():
+                            done.unlink()
+                    master_wav(
+                        ctx,
+                        "master/assembly.wav",
+                        "master/master.wav",
+                        flow="podcast",
+                    )
+                    # Refresh publish copies after re-loudnorm.
+                    pub = root / "publish"
+                    if pub.is_dir() and (root / "master" / "master.wav").is_file():
+                        import shutil as _sh
+
+                        _sh.copy2(root / "master" / "master.wav", pub / "master.wav")
+                    log(
+                        f"master QA LUFS heal: re-loudnormed master (attempt {lufs_n + 1}) "
+                        "→ resume podcast_encode_mp3"
+                    )
+                    execute({"mode": "delivery", "from_stage": "podcast_encode_mp3"})
+                    continue
+                except Exception as exc:
+                    log(f"master QA LUFS heal failed: {exc}")
+                    return {"status": "error", "error": str(exc), "stage": stage}
             if "bed_coverage" in low_err and ("fail_closed" in low_err or "soundscape_verify" in low_err):
                 try:
                     from pathlib import Path as _P

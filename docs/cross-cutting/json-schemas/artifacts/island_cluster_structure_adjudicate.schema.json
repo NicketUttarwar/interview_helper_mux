@@ -11,7 +11,7 @@
     },
     "hinge_attach": {
       "type": ["string", "null"],
-      "enum": ["left", "right", null]
+      "enum": ["left", "right"]
     },
     "cut_hinge_block_ids": {
       "type": "array",

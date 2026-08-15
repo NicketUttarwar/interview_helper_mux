@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -88,59 +87,30 @@ def restore_master_bundle(
 
 
 def heal_layup_spoken_copy(ctx: RunContext) -> int:
-    """Rewrite layup lines that spoken_copy_guard would block (generic heuristics only)."""
+    """Repair grounded layups or skip unhealable rows before G1 can deadlock."""
     from interview_mux.file_store import write_json as fs_write_json
-    from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
-    from interview_mux.spoken_copy_guard import (
-        artifact_spoken_copy_errors,
-        spoken_copy_violations,
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        publish_layup_plan_to_gap_report,
+        repair_or_skip_spoken_copy_layups,
     )
+    from interview_mux.spoken_copy_guard import artifact_spoken_copy_errors
 
     if not ctx.artifact_exists(PLAN_REL):
         return 0
     plan = ctx.read_json(PLAN_REL)
     if not isinstance(plan, dict):
         return 0
-    n = 0
-    seen: list[str] = []
-    for row in plan.get("layups") or []:
-        if not isinstance(row, dict) or row.get("skip"):
-            continue
-        text = str(row.get("text") or "").strip()
-        if not text:
-            continue
-        if not spoken_copy_violations(text, evidence={}, seen_texts=seen):
-            seen.append(text)
-            continue
-        beat = str(row.get("target_beat") or "").strip()
-        unlock = str(row.get("forward_unlock") or "").strip()
-        setup = str(row.get("setup_from_nuggets") or "").strip()
-        new = " ".join(p for p in (setup, beat, unlock) if p).strip() or text
-        new = re.sub(r"(?i)\s*[—\-–,]?\s*stay\s+tuned\b.*$", ".", new).strip()
-        new = re.sub(
-            r"(?i)\b(?:pipeline\s+stage|from_stage|until_stage|stage_done|"
-            r"edit\s+timeline|gap report|unaired\s+corpus|corpus\s+nugget|"
-            r"previous\s+clip|earlier\s+segment|next\s+segment|this\s+clip|"
-            r"that\s+segment|chapters?|native\s+segment|synthetic\s+vo)\b",
-            "",
-            new,
-        )
-        new = re.sub(r"\s{2,}", " ", new).strip(" ,.—–-")
-        if new and not new.endswith((".", "?", "!")):
-            new = new + "."
-        if not new or spoken_copy_violations(new, evidence={}, seen_texts=seen):
-            # Fail closed: leave the bad line so craft/post-master QC can block.
-            continue
-        if new != text:
-            row["text"] = new
-            row["word_count"] = len(new.split())
-            n += 1
-            seen.append(new)
-        else:
-            seen.append(text)
+    repaired, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    n = sum(
+        1
+        for note in notes
+        if note.get("action")
+        in {"repair_spoken_copy_layup", "skip_unhealable_spoken_copy_layup"}
+    )
     if n:
-        fs_write_json(ctx.final_path(PLAN_REL), plan)
-        publish_layup_plan_to_gap_report(ctx, plan)
+        fs_write_json(ctx.final_path(PLAN_REL), repaired)
+        publish_layup_plan_to_gap_report(ctx, repaired)
         gap = (
             ctx.read_json("understanding/gap_report.json")
             if ctx.artifact_exists("understanding/gap_report.json")
@@ -233,15 +203,24 @@ def ensure_g1_pickups(
         if line_ids is not None:
             want = set(line_ids)
             missing = [m for m in missing if m in want]
-        # Skip units already completed in the durable job.
-        done_units = {
-            str(u.get("unit_id"))
-            for u in (job.get("units") or [])
-            if isinstance(u, dict) and u.get("status") == "completed"
-        }
-        missing = [m for m in missing if m not in done_units]
+        # Durable "completed" must not hide stale script-hash rejects —
+        # check_g1_vo already proved resolve_vo_pickup_path failed.
+        if missing:
+            for lid in missing:
+                try:
+                    durable_jobs.reset_unit(
+                        ctx,
+                        "g1_vo",
+                        "ensure_pickups",
+                        lid,
+                        reason="stale_or_missing_pickup",
+                    )
+                except Exception:
+                    pass
         if not missing:
             break
+        # Refresh job view after reopen so unit statuses are pending.
+        job = durable_jobs.load_job(ctx, "g1_vo", "ensure_pickups") or job
         by_id = {
             str(L.get("line_id")): L
             for L in (report.get("interviewer_lines") or [])

@@ -118,6 +118,16 @@ def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
     }
 
 
+def _target_text(ctx: RunContext, target_segment_id: str) -> str:
+    if not target_segment_id or not ctx.artifact_exists("segments/manifest.json"):
+        return ""
+    manifest = ctx.read_json("segments/manifest.json")
+    for row in (manifest.get("segments") or []) if isinstance(manifest, dict) else []:
+        if isinstance(row, dict) and str(row.get("segment_id") or "") == target_segment_id:
+            return str(row.get("text") or row.get("text_excerpt") or "")
+    return ""
+
+
 def ensure_episode_orientation(
     ctx: RunContext,
     gap_report: dict[str, Any],
@@ -213,6 +223,86 @@ def ensure_episode_orientation(
         "conversation_topic",
         "listener_stakes",
     ]
+    # The legacy fallback ends "Let's hear how it unfolded."  That is a generic
+    # origin cue, not a handoff into the actual opening native.  Always repair
+    # the final sentence against the final selected first clip.
+    try:
+        from interview_mux.gap_vo_prior_context import (
+            cold_open_layup_ok,
+            repair_last_sentence_layup,
+        )
+
+        target_text = _target_text(ctx, target)
+        if not cold_open_layup_ok(chosen, target_text=target_text, ordered_ids=ordered):
+            chosen["text"] = repair_last_sentence_layup(
+                str(chosen.get("text") or ""),
+                target_text=target_text,
+                category="episode_preface",
+                target_segment_id=target,
+            )
+            actions.append(
+                {
+                    "action": "repair_episode_orientation_last_sentence",
+                    "line_id": chosen["line_id"],
+                    "targets_segment_id": target,
+                }
+            )
+        # Spoken-copy at G1 synth uses richer run evidence than cold-open alone.
+        # A topic body that restates the first native still deadlocks synthesize.
+        try:
+            from interview_mux.spoken_copy_guard import (
+                enrich_evidence_from_run,
+                spoken_copy_violations,
+            )
+
+            evidence = enrich_evidence_from_run(
+                ctx,
+                {
+                    "line_id": chosen.get("line_id"),
+                    "targets_segment_id": target,
+                    "line_category": "episode_preface",
+                    "target_excerpt": target_text,
+                },
+            )
+            if spoken_copy_violations(
+                str(chosen.get("text") or ""), evidence=evidence, seen_texts=[]
+            ):
+                speakable = (
+                    "Before the science, meet the founder at the center of this "
+                    "conversation. Who is he — and why start there?"
+                )
+                repaired = repair_last_sentence_layup(
+                    "Before the science, meet the founder at the center of this conversation.",
+                    target_text=target_text,
+                    category="episode_preface",
+                    target_segment_id=target,
+                )
+                # Prefer the full grounded body+cue before a cue-only repair.
+                for candidate in (speakable, repaired):
+                    probe = dict(chosen)
+                    probe["text"] = candidate
+                    if spoken_copy_violations(
+                        candidate, evidence=evidence, seen_texts=[]
+                    ):
+                        continue
+                    if not cold_open_layup_ok(
+                        probe, target_text=target_text, ordered_ids=ordered
+                    ):
+                        continue
+                    chosen["text"] = candidate
+                    actions.append(
+                        {
+                            "action": "repair_episode_orientation_spoken_copy",
+                            "line_id": chosen["line_id"],
+                            "targets_segment_id": target,
+                        }
+                    )
+                    break
+        except Exception:
+            pass
+    except Exception:
+        # Orientation remains available if a partial run lacks the source manifest.
+        pass
     # Retargeting / courtesy rewrites can leave a 1–4 word hinge that fails the
     # opening contract (<6 words). Replace with grounded fallback copy.
     if len(str(chosen.get("text") or "").split()) < 6:

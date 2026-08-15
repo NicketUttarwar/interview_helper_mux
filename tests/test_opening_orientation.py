@@ -8,6 +8,7 @@ from interview_mux.opening_orientation import (
     ensure_episode_orientation,
     validate_opening_orientation,
 )
+from interview_mux.gap_vo_prior_context import cold_open_layup_ok
 from run_fixtures import isolated_run_ctx
 
 
@@ -87,6 +88,108 @@ def test_orientation_retargets_after_explicit_native_hook_and_dedupes(tmp_path) 
     assert line["placement"] == "after"
     assert line["opening_sequence"] == SEQUENCE_COLD_OPEN
     assert any(a["action"] == "dedupe_episode_orientation" for a in actions)
+
+
+def test_orientation_repairs_generic_final_handoff_against_first_native(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_generic_handoff")
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_004"]})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_004",
+                    "type": "interviewee_answer",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "topic_tags": [],
+                    "text": (
+                        "Mohan contrasts invasive tissue biopsy with a blood-based "
+                        "liquid biopsy."
+                    ),
+                }
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "text": (
+                        "This conversation examines the choices behind modern diagnosis. "
+                        "Let's hear how it unfolded."
+                    ),
+                    "targets_segment_id": "seg_004",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        ["seg_004"],
+    )
+    line = report["interviewer_lines"][0]
+    assert line["text"].endswith("What does that contrast reveal?")
+    assert cold_open_layup_ok(
+        line,
+        target_text="Mohan contrasts invasive tissue biopsy with a blood-based liquid biopsy.",
+        ordered_ids=["seg_004"],
+    )
+    assert any(a["action"] == "repair_episode_orientation_last_sentence" for a in actions)
+
+
+def test_orientation_repairs_intro_handoff_when_courtesy_seed_is_omitted(tmp_path) -> None:
+    """First native is a guest intro — stock courtesy seed is omitted by spoken_copy."""
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_intro_handoff")
+    first = (
+        "Amr, we've got Mohan Uttarwar on the show today. Who is Mohan? "
+        "Mohan is a biotech entrepreneur who is the co-founder and CEO of OneCell.ai."
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_002"]})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_002",
+                    "type": "interviewer_question",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewer",
+                    "topic_tags": [],
+                    "text": first,
+                }
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "text": (
+                        "In this conversation, oneCell.ai argues that pairing CTC capture "
+                        "with ctDNA could make cancer monitoring more actionable. "
+                        "Let's hear how it unfolded."
+                    ),
+                    "targets_segment_id": "seg_002",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        ["seg_002"],
+    )
+    line = report["interviewer_lines"][0]
+    assert "Let's hear how it unfolded" not in line["text"]
+    assert line["text"].rstrip().endswith("?")
+    assert cold_open_layup_ok(line, target_text=first, ordered_ids=["seg_002"])
+    assert any(a["action"] == "repair_episode_orientation_last_sentence" for a in actions)
 
 
 def test_opening_contract_accepts_both_sequences() -> None:

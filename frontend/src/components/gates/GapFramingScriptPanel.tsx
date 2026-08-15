@@ -14,11 +14,30 @@ interface GapLine {
   supports_segment_ids?: string[];
   replaces_source_segments?: string[];
   delivery?: string;
+  nugget_ids?: string[];
+  skipped_optional?: boolean;
+}
+
+interface OmitEntry {
+  entry_id?: string;
+  subject_id?: string;
+  target_segment_id?: string | null;
+  decision?: string;
+  reason_code?: string;
+  compensating_path?: string | null;
+  value_forgone?: string[];
+  active?: boolean;
 }
 
 interface GapFramingScriptPayload {
   lines?: GapLine[];
   plan?: { acts?: unknown[] } | null;
+  omit_ledger?: { entries?: OmitEntry[] };
+  omit_summary?: {
+    active_count?: number;
+    compensated_count?: number;
+    unresolved_high_salience?: number;
+  };
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -68,6 +87,12 @@ export function GapFramingScriptPanel({ stage }: { stage: StageInfo }) {
   };
 
   const lines = data?.lines || [];
+  const omitByTarget = new Map<string, OmitEntry>();
+  for (const entry of data?.omit_ledger?.entries || []) {
+    if (!entry?.active) continue;
+    const tid = String(entry.target_segment_id || entry.subject_id || "");
+    if (tid) omitByTarget.set(tid, entry);
+  }
   if (!lines.length) {
     return (
       <p className="hint sm" data-testid="gap-framing-script-panel">
@@ -81,16 +106,22 @@ export function GapFramingScriptPanel({ stage }: { stage: StageInfo }) {
       <h4>Framing script</h4>
       <p className="hint sm">
         Edit interviewer copy before G1. Categories control word budgets and sound-design cues.
+        {data?.omit_summary?.active_count
+          ? ` · ${data.omit_summary.active_count} omit decision(s)`
+          : ""}
       </p>
       <ul className="pickup-speaker-list">
         {lines.map((line) => {
           const cat = line.line_category || line.gap_type || "line";
           const label = CATEGORY_LABEL[cat] || cat;
+          const omit = omitByTarget.get(String(line.targets_segment_id || line.line_id || ""));
           return (
             <li key={line.line_id} className="pickup-speaker-card vo-card">
               <div className="vo-card-head">
                 <strong>{line.line_id}</strong>
                 <span className="badge sm">{label}</span>
+                {line.skipped_optional ? <span className="badge sm">skipped</span> : null}
+                {omit ? <span className="badge sm">{omit.decision || "omit"}</span> : null}
                 <span className="muted sm">
                   → {line.targets_segment_id} ({line.placement || "before"})
                 </span>
@@ -107,6 +138,14 @@ export function GapFramingScriptPanel({ stage }: { stage: StageInfo }) {
                   }
                 }}
               />
+              {line.nugget_ids?.length ? (
+                <p className="hint sm">Nuggets: {line.nugget_ids.join(", ")}</p>
+              ) : null}
+              {omit?.compensating_path ? (
+                <p className="hint sm">
+                  Omit path: {omit.reason_code} → {omit.compensating_path}
+                </p>
+              ) : null}
               {line.supports_segment_ids?.length ? (
                 <p className="hint sm">Supports: {line.supports_segment_ids.join(", ")}</p>
               ) : null}

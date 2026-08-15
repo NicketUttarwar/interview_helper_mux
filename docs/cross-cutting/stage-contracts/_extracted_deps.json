@@ -118,7 +118,10 @@
     "reads": [
       "master/narrative_plan.json",
       "master/selection.json",
-      "understanding/music_brief.json"
+      "segments/manifest.json",
+      "understanding/music_brief.json",
+      "understanding/sonic_context.json",
+      "understanding/soundscape_policy.json"
     ],
     "writes": []
   },
@@ -186,13 +189,15 @@
     "reads": [
       "run_meta.json",
       "segments/manifest.json",
+      "sound_design/musicgen_candidates.json",
       "sound_design/sfx_prompts.json",
       "understanding/music_brief.json",
       "understanding/sonic_acoustic_profile.json",
       "understanding/sound_design_plan.json"
     ],
     "writes": [
-      "run_meta.json"
+      "run_meta.json",
+      "sound_design/musicgen_candidates.json"
     ]
   },
   "sonic_context_stages": {

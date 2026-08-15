@@ -1653,9 +1653,11 @@ def _set_g_listen_pending_after_remaster(ctx: RunContext) -> None:
         if isinstance(critic, dict) and critic.get("g_listen_recommended"):
 
             def _glisten(m: dict) -> None:
+                # Operator already continued/skipped for this run — do not re-arm
+                # (remaster thrash + e2e clear loops otherwise fight forever).
+                if m.get("g_listen_skipped") or m.get("g_listen_cleared"):
+                    return
                 m["g_listen_pending"] = True
-                m.pop("g_listen_cleared", None)
-                m.pop("g_listen_skipped", None)
                 if critic.get("quality_score") is not None:
                     m["g_listen_quality_score"] = critic.get("quality_score")
 

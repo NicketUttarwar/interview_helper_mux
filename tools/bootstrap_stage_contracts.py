@@ -93,6 +93,7 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     "sound_design_plan": [{"path": "assets", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_craft": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
     "sfx_prompt_refine": [{"path": "prompts", "rule": "min_rows", "min_count": 1}],
+    "music_palette_compose": [{"path": "cues", "rule": "min_rows", "min_count": 1}],
     # Lay-up mining/composing may legitimately return zero rows (no recoverable
     # nuggets), so the rule is presence of the collection, not a row floor.
     "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 0}],

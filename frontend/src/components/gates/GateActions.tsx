@@ -10,6 +10,7 @@ import { ConversationStudioPanel } from "./ConversationStudioPanel";
 import { PickupSpeakerPanel } from "./PickupSpeakerPanel";
 import { GapFramingGatePanel } from "./GapFramingGatePanel";
 import { GapFramingScriptPanel } from "./GapFramingScriptPanel";
+import { OmitLedgerPanel } from "./OmitLedgerPanel";
 import { ImpactBlockPreview } from "./ImpactBlockPreview";
 import { VoiceReferencePanel } from "./VoiceReferencePanel";
 import { GapDeliveryPanel } from "./GapDeliveryPanel";
@@ -118,13 +119,19 @@ export function GateActions({ stage }: Props) {
           stage.status === "done" ? (
             <>
               <GapFramingScriptPanel stage={stage} />
+              <OmitLedgerPanel stageId={stage.id} />
               <ConversationStudioPanel />
             </>
+          ) : null}
+
+          {stage.id === "nugget_layup_compose" && stage.status === "done" ? (
+            <OmitLedgerPanel stageId={stage.id} />
           ) : null}
 
           {stage.id === "g1_vo_pickup" && stage.status === "action_required" ? (
             <>
               <GapFramingScriptPanel stage={stage} />
+              <OmitLedgerPanel stageId={stage.id} />
               <ImpactBlockPreview />
               <VoPickupPanel voLines={timeline?.vo_lines || []} />
             </>

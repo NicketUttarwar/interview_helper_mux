@@ -317,6 +317,7 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
     # Keep gap VO targets on the surviving air timeline after framing exclusions.
     if ctx.artifact_exists("understanding/gap_report.json"):
         from interview_mux.gap_framing import (
+            avoid_clone_voice_adjacency,
             drop_contiguous_light_bridge_lines,
             rebase_gap_lines_to_selection,
         )
@@ -338,6 +339,20 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
                 by_id,
                 ordered_segment_ids=final_ordered,
             )
+            corpus = (
+                ctx.read_json("understanding/nugget_corpus.json")
+                if ctx.artifact_exists("understanding/nugget_corpus.json")
+                else {}
+            )
+            from interview_mux.source_topology import pickup_eligible_speaker_id
+
+            cleaned, clone_notes = avoid_clone_voice_adjacency(
+                cleaned,
+                by_id,
+                ordered_segment_ids=final_ordered,
+                clone_speaker_id=pickup_eligible_speaker_id(ctx),
+                nugget_corpus=corpus if isinstance(corpus, dict) else {},
+            )
             from interview_mux.opening_orientation import ensure_episode_orientation
 
             cleaned, opening_notes = ensure_episode_orientation(
@@ -347,7 +362,11 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
 
             cleaned, layup_notes = restore_layup_lines(ctx, cleaned)
             all_notes = (
-                list(notes) + list(drop_notes) + list(opening_notes) + list(layup_notes)
+                list(notes)
+                + list(drop_notes)
+                + list(clone_notes)
+                + list(opening_notes)
+                + list(layup_notes)
             )
             if all_notes:
                 ctx.write_json("understanding/gap_report.json", cleaned)

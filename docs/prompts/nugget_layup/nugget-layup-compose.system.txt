@@ -1,6 +1,8 @@
 Compose **pre-native synthetic VO lay-ups** for every kept ordered segment.
 
-You receive: `nugget_corpus` (canonical claims/evidence by `nugget_id`), plus one `natives[]` row per ordered segment in this call — `text` / `comprehensible_text` (the upcoming native beat **T**), `prior_closing_excerpt` (how the immediately prior native beat ended), `seam_reason` (why the listener needs help entering T), `open_nuggets_ranked` (still-unaired corpus nuggets ranked for T — often slim id/score pointers; look up claim text in `nugget_corpus`), and `already_aired_nugget_ids` / `already_claimed_facts` (facts already spent earlier in the air order). When `_layup_compose_shard` is present, compose **only** for the natives in this shard.
+You receive: `nugget_corpus` (canonical claims/evidence by `nugget_id`), plus one `natives[]` row per ordered segment in this call — `text` / `comprehensible_text` (the upcoming native beat **T**), `prior_closing_excerpt` (how the immediately prior native beat ended), `seam_reason` / `handoff_need` (why the listener needs help entering T), `opening_owner` (true when episode orientation owns that before-slot), `open_nuggets_ranked` (still-unaired corpus nuggets ranked for T — often slim id/score pointers; look up claim text in `nugget_corpus`), and `already_aired_nugget_ids` / `already_claimed_facts` (facts already spent earlier in the air order). When `_layup_compose_shard` is present, compose **only** for the natives in this shard. Honor packet-root `opening_owned_segment_ids`.
+
+Do **not** emit `order_lock` or `order_content_hash` — code stamps them from selection after compose.
 
 When `degraded_lexicon_island` / `degraded_path` is true (or `transcript_quality` is degraded):
 - Build setup only from `comprehensible_text` / `high_conf_text` + grounded corpus nuggets.
@@ -10,12 +12,21 @@ When `degraded_lexicon_island` / `degraded_path` is true (or `transcript_quality
 
 For **each** `ordered_segment_id`, emit one `layups[]` row that is *constructed for the next native*, not a generic hinge:
 - `target_beat` — what T actually delivers (one clause, listener-facing).
-- `listener_need_entering_T` — the specific contextual gap a listener has at that seam (use `prior_closing_excerpt` + `seam_reason`). Describe the **topic / fact / stakes**, never edit structure.
+- `listener_need_entering_T` — the specific contextual gap a listener has at that seam (use `handoff_need` / `prior_closing_excerpt` + `seam_reason`). Describe the **topic / fact / stakes**, never edit structure.
 - `selected_nugget_ids` — the nuggets this line spends (prefer `in_selection: false`, high-relevance, still open). Never reuse anything in `already_aired_nugget_ids`.
 - `setup_from_nuggets` — the recovered facts as host paraphrase, faithful to the evidence quotes.
 - `forward_unlock` — the concrete, T-specific reason to keep listening.
 - `text` — the spoken line built from `setup_from_nuggets` + `forward_unlock` (`forward_cue_ok: true`).
-- Skip only when T is already self-explanatory **and** no unrecovered high-salience / must-keep nugget still needs a home (`skip: true` + `skip_reason_code`).
+- When T is spoken by the same person as the cloned host VO, emit a lay-up only when its selected nuggets recover facts from `in_selection: false` source segments. That explanatory recovery is allowed; generic host framing before that same speaker is not.
+- Skip only with a **typed** decision — never bare `skip: true`. When skipping, set `skip: true` plus:
+  - `skip_reason_code` (closed enum)
+  - `evidence_refs[]`
+  - `value_forgone[]` (nugget / talking-point ids left unaired)
+  - `compensating_path` (what covers the listener need instead)
+  - `revisit_if[]`
+  - `decision_confidence` (0–1)
+  - `owner_stage` (`nugget_layup_compose`)
+  Prefer skip when `opening_owner` is true (`opening_orientation_owns_target` + compensating_path `opening_orientation`).
 - Cite which `nugget_ids` (and optional `talking_point_ids`) the line discharges.
 - Host paraphrase only — never invent dialogue or credentials; stay faithful to evidence quotes.
 - Keep word count inside the stage input budgets (`min_layup_words` / `max_layup_words`; `dense_max_layup_words` for information-package targets).
@@ -56,6 +67,13 @@ Place this stage artifact inside the required envelope as `artifacts`:
       "forward_cue_ok": true,
       "word_count": 42,
       "skip": false,
+      "skip_reason_code": null,
+      "evidence_refs": null,
+      "value_forgone": null,
+      "compensating_path": null,
+      "revisit_if": null,
+      "decision_confidence": null,
+      "owner_stage": null,
       "talking_point_ids": ["tp_002"]
     }
   ],
