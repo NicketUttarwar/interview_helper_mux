@@ -251,6 +251,106 @@ def test_assembly_ledger_marks_naked_then_glued(tmp_path):
     assert ledger2["chapters"]
 
 
+def test_justified_layup_skip_waives_naked_seam(tmp_path, monkeypatch):
+    """Typed justified skip on the destination must not count as a naked seam."""
+    from interview_mux.nugget_layup import PLAN_REL, stamp_typed_skip
+
+    segs = {
+        "seg_010": {
+            "segment_id": "seg_010",
+            "start_ms": 215_020,
+            "end_ms": 240_000,
+            "speaker_id": "spk_a",
+        },
+        "seg_002": {
+            "segment_id": "seg_002",
+            "start_ms": 60_000,
+            "end_ms": 94_140,
+            "speaker_id": "spk_b",
+        },
+    }
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json("segments/manifest.json", {"segments": list(segs.values())})
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_002"], "chapters": []},
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        build_reorder_bridges(["seg_010", "seg_002"], segs),
+    )
+    skip_row = stamp_typed_skip(
+        {"target_segment_id": "seg_002"},
+        reason_code="non_editorial_outro",
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ["seg_010", "seg_002"],
+            "layups": [skip_row],
+        },
+    )
+    naked_edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_010", "seg_002"]},
+        segments_by_id=segs,
+        transitions={"transitions": []},
+    )
+    ledger = build_assembly_ledger(ctx, edl=naked_edl)
+    assert ledger["naked_seam_count"] == 0
+    assert ledger["complete"] is True
+    waived = [s for s in ledger["seams"] if s.get("glue_waived")]
+    assert waived
+    assert waived[0]["before_segment_id"] == "seg_002"
+    assert_ledger_no_naked_seams(ledger)
+
+
+def test_contiguous_justified_skip_is_not_naked(tmp_path):
+    """Contiguous interviewer→guest with typed skip must waive glue, not mint a stinger."""
+    from interview_mux.nugget_layup import PLAN_REL, stamp_typed_skip
+
+    segs = {
+        "seg_001": {
+            "segment_id": "seg_001",
+            "start_ms": 0,
+            "end_ms": 4000,
+            "speaker_id": "spk_host",
+        },
+        "seg_002": {
+            "segment_id": "seg_002",
+            "start_ms": 4000,
+            "end_ms": 9000,
+            "speaker_id": "spk_guest",
+        },
+    }
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json("segments/manifest.json", {"segments": list(segs.values())})
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001", "seg_002"], "chapters": []},
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "layups": [
+                stamp_typed_skip(
+                    {"target_segment_id": "seg_002"},
+                    reason_code="self_explanatory_native",
+                )
+            ],
+        },
+    )
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_001", "seg_002"]},
+        segments_by_id=segs,
+        transitions={"transitions": []},
+    )
+    ledger = build_assembly_ledger(ctx, edl=edl)
+    assert ledger["naked_seam_count"] == 0
+    assert_ledger_no_naked_seams(ledger)
+    assert not any(a.get("type") == "transition" for a in ledger.get("atoms") or [])
+
+
 def test_order_hash_lock():
     sel = stamp_order_hash({"ordered_segment_ids": ["seg_010", "seg_002"]})
     edl = stamp_order_hash({"ordered_segment_ids": ["seg_010", "seg_002"]})

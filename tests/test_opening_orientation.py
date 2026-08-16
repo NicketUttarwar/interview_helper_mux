@@ -251,3 +251,87 @@ def test_opening_contract_accepts_both_sequences() -> None:
         assert validate_opening_orientation(
             gap_report=report, edl={"clips": clips}
         ) == []
+
+
+def test_fallback_orientation_never_injects_chapter(tmp_path) -> None:
+    from interview_mux.opening_orientation import _fallback_orientation_text
+
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_no_chapter")
+    brief_path = ctx.path("understanding", "content_brief.json")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        json.dumps(
+            {
+                "thesis": (
+                    "Founder Asha explains the growth stage that unlocked durable scale."
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    text, _ = _fallback_orientation_text(ctx)
+    assert "chapter" not in text.casefold()
+    assert "phase" in text.casefold() or "growth" in text.casefold()
+
+
+def test_orientation_omitted_when_native_open_self_orients(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_omit_native")
+    brief_path = ctx.path("understanding", "content_brief.json")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        json.dumps({"guest_name": "Mohan", "thesis": "Liquid biopsy changes trials."}),
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_011"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_010",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                    "text": (
+                        "Welcome Mohan — today we talk about liquid biopsy, "
+                        "trial design, and why a blood draw changes diagnostics."
+                    ),
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                },
+                {
+                    "segment_id": "seg_011",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                    "text": "Tissue biopsy is invasive and expensive.",
+                    "start_ms": 8000,
+                    "end_ms": 14000,
+                },
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "text": "Before the science, meet the founder.",
+                    "targets_segment_id": "seg_010",
+                }
+            ]
+        },
+        ["seg_010", "seg_011"],
+    )
+    assert any(a.get("action") == "omit_episode_orientation" for a in actions)
+    assert not any(
+        ln.get("episode_orientation") for ln in report.get("interviewer_lines") or []
+    )

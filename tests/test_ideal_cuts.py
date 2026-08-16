@@ -177,7 +177,8 @@ def test_resolve_keeper_air_bounds_respects_prev_keeper_floor():
     assert end > start
 
 
-def test_snap_rejects_must_keep_with_unresolved_anchor():
+def test_snap_falls_back_to_clock_when_anchors_unresolved():
+    """Paraphrased anchors must not wipe must_keep cuts that have usable clocks."""
     from interview_mux.ideal_cuts import snap_ideal_cuts
 
     words = [
@@ -194,7 +195,7 @@ def test_snap_rejects_must_keep_with_unresolved_anchor():
                 "start_ms": 0,
                 "end_ms": 500,
                 "priority": "must_keep",
-                "rationale": "wrong anchors",
+                "rationale": "wrong anchors, good clocks",
                 "start_anchor": "tissue biopsy",
                 "end_anchor": "treatment is given",
             }
@@ -214,8 +215,61 @@ def test_snap_rejects_must_keep_with_unresolved_anchor():
             }
         },
     )
-    assert snapped["cut_count"] == 0
-    assert any("anchor" in w.lower() for w in snapped.get("snap_warnings") or [])
+    assert snapped["cut_count"] == 1
+    resolve = snapped["cuts"][0].get("anchor_resolve") or {}
+    start_meta = resolve.get("start") or {}
+    assert start_meta.get("source") == "approx_snap"
+    assert start_meta.get("fallback") == "approx_snap"
+    assert start_meta.get("reason") == "anchor_not_found_near_approx"
+
+
+def test_snap_ignores_default_zero_word_indexes_far_from_approx():
+    """OpenAI schemas force word indexes; models often emit 0/0 when unsure.
+
+    Trusting index 0 collapsed every cut onto the first transcript words and
+    emptied bind-mode materialize (no valid cuts after snap).
+    """
+    words = _words()
+    cuts = {
+        "cuts": [
+            {
+                "cut_id": "c1",
+                "talking_point_id": "tp_1",
+                "start_ms": 3700,
+                "end_ms": 8200,
+                "start_word_index": 0,
+                "end_word_index": 0,
+                "priority": "must_keep",
+                "rationale": "bogus indexes must not win",
+            }
+        ]
+    }
+    snapped = snap_ideal_cuts(
+        cuts,
+        {"words": words},
+        cfg={
+            "analysis": {
+                "ideal_cuts": {
+                    "acoustic_edge_refine": False,
+                    "min_cut_ms": 2000,
+                    "anchor_max_delta_ms": 8_000,
+                }
+            }
+        },
+    )
+    assert snapped["cut_count"] == 1
+    cut = snapped["cuts"][0]
+    # Must keep the second span — not collapse onto transcript word[0].
+    assert int(cut["start_ms"]) >= 2000
+    assert int(cut["end_ms"]) >= 7000
+    warnings = snapped.get("snap_warnings") or []
+    assert any("word_index" in w for w in warnings)
+    resolve = cut.get("anchor_resolve") or {}
+    assert (
+        any("identical start/end word_index" in w for w in warnings)
+        or (resolve.get("start") or {}).get("word_index_ignored") is True
+        or (resolve.get("start") or {}).get("source") != "word_index"
+    )
 
 
 def test_snap_prefers_verified_anchor_near_approx():
@@ -275,3 +329,42 @@ def test_snap_prefers_verified_anchor_near_approx():
     resolve = snapped["cuts"][0].get("anchor_resolve") or {}
     assert (resolve.get("start") or {}).get("source") == "anchor"
     assert (resolve.get("start") or {}).get("matched") is True
+
+
+def test_empty_snap_demotes_bind_mode_instead_of_raising(tmp_path, monkeypatch):
+    from interview_mux.ideal_cuts import (
+        IDEAL_CUTS_REL,
+        MATERIALIZED_REL,
+        run_ideal_cuts_materialize,
+    )
+    from interview_mux.run_context import RunContext
+
+    ctx = RunContext(str(tmp_path / "cuts_empty"), create=True)
+    ctx.write_json(
+        IDEAL_CUTS_REL,
+        {
+            "cuts": [
+                {
+                    "cut_id": "c1",
+                    "talking_point_id": "tp_1",
+                    "start_ms": 0,
+                    "end_ms": 1000,
+                    "priority": "must_keep",
+                    "rationale": "empty snap fixture",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("transcript/full.json", {"words": []})
+    monkeypatch.setattr(
+        "interview_mux.ideal_cuts.snap_ideal_cuts",
+        lambda *a, **k: {"cuts": [], "snap_warnings": ["empty"]},
+    )
+    monkeypatch.setattr("interview_mux.ideal_cuts.bind_boundaries_enabled", lambda cfg=None: True)
+    monkeypatch.setattr("interview_mux.ideal_cuts.bind_ranking_enabled", lambda cfg=None: True)
+    run_ideal_cuts_materialize(ctx)
+    mat = ctx.read_json(MATERIALIZED_REL)
+    assert mat["bind_mode_used"] == "off"
+    assert mat["boundary_skip_reason"] == "empty_snap_demote"
+    assert mat.get("cuts") == []

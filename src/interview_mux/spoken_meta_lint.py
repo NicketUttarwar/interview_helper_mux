@@ -131,6 +131,30 @@ _EDITORIAL_QC = re.compile(
     re.IGNORECASE,
 )
 
+# Planner / analysis fields that leaked into air (first-time listener would not understand).
+_PLANNER_META = re.compile(
+    r"\b(?:"
+    r"episode(?:'s|s)?\s+intended\s+scope|"
+    r"intended\s+scope|"
+    r"episode\s+scope|"
+    r"native\s+continuation|"
+    r"native\s+(?:segment|clip|beat|take)|"
+    r"listener\s+need(?:\s+entering)?|"
+    r"entering\s+T\b|"
+    r"talking\s+points?|"
+    r"vo\s+missions?|"
+    r"coverage\s+of\s+(?:this|the|our)\s+(?:conversation|episode|show)|"
+    r"must[- ]keep\s+talking\s+point|"
+    r"handoff\s+need|"
+    r"target\s+beat|"
+    r"forward\s+unlock|"
+    r"setup\s+from\s+nuggets|"
+    r"nugget\s+(?:corpus|lay[- ]?up|id)|"
+    r"ordered\s+segment"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[str]:
     """Return list of rule ids that fire on *text*."""
@@ -152,6 +176,8 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
         hits.append("spoken_internal_identifier")
     if _EDITORIAL_QC.search(t):
         hits.append("spoken_editorial_qc_prose")
+    if _PLANNER_META.search(t):
+        hits.append("spoken_planner_meta")
     return list(dict.fromkeys(hits))
 
 
@@ -173,6 +199,7 @@ def is_hard_structure_violation(code: str) -> bool:
         "spoken_show_scaffold",
         "spoken_internal_identifier",
         "spoken_editorial_qc_prose",
+        "spoken_planner_meta",
         "spoken_production_jargon",
         "spoken_path_or_filename",
         "spoken_placeholder",

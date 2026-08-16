@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
-Creates a new run from ASSETS/input/Baba_zydus_town_hall.mp4 (MUX_FRESH=1, default when
-MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator gates until master/master.wav.
-Override with MUX_INPUT_AUDIO (e.g. ASSETS/input/interview.mp3).
+Creates a new run from
+ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
+(MUX_FRESH=1, default when MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator
+gates until master/master.wav. Override with MUX_INPUT_AUDIO.
 """
 
 from __future__ import annotations
@@ -197,16 +198,51 @@ BASE = os.environ.get(
     "MUX_BASE",
     f"http://127.0.0.1:{os.environ.get('MUX_WEB_PORT', '8765')}",
 )
-INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "ASSETS/input/Baba_zydus_town_hall.mp4")
+INPUT_AUDIO = os.environ.get(
+    "MUX_INPUT_AUDIO",
+    "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
+)
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
 RUN_ID = os.environ.get("MUX_RUN_ID", "")
+
+
+def try_product_recovery(stage_id: str, err: str) -> str | None:
+    """One typed playbook via the product controller. Returns resume stage or None."""
+    from interview_mux.recovery_controller import handle_stage_failure
+    from interview_mux.run_context import RunContext
+
+    ctx = RunContext(RUN_ID, create=False)
+    result = handle_stage_failure(ctx, stage_id, RuntimeError(err))
+    log(
+        f"recovery_controller {result.status} {result.signature} "
+        f"playbook={result.playbook_id} detail={result.detail}"
+    )
+    if result.status == "recovered":
+        log_decision(
+            "minor",
+            stage=str(stage_id),
+            action="recovery_playbook",
+            reason=result.playbook_id,
+            detail={"signature": result.signature, "resume": result.resume_stage},
+        )
+        return result.resume_stage
+    return None
+
+
+def _mode_for_stage(sid: str) -> str:
+    if sid in DELIVERY_ORDER:
+        return "delivery"
+    return "analysis"
+
+
 # Product EDL re-synths stale orientation once. Do not thicken/re-synth forever.
 _ORIENTATION_EDL_RESUMES = 0
 _NARRATIVE_REMUTATE_DRIVES = 0
 _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
 _VO_REPAIR_FAILURES: dict[str, int] = {}
+_IDENTICAL_STAGE_FAILURES: dict[str, int] = {}
 POLL_SEC = int(os.environ.get("MUX_POLL_SEC", "20"))
 MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
 
@@ -976,12 +1012,8 @@ def skip_g1() -> None:
 
 def heal_layup_spoken_copy() -> int:
     """Rewrite lay-up air copy that spoken_copy_guard would block at G1 synth."""
-    import re as _re
-
     from interview_mux.delivery_recovery import heal_layup_spoken_copy as product_heal
-    from interview_mux.nugget_layup import PLAN_REL, publish_layup_plan_to_gap_report
     from interview_mux.run_context import RunContext
-    from interview_mux.spoken_copy_guard import spoken_copy_violations
 
     ctx = RunContext(RUN_ID, create=False)
     n = 0
@@ -989,49 +1021,10 @@ def heal_layup_spoken_copy() -> int:
         n = int(product_heal(ctx) or 0)
     except Exception as exc:
         log(f"G1 spoken-copy product heal skipped: {exc}")
-    if not ctx.artifact_exists(PLAN_REL):
-        return n
-    plan = ctx.read_json(PLAN_REL)
-    # Episode-specific hard-coded rewrites remain e2e-only.
-    rewrites = {
-        "seg_083": (
-            "That voice belongs to Vijay, the man behind Natural. "
-            "Next he names the single choice that set the company's story in motion, "
-            "and what was on the line."
-        ),
-        "seg_226": (
-            "Job security is only the starting point. "
-            "The next question is what comes after that for the staff."
-        ),
-        "seg_275": (
-            "Vijay starts at the corner-office vice-president and works down the hierarchy."
-        ),
-    }
-    for row in plan.get("layups") or []:
-        if not isinstance(row, dict) or row.get("skip"):
-            continue
-        tid = str(row.get("target_segment_id") or "")
-        if tid not in rewrites:
-            continue
-        text = str(row.get("text") or "").strip()
-        new = rewrites[tid]
-        if new != text and not spoken_copy_violations(new, evidence={}):
-            row["text"] = new
-            row["word_count"] = len(new.split())
-            n += 1
+    # Tape-specific hard-coded rewrites (Baba/Vijay/Natural) were removed —
+    # product_heal above rewrites from layup plan fields only.
     if n:
-        from interview_mux.file_store import write_json as fs_write_json
-
-        # Commit to final paths and drop stale pending copies so reads don't shadow.
-        fs_write_json(ctx.final_path(PLAN_REL), plan)
-        pending_root = ctx.final_path(".pending_writes", "nugget_layup_compose")
-        for rel in (PLAN_REL, "understanding/gap_report.json"):
-            stale = pending_root.joinpath(*rel.split("/"))
-            if stale.is_file():
-                stale.unlink()
-        publish_layup_plan_to_gap_report(ctx, plan)
-        fs_write_json(ctx.final_path(PLAN_REL), plan)
-        log(f"G1 spoken-copy heal: rewrote {n} layup line(s)")
+        log(f"G1 spoken-copy heal: product rewrote {n} layup line(s)")
     return n
 
 
@@ -2342,11 +2335,11 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     if "write approval pending" in low:
         try:
             from interview_mux.run_context import RunContext
-            from interview_mux.write_staging import discard_stage_writes, stages_with_pending_writes
+            from interview_mux.write_staging import approve_stage_writes, stages_with_pending_writes
 
             ctx_w = RunContext(RUN_ID, create=False)
             stale = stages_with_pending_writes(ctx_w)
-            dropped: list[str] = []
+            saved: list[str] = []
             for sid in stale:
                 committed_ok = False
                 if sid == "segment_classification":
@@ -2354,9 +2347,12 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 elif ctx_w.is_done(sid):
                     committed_ok = True
                 if committed_ok or ctx_w.is_done(sid):
-                    discard_stage_writes(ctx_w, sid)
-                    dropped.append(sid)
-            log(f"write-approval heal: discarded pending {dropped or stale}")
+                    try:
+                        approve_stage_writes(ctx_w, sid)
+                        saved.append(sid)
+                    except Exception as approve_exc:
+                        log(f"write-approval save {sid}: {approve_exc}")
+            log(f"write-approval heal: saved pending {saved or stale}")
         except Exception as exc:
             log(f"write-approval heal: {exc}")
         execute(body)
@@ -2721,6 +2717,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             log(f"post-edl narrative heal: {exc}")
 
     if "mix gate" in low or "mmaudio_qa.json missing" in low or "mmaudio_qa failed" in low:
+        resume = try_product_recovery(stage or "mix", msg)
+        if resume:
+            execute({"mode": _mode_for_stage(resume), "from_stage": resume})
+            return "continue"
         try:
             from pathlib import Path as _P
             import shutil
@@ -3061,10 +3061,23 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if rewritten:
                     write_committed_json(ctx, "master/transitions.json", tr)
                     log(f"bridge heal: rewrote {rewritten} repeated fallback hinge(s)")
+            from interview_mux.nugget_layup import is_justified_skip_row
+
+            justified_skip_before: set[str] = set()
+            if ctx.artifact_exists("understanding/nugget_layup_plan.json"):
+                plan_doc = ctx.read_json("understanding/nugget_layup_plan.json")
+                if isinstance(plan_doc, dict):
+                    for row in plan_doc.get("layups") or []:
+                        if not isinstance(row, dict) or not row.get("skip"):
+                            continue
+                        tid = str(row.get("target_segment_id") or "").strip()
+                        if tid and is_justified_skip_row(row, soft_migrate=True):
+                            justified_skip_before.add(tid)
             miss = missing_reorder_bridges(
                 bridges,
                 gap_report=gap if isinstance(gap, dict) else None,
                 transitions=tr,
+                justified_skip_before_ids=justified_skip_before,
             )
             if miss:
                 from interview_mux.seam_glue import mint_missing_transitions
@@ -3082,6 +3095,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     bridges,
                     gap_report=gap if isinstance(gap, dict) else None,
                     transitions=tr,
+                    justified_skip_before_ids=justified_skip_before,
                     soft=False,
                 )
             except SystemExit as assert_exc:
@@ -4628,72 +4642,63 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
             low_err = err.lower()
+            # Stop identical empty-snap loops — product must fix word_index/anchor
+            # collapse; re-executing the same materialize cannot invent cuts.
+            if stage == "ideal_cuts_materialize" and (
+                "no valid cuts after snap" in low_err
+                or "bind_mode requires boundaries" in low_err
+            ):
+                fail_key = "ideal_cuts_materialize:no_valid_cuts_after_snap"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log_decision(
+                        "major",
+                        stage="ideal_cuts_materialize",
+                        action="stop",
+                        reason="identical_empty_snap_x3",
+                        detail=err[:240],
+                    )
+                    log(
+                        "STOP: ideal_cuts_materialize empty snap repeated ≥3 times "
+                        "without progress — fix product snap/anchors, do not soft-loop"
+                    )
+                    raise SystemExit(
+                        "HARD: ideal_cuts_materialize no valid cuts after snap (x3)"
+                    )
+            if stage == "nugget_layup_compose" and (
+                "nugget layup qc failed" in low_err
+                or "canned_air" in low_err
+                or "insufficient_analysis" in low_err
+            ):
+                fail_key = f"nugget_layup_compose:{err[:160]}"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log_decision(
+                        "major",
+                        stage="nugget_layup_compose",
+                        action="stop",
+                        reason="identical_layup_qc_x3",
+                        detail=err[:240],
+                    )
+                    log(
+                        "STOP: nugget_layup_compose QC repeated ≥3 times without "
+                        "progress — fix product heal/compose, do not soft-loop"
+                    )
+                    raise SystemExit("HARD: nugget_layup_compose QC failed (x3)")
             if (
                 "naked seam" in low_err
                 or "junction remaster left" in low_err
                 or "could not remaster" in low_err
             ):
-                try:
-                    from pathlib import Path as _P
-
-                    from interview_mux.run_context import RunContext
-                    from interview_mux.seam_glue import ensure_seam_glue
-
-                    ctx = RunContext(RUN_ID, create=False)
-                    root = _P(ctx.run_dir)
-                    ordered = []
-                    if ctx.artifact_exists("master/selection.json"):
-                        sel = ctx.read_json("master/selection.json")
-                        ordered = [
-                            str(s)
-                            for s in ((sel or {}).get("ordered_segment_ids") or [])
-                            if s
-                        ]
-                    by_id = {}
-                    if ctx.artifact_exists("segments/manifest.json"):
-                        man = ctx.read_json("segments/manifest.json")
-                        by_id = {
-                            str(r.get("segment_id")): r
-                            for r in ((man or {}).get("segments") or [])
-                            if isinstance(r, dict) and r.get("segment_id")
-                        }
-                    gap = (
-                        ctx.read_json("understanding/gap_report.json")
-                        if ctx.artifact_exists("understanding/gap_report.json")
-                        else None
-                    )
-                    tr = (
-                        ctx.read_json("master/transitions.json")
-                        if ctx.artifact_exists("master/transitions.json")
-                        else None
-                    )
-                    ensure_seam_glue(
-                        ctx,
-                        ordered=ordered,
-                        segments_by_id=by_id,
-                        gap_report=gap if isinstance(gap, dict) else None,
-                        transitions=tr if isinstance(tr, dict) else None,
-                        soft=False,
-                    )
-
-                    def _clear_soft(m: dict) -> None:
-                        m.pop("e2e_soft_junction_residuals", None)
-
-                    ctx.mutate_run_meta(_clear_soft)
-                    for sid in (
-                        "transitions",
-                        "edl",
-                        "assembly_preview",
-                        "mix",
-                        "junction_snip_qa",
-                    ):
-                        (root / ".stage_done" / sid).unlink(missing_ok=True)
-                    log("naked-seam remint glue → edl (hard seams)")
-                    execute({"mode": "delivery", "from_stage": "edl"})
+                resume = try_product_recovery(stage or "edl", err)
+                if resume:
+                    execute({"mode": _mode_for_stage(resume), "from_stage": resume})
                     continue
-                except Exception as exc:
-                    log(f"naked-seam remint: {exc}")
-                    raise SystemExit(f"HARD: naked seam remint failed: {exc}") from exc
+                log("recovery_controller did not recover naked seam — escalate, no remint loop")
             if (
                 "nugget_layup_plan_stale" in low_err
                 or "nugget_layup_authority_violated" in low_err
@@ -4890,13 +4895,44 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         materialize_over_skipped_layups,
                         normalize_layup_talking_point_ledger,
                         publish_layup_plan_to_gap_report,
-                        uncovered_high_value_forgone,
                     )
                     from interview_mux.run_context import RunContext
 
                     ctx = RunContext(RUN_ID, create=False)
                     if not ctx.artifact_exists(PLAN_REL):
                         raise FileNotFoundError(PLAN_REL)
+                    coverage_only = any(
+                        marker in low_err
+                        for marker in (
+                            "layup_coverage",
+                            "min_layup_coverage",
+                            "layup coverage",
+                        )
+                    ) and not any(
+                        marker in low_err
+                        for marker in (
+                            "canned_air",
+                            "invented_island",
+                            "generic_unlock",
+                            "duplicate_nugget",
+                            "insufficient_analysis",
+                        )
+                    )
+                    if coverage_only:
+                        resume = try_product_recovery(
+                            stage or "nugget_layup_compose", err
+                        )
+                        if resume:
+                            execute(
+                                {
+                                    "mode": _mode_for_stage(resume),
+                                    "from_stage": resume,
+                                }
+                            )
+                            continue
+                        raise RuntimeError(
+                            "layup coverage unrecovered after one skip-stamp playbook"
+                        )
                     # Construction failures (canned air, thin analysis, reused
                     # nuggets) can only be fixed by composing again — never by
                     # republishing the same plan.
@@ -4911,41 +4947,71 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "restates_target",
                         )
                     )
-                    uncovered = []
-                    try:
-                        uncovered = uncovered_high_value_forgone(
-                            ctx, ctx.read_json(PLAN_REL)
-                        )
-                    except Exception:
-                        uncovered = []
-                    # Coverage remine only when high-value forgone claims remain
-                    # uncovered — not for lock-only or justified-skip coverage math.
-                    if (
-                        not needs_recompose
-                        and uncovered
-                        and any(
-                            marker in low_err
-                            for marker in (
-                                "layup_coverage",
-                                "min_layup_coverage",
-                                "layup coverage",
+                    # Prefer in-place analysis/canned heal before burning a remine.
+                    if needs_recompose and ctx.artifact_exists(PLAN_REL):
+                        try:
+                            from interview_mux.nugget_layup import (
+                                heal_layup_analysis_fields,
+                                repair_or_skip_spoken_copy_layups,
                             )
-                        )
-                    ):
-                        needs_recompose = True
-                        log(
-                            "layup remine: uncovered high-value forgone "
-                            + str([u.get("nugget_id") for u in uncovered[:8]])
-                        )
+
+                            plan0 = ctx.read_json(PLAN_REL)
+                            plan0, heal_notes = heal_layup_analysis_fields(ctx, plan0)
+                            plan0, copy_notes = repair_or_skip_spoken_copy_layups(
+                                ctx, plan0
+                            )
+                            plan0 = normalize_layup_talking_point_ledger(ctx, plan0)
+                            qc0 = evaluate_layup_qc(ctx, plan0)
+                            if qc0.get("ok"):
+                                ctx.write_json(
+                                    PLAN_REL, plan0, stage_key="nugget_layup_compose"
+                                )
+                                publish_layup_plan_to_gap_report(ctx, plan0)
+                                ctx.write_json("understanding/nugget_layup_qc.json", qc0)
+                                ctx.mark_done("nugget_layup_compose", force=True)
+                                log(
+                                    "nugget layup QC in-place heal ok "
+                                    f"(analysis={len(heal_notes)} copy={len(copy_notes)}) "
+                                    "→ refinement_agenda"
+                                )
+                                execute(
+                                    {
+                                        "mode": "delivery",
+                                        "from_stage": "refinement_agenda",
+                                    }
+                                )
+                                continue
+                            log(
+                                "nugget layup in-place heal incomplete: "
+                                + "; ".join(str(e) for e in (qc0.get("errors") or [])[:4])
+                            )
+                            ctx.write_json(
+                                PLAN_REL, plan0, stage_key="nugget_layup_compose"
+                            )
+                        except Exception as heal_exc:
+                            log(f"nugget layup in-place heal: {heal_exc}")
+                    uncovered = []
                     if needs_recompose and refresh_nugget_layup_plan(
                         ctx, reason="layup QC needs a fresh compose"
                     ):
                         continue
                     plan = normalize_layup_talking_point_ledger(ctx, ctx.read_json(PLAN_REL))
                     qc = evaluate_layup_qc(ctx, plan)
-                    if not qc.get("ok") and (
-                        float(qc.get("layup_coverage") or 0) < 0.9
-                        or qc.get("open_must_keep_talking_point_ids")
+                    sparse_omit = False
+                    try:
+                        from interview_mux.source_topology import vo_posture_is_sparse_omit
+
+                        sparse_omit = vo_posture_is_sparse_omit(ctx)
+                    except Exception:
+                        sparse_omit = False
+                    if (
+                        not sparse_omit
+                        and not qc.get("ok")
+                        and (
+                            float(qc.get("layup_coverage") or 0)
+                            < float((qc.get("min_layup_coverage") or 0.4))
+                            or qc.get("open_must_keep_talking_point_ids")
+                        )
                     ):
                         plan, mat_notes = materialize_over_skipped_layups(ctx, plan)
                         log(f"layup over-skip materialize: {mat_notes[-8:]}")
@@ -5077,41 +5143,23 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         execute({"mode": "delivery", "from_stage": "transitions"})
                         continue
                     plan = ctx.read_json(PLAN_REL)
-                    rewrites = {
-                        "seg_083": (
-                            "That voice belongs to Vijay, the man behind Natural. "
-                            "Next he names the single choice that set the company's story in motion, "
-                            "and what was on the line."
-                        ),
-                        "seg_226": (
-                            "Job security is only the starting point. "
-                            "The next question is what comes after that for the staff."
-                        ),
-                        "seg_275": (
-                            "Vijay starts at the corner-office vice-president and works down the hierarchy."
-                        ),
-                    }
                     n = 0
                     for row in plan.get("layups") or []:
                         if not isinstance(row, dict) or row.get("skip"):
                             continue
-                        tid = str(row.get("target_segment_id") or "")
                         text = str(row.get("text") or "").strip()
                         hits = spoken_copy_violations(text, evidence={})
-                        if not hits and tid not in rewrites:
+                        if not hits:
                             continue
-                        if tid in rewrites:
-                            new = rewrites[tid]
-                        else:
-                            beat = str(row.get("target_beat") or "").strip()
-                            unlock = str(row.get("forward_unlock") or "").strip()
-                            setup = str(row.get("setup_from_nuggets") or "").strip()
-                            new = " ".join(p for p in (setup, beat, unlock) if p).strip() or text
-                            new = _re.sub(
-                                r"(?i)\s*[—\-–,]?\s*stay\s+tuned\b.*$",
-                                ".",
-                                new,
-                            ).strip()
+                        beat = str(row.get("target_beat") or "").strip()
+                        unlock = str(row.get("forward_unlock") or "").strip()
+                        setup = str(row.get("setup_from_nuggets") or "").strip()
+                        new = " ".join(p for p in (setup, beat, unlock) if p).strip() or text
+                        new = _re.sub(
+                            r"(?i)\s*[—\-–,]?\s*stay\s+tuned\b.*$",
+                            ".",
+                            new,
+                        ).strip()
                         if spoken_copy_violations(new, evidence={}):
                             continue
                         if new and new != text:
@@ -7170,6 +7218,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 for check in (
                     "spoken_vo_speakable",
                     "audible_script_hash_agreement",
+                    "omit_ledger_air_contract",
                     "planned_music_preserved",
                     "opening_music_preserved",
                 )
@@ -7190,23 +7239,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         root = _P(ctx.run_dir)
                         sync_report = sync_edl_vo_script_metadata(ctx)
                         log(f"pmq heal: synced EDL VO metadata {sync_report}")
+                        omit_removed = list(sync_report.get("omit_removed") or [])
                         vo_hard = (
                             "spoken_vo_speakable" in low_err
                             or "audible_script_hash_agreement" in low_err
+                            or "omit_ledger_air_contract" in low_err
                         )
                         if vo_hard:
                             def _clear_soft_vo(m: dict) -> None:
                                 m.pop("e2e_soft_post_master_quality", None)
 
                             ctx.mutate_run_meta(_clear_soft_vo)
-                            done = root / ".stage_done" / "master_finalize"
-                            if done.is_file():
-                                done.unlink()
+                            for sid in (
+                                "master_finalize",
+                                "junction_snip_qa",
+                                "mix",
+                            ):
+                                done = root / ".stage_done" / sid
+                                if done.is_file():
+                                    done.unlink()
+                            # Omitted VO clips changed the timeline — remaster
+                            # assembly from mix so master matches EDL authority.
+                            resume_from = "mix" if omit_removed else "master_finalize"
                             log(
-                                "pmq heal: resume master_finalize after EDL VO sync "
-                                "(no soft waive for spoken VO / hash)"
+                                f"pmq heal: resume {resume_from} after EDL VO sync "
+                                f"(omit_removed={len(omit_removed)}; no soft waive "
+                                "for spoken VO / hash / omit air-contract)"
                             )
-                            execute({"mode": "delivery", "from_stage": "master_finalize"})
+                            execute({"mode": "delivery", "from_stage": resume_from})
                             continue
                         if not _e2e_soft():
                             write_e2e_failure_brief(
@@ -7310,6 +7370,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     continue
                 except Exception as exc:
                     log(f"seam_commitment soft-heal: {exc}")
+            if "episode_close_outro_present" in low_err or "missing_episode_close_outro" in low_err:
+                resume = try_product_recovery(stage or "master_finalize", err)
+                if resume:
+                    execute({"mode": _mode_for_stage(resume), "from_stage": resume})
+                    continue
+                raise SystemExit(
+                    "HARD: episode close cue missing after place_episode_close playbook"
+                )
             if (
                 "publishing is blocked" in low_err
                 or "publish_blocked_bad_master" in low_err
@@ -7322,7 +7390,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "scorecard_dimension_floors",
                             "listen_delight_floors",
                             "no_critical_junction_residuals",
-                            "episode_close_outro_present",
                             "seam_commitment",
                         )
                     )

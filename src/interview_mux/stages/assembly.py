@@ -707,6 +707,17 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                     detail=opening_actions,
                 )
+            from interview_mux.opening_orientation import retarget_orientation_to_open
+
+            synced = retarget_orientation_to_open(ctx)
+            if synced:
+                if ctx.artifact_exists("understanding/gap_report.json"):
+                    gap_report = ctx.read_json("understanding/gap_report.json")
+                ctx.log(
+                    f"edl: orientation targets synced {synced}",
+                    level="info",
+                    stage="edl",
+                )
             resynced = resync_required_synthesize_wavs(ctx, gap_report)
             if resynced:
                 ctx.log(
@@ -940,11 +951,24 @@ def run_mix(ctx: RunContext) -> Path:
 
     require_spend_artifacts_complete(ctx, "mix")
 
-    # Soft heal: restore missing MMAudio QA from archive before loud-fail.
+    try:
+        from interview_mux.listen_quality import place_episode_close_cue
+
+        placed = place_episode_close_cue(ctx)
+        if placed:
+            ctx.log(
+                f"mix: placed episode_close cue via {placed}",
+                level="info",
+                stage="mix",
+            )
+    except Exception as exc:
+        ctx.log(f"mix: episode_close place skipped: {exc}", level="warning", stage="mix")
+
+    # Restore or generate MMAudio QA before mix loud-fail.
     try:
         from interview_mux.delivery_recovery import ensure_mmaudio_qa_before_mix
 
-        qa_state = ensure_mmaudio_qa_before_mix(ctx)
+        qa_state = ensure_mmaudio_qa_before_mix(ctx, run_if_missing=True)
         if not qa_state.get("ok"):
             from interview_mux.stage_resilience import escalate_stage_failure
 

@@ -221,7 +221,7 @@ def synthesize_line(
 
                 entries = ctx.read_json("vo_pickup/synthesis_report.json") if ctx.artifact_exists("vo_pickup/synthesis_report.json") else {}
                 last = (entries.get("entries") or [])[-1] if isinstance(entries, dict) and entries.get("entries") else {}
-                if isinstance(last, dict) and qc_failed(last):
+                if isinstance(last, dict) and qc_failed(last, ctx):
                     ctx.log(
                         f"Chatterbox QC fail → mlx-audio retry for {lid}",
                         level="warning",

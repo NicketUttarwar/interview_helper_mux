@@ -126,3 +126,74 @@ def test_air_contract_detects_unresolved_and_reintroduced_gap_line():
     assert "omit_ledger_unresolved_high_salience=1" in errors
     assert "omit_ledger_gap_line_not_skipped:vo_001" in errors
     assert "omit_ledger_gap_line_still_in_edl:vo_001" in errors
+
+
+def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
+    from interview_mux.omit_ledger import reconcile_edl_with_omit_ledger, write_omit_ledger
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "exec_omit_strip_edl")
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="layup_skip",
+            subject_id="vo_layup_seg_005",
+            target_segment_id="seg_005",
+            decision="omit",
+            reason_code="spoken_copy_unhealable",
+            owner_stage="nugget_layup_compose",
+            compensating_path="omit_unsafe_spoken_copy",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"layup_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    write_omit_ledger(ctx, ledger)
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_004", "seg_005"],
+            "timeline_duration_ms": 20_000,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_004",
+                    "timeline_start_ms": 0,
+                    "duration_ms": 5_000,
+                    "source_start_ms": 0,
+                    "source_end_ms": 5_000,
+                },
+                {
+                    "type": "vo_pickup",
+                    "line_id": "vo_layup_seg_005",
+                    "targets_segment_id": "seg_005",
+                    "placement": "before",
+                    "timeline_start_ms": 5_000,
+                    "duration_ms": 8_000,
+                    "source_path": "vo_pickup/synthesized/vo_layup_seg_005.wav",
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_005",
+                    "timeline_start_ms": 13_000,
+                    "duration_ms": 7_000,
+                    "source_start_ms": 10_000,
+                    "source_end_ms": 17_000,
+                },
+            ],
+            "vo_pickup_clip_count": 1,
+        },
+        skip_handoff=True,
+    )
+    report = reconcile_edl_with_omit_ledger(ctx)
+    assert report["updated"] is True
+    assert "vo_layup_seg_005" in report["removed"]
+    edl = ctx.read_json("master/edl.json")
+    assert all(c.get("line_id") != "vo_layup_seg_005" for c in edl["clips"])
+    assert edl["vo_pickup_clip_count"] == 0
+    assert air_contract_errors(ctx, ledger=ledger, edl=edl) == []

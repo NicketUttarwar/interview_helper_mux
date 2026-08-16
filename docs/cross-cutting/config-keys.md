@@ -61,6 +61,7 @@ No new `journey_ui.*` keys were added for the activity panel — tab/collapse st
 | `production_profiles` | `production_profile.py`, legacy TBIY/documentary profile (hints under Mastering Process) | Wrong profile → incorrect gate/lint until cutover |
 | `production_style` | Sound design + mix defaults; Mastering Process treats as *hint* only | Style mismatch vs operator intent |
 | `source_topology` | `source_topology.py`, topology + pickup speaker; feeds research Wave 2 | Missing topology breaks pickup speaker rules |
+| `flow_adaptation.recovery_policy` | Written by `source_topology_build`; consumed at compose / EDL / mix and by `recovery_controller` | Wrong `vo_posture` force-airs balanced interviews or skips needed framing; `synth_ladder` gates Chatterbox→mlx QC retry without flipping `gap_vo.auto_fallback_on_qc_fail` |
 | `mastering` | Mastering Process + quality-hardening gates — see [`mastering.*`](#mastering) below | Gates skipped or blocking at the wrong time |
 | `web_port` | `serve` / `run.sh` | GUI on wrong port / collision |
 | `web.api_consent_persist` | `POST /api/session/api-consent`, GUI | When `true` (default), grants written to `ASSETS/.gui/api_consent.json` for convenience across `./scripts/run.sh` relaunches |
@@ -101,7 +102,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `edl_narrative_qc.require_synthesized_vo` | `edl_narrative_qc._validate_gap_placements` | When `true`, requires synthesized gap lines to have WAV on vo_pickup clips (default `false`) |
 | `edl_narrative_qc.require_framing_before_impact` | `edl_narrative_qc._validate_framing_before_impact` | When `true`, each impact block primary segment must have preceding framing VO in EDL order |
 | `analysis.gap_framing.min_vo_insert_ratio` | `artifact_repairs._enforce_min_vo_insert_ratio`, compose `vo_line_budget` | Hard density floor vs selected speech (default **0** — off; do not force mid-monologue VO) |
-| `analysis.gap_framing.target_vo_insert_ratio` | compose `vo_line_budget`, delivery_brief | Soft seam-coverage aim (default **0.15**) |
+| `analysis.gap_framing.target_vo_insert_ratio` | compose `vo_line_budget`, delivery_brief | Soft seam-coverage aim (default **0.08** — sparse; omit when native handoff is enough) |
 | `analysis.gap_framing.interviewer_question_max_words` | `gap_framing`, compose/ranking prompts | Max words for `framing_question` lines (default **60**) |
 | `analysis.gap_framing.max_exclusion_ratio` | `framing_coverage_guard` | Cap on framing-driven exclusions vs manifest size (default **0.15**) |
 | `analysis.gap_framing.never_exclude_primary_impact` | `framing_coverage_guard` | Block excluding sole primary impact segment (default **true**) |
@@ -118,7 +119,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**) |
 | `analysis.nugget_layup.enabled` | `nugget_layup`, corpus/layup stages | Master switch for Nugget Layup System (default **true**) |
 | `analysis.nugget_layup.require_layup_per_native` | `evaluate_layup_qc` | Require a plan row per ordered native (default **true**) |
-| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.9**) |
+| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.4** — try every seam; air only when useful) |
 | `analysis.nugget_layup.min_layup_words` / `max_layup_words` | layup compose prompt budgets | Word bounds for each before-VO (defaults **18** / **90**) |
 | `analysis.nugget_layup.prefer_excluded_nuggets` | corpus/layup prompts | Prefer recovering off-air facts (default **true**) |
 | `analysis.nugget_layup.segment_text_max_chars` | `build_corpus_mine_input`, `build_layup_compose_input` | Chars of native text handed to the LLM — full upcoming clip, not a stub (default **1500**) |
@@ -165,6 +166,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.timbre_match.enabled` | `timbre_match`, G1 `/match` endpoint | Enables deterministic spectral/loudness matching of an operator take; never synthesizes replacement words |
 | `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Duration QC + speech QA; `max_ms_per_word` / `min_ms_per_word` hard-fail TTS stutter vs script |
+| `analysis.gap_vo.auto_fallback_on_qc_fail` | `vo_synthesis_audit.qc_failed`, `s2s_runner` | Global Chatterbox→mlx retry after QC fail (default **false**). Topology `recovery_policy.synth_ladder=chatterbox_then_mlx_qc` may enable the same retry **per run** without flipping this charter default |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
 | `show_notes_qc.strict` | `gates.check_show_notes_qc` | **Inert.** Flow 3 publishing was removed, so no stage produces a show description and the gate is never called |

@@ -66,7 +66,7 @@ def gap_framing_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "relocate_micro_targets": True,
         },
         "min_vo_insert_ratio": 0.0,
-        "target_vo_insert_ratio": 0.15,
+        "target_vo_insert_ratio": 0.08,
         "vo_value_gate": {
             "enabled": True,
             "require_rationale": True,
@@ -530,6 +530,18 @@ def avoid_clone_voice_adjacency(
     notes: list[dict[str, str]] = []
     kept: list[dict[str, Any]] = []
     changed = False
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    # Occupied before-slots — never pile retargets onto a native that already
+    # has listener-facing before-VO (collapses unique layup coverage).
+    occupied_before: set[str] = {
+        str(raw.get("targets_segment_id") or "").strip()
+        for raw in (gap_report.get("interviewer_lines") or [])
+        if isinstance(raw, dict)
+        and str(raw.get("placement") or "before").strip() in {"", "before"}
+        and str(raw.get("targets_segment_id") or "").strip()
+        and str(raw.get("text") or "").strip()
+    }
     for raw_line in gap_report.get("interviewer_lines") or []:
         if not isinstance(raw_line, dict):
             continue
@@ -537,6 +549,11 @@ def avoid_clone_voice_adjacency(
         target = str(line.get("targets_segment_id") or "").strip()
         placement = str(line.get("placement") or "before").strip() or "before"
         voice = str(line.get("voice_speaker_id") or clone_speaker_id).strip()
+        # Episode orientation must stay before the cold-open native — never
+        # retarget it as clone-adjacent VO.
+        if is_episode_orientation(line):
+            kept.append(line)
+            continue
         exempt = is_cut_recovery_vo(
             line, ordered_segment_ids=ordered, nugget_corpus=nugget_corpus
         )
@@ -565,11 +582,15 @@ def avoid_clone_voice_adjacency(
             (
                 candidate
                 for candidate in ordered[position[target] + 1 :]
-                if speaker_id(candidate) and speaker_id(candidate) != voice
+                if speaker_id(candidate)
+                and speaker_id(candidate) != voice
+                and candidate not in occupied_before
             ),
             "",
         )
         if replacement:
+            occupied_before.discard(target)
+            occupied_before.add(replacement)
             line["targets_segment_id"] = replacement
             line["placement"] = "before"
             line["prior_segment_id"] = target
@@ -584,7 +605,14 @@ def avoid_clone_voice_adjacency(
             )
             kept.append(line)
             continue
-        if prior and prior_speaker and prior_speaker != voice:
+        if (
+            prior
+            and prior_speaker
+            and prior_speaker != voice
+            and prior not in occupied_before
+        ):
+            occupied_before.discard(target)
+            occupied_before.add(prior)
             line["targets_segment_id"] = prior
             line["placement"] = "after"
             changed = True
@@ -598,6 +626,7 @@ def avoid_clone_voice_adjacency(
             )
             kept.append(line)
             continue
+        occupied_before.discard(target)
         notes.append(
             {
                 "action": "drop_clone_adjacency",

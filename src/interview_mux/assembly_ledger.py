@@ -125,13 +125,44 @@ def _parent_ids_for_segment(
     return chapter_id, tp_id
 
 
+def _justified_skip_before_ids(ctx: RunContext) -> set[str]:
+    """Targets with typed justified layup skips — no spoken hinge required.
+
+    Matches ``bridge_completeness`` / ``seam_glue``: clone adjacency, credits
+    outro, unhealable spoken copy, etc. carry a compensating path, so the
+    ledger must not demand VO/transition glue that authority deliberately omit.
+    """
+    try:
+        from interview_mux.nugget_layup import PLAN_REL, is_justified_skip_row
+    except Exception:
+        return set()
+    if not ctx.artifact_exists(PLAN_REL):
+        return set()
+    plan = ctx.read_json(PLAN_REL)
+    if not isinstance(plan, dict):
+        return set()
+    out: set[str] = set()
+    for row in plan.get("layups") or []:
+        if not isinstance(row, dict) or not row.get("skip"):
+            continue
+        tid = str(row.get("target_segment_id") or "").strip()
+        if tid and is_justified_skip_row(row, soft_migrate=True):
+            out.add(tid)
+    return out
+
+
 def _seam_index(
     ordered: list[str],
     segments_by_id: dict[str, dict[str, Any]],
     clips: list[dict[str, Any]],
     bridges: dict[str, Any] | None,
+    *,
+    justified_skip_before_ids: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Index speech→speech joins and whether glue atoms sit between them."""
+    skip_before = {
+        str(x) for x in (justified_skip_before_ids or set()) if str(x).strip()
+    }
     pair_meta = {}
     if isinstance(bridges, dict):
         for p in bridges.get("pairs") or []:
@@ -175,7 +206,8 @@ def _seam_index(
             and c.get("type") in {"vo_pickup", "transition"}
             and int(c.get("duration_ms") or 0) > 0
         ]
-        requires = meta is not None
+        waived = b in skip_before
+        requires = meta is not None and not waived
         naked = bool(requires and not glue_ids)
         gap = None
         if meta is not None:
@@ -187,21 +219,22 @@ def _seam_index(
                 )
             except (TypeError, ValueError):
                 gap = None
-        seams.append(
-            {
-                "after_segment_id": a,
-                "before_segment_id": b,
-                "timeline_join_ms": a1,
-                "gap_to_next_ms": max(0, b0 - a1),
-                "source_gap_ms": gap,
-                "requires_glue": requires,
-                "chapter_scale": bool(meta and is_chapter_scale_pair(meta)),
-                "glue_piece_ids": glue_ids,
-                "naked": naked,
-                "kind": (meta or {}).get("kind") if meta else "contiguous",
-                "rebuilt_pair": bool(rebuilt),
-            }
-        )
+        seam: dict[str, Any] = {
+            "after_segment_id": a,
+            "before_segment_id": b,
+            "timeline_join_ms": a1,
+            "gap_to_next_ms": max(0, b0 - a1),
+            "source_gap_ms": gap,
+            "requires_glue": requires,
+            "chapter_scale": bool(meta and is_chapter_scale_pair(meta)),
+            "glue_piece_ids": glue_ids,
+            "naked": naked,
+            "kind": (meta or {}).get("kind") if meta else "contiguous",
+            "rebuilt_pair": bool(rebuilt),
+        }
+        if waived:
+            seam["glue_waived"] = "justified_layup_skip"
+        seams.append(seam)
     return seams
 
 
@@ -304,7 +337,14 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
     if ctx.artifact_exists("understanding/reorder_bridges.json"):
         bridges = ctx.read_json("understanding/reorder_bridges.json")
 
-    seams = _seam_index(ordered, segments_by_id, clips_in, bridges if isinstance(bridges, dict) else None)
+    skip_before = _justified_skip_before_ids(ctx)
+    seams = _seam_index(
+        ordered,
+        segments_by_id,
+        clips_in,
+        bridges if isinstance(bridges, dict) else None,
+        justified_skip_before_ids=skip_before,
+    )
     for seam in seams:
         a = seam["after_segment_id"]
         b = seam["before_segment_id"]
@@ -324,7 +364,13 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
                 if after_end <= t0 < before_start and atom["duration_ms"] > 0:
                     glue.append(atom["piece_id"])
         seam["glue_piece_ids"] = glue
-        seam["naked"] = bool(seam.get("requires_glue") and not glue)
+        # Recompute naked after timeline glue scan; keep justified-skip waive.
+        if b in skip_before:
+            seam["requires_glue"] = False
+            seam["glue_waived"] = "justified_layup_skip"
+            seam["naked"] = False
+        else:
+            seam["naked"] = bool(seam.get("requires_glue") and not glue)
 
     naked = [s for s in seams if s.get("naked")]
     from interview_mux.order_hash import copy_order_lock, get_order_lock

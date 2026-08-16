@@ -19,6 +19,9 @@ Rules:
 Do not:
 - Write leading or sensational questions.
 - Exceed word limits.
+- Speak planner/meta language (“chapter”, “intended scope”, “episode scope”, “native continuation”, “listener need”, “talking point”, “vo mission”, clip/segment/pipeline IDs).
+- Invent relative filler such as “What happened next?” when no grounded contextual evidence exists — omit the line instead.
+- Force a line when the native interviewer already asked the question the next clip answers.
 
 Examples: see `docs/prompts/_shared/examples/optimal-questions.examples.md`
 
@@ -65,7 +68,7 @@ Allowed `placement` values: `before`, `after`.
 | `missing_setup` | Minimum context: who, what, when stakes matter |
 | `missing_callback` | One phrase anchoring prior topic ("Earlier you mentioned the rollout…") |
 | `missing_definition` | Plain-language definition request; expand acronym once |
-| `missing_followup` | Short forward prompt ("What happened next?" / "How did that land?") |
+| `missing_followup` | Short forward prompt that names the concrete stakes of what follows (never generic “What happened next?”) |
 
 ### format_class adjustments
 

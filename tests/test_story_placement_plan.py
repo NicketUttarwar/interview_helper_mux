@@ -105,6 +105,12 @@ def test_spoken_meta_rejects_chapter_numbers():
     assert spoken_structure_hits("Chapter Four—Ownership for Everyone.")
     assert spoken_structure_hits("Welcome to this chapter of ownership.")
     assert spoken_structure_hits("In the previous clip, gym buyers showed up.")
+    assert spoken_structure_hits(
+        "The native continuation states the episode's intended scope and welcomes the guest."
+    )
+    assert "spoken_planner_meta" in spoken_structure_hits(
+        "The native continuation states the episode's intended scope."
+    )
     assert lint_spoken_text("Welcome back to Act 2 of our show.")
     assert not spoken_structure_hits("On ownership for everyone—Vijay opens the ESOP.")
     assert not spoken_structure_hits(

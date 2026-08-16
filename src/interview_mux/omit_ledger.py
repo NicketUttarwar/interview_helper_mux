@@ -239,6 +239,93 @@ def effective_air_contract(
     return {"status": "required", "entry": None}
 
 
+def reconcile_edl_with_omit_ledger(
+    ctx: RunContext,
+    *,
+    edl: dict[str, Any] | None = None,
+    ledger: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Drop audible VO clips that the omit ledger actively omits; retime EDL.
+
+    Stale EDL can retain synthesized layup VO after a later typed skip stamps
+    ``omit``. Post-master QC then fails ``omit_ledger_air_contract`` and
+    ``audible_script_hash_agreement`` (missing gap script). Stripping keeps
+    assembly authority aligned with the ledger without shipping canned air.
+    """
+    if ledger is None:
+        ledger = (
+            ctx.read_json(OMIT_LEDGER_REL)
+            if ctx.artifact_exists(OMIT_LEDGER_REL)
+            else None
+        )
+    if not isinstance(ledger, dict):
+        return {"removed": [], "updated": False}
+    if edl is None:
+        if not ctx.artifact_exists("master/edl.json"):
+            return {"removed": [], "updated": False}
+        loaded = ctx.read_json("master/edl.json")
+        edl = loaded if isinstance(loaded, dict) else None
+    if not isinstance(edl, dict):
+        return {"removed": [], "updated": False}
+
+    omitted_line_ids: set[str] = set()
+    omitted_targets: set[str] = set()
+    for entry in active_entries(ledger):
+        if str(entry.get("decision") or "omit") != "omit":
+            continue
+        subject = str(entry.get("subject_id") or "").strip()
+        if subject:
+            omitted_line_ids.add(subject)
+        tid = str(entry.get("target_segment_id") or "").strip()
+        if tid and str(entry.get("kind") or "") == "layup_skip":
+            omitted_targets.add(tid)
+            omitted_line_ids.add(f"vo_layup_{tid}")
+
+    clips_in = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    kept: list[dict[str, Any]] = []
+    removed: list[str] = []
+    for clip in clips_in:
+        ctype = str(clip.get("type") or "")
+        if ctype != "vo_pickup":
+            kept.append(clip)
+            continue
+        lid = str(clip.get("line_id") or clip.get("vo_line_id") or "").strip()
+        tid = str(clip.get("targets_segment_id") or "").strip()
+        if (lid and lid in omitted_line_ids) or (tid and tid in omitted_targets):
+            removed.append(lid or tid or "vo_pickup")
+            continue
+        kept.append(clip)
+
+    if not removed:
+        return {"removed": [], "updated": False}
+
+    from interview_mux.junction_snip_qa import _recompute_timeline
+
+    timeline_ms = _recompute_timeline(kept)
+    out = dict(edl)
+    out["clips"] = kept
+    out["timeline_duration_ms"] = timeline_ms
+    out["vo_pickup_clip_count"] = sum(1 for c in kept if c.get("type") == "vo_pickup")
+    out["transition_clip_count"] = sum(1 for c in kept if c.get("type") == "transition")
+    out["silence_clip_count"] = sum(1 for c in kept if c.get("type") == "silence")
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, "master/edl.json", out)
+    try:
+        from interview_mux.assembly_ledger import write_assembly_ledger
+
+        write_assembly_ledger(ctx, edl=out)
+    except Exception:
+        pass
+    ctx.log(
+        f"omit_ledger: stripped {len(removed)} omitted VO clip(s) from EDL",
+        level="info",
+        stage="edl",
+        detail={"removed": removed[:12]},
+    )
+    return {"removed": removed, "updated": True, "timeline_duration_ms": timeline_ms}
+
+
 def air_contract_errors(
     ctx: RunContext,
     *,

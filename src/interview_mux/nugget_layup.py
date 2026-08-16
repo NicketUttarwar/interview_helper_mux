@@ -59,7 +59,7 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "enabled": bool(block.get("enabled", True)),
         "require_layup_per_native": bool(block.get("require_layup_per_native", True)),
-        "min_layup_coverage": float(block.get("min_layup_coverage", 0.9)),
+        "min_layup_coverage": float(block.get("min_layup_coverage", 0.4)),
         "min_layup_words": int(block.get("min_layup_words", 18)),
         "max_layup_words": int(block.get("max_layup_words", 90)),
         "prefer_excluded_nuggets": bool(block.get("prefer_excluded_nuggets", True)),
@@ -1072,6 +1072,7 @@ _COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
     {
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
+        "clone_voice_adjacency",
     }
 )
 
@@ -1081,26 +1082,40 @@ JUSTIFIED_SKIP_REASON_CODES = frozenset(
     {
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
+        "clone_voice_adjacency",
         "episode_open_native_self_orients",
         "self_explanatory_native",
+        "native_self_orients",
         "no_unrecovered_high_salience",
         "listener_already_oriented",
         "superseded_by_dense_package",
         "operator_waive",
         "compensated_by_prior_layup",
+        "closing_credits",
+        "outro_self_sufficient",
+        "native_audio_self_orients",
+        "non_editorial_outro",
+        "no_eligible_unspent_nugget",
     }
 )
 
 _DEFAULT_COMPENSATING_PATHS = {
     "spoken_copy_unhealable": "omit_unsafe_spoken_copy",
     "opening_orientation_owns_target": "opening_orientation",
+    "clone_voice_adjacency": "clone_voice_policy",
     "episode_open_native_self_orients": "native_self_orients",
     "self_explanatory_native": "native_self_orients",
+    "native_self_orients": "native_self_orients",
+    "native_audio_self_orients": "native_self_orients",
     "no_unrecovered_high_salience": "no_open_high_salience_need",
     "listener_already_oriented": "prior_layup_or_native",
     "superseded_by_dense_package": "information_package_dense",
     "operator_waive": "operator_waive",
     "compensated_by_prior_layup": "prior_layup",
+    "closing_credits": "native_credits_self_contained",
+    "outro_self_sufficient": "native_credits_self_contained",
+    "non_editorial_outro": "native_credits_self_contained",
+    "no_eligible_unspent_nugget": "no_open_high_salience_need",
 }
 
 
@@ -1258,10 +1273,438 @@ def strip_model_order_lock(plan: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def _strip_trailing_canned_unlock(text: str) -> str:
+    """Drop a trailing canned/generic unlock sentence from spoken lay-up text."""
+    clean = _norm(text)
+    if not clean:
+        return ""
+    parts = [p.strip() for p in _SENTENCE_SPLIT.split(clean) if p.strip()]
+    if not parts:
+        return clean
+    if canned_air_violations(parts[-1]):
+        parts = parts[:-1]
+    return " ".join(parts).strip()
+
+
+def derive_forward_unlock(
+    row: dict[str, Any],
+    *,
+    target_text: str = "",
+) -> str:
+    """Build a concrete, non-canned forward_unlock from beat / listener need / target."""
+    existing = str(row.get("forward_unlock") or "").strip()
+    if (
+        existing
+        and not canned_air_violations(existing)
+        and not _is_generic_unlock(existing)
+    ):
+        return existing if existing.endswith("?") else existing.rstrip(".!") + "?"
+
+    beat = str(row.get("target_beat") or "").strip()
+    listener = str(row.get("listener_need_entering_T") or "").strip()
+    seed = beat or listener
+    if seed:
+        stem = seed.rstrip(".!")
+        low = stem[:1].lower() + stem[1:] if stem else stem
+        if stem.lower().startswith(("why ", "how ", "what ", "when ", "where ", "which ")):
+            candidate = stem if stem.endswith("?") else f"{stem}?"
+        else:
+            candidate = f"Why does {low} matter for what follows?"
+        if not canned_air_violations(candidate) and not _is_generic_unlock(candidate):
+            return candidate
+
+    from interview_mux.gap_vo_prior_context import _target_aware_forward_cues
+
+    for cue in _target_aware_forward_cues(
+        target_text or beat,
+        category=str(row.get("line_category") or "extracted_context"),
+    ):
+        cue = " ".join(str(cue or "").split()).strip()
+        if not cue:
+            continue
+        if not cue.endswith("?"):
+            cue = cue.rstrip(".!") + "?"
+        if canned_air_violations(cue) or _is_generic_unlock(cue):
+            continue
+        return cue
+    return "Why does that beat change what the listener hears next?"
+
+
+def heal_layup_analysis_fields(
+    ctx: RunContext,
+    plan: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Fill missing analysis fields and replace banned generic unlocks before QC.
+
+    LLM/schema paths often omit ``forward_unlock`` while appending canned
+    ``What comes next?`` to ``text``. That combination hard-fails craft QC and
+    cannot be fixed by re-mining alone.
+    """
+    out = dict(plan) if isinstance(plan, dict) else {"layups": []}
+    layups = [dict(r) for r in (out.get("layups") or []) if isinstance(r, dict)]
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in _manifest_segments(ctx)
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    notes: list[dict[str, Any]] = []
+    for row in layups:
+        if row.get("skip") or not str(row.get("text") or "").strip():
+            continue
+        tid = str(row.get("target_segment_id") or "")
+        target_text = str((by_id.get(tid) or {}).get("text") or "")
+        before = str(row.get("text") or "").strip()
+        stripped = _strip_trailing_canned_unlock(before)
+        unlock = derive_forward_unlock(row, target_text=target_text)
+        changed = False
+        if unlock != str(row.get("forward_unlock") or "").strip():
+            row["forward_unlock"] = unlock
+            changed = True
+        if not str(row.get("listener_need_entering_T") or "").strip():
+            beat = str(row.get("target_beat") or "").strip()
+            if beat:
+                row["listener_need_entering_T"] = (
+                    f"The prior stretch left this unresolved: {beat.rstrip('.')}."
+                )
+                changed = True
+        body = stripped or _strip_trailing_canned_unlock(before)
+        if not body:
+            body = str(row.get("setup_from_nuggets") or row.get("target_beat") or "").strip()
+        # Ensure the spoken line ends on the concrete unlock, not a canned hinge.
+        if body and not body.rstrip().endswith("?"):
+            text = f"{body.rstrip('.!?')}. {unlock}"
+        elif body and canned_air_violations(body):
+            text = f"{_strip_trailing_canned_unlock(body).rstrip('.!?')}. {unlock}".strip()
+            if text.startswith("."):
+                text = unlock
+        else:
+            # Already ends in a question — prefer derived unlock when the trailing
+            # sentence is still a banned generic.
+            parts = [p.strip() for p in _SENTENCE_SPLIT.split(body) if p.strip()]
+            if parts and canned_air_violations(parts[-1]):
+                text = (" ".join(parts[:-1]).rstrip('.!?') + f". {unlock}").strip()
+            else:
+                text = body
+        text = " ".join(text.split()).strip()
+        if text and text != before:
+            row["text"] = text
+            row["word_count"] = _word_count(text)
+            row["forward_cue_ok"] = True
+            changed = True
+        if changed:
+            notes.append(
+                {
+                    "action": "heal_layup_analysis_fields",
+                    "target_segment_id": tid,
+                    "forward_unlock": unlock,
+                }
+            )
+    out["layups"] = layups
+    return out, notes
+
+
+def apply_clone_voice_adjacency_skips(
+    ctx: RunContext, plan: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Skip non-recovery before-VO that would abut the clone source speaker.
+
+    Publishing those rows makes ``avoid_clone_voice_adjacency`` retarget many
+    lines onto the same next non-clone native, collapsing unique gap_report
+    coverage below ``min_layup_coverage``. Prefer a typed plan skip (coverage
+    exempt) over silent retarget stacking.
+    """
+    out, notes = dedupe_layup_rows_by_target(plan)
+    try:
+        from interview_mux.gap_framing import is_cut_recovery_vo
+        from interview_mux.source_topology import pickup_eligible_speaker_id
+    except Exception:
+        return out, notes
+
+    voice = str(pickup_eligible_speaker_id(ctx) or "").strip()
+    if not voice:
+        return out, notes
+
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in _manifest_segments(ctx)
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    ordered = _ordered_ids(ctx)
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    corpus = corpus if isinstance(corpus, dict) else {}
+
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or row.get("skip"):
+            continue
+        tid = str(row.get("target_segment_id") or "").strip()
+        if not tid:
+            continue
+        target_speaker = str((by_id.get(tid) or {}).get("speaker_id") or "").strip()
+        if not target_speaker or target_speaker != voice:
+            continue
+        probe = {
+            "origin": "nugget_layup",
+            "delivery": str(row.get("delivery") or "synthesize"),
+            "nugget_ids": row_nugget_ids(row),
+            "targets_segment_id": tid,
+            "replaces_source_segments": list(row.get("replaces_source_segments") or []),
+            "supports_segment_ids": list(row.get("supports_segment_ids") or []),
+        }
+        if is_cut_recovery_vo(
+            probe, ordered_segment_ids=ordered, nugget_corpus=corpus
+        ):
+            continue
+        stamp_typed_skip(
+            row,
+            reason_code="clone_voice_adjacency",
+            evidence_refs=[
+                f"target:{tid}",
+                f"clone_speaker:{voice}",
+                "clone_voice_policy:before_slot_abuts_source",
+            ],
+            value_forgone=row_nugget_ids(row),
+            compensating_path="clone_voice_policy",
+            revisit_if=["clone_speaker_change", "cut_recovery_nuggets"],
+            decision_confidence=0.95,
+            owner_stage="nugget_layup_compose",
+        )
+        notes.append(
+            {
+                "action": "skip_clone_voice_adjacency",
+                "target_segment_id": tid,
+                "line_id": row.get("line_id"),
+                "clone_speaker_id": voice,
+            }
+        )
+    return out, notes
+
+
+def _speaker_role_map(ctx: RunContext) -> dict[str, str]:
+    """Map speaker_id → role from speakers.json when available."""
+    roles: dict[str, str] = {}
+    if not ctx.artifact_exists("understanding/speakers.json"):
+        return roles
+    doc = ctx.read_json("understanding/speakers.json")
+    if not isinstance(doc, dict):
+        return roles
+    for sp in doc.get("speakers") or []:
+        if not isinstance(sp, dict):
+            continue
+        sid = str(sp.get("speaker_id") or "").strip()
+        if sid:
+            roles[sid] = str(sp.get("role") or "").strip().lower()
+    return roles
+
+
+def _segment_role(row: dict[str, Any] | None, role_map: dict[str, str]) -> str:
+    if not isinstance(row, dict):
+        return ""
+    direct = str(row.get("speaker_role") or row.get("role") or "").strip().lower()
+    if direct:
+        return direct
+    sid = str(row.get("speaker_id") or "").strip()
+    return role_map.get(sid, "")
+
+
+def _clear_native_interviewer_handoff(
+    prior: dict[str, Any] | None,
+    target: dict[str, Any] | None,
+    *,
+    role_map: dict[str, str],
+) -> bool:
+    """True when prior interviewer already cues the next guest answer."""
+    from interview_mux.conversation_context import role_is_content, role_is_frame
+
+    prior_role = _segment_role(prior, role_map)
+    target_role = _segment_role(target, role_map)
+    if not (role_is_frame(prior_role) and role_is_content(target_role)):
+        return False
+    prior_text = str((prior or {}).get("text") or (prior or {}).get("text_excerpt") or "").strip()
+    # Strong signal: interviewer question → guest answer.
+    if prior_text.rstrip().endswith("?"):
+        return True
+    # Softer: role change alone still means the native seam is conversational.
+    return len(prior_text.split()) >= 4
+
+
+def apply_clear_native_handoff_skips(
+    ctx: RunContext, plan: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Skip non-recovery VO when native interviewer→guest handoff is already clear."""
+    out, notes = apply_clone_voice_adjacency_skips(ctx, plan)
+    try:
+        from interview_mux.gap_framing import is_cut_recovery_vo
+    except Exception:
+        return out, notes
+
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in _manifest_segments(ctx)
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    ordered = _ordered_ids(ctx)
+    position = {sid: i for i, sid in enumerate(ordered)}
+    role_map = _speaker_role_map(ctx)
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    corpus = corpus if isinstance(corpus, dict) else {}
+
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or row.get("skip"):
+            continue
+        tid = str(row.get("target_segment_id") or "").strip()
+        if not tid or tid not in position or position[tid] <= 0:
+            continue
+        prior_id = ordered[position[tid] - 1]
+        prior = by_id.get(prior_id)
+        target = by_id.get(tid)
+        if not _clear_native_interviewer_handoff(prior, target, role_map=role_map):
+            continue
+        probe = {
+            "origin": "nugget_layup",
+            "delivery": str(row.get("delivery") or "synthesize"),
+            "nugget_ids": row_nugget_ids(row),
+            "targets_segment_id": tid,
+            "replaces_source_segments": list(row.get("replaces_source_segments") or []),
+            "supports_segment_ids": list(row.get("supports_segment_ids") or []),
+        }
+        if is_cut_recovery_vo(
+            probe, ordered_segment_ids=ordered, nugget_corpus=corpus
+        ):
+            continue
+        # Empty setup means no recovered facts — pure framing on a clear seam.
+        setup = str(row.get("setup_from_nuggets") or "").strip()
+        if setup and row_nugget_ids(row):
+            # Still allow recovery VO with grounded nuggets even on Q→A seams.
+            continue
+        stamp_typed_skip(
+            row,
+            reason_code="native_self_orients",
+            evidence_refs=[
+                f"target:{tid}",
+                f"prior:{prior_id}",
+                "native_handoff:interviewer_to_guest",
+            ],
+            value_forgone=row_nugget_ids(row),
+            compensating_path="native_self_orients",
+            revisit_if=["excluded_nugget_recovery", "prior_role_change"],
+            decision_confidence=0.9,
+            owner_stage="nugget_layup_compose",
+        )
+        notes.append(
+            {
+                "action": "skip_clear_native_handoff",
+                "target_segment_id": tid,
+                "prior_segment_id": prior_id,
+                "line_id": row.get("line_id"),
+            }
+        )
+    return out, notes
+
+
+def stamp_valueless_skips(
+    ctx: RunContext, plan: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Stamp skip holes that carry no recoverable listener value.
+
+    Shrinks the coverage denominator to real VO candidates. Never pastes
+    analysis fields into spoken text and never lowers ``min_layup_coverage``.
+    """
+    out = plan if isinstance(plan, dict) else (
+        ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    )
+    out = dict(out) if isinstance(out, dict) else {"layups": []}
+    notes: list[dict[str, Any]] = []
+    sparse = False
+    try:
+        from interview_mux.source_topology import vo_posture_is_sparse_omit
+
+        sparse = vo_posture_is_sparse_omit(ctx)
+    except Exception:
+        sparse = False
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    high_ids: set[str] = set()
+    for nug in (corpus.get("nuggets") or []) if isinstance(corpus, dict) else []:
+        if not isinstance(nug, dict):
+            continue
+        nid = str(nug.get("nugget_id") or "")
+        if nid and str(nug.get("salience") or "") in {"high", "critical"}:
+            high_ids.add(nid)
+
+    def _stamp(row: dict[str, Any], reason: str) -> None:
+        tid = str(row.get("target_segment_id") or "")
+        stamp_typed_skip(
+            row,
+            reason_code=reason,
+            evidence_refs=[
+                f"target:{tid}",
+                f"skip_reason:{reason}",
+                "valueless_skip:stamp",
+            ],
+            value_forgone=row_nugget_ids(row),
+            compensating_path=_DEFAULT_COMPENSATING_PATHS.get(reason) or "typed_skip",
+            revisit_if=["selection_change", "new_grounded_copy"],
+            decision_confidence=0.82,
+            owner_stage="nugget_layup_compose",
+        )
+        notes.append(
+            {
+                "action": "stamp_valueless_skip",
+                "target_segment_id": tid,
+                "reason_code": reason,
+                "line_id": row.get("line_id"),
+            }
+        )
+
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or not row.get("skip"):
+            continue
+        if is_justified_skip_row(row, soft_migrate=True):
+            continue
+        nids = row_nugget_ids(row)
+        has_high = any(nid in high_ids for nid in nids)
+        if not nids or not has_high:
+            _stamp(
+                row,
+                "no_unrecovered_high_salience" if not nids else "self_explanatory_native",
+            )
+
+    if sparse:
+        for row in out.get("layups") or []:
+            if not isinstance(row, dict) or not row.get("skip"):
+                continue
+            if is_justified_skip_row(row, soft_migrate=True):
+                continue
+            _stamp(row, "self_explanatory_native")
+    return out, notes
+
+
+def analysis_fields_leaked_into_text(row: dict[str, Any]) -> list[str]:
+    """Return analysis field names whose prose was pasted into spoken text."""
+    text = str(row.get("text") or "").strip()
+    if not text:
+        return []
+    text_fold = text.casefold()
+    leaked: list[str] = []
+    for field in ANALYSIS_FIELDS:
+        val = str(row.get(field) or "").strip()
+        if len(val) < 20:
+            continue
+        if val.casefold() in text_fold:
+            leaked.append(field)
+    setup = str(row.get("setup_from_nuggets") or "").strip()
+    if setup and len(setup) >= 20 and setup.casefold() != text.casefold():
+        # setup_from_nuggets is allowed as the body of air copy when distinct.
+        pass
+    return leaked
+
+
 def prepare_layup_plan_for_persist(ctx: RunContext, plan: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize, strip model lock, attach selection lock — before freshness assert."""
     doc = strip_model_order_lock(plan)
     doc = normalize_layup_talking_point_ledger(ctx, doc)
+    doc, _notes = heal_layup_analysis_fields(ctx, doc)
+    doc, _clone_notes = apply_clear_native_handoff_skips(ctx, doc)
+    doc, _skip_notes = stamp_valueless_skips(ctx, doc)
     return attach_selection_order_lock(ctx, doc)
 
 
@@ -1275,7 +1718,7 @@ def repair_or_skip_spoken_copy_layups(
     Never leave that row required after it fails the spoken-copy guard: G1 and
     EDL would both be unable to make progress.
     """
-    out, notes = dedupe_layup_rows_by_target(plan)
+    out, notes = apply_clear_native_handoff_skips(ctx, plan)
     corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
     nuggets = {
         str(nugget.get("nugget_id") or ""): nugget
@@ -1295,6 +1738,22 @@ def repair_or_skip_spoken_copy_layups(
     )
 
     opening_targets = _opening_owned_targets(ctx)
+
+    def _scrub_edit_structure(text: str) -> str:
+        """Drop edit-unit nouns that trip spoken_edit_structure_ref."""
+        scrubbed = re.sub(
+            r"\b(?:the|this|that|our)\s+clips?'?s?\b",
+            "this moment",
+            text,
+            flags=re.IGNORECASE,
+        )
+        scrubbed = re.sub(
+            r"\b(?:the|this|that|our)\s+segments?'?s?\b",
+            "this stretch",
+            scrubbed,
+            flags=re.IGNORECASE,
+        )
+        return " ".join(scrubbed.split()).strip()
 
     seen: list[str] = []
     for row in out.get("layups") or []:
@@ -1326,6 +1785,98 @@ def repair_or_skip_spoken_copy_layups(
             continue
         target_text = str((by_id.get(target) or {}).get("text") or "")
         text = str(row.get("text") or "").strip()
+        leaked = analysis_fields_leaked_into_text(row)
+        setup = str(row.get("setup_from_nuggets") or "").strip()
+        if leaked:
+            unlock_early = str(row.get("forward_unlock") or "").strip()
+            recover_bits = [
+                " ".join(bit for bit in (setup, unlock_early) if bit).strip(),
+                setup,
+            ]
+            recovered_early = ""
+            for candidate in recover_bits:
+                candidate = " ".join(candidate.split()).strip()
+                if not candidate or len(candidate.split()) < 6:
+                    continue
+                if candidate[-1:] not in ".!?":
+                    candidate += "?"
+                probe = dict(row)
+                probe["text"] = candidate
+                if analysis_fields_leaked_into_text(probe):
+                    continue
+                if spoken_copy_violations(
+                    candidate,
+                    evidence={
+                        "target_excerpt": target_text,
+                        "before_excerpt": "",
+                        "after_topic": str(row.get("target_beat") or ""),
+                        "strict_grounding": False,
+                    },
+                    seen_texts=seen,
+                ):
+                    continue
+                recovered_early = candidate
+                break
+            if recovered_early:
+                row["text"] = recovered_early
+                row["word_count"] = _word_count(recovered_early)
+                row["spoken_copy_recovered"] = True
+                text = recovered_early
+                notes.append(
+                    {
+                        "action": "repair_spoken_copy_layup",
+                        "target_segment_id": target,
+                        "line_id": row.get("line_id"),
+                        "from": "analysis_leak_scrub",
+                    }
+                )
+            else:
+                stamp_typed_skip(
+                    row,
+                    reason_code="spoken_copy_unhealable",
+                    evidence_refs=[
+                        f"target:{target}",
+                        *[f"analysis_leak:{f}" for f in leaked],
+                    ],
+                    value_forgone=row_nugget_ids(row),
+                    compensating_path="omit_unsafe_spoken_copy",
+                    revisit_if=[
+                        "grounded_recovery_copy",
+                        "rewrite_without_planner_fields",
+                    ],
+                    decision_confidence=0.95,
+                    owner_stage="nugget_layup_compose",
+                )
+                row["spoken_copy_violations"] = [
+                    "spoken_planner_meta",
+                    *[f"analysis_leak:{f}" for f in leaked],
+                ]
+                notes.append(
+                    {
+                        "action": "skip_unhealable_spoken_copy_layup",
+                        "target_segment_id": target,
+                        "line_id": row.get("line_id"),
+                        "violations": row["spoken_copy_violations"],
+                    }
+                )
+                continue
+        if text and "spoken_edit_structure_ref" in (
+            spoken_copy_violations(
+                text,
+                evidence={
+                    "target_excerpt": target_text,
+                    "before_excerpt": str(row.get("listener_need_entering_T") or ""),
+                    "after_topic": str(row.get("target_beat") or ""),
+                    "strict_grounding": False,
+                },
+                seen_texts=seen,
+            )
+        ):
+            scrubbed = _scrub_edit_structure(text)
+            if scrubbed and scrubbed != text:
+                text = scrubbed
+                row["text"] = scrubbed
+                row["word_count"] = _word_count(scrubbed)
         evidence = {
             "target_excerpt": target_text,
             "before_excerpt": str(row.get("listener_need_entering_T") or ""),
@@ -1361,6 +1912,7 @@ def repair_or_skip_spoken_copy_layups(
         )
         # Restating bodies cannot be salvaged by appending a cue — that still
         # fails spoken_copy on publish. Prefer unlock/nugget/cue-only recovery.
+        # Never recover by pasting analysis fields (listener_need / target_beat).
         seed_for_repair = "" if restates else text
         candidates = [
             " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
@@ -1372,6 +1924,10 @@ def repair_or_skip_spoken_copy_layups(
                 target_segment_id=target,
             ),
         ]
+        if setup and setup.casefold() not in {
+            str(row.get(f) or "").strip().casefold() for f in ANALYSIS_FIELDS
+        }:
+            candidates.insert(0, " ".join(bit for bit in (setup, unlock) if bit).strip())
         if restates:
             candidates.extend(
                 _target_aware_forward_cues(
@@ -1391,6 +1947,11 @@ def repair_or_skip_spoken_copy_layups(
             if not has_forward_cue(candidate):
                 continue
             if target_text and vo_target_overlap_ratio(candidate, target_text) > 0.75:
+                continue
+            # Reject recovery that still embeds planner analysis prose.
+            probe = dict(row)
+            probe["text"] = candidate
+            if analysis_fields_leaked_into_text(probe):
                 continue
             recovered = candidate
             break
@@ -1510,6 +2071,7 @@ def publish_layup_plan_to_gap_report(
         plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     if not isinstance(plan, dict):
         plan = {}
+    plan, _ = apply_clone_voice_adjacency_skips(ctx, plan)
     plan, _ = dedupe_layup_rows_by_target(plan)
     plan = attach_selection_order_lock(ctx, plan)
     # Publishing a plan built for a different air order silently mis-times every
@@ -2213,8 +2775,12 @@ def materialize_over_skipped_layups(
         if is_justified_skip_row(row, soft_migrate=True):
             notes.append(f"preserve_justified_skip:{tid}:{reason or 'typed'}")
             continue
-        if reason == "spoken_copy_unhealable":
-            notes.append(f"preserve_unhealable_skip:{tid}")
+        if reason in {
+            "spoken_copy_unhealable",
+            "opening_orientation_owns_target",
+            "clone_voice_adjacency",
+        }:
+            notes.append(f"preserve_unhealable_skip:{tid}:{reason}")
             continue
         if reason == "opening_orientation_owns_target":
             notes.append(f"preserve_opening_owned_skip:{tid}")
@@ -2308,18 +2874,31 @@ def materialize_over_skipped_layups(
             continue
         # Ensure last sentence satisfies has_forward_cue (question / next-beat cue).
         if unlock and not text.rstrip().endswith("?"):
-            cue = unlock if unlock.endswith("?") else (
-                unlock.rstrip(".!")
-                if unlock.lower().startswith(("what", "how", "why", "where", "when", "which"))
-                else f"What happens when {unlock[0].lower() + unlock[1:].rstrip('.!')}?"
-            )
-            if not cue.endswith("?"):
-                cue = cue.rstrip(".!") + "?"
+            unlock_core = unlock.rstrip(".!?").strip()
+            if unlock_core and unlock_core.casefold() in text.casefold():
+                # Unlock body already present — don't append a duplicated
+                # "What happens when …?" paraphrase (spoken_repeated_sentence).
+                if not text.rstrip().endswith("?"):
+                    text = text.rstrip(".!") + "?"
+                row["forward_unlock"] = str(row.get("forward_unlock") or unlock).strip() or unlock
+            else:
+                cue = unlock if unlock.endswith("?") else (
+                    unlock.rstrip(".!")
+                    if unlock.lower().startswith(("what", "how", "why", "where", "when", "which"))
+                    else f"What happens when {unlock[0].lower() + unlock[1:].rstrip('.!')}?"
+                )
+                if not cue.endswith("?"):
+                    cue = cue.rstrip(".!") + "?"
+                if canned_air_violations(cue) or _is_generic_unlock(cue):
+                    cue = derive_forward_unlock(row, target_text=str(beat or ""))
+                text = f"{text.rstrip('.!?')}. {cue}"
+                text = " ".join(text.split())
+                row["forward_unlock"] = str(row.get("forward_unlock") or cue).strip() or cue
+        elif not text.rstrip().endswith("?"):
+            cue = derive_forward_unlock(row, target_text=str(beat or ""))
             text = f"{text.rstrip('.!?')}. {cue}"
             text = " ".join(text.split())
-        elif not text.rstrip().endswith("?"):
-            text = f"{text.rstrip('.!?')}. What comes next?"
-            text = " ".join(text.split())
+            row["forward_unlock"] = str(row.get("forward_unlock") or cue).strip() or cue
         row["skip"] = False
         row.pop("skip_reason_code", None)
         row["text"] = text

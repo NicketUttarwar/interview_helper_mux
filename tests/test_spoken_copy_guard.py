@@ -102,6 +102,9 @@ def test_edit_structure_and_chapter_language_are_rejected() -> None:
         "Welcome to this chapter of the story.",
         "Chapter Four opens on ownership.",
         "As we discussed earlier on the show.",
+        "The native continuation states the episode's intended scope and welcomes the guest.",
+        "Coverage of this conversation begins with diagnostics.",
+        "The talking point about trials needs a bridge.",
     ):
         hits = spoken_copy_violations(text, evidence={})
         assert hits, f"expected violations for {text!r}"
@@ -112,6 +115,7 @@ def test_edit_structure_and_chapter_language_are_rejected() -> None:
                 or "edit_structure" in h
                 or "scaffold" in h
                 or "construction" in h
+                or "planner_meta" in h
             )
             for h in hits
         ), hits

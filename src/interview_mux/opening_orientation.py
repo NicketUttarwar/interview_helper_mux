@@ -18,10 +18,12 @@ def is_episode_orientation(line: dict[str, Any] | None) -> bool:
     if not isinstance(line, dict):
         return False
     line_id = str(line.get("line_id") or "").lower()
+    category = str(line.get("line_category") or "").lower()
     return (
         bool(line.get("episode_orientation"))
         or bool(line.get("opening_sequence"))
         or "episode_orientation" in line_id
+        or category in {"episode_preface", "episode_orientation"}
         or bool(line.get("cold_open"))
     )
 
@@ -106,8 +108,9 @@ def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
 
     if core[-1:] not in ".!?":
         core += "."
-    # Spoken-copy guard treats bare "stage" as production jargon ("growth stage").
-    core = re.sub(r"\bstage\b", "chapter", core, flags=re.IGNORECASE)
+    # Never rewrite "stage" → "chapter" (chapter language is banned on air).
+    # Prefer a listener-clear synonym when brief thesis uses "stage" as jargon.
+    core = re.sub(r"\bstage\b", "phase", core, flags=re.IGNORECASE)
     text = f"{core} Let’s hear how it unfolded."
     words = text.split()
     if len(words) > 105:
@@ -126,6 +129,35 @@ def _target_text(ctx: RunContext, target_segment_id: str) -> str:
         if isinstance(row, dict) and str(row.get("segment_id") or "") == target_segment_id:
             return str(row.get("text") or row.get("text_excerpt") or "")
     return ""
+
+
+def _native_open_already_orients(ctx: RunContext, target_segment_id: str) -> bool:
+    """True when the opening native already orients a first-time listener."""
+    text = _target_text(ctx, target_segment_id).strip()
+    if len(text.split()) < 12:
+        return False
+    brief = (
+        ctx.read_json("understanding/content_brief.json")
+        if ctx.artifact_exists("understanding/content_brief.json")
+        else {}
+    )
+    brief = brief if isinstance(brief, dict) else {}
+    guest = _first_text(brief, "guest_name", "interviewee_name", "subject_name")
+    if guest and guest.casefold() in text.casefold():
+        return True
+    if re.search(
+        r"\b(?:"
+        r"welcome(?:\s+to|\s+back)?|"
+        r"joining\s+(?:us|me)|"
+        r"(?:with\s+us|our\s+guest)|"
+        r"today\s+(?:we|i)\s+(?:talk|speak|sit)|"
+        r"introduce"
+        r")\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return False
 
 
 def ensure_episode_orientation(
@@ -148,6 +180,22 @@ def ensure_episode_orientation(
     first = ordered[0]
     hook = native_cold_open_segment_id(ctx, ordered)
     sequence = SEQUENCE_COLD_OPEN if hook else SEQUENCE_STRAIGHT
+    # Prefer omit when the straight-open native already greets/introduces.
+    if sequence == SEQUENCE_STRAIGHT and _native_open_already_orients(ctx, first):
+        lines = [
+            dict(x)
+            for x in (gap_report.get("interviewer_lines") or [])
+            if isinstance(x, dict) and not is_episode_orientation(x)
+        ]
+        out = dict(gap_report)
+        out["interviewer_lines"] = lines
+        return out, [
+            {
+                "action": "omit_episode_orientation",
+                "reason": "native_open_self_orients",
+                "segment_id": first,
+            }
+        ]
     placement = "after" if hook else "before"
     target = hook or first
     lines = [dict(x) for x in (gap_report.get("interviewer_lines") or []) if isinstance(x, dict)]
@@ -264,6 +312,12 @@ def ensure_episode_orientation(
                     "target_excerpt": target_text,
                 },
             )
+            # Orientation is grounded from the brief; enrich may copy thesis into
+            # target_excerpt — that must not count as restating the next native clip.
+            if not target_text:
+                evidence.pop("target_excerpt", None)
+                evidence.pop("after_excerpt", None)
+                evidence.pop("next_clip_text", None)
             if spoken_copy_violations(
                 str(chosen.get("text") or ""), evidence=evidence, seen_texts=[]
             ):
@@ -368,6 +422,71 @@ def ensure_episode_orientation(
         "required": True,
     }
     return out, actions
+
+
+def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
+    """Point episode orientation at the current selection open; sync EDL + pickups."""
+    written: list[str] = []
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return written
+    if not ctx.artifact_exists("master/selection.json"):
+        return written
+    gap = ctx.read_json("understanding/gap_report.json")
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(gap, dict) or not isinstance(sel, dict):
+        return written
+    ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+    if not ordered:
+        return written
+    updated, actions = ensure_episode_orientation(ctx, gap, ordered)
+    target = str(
+        ((updated.get("opening_orientation") or {}) if isinstance(updated, dict) else {}).get(
+            "target_segment_id"
+        )
+        or ordered[0]
+    )
+    line_id = ORIENTATION_LINE_ID
+    for line in (updated.get("interviewer_lines") or []) if isinstance(updated, dict) else []:
+        if isinstance(line, dict) and is_episode_orientation(line):
+            line_id = str(line.get("line_id") or ORIENTATION_LINE_ID)
+            target = str(line.get("targets_segment_id") or target)
+            break
+    ctx.write_json("understanding/gap_report.json", updated)
+    written.append("understanding/gap_report.json")
+
+    if ctx.artifact_exists("vo_pickup/synthesis_report.json"):
+        report = ctx.read_json("vo_pickup/synthesis_report.json")
+        if isinstance(report, dict):
+            changed = False
+            for entry in report.get("entries") or []:
+                if not isinstance(entry, dict):
+                    continue
+                if str(entry.get("line_id") or "") != line_id:
+                    continue
+                if str(entry.get("targets_segment_id") or "") != target:
+                    entry["targets_segment_id"] = target
+                    changed = True
+            if changed:
+                ctx.write_json("vo_pickup/synthesis_report.json", report)
+                written.append("vo_pickup/synthesis_report.json")
+
+    if ctx.artifact_exists("master/edl.json"):
+        edl = ctx.read_json("master/edl.json")
+        if isinstance(edl, dict):
+            changed = False
+            for clip in edl.get("clips") or []:
+                if not isinstance(clip, dict):
+                    continue
+                if str(clip.get("line_id") or "") != line_id:
+                    continue
+                if str(clip.get("targets_segment_id") or "") != target:
+                    clip["targets_segment_id"] = target
+                    changed = True
+            if changed:
+                ctx.write_json("master/edl.json", edl)
+                written.append("master/edl.json")
+    _ = actions
+    return written
 
 
 def validate_opening_orientation(

@@ -361,12 +361,28 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
     return first_pending_delivery(ctx, DELIVERY_ORDER)
 
 
-def ensure_mmaudio_qa_before_mix(ctx: RunContext) -> dict[str, Any]:
-    """Restore or note missing MMAudio QA before mix loud-fail."""
+def ensure_mmaudio_qa_before_mix(
+    ctx: RunContext, *, run_if_missing: bool = False
+) -> dict[str, Any]:
+    """Restore, optionally generate, or note missing MMAudio QA before mix."""
     rel = "sound_design/mmaudio_qa.json"
     if ctx.artifact_exists(rel):
         return {"ok": True, "restored": False, "path": rel}
     restored = restore_master_artifact(ctx, rel)
     if restored is not None and restored.is_file():
         return {"ok": True, "restored": True, "path": rel}
+    if run_if_missing:
+        try:
+            from interview_mux.mmaudio_asset_qa import run_mmaudio_asset_qa
+
+            run_mmaudio_asset_qa(ctx)
+            if ctx.artifact_exists(rel):
+                return {"ok": True, "restored": False, "generated": True, "path": rel}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "restored": False,
+                "path": rel,
+                "error": f"mmaudio_qa_generate_failed:{exc}",
+            }
     return {"ok": False, "restored": False, "path": rel, "error": "mmaudio_qa_missing"}

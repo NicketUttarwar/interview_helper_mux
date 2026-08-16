@@ -35,6 +35,20 @@
       }
     },
     "pickup_eligible_speaker_id": { "type": "string" },
+    "recovery_policy": {
+      "type": "object",
+      "properties": {
+        "vo_posture": {
+          "type": "string",
+          "enum": ["sparse_omit", "framing_needed", "bridge_only"]
+        },
+        "cuts_fallback": { "type": "string" },
+        "contiguous_seam": { "type": "string" },
+        "reorder_seam": { "type": "string" },
+        "outro": { "type": "string" },
+        "synth_ladder": { "type": "string" }
+      }
+    },
     "summary_plain": { "type": "string" }
   }
 }

@@ -379,6 +379,30 @@ def test_music_hinge_issues_require_outro_cue():
     assert "missing_episode_close_outro_cue" in codes
 
 
+def test_music_hinge_issues_sees_flow_plan_outro_cue():
+    """Podcast flow_plans cues count — top-level cues may be empty."""
+    sdp = {
+        "assets": [{"asset_id": "show_theme_v1_full_bed_close", "role": "theme_outro"}],
+        "cues": [],
+        "flow_plans": {
+            "podcast": {
+                "cues": [
+                    {
+                        "cue_id": "close_bed",
+                        "asset_id": "show_theme_v1_full_bed_close",
+                        "after_segment_id": "seg_034",
+                    }
+                ]
+            }
+        },
+    }
+    issues = music_hinge_issues(sdp)
+    assert not any(
+        i.get("code") in {"missing_episode_close_outro", "missing_episode_close_outro_cue"}
+        for i in issues
+    )
+
+
 def test_default_episode_close_shape():
     close = default_episode_close()
     assert close["music"]["fade_out"] == "gentle_long"

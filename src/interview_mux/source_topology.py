@@ -204,6 +204,74 @@ def _ranking_weights(topology_class: str) -> dict[str, float]:
     return base
 
 
+def recovery_policy_for_class(topology_class: str) -> dict[str, str]:
+    """Proactive recovery posture keyed by source topology class.
+
+    Applied at compose / EDL / mix so those stages do the right thing before
+    they fail. Reactive playbooks consult the same dict.
+    """
+    sparse = {
+        "vo_posture": "sparse_omit",
+        "cuts_fallback": "ranking_only",
+        "contiguous_seam": "skip_waive_glue",
+        "reorder_seam": "mint_bridge",
+        "outro": "place_plan_cue",
+        "synth_ladder": "chatterbox_then_mlx_qc",
+    }
+    by_class = {
+        "one_on_one_balanced": dict(sparse),
+        "one_on_one_asymmetric": {
+            "vo_posture": "framing_needed",
+            "cuts_fallback": "ranking_only",
+            "contiguous_seam": "skip_waive_glue",
+            "reorder_seam": "mint_bridge",
+            "outro": "place_plan_cue",
+            "synth_ladder": "chatterbox_then_mlx_qc",
+        },
+        "monologue_heavy": dict(sparse),
+        "multi_idea_sparse_host": dict(sparse),
+        "panel_multi_guest": {
+            **sparse,
+            "vo_posture": "bridge_only",
+        },
+        "co_host_frame": {
+            **sparse,
+            "vo_posture": "bridge_only",
+        },
+    }
+    return dict(by_class.get(str(topology_class or ""), sparse))
+
+
+def load_recovery_policy(ctx: RunContext | None) -> dict[str, str]:
+    """Read recovery_policy from flow_adaptation, or classify from topology."""
+    if ctx is None:
+        return recovery_policy_for_class("one_on_one_asymmetric")
+    adapt = load_flow_adaptation(ctx)
+    if isinstance(adapt, dict) and isinstance(adapt.get("recovery_policy"), dict):
+        policy = recovery_policy_for_class(str(adapt.get("topology_class") or ""))
+        policy.update(
+            {
+                str(k): str(v)
+                for k, v in adapt["recovery_policy"].items()
+                if v is not None
+            }
+        )
+        return policy
+    topo = load_topology(ctx) if ctx else None
+    cls = str((topo or {}).get("topology_class") or "") if isinstance(topo, dict) else ""
+    return recovery_policy_for_class(cls or "one_on_one_asymmetric")
+
+
+def vo_posture_is_sparse_omit(ctx: RunContext | None) -> bool:
+    posture = str(load_recovery_policy(ctx).get("vo_posture") or "")
+    return posture in {"sparse_omit", "bridge_only"}
+
+
+def mlx_qc_retry_enabled(ctx: RunContext | None) -> bool:
+    """True when topology policy asks for Chatterbox→mlx on QC fail (not fail-open)."""
+    return str(load_recovery_policy(ctx).get("synth_ladder") or "") == "chatterbox_then_mlx_qc"
+
+
 def _sfx_density(topology_class: str) -> dict[str, int]:
     densities = {
         "multi_idea_sparse_host": {"max_punctuators": 5, "max_beds": 1, "max_foley": 2},
@@ -270,6 +338,7 @@ def build_topology_artifacts(
             "pickup_speaker_confirmed": False,
         },
         "pickup_eligible_speaker_id": least,
+        "recovery_policy": recovery_policy_for_class(topology_class),
         "summary_plain": (
             f"Classified as {topology_class.replace('_', ' ')}. "
             f"Gap pickup voice defaults to least-spoken speaker ({least})."

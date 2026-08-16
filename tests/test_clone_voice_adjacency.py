@@ -70,6 +70,30 @@ def test_excluded_tape_layup_is_allowed_before_clone_source() -> None:
     assert notes == []
 
 
+def test_clone_adjacent_vo_drops_when_replacement_occupied() -> None:
+    """When the only non-clone retarget is already owned, drop instead of stacking."""
+    report, notes = avoid_clone_voice_adjacency(
+        {
+            "interviewer_lines": [
+                _line(
+                    line_id="vo_guest",
+                    targets_segment_id="guest",
+                    voice_speaker_id="spk_host",
+                ),
+                _line(line_id="vo_host", targets_segment_id="host_a"),
+            ]
+        },
+        SEGMENTS,
+        ordered_segment_ids=ORDER,
+        clone_speaker_id="spk_host",
+        nugget_corpus=CORPUS,
+    )
+    kept_ids = {str(ln.get("line_id")) for ln in report["interviewer_lines"]}
+    assert "vo_guest" in kept_ids
+    assert "vo_host" not in kept_ids
+    assert any(n.get("action") == "drop_clone_adjacency" for n in notes)
+
+
 def test_empty_layup_is_not_clone_adjacency_exempt() -> None:
     line = _line(origin="nugget_layup", nugget_ids=[])
 

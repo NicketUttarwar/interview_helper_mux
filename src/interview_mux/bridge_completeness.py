@@ -92,11 +92,18 @@ def missing_reorder_bridges(
     *,
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
+    justified_skip_before_ids: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return unresolved reorder pairs that still need VO/transition glue."""
+    """Return unresolved reorder pairs that still need VO/transition glue.
+
+    Destinations with a typed justified layup skip (credits, clone adjacency,
+    unhealable spoken copy, etc.) are exempt: minting a canned hinge there would
+    fight layup authority, and the skip already records the coverage decision.
+    """
     if not isinstance(reorder_bridges, dict):
         return []
     bridged = _bridged_pairs(gap_report, transitions)
+    skip_before = {str(x) for x in (justified_skip_before_ids or set()) if str(x).strip()}
     vo_before_targets: set[str] = set()
     if isinstance(gap_report, dict):
         for ln in gap_report.get("interviewer_lines") or []:
@@ -118,7 +125,7 @@ def missing_reorder_bridges(
         b = str(pair.get("before_id") or pair.get("before_segment_id") or "")
         if not a or not b:
             continue
-        if (a, b) in bridged or b in vo_before_targets:
+        if (a, b) in bridged or b in vo_before_targets or b in skip_before:
             continue
         missing.append(
             {
@@ -195,6 +202,7 @@ def assert_bridges_complete(
     *,
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
+    justified_skip_before_ids: set[str] | frozenset[str] | None = None,
     soft: bool = False,
 ) -> dict[str, Any]:
     """Return completeness doc; raise SystemExit when incomplete and not soft.
@@ -204,7 +212,10 @@ def assert_bridges_complete(
     pair-specific glue.
     """
     missing = missing_reorder_bridges(
-        reorder_bridges, gap_report=gap_report, transitions=transitions
+        reorder_bridges,
+        gap_report=gap_report,
+        transitions=transitions,
+        justified_skip_before_ids=justified_skip_before_ids,
     )
     stubs = stub_reorder_bridges(gap_report, transitions)
     doc = {

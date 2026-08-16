@@ -161,7 +161,7 @@ Until cutover: if `mastering_plan` is missing, fall back to today’s ranking pa
 - Prefer **pickup-eligible** speaker for new VO; **any on-tape speaker** allowed with consent when needed
 - Never invent unspoken dialogue / false attributed claims
 - Locked **speaker volleys** stay intact through EDL
-- **No naked reorder seams:** non-source-contiguous speech adjacencies require pair-specific audible glue (spoken transition or pair-bound gap VO); air-pad silence alone is never enough
+- **No naked reorder seams:** non-source-contiguous speech adjacencies require pair-specific audible glue (spoken transition or pair-bound gap VO); air-pad silence alone is never enough. **Exception:** destinations with a typed justified layup skip (`clone_voice_adjacency`, `non_editorial_outro`, `spoken_copy_unhealable`, etc.) waive spoken hinge demand — same contract as `bridge_completeness` / `seam_glue` — and the assembly ledger records `glue_waived=justified_layup_skip` instead of counting them naked.
 - Mechanical loudness QC unchanged (`verify_master`)
 - Voice cloning requires consent + approved reference + scope; off-tape cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
 - No candidate reaches synthesize while infeasible or carrying a critical semantic-integrity finding

@@ -20,6 +20,7 @@ from interview_mux.source_topology import (
     check_pickup_speaker_pending,
     classify_topology,
     confirm_pickup_speaker,
+    recovery_policy_for_class,
     require_pickup_speaker_clear,
     _speaker_talk_stats,
 )
@@ -63,6 +64,24 @@ def test_classify_one_on_one_asymmetric():
     assert classify_topology(stats, {"speakers": []}) == "one_on_one_asymmetric"
 
 
+def test_classify_one_on_one_balanced():
+    stats = [
+        {"speaker_id": "spk_0", "talk_ms": 50000, "talk_ratio": 0.50, "role_hint": "interviewee", "turn_count": 10, "question_count": 0},
+        {"speaker_id": "spk_1", "talk_ms": 50000, "talk_ratio": 0.50, "role_hint": "interviewer", "turn_count": 10, "question_count": 8},
+    ]
+    assert classify_topology(stats, {"speakers": []}) == "one_on_one_balanced"
+
+
+def test_balanced_recovery_policy_is_sparse_omit():
+    policy = recovery_policy_for_class("one_on_one_balanced")
+    assert policy["vo_posture"] == "sparse_omit"
+    assert policy["contiguous_seam"] == "skip_waive_glue"
+    assert policy["reorder_seam"] == "mint_bridge"
+    assert policy["synth_ladder"] == "chatterbox_then_mlx_qc"
+    assert recovery_policy_for_class("one_on_one_asymmetric")["vo_posture"] == "framing_needed"
+    assert recovery_policy_for_class("panel_multi_guest")["vo_posture"] == "bridge_only"
+
+
 def test_source_topology_build_pickup_eligible_is_least_spoken(tmp_path: Path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -92,6 +111,8 @@ def test_source_topology_build_pickup_eligible_is_least_spoken(tmp_path: Path):
     assert topo["pickup_eligible_speaker_id"] == "spk_1"
     assert topo["least_spoken_speaker_id"] == "spk_1"
     assert adapt["pickup_eligible_speaker_id"] == "spk_1"
+    assert isinstance(adapt.get("recovery_policy"), dict)
+    assert "vo_posture" in adapt["recovery_policy"]
 
 
 def _seed_topology_ctx(tmp_path: Path) -> RunContext:

@@ -270,15 +270,40 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
     if not isinstance(sound_design_plan, dict):
         return []
     assets = [a for a in (sound_design_plan.get("assets") or []) if isinstance(a, dict)]
+    assets_by_id = {
+        str(a.get("asset_id") or ""): a for a in assets if a.get("asset_id")
+    }
     roles = {str(a.get("role") or "") for a in assets}
     issues: list[dict[str, Any]] = []
     # Soft: if any theme role present but cold open missing when cold_open cues exist
-    cues = sound_design_plan.get("cues") or sound_design_plan.get("placements") or []
-    cue_roles = {
-        str(c.get("role") or c.get("kind") or "")
-        for c in cues
-        if isinstance(c, dict)
-    }
+    cues = list(sound_design_plan.get("cues") or sound_design_plan.get("placements") or [])
+    # Authoritative podcast placements live under flow_plans (not only top-level).
+    flow_cues = (
+        ((sound_design_plan.get("flow_plans") or {}).get("podcast") or {}).get("cues")
+        or []
+    )
+    if isinstance(flow_cues, list):
+        cues = list(cues) + [c for c in flow_cues if isinstance(c, dict)]
+    try:
+        from interview_mux.music_lane import effective_cue_role
+    except Exception:  # pragma: no cover - defensive
+        effective_cue_role = None  # type: ignore[assignment]
+
+    def _cue_role(cue: dict[str, Any]) -> str:
+        raw = str(cue.get("role") or cue.get("kind") or cue.get("music_role") or "")
+        if effective_cue_role is None:
+            return raw
+        try:
+            return str(
+                effective_cue_role(
+                    cue, assets_by_id.get(str(cue.get("asset_id") or ""), {})
+                )
+                or raw
+            )
+        except Exception:
+            return raw
+
+    cue_roles = {_cue_role(c) for c in cues if isinstance(c, dict)}
     wants_cold = any("cold" in r for r in cue_roles) or "theme_cold_open" in roles
     if wants_cold and "theme_cold_open" not in roles and not any("cold" in r for r in roles):
         issues.append(
@@ -302,7 +327,8 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
         isinstance(c, dict)
         and not c.get("skip")
         and (
-            str(c.get("role") or "") == "theme_outro"
+            _cue_role(c) == "theme_outro"
+            or str(c.get("role") or "") == "theme_outro"
             or "outro" in str(c.get("cue_id") or "").lower()
         )
         for c in cues
@@ -324,6 +350,116 @@ def music_hinge_issues(sound_design_plan: dict[str, Any] | None) -> list[dict[st
             }
         )
     return issues
+
+
+def place_episode_close_cue(ctx: Any) -> list[str]:
+    """Bind a theme_outro cue after the last native. Fade at least 180 ms.
+
+    Native verbal goodbye does not replace this cue unless Shape recorded
+    ``kind=none`` with a rationale.
+    """
+    from interview_mux.run_context import RunContext
+
+    if not isinstance(ctx, RunContext):
+        return []
+    sdp_rel = "understanding/sound_design_plan.json"
+    if not ctx.artifact_exists(sdp_rel):
+        return []
+    sdp = ctx.read_json(sdp_rel)
+    if not isinstance(sdp, dict):
+        return []
+    written: list[str] = []
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        try:
+            from interview_mux.information_packages import ensure_episode_close_on_plan
+
+            mp = ctx.read_json("mastering/mastering_plan.json")
+            if isinstance(mp, dict):
+                close = mp.get("episode_close") if isinstance(mp.get("episode_close"), dict) else {}
+                if str(close.get("kind") or "") == "none" and str(close.get("rationale") or "").strip():
+                    return []
+                mp = ensure_episode_close_on_plan(mp)
+                ctx.write_json("mastering/mastering_plan.json", mp)
+                written.append("mastering/mastering_plan.json")
+        except Exception:
+            pass
+
+    last_id = ""
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+            last_id = ordered[-1] if ordered else ""
+    if not last_id and ctx.artifact_exists("master/edl.json"):
+        edl = ctx.read_json("master/edl.json")
+        if isinstance(edl, dict):
+            for clip in reversed(edl.get("clips") or []):
+                if isinstance(clip, dict) and clip.get("type") == "speech" and clip.get("segment_id"):
+                    last_id = str(clip["segment_id"])
+                    break
+    assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
+    outro_asset = None
+    for asset in assets:
+        role = str(asset.get("role") or "")
+        aid = str(asset.get("asset_id") or "")
+        if role == "theme_outro" or "full_bed_close" in aid:
+            outro_asset = asset
+            if role == "theme_outro":
+                break
+    if outro_asset is None:
+        return written
+
+    fade_ms = 180
+    try:
+        from interview_mux.information_packages import information_packages_cfg
+
+        fade_ms = max(
+            180,
+            int((information_packages_cfg().get("episode_close") or {}).get("fade_out_ms") or 180),
+        )
+        if ctx.artifact_exists("mastering/mastering_plan.json"):
+            mp = ctx.read_json("mastering/mastering_plan.json")
+            music = ((mp or {}).get("episode_close") or {}).get("music") or {}
+            if isinstance(music, dict) and music.get("fade_out_ms") is not None:
+                fade_ms = max(180, int(music["fade_out_ms"]))
+    except Exception:
+        fade_ms = 180
+
+    def _is_outro_cue(cue: dict[str, Any]) -> bool:
+        if not isinstance(cue, dict) or cue.get("skip"):
+            return False
+        role = str(cue.get("role") or cue.get("kind") or cue.get("music_role") or "")
+        cid = str(cue.get("cue_id") or "")
+        return role == "theme_outro" or "outro" in cid.lower()
+
+    flow = sdp.get("flow_plans") if isinstance(sdp.get("flow_plans"), dict) else {}
+    podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
+    flow_cues = list(podcast.get("cues") or [])
+    top_cues = list(sdp.get("cues") or [])
+    has_outro = any(_is_outro_cue(c) for c in flow_cues + top_cues)
+    if has_outro:
+        return written or [sdp_rel]
+
+    cue = {
+        "cue_id": "theme_outro_seed",
+        "role": "theme_outro",
+        "asset_id": str(outro_asset.get("asset_id") or ""),
+        "placement": "after_segment",
+        "segment_id": last_id,
+        "fade_out_ms": fade_ms,
+        "preserve_full_duration": True,
+    }
+    if last_id:
+        cue["after_segment_id"] = last_id
+    flow_cues.append(dict(cue))
+    podcast = dict(podcast)
+    podcast["cues"] = flow_cues
+    flow = dict(flow)
+    flow["podcast"] = podcast
+    sdp["flow_plans"] = flow
+    ctx.write_json(sdp_rel, sdp)
+    written.append(sdp_rel)
+    return written
 
 
 def evaluate_listen_critic(

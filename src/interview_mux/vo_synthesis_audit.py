@@ -290,9 +290,20 @@ def entry_qc_failed(entry: dict[str, Any]) -> bool:
     return entry.get("qc_pass") is False
 
 
-def qc_failed(entry: dict[str, Any]) -> bool:
-    """True when QC failed AND config allows mlx fallback after QC fail."""
-    return entry_qc_failed(entry) and bool(gap_vo_cfg().get("auto_fallback_on_qc_fail", False))
+def qc_failed(entry: dict[str, Any], ctx: Any | None = None) -> bool:
+    """True when QC failed AND mlx retry is allowed (config or topology policy)."""
+    if not entry_qc_failed(entry):
+        return False
+    if bool(gap_vo_cfg().get("auto_fallback_on_qc_fail", False)):
+        return True
+    if ctx is None:
+        return False
+    try:
+        from interview_mux.source_topology import mlx_qc_retry_enabled
+
+        return mlx_qc_retry_enabled(ctx)
+    except Exception:
+        return False
 
 
 def synthesis_entry_for_line(ctx: RunContext, line_id: str) -> dict[str, Any] | None:
@@ -334,14 +345,19 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
     without rebuilding the full EDL. Post-master hash agreement then fails on stale
     clip metadata even when the audible take matches the current script. Sync the
     clip fields in place so QC judges the same authority as synthesis.
+
+    Also strips VO clips that the omit ledger actively omits (typed layup skips
+    after G1 synth), which otherwise fail both air-contract and hash checks.
     """
+    from interview_mux.omit_ledger import reconcile_edl_with_omit_ledger
     from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
 
+    omit_report = reconcile_edl_with_omit_ledger(ctx)
     if not ctx.artifact_exists("master/edl.json"):
-        return {"updated": 0, "clips": []}
+        return {"updated": 0, "clips": [], "omit_removed": omit_report.get("removed") or []}
     edl = ctx.read_json("master/edl.json")
     if not isinstance(edl, dict):
-        return {"updated": 0, "clips": []}
+        return {"updated": 0, "clips": [], "omit_removed": omit_report.get("removed") or []}
     clips = edl.get("clips") if isinstance(edl.get("clips"), list) else []
     gap_lines: dict[str, dict[str, Any]] = {}
     if ctx.artifact_exists("understanding/gap_report.json"):
@@ -385,7 +401,11 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
             stage="vo_synthesis_audit",
             detail=changed[:12],
         )
-    return {"updated": len(changed), "clips": changed}
+    return {
+        "updated": len(changed),
+        "clips": changed,
+        "omit_removed": list(omit_report.get("removed") or []),
+    }
 
 
 def audible_script_hash_errors(

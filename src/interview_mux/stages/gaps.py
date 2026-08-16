@@ -589,7 +589,7 @@ def _gap_framing_compose_payload(
     # VO density contract for compose (hard min ≈20% of selected speech).
     gf = ((merged_config().get("analysis") or {}).get("gap_framing") or {})
     min_r = float(gf.get("min_vo_insert_ratio") or 0.0)
-    tgt_r = float(gf.get("target_vo_insert_ratio") or 0.15)
+    tgt_r = float(gf.get("target_vo_insert_ratio") or 0.08)
     if segment_ids is not None:
         ordered_n = len(segment_ids)
     else:

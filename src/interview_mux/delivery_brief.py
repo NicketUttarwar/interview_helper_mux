@@ -135,7 +135,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
 
     gf = (cfg.get("analysis") or {}).get("gap_framing") or {}
     vo_min_ratio = float(gf.get("min_vo_insert_ratio") or 0.0)
-    vo_target_ratio = float(gf.get("target_vo_insert_ratio") or 0.15)
+    vo_target_ratio = float(gf.get("target_vo_insert_ratio") or 0.08)
     ordered_n = 0
     if ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")

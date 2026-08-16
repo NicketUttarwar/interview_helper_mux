@@ -35,6 +35,9 @@ def ideal_cuts_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "acoustic_search_ms": 120,
         # Max |anchored_ms - approx_ms| before treating the pair as mismatched.
         "anchor_max_delta_ms": 8_000,
+        # Word indexes are exact when correct; keep a tight disagreement budget so
+        # schema-forced 0/0 placeholders cannot collapse cuts onto word[0].
+        "word_index_max_delta_ms": 2_000,
         "reject_unresolved_must_keep_anchors": True,
         "skip_boundary_llm_when_bound": True,
         # Ideal-cut windows are sole native keep authority — skip topic resplit.
@@ -166,11 +169,13 @@ def _resolve_cut_edge_ms(
     margin_ms: int,
     max_shift_ms: int,
     anchor_max_delta_ms: int = 8_000,
+    word_index_max_delta_ms: int = 2_000,
 ) -> tuple[int, dict[str, Any]]:
     """Prefer LLM word index / anchor quote, then tight word snap.
 
-    Returns ``(ms, resolve_meta)``. Explicit anchors that fail to resolve near
-    ``approx_ms`` are marked reject so callers can skip free-snapping.
+    Returns ``(ms, resolve_meta)``. Unresolved or far-off anchors fall back to
+    approx snap instead of collapsing/dropping the cut; callers still enforce
+    legal conceptual hinges.
     """
     from interview_mux.cut_edge_refine import (
         resolve_ms_from_anchor_text,
@@ -189,15 +194,26 @@ def _resolve_cut_edge_ms(
         words, cut.get(idx_key), prefer=prefer
     )
     if indexed is not None:
-        meta.update(
-            {
-                "matched": True,
-                "source": "word_index",
-                "resolved_ms": int(indexed),
-                "delta_ms": abs(int(indexed) - int(approx_ms)),
-            }
-        )
-        return indexed, meta
+        delta = abs(int(indexed) - int(approx_ms))
+        # Structured-output schemas often force start_word_index/end_word_index.
+        # Models fill 0 (or other wrong indexes) when unsure — trusting those
+        # collapses every cut onto the first transcript words. Ignore indexes
+        # that disagree with the proposed clock beyond a tight tolerance, then
+        # fall through to anchor / approx snap.
+        if delta <= int(word_index_max_delta_ms):
+            meta.update(
+                {
+                    "matched": True,
+                    "source": "word_index",
+                    "resolved_ms": int(indexed),
+                    "delta_ms": delta,
+                    "word_index": cut.get(idx_key),
+                }
+            )
+            return indexed, meta
+        meta["word_index_ignored"] = True
+        meta["word_index_delta_ms"] = delta
+        meta["word_index"] = cut.get(idx_key)
 
     anchor_raw = cut.get(anchor_key) if isinstance(cut.get(anchor_key), str) else None
     if anchor_raw and str(anchor_raw).strip():
@@ -209,31 +225,34 @@ def _resolve_cut_edge_ms(
             window_ms=max(1_000, int(anchor_max_delta_ms)),
         )
         if anchored is None:
+            # Paraphrased / STT-mismatched anchors are common. Prefer the proposed
+            # clock + approx snap over dropping the entire must_keep window.
             meta.update(
                 {
                     "matched": False,
                     "source": "anchor_unresolved",
                     "anchor": str(anchor_raw).strip(),
-                    "reject": True,
                     "reason": "anchor_not_found_near_approx",
+                    "fallback": "approx_snap",
                 }
             )
-            return int(approx_ms), meta
-        delta = abs(int(anchored) - int(approx_ms))
-        meta.update(
-            {
-                "matched": True,
-                "source": "anchor",
-                "anchor": str(anchor_raw).strip(),
-                "resolved_ms": int(anchored),
-                "delta_ms": delta,
-            }
-        )
-        if delta > int(anchor_max_delta_ms):
-            meta["reject"] = True
+        else:
+            delta = abs(int(anchored) - int(approx_ms))
+            meta.update(
+                {
+                    "matched": True,
+                    "source": "anchor",
+                    "anchor": str(anchor_raw).strip(),
+                    "resolved_ms": int(anchored),
+                    "delta_ms": delta,
+                }
+            )
+            if delta <= int(anchor_max_delta_ms):
+                return int(anchored), meta
             meta["reason"] = "anchor_delta_exceeds_tolerance"
-            return int(approx_ms), meta
-        return int(anchored), meta
+            meta["fallback"] = "approx_snap"
+            # Fall through to approx snap — do not hard-reject the cut solely
+            # because a quote landed outside the tight window.
 
     snapped = _snap_ms(
         approx_ms,
@@ -242,6 +261,10 @@ def _resolve_cut_edge_ms(
         margin_ms=margin_ms,
         max_shift_ms=max_shift_ms,
     )
+    # Preserve unresolved-anchor diagnostics when falling back to the clock.
+    fallback = meta.get("fallback")
+    reason = meta.get("reason")
+    anchor = meta.get("anchor")
     meta.update(
         {
             "matched": True,
@@ -250,6 +273,12 @@ def _resolve_cut_edge_ms(
             "delta_ms": abs(int(snapped) - int(approx_ms)),
         }
     )
+    if fallback:
+        meta["fallback"] = fallback
+    if reason:
+        meta["reason"] = reason
+    if anchor:
+        meta["anchor"] = anchor
     return snapped, meta
 
 
@@ -351,6 +380,7 @@ def snap_ideal_cuts(
     acoustic_on = bool(conf.get("acoustic_edge_refine", True))
     acoustic_search = int(conf.get("acoustic_search_ms") or 120)
     anchor_max_delta = int(conf.get("anchor_max_delta_ms") or 8_000)
+    word_index_max_delta = int(conf.get("word_index_max_delta_ms") or 2_000)
     reject_unresolved = bool(conf.get("reject_unresolved_must_keep_anchors", True))
 
     raw_cuts = list(cuts_doc.get("cuts") or []) if isinstance(cuts_doc, dict) else []
@@ -368,23 +398,44 @@ def snap_ideal_cuts(
         if end <= start:
             warnings.append(f"cut[{index}] end<=start")
             continue
+        working = dict(cut)
+        try:
+            swi = working.get("start_word_index")
+            ewi = working.get("end_word_index")
+            same_idx = (
+                swi is not None
+                and ewi is not None
+                and int(swi) == int(ewi)
+            )
+        except (TypeError, ValueError):
+            same_idx = False
+        # Identical start/end indexes on a real span are almost always schema
+        # placeholders (commonly 0/0), not a valid one-word keep window.
+        if same_idx and (end - start) > min_ms:
+            working.pop("start_word_index", None)
+            working.pop("end_word_index", None)
+            warnings.append(
+                f"cut[{index}] ignored identical start/end word_index placeholders"
+            )
         start, start_meta = _resolve_cut_edge_ms(
-            cut,
+            working,
             words,
             prefer="start",
             approx_ms=start,
             margin_ms=margin,
             max_shift_ms=max_shift,
             anchor_max_delta_ms=anchor_max_delta,
+            word_index_max_delta_ms=word_index_max_delta,
         )
         end, end_meta = _resolve_cut_edge_ms(
-            cut,
+            working,
             words,
             prefer="end",
             approx_ms=end,
             margin_ms=margin,
             max_shift_ms=max_shift,
             anchor_max_delta_ms=anchor_max_delta,
+            word_index_max_delta_ms=word_index_max_delta,
         )
         priority = str(cut.get("priority") or "should_keep").strip().lower()
         if priority not in {"must_keep", "should_keep", "optional"}:
@@ -464,7 +515,16 @@ def snap_ideal_cuts(
                 continue
 
         window_check = _anchors_inside_window(words, cut, start, end)
-        if not window_check.get("ok") and reject_unresolved and priority == "must_keep":
+        # Only fail must_keep when an anchor *resolves* outside the window.
+        # Unresolved paraphrases already fell back to clocks above.
+        resolved_outside = [
+            c
+            for c in (window_check.get("checks") or [])
+            if isinstance(c, dict)
+            and c.get("reason") == "outside_window"
+            and c.get("resolved_ms") is not None
+        ]
+        if resolved_outside and reject_unresolved and priority == "must_keep":
             warnings.append(
                 f"cut[{index}] rejected: must_keep anchors not in window"
             )
@@ -817,11 +877,18 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
 
     wrote_boundaries = False
     boundary_skip_reason = None
-    if bind_boundaries_enabled(conf):
-        if not snapped.get("cuts"):
-            raise RuntimeError(
-                "ideal_cuts_materialize: bind_mode requires boundaries but no valid cuts after snap"
-            )
+    bind_mode_used = conf.get("bind_mode")
+    if bind_boundaries_enabled(conf) and not snapped.get("cuts"):
+        # Demote to ranking-only: boundary_detection owns segments.
+        boundary_skip_reason = "empty_snap_demote"
+        bind_mode_used = "off"
+        ctx.log(
+            "ideal_cuts_materialize: empty snap — demoting bind_mode to off "
+            "(boundary_detection owns segments)",
+            level="warning",
+            stage="ideal_cuts_materialize",
+        )
+    elif bind_boundaries_enabled(conf):
         boundaries = boundaries_from_snapped_cuts(snapped)
         # Sparse keep-windows must not become the full segment contract.
         # When metrics fail, leave boundaries for LLM boundary_detection and
@@ -893,6 +960,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
         "version": 1,
         "enabled": True,
         "bind_mode": conf.get("bind_mode"),
+        "bind_mode_used": bind_mode_used,
         "wrote_boundaries": wrote_boundaries,
         "wrote_selection_seed": bool(write_seed and seed and seed.get("ordered_segment_ids")),
         "cuts": snapped.get("cuts") or [],
@@ -901,6 +969,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
     }
     if boundary_skip_reason:
         materialized["boundary_bind_skipped"] = boundary_skip_reason
+        materialized["boundary_skip_reason"] = boundary_skip_reason
     ctx.write_json(MATERIALIZED_REL, materialized, stage_key="ideal_cuts_materialize")
     if not ctx.is_done("ideal_cuts_materialize"):
         ctx.mark_done("ideal_cuts_materialize", force=True)

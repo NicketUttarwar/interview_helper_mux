@@ -508,12 +508,29 @@ def ensure_seam_glue(
         assert_bridges_complete,
         missing_reorder_bridges,
     )
+    from interview_mux.nugget_layup import (
+        PLAN_REL,
+        is_justified_skip_row,
+        nugget_layup_enabled,
+    )
+
+    justified_skip_before: set[str] = set()
+    if nugget_layup_enabled() and ctx.artifact_exists(PLAN_REL):
+        plan = ctx.read_json(PLAN_REL)
+        if isinstance(plan, dict):
+            for row in plan.get("layups") or []:
+                if not isinstance(row, dict) or not row.get("skip"):
+                    continue
+                tid = str(row.get("target_segment_id") or "").strip()
+                if tid and is_justified_skip_row(row, soft_migrate=True):
+                    justified_skip_before.add(tid)
 
     bridges = rebuild_reorder_bridges(ctx, ordered, segments_by_id)
     missing = missing_reorder_bridges(
         bridges,
         gap_report=gap_report,
         transitions=transitions,
+        justified_skip_before_ids=justified_skip_before,
     )
     transitions_doc = transitions if isinstance(transitions, dict) else {"transitions": []}
     if missing:
@@ -524,6 +541,7 @@ def ensure_seam_glue(
         bridges,
         gap_report=gap_report,
         transitions=transitions_doc,
+        justified_skip_before_ids=justified_skip_before,
         soft=soft,
     )
     ctx.write_json("master/bridge_completeness.json", completeness)

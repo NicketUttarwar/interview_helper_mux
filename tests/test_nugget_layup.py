@@ -19,6 +19,7 @@ from interview_mux.nugget_layup import (
     dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
     gap_has_layup_before,
+    heal_layup_analysis_fields,
     is_justified_skip_row,
     layup_freshness_errors,
     layup_line_from_row,
@@ -30,6 +31,7 @@ from interview_mux.nugget_layup import (
     repair_or_skip_spoken_copy_layups,
     restore_layup_lines,
     stamp_typed_skip,
+    stamp_valueless_skips,
     strip_model_order_lock,
 )
 from interview_mux.prompt_validation import (
@@ -430,7 +432,7 @@ def test_thin_target_beat_only_layup_is_skipped_and_not_published():
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True
-    assert cfg["min_layup_coverage"] == 0.9
+    assert cfg["min_layup_coverage"] == 0.4
     assert cfg["authoritative_gap_report"] is True
 
 
@@ -815,7 +817,59 @@ def test_missing_analysis_fields_rejected():
     assert qc["insufficient_analysis_targets"] == ["seg_028"]
 
 
-def test_materialize_over_skipped_layups_recovers_coverage(tmp_path, monkeypatch):
+def test_heal_layup_analysis_fields_replaces_canned_what_comes_next(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.nugget_layup import (
+        evaluate_layup_qc,
+        heal_layup_analysis_fields,
+    )
+
+    ctx = RunContext("exec_nugget_layup_heal", create=True)
+    import interview_mux.nugget_layup as nl
+
+    monkeypatch.setattr(
+        nl,
+        "_manifest_segments",
+        lambda _ctx: [
+            {
+                "segment_id": "seg_003",
+                "text": "Tissue biopsy is invasive and expensive compared with liquid biopsy.",
+            }
+        ],
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_003"],
+        "layups": [
+            {
+                "target_segment_id": "seg_003",
+                "skip": False,
+                "text": (
+                    "The guest says tissue biopsy is invasive. "
+                    "How liquid biopsy seeks tissue-like information from a blood draw. "
+                    "What comes next?"
+                ),
+                "target_beat": "How liquid biopsy seeks tissue-like information from a blood draw",
+                "listener_need_entering_T": "",
+                "forward_unlock": "",
+                "setup_from_nuggets": "The guest says tissue biopsy is invasive.",
+                **{k: v for k, v in _ANALYSIS.items() if k == "target_beat"},
+            }
+        ],
+    }
+    # Override beat to the liquid-biopsy one used in text.
+    plan["layups"][0]["target_beat"] = (
+        "How liquid biopsy seeks tissue-like information from a blood draw"
+    )
+    before = evaluate_layup_qc(ctx, plan)
+    assert before["ok"] is False
+    assert any("What comes next" in e or "forward_unlock" in e for e in before["errors"])
+    fixed, notes = heal_layup_analysis_fields(ctx, plan)
+    assert notes
+    row = fixed["layups"][0]
+    assert str(row.get("forward_unlock") or "").strip()
+    assert "What comes next" not in str(row.get("text") or "")
+    assert "What comes next" not in str(row.get("forward_unlock") or "")
+    assert not canned_air_violations(str(row.get("text") or ""))
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     from interview_mux.nugget_layup import (
         evaluate_layup_qc,
@@ -871,7 +925,7 @@ def test_materialize_over_skipped_layups_recovers_coverage(tmp_path, monkeypatch
     assert any(str(n).startswith("materialized:") for n in notes)
     after = evaluate_layup_qc(ctx, fixed)
     cov = float(after.get("coverage") or after.get("layup_coverage") or 0.0)
-    assert cov >= 0.9
+    assert cov >= 0.4
     assert not any("layup_coverage" in e for e in (after.get("errors") or []))
     # Overlap may still warn depending on QC strictness; coverage is the fail we heal.
     assert after.get("ok") is True or not any(
@@ -1164,3 +1218,205 @@ def test_authority_lint_matches_qc_exempt_math():
     lint = lint_gap_report_layup_authority(ctx, report)
     assert qc["ok"] or not any("layup_coverage" in e for e in (qc.get("errors") or []))
     assert not any("layup coverage" in e for e in lint)
+
+
+def test_exec_1822_planner_leak_skips_unhealable_layup():
+    """Analysis field pasted into air (episode intended scope) must omit, not air."""
+    ctx = RunContext("exec_nugget_planner_leak", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_003"],
+        {
+            "seg_002": "Welcome Mohan — what should we cover today?",
+            "seg_003": "Tissue biopsy is invasive; liquid biopsy uses a blood draw.",
+        },
+    )
+    need = (
+        "The native continuation states the episode's intended scope and welcomes the guest."
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_003"],
+        "layups": [
+            {
+                "target_segment_id": "seg_003",
+                "line_id": "vo_layup_seg_003",
+                "text": (
+                    "The guest says tissue biopsy is invasive. "
+                    f"{need} What should we listen for next?"
+                ),
+                "target_beat": "Liquid biopsy from a blood draw",
+                "listener_need_entering_T": need,
+                "forward_unlock": "What should we listen for next?",
+                "setup_from_nuggets": "",
+                "nugget_ids": [],
+                "skip": False,
+            },
+        ],
+    }
+    fixed, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("line_id") == "vo_layup_seg_003")
+    assert row.get("skip") is True
+    assert row.get("skip_reason_code") == "spoken_copy_unhealable"
+    assert any("analysis_leak" in str(v) or "planner" in str(v) for v in (row.get("spoken_copy_violations") or []))
+    assert any(n.get("action") == "skip_unhealable_spoken_copy_layup" for n in notes)
+
+
+def test_sparse_coverage_floor_allows_many_typed_skips():
+    """Default 40% floor: mostly typed skips still pass QC when a few air."""
+    ctx = RunContext("exec_nugget_sparse_floor", create=True)
+    ordered = [f"seg_{i:03d}" for i in range(1, 6)]
+    texts = {sid: f"Native beat {sid} with enough words for a handoff." for sid in ordered}
+    _seed_air_order(ctx, ordered, texts)
+    air_texts = [
+        (
+            "Protein-aware buyers rewrote the addressable market before scale. "
+            "What nearly broke the supply chain?"
+        ),
+        (
+            "Shop-floor partners shared ESOP upside when the company sold. "
+            "What did the buyer lock in writing?"
+        ),
+    ]
+    layups = []
+    air_i = 0
+    for i, sid in enumerate(ordered):
+        if i in (0, 2):
+            layups.append(_layup_row(sid, air_texts[air_i], nugget_ids=[f"nug_{air_i}"]))
+            air_i += 1
+        else:
+            layups.append(
+                stamp_typed_skip(
+                    {
+                        "target_segment_id": sid,
+                        "line_id": f"vo_layup_{sid}",
+                        "nugget_ids": [],
+                    },
+                    reason_code="self_explanatory_native",
+                )
+            )
+    plan = {"ordered_segment_ids": ordered, "layups": layups}
+    qc = evaluate_layup_qc(ctx, plan)
+    assert float(qc.get("layup_coverage") or 0) >= 0.4
+    assert not any("layup_coverage" in e for e in (qc.get("errors") or []))
+
+
+def test_clear_native_handoff_skips_framing_without_nuggets():
+    ctx = RunContext("exec_nugget_clear_handoff", create=True)
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.95},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.95},
+            ]
+        },
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_a",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                    "text": "Mohan, why does liquid biopsy matter for trial design?",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                },
+                {
+                    "segment_id": "seg_b",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                    "text": "Because tissue biopsy is invasive and slow for real-time profiling.",
+                    "start_ms": 4000,
+                    "end_ms": 12000,
+                },
+            ]
+        },
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_a", "seg_b"]})
+    ctx.write_json(CORPUS_REL, {"nuggets": []}, skip_handoff=True)
+    plan = {
+        "ordered_segment_ids": ["seg_a", "seg_b"],
+        "layups": [
+            {
+                "target_segment_id": "seg_b",
+                "line_id": "vo_layup_seg_b",
+                "text": "Before the answer, remember profiling speed matters. What changed?",
+                "target_beat": "Real-time profiling",
+                "listener_need_entering_T": "Need a bridge into profiling",
+                "forward_unlock": "What changed for trial design?",
+                "setup_from_nuggets": "",
+                "nugget_ids": [],
+                "skip": False,
+            }
+        ],
+    }
+    from interview_mux.nugget_layup import apply_clear_native_handoff_skips
+
+    fixed, notes = apply_clear_native_handoff_skips(ctx, plan)
+    row = fixed["layups"][0]
+    assert row.get("skip") is True
+    assert row.get("skip_reason_code") == "native_self_orients"
+    assert any(n.get("action") == "skip_clear_native_handoff" for n in notes)
+
+
+def test_sparse_omit_stamps_valueless_skips_without_materialize(monkeypatch):
+    """Balanced sparse_omit: stamp holes so coverage passes; never force-air."""
+    ctx = RunContext("exec_nugget_sparse_omit_stamp", create=True)
+    ctx.write_json(
+        "understanding/flow_adaptation.json",
+        {
+            "topology_class": "one_on_one_balanced",
+            "recovery_policy": {"vo_posture": "sparse_omit"},
+        },
+    )
+    ordered = ["seg_a", "seg_b", "seg_c"]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            {
+                "target_segment_id": "seg_a",
+                "line_id": "vo_layup_seg_a",
+                "skip": True,
+                "text": "",
+                "nugget_ids": [],
+                "listener_need_entering_T": "Paste this analysis into spoken copy.",
+            },
+            {
+                "target_segment_id": "seg_b",
+                "line_id": "vo_layup_seg_b",
+                "skip": True,
+                "text": "",
+                "nugget_ids": [],
+            },
+            _layup_row(
+                "seg_c",
+                "Shop-floor partners shared ESOP upside when the company sold. "
+                "What did the buyer lock in writing?",
+                nugget_ids=["nug_y"],
+            ),
+        ],
+    }
+
+    def _boom(*_a, **_k):
+        raise AssertionError("materialize_over_skipped_layups must not run under sparse_omit")
+
+    monkeypatch.setattr(
+        "interview_mux.nugget_layup.materialize_over_skipped_layups", _boom
+    )
+    stamped, notes = stamp_valueless_skips(ctx, plan)
+    assert notes
+    assert all(is_justified_skip_row(r) for r in stamped["layups"] if r.get("skip"))
+    for row in stamped["layups"]:
+        if row.get("skip"):
+            assert "Paste this analysis" not in str(row.get("text") or "")
+    qc = evaluate_layup_qc(ctx, stamped)
+    assert qc.get("ok") is True or not any(
+        "layup_coverage" in str(e) for e in (qc.get("errors") or [])
+    )

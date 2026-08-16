@@ -460,6 +460,29 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     try:
         run_wrapped_stage(ctx, stage, _impl)
     except Exception as exc:
+        if not getattr(ctx, "_recovery_retrying", False):
+            result = None
+            try:
+                from interview_mux.recovery_controller import handle_stage_failure
+
+                result = handle_stage_failure(ctx, stage, exc)
+            except Exception:
+                result = None
+            if result is not None and result.status == "recovered":
+                setattr(ctx, "_recovery_retrying", True)
+                try:
+                    ctx.log(
+                        f"recovery_controller recovered {result.signature} "
+                        f"via {result.playbook_id}",
+                        level="warning",
+                        stage=stage,
+                    )
+                    run_wrapped_stage(ctx, stage, _impl)
+                    return
+                except Exception as retry_exc:
+                    exc = retry_exc
+                finally:
+                    setattr(ctx, "_recovery_retrying", False)
         try:
             from interview_mux.stage_resilience import escalate_stage_failure, record_resilience_event
 

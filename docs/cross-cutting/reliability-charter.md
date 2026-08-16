@@ -20,6 +20,10 @@ flowchart TD
 
 Shipped defaults: `gap_vo.fail_open=false`, `gap_vo.fallback_to_manual_on_failure=false`, `gap_fill.auto_skip_when_ineligible=false`. Explicit operator **No** at G-Framing still skips VO intentionally. Opt-in knobs restore the legacy degrade-and-continue ladder.
 
+## Source-adaptive recovery
+
+`recovery_controller` is **not** a quality waiver. Topology writes `flow_adaptation.recovery_policy` and owning stages apply it **before** they fail (sparse omit, empty-snap demote, orientation retarget, episode-close cue). On failure the controller runs **one** typed playbook per `(stage, error_class)` and either produces a legal artifact or calls `escalate_stage_failure`. Escalation still forbids `soft_ship` / `waive_quality`. Coverage floors are never lowered; remaining holes become justified skips so the denominator shrinks to real candidates.
+
 ## QC tiers
 
 | Tier | Mechanism | Default posture |
