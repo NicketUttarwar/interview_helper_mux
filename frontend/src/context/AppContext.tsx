@@ -14,6 +14,7 @@ import type {
   AppTab,
   AssetFile,
   ExecuteBody,
+  HomunculusBrainInfo,
   JobState,
   LogEntry,
   LogFilterPreset,
@@ -159,6 +160,9 @@ interface AppContextValue {
   startRun: (inputPath: string) => Promise<void>;
   startRunMode: "manual" | "full-auto";
   setStartRunMode: (mode: "manual" | "full-auto") => void;
+  homunculusVersion: string;
+  setHomunculusVersion: (version: string) => void;
+  homunculusBrains: HomunculusBrainInfo[];
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
@@ -216,6 +220,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto">("manual");
+  const [homunculusVersion, setHomunculusVersion] = useState("0.0.0");
+  const [homunculusBrains, setHomunculusBrains] = useState<HomunculusBrainInfo[]>([
+    {
+      id: "0.0.0",
+      label: "Original",
+      summary:
+        "Progress through the steps iteratively as they were created and originally intended.",
+      kind: "original_pipeline",
+    },
+    {
+      id: "0.1.0",
+      label: "Homunculus",
+      summary: "First homunculus brain: higher-level syncing, tool-loop conductor.",
+      kind: "homunculus",
+    },
+  ]);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [homeLog, setHomeLog] = useState<LogEntry[]>([]);
@@ -561,6 +581,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api<{ files?: AssetFile[] }>("/api/assets"),
         (data) => setAssets(data.files ?? []),
         "Source audio",
+      ),
+      track(
+        api<{ default?: string; brains?: HomunculusBrainInfo[] }>("/api/homunculus/versions"),
+        (data) => {
+          if (data.brains?.length) setHomunculusBrains(data.brains);
+        },
+        "Brains",
       ),
       track(
         api<{ runs?: RunSummary[] }>(runsPath),
@@ -1394,6 +1421,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           input_audio_path: inputPath,
           run_mode: startRunMode,
           full_auto: startRunMode === "full-auto",
+          homunculus_version: homunculusVersion,
         };
         showToast(
           startRunMode === "full-auto"
@@ -1426,7 +1454,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(e instanceof Error ? e.message : "Failed to start run", "error");
       }
     },
-    [appendClientLog, openRun, showToast, runId, sessionReady, startRunMode],
+    [appendClientLog, openRun, showToast, runId, sessionReady, startRunMode, homunculusVersion],
   );
 
   const clearSession = useCallback(async () => {
@@ -2172,6 +2200,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     startRun,
     startRunMode,
     setStartRunMode,
+    homunculusVersion,
+    setHomunculusVersion,
+    homunculusBrains,
     openRun,
     retryOpenRun,
     refreshRun,

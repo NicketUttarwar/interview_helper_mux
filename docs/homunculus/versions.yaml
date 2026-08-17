@@ -1,0 +1,14 @@
+brains:
+  - id: "0.0.0"
+    label: Original
+    kind: original_pipeline
+    summary: >
+      Progress through the steps iteratively as they were created and originally
+      intended. Linear analysis and delivery, existing gates, per-stage LLMs.
+  - id: "0.1.0"
+    label: Homunculus
+    kind: homunculus
+    prompt_tree: docs/prompts/homunculus/
+    summary: >
+      First mastering homunculus: tool-loop conductor, admit/pack, persona,
+      issue bus, Shape organ, ears. Higher-level syncing.

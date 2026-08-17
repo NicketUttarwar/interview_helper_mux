@@ -149,6 +149,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `sound_design/placement_adjustments.json` | `placement_adjustments.schema.json` | Yes (mix-time QA hints) |
 | `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |
 | `run_meta.json` | `run_meta.schema.json` | Yes (`write_json`) |
+| `mastering/homunculus/*.json` | ledger/persona/judgment (jsonl for issues/admitted) | 0.1.0 brain — [mastering-homunculus.md](./mastering-homunculus.md) |
 | `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |
 | `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |

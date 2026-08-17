@@ -11,6 +11,8 @@
 
 **Pipeline size:** **65 stages** — 34 analysis + 31 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
 
+**Brains:** Start-tab slider. **0.0.0** (default) original linear walk. **0.1.0** first homunculus (tool-loop conductor). Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
+
 ## Read order
 
 1. [NORTH_STAR.md](NORTH_STAR.md)

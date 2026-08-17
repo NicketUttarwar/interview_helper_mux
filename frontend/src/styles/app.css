@@ -3955,6 +3955,10 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin-top: 0.5rem;
 }
 
+.start-brain-slider {
+  grid-template-columns: 1fr 1fr;
+}
+
 @media (max-width: 720px) {
   .start-run-mode-slider {
     grid-template-columns: 1fr;

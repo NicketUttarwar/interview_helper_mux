@@ -544,6 +544,18 @@
       "feel_audit_enabled": true,
       "max_remaster_rounds": 2,
       "apply_repairs": true
+    },
+    "homunculus": {
+      "default_version": "0.0.0",
+      "mode": "authoritative",
+      "conductor_model": "gpt-4o",
+      "limits": {
+        "max_invokes_per_identity": 3,
+        "max_problem_analyses_per_issue": 1,
+        "max_complete_masters": 3,
+        "max_mix_cycles": 3,
+        "max_conductor_turns": 195
+      }
     }
   }
 }

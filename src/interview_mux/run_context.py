@@ -530,4 +530,5 @@ class RunContext:
             "working_dir": str(ctx.run_dir),
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "outputs": outputs,
+            "homunculus_version": meta.get("homunculus_version") or "0.0.0",
         }

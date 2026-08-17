@@ -1,0 +1,10 @@
+name: retrieve_canon
+kind: host
+identity: retrieve_canon
+description: Top-k documentation chunks from docs/INDEX and canon. Cite paths on decisions.
+parameters:
+  type: object
+  properties:
+    query: { type: string }
+    k: { type: integer }
+  required: [query]

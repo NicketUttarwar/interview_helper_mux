@@ -1,0 +1,13 @@
+perspectives:
+  - id: direct_listener_monetization
+    title: Direct listener monetization
+    qualification: >
+      Hard-omit like/subscribe/buy-now/sell-to-this-audience. Keep high-level
+      business economics and clever commercial systems that do not ask this
+      listener to pay or act.
+    attach:
+      - full_master_ranking
+      - air_script_compose
+      - mastering_plan_synthesize
+      - end_judgment
+      - analyze_issue

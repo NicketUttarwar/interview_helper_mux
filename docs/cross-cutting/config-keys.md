@@ -1015,6 +1015,14 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |
 | `mastering.listen_delight.fail_early_at_audit_stage` | `true` | Hard-stop inside `listen_delight_audit` (before mix/junction/finalize) when floors fail | `false` only relies on the `post_master_quality` re-check before publish |
+| `mastering.homunculus.default_version` | `0.0.0` | Start-tab / create-run default brain | Unknown versions refuse to start |
+| `mastering.homunculus.mode` | `authoritative` | 0.1.0+ conductor authority (`advisory` debug) | Unused on 0.0.0 |
+| `mastering.homunculus.conductor_model` | `gpt-4o` | OpenAI model for the 0.1.0 tool loop | Nested stage LLMs still use the model registry |
+| `mastering.homunculus.limits.max_invokes_per_identity` | `3` | Hard cap per stage/function (repack counts) | Conductor cannot raise |
+| `mastering.homunculus.limits.max_problem_analyses_per_issue` | `1` | One analysis per problem signature | Repack does not grant a second analysis |
+| `mastering.homunculus.limits.max_complete_masters` | `3` | First master + at most two rebuilds | Halt `limit_exhausted` |
+| `mastering.homunculus.limits.max_mix_cycles` | `3` | Mix / master_finalize cap | Halt `limit_exhausted` |
+| `mastering.homunculus.limits.max_conductor_turns` | `195` | `3 × 65` global backstop | Halt `limit_exhausted` |
 | `mastering.synthetic_framing.allow_canned_bridge_fallback` | `false` | `seam_glue.mint_missing_transitions`, `synthetic_framing.validate_synthetic_plan` | `true` mints marked `auto_minted` canned bridges and skips validate hard-stop for uncovered reorder seams; default loud-fails |
 | `mastering.music_continuity.prefer_contiguous_beds` | `true` | `sound_design.py` contiguous under_segment merge; `seam_autopsy.score_seam` `continue_bed` hint | `false` forces per-segment hard fades / seam-level bed restarts instead of scene beds |
 | `mastering.music_continuity.scene_crossfade_ms` | `1800` | Contiguous bed XF floor | Too short → scene seams click |

@@ -39,4 +39,8 @@ export const run_meta_jsonSchema = z.object({
   "updated_at": z.string().optional(),
 }).optional(),
   "qc_summaries": z.record(z.string(), z.unknown()).optional(),
+  "run_mode": z.string().optional(),
+  "full_auto": z.boolean().optional(),
+  "homunculus_version": z.string().optional(),
+  "homunculus_kind": z.enum(["original_pipeline", "homunculus"]).optional(),
 });

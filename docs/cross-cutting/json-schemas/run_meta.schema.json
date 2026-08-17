@@ -70,7 +70,17 @@
       },
       "additionalProperties": true
     },
-    "qc_summaries": { "type": "object" }
+    "qc_summaries": { "type": "object" },
+    "run_mode": { "type": "string" },
+    "full_auto": { "type": "boolean" },
+    "homunculus_version": {
+      "type": "string",
+      "description": "Brain selected at Start: 0.0.0 original linear pipeline (default); 0.1.0 first homunculus. Never changes mid-run."
+    },
+    "homunculus_kind": {
+      "type": "string",
+      "enum": ["original_pipeline", "homunculus"]
+    }
   },
   "additionalProperties": true
 }

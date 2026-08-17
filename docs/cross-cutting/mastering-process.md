@@ -8,7 +8,7 @@
 
 **Narrative excellence:** [narrative-mode-and-montage.md](./narrative-mode-and-montage.md) — two-pass Shape (`narrative_mode` + `montage_grammar`), 8-wave research dossier. Listen delight is **authoritative** for ship (finalize quality + publish).
 
-**Related:** [mastering-research-fields.md](./mastering-research-fields.md) · [mastering-shape-engine.md](./mastering-shape-engine.md) · [mastering-construction-decisions.md](./mastering-construction-decisions.md) · [mastering-integration-backlog.md](./mastering-integration-backlog.md) · [mix-house-chain.md](./mix-house-chain.md) · [volley-glossary.md](./volley-glossary.md)
+**Related:** [mastering-homunculus.md](./mastering-homunculus.md) (0.0.0 original vs 0.1.0 conductor) · [mastering-research-fields.md](./mastering-research-fields.md) · [mastering-shape-engine.md](./mastering-shape-engine.md) · [mastering-construction-decisions.md](./mastering-construction-decisions.md) · [mastering-integration-backlog.md](./mastering-integration-backlog.md) · [mix-house-chain.md](./mix-house-chain.md) · [volley-glossary.md](./volley-glossary.md)
 
 ---
 

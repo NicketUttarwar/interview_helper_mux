@@ -1646,6 +1646,20 @@
       "require_mode_consistency": true,
       "fail_early_at_audit_stage": true
     },
+    "homunculus": {
+      "default_version": "0.0.0",
+      "mode": "authoritative",
+      "conductor_model": "gpt-4o",
+      "limits": {
+        "max_invokes_per_identity": 3,
+        "max_problem_analyses_per_issue": 1,
+        "max_complete_masters": 3,
+        "max_mix_cycles": 3,
+        "max_conductor_turns": 195,
+        "max_ear_windows": 24,
+        "max_s2s_eval_sec": 90
+      }
+    },
     "synthetic_framing": {
       "respect_native_speakers": true,
       "allow_canned_bridge_fallback": false,

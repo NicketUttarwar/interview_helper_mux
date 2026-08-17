@@ -25,6 +25,12 @@ export function SessionBanner({
         <strong>{run.run_id}</strong>
         {execNum != null ? <span className="muted"> · #{execNum}</span> : null}
         {hash ? <span className="muted"> · {hash}</span> : null}
+        {run.meta?.homunculus_version ? (
+          <span className="muted" data-testid="session-brain">
+            {" "}
+            · {run.meta.homunculus_version === "0.1.0" ? "Homunculus 0.1.0" : `Original ${run.meta.homunculus_version}`}
+          </span>
+        ) : null}
         <span className="muted"> · {phase}</span>
         {step ? (
           <span className="muted">

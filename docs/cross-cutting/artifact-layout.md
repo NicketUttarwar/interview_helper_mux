@@ -19,7 +19,7 @@ ASSETS/
 
 ```
 ASSETS/executions/exec_001_a1b2c3d4e5f6_20260523T120000Z/
-  run_meta.json                 # execution_number, input path, source_audio_hash, REMOVED_selected_flow, stage_reuse, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
+  run_meta.json                 # execution_number, input path, source_audio_hash, homunculus_version, timestamps ([run_meta.schema.json](./json-schemas/run_meta.schema.json))
   gui_log.jsonl                 # centralized operator log (policy: .cursor/rules/interview-helper-mux.mdc)
   gui_job.json                  # last background execute job status (GUI job panel)
   segments/nle_edits.json       # non-linear editor state
@@ -160,6 +160,22 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript.vtt` | Apple Podcasts ingest file |
 | `transcript.txt` | plain-text episode transcript |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
+
+## Homunculus (0.1.0+) — `mastering/homunculus/`
+
+See [mastering-homunculus.md](./mastering-homunculus.md). 0.0.0 writes `homunculus_version` on `run_meta` only.
+
+| Path | Purpose |
+|------|---------|
+| `persona.json` | Identity + `perspectives_fired[]` |
+| `speaker_dossier.json` | Names/roles/intros from tape |
+| `memory.json` / `admitted.jsonl` | Admitted facts |
+| `volley_packs/` | Fact-ID packs (host-rendered turns) |
+| `issues.jsonl` / `analyses/` | Issue bus |
+| `ledger.json` | Crash-safe dispatch log |
+| `end_judgment.json` | Accept/reject after first master |
+| `ears/{window_id}/` | QC STT comparisons (never overwrite Apple VTT) |
+| `limit_exhausted.json` | Hard-cap halt |
 
 ## Flow 2 — `REMOVED_flow2/`
 

@@ -3,7 +3,7 @@ import { useApp } from "../../context/AppContext";
 import { V2_PHASES, isV2Enabled, phaseForStage } from "../../utils/v2Phases";
 import { StageStepWorkbench } from "./StageStepWorkbench";
 import { NlePanel } from "./NlePanel";
-import { resolvePipelineNav } from "../../utils/pipelineNavigation";
+import { HomunculusPanel } from "./HomunculusPanel";
 
 function phaseStatus(
   phase: (typeof V2_PHASES)[number],
@@ -150,7 +150,10 @@ export function PhaseWorkbench() {
         ) : activePhase.id === "start" ? (
           <p className="hint">Select or resume an execution from the Start tab.</p>
         ) : (
-          <StageStepWorkbench />
+          <>
+            <HomunculusPanel />
+            <StageStepWorkbench />
+          </>
         )}
       </div>
     </div>

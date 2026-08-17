@@ -1,0 +1,21 @@
+# Homunculus coverage matrix
+# Every product stage/prompt/operator action must have a catalog row.
+# CI: interview_mux.homunculus.coverage.assert_coverage_complete()
+
+out_of_scope:
+  - scripts/tf-*.sh
+  - scripts/bootstrap_venv.sh
+  - scripts/build_gui.sh
+  - terraform/
+  - pytest
+  - aws cli
+  - codegen/audit maint scripts
+
+product_runners_as_host_tools:
+  - tools/stt_transcribe.py → transcribe / ears_stt_window
+  - tools/musicgen_generate.py → run_musicgen
+  - tools/mmaudio_generate.py → run_mmaudio
+  - tools/chatterbox_generate.py → run_chatterbox
+  - tools/s2s_generate.py → run_s2s
+  - tools/deepfilter_enhance.py → run_deepfilter
+  - tools/verify_master.py → verify_master

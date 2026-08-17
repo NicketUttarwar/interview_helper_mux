@@ -35,6 +35,9 @@ export function StartTab() {
     actionBusy,
     startRunMode,
     setStartRunMode,
+    homunculusVersion,
+    setHomunculusVersion,
+    homunculusBrains,
   } = useApp();
   const sessionLocked = Boolean(runId);
 
@@ -99,6 +102,8 @@ export function StartTab() {
     const sourcePath = run.meta?.input_audio_path || "Unknown source";
     const sourceName = sourcePath.split("/").pop() || sourcePath;
     const isFullAuto = run.meta?.run_mode === "full-auto" || Boolean(run.meta?.full_auto);
+    const brainId = run.meta?.homunculus_version || "0.0.0";
+    const brainLabel = brainId === "0.1.0" ? "Homunculus 0.1.0" : "Original 0.0.0";
     return (
       <main className="view tab-view">
         <section className="panel hero hero-compact">
@@ -146,6 +151,9 @@ export function StartTab() {
                   Execution #{run.meta.execution_number} · {run.run_id}
                 </div>
               ) : null}
+              <div className="asset-meta" data-testid="start-brain-locked">
+                Brain: {brainLabel} (locked)
+              </div>
             </div>
             <span className="stage-status-pill done">Locked</span>
           </div>
@@ -228,6 +236,50 @@ export function StartTab() {
             an unattended end-to-end ship including S3 publish.
           </p>
         ) : null}
+      </section>
+      <section
+        className="panel panel-compact start-run-mode-panel"
+        data-testid="start-brain"
+        aria-label="Mastering brain"
+      >
+        <div className="panel-head">
+          <h3>Brain</h3>
+        </div>
+        <div
+          className="start-run-mode-slider start-brain-slider"
+          role="radiogroup"
+          aria-label="Original pipeline or Homunculus"
+        >
+          {homunculusBrains.map((brain) => {
+            const selected = homunculusVersion === brain.id;
+            return (
+              <button
+                key={brain.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`start-run-mode-option${selected ? " selected" : ""}`}
+                data-testid={`start-brain-${brain.id.replace(/\./g, "-")}`}
+                onClick={() => setHomunculusVersion(brain.id)}
+              >
+                <span className="start-run-mode-title">
+                  {brain.id} — {brain.label}
+                </span>
+                <span className="start-run-mode-desc">{brain.summary}</span>
+              </button>
+            );
+          })}
+        </div>
+        {homunculusVersion === "0.1.0" ? (
+          <p className="hint" data-testid="start-brain-homunculus-hint">
+            Homunculus 0.1.0 is a tool-loop conductor over the same 65 stages. Default remains
+            0.0.0 original step-by-step.
+          </p>
+        ) : (
+          <p className="hint" data-testid="start-brain-original-hint">
+            Original 0.0.0 walks analysis then delivery in the order stages were created.
+          </p>
+        )}
       </section>
       <section
         className="panel panel-compact"

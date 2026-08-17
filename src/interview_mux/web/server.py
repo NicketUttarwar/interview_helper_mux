@@ -149,6 +149,7 @@ class CreateRunBody(BaseModel):
     run_id: str | None = None
     run_mode: str = "manual"  # manual | full-auto
     full_auto: bool | None = None  # optional explicit flag (overrides run_mode when true)
+    homunculus_version: str | None = None  # 0.0.0 original (default) | 0.1.0 first homunculus
 
 
 class InvestigationPatchBody(BaseModel):
@@ -391,6 +392,12 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/api/homunculus/versions")
+    def homunculus_versions() -> dict[str, Any]:
+        from interview_mux.homunculus.version import brains_public, default_version
+
+        return {"default": default_version(), "brains": brains_public()}
+
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:
         cfg = merged_config()
@@ -526,8 +533,13 @@ def create_app() -> FastAPI:
         if body.run_id and RunContext.exists(body.run_id):
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
         from interview_mux.full_auto_launch import normalize_run_mode
+        from interview_mux.homunculus.version import normalize_version, stamp_run_meta
         from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
 
+        try:
+            homunculus_version = normalize_version(body.homunculus_version)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         run_mode = normalize_run_mode(body.run_mode)
         if body.full_auto is True:
             run_mode = "full-auto"
@@ -541,6 +553,7 @@ def create_app() -> FastAPI:
             source_audio_hash_short=short_hash,
         )
         ensure_analysis_workspace(ctx)
+        stamp_run_meta(ctx, homunculus_version)
 
         def _stamp_run_mode(meta: dict[str, Any]) -> None:
             meta["run_mode"] = run_mode
@@ -566,6 +579,7 @@ def create_app() -> FastAPI:
             "source_audio_hash_short": meta.get("source_audio_hash_short"),
             "run_mode": run_mode,
             "full_auto": run_mode == "full-auto",
+            "homunculus_version": homunculus_version,
         }
         if run_mode == "full-auto":
             from interview_mux.full_auto_launch import launch_full_auto_for_run
@@ -616,6 +630,13 @@ def create_app() -> FastAPI:
             "progress": {"done": done, "total": len(stages)},
             "last_log": log_entries[-1] if log_entries else None,
         }
+
+    @app.get("/api/runs/{run_id}/homunculus")
+    def get_run_homunculus(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.homunculus.runtime import snapshot_status
+
+        return snapshot_status(ctx)
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:

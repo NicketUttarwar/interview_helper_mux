@@ -506,6 +506,14 @@ def attach_conversation_context(
     stage_id: str | None = None,
 ) -> dict[str, Any]:
     """Inject conversation slices appropriate for the target stage."""
+    try:
+        from interview_mux.homunculus.runtime import is_homunculus_run
+
+        if is_homunculus_run(ctx):
+            # 0.1.0: pack_volley owns the user/assistant packet. Do not auto-dump.
+            return payload
+    except Exception:
+        pass
     from interview_mux.write_staging import active_stage
 
     sid = stage_id or active_stage() or ""

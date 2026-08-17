@@ -467,16 +467,35 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     except Exception:
         pass
     try:
-        run_wrapped_stage(ctx, stage, _impl)
+        from interview_mux.homunculus.runtime import dispatch_stage, is_homunculus_run
+
+        inner = bool(getattr(ctx, "_homunculus_inner_stage", False))
+        if is_homunculus_run(ctx) and not inner:
+            dispatch_stage(
+                ctx,
+                stage,
+                lambda: run_wrapped_stage(ctx, stage, _impl),
+                source="operator",
+            )
+        else:
+            run_wrapped_stage(ctx, stage, _impl)
     except Exception as exc:
         if not getattr(ctx, "_recovery_retrying", False):
-            result = None
+            skip_recovery = False
             try:
-                from interview_mux.recovery_controller import handle_stage_failure
+                from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
 
-                result = handle_stage_failure(ctx, stage, exc)
+                skip_recovery = is_homunculus_run(ctx) and not recovery_allowed(ctx, stage)
             except Exception:
-                result = None
+                skip_recovery = False
+            result = None
+            if not skip_recovery:
+                try:
+                    from interview_mux.recovery_controller import handle_stage_failure
+
+                    result = handle_stage_failure(ctx, stage, exc)
+                except Exception:
+                    result = None
             if result is not None and result.status == "recovered":
                 setattr(ctx, "_recovery_retrying", True)
                 try:

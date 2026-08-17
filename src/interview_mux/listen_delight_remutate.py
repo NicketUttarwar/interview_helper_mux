@@ -63,6 +63,23 @@ def apply_listen_delight_remutate(
     if not isinstance(doc, dict) or doc.get("exhausted"):
         return {"ok": False, "reason": "exhausted_or_missing"}
 
+    try:
+        from interview_mux.homunculus.issues import emit_issue
+        from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
+
+        if is_homunculus_run(ctx) and not recovery_allowed(ctx, "listen_delight_audit"):
+            emit_issue(
+                ctx,
+                kind="listen_delight_remutate",
+                source="listen_delight_remutate",
+                stage_id="listen_delight_audit",
+                implicated=list(doc.get("from_stages") or ["listen_delight_audit"]),
+                evidence={"failed_dimensions": doc.get("failed_dimensions")},
+            )
+            return {"ok": False, "reason": "awaiting_homunculus_analysis"}
+    except Exception:
+        pass
+
     notes: list[str] = []
     failed = {str(x) for x in (doc.get("failed_dimensions") or [])}
     if "nugget_retention" in failed and ctx.artifact_exists("master/selection.json"):

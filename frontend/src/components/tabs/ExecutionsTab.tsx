@@ -96,6 +96,11 @@ function RunRow({
             </span>
           ) : null}
           {hashMatchesActive ? <span className="run-same-audio-pill">Same audio</span> : null}
+          {r.homunculus_version ? (
+            <span className="run-same-audio-pill" data-testid="run-brain-pill">
+              {r.homunculus_version === "0.1.0" ? "Homunculus 0.1.0" : `Brain ${r.homunculus_version}`}
+            </span>
+          ) : null}
           {attentionCount > 0 || jobStatus === "gate" ? (
             <span className="run-needs-you-pill">Needs you</span>
           ) : null}

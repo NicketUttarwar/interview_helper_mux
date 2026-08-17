@@ -323,7 +323,12 @@ def _execute_openai_envelope_call(
             },
         )
     try:
-        resp = client.chat.completions.create(**kwargs)
+        from interview_mux.homunculus.loop import nested_chat_create
+
+        if ctx is not None:
+            resp = nested_chat_create(ctx, record_stage_key or stage_key, client, kwargs)
+        else:
+            resp = client.chat.completions.create(**kwargs)
     except Exception as exc:
         from interview_mux.safe_pruning import (
             SAFE_PRUNE_EXTRACT_KIND,

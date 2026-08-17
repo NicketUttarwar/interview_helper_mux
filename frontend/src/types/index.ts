@@ -101,6 +101,15 @@ export interface RunSummary {
   next_action?: string;
   blocking_message?: string | null;
   attention_count?: number;
+  homunculus_version?: string;
+}
+
+export interface HomunculusBrainInfo {
+  id: string;
+  label: string;
+  summary: string;
+  kind: "original_pipeline" | "homunculus" | string;
+  prompt_tree?: string | null;
 }
 
 export type StageStatus =
@@ -582,6 +591,8 @@ export interface RunMeta {
   updated_at?: string;
   run_mode?: "manual" | "full-auto" | string;
   full_auto?: boolean;
+  homunculus_version?: string;
+  homunculus_kind?: "original_pipeline" | "homunculus" | string;
   operator_phase?: OperatorPhase;
   journey_milestones?: Record<string, boolean>;
   preview_listened_at?: string;

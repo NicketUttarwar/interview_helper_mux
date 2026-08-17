@@ -91,6 +91,9 @@ def _open_run(run_id: str | None) -> RunContext:
         source_audio_hash=full_hash,
         source_audio_hash_short=short_hash,
     )
+    from interview_mux.homunculus.version import stamp_run_meta
+
+    stamp_run_meta(ctx)
     _emit(ctx, f"Allocated run {ctx.run_id}", level="info", stage="cli")
     return ctx
 

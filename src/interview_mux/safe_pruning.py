@@ -462,8 +462,15 @@ def create_chat_with_context_ladder(
     """Same ladder for off-gateway Chat Completions (cover vision)."""
     from interview_mux.model_registry import resolve_model
 
+    def _create(kw: dict[str, Any]) -> Any:
+        if ctx is not None:
+            from interview_mux.homunculus.loop import nested_chat_create
+
+            return nested_chat_create(ctx, stage_key, client, kw)
+        return client.chat.completions.create(**kw)
+
     try:
-        return client.chat.completions.create(**kwargs)
+        return _create(kwargs)
     except Exception as exc:
         if not is_context_length_error(exc):
             raise
@@ -472,7 +479,7 @@ def create_chat_with_context_ladder(
             retry = dict(kwargs)
             retry["model"] = flagship
             try:
-                return client.chat.completions.create(**retry)
+                return _create(retry)
             except Exception as exc2:
                 if not is_context_length_error(exc2):
                     raise
@@ -512,7 +519,7 @@ def create_chat_with_context_ladder(
         retry_kw["messages"] = new_messages
         token = _SAFE_PRUNE_RETRY.set(True)
         try:
-            return client.chat.completions.create(**retry_kw)
+            return _create(retry_kw)
         except Exception as exc3:
             if is_context_length_error(exc3):
                 raise SafePruneExhausted(

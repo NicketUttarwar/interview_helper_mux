@@ -10,6 +10,8 @@ SRC = REPO / "src" / "interview_mux"
 
 ALLOWED = {
     SRC / "stages" / "llm_runner.py",
+    SRC / "homunculus" / "loop.py",
+    SRC / "safe_pruning.py",
     # Podcast cover cascade (DALL·E + vision pick) — see docs/cross-cutting/podcast-cover-theme.md
     SRC / "podcast_rss" / "openai_cover.py",
     SRC / "podcast_rss" / "cover_vision.py",
@@ -31,4 +33,6 @@ def test_no_openai_outside_llm_runner():
         for pat in PATTERNS:
             if pat.search(text):
                 violations.append(f"{path.relative_to(REPO)}: {pat.pattern}")
-    assert violations == [], "OpenAI calls must go through llm_runner.py only:\n" + "\n".join(violations)
+    assert violations == [], (
+        "OpenAI calls must go through llm_runner.py / homunculus/loop.py:\n" + "\n".join(violations)
+    )

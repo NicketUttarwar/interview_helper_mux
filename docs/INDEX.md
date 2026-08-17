@@ -22,6 +22,7 @@ Hub for **interview_helper_mux v2** — one messy interview → structured `mast
 ## Cross-cutting
 
 - [cross-cutting/mastering-process.md](./cross-cutting/mastering-process.md) — **Unified Mastering Process** (research → Shape Engine → realization)
+- [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md) — **0.0.0 original vs 0.1.0 homunculus** (Start-tab brain slider)
 - [cross-cutting/air-script.md](./cross-cutting/air-script.md) — Shape realization paper-edit on `mastering_plan` (beats, omits, sonic scenes)
 - [cross-cutting/mastering-research-fields.md](./cross-cutting/mastering-research-fields.md) — 38 research fields + user-flow matrix
 - [cross-cutting/mastering-shape-engine.md](./cross-cutting/mastering-shape-engine.md) — L0–L5, prompt edit, excellence filter
