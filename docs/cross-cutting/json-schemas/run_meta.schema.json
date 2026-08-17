@@ -75,7 +75,7 @@
     "full_auto": { "type": "boolean" },
     "homunculus_version": {
       "type": "string",
-      "description": "Brain selected at Start: 0.0.0 original linear pipeline (default); 0.1.0 first homunculus. Never changes mid-run."
+      "description": "Brain selected at Start: omit/latest → highest registered (currently 0.1.0 homunculus); 0.0.0 original linear pipeline. Never changes mid-run."
     },
     "homunculus_kind": {
       "type": "string",

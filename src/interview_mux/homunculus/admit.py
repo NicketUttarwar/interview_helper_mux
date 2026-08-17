@@ -61,10 +61,29 @@ def persist_artifact(ctx: RunContext, rel: str, payload: Any, *, fact_id: str) -
     """Write only after a keep/reformat admit for this fact."""
     if not _fact_admitted_keep(ctx, fact_id):
         raise RuntimeError(f"persist refused: fact {fact_id} was not keep/reformat admitted")
-    ctx.write_json(rel, payload)
+    from interview_mux.homunculus.ledger import read_ledger
+
+    for row in read_ledger(ctx):
+        if (
+            row.get("kind") == "persist"
+            and row.get("fact_id") == fact_id
+            and row.get("rel") == rel
+            and row.get("status") == "done"
+        ):
+            return
     append_ledger(
         ctx,
-        {"kind": "persist", "identity": "persist_artifact", "fact_id": fact_id, "rel": rel},
+        {"kind": "persist", "identity": "persist_artifact", "fact_id": fact_id, "rel": rel, "status": "started"},
+    )
+    setattr(ctx, "_homunculus_persisting", True)
+    try:
+        ctx.write_json(rel, payload)
+    finally:
+        if hasattr(ctx, "_homunculus_persisting"):
+            delattr(ctx, "_homunculus_persisting")
+    append_ledger(
+        ctx,
+        {"kind": "persist", "identity": "persist_artifact", "fact_id": fact_id, "rel": rel, "status": "done"},
     )
 
 

@@ -555,6 +555,19 @@ def enqueue_investigations(
             pass
     if added_kinds:
         save_queue(ctx, queue)
+        try:
+            from interview_mux.homunculus.issues import ingest_catch
+
+            ingest_catch(
+                ctx,
+                kind="investigation_open",
+                source="analysis_memory",
+                stage_id=created_by_stage,
+                implicated=[created_by_stage] if created_by_stage else [],
+                evidence={"count": len(added_kinds), "kinds": added_kinds[:12]},
+            )
+        except Exception:
+            pass
         kind_summary = ", ".join(sorted(set(added_kinds)))
         ctx.log(
             f"investigation_enqueue count={len(added_kinds)} kinds={kind_summary}",

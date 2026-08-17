@@ -71,4 +71,4 @@ episode_cover_prompt_craft,ship,llm,stages/podcast_publish.py,yes,G-Publish prep
 podcast_encode_mp3,ship,non_llm,stages/podcast_publish.py,yes,stereo mp3 + master copy
 episode_cover_generate,ship,non_llm,stages/podcast_publish.py,yes,OpenAI Images + vision pick
 podcast_publish,ship,non_llm,stages/podcast_publish.py,yes,local package_ready.json — no S3
-g_publish,ship,gate,web/server.py,yes,optional prepare/sync/skip (not a pipeline stage)
+g_publish,ship,gate,web/server.py,yes,optional prepare/sync/skip (not a pipeline stage). Brains: 0.1.0 homunculus is default (latest registered) and selects the same stage_ids as tools; 0.0.0 remains the linear walk — docs/cross-cutting/mastering-homunculus.md. Terraform/AWS CLI/bootstrap/pytest are not tools.

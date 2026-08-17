@@ -99,6 +99,8 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
     exhausted = None
     if ctx.artifact_exists("mastering/homunculus/limit_exhausted.json"):
         exhausted = ctx.read_json("mastering/homunculus/limit_exhausted.json")
+    from interview_mux.homunculus.gates import category_status
+
     return {
         "homunculus_version": homunculus_version(ctx),
         "active": is_homunculus_run(ctx),
@@ -110,4 +112,5 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
         "recent_packs": packs,
         "ledger_len": len(read_ledger(ctx)),
         "limit_exhausted": exhausted,
+        "gates": category_status(ctx),
     }

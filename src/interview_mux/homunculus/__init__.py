@@ -5,6 +5,8 @@ from __future__ import annotations
 from interview_mux.homunculus.version import (
     DEFAULT_VERSION,
     HomunculusBrain,
+    default_version,
+    highest_version,
     is_homunculus_brain,
     list_brains,
     normalize_version,
@@ -15,6 +17,8 @@ from interview_mux.homunculus.version import (
 __all__ = [
     "DEFAULT_VERSION",
     "HomunculusBrain",
+    "default_version",
+    "highest_version",
     "is_homunculus_brain",
     "list_brains",
     "normalize_version",

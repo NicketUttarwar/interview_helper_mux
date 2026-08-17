@@ -136,21 +136,44 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
             reason=str(args.get("reason") or ""),
         )
     if name == "shape_pre_critique_gates":
-        from interview_mux.mastering_shape_gates import run_pre_critique_gates
+        from interview_mux.homunculus.shape import run_shape_pre_gates
 
         try:
-            result = run_pre_critique_gates(ctx, [])
-            return {"ok": True, "candidate_count": len(getattr(result, "candidates", []) or [])}
+            return run_shape_pre_gates(ctx)
         except Exception as exc:
             return {"ok": False, "error": type(exc).__name__, "message": str(exc)[:400]}
     if name == "shape_post_critique_gates":
-        from interview_mux.mastering_shape_gates import run_post_critique_gates
+        from interview_mux.homunculus.shape import run_shape_post_gates
 
         try:
-            result = run_post_critique_gates(ctx, {}, [])
-            return {"ok": True, "frontier": result[0] is not None}
+            return run_shape_post_gates(ctx)
         except Exception as exc:
             return {"ok": False, "error": type(exc).__name__, "message": str(exc)[:400]}
+    if name == "set_gate":
+        from interview_mux.homunculus.gates import set_gate_decision
+
+        return set_gate_decision(
+            ctx,
+            str(args.get("category") or ""),
+            str(args.get("action") or "present_operator"),
+        )
+    if name == "promote_prompt":
+        from interview_mux.homunculus.prompts import promote_prompt
+
+        return promote_prompt(ctx, str(args.get("mint_id") or ""), corpus_ok=bool(args.get("corpus_ok")))
+    if name == "mint_prompt":
+        from interview_mux.homunculus.prompts import mint_prompt
+
+        return mint_prompt(
+            ctx,
+            str(args.get("mint_id") or "mint"),
+            str(args.get("body") or ""),
+            runtime=str(args.get("runtime") or "openai"),
+        )
+    if name == "stack_prompt_module":
+        from interview_mux.homunculus.prompts import stack_module
+
+        return stack_module(ctx, str(args.get("module") or ""))
     if name == "build_speaker_dossier":
         from interview_mux.homunculus.speakers import build_speaker_dossier
 

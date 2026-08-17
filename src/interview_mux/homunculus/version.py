@@ -7,7 +7,9 @@ from typing import Any
 
 from interview_mux.config import merged_config, repo_root
 
-DEFAULT_VERSION = "0.0.0"
+# Config alias: pick the highest registered brain (currently 0.1.0).
+DEFAULT_VERSION = "latest"
+_LATEST_ALIASES = frozenset({"", "latest", "highest", "default"})
 
 
 @dataclass(frozen=True)
@@ -79,18 +81,40 @@ def list_brains() -> tuple[HomunculusBrain, ...]:
     for b in extra.values():
         if b.id not in seen:
             merged.append(b)
-    return tuple(sorted(merged, key=lambda x: x.id))
+    return tuple(sorted(merged, key=lambda x: _version_key(x.id)))
+
+
+def _version_key(vid: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in vid.split("."):
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts) or (0,)
+
+
+def highest_version() -> str:
+    brains = list_brains()
+    if not brains:
+        return "0.0.0"
+    return max((b.id for b in brains), key=_version_key)
 
 
 def default_version() -> str:
+    """Highest registered brain unless config pins a specific id."""
     cfg = merged_config().get("mastering") or {}
     hom = cfg.get("homunculus") or {}
     raw = str(hom.get("default_version") or DEFAULT_VERSION).strip()
+    if raw.lower() in _LATEST_ALIASES:
+        return highest_version()
     return normalize_version(raw)
 
 
 def normalize_version(raw: str | None) -> str:
-    text = (raw or "").strip() or default_version()
+    text = (raw or "").strip()
+    if not text or text.lower() in _LATEST_ALIASES:
+        return highest_version()
     brains = {b.id: b for b in list_brains()}
     if text not in brains:
         raise ValueError(
@@ -116,6 +140,7 @@ def is_homunculus_brain(version: str | None) -> bool:
 
 
 def brains_public() -> list[dict[str, Any]]:
+    current = default_version()
     return [
         {
             "id": b.id,
@@ -123,6 +148,7 @@ def brains_public() -> list[dict[str, Any]]:
             "summary": b.summary,
             "kind": b.kind,
             "prompt_tree": b.prompt_tree,
+            "is_default": b.id == current,
         }
         for b in list_brains()
     ]

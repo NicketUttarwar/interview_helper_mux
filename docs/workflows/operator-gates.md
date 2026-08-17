@@ -1,6 +1,6 @@
 # Operator gates — v2 simplified
 
-**0.0.0 (default):** these gates behave as today. **0.1.0:** the homunculus is the gate controller (categories); G0 word-level still requires a human when open. See [mastering-homunculus.md](../cross-cutting/mastering-homunculus.md).
+**0.0.0:** these gates behave as today. **0.1.0 (default):** the homunculus is the gate controller (categories); G0 word-level still requires a human when open. See [mastering-homunculus.md](../cross-cutting/mastering-homunculus.md).
 
 **Why these gates exist:** G0 protects **idea transmission** — a wrong word or mis-attributed clause at the source poisons every downstream stage (analysis, gap detection, VO, EDL) that trusts the transcript. Ship (`master_finalize` / publish) is blocked on **hard delight** — the `listen_delight_audit` floors (`mastering.listen_delight.mode: authoritative`, default) — so a master that fails the human-listen bar cannot silently go out the door. See [NORTH_STAR.md#essence](../../NORTH_STAR.md#essence) and [NORTH_STAR.md#human-listen-rubric-ship-checklist](../../NORTH_STAR.md#human-listen-rubric-ship-checklist).
 

@@ -104,7 +104,8 @@ Locked tabs: `pipeline-tool-btn--locked`, `disabled`, `aria-disabled`, tooltip =
 | User-visible | API | Log / session | Artifact / disk |
 |--------------|-----|---------------|-----------------|
 | **Input audio** list + Refresh | `GET /api/assets` | — | Scans `ASSETS/`; skips `executions/`, `.gui/` |
-| Start execution on a file | `POST /api/runs` body `{ input_audio_path }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
+| **Brain slider** 0.1.0 homunculus (Default) / 0.0.0 original | `GET /api/homunculus/versions`; create-run `homunculus_version` | — | `run_meta.homunculus_version` (never changes mid-run). Default = highest registered. |
+| Start execution on a file | `POST /api/runs` body `{ input_audio_path, homunculus_version? }` | `gui_log.jsonl` (`setup`) on new run | Creates `ASSETS/executions/exec_NNN_…/`, `run_meta.json` |
 
 Start button shows **Creating execution…** toast; Refresh shows spinner while `homeRefreshing`.
 
@@ -129,7 +130,7 @@ Browsing executions while another run is active does **not** stop job/log pollin
 
 | Sub-tab / pane | Component | Content | When visible |
 |----------------|-----------|---------|--------------|
-| **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages | Always when `run_id` set |
+| **Step detail** (default) | `StageDetail` | Title, `StageGuidancePanel`, **Previous execution reuse** (`StageReuseSection`), **Your action** checkpoint (`GateActions` inline), artifact checklist, **LLM routing** panel (`GET …/llm-routing` for LLM stages), transcript dock on transcribe/review stages; **HomunculusPanel** on 0.1.0 (why-this-volley + gate category cards) | Always when `run_id` set |
 | **Timeline** | `NlePanel` | Mouse-first NLE: smart actions (batch toasts), review queue, filters, undo history, transport, transcript trim, assembly A/B preview | After segment classification |
 
 Removed sub-tabs: **Story board** (`StoryBoardPanel`), **Profile JSON** (`ProfilePanel`), **Files** (`ArtifactEditor` tab), **Debug** (`LlmCallsPanel`), **Volley** (`VolleyMemoryPanel`).

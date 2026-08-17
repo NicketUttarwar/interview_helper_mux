@@ -4,12 +4,12 @@ The operator picks a **brain** on the Start tab. The choice is stored on `run_me
 
 | Version | Kind | What runs |
 |---------|------|-----------|
-| **0.0.0** (default) | `original_pipeline` | Linear 65-stage walk (`ANALYSIS_ORDER` + `DELIVERY_ORDER`). Existing gates, per-stage LLMs, remutate, recovery. No conductor. |
-| **0.1.0** | `homunculus` | First mastering homunculus: in-process OpenAI tool loop, admit/pack, persona, issue bus, Shape organ, ears, retrieve+cite docs. Same host callables; authority is the conductor. |
+| **0.0.0** | `original_pipeline` | Linear 65-stage walk (`ANALYSIS_ORDER` + `DELIVERY_ORDER`). Existing gates, per-stage LLMs, remutate, recovery. No conductor. |
+| **0.1.0** (default — latest) | `homunculus` | First mastering homunculus: in-process OpenAI tool loop, admit/pack, persona, issue bus, Shape organ, ears, retrieve+cite docs. Same host callables; authority is the conductor. |
 
-Later minors (`0.2.0`, …) are extra slider stops. Unknown versions refuse to start (HTTP 400). CLI: `MUX_HOMUNCULUS_VERSION`.
+Later minors (`0.2.0`, …) are extra slider stops. **New runs default to the highest registered brain** (`latest` in config; currently **0.1.0**). Unknown versions refuse to start (HTTP 400). CLI: `MUX_HOMUNCULUS_VERSION`.
 
-**0.0.0 is not deprecated.** It is the original iterative walk. 0.1.0 is opt-in.
+**0.0.0 is not deprecated.** It remains on the Start slider as the original iterative walk.
 
 ## 0.1.0 law (code + prompts)
 
@@ -28,6 +28,6 @@ Terraform, AWS CLI, `bootstrap_venv`, pytest, `build_gui`, codegen/audit scripts
 
 ## Artifacts
 
-Under `mastering/homunculus/`: `persona.json`, `speaker_dossier.json`, `memory.json`, `admitted.jsonl`, `volley_packs/`, `issues.jsonl`, `analyses/`, `ledger.json`, `end_judgment.json`, `ears/`, `docs_cited.jsonl`, `limit_exhausted.json`.
+Under `mastering/homunculus/`: `persona.json`, `speaker_dossier.json`, `memory.json`, `admitted.jsonl`, `volley_packs/`, `issues.jsonl`, `analyses/`, `ledger.json`, `agenda.json`, `gate_decisions.json`, `prompt_stack.json`, `promotions.json`, `mints/`, `end_judgment.json`, `ears/`, `docs_cited.jsonl`, `limit_exhausted.json`.
 
 Registry: [versions.yaml](../homunculus/versions.yaml). Prompts: [docs/prompts/homunculus/](../prompts/homunculus/).

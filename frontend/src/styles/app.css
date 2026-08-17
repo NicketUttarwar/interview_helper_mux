@@ -3959,6 +3959,22 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   grid-template-columns: 1fr 1fr;
 }
 
+.start-brain-default-pill {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent, #c9a227);
+  color: var(--bg, #111);
+}
+
+.start-run-mode-option.is-default-brain:not(.selected) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
 @media (max-width: 720px) {
   .start-run-mode-slider {
     grid-template-columns: 1fr;
@@ -3996,6 +4012,10 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .start-run-mode-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -5441,6 +5461,29 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .panel-compact h2,
 .panel-compact h3 {
   margin-bottom: 0.5rem;
+}
+
+.homunculus-gate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+}
+
+.homunculus-gate-card {
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel-muted, transparent);
+}
+
+.homunculus-gate-card.is-open {
+  border-color: var(--accent, #c9a227);
+}
+
+.homunculus-gate-title {
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .hero-compact {

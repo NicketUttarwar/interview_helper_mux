@@ -72,10 +72,21 @@ def load_system_prompt_for_stage(
     include_preamble: bool = True,
     cfg: dict[str, Any] | None = None,
     task_kind: str = "primary",
+    ctx: RunContext | None = None,
 ) -> str:
     from interview_mux.required_response_format import build_required_response_block
 
     system = load_system_prompt(rel_path, include_preamble=include_preamble)
+    try:
+        from interview_mux.homunculus.prompts import perspective_block_for_stage
+        from interview_mux.homunculus.runtime import is_homunculus_run
+
+        if ctx is not None and is_homunculus_run(ctx):
+            extra = perspective_block_for_stage(stage_key)
+            if extra:
+                system = f"{system}\n\n---\n\n{extra}"
+    except Exception:
+        pass
     if prompt_examples_enabled(stage_key, cfg):
         examples = load_compact_examples(stage_key, cfg)
         if examples:
@@ -243,6 +254,7 @@ def _execute_openai_envelope_call(
             include_preamble=include_preamble,
             cfg=cfg,
             task_kind=task_kind,
+            ctx=ctx,
         )
     resolved = (
         None

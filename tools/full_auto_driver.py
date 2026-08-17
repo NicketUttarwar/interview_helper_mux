@@ -1445,6 +1445,24 @@ def clear_orphaned_pending_writes() -> None:
 def heal_stage_done_markers() -> None:
     """Restore .stage_done when producer artifacts are complete but markers were cleared."""
     try:
+        from interview_mux.homunculus.issues import ingest_catch
+        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.run_context import RunContext as _RC
+
+        _hctx = _RC(RUN_ID, create=False)
+        if is_homunculus_run(_hctx):
+            ingest_catch(
+                _hctx,
+                kind="full_auto_heal_blocked",
+                source="full_auto_driver",
+                implicated=["heal_stage_done_markers"],
+                evidence={"reason": "0.1.0 unsupervised heal skipped"},
+            )
+            log("homunculus 0.1.0: skip unsupervised heal_stage_done_markers")
+            return
+    except Exception:
+        pass
+    try:
         # Never take the run write lock while a stage worker is live — heal writes
         # deadlock against the server and freeze the e2e driver for the whole stage.
         try:

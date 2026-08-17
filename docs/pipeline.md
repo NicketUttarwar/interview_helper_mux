@@ -10,7 +10,7 @@ Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/
 
 ```mermaid
 flowchart TB
-    subgraph analysis [Analysis — 29 stages]
+    subgraph analysis [Analysis — 34 stages]
         A0[Prepare: preclean → ingest → STT → probes → G0 queue]
         A0 --> G0{G0 transcript review}
         G0 --> U[Understand: spine → segments → palettes]
@@ -21,11 +21,13 @@ flowchart TB
         Gaps --> Brief
     end
     Brief --> G1{G1 VO optional}
-    G1 --> Del[Delivery — 30 stages]
+    G1 --> Del[Delivery — 31 stages]
     Del --> Rank[Coverage → arc → ranking → Refinement Pass]
     Rank --> Sound[SDP → EDL → preview → SFX → mix → junction QA]
     Sound --> Ship[master_finalize → optional G-Publish package]
 ```
+
+**Brains:** **0.1.0** (default — latest registered) uses the same 65 host stages as tools under the mastering homunculus conductor (logged seed-agenda fallback if the tool loop cannot finish). **0.0.0** walks this graph linearly. See [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md).
 
 ---
 

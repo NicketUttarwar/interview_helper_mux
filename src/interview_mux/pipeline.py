@@ -479,6 +479,17 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
             )
         else:
             run_wrapped_stage(ctx, stage, _impl)
+        if stage in {"master_finalize", "master_transcript_build"} and ctx.artifact_exists(
+            "master/master.wav"
+        ):
+            try:
+                from interview_mux.homunculus.runtime import is_homunculus_run
+                from interview_mux.homunculus.judge import after_complete_master
+
+                if is_homunculus_run(ctx):
+                    after_complete_master(ctx)
+            except Exception:
+                pass
     except Exception as exc:
         if not getattr(ctx, "_recovery_retrying", False):
             skip_recovery = False
@@ -586,6 +597,37 @@ def run_analysis(
             break
 
     total = len(planned) or 1
+    from interview_mux.homunculus.runtime import is_homunculus_run
+
+    if (
+        is_homunculus_run(ctx)
+        and not getattr(ctx, "_homunculus_seed_walk", False)
+        and planned
+    ):
+        from interview_mux.homunculus.agenda import run_homunculus_phase
+
+        run_homunculus_phase(ctx, "analysis", planned)
+        if check_transcript_review_pending(ctx):
+            msg = (
+                "Analysis paused for transcript review. Correct STT in the GUI, "
+                "then complete review before continuing."
+            )
+            ctx.log(msg, level="warning", stage="transcript_review")
+            raise SystemExit(msg)
+        if until_stage and until_stage != "optimal_questions":
+            return
+        from interview_mux.analysis_memory import update_completion_from_analysis
+
+        completion = update_completion_from_analysis(ctx)
+        ctx.write_json(
+            "analysis_complete.json",
+            {
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": ctx.run_id,
+                "completion": completion,
+            },
+        )
+        return
     for idx, (name, fn) in enumerate(stage_items, start=1):
         if ctx.is_done(name) and from_stage != name:
             if name in ANALYSIS_LLM_STAGES and should_run_stage_for_artifact(ctx, name):
@@ -711,6 +753,21 @@ def _run_steps(
 
     visible_planned = filter_visible_job_stages(ctx, planned)
     total = len(visible_planned) or 1
+    from interview_mux.homunculus.runtime import is_homunculus_run
+
+    if (
+        is_homunculus_run(ctx)
+        and not getattr(ctx, "_homunculus_seed_walk", False)
+        and planned
+    ):
+        from interview_mux.homunculus.agenda import run_homunculus_phase
+
+        run_homunculus_phase(ctx, "delivery", planned)
+        if ctx.artifact_exists("master/master.wav"):
+            from interview_mux.homunculus.judge import after_complete_master
+
+            after_complete_master(ctx)
+        return
     plan_idx = 0
     for name, fn in slice_steps:
         if ctx.is_done(name) and from_stage != name:

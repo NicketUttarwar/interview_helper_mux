@@ -35,7 +35,7 @@ See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) 
 ## GUI path (preferred)
 
 1. `./scripts/run.sh`
-2. Home → pick a file under **Input audio** (or resume **Previous executions**)
+2. Home → pick a file under **Input audio** (or resume **Previous executions**). Brain slider: **0.1.0 homunculus is the default** (latest registered). **0.0.0 original** remains on the slider. Unknown versions refuse to start.
 3. Note `run_id` (e.g. `exec_001_a1b2c3d4e5f6_20260523T120000Z`) from the workspace header — includes a 12-char source-audio hash segment
 
 **Resume check:** stop the server, run `./scripts/run.sh` again — the GUI should open the **Start** tab (session cleared by default). Pick source audio or resume a prior run from **Executions**. Use `MUX_PRESERVE_SESSION=1 ./scripts/run.sh` to keep the last active pointer across that launch. Stage markers and `gui_log.jsonl` remain under `ASSETS/executions/<run_id>/`.

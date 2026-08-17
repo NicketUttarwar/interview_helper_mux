@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 
+interface GateCategory {
+  open?: boolean;
+  blocks_analysis?: boolean;
+  never_auto?: boolean;
+  decision?: string | { action?: string };
+}
+
 interface HomunculusStatus {
   homunculus_version?: string;
   active?: boolean;
@@ -15,15 +22,34 @@ interface HomunculusStatus {
   issues?: Array<{ issue_id?: string; kind?: string }>;
   limit_exhausted?: { identity?: string; reason?: string } | null;
   memory_fact_count?: number;
+  gates?: {
+    categories?: string[];
+    decisions?: Record<string, { action?: string } | string>;
+    [key: string]: unknown;
+  };
 }
+
+const GATE_LABELS: Record<string, string> = {
+  transcript_integrity: "G0 transcript",
+  framing_consent: "G-Framing",
+  vo_pickup: "G1 VO",
+  source_preclean: "Preclean",
+  nle_optional: "NLE",
+  listen_borderline: "G-Listen",
+  optimizer_authority: "Optimizer",
+  quality_ship: "Quality / halt",
+  publish_package: "G-Publish",
+  prompt_promotion: "Prompt stock",
+};
 
 export function HomunculusPanel() {
   const { runId, run } = useApp();
   const version = run?.meta?.homunculus_version || "0.0.0";
+  const isHomunculus = (run?.meta?.homunculus_kind || "") === "homunculus" || version !== "0.0.0";
   const [status, setStatus] = useState<HomunculusStatus | null>(null);
 
   useEffect(() => {
-    if (!runId || version !== "0.1.0") {
+    if (!runId || !isHomunculus) {
       setStatus(null);
       return;
     }
@@ -38,9 +64,9 @@ export function HomunculusPanel() {
     return () => {
       cancelled = true;
     };
-  }, [runId, version, run?.meta?.updated_at]);
+  }, [runId, version, isHomunculus, run?.meta?.updated_at]);
 
-  if (version !== "0.1.0") return null;
+  if (!isHomunculus) return null;
 
   const remaining = status?.budget?.remaining || {};
   const lastIds = status?.last_fact_ids || [];
@@ -48,6 +74,8 @@ export function HomunculusPanel() {
   const omitted = admitted
     .map((row) => row.fact_id)
     .filter((id): id is string => Boolean(id) && !lastIds.includes(id));
+  const categories = status?.gates?.categories || Object.keys(GATE_LABELS);
+  const decisions = status?.gates?.decisions || {};
 
   return (
     <section className="panel panel-compact" data-testid="homunculus-panel">
@@ -76,6 +104,41 @@ export function HomunculusPanel() {
               .map(([k, v]) => `${k}:${v}`)
               .join(" ")}`
           : ""}
+      </div>
+      <div className="panel-head" style={{ marginTop: "0.75rem" }}>
+        <h3>Gate categories</h3>
+      </div>
+      <p className="hint sm">Homunculus controller. G0 cannot skip or auto-resolve.</p>
+      <div className="homunculus-gate-grid" data-testid="homunculus-gate-cards">
+        {categories.map((id) => {
+          const raw = status?.gates?.[id];
+          const cat = (raw && typeof raw === "object" ? raw : {}) as GateCategory;
+          const stored = decisions[id];
+          const action =
+            cat.decision && typeof cat.decision === "object"
+              ? cat.decision.action
+              : typeof cat.decision === "string"
+                ? cat.decision
+                : typeof stored === "object"
+                  ? stored.action
+                  : stored;
+          const open = Boolean(cat.open);
+          return (
+            <div
+              key={id}
+              className={`homunculus-gate-card${open ? " is-open" : ""}`}
+              data-gate-category={id}
+            >
+              <div className="homunculus-gate-title">{GATE_LABELS[id] || id}</div>
+              <div className="asset-meta">
+                {open ? "open" : "closed"}
+                {action ? ` · ${action}` : ""}
+                {cat.blocks_analysis ? " · blocks analysis" : ""}
+                {cat.never_auto ? " · never auto" : ""}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

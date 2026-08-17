@@ -9,6 +9,17 @@ export {
   type FuzzyMatch,
 } from "./fuzzyMatch";
 
+export function formatBrainLabel(id?: string | null, kind?: string | null): string {
+  const vid = (id || "").trim() || "0.0.0";
+  if (kind === "homunculus" || (!kind && vid !== "0.0.0")) {
+    return `Homunculus ${vid}`;
+  }
+  if (kind === "original_pipeline" || vid === "0.0.0") {
+    return `Original ${vid}`;
+  }
+  return `Brain ${vid}`;
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

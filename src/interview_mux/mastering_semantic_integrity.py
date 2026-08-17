@@ -403,3 +403,21 @@ def clean_candidates(
 def write_integrity_report(ctx: RunContext, report: dict[str, Any]) -> None:
     payload = {k: v for k, v in report.items() if not k.startswith("_")}
     ctx.write_json(INTEGRITY_ARTIFACT, payload)
+    failed = [
+        c.get("candidate_id")
+        for c in (report.get("candidates") or [])
+        if isinstance(c, dict) and c.get("verdict") == "fail"
+    ]
+    if failed:
+        try:
+            from interview_mux.homunculus.issues import ingest_catch
+
+            ingest_catch(
+                ctx,
+                kind="semantic_integrity",
+                source="mastering_semantic_integrity",
+                implicated=["mastering_shape_candidates"],
+                evidence={"failed_candidate_ids": failed[:12]},
+            )
+        except Exception:
+            pass

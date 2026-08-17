@@ -1,6 +1,6 @@
 import { useApp } from "../../context/AppContext";
 import { useLiveStatus } from "../../hooks/useLiveStatus";
-import { formatBytes } from "../../utils";
+import { formatBytes, formatBrainLabel } from "../../utils";
 import { InfoTooltip } from "../InfoTooltip";
 import { StartPhaseGuidance } from "../guidance/PhaseGuidanceBanner";
 import { ActionMarker } from "../guidance/ActionMarker";
@@ -103,7 +103,7 @@ export function StartTab() {
     const sourceName = sourcePath.split("/").pop() || sourcePath;
     const isFullAuto = run.meta?.run_mode === "full-auto" || Boolean(run.meta?.full_auto);
     const brainId = run.meta?.homunculus_version || "0.0.0";
-    const brainLabel = brainId === "0.1.0" ? "Homunculus 0.1.0" : "Original 0.0.0";
+    const brainLabel = formatBrainLabel(brainId, run.meta?.homunculus_kind);
     return (
       <main className="view tab-view">
         <section className="panel hero hero-compact">
@@ -245,6 +245,11 @@ export function StartTab() {
         <div className="panel-head">
           <h3>Brain</h3>
         </div>
+        <p className="hint sm" data-testid="start-brain-default-note">
+          Default is the <strong>latest homunculus</strong> (
+          {homunculusBrains.find((b) => b.is_default)?.id || homunculusVersion}). Original 0.0.0
+          remains available.
+        </p>
         <div
           className="start-run-mode-slider start-brain-slider"
           role="radiogroup"
@@ -258,26 +263,30 @@ export function StartTab() {
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                className={`start-run-mode-option${selected ? " selected" : ""}`}
+                className={`start-run-mode-option${selected ? " selected" : ""}${brain.is_default ? " is-default-brain" : ""}`}
                 data-testid={`start-brain-${brain.id.replace(/\./g, "-")}`}
                 onClick={() => setHomunculusVersion(brain.id)}
               >
                 <span className="start-run-mode-title">
                   {brain.id} — {brain.label}
+                  {brain.is_default ? (
+                    <span className="start-brain-default-pill">Default</span>
+                  ) : null}
                 </span>
                 <span className="start-run-mode-desc">{brain.summary}</span>
               </button>
             );
           })}
         </div>
-        {homunculusVersion === "0.1.0" ? (
+        {homunculusBrains.find((b) => b.id === homunculusVersion)?.kind === "homunculus" ? (
           <p className="hint" data-testid="start-brain-homunculus-hint">
-            Homunculus 0.1.0 is a tool-loop conductor over the same 65 stages. Default remains
-            0.0.0 original step-by-step.
+            Homunculus {homunculusVersion} is the default tool-loop conductor over the same 65
+            stages. Switch to Original 0.0.0 for the linear walk.
           </p>
         ) : (
           <p className="hint" data-testid="start-brain-original-hint">
-            Original 0.0.0 walks analysis then delivery in the order stages were created.
+            Original 0.0.0 walks analysis then delivery in the order stages were created. Default
+            for new runs is Homunculus {homunculusBrains.find((b) => b.is_default)?.id || "0.1.0"}.
           </p>
         )}
       </section>

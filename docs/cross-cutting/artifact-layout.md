@@ -173,6 +173,9 @@ See [mastering-homunculus.md](./mastering-homunculus.md). 0.0.0 writes `homuncul
 | `volley_packs/` | Fact-ID packs (host-rendered turns) |
 | `issues.jsonl` / `analyses/` | Issue bus |
 | `ledger.json` | Crash-safe dispatch log |
+| `agenda.json` | Phase remaining stages + seed-order fallback reason |
+| `gate_decisions.json` | Homunculus controller actions per gate category |
+| `prompt_stack.json` / `promotions.json` / `mints/` | Prompt stock |
 | `end_judgment.json` | Accept/reject after first master |
 | `ears/{window_id}/` | QC STT comparisons (never overwrite Apple VTT) |
 | `limit_exhausted.json` | Hard-cap halt |

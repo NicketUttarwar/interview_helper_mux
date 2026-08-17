@@ -134,7 +134,30 @@ class RunContext:
             return write_mirrored_json(self, rel, data)
         p = self.path(rel)
         fs_write_json(p, data)
+        self._homunculus_admit_write(rel, data)
         return p
+
+    def _homunculus_admit_write(self, rel: str, data: Any) -> None:
+        """0.1.0: every canonical write is admitted. Skip internal homunculus files."""
+        if getattr(self, "_homunculus_persisting", False):
+            return
+        if rel.startswith("mastering/homunculus/") or rel in {"run_meta.json", "gui_job.json"}:
+            return
+        try:
+            from interview_mux.homunculus.issues import is_homunculus_meta
+            from interview_mux.homunculus.admit import admit
+
+            if not is_homunculus_meta(self):
+                return
+            admit(
+                self,
+                identity=f"write:{rel}",
+                action="keep",
+                payload=data if isinstance(data, dict) else {"rel": rel},
+                fact_id=f"write:{rel}",
+            )
+        except Exception:
+            return
 
     def read_json(self, rel: str) -> Any:
         from interview_mux.write_staging import resolve_read_path

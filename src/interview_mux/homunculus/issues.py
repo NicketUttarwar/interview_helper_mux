@@ -128,3 +128,32 @@ def analyze_issue(
 
 def has_analysis(ctx: RunContext, issue_id: str) -> bool:
     return ctx.artifact_exists(f"{ANALYSES_DIR}/{issue_id}.json")
+
+
+def is_homunculus_meta(ctx: RunContext) -> bool:
+    if not ctx.artifact_exists("run_meta.json"):
+        return False
+    ver = str((ctx.read_json("run_meta.json") or {}).get("homunculus_version") or "0.0.0")
+    return ver not in {"", "0.0.0"}
+
+
+def ingest_catch(
+    ctx: RunContext,
+    *,
+    kind: str,
+    source: str,
+    evidence: dict[str, Any] | None = None,
+    stage_id: str | None = None,
+    implicated: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """0.1.0: record the catch. 0.0.0: no-op."""
+    if not is_homunculus_meta(ctx):
+        return None
+    return emit_issue(
+        ctx,
+        kind=kind,
+        source=source,
+        evidence=evidence,
+        stage_id=stage_id,
+        implicated=implicated,
+    )

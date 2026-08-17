@@ -1,4 +1,5 @@
 import type { RunData, RunSummary } from "../types";
+import { formatBrainLabel } from "../utils";
 
 interface SessionBannerProps {
   run: RunData | null;
@@ -28,7 +29,7 @@ export function SessionBanner({
         {run.meta?.homunculus_version ? (
           <span className="muted" data-testid="session-brain">
             {" "}
-            · {run.meta.homunculus_version === "0.1.0" ? "Homunculus 0.1.0" : `Original ${run.meta.homunculus_version}`}
+            · {formatBrainLabel(run.meta.homunculus_version, run.meta.homunculus_kind)}
           </span>
         ) : null}
         <span className="muted"> · {phase}</span>

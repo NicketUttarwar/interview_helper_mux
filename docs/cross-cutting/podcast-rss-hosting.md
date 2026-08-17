@@ -14,6 +14,8 @@
 
 Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) in `secrets.env`. **Never** assume `aws login` or AWS CLI is installed.
 
+**Brains:** 0.0.0 and 0.1.0 share the same in-app boto3 publish path. On 0.1.0 those host callables are tools; Terraform / AWS CLI remain **not tools**. Ears re-STT never overwrites Apple `podcast:transcript` / `master_transcript_build`.
+
 ## Architecture
 
 - **Private S3** bucket holds `feed.xml`, `show/`, `catalog/`, `episodes/NNNN/`

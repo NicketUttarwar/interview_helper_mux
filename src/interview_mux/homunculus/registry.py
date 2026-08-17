@@ -259,6 +259,63 @@ def stage_tool_specs() -> list[ToolSpec]:
                 kind="host",
                 identity="verify_master",
             ),
+            ToolSpec(
+                name="set_gate",
+                description="Gate controller: open / auto_resolve / present_operator / skip a category. G0 cannot skip.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string"},
+                        "action": {
+                            "type": "string",
+                            "enum": ["open", "auto_resolve", "present_operator", "skip"],
+                        },
+                    },
+                    "required": ["category", "action"],
+                },
+                kind="host",
+                identity="set_gate",
+            ),
+            ToolSpec(
+                name="promote_prompt",
+                description="Promote a minted prompt only if eval-corpus passed.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "mint_id": {"type": "string"},
+                        "corpus_ok": {"type": "boolean"},
+                    },
+                    "required": ["mint_id"],
+                },
+                kind="host",
+                identity="promote_prompt",
+            ),
+            ToolSpec(
+                name="mint_prompt",
+                description="Mint a prompt module (OpenAI or MLX shorter variant). Promotion is separate and corpus-gated.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "mint_id": {"type": "string"},
+                        "body": {"type": "string"},
+                        "runtime": {"type": "string", "enum": ["openai", "mlx"]},
+                    },
+                    "required": ["mint_id", "body"],
+                },
+                kind="host",
+                identity="mint_prompt",
+            ),
+            ToolSpec(
+                name="stack_prompt_module",
+                description="Attach a conductor/perspective module to the next volley stack.",
+                parameters={
+                    "type": "object",
+                    "properties": {"module": {"type": "string"}},
+                    "required": ["module"],
+                },
+                kind="host",
+                identity="stack_prompt_module",
+            ),
         ]
     )
     return specs

@@ -110,6 +110,7 @@ export interface HomunculusBrainInfo {
   summary: string;
   kind: "original_pipeline" | "homunculus" | string;
   prompt_tree?: string | null;
+  is_default?: boolean;
 }
 
 export type StageStatus =

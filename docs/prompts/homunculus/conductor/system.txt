@@ -26,4 +26,8 @@ Perspective direct_listener_monetization: omit subscribe/buy-now/sell-to-this-au
 
 Shape L2–L4 gates are tools (shape_pre_critique_gates / shape_post_critique_gates). Soft-gate runtime is fallback only.
 
+Gate controller: set_gate on categories. G0 (transcript_integrity) cannot skip or auto_resolve.
+
+Prompt stock: stack_prompt_module, mint_prompt, promote_prompt (corpus_ok required).
+
 After the first complete master.wav, run ears then end_judgment. Accept only with an ears packet or an explicit fail-open reason.

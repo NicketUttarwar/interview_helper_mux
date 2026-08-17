@@ -220,7 +220,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto">("manual");
-  const [homunculusVersion, setHomunculusVersion] = useState("0.0.0");
+  const [homunculusVersion, setHomunculusVersionState] = useState("0.1.0");
+  const brainTouchedRef = useRef(false);
+  const setHomunculusVersion = useCallback((version: string) => {
+    brainTouchedRef.current = true;
+    setHomunculusVersionState(version);
+  }, []);
   const [homunculusBrains, setHomunculusBrains] = useState<HomunculusBrainInfo[]>([
     {
       id: "0.0.0",
@@ -234,6 +239,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       label: "Homunculus",
       summary: "First homunculus brain: higher-level syncing, tool-loop conductor.",
       kind: "homunculus",
+      is_default: true,
     },
   ]);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
@@ -586,6 +592,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api<{ default?: string; brains?: HomunculusBrainInfo[] }>("/api/homunculus/versions"),
         (data) => {
           if (data.brains?.length) setHomunculusBrains(data.brains);
+          if (data.default && !brainTouchedRef.current) {
+            setHomunculusVersionState(data.default);
+          }
         },
         "Brains",
       ),

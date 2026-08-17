@@ -42,8 +42,17 @@ def _ctx_000() -> RunContext:
 def test_normalize_version_default_and_unknown() -> None:
     assert normalize_version("0.0.0") == "0.0.0"
     assert normalize_version("0.1.0") == "0.1.0"
+    assert normalize_version(None) == "0.1.0"
+    assert normalize_version("latest") == "0.1.0"
     with pytest.raises(ValueError, match="Unknown"):
         normalize_version("9.9.9")
+
+
+def test_default_is_highest_registered() -> None:
+    from interview_mux.homunculus.version import default_version, highest_version
+
+    assert highest_version() == "0.1.0"
+    assert default_version() == "0.1.0"
 
 
 def test_000_is_not_homunculus_run() -> None:
@@ -244,9 +253,12 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     vers = client.get("/api/homunculus/versions")
     assert vers.status_code == 200
     body = vers.json()
-    assert body["default"] == "0.0.0"
+    assert body["default"] == "0.1.0"
     ids = {b["id"] for b in body["brains"]}
     assert {"0.0.0", "0.1.0"} <= ids
+    by_id = {b["id"]: b for b in body["brains"]}
+    assert by_id["0.1.0"].get("is_default") is True
+    assert by_id["0.0.0"].get("is_default") is False
 
     bad = client.post(
         "/api/runs",
@@ -262,8 +274,161 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
         json={"input_audio_path": "ASSETS/input/interview.wav", "run_mode": "manual"},
     )
     assert ok.status_code == 200, ok.text
-    assert ok.json()["homunculus_version"] == "0.0.0"
+    assert ok.json()["homunculus_version"] == "0.1.0"
     meta = (tmp_path / "ASSETS" / "executions" / ok.json()["run_id"] / "run_meta.json").read_text(
         encoding="utf-8"
     )
-    assert '"homunculus_version": "0.0.0"' in meta
+    assert '"homunculus_version": "0.1.0"' in meta
+
+
+def test_write_json_admits_on_010() -> None:
+    ctx = _ctx_010()
+    ctx.write_json("scratch/probe.json", {"text": "tape"})
+    from interview_mux.homunculus.admit import read_admitted
+
+    facts = [r.get("fact_id") for r in read_admitted(ctx)]
+    assert "write:scratch/probe.json" in facts
+
+
+def test_write_json_does_not_admit_on_000() -> None:
+    ctx = _ctx_000()
+    ctx.write_json("scratch/probe.json", {"text": "tape"})
+    from interview_mux.homunculus.admit import read_admitted
+
+    assert read_admitted(ctx) == []
+
+
+def test_persist_skip_on_replay() -> None:
+    ctx = _ctx_010()
+    admit(ctx, identity="x", action="keep", payload={"ok": True}, fact_id="fx")
+    persist_artifact(ctx, "scratch/once.json", {"ok": True}, fact_id="fx")
+    persist_artifact(ctx, "scratch/once.json", {"ok": True}, fact_id="fx")
+    from interview_mux.homunculus.ledger import read_ledger
+
+    dones = [
+        r
+        for r in read_ledger(ctx)
+        if r.get("kind") == "persist" and r.get("status") == "done" and r.get("rel") == "scratch/once.json"
+    ]
+    assert len(dones) == 1
+
+
+def test_recovery_blocked_until_analysis() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.runtime import recovery_allowed
+
+    issue = emit_issue(ctx, kind="stage_failure", source="t", stage_id="edl", implicated=["edl"])
+    assert recovery_allowed(ctx, "edl") is False
+    analyze_issue(ctx, issue["issue_id"], quality_hypothesis="seam", action="retry")
+    assert recovery_allowed(ctx, "edl") is True
+
+
+def test_end_judgment_accept_requires_ears_or_fail_open() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.judge import write_judgment
+
+    with pytest.raises(RuntimeError, match="ears"):
+        write_judgment(ctx, verdict="accept", reason="no ears")
+    out = write_judgment(
+        ctx,
+        verdict="accept",
+        reason="fail open",
+        fail_open_reason="speech venv unavailable",
+    )
+    assert out["verdict"] == "accept"
+
+
+def test_ears_fail_open_missing_wav() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.ears import stt_window
+
+    row = stt_window(ctx, window_id="opening", rel="master/master.wav", start_ms=0, end_ms=1000)
+    assert row["fail_open"] is True
+    assert row["qc_only"] is True
+    assert row["overwrites_apple_vtt"] is False
+
+
+def test_gate_cannot_skip_g0() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.gates import set_gate_decision
+
+    with pytest.raises(RuntimeError, match="cannot skip"):
+        set_gate_decision(ctx, "transcript_integrity", "skip")
+    doc = set_gate_decision(ctx, "framing_consent", "present_operator")
+    assert doc["decisions"]["framing_consent"]["action"] == "present_operator"
+
+
+def test_perspective_attaches_only_on_010() -> None:
+    from interview_mux.stages.llm_runner import load_system_prompt_for_stage
+
+    ctx = _ctx_010()
+    text = load_system_prompt_for_stage(
+        "selection/full-master-ranking.system.txt",
+        "full_master_ranking",
+        include_preamble=False,
+        ctx=ctx,
+    )
+    assert "subscribe" in text.lower() or "listener" in text.lower()
+    ctx0 = _ctx_000()
+    text0 = load_system_prompt_for_stage(
+        "selection/full-master-ranking.system.txt",
+        "full_master_ranking",
+        include_preamble=False,
+        ctx=ctx0,
+    )
+    assert "Hard omit" not in text0
+
+
+def test_seed_agenda_fallback_ledgered(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import run_homunculus_phase
+    from interview_mux.homunculus.ledger import read_ledger
+
+    ctx = _ctx_010()
+    walked: list[tuple[list[str], str]] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.append((list(stages), reason))
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+
+    class Boom:
+        def create(self, **kwargs):
+            raise RuntimeError("no network")
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Boom()))
+    run_homunculus_phase(ctx, "analysis", ["speaker_roles"], client=client)
+    kinds = [r.get("kind") for r in read_ledger(ctx)]
+    assert "fallback" in kinds
+    assert "agenda" in kinds
+    assert walked
+
+
+def test_promote_prompt_requires_corpus() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.prompts import mint_prompt, promote_prompt
+
+    mint_prompt(ctx, "m1", "Keep intros.", runtime="openai")
+    denied = promote_prompt(ctx, "m1", corpus_ok=False)
+    assert denied["ok"] is False
+    ok = promote_prompt(ctx, "m1", corpus_ok=True)
+    assert ok["ok"] is True
+
+
+def test_run_analysis_uses_agenda_not_silent_linear(monkeypatch) -> None:
+    ctx = _ctx_010()
+    called: list[str] = []
+
+    def _phase(_ctx, phase, remaining, **_kwargs):
+        called.append(phase)
+        return {"conductor": {"ok": True}, "remaining_after": []}
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.run_homunculus_phase", _phase)
+    from interview_mux.pipeline import run_analysis
+
+    monkeypatch.setattr("interview_mux.pipeline.check_transcript_review_pending", lambda _c: False)
+    monkeypatch.setattr(
+        "interview_mux.analysis_memory.update_completion_from_analysis",
+        lambda _c: {},
+    )
+    run_analysis(ctx)
+    assert called == ["analysis"]

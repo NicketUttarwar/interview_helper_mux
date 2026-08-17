@@ -416,6 +416,19 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     ctx.write_json("run_meta.json", meta)
 
     if blocking and not result["passed"] and bool(conf.get("fail_early_at_audit_stage", True)):
+        try:
+            from interview_mux.homunculus.issues import ingest_catch
+
+            ingest_catch(
+                ctx,
+                kind="listen_delight_floors",
+                source="listen_delight",
+                stage_id="listen_delight_audit",
+                implicated=["listen_delight_audit", "mix"],
+                evidence={"failed_dimensions": result.get("failed_dimensions")},
+            )
+        except Exception:
+            pass
         from interview_mux.listen_delight_remutate import (
             apply_listen_delight_remutate,
             plan_listen_delight_remutate,

@@ -20,4 +20,6 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [volley-glossary.md](./volley-gloss
 
 Enforcement: `lint_llm_user_payload` in `llm_simple.run_llm_stage_simple`. New stages go through `attach_conversation_context` + `attach_spine_to_payload` (or an explicit exemption).
 
+**0.1.0 packer:** `attach_conversation_context` is a no-op. The conductor selects **fact IDs only**; `homunculus/packer.py` renders user/assistant turns and strips the same denylist. Missing required facts → starvation halt. G0 transcript + operator must-keep IDs are always packable (bootstrap). **0.0.0** still uses `attach_conversation_context`.
+
 Resume vs invalidate: `run_analysis(..., invalidate=False)` skips `.stage_done` without archiving. Only pass `invalidate=True` when the operator explicitly restarts a span.

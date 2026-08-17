@@ -110,6 +110,19 @@ def evaluate_stage_resilience(
 
     if acceptance_ok is False:
         if "operator_escalate" in remediation or phase == "exhausted":
+            try:
+                from interview_mux.homunculus.issues import ingest_catch
+
+                ingest_catch(
+                    ctx,
+                    kind="resilience_escalate",
+                    source="stage_resilience",
+                    stage_id=stage_id,
+                    implicated=[stage_id],
+                    evidence={"reasons": reasons[:8]},
+                )
+            except Exception:
+                pass
             return StageResilienceDecision(
                 action="escalate",
                 reasons=reasons,
@@ -315,6 +328,19 @@ def write_escalation(
     family: str | None = None,
 ) -> dict[str, Any]:
     """Write a quality-first operator escalation card (never auto-waives ship)."""
+    try:
+        from interview_mux.homunculus.issues import ingest_catch
+
+        ingest_catch(
+            ctx,
+            kind="resilience_escalation",
+            source="stage_resilience",
+            stage_id=stage_id,
+            implicated=[stage_id],
+            evidence={"failed_invariant": failed_invariant[:400]},
+        )
+    except Exception:
+        pass
     from interview_mux.stage_families import family_for_stage
 
     doc = {

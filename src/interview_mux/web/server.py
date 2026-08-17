@@ -149,7 +149,7 @@ class CreateRunBody(BaseModel):
     run_id: str | None = None
     run_mode: str = "manual"  # manual | full-auto
     full_auto: bool | None = None  # optional explicit flag (overrides run_mode when true)
-    homunculus_version: str | None = None  # 0.0.0 original (default) | 0.1.0 first homunculus
+    homunculus_version: str | None = None  # omitted → highest registered (currently 0.1.0)
 
 
 class InvestigationPatchBody(BaseModel):

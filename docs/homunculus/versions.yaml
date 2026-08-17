@@ -12,3 +12,6 @@ brains:
     summary: >
       First mastering homunculus: tool-loop conductor, admit/pack, persona,
       issue bus, Shape organ, ears. Higher-level syncing.
+
+# New runs default to the highest registered id unless config pins
+# mastering.homunculus.default_version (currently 0.1.0 via "latest").

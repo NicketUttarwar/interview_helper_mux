@@ -299,6 +299,28 @@ def handle_stage_failure(
     exc: BaseException,
 ) -> RecoveryResult:
     """Run at most one playbook for this signature, then recovered or escalate."""
+    try:
+        from interview_mux.homunculus.issues import ingest_catch
+        from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
+
+        ingest_catch(
+            ctx,
+            kind="stage_failure",
+            source="recovery_controller",
+            stage_id=stage_id,
+            implicated=[stage_id],
+            evidence={"error_class": type(exc).__name__, "message": str(exc)[:400]},
+        )
+        if is_homunculus_run(ctx) and not recovery_allowed(ctx, stage_id):
+            return _result(
+                status="escalate",
+                playbook_id="awaiting_homunculus_analysis",
+                signature=signature_key(stage_id, classify_error_class(stage_id, exc) or "unknown"),
+                resume_stage=stage_id,
+                detail="homunculus_analysis_required",
+            )
+    except Exception:
+        pass
     error_class = classify_error_class(stage_id, exc)
     if not error_class:
         return _result(

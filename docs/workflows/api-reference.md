@@ -34,6 +34,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/health` | — | — | `{"status": "ok"}` | — |
+| `GET` | `/api/homunculus/versions` | — | — | `{default, brains[]}` — Start-tab brain slider. `default` is the highest registered brain (`latest`; currently `0.1.0`). `brains[].is_default` marks that stop. | — |
 | `GET` | `/api/config` | — | — | Paths + feature flags — see **`GET /api/config` response** below | — |
 | `GET` | `/api/session/api-consent` | — | — | `providers[]` (id, label, description, cost_hint), `grants` (persisted under `ASSETS/.gui/api_consent.json`) | — |
 | `POST` | `/api/session/api-consent` | — | **ApiConsentBody** `{provider, granted}` | `ok`, `provider`, `granted`, `grants` | — |
@@ -44,7 +45,7 @@ Authoritative route list for **`interview_mux` web server** (`src/interview_mux/
 
 Lists discoverable **source** audio directly under `ASSETS/input/`. Used by the GUI home **Input audio** panel — see [assets-and-executions.md](../cross-cutting/assets-and-executions.md).
 | `GET` | `/api/runs` | — | — | `runs[]` — each includes `run_id`, `source_audio_hash`, `source_audio_hash_short`, summary fields; with `enrich=1`: `progress` (`done`/`total`), `last_stage`, `last_log`, `job_status`, `operator_phase`, `next_action` (truncated), `blocking_message`, `attention_count` | Per-run errors swallowed → `progress: {0,0}` |
-| `POST` | `/api/runs` | — | **CreateRunBody** (`input_audio_path`, optional `run_id`, optional `run_mode`: `manual`\|`full-auto`, optional `full_auto`) | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `run_mode`, `full_auto`; when Full-auto also `full_auto_launch` | **404** if `input_audio_path` file missing; **500** if Full-auto worker launch fails after create |
+| `POST` | `/api/runs` | — | **CreateRunBody** (`input_audio_path`, optional `run_id`, optional `run_mode`: `manual`\|`full-auto`, optional `full_auto`, optional `homunculus_version`) | `run_id`, `run_dir`, `execution_number`, `input_audio_path`, `source_audio_hash`, `source_audio_hash_short`, `run_mode`, `full_auto`, `homunculus_version`; when Full-auto also `full_auto_launch` | **404** if `input_audio_path` file missing; **400** unknown `homunculus_version`; **500** if Full-auto worker launch fails after create |
 
 ### `CreateRunBody`
 
@@ -52,6 +53,7 @@ Lists discoverable **source** audio directly under `ASSETS/input/`. Used by the 
 |-------|------|----------|--------|
 | `input_audio_path` | string | yes | Repo-relative path directly under `ASSETS/input/`. Any non-WAV (MP3, MP4, M4A, …) is converted to a sibling PCM `.wav` on run init; DeepFilter/ingest use that WAV. Prefer e.g. `ASSETS/input/interview.mp3` or `ASSETS/input/interview.wav`. |
 | `run_id` | string \| null | no | If omitted, server allocates new `exec_*` id |
+| `homunculus_version` | string \| null | no | Brain: omit/`latest` → highest registered (currently `0.1.0` homunculus). Pin `0.0.0` for the original linear walk. Unknown → **400**. Stamped on `run_meta` and never changes mid-run. |
 
 ### `ActiveBody`
 
@@ -95,6 +97,7 @@ Partial updates merge into the existing active session (unset fields are preserv
 | Method | Path | Query | Body | Response | Errors |
 |--------|------|-------|------|----------|--------|
 | `GET` | `/api/runs/{run_id}/summary` | — | — | Run summary + `progress`, `last_log` | **404** |
+| `GET` | `/api/runs/{run_id}/homunculus` | — | — | 0.1.0 workbench snapshot: budget remaining, admitted tail, last fact IDs, issues, gate categories | **404** |
 | `GET` | `/api/runs/{run_id}` | — | — | `run_id`, `meta`, `sfx_generated_assets[]`, `legacy_migration_warnings[]`, … | **404** |
 | `GET` | `/api/runs/{run_id}/log` | `tail` (int, default **200**); optional `stage` (filter by stage id); optional `since_ts` (ISO timestamp — entries after this time) | — | `entries[]` — each `ts`, `level`, `message`, optional `stage`, `detail` | **404** |
 | `POST` | `/api/runs/{run_id}/log` | — | **LogBody** (`message`, `level`, `stage`, optional `action_id`) | `ok`, `entry` | **404** |

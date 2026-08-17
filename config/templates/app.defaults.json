@@ -546,7 +546,7 @@
       "apply_repairs": true
     },
     "homunculus": {
-      "default_version": "0.0.0",
+      "default_version": "latest",
       "mode": "authoritative",
       "conductor_model": "gpt-4o",
       "limits": {

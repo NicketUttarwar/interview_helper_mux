@@ -1,6 +1,6 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import { useApp } from "../../context/AppContext";
-import { escapeHtml, formatTs } from "../../utils";
+import { escapeHtml, formatBrainLabel, formatTs } from "../../utils";
 import { PHASE_LABELS } from "../../constants/phases";
 import { SourceAudioHashBadge } from "../guidance/SourceAudioHashBadge";
 import { sourceHashShort } from "../../utils/sourceAudioHash";
@@ -98,7 +98,7 @@ function RunRow({
           {hashMatchesActive ? <span className="run-same-audio-pill">Same audio</span> : null}
           {r.homunculus_version ? (
             <span className="run-same-audio-pill" data-testid="run-brain-pill">
-              {r.homunculus_version === "0.1.0" ? "Homunculus 0.1.0" : `Brain ${r.homunculus_version}`}
+              {formatBrainLabel(r.homunculus_version)}
             </span>
           ) : null}
           {attentionCount > 0 || jobStatus === "gate" ? (

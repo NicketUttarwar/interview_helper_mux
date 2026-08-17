@@ -45,7 +45,7 @@ Full copy: **`docs/workflows/operator-gates.md`**.
 ## Pipeline
 
 - **65 stages:** 34 analysis + 31 delivery — orders in **`src/interview_mux/v2/config.py`** · inventory **`docs/v2/port-manifest.csv`**
-- **Brains:** Start slider **0.0.0** original (default) vs **0.1.0** homunculus — [docs/cross-cutting/mastering-homunculus.md](../../docs/cross-cutting/mastering-homunculus.md)
+- **Brains:** Start slider **0.1.0** homunculus (default — latest registered) vs **0.0.0** original — [docs/cross-cutting/mastering-homunculus.md](../../docs/cross-cutting/mastering-homunculus.md)
 - **Idempotency:** `.stage_done/<stage_id>`; **`--from-stage`** per **`docs/workflows/idempotent-runs.md`**
 - **Artifacts:** writes via `ctx.path()` / `ctx.write_json()`; reads via `ctx.read_path()` / `ctx.read_json()` — see **`write_staging.py`**
 

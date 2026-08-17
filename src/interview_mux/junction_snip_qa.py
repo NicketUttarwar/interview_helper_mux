@@ -2120,6 +2120,19 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         except Exception as exc:
             from interview_mux.loud_fail import raise_loud_failure
 
+            try:
+                from interview_mux.homunculus.issues import ingest_catch
+
+                ingest_catch(
+                    ctx,
+                    kind="junction_feel_remaster_failed",
+                    source="junction_snip_qa",
+                    stage_id=STAGE_ID,
+                    implicated=[STAGE_ID, "mix"],
+                    evidence={"error": str(exc)[:240]},
+                )
+            except Exception:
+                pass
             raise_loud_failure(
                 ctx,
                 f"Junction feel remediation could not remaster: {exc}",
