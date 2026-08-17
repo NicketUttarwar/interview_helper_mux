@@ -616,7 +616,8 @@
         "cover": "cover.jpg",
         "meta": "episode.json",
         "description": "description.txt",
-        "chapters": "chapters.json"
+        "chapters": "chapters.json",
+        "transcript": "transcript.vtt"
       }
     }
   },
@@ -916,7 +917,7 @@
         "max_block_chars": 48000
       }
     },
-    "_comment_connector_fuse": "Economy-LLM seam adjudication over every chronological pair; fuse mid-thought chops into one segment.",
+    "_comment_connector_fuse": "Economy-LLM seam adjudication: fuse unfinished thoughts only; same-speaker complete ideas stay independent.",
     "connector_fuse": {
       "enabled": true,
       "max_fuses_per_pass": 0,
@@ -927,9 +928,16 @@
       "llm_batch_size": 16,
       "llm_tier": "economy",
       "prefer_fuse_when_hint_and_uncertain": true,
+      "prefer_stay_when_uncertain": true,
+      "incomplete_thought_only": true,
       "deterministic_fallback_on_llm_fail": true,
       "max_seam_gap_ms": 8000,
       "same_topic_score_floor": 0.15,
+      "max_fused_duration_ms": 25000,
+      "max_fused_members": 3,
+      "allow_high_value_bridge": false,
+      "close_excerpt_max_chars": 480,
+      "uncertain_confidence_floor": 0.55,
       "passes": ["post_sanitize", "pre_ranking", "junction_heal"]
     },
     "prompt_examples": {
@@ -1485,6 +1493,13 @@
         "may_underscore_last_native_tail": true
       }
     },
+    "air_script": {
+      "enable": true,
+      "fail_open": true,
+      "bed_coverage_aim_lo": 0.55,
+      "bed_coverage_aim_hi": 0.88,
+      "_comment": "Shape realization on mastering_plan — docs/cross-cutting/air-script.md. Fail-open only if plan absent."
+    },
     "timeline_optimizer": {
       "enabled": true,
       "mode": "endless_daemon",
@@ -1625,7 +1640,8 @@
         "sonic_weave": 0.85,
         "mode_coherence": 0.80,
         "finishability": 0.80,
-        "recommendability": 0.75
+        "recommendability": 0.75,
+        "story_followability": 0.85
       },
       "require_mode_consistency": true,
       "fail_early_at_audit_stage": true

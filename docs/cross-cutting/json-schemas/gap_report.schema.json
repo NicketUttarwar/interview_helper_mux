@@ -84,6 +84,20 @@
         }
       }
     },
-    "nugget_layup_authority": { "type": "boolean" }
+    "nugget_layup_authority": { "type": "boolean" },
+    "opening_orientation": {
+      "type": "object",
+      "description": "Whether a synthetic episode preface earned a seat. omitted=true when native hosts already intro.",
+      "properties": {
+        "line_id": { "type": ["string", "null"] },
+        "sequence": { "type": "string" },
+        "native_cold_open_segment_id": { "type": ["string", "null"] },
+        "target_segment_id": { "type": "string" },
+        "required": { "type": "boolean" },
+        "omitted": { "type": "boolean" },
+        "omit_reason": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
   }
 }

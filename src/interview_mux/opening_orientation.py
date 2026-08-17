@@ -1,4 +1,4 @@
-"""Mandatory early episode orientation and opening-sequence validation."""
+"""Early episode orientation — minted only when the native open does not already intro."""
 
 from __future__ import annotations
 
@@ -12,6 +12,24 @@ ORIENTATION_LINE_ID = "vo_preface_episode_orientation"
 OPENING_MUSIC_AIR_KIND = "opening_music"
 SEQUENCE_COLD_OPEN = "native_hook_music_intro_body"
 SEQUENCE_STRAIGHT = "intro_music_body"
+SEQUENCE_NATIVE_OPEN = "music_body"
+
+_NATIVE_INTRO_RE = re.compile(
+    r"\b(?:"
+    r"welcome(?:\s+to|\s+back)?|"
+    r"joining\s+(?:us|me)|"
+    r"(?:with\s+us|our\s+guest)|"
+    r"today\s+(?:we|i)\s+(?:talk|speak|sit|have)|"
+    r"introduce|"
+    r"on\s+the\s+(?:show|podcast|episode)|"
+    r"we(?:['’]ve| have)\s+got|"
+    r"who\s+is|"
+    r"sit(?:ting)?\s+down\s+with|"
+    r"talk(?:ing)?\s+(?:with|to)|"
+    r"conversation\s+with"
+    r")\b",
+    flags=re.IGNORECASE,
+)
 
 
 def is_episode_orientation(line: dict[str, Any] | None) -> bool:
@@ -131,11 +149,86 @@ def _target_text(ctx: RunContext, target_segment_id: str) -> str:
     return ""
 
 
-def _native_open_already_orients(ctx: RunContext, target_segment_id: str) -> bool:
-    """True when the opening native already orients a first-time listener."""
-    text = _target_text(ctx, target_segment_id).strip()
+def _role_is_frame(role: str) -> bool:
+    try:
+        from interview_mux.conversation_context import role_is_frame
+
+        return role_is_frame(role)
+    except Exception:
+        return (role or "").lower() in {
+            "interviewer",
+            "moderator",
+            "co_host",
+            "host",
+            "frame",
+        }
+
+
+def _segment_role(row: dict[str, Any] | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get("speaker_role") or row.get("role") or "").strip().lower()
+
+
+def _opening_native_text(ctx: RunContext, ordered_segment_ids: list[str]) -> str:
+    """Concat consecutive opening interviewer natives (hosts may split the intro)."""
+    if not ordered_segment_ids or not ctx.artifact_exists("segments/manifest.json"):
+        return ""
+    manifest = ctx.read_json("segments/manifest.json")
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in ((manifest.get("segments") or []) if isinstance(manifest, dict) else [])
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    parts: list[str] = []
+    for i, sid in enumerate(ordered_segment_ids[:3]):
+        row = by_id.get(str(sid)) or {}
+        text = str(row.get("text") or row.get("text_excerpt") or "").strip()
+        role = _segment_role(row)
+        if i == 0:
+            if text:
+                parts.append(text)
+            if not _role_is_frame(role):
+                break
+            continue
+        if not _role_is_frame(role):
+            break
+        if text:
+            parts.append(text)
+    return " ".join(parts)
+
+
+def _opening_is_host_framed(ctx: RunContext, ordered_segment_ids: list[str]) -> bool:
+    if not ordered_segment_ids or not ctx.artifact_exists("segments/manifest.json"):
+        return False
+    first = str(ordered_segment_ids[0])
+    manifest = ctx.read_json("segments/manifest.json")
+    for row in (manifest.get("segments") or []) if isinstance(manifest, dict) else []:
+        if isinstance(row, dict) and str(row.get("segment_id") or "") == first:
+            role = _segment_role(row)
+            seg_type = str(row.get("type") or "").lower()
+            return _role_is_frame(role) or "interview" in seg_type
+    return False
+
+
+def native_open_already_orients(
+    ctx: RunContext,
+    ordered_segment_ids: list[str] | None = None,
+    target_segment_id: str | None = None,
+) -> bool:
+    """True when native hosts already greet / introduce before any synthetic VO."""
+    ordered = [str(x) for x in (ordered_segment_ids or []) if x]
+    if not ordered and target_segment_id:
+        ordered = [str(target_segment_id)]
+    text = _opening_native_text(ctx, ordered).strip()
+    if not text and target_segment_id:
+        text = _target_text(ctx, target_segment_id).strip()
     if len(text.split()) < 12:
         return False
+    if not _opening_is_host_framed(ctx, ordered):
+        return False
+    if _NATIVE_INTRO_RE.search(text):
+        return True
     brief = (
         ctx.read_json("understanding/content_brief.json")
         if ctx.artifact_exists("understanding/content_brief.json")
@@ -143,21 +236,33 @@ def _native_open_already_orients(ctx: RunContext, target_segment_id: str) -> boo
     )
     brief = brief if isinstance(brief, dict) else {}
     guest = _first_text(brief, "guest_name", "interviewee_name", "subject_name")
-    if guest and guest.casefold() in text.casefold():
-        return True
-    if re.search(
-        r"\b(?:"
-        r"welcome(?:\s+to|\s+back)?|"
-        r"joining\s+(?:us|me)|"
-        r"(?:with\s+us|our\s+guest)|"
-        r"today\s+(?:we|i)\s+(?:talk|speak|sit)|"
-        r"introduce"
-        r")\b",
-        text,
-        flags=re.IGNORECASE,
-    ):
-        return True
-    return False
+    return bool(guest and guest.casefold() in text.casefold())
+
+
+def orientation_omitted(gap_report: dict[str, Any] | None) -> bool:
+    if not isinstance(gap_report, dict):
+        return False
+    meta = gap_report.get("opening_orientation")
+    if not isinstance(meta, dict):
+        return False
+    return bool(meta.get("omitted")) or meta.get("required") is False
+
+
+def _omit_orientation_payload(
+    *,
+    first: str,
+    hook: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "line_id": None,
+        "sequence": SEQUENCE_NATIVE_OPEN,
+        "native_cold_open_segment_id": hook,
+        "target_segment_id": first,
+        "required": False,
+        "omitted": True,
+        "omit_reason": reason,
+    }
 
 
 def ensure_episode_orientation(
@@ -165,7 +270,7 @@ def ensure_episode_orientation(
     gap_report: dict[str, Any],
     ordered_segment_ids: list[str],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Ensure one selection-independent orientation, retargeted to the final open."""
+    """Ensure orientation when needed; omit when native hosts already intro."""
     if not ordered_segment_ids or not isinstance(gap_report, dict):
         return gap_report, []
     try:
@@ -180,22 +285,36 @@ def ensure_episode_orientation(
     first = ordered[0]
     hook = native_cold_open_segment_id(ctx, ordered)
     sequence = SEQUENCE_COLD_OPEN if hook else SEQUENCE_STRAIGHT
-    # Prefer omit when the straight-open native already greets/introduces.
-    if sequence == SEQUENCE_STRAIGHT and _native_open_already_orients(ctx, first):
-        lines = [
+    # Prefer omit when native hosts already greet/introduce. Operator-pinned
+    # orientation still airs if the operator wrote it on purpose.
+    if native_open_already_orients(ctx, ordered, target_segment_id=first):
+        existing = [
             dict(x)
             for x in (gap_report.get("interviewer_lines") or [])
-            if isinstance(x, dict) and not is_episode_orientation(x)
+            if isinstance(x, dict)
         ]
-        out = dict(gap_report)
-        out["interviewer_lines"] = lines
-        return out, [
-            {
-                "action": "omit_episode_orientation",
-                "reason": "native_open_self_orients",
-                "segment_id": first,
-            }
-        ]
+        operator_pin = next(
+            (
+                x
+                for x in existing
+                if is_episode_orientation(x) and str(x.get("origin") or "") == "operator"
+            ),
+            None,
+        )
+        if operator_pin is None:
+            lines = [x for x in existing if not is_episode_orientation(x)]
+            out = dict(gap_report)
+            out["interviewer_lines"] = lines
+            out["opening_orientation"] = _omit_orientation_payload(
+                first=first, hook=hook, reason="native_open_self_orients"
+            )
+            return out, [
+                {
+                    "action": "omit_episode_orientation",
+                    "reason": "native_open_self_orients",
+                    "segment_id": first,
+                }
+            ]
     placement = "after" if hook else "before"
     target = hook or first
     lines = [dict(x) for x in (gap_report.get("interviewer_lines") or []) if isinstance(x, dict)]
@@ -495,13 +614,33 @@ def validate_opening_orientation(
     edl: dict[str, Any] | None,
     max_non_silence_index: int = 3,
 ) -> list[str]:
-    """Validate exactly one audible orientation and the declared opening grammar."""
+    """Validate opening grammar: one early orientation, or none when native already intros."""
     errors: list[str] = []
     report_lines = [
         x
         for x in ((gap_report or {}).get("interviewer_lines") or [])
         if isinstance(x, dict) and is_episode_orientation(x) and not x.get("skipped_optional")
     ]
+    omitted = orientation_omitted(gap_report if isinstance(gap_report, dict) else None)
+    if omitted:
+        if report_lines:
+            return [f"opening_orientation_count={len(report_lines)} expected=0"]
+        clips = [x for x in ((edl or {}).get("clips") or []) if isinstance(x, dict)]
+        music_markers = [
+            i
+            for i, clip in enumerate(clips)
+            if clip.get("type") == "silence"
+            and str(clip.get("air_kind") or "") == OPENING_MUSIC_AIR_KIND
+        ]
+        first_speech_index = next(
+            (i for i, clip in enumerate(clips) if clip.get("type") == "speech"),
+            None,
+        )
+        if music_markers and first_speech_index is not None and not (
+            music_markers[0] < first_speech_index
+        ):
+            errors.append("opening_sequence must be music→body")
+        return errors
     if len(report_lines) != 1:
         return [f"opening_orientation_count={len(report_lines)} expected=1"]
     line = report_lines[0]

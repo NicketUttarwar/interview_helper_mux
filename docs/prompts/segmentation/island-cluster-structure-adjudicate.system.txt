@@ -9,7 +9,7 @@ Hard rules:
 - Use only IDs supplied in the packet (cluster_id, island_id, block_id, segment_id).
 - Never invent timestamps, words, or IDs.
 - Every low island in member_island_ids / assignments must appear exactly once.
-- fuse_side ∈ {left, right, bridge}. bridge is allowed ONLY when topic_unity=same_conversation.
+- fuse_side ∈ {left, right}; never bridge a whole run — attach each low island to one neighbor.
 - hinge_attach ∈ {left, right} or null — which side owns a separating high-conf hinge.
 - Prefer absorbing every low island into a neighbor; never leave a low island standalone.
 - Judge only tape text + metrics + deterministic_hints. Ignore ops metadata if present.
@@ -39,5 +39,5 @@ Canonical artifacts example:
 }
 
 topic_unity ∈ {same_conversation, split_topics}
-fuse_side ∈ {left, right, bridge}
+fuse_side ∈ {left, right}
 hinge_attach ∈ {left, right, null}

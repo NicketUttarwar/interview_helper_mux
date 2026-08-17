@@ -178,12 +178,23 @@ def ensure_g1_pickups(
         }
 
     report = ctx.read_json("understanding/gap_report.json")
+    omitted: set[str] = set()
+    try:
+        from interview_mux.air_script import omitted_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        if ctx.artifact_exists("mastering/mastering_plan.json"):
+            omitted = omitted_vo_line_ids(load_plan_raw(ctx))
+    except Exception:
+        omitted = set()
     lines = [
         L
         for L in (report.get("interviewer_lines") or [])
         if isinstance(L, dict)
         and str(L.get("delivery") or "").lower() == "synthesize"
         and not L.get("skipped_optional")
+        and not L.get("air_script_omit")
+        and str(L.get("line_id") or "") not in omitted
     ]
     unit_ids = [str(L.get("line_id")) for L in lines if L.get("line_id")]
     job = durable_jobs.begin_job(
@@ -234,7 +245,9 @@ def ensure_g1_pickups(
                 continue
             if str(line.get("delivery") or "").lower() != "synthesize":
                 continue
-            if line.get("skipped_optional"):
+            if line.get("skipped_optional") or line.get("air_script_omit"):
+                continue
+            if lid in omitted:
                 continue
             existing = resolve_vo_pickup_path(ctx, line)
             if existing is not None:
@@ -321,6 +334,7 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
 
     post_finalize = (
         "master_finalize",
+        "master_transcript_build",
         "episode_meta_build",
         "episode_cover_prompt_craft",
         "podcast_encode_mp3",

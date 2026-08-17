@@ -39,12 +39,14 @@ g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording (not in DELIVERY_ORDER)
 topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 full_master_ranking,plan_rank,llm,stages/selection.py,yes,NLE overrides
+air_script_compose,plan_rank,non_llm,air_script.py,yes,Pass A membership/order/omits on mastering_plan
 nugget_corpus_mine,plan_rank,llm,stages/analysis_extended.py,yes,full-tape nugget mine after ranking
 information_package_plan,plan_rank,non_llm,information_packages.py,yes,high-bar mid-body packages + episode_close
 nugget_layup_compose,plan_rank,llm,stages/analysis_extended.py,yes,per-native VO layups to gap_report
 refinement_agenda,plan_rank,non_llm,refinement_agenda.py,yes,Refinement Pass L0
 gap_framing_recompose,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
 selection_framing_apply,plan_rank,non_llm,refinement_passes.py,yes,Refinement Pass
+air_script_seams,plan_rank,non_llm,air_script.py,yes,Pass B montage moves + sonic opportunity hunt
 ranking_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER (no-op stub retained)
 narrative_arc_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 transitions,plan_rank,llm,stages/selection.py,yes,
@@ -63,6 +65,7 @@ mmaudio_sfx,build,non_llm,stages/sfx_mmaudio.py,yes,MusicGen large→medium→sm
 mix,build,non_llm,stages/assembly.py,yes,
 junction_snip_qa,build,non_llm,junction_snip_qa.py,yes,mid-thought / VO-micro junction repair
 master_finalize,ship,non_llm,stages/mastering.py,yes,master.wav output
+master_transcript_build,ship,non_llm,asset_transcripts.py,yes,Apple VTT from EDL + sidecars
 episode_meta_build,ship,llm,stages/podcast_publish.py,yes,G-Publish prepare
 episode_cover_prompt_craft,ship,llm,stages/podcast_publish.py,yes,G-Publish prepare
 podcast_encode_mp3,ship,non_llm,stages/podcast_publish.py,yes,stereo mp3 + master copy

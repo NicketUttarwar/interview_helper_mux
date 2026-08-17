@@ -49,6 +49,19 @@ def main() -> int:
             **(base.get("analysis") or {}),
             "artifact_issue_triage": {"enabled": True},
             "flow_hardening": {"enabled": True},
+            "gap_vo": {
+                **((base.get("analysis") or {}).get("gap_vo") or {}),
+                "post_synthesis_qc": {
+                    **(
+                        ((base.get("analysis") or {}).get("gap_vo") or {}).get(
+                            "post_synthesis_qc"
+                        )
+                        or {}
+                    ),
+                    "enabled": False,
+                    "speech_qa_enabled": False,
+                },
+            },
         },
         # Fixture plans are intentionally sparse — disable live density gates.
         "creative_delivery": {

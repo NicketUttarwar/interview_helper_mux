@@ -9,7 +9,7 @@ When selection drops segments, the facts still live in the full transcript. This
 3. **`nugget_layup_compose`** (flagship) — specialized packet per ordered native: spine + corpus + seam → clone-ready spoken before-VO.
 4. **Degraded work-around** — when T or prior is `degraded_lexicon_island` / heavily degraded / low-conf must_keep / fused: orient and unlock from known spine + corpus only; never invent unclear words; thinner forward unlock OK.
 5. **QC catch** — canned hinges / invented island claims / restates still fail; grace word floors apply only to degraded targets.
-6. **Publish** — lay-ups become authoritative `gap_report.interviewer_lines` with `placement: before` (episode orientation preserved).
+6. **Publish** — lay-ups become authoritative `gap_report.interviewer_lines` with `placement: before` (episode orientation preserved when it earned a seat).
 7. **Realize** — existing G1 synthesis + EDL `_gap_lines_for_segment(..., "before")` unchanged.
 
 **Clone-adjacency rule:** a cloned VO may sit immediately before or after native
@@ -83,4 +83,4 @@ See `analysis.nugget_layup.*` and `analysis.nugget_layup.degraded_layup.*` in [c
 - Grounded paraphrase only — no invented dialogue ([NORTH_STAR](../../NORTH_STAR.md)).
 - No “welcome back” / chapter meta speech.
 - Must not restate the upcoming native’s opening; forward-cue required.
-- Exactly one early episode orientation remains selection-independent.
+- At most one early episode orientation, minted only when the native open does not already greet or introduce; when minted it remains selection-independent.

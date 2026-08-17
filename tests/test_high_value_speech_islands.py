@@ -174,7 +174,7 @@ def test_multi_low_conf_cluster_accepted(tmp_path: Path):
     assert high_value_must_keep_segment_ids(ctx) == {"seg_001"}
 
 
-def test_bridge_prefer_same_topic_fuses_three(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_same_topic_attaches_one_neighbor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     ctx = _FakeCtx(tmp_path)
     ctx.write_json(
         "segments/manifest.json",
@@ -228,19 +228,23 @@ def test_bridge_prefer_same_topic_fuses_three(tmp_path: Path, monkeypatch: pytes
 
     plan = plan_high_value_fuses(ctx)
     assert plan["applied_plans"] == 1
-    assert plan["plans"][0]["mode"] == "bridge"
-    assert set(plan["plans"][0]["chain"]) >= {"seg_a", "seg_b", "seg_c"}
+    assert plan["plans"][0]["mode"] in {"richer_neighbor", "left", "right"}
+    assert plan["plans"][0]["mode"] != "bridge"
+    chain = list(plan["plans"][0]["chain"])
+    assert "seg_b" in chain
+    assert len(chain) == 2
+    assert not ({"seg_a", "seg_b", "seg_c"} <= set(chain))
     assert all(v.get("forced_by") == "high_value_speech_island" for v in plan["verdicts"])
 
-    # Apply without LLM
+    # Apply without LLM — one neighbor only, the other complete beat stays.
     result = apply_connector_fuses(ctx, plan["verdicts"], pass_id="test_hv")
     assert result["applied"] >= 1
     man = ctx.read_json("segments/manifest.json")
     surviving = [s["segment_id"] for s in man["segments"]]
-    assert "seg_b" not in surviving or len(surviving) < 3
-    survivor = man["segments"][0]
-    assert survivor.get("high_value_speech") is True
-    assert survivor.get("retention") == "must_keep"
+    assert len(surviving) == 2
+    hv_rows = [s for s in man["segments"] if s.get("high_value_speech")]
+    assert hv_rows
+    assert hv_rows[0].get("retention") == "must_keep"
 
 
 def test_richer_neighbor_when_topics_differ(tmp_path: Path):

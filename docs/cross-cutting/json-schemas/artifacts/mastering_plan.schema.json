@@ -360,6 +360,124 @@
     "hybrid_prefer_forbid": {
       "type": "object",
       "additionalProperties": true
+    },
+    "air_script": {
+      "type": "object",
+      "description": "Shape realization paper-edit: what airs, which VO seats, omits, energy curve.",
+      "properties": {
+        "version": { "type": "integer" },
+        "pass": { "type": "string" },
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "segment_id": { "type": ["string", "null"] },
+              "line_id": { "type": ["string", "null"] },
+              "montage_move": {
+                "type": "string",
+                "enum": [
+                  "native_handoff",
+                  "vo_then_clip",
+                  "clip_then_react_vo",
+                  "music_face_out",
+                  "air_breathe",
+                  "cold_open_hook",
+                  "information_package",
+                  "episode_close"
+                ]
+              },
+              "know_entering": { "type": "string" },
+              "know_leaving": { "type": "string" },
+              "is_orientation": { "type": "boolean" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "omits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string" },
+              "subject_id": { "type": "string" },
+              "compensating_path": { "type": "string" },
+              "reason_code": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "energy_curve": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "cold_open": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "story_clarity": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "vo_seats": {
+          "type": "object",
+          "description": "Live VO contract after Pass B. QC/G1/heals subscribe; do not rebuild from unfiltered interviewer_lines.",
+          "properties": {
+            "seated_line_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "omitted_line_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "orientation_id": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "story_spine": {
+      "type": "object",
+      "properties": {
+        "talking_point_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "scenes": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "additionalProperties": true
+    },
+    "circumstance_card": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "sonic_scenes": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "sonic_opportunities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string" },
+          "segment_id": { "type": "string" },
+          "suggested_role": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
     }
   },
   "additionalProperties": true

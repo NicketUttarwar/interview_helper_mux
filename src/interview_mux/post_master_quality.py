@@ -322,13 +322,16 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         {"errors": audible_hash_errors[:8]},
     )
 
-    # When framing is enabled, the final timeline must contain exactly one early
-    # episode orientation and a protected opening-music slot in the declared order.
+    # When framing is enabled, the opening contract is either one early
+    # synthetic orientation or an explicit native-open omit (hosts already intro).
     opening_ok = True
     opening_errors: list[str] = []
     try:
         from interview_mux.gap_vo_gates import gap_framing_enabled
-        from interview_mux.opening_orientation import validate_opening_orientation
+        from interview_mux.opening_orientation import (
+            orientation_omitted,
+            validate_opening_orientation,
+        )
 
         if gap_framing_enabled(ctx):
             gr = (
@@ -346,7 +349,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                 for line in ((gr or {}).get("interviewer_lines") or [])
                 if isinstance(line, dict) and not line.get("skipped_optional")
             ]
-            if active_lines:
+            if active_lines or orientation_omitted(gr if isinstance(gr, dict) else None):
                 opening_errors = validate_opening_orientation(
                     gap_report=gr if isinstance(gr, dict) else None,
                     edl=edl if isinstance(edl, dict) else None,

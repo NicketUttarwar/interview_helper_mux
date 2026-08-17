@@ -105,6 +105,10 @@ flowchart LR
   g1_vo_pickup -->|I| assembly_preview
   g1_vo_pickup -->|I| mix
   g1_vo_pickup -->|I| master_finalize
+  air_script_compose -->|R| full_master_ranking
+  air_script_compose -->|R| mastering_plan_synthesize
+  air_script_seams -->|R| air_script_compose
+  air_script_seams -->|R| nugget_layup_compose
   boundary_detection -->|R| content_context
   boundary_topic_resplit -->|R| content_brief_reanchor
   connector_seam_adjudicate -->|R| connector_fuse_pass
@@ -123,7 +127,13 @@ flowchart LR
   island_cluster_structure_adjudicate -->|R| transcribe
   junction_feel_audit -->|R| junction_snip_qa
   junction_feel_audit -->|R| edl
+  master_transcript_build -->|I| episode_meta_build
+  master_transcript_build -->|I| podcast_publish
+  master_transcript_build -->|R| master_finalize
+  master_transcript_build -->|R| edl
   missing_framing -->|R| boundary_topic_resplit
+  mmaudio_sfx -->|R| sound_design_plan
+  mmaudio_sfx -->|R| sfx_prompt_craft
   narrative_arc_plan -->|R| topic_coverage_audit
   nugget_corpus_mine -->|R| full_master_ranking
   nugget_corpus_mine -->|R| segment_classification

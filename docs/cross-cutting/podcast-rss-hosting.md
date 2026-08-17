@@ -53,6 +53,7 @@ episodes/NNNN/              # one folder per published master / run
   master.wav                # always uploaded (public via CF)
   cover.jpg                 # 3000² JPEG
   chapters.json             # Podcasting 2.0 timed chapters
+  transcript.vtt            # Apple Podcasts captions (podcast:transcript)
 ```
 
 Public URLs: `{PODCAST_FEED_BASE_URL}/episodes/NNNN/…`  
@@ -149,13 +150,16 @@ python scripts/seed_podcast_origin.py   # re-seed feed/catalog/show after wipe
 
 | Stage | Output |
 |-------|--------|
+| `master_transcript_build` | `master/transcript.json` + `master/transcript.vtt` (Apple ingest) + `master/transcript.txt` |
 | `episode_meta_build` | `publish/episode_meta.json` |
 | `episode_cover_prompt_craft` | `publish/cover_prompt.json` |
 | `podcast_encode_mp3` | stereo `publish/audio.mp3` + `publish/master.wav` |
 | `episode_cover_generate` | candidates + `publish/cover.jpg` (3000²) |
-| `podcast_publish` | Local package finalize (`package_ready.json`) — **no S3** |
+| `podcast_publish` | Local package finalize (`package_ready.json`, copies `transcript.vtt`) — **no S3** |
 
 S3 upload is **not** a pipeline stage. App paths (G-Publish, Full-auto/e2e) always pass the current `execution_id`. CLI: `scripts/sync_podcast_episodes.py --execution-id …` (or `--all` for explicit bulk). Same `source_audio_hash` re-publish (new execution) appends ` V2`, ` V3`, …. Folder is always a **new** `episodes/NNNN/` for unknown `execution_id`s; known ids are skipped (no duplicate folders). Sync never deletes remote objects; unchanged file sizes skip PutObject.
+
+Each RSS `<item>` includes `<podcast:transcript url="…/transcript.vtt" type="text/vtt" rel="captions" language="en"/>`. Apple Podcasts Connect must be set once to **Availability → Display transcripts I provide**; without that opt-in Apple keeps auto-transcripts even when the tag is present.
 
 ## Art style contract
 

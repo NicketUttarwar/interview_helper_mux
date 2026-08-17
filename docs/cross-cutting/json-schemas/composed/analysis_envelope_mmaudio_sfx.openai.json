@@ -1,0 +1,302 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "version",
+        "assets"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer"
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "asset_id",
+              "role",
+              "verdict",
+              "generation_status",
+              "reasons",
+              "action",
+              "actual_duration_seconds",
+              "suggested_trim_ms",
+              "suggested_level_db_delta",
+              "suggested_crossfade_ms",
+              "suggested_cfg_delta",
+              "speech_band_ratio",
+              "theme_fit_score",
+              "loop_seam_score",
+              "silence_detected",
+              "spectral_bucket_match",
+              "semantic_similarity",
+              "semantic_qa_verdict",
+              "semantic_qa_skipped_reason",
+              "semantic_qa_model_id",
+              "semantic_qa_threshold",
+              "recommended_action"
+            ],
+            "properties": {
+              "asset_id": {
+                "type": "string"
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "verdict": {
+                "enum": [
+                  "pass",
+                  "warn",
+                  "fail"
+                ],
+                "type": "string"
+              },
+              "generation_status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "pass",
+                  "failed",
+                  "placeholder"
+                ],
+                "description": "Subprocess outcome; placeholder/silent WAV must not pass as success."
+              },
+              "reasons": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "action": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "actual_duration_seconds": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "suggested_trim_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "suggested_level_db_delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "suggested_crossfade_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "suggested_cfg_delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "speech_band_ratio": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "theme_fit_score": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Deterministic keyword/spectral theme fit (Tier 1 QA)."
+              },
+              "loop_seam_score": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Bed loop head/tail RMS continuity."
+              },
+              "silence_detected": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "True when RMS below silence threshold (failed generation)."
+              },
+              "spectral_bucket_match": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "semantic_similarity": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": -1,
+                "maximum": 1,
+                "description": "CLAP cosine similarity between sfx_prompt and generated WAV (Tier 2 QA)."
+              },
+              "semantic_qa_verdict": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "pass",
+                  "warn",
+                  "fail",
+                  "skipped"
+                ]
+              },
+              "semantic_qa_skipped_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "semantic_qa_model_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "semantic_qa_threshold": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "recommended_action": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "pass",
+                  "refine",
+                  "regenerate",
+                  "trim_hint"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

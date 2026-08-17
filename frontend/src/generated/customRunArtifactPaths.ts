@@ -16,6 +16,7 @@ export const CUSTOM_RUN_ARTIFACT_PATHS = new Set<string>([
   "master/render_ledger.json",
   "master/seam_autopsy.json",
   "master/selection.json",
+  "master/transcript.json",
   "master/transitions.json",
   "master/underbed_ab_qc.json",
   "segments/boundaries.json",

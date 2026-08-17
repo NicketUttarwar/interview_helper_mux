@@ -26,7 +26,7 @@ def test_v2_analysis_order_excludes_disfluency():
     assert "junction_snip_qa" in DELIVERY_ORDER_V2
     assert DELIVERY_ORDER_V2.index("mix") < DELIVERY_ORDER_V2.index("junction_snip_qa")
     assert DELIVERY_ORDER_V2.index("junction_snip_qa") < DELIVERY_ORDER_V2.index("master_finalize")
-    assert len(DELIVERY_ORDER_V2) == 23
+    assert len(DELIVERY_ORDER_V2) == 31
     assert "ranking_refine" not in DELIVERY_ORDER_V2
     assert "gap_framing_recompose" in DELIVERY_ORDER_V2
     assert len(ANALYSIS_ORDER_V2) >= 27

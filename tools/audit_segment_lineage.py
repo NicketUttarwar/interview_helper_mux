@@ -31,6 +31,19 @@ def _run_fixture_audit() -> dict:
         "analysis": {
             **(base.get("analysis") or {}),
             "flow_hardening": {"enabled": True},
+            "gap_vo": {
+                **((base.get("analysis") or {}).get("gap_vo") or {}),
+                "post_synthesis_qc": {
+                    **(
+                        ((base.get("analysis") or {}).get("gap_vo") or {}).get(
+                            "post_synthesis_qc"
+                        )
+                        or {}
+                    ),
+                    "enabled": False,
+                    "speech_qa_enabled": False,
+                },
+            },
         },
         "creative_delivery": {
             **(base.get("creative_delivery") or {}),

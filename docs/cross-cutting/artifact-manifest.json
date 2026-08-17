@@ -263,9 +263,25 @@
         "edl"
       ],
       "consumers": [
+        "air_script_compose",
+        "air_script_seams",
         "nugget_layup_compose"
       ],
       "has_write_validator": true
+    },
+    "mastering/mastering_plan.json": {
+      "schemas_by_producer": {
+        "air_script_compose": "mastering_plan.schema.json",
+        "air_script_seams": "mastering_plan.schema.json"
+      },
+      "producers": [
+        "air_script_compose",
+        "air_script_seams"
+      ],
+      "consumers": [
+        "air_script_compose"
+      ],
+      "has_write_validator": false
     },
     "master/transitions.json": {
       "schemas_by_producer": {
@@ -275,6 +291,7 @@
         "transitions"
       ],
       "consumers": [
+        "air_script_seams",
         "transitions"
       ],
       "has_write_validator": true
@@ -308,7 +325,9 @@
       "producers": [
         "music_palette_compose"
       ],
-      "consumers": [],
+      "consumers": [
+        "air_script_seams"
+      ],
       "has_write_validator": false
     },
     "sound_design/sfx_prompts.json": {
@@ -326,12 +345,32 @@
       ],
       "has_write_validator": true
     },
+    "sound_design/mmaudio_qa.json": {
+      "schemas_by_producer": {
+        "mmaudio_sfx": "mmaudio_qa.schema.json"
+      },
+      "producers": [
+        "mmaudio_sfx"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "master/junction_feel_audit.json": {
       "schemas_by_producer": {
         "junction_feel_audit": "junction_feel_audit.schema.json"
       },
       "producers": [
         "junction_feel_audit"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
+    "master/transcript.json": {
+      "schemas_by_producer": {
+        "master_transcript_build": "master_transcript.schema.json"
+      },
+      "producers": [
+        "master_transcript_build"
       ],
       "consumers": [],
       "has_write_validator": true

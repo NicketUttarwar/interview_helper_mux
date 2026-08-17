@@ -1,0 +1,190 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "timebase",
+        "generated_at",
+        "source_edl",
+        "cue_count",
+        "cues"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "const": 1
+        },
+        "timebase": {
+          "type": "string",
+          "const": "master"
+        },
+        "generated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_edl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cue_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "start_ms",
+              "end_ms",
+              "speaker_id",
+              "speaker_name",
+              "text",
+              "kind",
+              "asset_id"
+            ],
+            "properties": {
+              "start_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "speaker_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "speaker_name": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "speech",
+                  "vo_pickup",
+                  "transition"
+                ]
+              },
+              "asset_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

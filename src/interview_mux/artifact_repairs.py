@@ -3865,6 +3865,94 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         out["coherence"] = coh
         applied.append({"action": "seed_empty_coherence"})
 
+    # Coverage-floor seeds used one underscore_loop for every clip at a
+    # placeholder −26 dB. Post-commit validation requires the audible band
+    # (−22…−18) and a loop change every max_scene_segments when optional_loop
+    # exists — apply both here so SDP can finalize before music_palette_compose.
+    try:
+        from interview_mux.creative_delivery import (
+            alternate_contiguous_loop_assets,
+            audible_bed_level_db,
+            clamp_bed_level_db,
+        )
+        from interview_mux.soundscape_policy import load_policy
+
+        podcast = (
+            ((out.get("flow_plans") or {}).get("podcast") or {})
+            if isinstance(out.get("flow_plans"), dict)
+            else {}
+        )
+        cues = podcast.get("cues") if isinstance(podcast.get("cues"), list) else []
+        assets_now = [a for a in (out.get("assets") or []) if isinstance(a, dict)]
+        primary_id = next(
+            (
+                str(a.get("asset_id") or "")
+                for a in assets_now
+                if str(a.get("palette_kind") or "") == "underscore_loop"
+            ),
+            str(bed_asset or ""),
+        )
+        optional_id = next(
+            (
+                str(a.get("asset_id") or "")
+                for a in assets_now
+                if str(a.get("palette_kind") or "") == "optional_loop"
+            ),
+            None,
+        )
+        max_run = 4
+        try:
+            mix_cfg = merged_config().get("mix") or {}
+            arr = mix_cfg.get("underbed_arrangement") if isinstance(mix_cfg, dict) else {}
+            if isinstance(arr, dict) and arr.get("max_scene_segments") is not None:
+                max_run = max(1, int(arr["max_scene_segments"]))
+        except (TypeError, ValueError):
+            max_run = 4
+        n_alt = alternate_contiguous_loop_assets(
+            [c for c in cues if isinstance(c, dict)],
+            ordered=list(selection_ids or []),
+            primary_id=primary_id,
+            optional_id=optional_id,
+            max_run=max_run,
+        )
+        if n_alt:
+            applied.append(
+                {
+                    "action": "alternate_optional_loop_on_bed_runs",
+                    "changed": n_alt,
+                    "max_run": max_run,
+                }
+            )
+        policy = load_policy(ctx)
+        mc = (policy or {}).get("mix_contract") if isinstance(policy, dict) else {}
+        mc = mc if isinstance(mc, dict) else {}
+        target = audible_bed_level_db(mc)
+        n_lvl = 0
+        for cue in cues:
+            if not isinstance(cue, dict) or cue.get("skip"):
+                continue
+            if str(cue.get("placement") or "") != "under_segment":
+                continue
+            raw = cue.get("level_db")
+            if raw is None:
+                cue["level_db"] = target
+                n_lvl += 1
+                continue
+            try:
+                clamped = clamp_bed_level_db(float(raw), mc)
+            except (TypeError, ValueError):
+                clamped = target
+            if float(raw) != clamped:
+                cue["level_db"] = clamped
+                n_lvl += 1
+        if n_lvl:
+            applied.append({"action": "clamp_bed_cue_levels", "changed": n_lvl, "level_db": target})
+        if isinstance(podcast, dict) and isinstance(out.get("flow_plans"), dict):
+            podcast["cues"] = cues
+            out["flow_plans"]["podcast"] = podcast
+    except Exception as exc:
+        applied.append({"action": "bed_loop_level_repair_skipped", "error": str(exc)[:160]})
+
     # sound_design_plan.schema.json forbids root additionalProperties (_meta);
     # write_validated_artifact strips/restores _meta, but keep disk payload clean.
     out.pop("_meta", None)
@@ -4085,6 +4173,37 @@ def repair_sfx_prompts(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
                     }
                 )
     out.pop("_meta", None)
+    # Keep SDP durations aligned with the clamped craft rows.
+    if assets_by_id:
+        try:
+            if ctx.artifact_exists("understanding/sound_design_plan.json"):
+                plan = ctx.read_json("understanding/sound_design_plan.json")
+                if isinstance(plan, dict):
+                    changed = False
+                    by_prompt = {
+                        str(row.get("asset_id") or ""): row
+                        for row in prompts
+                        if isinstance(row, dict) and row.get("asset_id")
+                    }
+                    for item in plan.get("assets") or []:
+                        if not isinstance(item, dict) or not item.get("asset_id"):
+                            continue
+                        row = by_prompt.get(str(item["asset_id"]))
+                        if not row or row.get("duration_seconds") is None:
+                            continue
+                        craft_d = float(row["duration_seconds"])
+                        plan_d = item.get("duration_seconds")
+                        if plan_d is None or abs(float(plan_d) - craft_d) > 0.01:
+                            item["duration_seconds"] = craft_d
+                            changed = True
+                    if changed:
+                        ctx.write_json(
+                            "understanding/sound_design_plan.json",
+                            plan,
+                            skip_handoff=True,
+                        )
+        except Exception:
+            pass
     return out, applied
 
 

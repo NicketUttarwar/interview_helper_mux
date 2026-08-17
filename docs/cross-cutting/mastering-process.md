@@ -41,7 +41,7 @@ Research lane (8 waves / 38 fields, dynamically routed)
 
 **Nugget Layup System (synthetic VO):** After selection freezes, flagship `nugget_corpus_mine` + `nugget_layup_compose` assess the **full transcript** (including excluded natives) and write a relevant before-VO lay-up for each kept segment so discarded facts still reach the listener. Canon: [nugget-layup-system.md](./nugget-layup-system.md). Five-layer VO (full-tape → spine → specialize → degraded work-around → QC) stays robust when natives contain low-conf lexicon islands.
 
-**Low-conf fuse + selection guarantee:** After cuts stabilize, `low_conf_island_scan` density-ranks natives, detects **high-value speech islands** (volume-gated STT-skip / multi low-conf clusters), and hard-includes the top density decile **plus** high-value segments; `connector_fuse_pass` force-fuses high-value islands into neighbors (bridge when topics match) then runs economy LLM over chronological seams. Canon: [low-conf-connector-fuse.md](./low-conf-connector-fuse.md).
+**Low-conf fuse + selection guarantee:** After cuts stabilize, `low_conf_island_scan` density-ranks natives, detects **high-value speech islands** (volume-gated STT-skip / multi low-conf clusters), and hard-includes the top density decile **plus** high-value segments; `connector_fuse_pass` force-fuses high-value islands into **one** neighbor then runs economy LLM over chronological seams — fuse **unfinished thoughts only**; same-speaker complete ideas stay independent. Canon: [low-conf-connector-fuse.md](./low-conf-connector-fuse.md).
 
 **Slim delivery Pass-2:** Only `refinement_agenda` → `gap_framing_recompose` → `selection_framing_apply` remain in `DELIVERY_ORDER` after layups. When layups own `gap_report`, recompose is a thin adapter. Early `sound_design_palettes` LLM is off by default (`sound_design.early_palettes_llm=false`); SDP owns musical direction. Prompts are unified (no TBIY dual path).
 
@@ -135,33 +135,38 @@ SFX is an independent switch on any non-`none` option. Full catalog: [mastering-
 
 ## Realization & Polish
 
-1. Render `cold_open` as leading EDL element(s)
-2. Ranking / EDL / transitions / SDP **bound to** `mastering_plan` (including optional `information_packages` and required `episode_close` music — [information-packages.md](./information-packages.md))
-3. Before EDL write: rebuild `reorder_bridges` from the air order, **auto-mint pair-specific spoken transitions** for any naked reorder/chapter jump, synthesize audible WAVs, then hard-fail if glue is still missing (NLE soft only)
-4. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
-5. Preview → optional post-preview pickup when plan requires
-6. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift; always realize gentle `theme_outro` after last native
-7. **Junction snip QA + [seam autopsy](./seam-autopsy.md)** — deterministic start/end snip + music-transition repairs on every junction, one feel-audit LLM (`OH-J1`), commitment proof, and at most **two full identify-all → fix-all remediation runs**
-8. `master_finalize` → `master/master.wav` (−16 LUFS) → always-on post-master quality + listener scorecard; blocks on naked seams, incomplete `bridge_completeness`, uncommitted repairs, unavailable feel audit, or critical residuals
-9. MP3 encoding / podcast package creation requires the same passing post-master quality artifact
+Air-script **is** Shape realization on the same plan — [air-script.md](./air-script.md). Concatenating every approved part is not mastering.
 
-Until cutover: if `mastering_plan` is missing, fall back to today’s ranking path (fail-open).
+1. Render `cold_open` as leading EDL element(s)
+2. Ranking / EDL / transitions / SDP **bound to** `mastering_plan` — including `air_script.beats` (EDL emits only those beats), `story_spine`, `sonic_scenes` / `sonic_opportunities` (music compose), optional `information_packages`, and required `episode_close` music — [information-packages.md](./information-packages.md)
+3. Pass A (`air_script_compose`) after ranking: membership, order, omits, energy curve. Pass B (`air_script_seams`) after layup: per-seam montage moves + VO seats + sonic opportunity hunt. Unused gap/transition lines cannot leak.
+4. Before EDL write: rebuild `reorder_bridges` from the air order. Spoken hinges only when the beat is not `native_handoff` / `air_breathe` (or when know-leaving would fail). Synthesize audible WAVs, then hard-fail if required glue is still missing (NLE soft only)
+5. Emit `master/assembly_ledger.json` — air atoms (EDL clips + later mix overlays) labeled by chapter / talking-point spans; seams index must show `naked_seam_count == 0`
+6. Preview → optional post-preview pickup when plan requires
+7. Mix house chain + mastering mix helpers (evolve `tbiy_mix.py`); refuse selection↔EDL `order_content_hash` drift; always realize gentle `theme_outro` after last native. Abundant ducked underbeds on `sonic_scenes` (Shape band ~0.55–0.88) unless skip-underscore / overlap / source-score risk. Dual-pass listen delight after mix.
+8. **Junction snip QA + [seam autopsy](./seam-autopsy.md)** — deterministic start/end snip + music-transition repairs on every junction, one feel-audit LLM (`OH-J1`), commitment proof, and at most **two full identify-all → fix-all remediation runs**
+9. `master_finalize` → `master/master.wav` (−16 LUFS) → always-on post-master quality + listener scorecard; blocks on naked seams, incomplete `bridge_completeness`, uncommitted repairs, unavailable feel audit, or critical residuals
+10. MP3 encoding / podcast package creation requires the same passing post-master quality artifact
+
+Until cutover: if `mastering_plan` is missing, fall back to today’s ranking path (fail-open). A sidecar `master/air_script.json` is rejected.
 
 ---
 
 ## Hard invariants
 
-- Exactly one early synthetic episode orientation (guest, topic, stakes) whenever
-  framing is enabled: `native hook → music → orientation → body` for an explicit
-  native cold open, otherwise `orientation → music → body`
-- The orientation is selection-independent: reordering/exclusion retargets it
-  to the final opening instead of dropping it
+- At most one early synthetic episode orientation (guest, topic, stakes), and
+  only when the native open does not already greet or introduce. Native
+  interviewer intro → skip the synthetic preface (`music → body`). Otherwise:
+  `native hook → music → orientation → body` for an explicit native cold open,
+  or `orientation → music → body`
+- When minted, the orientation is selection-independent: reordering/exclusion
+  retargets it to the final opening instead of dropping it
 - Synthetic insertion never removes an approved music asset; a speech-safe,
   sidechain-ducked bed may overlap the orientation when the sonic plan supports it
 - Prefer **pickup-eligible** speaker for new VO; **any on-tape speaker** allowed with consent when needed
 - Never invent unspoken dialogue / false attributed claims
 - Locked **speaker volleys** stay intact through EDL
-- **No naked reorder seams:** non-source-contiguous speech adjacencies require pair-specific audible glue (spoken transition or pair-bound gap VO); air-pad silence alone is never enough. **Exception:** destinations with a typed justified layup skip (`clone_voice_adjacency`, `non_editorial_outro`, `spoken_copy_unhealable`, etc.) waive spoken hinge demand — same contract as `bridge_completeness` / `seam_glue` — and the assembly ledger records `glue_waived=justified_layup_skip` instead of counting them naked.
+- **No naked reorder seams:** non-source-contiguous speech adjacencies require pair-specific audible glue (spoken transition or pair-bound gap VO); air-pad silence alone is never enough. **Exception:** destinations with a typed justified layup skip (`clone_voice_adjacency`, `non_editorial_outro`, `spoken_copy_unhealable`, etc.) or an air-script `native_handoff` / `air_breathe` seat waive spoken hinge demand — same contract as `bridge_completeness` / `seam_glue`. The assembly ledger records `glue_waived=justified_layup_skip` or `glue_waived=native_handoff` (or `air_breathe`) instead of counting them naked. Junction must not mint canned pair glue onto those waived dests.
 - Mechanical loudness QC unchanged (`verify_master`)
 - Voice cloning requires consent + approved reference + scope; off-tape cloning is impossible ([mastering-voice-clone-policy.md](./mastering-voice-clone-policy.md))
 - No candidate reaches synthesize while infeasible or carrying a critical semantic-integrity finding

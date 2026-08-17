@@ -40,6 +40,7 @@ def _default_cues(
     *,
     ordered: list[str],
     chapters: list[dict[str, Any]],
+    plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Deterministic compose when LLM fails or returns empty cues."""
     assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
@@ -49,6 +50,13 @@ def _default_cues(
             str(a.get("role") or ""), energy=str(a.get("energy") or "") or None
         )
         by_kind.setdefault(kind, []).append(a)
+
+    if isinstance(plan, dict) and (plan.get("sonic_opportunities") or plan.get("sonic_scenes")):
+        from interview_mux.air_script import cues_from_sonic_plan
+
+        hunted = cues_from_sonic_plan(plan, assets_by_kind=by_kind)
+        if hunted:
+            return hunted
 
     cues: list[dict[str, Any]] = []
     first = ordered[0] if ordered else None
@@ -302,6 +310,8 @@ def _normalize_arrangement(
             )
             next_bed_chapter = chapter_index + dry_break_chapters + 1
 
+    from interview_mux.creative_delivery import audible_bed_level_db, clamp_bed_level_db
+
     bed_cues: list[dict[str, Any]] = []
     for scene_index, (_, scene) in enumerate(scene_rows):
         asset = optional if optional and scene_index % 2 else primary
@@ -309,9 +319,16 @@ def _normalize_arrangement(
         for segment_index, sid in enumerate(scene):
             prior = existing_beds.get(sid) or {}
             slot = slot_by_sid.get(sid) or {}
+
             level = prior.get("level_db")
             if level is None:
-                level = slot.get("max_level_db", -26)
+                level = slot.get("max_level_db")
+            if level is None:
+                level = audible_bed_level_db()
+            try:
+                level = clamp_bed_level_db(float(level))
+            except (TypeError, ValueError):
+                level = audible_bed_level_db()
             try:
                 crossfade = max(
                     scene_crossfade_ms,
@@ -518,6 +535,13 @@ def run_music_palette_compose(ctx: RunContext) -> None:
             if isinstance(ch, dict)
         ]
 
+        plan = (
+            c.read_json("mastering/mastering_plan.json")
+            if c.artifact_exists("mastering/mastering_plan.json")
+            else {}
+        )
+        plan = plan if isinstance(plan, dict) else {}
+
         raw_cues = artifacts.get("cues")
         if not isinstance(raw_cues, list):
             raw_cues = ((artifacts.get("flow_plans") or {}) if isinstance(artifacts.get("flow_plans"), dict) else {}).get(
@@ -526,7 +550,14 @@ def run_music_palette_compose(ctx: RunContext) -> None:
             if isinstance(raw_cues, dict):
                 raw_cues = raw_cues.get("cues")
         if not isinstance(raw_cues, list) or not raw_cues:
-            raw_cues = _default_cues(sdp, ordered=ordered, chapters=chapters)
+            raw_cues = _default_cues(sdp, ordered=ordered, chapters=chapters, plan=plan)
+        elif plan.get("sonic_opportunities"):
+            from interview_mux.air_script import unused_required_opportunities
+
+            if unused_required_opportunities(plan, [c for c in raw_cues if isinstance(c, dict)]):
+                hunted = _default_cues(sdp, ordered=ordered, chapters=chapters, plan=plan)
+                if hunted:
+                    raw_cues = hunted
 
         policy = (
             c.read_json("understanding/soundscape_policy.json")
@@ -554,7 +585,7 @@ def run_music_palette_compose(ctx: RunContext) -> None:
         if not (podcast.get("cues") or []):
             fallback = _normalize_arrangement(
                 sdp,
-                _default_cues(sdp, ordered=ordered, chapters=chapters),
+                _default_cues(sdp, ordered=ordered, chapters=chapters, plan=plan),
                 ordered=ordered,
                 chapters=chapters,
                 policy=policy if isinstance(policy, dict) else {},

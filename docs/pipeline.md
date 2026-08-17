@@ -4,7 +4,7 @@
 
 One source interview → one deliverable: **`master/master.wav`**. Product Essence: find golden nuggets, cut for listenability, weave native + grounded synthetic + music/SFX/air under Shape — [NORTH_STAR.md](../NORTH_STAR.md). Optional Ship packaging + ASSETS-wide S3 sync is separate from the north-star master.
 
-Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 28 delivery = 62 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
+Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 31 delivery = 65 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
 
 **Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.40–0.88**, hinge stinger **0.3–1.0**.
 
@@ -21,7 +21,7 @@ flowchart TB
         Gaps --> Brief
     end
     Brief --> G1{G1 VO optional}
-    G1 --> Del[Delivery — 28 stages]
+    G1 --> Del[Delivery — 30 stages]
     Del --> Rank[Coverage → arc → ranking → Refinement Pass]
     Rank --> Sound[SDP → EDL → preview → SFX → mix → junction QA]
     Sound --> Ship[master_finalize → optional G-Publish package]
@@ -68,6 +68,7 @@ Gates: [workflows/operator-gates.md](./workflows/operator-gates.md) · Journey: 
 5. **EDL path** — narrative audit/refine → EDL → assembly preview → listen delight (**authoritative**)  
 6. **MMAudio + mix** — `mmaudio_sfx` → `mix` → `junction_snip_qa`  
 7. **Master** — `master_finalize` → −16 LUFS  
+7b. **Master transcript** — `master_transcript_build` (Apple VTT from EDL + sidecars)  
 8. **Optional G-Publish** — local `episode_meta_build` … `podcast_publish` (no S3); sync this run via GUI or `scripts/sync_podcast_episodes.py --execution-id …` — [podcast-rss-hosting.md](./cross-cutting/podcast-rss-hosting.md)
 
 ### Success criteria

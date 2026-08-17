@@ -9,7 +9,7 @@
 ./scripts/run.sh              # launch GUI
 ```
 
-**Pipeline size:** **62 stages** — 34 analysis + 28 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
+**Pipeline size:** **65 stages** — 34 analysis + 31 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
 
 ## Read order
 

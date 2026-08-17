@@ -71,6 +71,10 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `ingest/loudness.json` | ingest (loudness stabilize lineage) |
 | `ingest/checksums.json` | ingest ([ingest_checksums.schema.json](./json-schemas/ingest_checksums.schema.json)) |
 | `transcript/full.json` | transcription; dock word edits set `words[].corrected`; `review_applied_at` on G0 complete |
+| `transcripts/speech/{segment_id}.json` | per-segment sidecar (G0 words sliced to the live window) |
+| `transcripts/vo/{line_id}.json` | synthetic / recorded VO sidecar (script + WAV duration) |
+| `transcripts/transition/{clip_id}.json` | spoken transition sidecar |
+| `transcripts/index.json` | registry of every sidecar |
 | `transcript/speakers.json` | transcription (AWS diarization) |
 | `transcript/review_queue.json` | transcript_review_build |
 | `transcript/review_clips/*.wav` | transcript_review_build |
@@ -152,6 +156,9 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `assembly.wav` | pre-master mix (`mix`) |
 | `underbed_ab_qc.json` | Automated per-window bed-presence and speech-masking A/B report; includes targeted remux evidence |
 | `master.wav` | final export |
+| `transcript.json` | assembled master-timeline cues (`master_transcript_build`) |
+| `transcript.vtt` | Apple Podcasts ingest file |
+| `transcript.txt` | plain-text episode transcript |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
 
 ## Flow 2 — `REMOVED_flow2/`

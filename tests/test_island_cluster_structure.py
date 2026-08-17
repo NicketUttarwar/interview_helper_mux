@@ -341,6 +341,30 @@ def test_parse_guardrails_coerce_bridge_under_split(tmp_path: Path):
     assert parsed["cut_hinge_block_ids"] == ["blk_001"]
 
 
+def test_parse_coerces_bridge_on_same_conversation():
+    cluster = {
+        "cluster_id": "hvc_002",
+        "member_island_ids": ["hvi_001"],
+    }
+    packet = {
+        "blocks": [],
+        "per_island_defaults": [
+            {"island_id": "hvi_001", "default_fuse_side": "right"},
+        ],
+    }
+    envelope = {
+        "status": "complete",
+        "artifacts": {
+            "cluster_id": "hvc_002",
+            "topic_unity": "same_conversation",
+            "assignments": [{"island_id": "hvi_001", "fuse_side": "bridge"}],
+        },
+    }
+    parsed = parse_island_cluster_structure_envelope(envelope, packet, cluster)
+    assert parsed is not None
+    assert parsed["assignments"][0]["fuse_side"] == "right"
+
+
 def test_h_edge_cuts_use_high_conf_flanks(tmp_path: Path):
     ctx = _FakeCtx(tmp_path)
     words = (

@@ -45,11 +45,13 @@ REBUILD_SCOPES: dict[str, tuple[str, ...]] = {
         "topic_coverage_audit",
         "narrative_arc_plan",
         "full_master_ranking",
+        "air_script_compose",
         "nugget_corpus_mine",
         "information_package_plan",
         "nugget_layup_compose",
         "gap_framing_recompose",
         "selection_framing_apply",
+        "air_script_seams",
         "transitions",
         "edl",
         "assembly_preview",
@@ -271,6 +273,19 @@ def precedence_ordered_segment_ids(
     nle_ordered: list[str] | None,
     selection_ordered: list[str] | None,
 ) -> list[str]:
+    from interview_mux.air_script import omitted_segment_ids, ordered_ids_from_air_script
+
+    air_ids = ordered_ids_from_air_script(plan)
+    omitted = omitted_segment_ids(plan)
+    if air_ids:
+        if nle_ordered:
+            nle = [str(x) for x in nle_ordered if x and x not in omitted]
+            kept_air = set(air_ids)
+            nle_in = [s for s in nle if s in kept_air]
+            if nle_in:
+                tail = [s for s in air_ids if s not in set(nle_in)]
+                return nle_in + tail
+        return list(air_ids)
     plan_ids = plan.get("ordered_segment_ids")
     if consumers_bind_enabled() and isinstance(plan_ids, list) and plan_ids:
         return [str(x) for x in plan_ids]

@@ -441,6 +441,25 @@ def build_flow1_edl(
         for line in before_lines:
             _emit_vo_line(line, placement="before")
 
+        # Native-open omit: still reserve the opening-music window so theme can
+        # bed under the hosts' own greeting (music → body).
+        if idx == 0 and not cold_open_hook:
+            meta = (
+                (gap_report or {}).get("opening_orientation")
+                if isinstance(gap_report, dict)
+                else None
+            )
+            omitted = isinstance(meta, dict) and (
+                bool(meta.get("omitted")) or meta.get("required") is False
+            )
+            already_opening_music = any(
+                str(clip.get("air_kind") or "") == "opening_music" for clip in clips
+            )
+            if omitted and not already_opening_music:
+                _append_opening_music_marker(
+                    max(int(seg.get("end_ms") or 0) - int(seg.get("start_ms") or 0), 1000)
+                )
+
         speech_start = int(seg["start_ms"])
         speech_end = int(seg["end_ms"])
         air_meta: dict = {}
@@ -671,6 +690,15 @@ def run_edl(ctx: RunContext) -> None:
                 level="info",
                 stage="edl",
             )
+        try:
+            from interview_mux.air_script import enforce_air_script_omits
+            from interview_mux.mastering_plan_loader import load_plan_raw
+
+            if load_plan_raw(ctx):
+                selection = enforce_air_script_omits(ctx, selection)
+                ctx.write_json("master/selection.json", selection)
+        except Exception as exc:
+            ctx.log(f"edl: air_script omit bind skipped: {exc}", level="warning", stage="edl")
         gap_report = (
             ctx.read_json("understanding/gap_report.json")
             if ctx.artifact_exists("understanding/gap_report.json")
@@ -718,6 +746,19 @@ def run_edl(ctx: RunContext) -> None:
                     level="info",
                     stage="edl",
                 )
+            try:
+                from interview_mux.air_script import filter_gap_lines_for_air_script
+                from interview_mux.mastering_plan_loader import load_plan_raw
+
+                filtered = filter_gap_lines_for_air_script(
+                    gap_report if isinstance(gap_report, dict) else None,
+                    load_plan_raw(ctx),
+                )
+                if isinstance(filtered, dict) and filtered is not gap_report:
+                    gap_report = filtered
+                    ctx.write_json("understanding/gap_report.json", gap_report)
+            except Exception as exc:
+                ctx.log(f"edl: air_script VO filter skipped: {exc}", level="warning", stage="edl")
             resynced = resync_required_synthesize_wavs(ctx, gap_report)
             if resynced:
                 ctx.log(
@@ -770,6 +811,16 @@ def run_edl(ctx: RunContext) -> None:
             transitions=transitions if isinstance(transitions, dict) else None,
             soft=soft,
         )
+        try:
+            from interview_mux.air_script import filter_transitions_for_air_script
+            from interview_mux.mastering_plan_loader import load_plan_raw
+
+            transitions = filter_transitions_for_air_script(
+                transitions if isinstance(transitions, dict) else None,
+                load_plan_raw(ctx),
+            ) or transitions
+        except Exception as exc:
+            ctx.log(f"edl: air_script transition filter skipped: {exc}", level="warning", stage="edl")
         if soft and not completeness.get("complete"):
             ctx.log(
                 f"bridge_completeness soft: "
@@ -835,15 +886,21 @@ def run_edl(ctx: RunContext) -> None:
         edl = copy_order_lock(selection, stamp_order_hash(edl))
         try:
             from interview_mux.gap_vo_gates import gap_framing_enabled
-            from interview_mux.opening_orientation import validate_opening_orientation
+            from interview_mux.opening_orientation import (
+                is_episode_orientation,
+                orientation_omitted,
+                validate_opening_orientation,
+            )
 
             active_framing_lines = [
                 line
                 for line in ((gap_report or {}).get("interviewer_lines") or [])
                 if isinstance(line, dict) and not line.get("skipped_optional")
             ]
-            if gap_framing_enabled(ctx) and active_framing_lines:
-                from interview_mux.opening_orientation import is_episode_orientation
+            if gap_framing_enabled(ctx) and (
+                active_framing_lines
+                or orientation_omitted(gap_report if isinstance(gap_report, dict) else None)
+            ):
                 from interview_mux.spoken_copy_guard import script_hash
 
                 missing = set((edl.get("warnings") or {}).get("missing_vo_files") or [])
@@ -998,7 +1055,14 @@ def run_mix(ctx: RunContext) -> Path:
 
     check_edl_qc(ctx, stage="mix", strict=False)
     with logged_step("mix/render", ctx=ctx, stage="mix"):
-        return mix(ctx)
+        out = mix(ctx)
+    try:
+        from interview_mux.listen_delight import rerun_listen_delight_after_mix
+
+        rerun_listen_delight_after_mix(ctx)
+    except Exception as exc:
+        ctx.log(f"mix: post-mix listen delight skipped: {exc}", level="warning", stage="mix")
+    return out
 
 
 def run_mux(ctx: RunContext) -> Path:

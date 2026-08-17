@@ -4,7 +4,7 @@
 **Hosting:** [podcast-rss-hosting.md](../../cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](../../../terraform/README.md)  
 **Covers:** [podcast-cover-theme.md](../../cross-cutting/podcast-cover-theme.md)
 
-Optional Ship path after `master_finalize`. North star remains `master/master.wav`. Flow 3 show-description pipeline was **removed** — see [v2/drop-manifest.md](../../v2/drop-manifest.md).
+Optional Ship path after `master_transcript_build`. North star remains `master/master.wav`. Flow 3 show-description pipeline was **removed** — see [v2/drop-manifest.md](../../v2/drop-manifest.md).
 
 ## Intent
 
@@ -12,11 +12,11 @@ Build a **local episode package** (meta, cover, stereo MP3, chapters) under `pub
 
 ## When it runs
 
-After `master_finalize`, operator chooses at **G-Publish**:
+After `master_transcript_build`, operator chooses at **G-Publish**:
 
 | Action | Effect |
 |--------|--------|
-| **Prepare package for this run** | Runs `episode_meta_build` … `podcast_publish` locally — writes `publish/package_ready.json`; **no S3** |
+| **Prepare package for this run** | Runs `master_transcript_build` (idempotent) then `episode_meta_build` … `podcast_publish` locally — writes `publish/package_ready.json` + `publish/transcript.vtt`; **no S3** |
 | **Upload this run to S3** | Syncs only this execution (`POST …/g-publish/sync` or `python scripts/sync_podcast_episodes.py --execution-id …`) |
 | **Skip** | Decline packaging for this run |
 
@@ -26,11 +26,12 @@ Gate copy: [operator-gates.md](../../workflows/operator-gates.md).
 
 | Order | Stage key | Model tier | Output |
 |-------|-----------|------------|--------|
+| 0 | `master_transcript_build` | — | `master/transcript.vtt` (Apple ingest) |
 | 1 | `episode_meta_build` | **flagship** | `publish/episode_meta.json` |
 | 2 | `episode_cover_prompt_craft` | **flagship** | `publish/cover_prompt.json` |
 | 3 | `podcast_encode_mp3` | — | stereo `publish/audio.mp3` + `publish/master.wav` |
 | 4 | `episode_cover_generate` | Images + vision | candidates + `publish/cover.jpg` (3000²) |
-| 5 | `podcast_publish` | — | Local finalize (`package_ready.json`) — **no S3** |
+| 5 | `podcast_publish` | — | Local finalize (`package_ready.json`, `transcript.vtt`) — **no S3** |
 
 Module: `src/interview_mux/stages/podcast_publish.py`.
 

@@ -457,4 +457,10 @@ def split_segment_at_cuts(ctx: RunContext, segment_id: str, cut_ms: list[int]) -
         mark_split_rerank_cascade(ctx, reason=f"nle_split:{segment_id}")
     except Exception:
         pass
+    try:
+        from interview_mux.asset_transcripts import sync_speech_sidecars
+
+        sync_speech_sidecars(ctx)
+    except Exception:
+        pass
     return nle

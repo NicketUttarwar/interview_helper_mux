@@ -284,6 +284,11 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
         maybe_run_placement_qa(ctx)
         execute_fitness_remediation(ctx, stage=stage)
+    qa_committed = ctx.final_path("sound_design", "mmaudio_qa.json")
+    if not qa_committed.is_file():
+        raise RuntimeError(
+            "mmaudio_sfx incomplete — sound_design/mmaudio_qa.json missing from committed tree"
+        )
     ctx.mark_done(stage)
 
 

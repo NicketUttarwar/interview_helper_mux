@@ -372,9 +372,16 @@
       "llm_batch_size": 16,
       "llm_tier": "economy",
       "prefer_fuse_when_hint_and_uncertain": true,
+      "prefer_stay_when_uncertain": true,
+      "incomplete_thought_only": true,
       "deterministic_fallback_on_llm_fail": true,
       "max_seam_gap_ms": 8000,
       "same_topic_score_floor": 0.15,
+      "max_fused_duration_ms": 25000,
+      "max_fused_members": 3,
+      "allow_high_value_bridge": false,
+      "close_excerpt_max_chars": 480,
+      "uncertain_confidence_floor": 0.55,
       "passes": ["post_sanitize", "pre_ranking", "junction_heal"]
     },
     "prompt_examples": {

@@ -141,8 +141,14 @@ def test_lint_require_tape_rejects_empty():
         lint_llm_user_payload({"exists": True, "stage_done": True}, require_tape=True)
 
 
-def test_connector_fuse_defaults_unbounded():
+def test_connector_fuse_defaults_incomplete_thought_only():
     from interview_mux.segment_fuse import _DEFAULTS
 
+    assert _DEFAULTS["incomplete_thought_only"] is True
+    assert _DEFAULTS["prefer_stay_when_uncertain"] is True
+    assert _DEFAULTS["allow_high_value_bridge"] is False
+    assert int(_DEFAULTS["max_fused_duration_ms"] or 0) == 25000
+    assert int(_DEFAULTS["max_fused_members"] or 0) == 3
+    # No episode-wide fuse quota — hanging cuts may still collapse to a fixed point.
     assert int(_DEFAULTS["max_fuses_per_pass"] or 0) == 0
     assert int(_DEFAULTS["max_fuse_rounds"] or 0) == 0

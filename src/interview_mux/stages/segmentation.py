@@ -628,6 +628,16 @@ def run_classification(ctx: RunContext) -> None:
         )
         if not ctx.is_done("segment_classification"):
             ctx.mark_done("segment_classification", force=True)
+        try:
+            from interview_mux.asset_transcripts import sync_speech_sidecars
+
+            sync_speech_sidecars(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"speech sidecar sync after classification skipped: {exc}",
+                level="warning",
+                stage="segment_classification",
+            )
         return
 
     def build_input(c: RunContext) -> dict:
@@ -778,3 +788,13 @@ def run_classification(ctx: RunContext) -> None:
                 level="info",
                 stage="segment_classification",
             )
+    try:
+        from interview_mux.asset_transcripts import sync_speech_sidecars
+
+        sync_speech_sidecars(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"speech sidecar sync after classification skipped: {exc}",
+            level="warning",
+            stage="segment_classification",
+        )

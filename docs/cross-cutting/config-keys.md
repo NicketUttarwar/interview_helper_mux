@@ -116,7 +116,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.allow_summary_overlap_max` | `vo_value_violations` | Alias kept for config compat; same **0.75** soft ceiling (no separate summary limit) |
 | `analysis.gap_framing.vo_value_gate.require_rationale` | `vo_value_violations` | Require non-empty `rationale` on each interviewer line (default **true**) |
 | `analysis.gap_framing.vo_value_gate.require_forward_cue` | `vo_value_violations` | Last sentence of every VO must unlock the next beat (default **true**) |
-| `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**) |
+| `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**). Does **not** force a synthetic preface: `ensure_episode_orientation` omits when native hosts already intro. |
 | `analysis.nugget_layup.enabled` | `nugget_layup`, corpus/layup stages | Master switch for Nugget Layup System (default **true**) |
 | `analysis.nugget_layup.require_layup_per_native` | `evaluate_layup_qc` | Require a plan row per ordered native (default **true**) |
 | `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.4** — try every seam; air only when useful) |
@@ -154,12 +154,20 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.high_value_speech_islands.per_cluster_fuse` | connector fuse HV path | Default **true** |
 | `analysis.high_value_speech_islands.island_cluster_structure.*` | `island_cluster_structure_adjudicate` | `llm_tier=economy`, fail-open, lock_forced_seams, max_block_chars |
 | `analysis.connector_fuse.enabled` | `connector_fuse_pass` | Seam LLM fuse loop (default **true**) |
-| `analysis.connector_fuse.max_fuses_per_pass` / `max_fuse_rounds` | `run_connector_fuse_pass` | **0** = unbounded until fixed point or oscillation halt |
+| `analysis.connector_fuse.max_fuses_per_pass` / `max_fuse_rounds` | `run_connector_fuse_pass` | **0** = no episode-wide count budget; incomplete-thought fuses still run to fixed point or oscillation halt |
+| `analysis.connector_fuse.incomplete_thought_only` | adjudicate + apply | Default **true** — fuse unfinished sentences only; same-speaker complete ideas stay independent |
+| `analysis.connector_fuse.prefer_stay_when_uncertain` | adjudicate | Default **true** — low-confidence complete seams stay apart |
+| `analysis.connector_fuse.prefer_fuse_when_hint_and_uncertain` | LLM policy | Default **true** — still prefer fuse when hanging / continuer-open / island-straddle hints fire |
+| `analysis.connector_fuse.uncertain_confidence_floor` | adjudicate | Default **0.55** — below this, complete-thought fuses are refused |
 | `analysis.connector_fuse.tail_words` / `head_words` / `llm_batch_size` | seam packets | Defaults **16** / **16** / **16** |
+| `analysis.connector_fuse.close_excerpt_max_chars` | seam packets | Default **480** — earlier close shown to the seam LLM |
 | `analysis.connector_fuse.allow_cross_speaker_fuse` | adjudicate | Default **false** |
 | `analysis.connector_fuse.llm_tier` | `connector_seam_adjudicate` | Default **economy** |
 | `analysis.connector_fuse.max_seam_gap_ms` | seam short-circuit / apply | Default **8000**; large gaps stay independent unless island-straddle / high-value force |
-| `analysis.connector_fuse.same_topic_score_floor` | apply fuse / high-value bridge | Default **0.15**; refuse fuse when declared topics barely overlap (high-value force bypasses) |
+| `analysis.connector_fuse.same_topic_score_floor` | apply fuse / high-value neighbor | Default **0.15**; refuse fuse when declared topics barely overlap (high-value force bypasses) |
+| `analysis.connector_fuse.max_fused_duration_ms` | apply fuse | Default **25000** — cap for non-incomplete editorial fuses so one speaker run cannot collapse into a slab |
+| `analysis.connector_fuse.max_fused_members` | apply fuse | Default **3** — member cap for non-incomplete editorial fuses |
+| `analysis.connector_fuse.allow_high_value_bridge` | `plan_cluster_fuses` | Default **false** — high-value islands attach to **one** neighbor; do not glue left+right |
 | `analysis.gap_vo.min_reference_sec` | `voice_reference.approve_voice_reference` | Hard reject collated reference shorter than N seconds (default **3.0**) |
 | `analysis.gap_vo.fail_open` | `s2s_runner`, `chatterbox_runner` | Chatterbox → mlx-audio fallback on synthesis failure (default **false** — hard-stop) |
 | `analysis.gap_vo.fallback_to_manual_on_failure` | `synthesis_fallback` | After Chatterbox + mlx fail, switch lines to `delivery: record` and continue (default **false** — hard-stop; set **true** for legacy degrade) |
@@ -943,6 +951,10 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.shape.information_packages.allow_regroup` | `false` | Phase-2 kept-native regroup | Keep false until order preflight tests pass |
 | `mastering.shape.episode_close.require_music` | `true` | Always seed `theme_outro` after last native | Independent of package mode |
 | `mastering.shape.episode_close.fade_out_ms` | `2200` | Gentle long outro fade | Mix also floors via `bookend_fade_out_ms` |
+| `mastering.air_script.enable` | `true` | Pass A/B air-script on `mastering_plan` (`air_script_compose`, `air_script_seams`) | `false` skips both stages — EDL falls back to concatenating approved parts |
+| `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
+| `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
+| `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
 | `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
 | `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
 | `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |
@@ -999,8 +1011,8 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
 | `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
 | `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | **Product flip (locked):** authoritative floor failures hard-stop `listen_delight_audit` and re-block at `post_master_quality`/publish; `advisory` writes the same scored artifact but never blocks |
-| `mastering.listen_delight.overall_min` | `0.90` | Mean of the seven delight dimensions | Lower allows a weaker overall listen to ship |
-| `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75` | Per-dimension ship floors | Missing floors skip that dimension |
+| `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
+| `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |
 | `mastering.listen_delight.fail_early_at_audit_stage` | `true` | Hard-stop inside `listen_delight_audit` (before mix/junction/finalize) when floors fail | `false` only relies on the `post_master_quality` re-check before publish |
 | `mastering.synthetic_framing.allow_canned_bridge_fallback` | `false` | `seam_glue.mint_missing_transitions`, `synthetic_framing.validate_synthetic_plan` | `true` mints marked `auto_minted` canned bridges and skips validate hard-stop for uncovered reorder seams; default loud-fails |

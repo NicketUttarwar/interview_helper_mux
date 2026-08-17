@@ -56,12 +56,18 @@ def min_density_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    """Speech-first mix: audible beds under dialogue with hard duck; bookends hotter."""
+    """Speech-first mix: audible beds under dialogue with hard duck; bookends hotter.
+
+    Do not rewrite skip-underscore when source_music_risk is high or dry_beds is set.
+    Default posture is abundant (skip/sparse → normal) otherwise.
+    """
     if not creative_delivery_required():
         return contract
     out = dict(contract)
     underscore = str(out.get("underscore_policy") or "normal")
-    if underscore in {"skip", "sparse_or_skip", "sparse"}:
+    risk = str(out.get("source_music_risk") or out.get("source_music_risk_level") or "").lower()
+    keep_dry = bool(out.get("dry_beds")) or risk in {"high", "true", "1"}
+    if underscore in {"sparse", "sparse_or_skip"} and not keep_dry:
         out["underscore_policy"] = "normal"
     mins = min_density_cfg()
     quiet_lo = float(mins.get("min_audible_bed_level_db", -22.0))
@@ -74,6 +80,84 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
     # Speech still wins, but keep undersores present under dialogue (plan: ≥12).
     out["duck_under_speech_db"] = max(duck, 12.0)
     return out
+
+
+def _bed_level_band(mix_contract: dict[str, Any] | None = None) -> tuple[float, float]:
+    """Return (quiet_lo, quiet_hi) for speech-first beds, quieter first (more negative)."""
+    mins = min_density_cfg()
+    lo = float(mins.get("min_audible_bed_level_db", -22.0))
+    hi = float(mins.get("max_audible_bed_level_db", -18.0))
+    rng = (mix_contract or {}).get("bed_level_db_range") if isinstance(mix_contract, dict) else None
+    if isinstance(rng, list) and len(rng) == 2:
+        try:
+            lo, hi = float(rng[0]), float(rng[1])
+        except (TypeError, ValueError):
+            pass
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo, hi
+
+
+def audible_bed_level_db(mix_contract: dict[str, Any] | None = None) -> float:
+    """High end of the audible bed band (speech-first, typically −18 dB)."""
+    _lo, hi = _bed_level_band(mix_contract)
+    return hi
+
+
+def clamp_bed_level_db(level: float, mix_contract: dict[str, Any] | None = None) -> float:
+    lo, hi = _bed_level_band(mix_contract)
+    return min(max(float(level), lo), hi)
+
+
+def alternate_contiguous_loop_assets(
+    cues: list[dict[str, Any]],
+    *,
+    ordered: list[str],
+    primary_id: str,
+    optional_id: str | None,
+    max_run: int = 4,
+) -> int:
+    """Reassign under-segment loops so a contiguous run switches assets every max_run.
+
+    Matches music_palette_compose scene splitting: optional_loop exists to break
+    avoidable same-loop spans, not to leave one underscore on 30+ clips.
+    """
+    if not optional_id or optional_id == primary_id or max_run < 1 or not primary_id:
+        return 0
+    by_seg: dict[str, list[dict[str, Any]]] = {}
+    for cue in cues:
+        if not isinstance(cue, dict) or cue.get("skip"):
+            continue
+        if str(cue.get("placement") or "") != "under_segment":
+            continue
+        sid = str(cue.get("under_segment_id") or cue.get("segment_id") or "")
+        if sid:
+            by_seg.setdefault(sid, []).append(cue)
+    changed = 0
+    scene = 0
+    run_len = 0
+    in_run = False
+    for sid in ordered:
+        rows = by_seg.get(sid) or []
+        if not rows:
+            if in_run:
+                scene += 1
+                in_run = False
+                run_len = 0
+            continue
+        if not in_run:
+            in_run = True
+            run_len = 0
+        elif run_len >= max_run:
+            scene += 1
+            run_len = 0
+        asset = optional_id if scene % 2 else primary_id
+        for cue in rows:
+            if str(cue.get("asset_id") or "") != asset:
+                cue["asset_id"] = asset
+                changed += 1
+        run_len += 1
+    return changed
 
 
 def apply_creative_sfx_density(dens: dict[str, Any]) -> dict[str, Any]:

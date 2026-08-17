@@ -8,14 +8,25 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: sound_design/mmaudio_qa.json
+  schema: mmaudio_qa.schema.json
+  staging: false
 inputs:
-  hard: []
+  hard:
+  - path: understanding/sound_design_plan.json
+    producer: sound_design_plan
+  - path: sound_design/sfx_prompts.json
+    producer: sfx_prompt_craft
   soft: []
-sufficiency: []
+sufficiency:
+- path: assets
+  rule: min_rows
+  min_count: 0
 propagation:
   invalidates_stages: []
-consumers: []
+consumers:
+- mix
 remediation:
   strategies:
   - volley_retry

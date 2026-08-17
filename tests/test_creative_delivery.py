@@ -100,6 +100,17 @@ def test_apply_creative_mix_contract_upgrades_sparse():
     assert out["duck_under_speech_db"] >= 12
 
 
+def test_apply_creative_mix_contract_keeps_dry_on_source_music_risk():
+    sparse = apply_creative_mix_contract(
+        {"underscore_policy": "sparse", "source_music_risk": "high", "duck_under_speech_db": 8}
+    )
+    assert sparse["underscore_policy"] == "sparse"
+    skip = apply_creative_mix_contract(
+        {"underscore_policy": "skip", "dry_beds": True, "duck_under_speech_db": 8}
+    )
+    assert skip["underscore_policy"] == "skip"
+
+
 def test_audibility_level_db_role_aware():
     from interview_mux.creative_delivery import audibility_level_db
 
@@ -109,3 +120,76 @@ def test_audibility_level_db_role_aware():
     assert cold >= -9.0
     emph = audibility_level_db(role="theme_emphasis", default=-20.0)
     assert emph >= -15.0
+
+
+def test_alternate_contiguous_loop_assets_breaks_long_runs():
+    from interview_mux.creative_delivery import alternate_contiguous_loop_assets
+
+    ordered = [f"seg_{i:03d}" for i in range(1, 13)]
+    cues = [
+        {
+            "cue_id": f"bed_{sid}",
+            "placement": "under_segment",
+            "segment_id": sid,
+            "asset_id": "loop_a",
+        }
+        for sid in ordered
+    ]
+    changed = alternate_contiguous_loop_assets(
+        cues,
+        ordered=ordered,
+        primary_id="loop_a",
+        optional_id="loop_b",
+        max_run=4,
+    )
+    assert changed > 0
+    by_seg = {c["segment_id"]: c["asset_id"] for c in cues}
+    # Four-clip scenes: A A A A B B B B A A A A
+    assert {by_seg[s] for s in ordered[:4]} == {"loop_a"}
+    assert {by_seg[s] for s in ordered[4:8]} == {"loop_b"}
+    assert {by_seg[s] for s in ordered[8:12]} == {"loop_a"}
+
+
+def test_clamp_bed_level_db_moves_placeholder_into_audible_band():
+    from interview_mux.creative_delivery import audible_bed_level_db, clamp_bed_level_db
+
+    assert -22.0 <= clamp_bed_level_db(-26.0) <= -18.0
+    assert -22.0 <= audible_bed_level_db() <= -18.0
+
+
+def test_repair_sfx_prompts_syncs_plan_duration_to_role_floor(tmp_path, monkeypatch):
+    """theme_emphasis craft floor is 6s; SDP must not stay at 5s (craft-vs-plan loop)."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "run_sfx_dur_sync")
+    seed_analysis_ready_artifacts(ctx)
+    sdp = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "show_theme_v1_stinger_01",
+                "role": "theme_emphasis",
+                "description": "Short emphasis sting.",
+                "duration_seconds": 5.0,
+            }
+        ],
+        flow_plans={"podcast": {"profile": "podcast", "cues": []}},
+    )
+    ctx.write_json("understanding/sound_design_plan.json", sdp, skip_handoff=True)
+    from interview_mux.artifact_repairs import repair_sfx_prompts
+
+    repaired, _notes = repair_sfx_prompts(
+        ctx,
+        {
+            "prompts": [
+                {
+                    "asset_id": "show_theme_v1_stinger_01",
+                    "role": "theme_emphasis",
+                    "duration_seconds": 5.0,
+                    "sfx_prompt": "Warm piano sting, close-mic, no lyrics.",
+                    "negative_prompt": "vocals speech lyrics choir talk radio host narrator verse chorus singing",
+                }
+            ]
+        },
+    )
+    assert float(repaired["prompts"][0]["duration_seconds"]) == 6.0
+    plan = ctx.read_json("understanding/sound_design_plan.json")
+    assert float(plan["assets"][0]["duration_seconds"]) == 6.0

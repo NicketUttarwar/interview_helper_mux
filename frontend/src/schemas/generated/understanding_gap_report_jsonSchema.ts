@@ -39,4 +39,13 @@ export const understanding_gap_report_jsonSchema = z.object({
   "density_forced": z.boolean().optional(),
 })),
   "nugget_layup_authority": z.boolean().optional(),
+  "opening_orientation": z.object({
+  "line_id": z.string().nullable().optional(),
+  "sequence": z.string().optional(),
+  "native_cold_open_segment_id": z.string().nullable().optional(),
+  "target_segment_id": z.string().optional(),
+  "required": z.boolean().optional(),
+  "omitted": z.boolean().optional(),
+  "omit_reason": z.string().optional(),
+}).optional(),
 });

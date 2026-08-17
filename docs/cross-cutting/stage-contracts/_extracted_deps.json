@@ -118,6 +118,7 @@
     "reads": [
       "master/narrative_plan.json",
       "master/selection.json",
+      "mastering/mastering_plan.json",
       "understanding/music_brief.json",
       "understanding/sonic_context.json",
       "understanding/soundscape_policy.json"

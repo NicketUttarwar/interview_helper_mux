@@ -69,6 +69,7 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "edl_narrative_audit": "sound_design_plan",
     "sfx_prompt_craft": "sound_design_plan",
     "episode_meta_build": None,
+    "master_transcript_build": None,
     "episode_cover_prompt_craft": "episode_meta_build",
 }
 

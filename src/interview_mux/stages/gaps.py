@@ -997,4 +997,10 @@ def ingest_vo_pickup(ctx: RunContext) -> None:
         )
     else:
         ctx.log("vo_ingest: all pickup WAVs already normalized.", level="info", stage="vo_ingest")
+    try:
+        from interview_mux.asset_transcripts import sync_vo_sidecars_from_gap_report
+
+        sync_vo_sidecars_from_gap_report(ctx)
+    except Exception as exc:
+        ctx.log(f"VO sidecar sync skipped: {exc}", level="warning", stage="vo_ingest")
     ctx.mark_done("vo_ingest")

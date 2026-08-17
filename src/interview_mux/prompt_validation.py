@@ -33,6 +33,8 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "island_cluster_structure_adjudicate": "island_cluster_structure_adjudicate.schema.json",
     "nugget_corpus_mine": "nugget_corpus_artifact.schema.json",
     "nugget_layup_compose": "nugget_layup_plan_artifact.schema.json",
+    "air_script_compose": "mastering_plan.schema.json",
+    "air_script_seams": "mastering_plan.schema.json",
     "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
     "synthetic_framing_plan": "synthetic_framing_plan.schema.json",
@@ -41,8 +43,10 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "music_palette_compose": "music_palette_compose_artifact.schema.json",
     "sfx_prompt_craft": "sfx_prompts_artifact.schema.json",
     "sfx_prompt_refine": "sfx_prompts_artifact.schema.json",
+    "mmaudio_sfx": "mmaudio_qa.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
     "junction_feel_audit": "junction_feel_audit.schema.json",
+    "master_transcript_build": "master_transcript.schema.json",
 }
 
 # stage_key -> on-disk relative path (under run dir)
@@ -86,6 +90,8 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "nugget_layup_compose": "understanding/nugget_layup_plan.json",
     "edl_narrative_audit": "master/edl_narrative_audit.json",
     "edl": "master/edl.json",
+    "air_script_compose": "mastering/mastering_plan.json",
+    "air_script_seams": "mastering/mastering_plan.json",
     "transitions": "master/transitions.json",
     "synthetic_framing_plan": "understanding/synthetic_framing_plan.json",
     "podcast_sfx_brief": "master/podcast_sfx_brief.json",
@@ -93,7 +99,9 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "music_palette_compose": "sound_design/music_palette_compose.json",
     "sfx_prompt_craft": "sound_design/sfx_prompts.json",
     "sfx_prompt_refine": "sound_design/sfx_prompts.json",
+    "mmaudio_sfx": "sound_design/mmaudio_qa.json",
     "junction_feel_audit": "master/junction_feel_audit.json",
+    "master_transcript_build": "master/transcript.json",
 }
 
 def _schemas_dir() -> Path:
@@ -330,6 +338,14 @@ def validate_nugget_layup_plan(data: dict[str, Any]) -> list[str]:
 def validate_omit_ledger(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("omit_ledger.schema.json", data)
 
+
+def validate_master_transcript(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("master_transcript.schema.json", data)
+
+
+def validate_asset_transcript(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("asset_transcript.schema.json", data)
+
 def validate_coverage_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("coverage_audit_artifact.schema.json", data)
 
@@ -464,6 +480,7 @@ def validate_ideal_cuts(data: dict[str, Any]) -> list[str]:
 ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "run_meta.json": validate_run_meta,
     "master/edl.json": validate_edl,
+    "master/transcript.json": validate_master_transcript,
     "vo_pickup/synthesis_report.json": validate_synthesis_report,
     "master/junction_snip_qa.json": validate_junction_snip_qa,
     "master/junction_feel_audit.json": validate_junction_feel_audit,
@@ -525,6 +542,13 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
 def validate_artifact_write(rel_path: str, data: dict[str, Any]) -> list[str]:
     """Return schema errors for known on-disk artifacts (empty if path has no validator)."""
     validator = ARTIFACT_WRITE_VALIDATORS.get(rel_path)
-    if not validator:
-        return []
-    return validator(data)
+    if validator:
+        return validator(data)
+    if (
+        rel_path.startswith("transcripts/")
+        and rel_path.endswith(".json")
+        and rel_path.count("/") == 2
+        and not rel_path.endswith("/index.json")
+    ):
+        return validate_asset_transcript(data)
+    return []

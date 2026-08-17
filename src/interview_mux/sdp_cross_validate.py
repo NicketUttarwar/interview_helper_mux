@@ -273,6 +273,40 @@ validate_post_sound_plan_flow1 = validate_post_sound_plan
 validate_post_sound_plan_flow2 = validate_post_sound_plan
 
 
+def _role_duration_gate_error(
+    aid: str, role: str, craft_d: float, plan_d: float
+) -> str | None:
+    """Hard-fail duration only when it cannot sit in the role band after clamp.
+
+    Craft vs plan equality (0.25s) is not a ship gate — a 5s plan / 6s role-floor
+    bump is in-band and legal.
+    """
+    from interview_mux.deterministic_lint import ROLE_DURATION_BANDS
+
+    if craft_d <= 0 and plan_d <= 0:
+        return f"duration missing for {aid}"
+    band = ROLE_DURATION_BANDS.get(str(role or ""))
+    if not band:
+        return None
+    lo, hi = float(band[0]), float(band[1])
+
+    def in_band(value: float) -> bool:
+        return lo - 1e-9 <= value <= hi + 1e-9
+
+    if in_band(craft_d) and in_band(plan_d):
+        return None
+    if abs(craft_d - plan_d) <= 1.0 + 1e-9:
+        return None
+    clamped_craft = max(lo, min(hi, craft_d)) if craft_d > 0 else lo
+    clamped_plan = max(lo, min(hi, plan_d)) if plan_d > 0 else lo
+    if in_band(clamped_craft) and in_band(clamped_plan):
+        return None
+    return (
+        f"duration outside role band for {aid}: craft={craft_d} plan={plan_d} "
+        f"band={lo}-{hi}"
+    )
+
+
 def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     sdp = _sdp(ctx)
@@ -303,8 +337,10 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
             if plan_asset and row.get("duration_seconds") is not None:
                 plan_d = float(plan_asset.get("duration_seconds") or 0)
                 craft_d = float(row.get("duration_seconds") or 0)
-                if plan_d and abs(craft_d - plan_d) > 0.25:
-                    errors.append(f"duration mismatch for {aid}: craft vs plan")
+                role = str(plan_asset.get("role") or row.get("role") or "")
+                dur_err = _role_duration_gate_error(aid, role, craft_d, plan_d)
+                if dur_err:
+                    errors.append(dur_err)
     return errors
 
 

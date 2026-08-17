@@ -105,6 +105,7 @@ STAGE_REVIEW: dict[str, list[str]] = {
     ],
     "mix": ["Listen to assembly.wav — beds and speech are balanced"],
     "master_finalize": ["Listen to master.wav — final deliverable sounds correct"],
+    "master_transcript_build": ["Master transcript VTT matches the aired EDL"],
 }
 
 STAGE_EMBED: dict[str, str] = {
@@ -122,6 +123,7 @@ STAGE_EMBED: dict[str, str] = {
     "mmaudio_sfx": "post_listen",
     "mix": "placement_qa",
     "master_finalize": "deliverable",
+    "master_transcript_build": "deliverable",
 }
 
 def _step(

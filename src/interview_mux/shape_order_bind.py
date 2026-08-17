@@ -21,6 +21,29 @@ def shape_order_bindable(
     """Return (ok, ordered_ids, reason)."""
     if not isinstance(plan, dict):
         return False, [], "no_plan"
+    from interview_mux.air_script import (
+        load_air_script,
+        omitted_segment_ids,
+        ordered_ids_from_air_script,
+    )
+
+    air_ids = ordered_ids_from_air_script(plan)
+    omitted = omitted_segment_ids(plan)
+    script = load_air_script(plan) or {}
+    if air_ids:
+        lint = script.get("story_clarity") if isinstance(script.get("story_clarity"), dict) else {}
+        follow = float(lint.get("story_followability") or 0.85) if lint else 0.85
+        if lint and lint.get("ok") is False:
+            return False, air_ids, "air_script_story_clarity_fail"
+        if follow < 0.75:
+            return False, air_ids, "air_script_followability_low"
+        effective_kept = (kept_ids - omitted) if kept_ids else set(air_ids)
+        filtered = [s for s in air_ids if s in effective_kept] if effective_kept else air_ids
+        if effective_kept and set(filtered) != effective_kept:
+            missing = sorted(effective_kept - set(filtered))
+            if missing:
+                return False, filtered, f"air_script_missing_kept:{missing[:6]}"
+        return True, filtered, "air_script_bind"
     raw = plan.get("ordered_segment_ids")
     if not isinstance(raw, list) or not raw:
         return False, [], "plan_missing_ordered_segment_ids"

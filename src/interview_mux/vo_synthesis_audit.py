@@ -203,6 +203,12 @@ def record_synthesis(
     entries = [e for e in _load_entries(ctx) if str(e.get("line_id")) != line_id]
     entries.append(entry)
     _persist(ctx, entries)
+    try:
+        from interview_mux.asset_transcripts import write_vo_sidecar_for_line
+
+        write_vo_sidecar_for_line(ctx, line, wav_path=out_wav, duration_ms=duration_ms)
+    except Exception:
+        pass
     return entry
 
 
@@ -284,6 +290,16 @@ def record_recorded_vo(
             )
     entries.append(entry)
     _persist(ctx, entries)
+    try:
+        from interview_mux.asset_transcripts import write_vo_sidecar_for_line
+
+        write_vo_sidecar_for_line(
+            ctx,
+            line if line else {"line_id": line_id, "text": text},
+            wav_path=out_wav,
+        )
+    except Exception:
+        pass
 
 
 def entry_qc_failed(entry: dict[str, Any]) -> bool:

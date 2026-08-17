@@ -29,7 +29,7 @@ Rules:
 - Return JSON only inside the required envelope.
 - Use only IDs supplied in the packet (cluster_id, island_id, block_id, segment_id).
 - Every low island in the packet must appear exactly once in assignments[].
-- fuse_side ∈ {left, right, bridge}; bridge only when topic_unity=same_conversation.
+- fuse_side ∈ {left, right}; never bridge a whole run — one neighbor per low island.
 - hinge_attach ∈ {left, right, null} for a separating high-conf hinge between lows.
 - Prefer absorbing every low island into a neighbor; never leave a low island standalone.
 - When uncertain on topic unity, prefer same_conversation + left/right assignment.
@@ -610,7 +610,8 @@ def build_island_cluster_structure_packet(
             "max_seam_gap_ms": max_gap,
             "never_invent_timestamps": True,
             "never_leave_low_island_standalone": True,
-            "bridge_only_if_same_conversation": True,
+            "one_neighbor_only": True,
+            "bridge_only_if_same_conversation": False,
         },
         "blocks": blocks,
         "segments": seg_rows,
@@ -636,7 +637,7 @@ def deterministic_structure_for_cluster(
     for iid in cluster.get("member_island_ids") or []:
         d = defaults.get(str(iid)) or {}
         side = str(d.get("default_fuse_side") or "left")
-        if side not in {"left", "right", "bridge"}:
+        if side not in {"left", "right"}:
             side = "left"
         assignments.append(
             {
@@ -727,9 +728,9 @@ def parse_island_cluster_structure_envelope(
             side = str(row.get("fuse_side") or "").strip().casefold()
             if side not in {"left", "right", "bridge"}:
                 continue
-            if topic_unity == "split_topics" and side == "bridge":
+            if side == "bridge":
                 side = str((defaults.get(iid) or {}).get("default_fuse_side") or "left")
-                if side == "bridge":
+                if side not in {"left", "right"}:
                     side = "left"
             by_island[iid] = {
                 "island_id": iid,
@@ -745,9 +746,7 @@ def parse_island_cluster_structure_envelope(
             continue
         d = defaults.get(key) or {}
         side = str(d.get("default_fuse_side") or "left")
-        if side not in {"left", "right", "bridge"}:
-            side = "left"
-        if topic_unity == "split_topics" and side == "bridge":
+        if side not in {"left", "right"}:
             side = "left"
         assignments.append(
             {

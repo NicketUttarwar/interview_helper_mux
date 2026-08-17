@@ -38,6 +38,7 @@ def s3_layout(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "meta": str(files.get("meta") or "episode.json"),
             "description": str(files.get("description") or "description.txt"),
             "chapters": str(files.get("chapters") or "chapters.json"),
+            "transcript": str(files.get("transcript") or "transcript.vtt"),
         },
     }
 

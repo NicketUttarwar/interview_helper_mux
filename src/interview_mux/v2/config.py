@@ -48,6 +48,7 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "narrative_arc_plan",
     "connector_fuse_pass_pre_ranking",
     "full_master_ranking",
+    "air_script_compose",
     # Nugget Layup System: full-tape mine → per-native before-VO (authoritative gap_report).
     "nugget_corpus_mine",
     "information_package_plan",
@@ -56,6 +57,7 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "refinement_agenda",
     "gap_framing_recompose",
     "selection_framing_apply",
+    "air_script_seams",
     "transitions",
     "sound_design_plan",
     "sound_design_vo_finalize",
@@ -69,6 +71,7 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "mix",
     "junction_snip_qa",
     "master_finalize",
+    "master_transcript_build",
     "episode_meta_build",
     "episode_cover_prompt_craft",
     "podcast_encode_mp3",

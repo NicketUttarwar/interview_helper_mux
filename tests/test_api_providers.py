@@ -16,6 +16,7 @@ def test_stage_api_providers_transcribe_uses_local() -> None:
     assert "local" in stage_api_providers("transcribe")
     assert "openai" in stage_api_providers("speaker_roles")
     assert stage_api_providers("mmaudio_sfx") == ()
+    assert stage_api_providers("master_transcript_build") == ()
 
 
 def test_missing_consents() -> None:

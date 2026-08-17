@@ -78,6 +78,7 @@ _PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
             ],
         },
     ],
+    "mmaudio_sfx": [{"path": "assets", "rule": "min_rows", "min_count": 0}],
 }
 
 _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
@@ -98,6 +99,8 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     # nuggets), so the rule is presence of the collection, not a row floor.
     "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 0}],
     "nugget_layup_compose": [{"path": "layups", "rule": "min_rows", "min_count": 0}],
+    "air_script_compose": [{"path": "air_script.beats", "rule": "min_rows", "min_count": 0}],
+    "air_script_seams": [{"path": "air_script.beats", "rule": "min_rows", "min_count": 0}],
     "episode_meta_build": [{"path": "title", "rule": "non_empty_string", "min_length": 1}],
     "episode_cover_prompt_craft": [
         {"path": "prompt", "rule": "non_empty_string", "min_length": 1}
@@ -125,6 +128,9 @@ _CONSUMER_OVERRIDES = {
     "episode_cover_prompt_craft": ["episode_cover_generate"],
     "nugget_corpus_mine": ["nugget_layup_compose"],
     "nugget_layup_compose": ["gap_framing_recompose", "edl", "g1_vo_pickup"],
+    "air_script_compose": ["air_script_seams", "edl"],
+    "air_script_seams": ["transitions", "music_palette_compose", "edl"],
+    "mmaudio_sfx": ["mix"],
 }
 
 # Extra declared inputs for stages whose reads are not derivable from
@@ -146,6 +152,24 @@ _EXTRA_INPUTS: dict[str, dict[str, list[dict]]] = {
         "soft": [
             {"path": "segments/manifest.json", "producer": "segment_classification"},
             {"path": "understanding/talking_points.json", "producer": "talking_points_compose"},
+        ],
+    },
+    "mmaudio_sfx": {
+        "hard": [
+            {"path": "understanding/sound_design_plan.json", "producer": "sound_design_plan"},
+            {"path": "sound_design/sfx_prompts.json", "producer": "sfx_prompt_craft"},
+        ],
+        "soft": [],
+    },
+    "air_script_compose": {
+        "hard": [{"path": "master/selection.json", "producer": "full_master_ranking"}],
+        "soft": [{"path": "mastering/mastering_plan.json", "producer": "mastering_plan_synthesize"}],
+    },
+    "air_script_seams": {
+        "hard": [{"path": "mastering/mastering_plan.json", "producer": "air_script_compose"}],
+        "soft": [
+            {"path": "understanding/nugget_layup_plan.json", "producer": "nugget_layup_compose"},
+            {"path": "understanding/gap_report.json", "producer": "nugget_layup_compose"},
         ],
     },
 }

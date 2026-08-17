@@ -10,7 +10,7 @@ Hub for **interview_helper_mux v2** — one messy interview → structured `mast
 - [workflows/troubleshooting.md](./workflows/troubleshooting.md)
 - [workflows/smoke-test.md](./workflows/smoke-test.md)
 - [cross-cutting/assets-and-executions.md](./cross-cutting/assets-and-executions.md)
-- [v2/port-manifest.csv](./v2/port-manifest.csv) — 57-stage inventory + gates (incl. Mastering research/Shape, Refinement Pass, G-Publish)
+- [v2/port-manifest.csv](./v2/port-manifest.csv) — 65-stage inventory + gates (incl. Mastering research/Shape, air-script, Refinement Pass, G-Publish)
 
 ## Core specs
 
@@ -22,6 +22,7 @@ Hub for **interview_helper_mux v2** — one messy interview → structured `mast
 ## Cross-cutting
 
 - [cross-cutting/mastering-process.md](./cross-cutting/mastering-process.md) — **Unified Mastering Process** (research → Shape Engine → realization)
+- [cross-cutting/air-script.md](./cross-cutting/air-script.md) — Shape realization paper-edit on `mastering_plan` (beats, omits, sonic scenes)
 - [cross-cutting/mastering-research-fields.md](./cross-cutting/mastering-research-fields.md) — 38 research fields + user-flow matrix
 - [cross-cutting/mastering-shape-engine.md](./cross-cutting/mastering-shape-engine.md) — L0–L5, prompt edit, excellence filter
 - [cross-cutting/mastering-construction-decisions.md](./cross-cutting/mastering-construction-decisions.md) — cold open + all construction decisions

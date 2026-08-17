@@ -144,6 +144,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             fromlist=["run_connector_fuse_pass_pre_ranking"],
         ).run_connector_fuse_pass_pre_ranking(ctx),
         "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
+        "air_script_compose": lambda: __import__(
+            "interview_mux.air_script", fromlist=["run_air_script_compose"]
+        ).run_air_script_compose(ctx),
         "nugget_corpus_mine": lambda: analysis_extended.run_nugget_corpus_mine(ctx),
         "information_package_plan": lambda: __import__(
             "interview_mux.information_packages", fromlist=["run_information_package_plan"]
@@ -154,6 +157,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "refinement_agenda": lambda: run_refinement_agenda(ctx, phase="confirm"),
         "gap_framing_recompose": lambda: run_gap_framing_recompose(ctx),
         "selection_framing_apply": lambda: run_selection_framing_apply(ctx),
+        "air_script_seams": lambda: __import__(
+            "interview_mux.air_script", fromlist=["run_air_script_seams"]
+        ).run_air_script_seams(ctx),
         "ranking_refine": lambda: run_ranking_refine(ctx),
         "narrative_arc_refine": lambda: run_narrative_arc_refine(ctx),
         "transitions": lambda: selection.run_transitions(ctx),
@@ -179,6 +185,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             "interview_mux.junction_snip_qa", fromlist=["run_junction_snip_qa"]
         ).run_junction_snip_qa(ctx),
         "master_finalize": lambda: mastering.run_master_finalize(ctx),
+        "master_transcript_build": lambda: __import__(
+            "interview_mux.asset_transcripts", fromlist=["run_master_transcript_build"]
+        ).run_master_transcript_build(ctx),
         "episode_meta_build": lambda: podcast_publish.run_episode_meta_build(ctx),
         "episode_cover_prompt_craft": lambda: podcast_publish.run_episode_cover_prompt_craft(ctx),
         "podcast_encode_mp3": lambda: podcast_publish.run_podcast_encode_mp3(ctx),

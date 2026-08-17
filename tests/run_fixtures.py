@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
+import struct
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,28 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 MINIMAL_WAV_BYTES = b"RIFF" + b"\x00" * 64
+
+
+def write_fixture_vo_wav(path: Path, *, duration_sec: float = 0.6) -> None:
+    """Write a short speech-like WAV G1 can resolve (committed tree, not staging)."""
+    rate = 16000
+    n = max(1, int(rate * duration_sec))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        samples: list[int] = []
+        for i in range(n):
+            t = i / rate
+            env = 0.4 + 0.4 * abs(math.sin(2 * math.pi * 5 * t))
+            voiced = (
+                0.55 * math.sin(2 * math.pi * 180 * t)
+                + 0.3 * math.sin(2 * math.pi * 850 * t)
+                + 0.15 * math.sin(2 * math.pi * 2200 * t)
+            )
+            samples.append(int(max(-32767, min(32767, 11000 * env * voiced))))
+        wf.writeframes(struct.pack(f"<{n}h", *samples))
 
 # Stable hash pair for reuse tests (same source audio fingerprint).
 TEST_SOURCE_AUDIO_HASH = "a" * 64
@@ -731,9 +756,8 @@ def seed_analysis_complete(ctx: RunContext) -> None:
             ]
         },
     )
-    pickup = ctx.path("vo_pickup")
-    pickup.mkdir(parents=True, exist_ok=True)
-    (pickup / "line_001.wav").write_bytes(b"RIFF")
+    pickup = ctx.final_path("vo_pickup")
+    write_fixture_vo_wav(pickup / "line_001.wav")
     ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []})
     meta = ctx.read_json("run_meta.json")
     meta["handoff_ack"] = {

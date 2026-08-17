@@ -20,10 +20,10 @@ from interview_mux.stage_resilience import (
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 
 
-def test_registry_covers_all_62_stages():
+def test_registry_covers_all_65_stages():
     ids = all_pipeline_stage_ids()
-    assert len(ids) == 62
-    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 62
+    assert len(ids) == 65
+    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 65
     cov = registry_coverage()
     assert cov["ok"] is True
     assert cov["missing_family"] == []

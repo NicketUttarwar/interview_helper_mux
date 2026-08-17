@@ -1,9 +1,10 @@
 """Chronological seam adjudication + fuse-into-one-segment rewrite (multi-call).
 
 Deterministic code enumerates **every** adjacent pair in manifest order and applies
-verdicts; the economy LLM owns the fuse judgment (``fuse`` vs ``stay_independent``).
-When the LLM is unavailable the per-pair deterministic fallback decides from
-cut-integrity predicates so no pair is ever left without a recorded verdict.
+verdicts. Fuse repairs unfinished thoughts only (hanging setup, mid-clause open,
+island-straddle). Same-speaker complete ideas stay independent. When the LLM is
+unavailable the per-pair deterministic fallback uses the same incomplete-thought
+predicates so no pair is ever left without a recorded verdict.
 
 The pass is idempotent and safe to re-run after boundary edits, vernacular sanitize,
 ranking heals, or junction-driven invalidation.
@@ -17,7 +18,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.config import merged_config
-from interview_mux.gap_vo_prior_context import clause_continues_after, ends_hanging_setup
+from interview_mux.gap_vo_prior_context import (
+    clause_continues_after,
+    ends_complete_thought,
+    ends_hanging_setup,
+    last_spoken_sentence,
+    opens_with_clause_continuer,
+)
 from interview_mux.run_context import RunContext
 
 SEAM_PACKETS_PATH = "analysis/connector_seam_packets.json"
@@ -30,22 +37,23 @@ SEAM_PROMPT_REL = "segmentation/connector-seam-adjudicate.system.txt"
 
 _FALLBACK_SYSTEM_PROMPT = """You adjudicate segment seams for a podcast editor.
 
-For each pair you receive the last words of the earlier segment and the first words
-of the later segment, joined by " | " at the cut point. Read across the cut as if
-listening.
+For each pair you receive the earlier close, the last/first words joined by " | "
+at the cut, and deterministic_hints. Read across the cut as if listening.
 
-- Answer "fuse" when the later words continue the earlier clause, setup, topic, or
-  mid-flow sentence — including when low-confidence or non-English-looking tokens sit
-  on the seam.
-- Answer "stay_independent" when the earlier words land on a listen-complete idea and
-  the later words start a new question, topic, or speaker move.
-- Prefer "fuse" when unsure AND deterministic_hints show hanging_setup_end,
-  clause_continues_after, or island_straddle.
+- Answer "fuse" ONLY when the earlier close is an unfinished sentence or hanging
+  setup, or the later words open mid-clause (and/but/because/which/...), or a
+  low-confidence island straddles the cut.
+- Answer "stay_independent" when the earlier close already lands a complete idea
+  — even if the same speaker keeps talking about the same topic. Same-speaker
+  mid-flow is not a fuse reason.
+- Prefer "stay_independent" when unsure. Prefer "fuse" only when
+  deterministic_hints show hanging_setup_end, later_opens_continuer (and the
+  earlier idea is not complete), or island_straddle.
 - Never invent missing words. Judge only from the provided seam text and hints.
 
 Return JSON only:
 {"status":"complete","artifacts":{"verdicts":[{"pair_id":"...","decision":"fuse|stay_independent",
-"fuse_direction":"into_earlier|into_later|null","reason_code":"mid_sentence_continue|mid_topic_continue|mid_flow|clean_turn|topic_shift|speaker_change|other",
+"fuse_direction":"into_earlier|into_later|null","reason_code":"mid_sentence_continue|island_straddle|clean_turn|topic_shift|speaker_change|complete_thought_stay|other",
 "rationale":"one short sentence","confidence":0.0}]}}
 """
 
@@ -59,12 +67,20 @@ _DEFAULTS: dict[str, Any] = {
     "llm_batch_size": 16,
     "llm_tier": "economy",
     "prefer_fuse_when_hint_and_uncertain": True,
+    "prefer_stay_when_uncertain": True,
+    "incomplete_thought_only": True,
     "deterministic_fallback_on_llm_fail": True,
     "passes": ["post_sanitize", "pre_ranking", "junction_heal"],
     "excerpt_max_chars": 180,
+    "close_excerpt_max_chars": 480,
     # Safety caps — large chronological gaps stay independent unless island-straddle.
     "max_seam_gap_ms": 8000,
     "same_topic_score_floor": 0.15,
+    # Soft caps for non-incomplete editorial fuses (same-speaker run collapse).
+    "max_fused_duration_ms": 25000,
+    "max_fused_members": 3,
+    "allow_high_value_bridge": False,
+    "uncertain_confidence_floor": 0.55,
 }
 
 
@@ -78,6 +94,68 @@ def connector_fuse_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(connector_fuse_cfg(cfg).get("enabled", True))
+
+
+def incomplete_thought_hints(hints: dict[str, Any] | None) -> bool:
+    """True when the seam is a broken sentence, not a finished same-speaker beat."""
+    if not isinstance(hints, dict):
+        return False
+    if hints.get("hanging_setup_end") or hints.get("island_straddle"):
+        return True
+    return bool(
+        hints.get("later_opens_continuer") and not hints.get("earlier_lands_complete_idea")
+    )
+
+
+def coerce_one_neighbor_fuse_side(
+    fuse_side: str,
+    *,
+    prev_id: str | None,
+    next_id: str | None,
+    by_id: dict[str, Any],
+    allow_bridge: bool = False,
+) -> str:
+    """Map bridge / invalid sides onto a single neighbor (left or right)."""
+    side = str(fuse_side or "").strip().casefold()
+    if allow_bridge and side == "bridge" and prev_id and next_id:
+        return "bridge"
+    if side == "left" and prev_id:
+        return "left"
+    if side == "right" and next_id:
+        return "right"
+
+    neighbors = [n for n in (prev_id, next_id) if n and n in by_id]
+    if not neighbors:
+        return "left"
+    richer = max(neighbors, key=lambda sid: _segment_richness(by_id[sid]))
+    if (
+        prev_id
+        and next_id
+        and prev_id in by_id
+        and next_id in by_id
+        and abs(_segment_richness(by_id[prev_id]) - _segment_richness(by_id[next_id])) < 1e-6
+    ):
+        richer = prev_id
+    if richer == next_id:
+        return "right"
+    return "left"
+
+
+def _editorial_fuse_allowed(
+    verdict: dict[str, Any],
+    *,
+    conf: dict[str, Any],
+) -> tuple[bool, str]:
+    """Whether a fuse verdict may rewrite segments (incomplete / forced only)."""
+    forced = str(verdict.get("forced_by") or "")
+    if forced in {"island_straddle", "high_value_speech_island"}:
+        return True, ""
+    hints = verdict.get("deterministic_hints") or {}
+    if incomplete_thought_hints(hints):
+        return True, ""
+    if not conf.get("incomplete_thought_only", True):
+        return True, ""
+    return False, "complete_thought_stay"
 
 
 def _ms(row: dict[str, Any], key: str) -> int:
@@ -208,6 +286,7 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
     tail_n = int(conf.get("tail_words") or 16)
     head_n = int(conf.get("head_words") or 16)
     excerpt_max = int(conf.get("excerpt_max_chars") or 180)
+    close_max = int(conf.get("close_excerpt_max_chars") or 480)
 
     segments = _load_segments(ctx)
     words = _load_words(ctx)
@@ -242,14 +321,40 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
 
         hanging = ends_hanging_setup(tail_text)
         continues = bool(words) and clause_continues_after(words, a_end)
+        later_continuer = opens_with_clause_continuer(head_text) or opens_with_clause_continuer(
+            str(later.get("text") or "")
+        )
         straddle, loose_on_seam = _island_hints(
             islands, earlier_end_ms=a_end, later_start_ms=b_start
         )
         same_speaker = _speaker_of(earlier) == _speaker_of(later)
         gap_ms = max(0, b_start - a_end)
+        earlier_full = str(earlier.get("text") or "")
+        earlier_close = last_spoken_sentence(earlier_full) or earlier_full[-close_max:]
+        if len(earlier_close) < min(80, close_max) and earlier_full:
+            earlier_close = earlier_full[-close_max:]
+        lands_complete = bool(
+            ends_complete_thought(earlier_full or tail_text, next_pause_ms=gap_ms)
+            and not hanging
+        )
         topic_score = _topic_overlap_score(earlier, later)
         pair_id = f"{a_id}__{b_id}"
-        hint_fired = hanging or continues or straddle
+        hints = {
+            "hanging_setup_end": bool(hanging),
+            "clause_continues_after": bool(continues),
+            "later_opens_continuer": bool(later_continuer),
+            "earlier_lands_complete_idea": lands_complete,
+            "island_straddle": bool(straddle),
+            "loose_cluster_on_seam": bool(loose_on_seam),
+            "gap_over_cap": bool(
+                gap_ms > int(conf.get("max_seam_gap_ms") or 8000) and not straddle
+            ),
+            "same_topic_below_floor": bool(
+                topic_score < float(conf.get("same_topic_score_floor") or 0.15)
+                and topic_score > 0
+            ),
+        }
+        hint_fired = incomplete_thought_hints(hints)
         packets.append(
             {
                 "pair_id": pair_id,
@@ -258,7 +363,8 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
                 "earlier_tail_words": [_word_row(w) for w in a_words],
                 "later_head_words": [_word_row(w) for w in b_words],
                 "combined_seam_text": combined,
-                "earlier_end_excerpt": str(earlier.get("text") or "")[-excerpt_max:],
+                "earlier_end_excerpt": earlier_full[-excerpt_max:],
+                "earlier_close_text": earlier_close[-close_max:],
                 "later_start_excerpt": str(later.get("text") or "")[:excerpt_max],
                 "earlier_start_ms": a_start,
                 "earlier_end_ms": a_end,
@@ -269,19 +375,7 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
                 "topic_overlap_score": topic_score,
                 "earlier_speaker_id": _speaker_of(earlier),
                 "later_speaker_id": _speaker_of(later),
-                "deterministic_hints": {
-                    "hanging_setup_end": bool(hanging),
-                    "clause_continues_after": bool(continues),
-                    "island_straddle": bool(straddle),
-                    "loose_cluster_on_seam": bool(loose_on_seam),
-                    "gap_over_cap": bool(
-                        gap_ms > int(conf.get("max_seam_gap_ms") or 8000) and not straddle
-                    ),
-                    "same_topic_below_floor": bool(
-                        topic_score < float(conf.get("same_topic_score_floor") or 0.15)
-                        and topic_score > 0
-                    ),
-                },
+                "deterministic_hints": hints,
                 "priority": "high" if hint_fired else "normal",
                 "seam_hash": _seam_hash(pair_id, combined),
             }
@@ -301,23 +395,18 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
 
 
 def deterministic_fallback_verdict(packet: dict[str, Any]) -> dict[str, Any]:
-    """Per-pair verdict when the LLM cannot answer: hints decide, recall-first."""
+    """Per-pair verdict when the LLM cannot answer: incomplete-thought only."""
     hints = packet.get("deterministic_hints") or {}
-    hanging = bool(hints.get("hanging_setup_end"))
-    continues = bool(hints.get("clause_continues_after"))
-    straddle = bool(hints.get("island_straddle"))
-    if hanging or continues or straddle:
-        reason = (
-            "mid_sentence_continue"
-            if continues or hanging
-            else "mid_topic_continue"
-        )
+    if incomplete_thought_hints(hints):
+        hanging = bool(hints.get("hanging_setup_end"))
+        straddle = bool(hints.get("island_straddle"))
+        reason = "island_straddle" if straddle and not hanging else "mid_sentence_continue"
         rationale = "Deterministic fallback: " + ", ".join(
             [
                 label
                 for label, fired in (
                     ("hanging setup", hanging),
-                    ("clause continues", continues),
+                    ("later opens continuer", bool(hints.get("later_opens_continuer"))),
                     ("island straddles the cut", straddle),
                 )
                 if fired
@@ -336,7 +425,9 @@ def deterministic_fallback_verdict(packet: dict[str, Any]) -> dict[str, Any]:
         "pair_id": packet.get("pair_id"),
         "decision": "stay_independent",
         "fuse_direction": None,
-        "reason_code": "clean_turn",
+        "reason_code": "complete_thought_stay"
+        if hints.get("earlier_lands_complete_idea")
+        else "clean_turn",
         "rationale": "Deterministic fallback: earlier segment lands on a complete idea.",
         "confidence": 0.5,
         "adjudication_fallback": "deterministic",
@@ -371,6 +462,7 @@ def _slim_packet_for_llm(packet: dict[str, Any]) -> dict[str, Any]:
     return {
         "pair_id": packet.get("pair_id"),
         "combined_seam_text": packet.get("combined_seam_text"),
+        "earlier_close_text": packet.get("earlier_close_text"),
         "earlier_end_excerpt": packet.get("earlier_end_excerpt"),
         "later_start_excerpt": packet.get("later_start_excerpt"),
         "source_gap_ms": packet.get("source_gap_ms"),
@@ -403,13 +495,16 @@ def _llm_adjudicate_batch(
     payload = {
         "task": (
             "Decide fuse vs stay_independent for each chronological seam. "
-            "Return one verdict per pair_id."
+            "Fuse only unfinished thoughts. Return one verdict per pair_id."
         ),
         "policy": {
+            "incomplete_thought_only": bool(conf.get("incomplete_thought_only", True)),
+            "prefer_stay_when_uncertain": bool(conf.get("prefer_stay_when_uncertain", True)),
             "prefer_fuse_when_hint_and_uncertain": bool(
                 conf.get("prefer_fuse_when_hint_and_uncertain", True)
             ),
             "never_invent_words": True,
+            "same_speaker_complete_stay": True,
         },
         "pairs": [_slim_packet_for_llm(p) for p in batch],
     }
@@ -578,10 +673,31 @@ def adjudicate_seams(
     size = int(batch_size or conf.get("llm_batch_size") or 16)
     verdicts = adjudicate_seams_llm(ctx, packets, batch_size=size, cfg=conf)
     by_pair = {str(p.get("pair_id")): p for p in packets if isinstance(p, dict)}
+    uncertain_floor = float(conf.get("uncertain_confidence_floor") or 0.55)
     for verdict in verdicts:
         packet = by_pair.get(str(verdict.get("pair_id"))) or {}
         hints = packet.get("deterministic_hints") or verdict.get("deterministic_hints") or {}
         verdict["deterministic_hints"] = hints
+        # Same-speaker complete ideas stay independent. Island-straddle still wins below.
+        if str(verdict.get("decision")) == "fuse":
+            allowed, refuse_reason = _editorial_fuse_allowed(verdict, conf=conf)
+            low_conf = False
+            try:
+                low_conf = float(verdict.get("confidence") or 0.0) < uncertain_floor
+            except (TypeError, ValueError):
+                low_conf = False
+            if not allowed or (
+                conf.get("prefer_stay_when_uncertain", True)
+                and low_conf
+                and not incomplete_thought_hints(hints)
+            ):
+                verdict["decision"] = "stay_independent"
+                verdict["fuse_direction"] = None
+                verdict["reason_code"] = refuse_reason or "complete_thought_stay"
+                verdict["rationale"] = (
+                    "Complete idea already landed — same-speaker continuation stays independent."
+                )
+                verdict["forced_by"] = "complete_thought_guard"
         # Fail-catch: non-noise islands that straddle the cut force fuse even if the
         # LLM preferred stay_independent (recall-first at lexicon seams).
         if (
@@ -699,26 +815,40 @@ def apply_connector_fuses(
         if (
             topic_score > 0
             and topic_score < topic_floor
-            and not hints.get("island_straddle")
-            and not hints.get("hanging_setup_end")
-            and not hints.get("clause_continues_after")
+            and not incomplete_thought_hints(hints)
             and not force_bypass
         ):
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "same_topic_floor"})
             continue
+        allowed, refuse_reason = _editorial_fuse_allowed(verdict, conf=conf)
+        if not allowed:
+            skipped.append({"pair_id": verdict.get("pair_id"), "reason": refuse_reason})
+            continue
 
         start_ms = min(_ms(target, "start_ms"), _ms(later, "start_ms"))
         end_ms = max(_ms(target, "end_ms"), _ms(later, "end_ms"))
+        fused_from = list(dict.fromkeys([*(target.get("fused_from") or [target_id]), b_id]))
+        new_dur = max(0, end_ms - start_ms)
+        max_dur = int(conf.get("max_fused_duration_ms") or 0)
+        max_members = int(conf.get("max_fused_members") or 0)
+        # Incomplete / forced repairs may grow; editorial mid-flow glue may not.
+        if not force_bypass and not incomplete_thought_hints(hints):
+            if max_dur > 0 and new_dur > max_dur:
+                skipped.append({"pair_id": verdict.get("pair_id"), "reason": "fused_duration_cap"})
+                continue
+            if max_members > 0 and len(fused_from) > max_members:
+                skipped.append({"pair_id": verdict.get("pair_id"), "reason": "fused_member_cap"})
+                continue
+
         joined_text = " ".join(
             t for t in (str(target.get("text") or ""), str(later.get("text") or "")) if t
         )
-        fused_from = list(dict.fromkeys([*(target.get("fused_from") or [target_id]), b_id]))
         target["start_ms"] = start_ms
         target["end_ms"] = end_ms
-        target["duration_ms"] = max(0, end_ms - start_ms)
+        target["duration_ms"] = new_dur
         target["text"] = _rebuild_text(words, start_ms, end_ms, fallback=joined_text)
         target["fused_from"] = fused_from
-        target["fuse_reason"] = str(verdict.get("reason_code") or "mid_flow")
+        target["fuse_reason"] = str(verdict.get("reason_code") or "mid_sentence_continue")
         target["fuse_pass_id"] = pass_id or None
         topics = [
             *(target.get("topic_tags") or []),
@@ -1019,6 +1149,16 @@ def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = 
             changed += 1
     if changed:
         ctx.write_json("segments/manifest.json", manifest, stage_key="connector_fuse_pass")
+        try:
+            from interview_mux.asset_transcripts import sync_speech_sidecars
+
+            sync_speech_sidecars(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"speech sidecar sync after air-bound trim skipped: {exc}",
+                level="warning",
+                stage="connector_fuse_pass",
+            )
         _write_boundaries(
             ctx,
             [s for s in (manifest.get("segments") or []) if isinstance(s, dict)],
@@ -1033,6 +1173,16 @@ def _write_manifest(ctx: RunContext, segments: list[dict[str, Any]]) -> None:
     out = dict(manifest) if isinstance(manifest, dict) else {}
     out["segments"] = segments
     ctx.write_json("segments/manifest.json", out, stage_key="connector_fuse_pass")
+    try:
+        from interview_mux.asset_transcripts import sync_speech_sidecars
+
+        sync_speech_sidecars(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"speech sidecar sync after fuse skipped: {exc}",
+            level="warning",
+            stage="connector_fuse_pass",
+        )
 
 
 def _write_boundaries(
@@ -1219,6 +1369,7 @@ def plan_cluster_fuses(
 ) -> dict[str, Any]:
     """Plan forced fuse verdicts for one cluster using structure + H-edge cuts."""
     conf = connector_fuse_cfg(cfg)
+    allow_bridge = bool(conf.get("allow_high_value_bridge", False))
     floor = float(
         topic_floor
         if topic_floor is not None
@@ -1295,46 +1446,47 @@ def plan_cluster_fuses(
         iid = str(island.get("island_id") or "")
         assign = assign_by.get(iid) or {}
         fuse_side = str(assign.get("fuse_side") or "").casefold()
-        if fuse_side not in {"left", "right", "bridge"}:
+        touched = [
+            sid
+            for sid in (island.get("segment_ids_touched") or [])
+            if sid in by_id
+        ]
+        if not touched:
             touched = [
                 sid
-                for sid in (island.get("segment_ids_touched") or [])
-                if sid in by_id
+                for sid, seg in by_id.items()
+                if not (_ms(seg, "end_ms") <= i0 or _ms(seg, "start_ms") >= i1)
             ]
-            if not touched:
-                touched = [
-                    sid
-                    for sid, seg in by_id.items()
-                    if not (_ms(seg, "end_ms") <= i0 or _ms(seg, "start_ms") >= i1)
-                ]
-                touched.sort(key=lambda sid: index_of.get(sid, 1 << 30))
-            if not touched:
-                continue
-            first_i = min(index_of[s] for s in touched if s in index_of)
-            last_i = max(index_of[s] for s in touched if s in index_of)
-            prev_id = order[first_i - 1] if first_i > 0 else None
-            next_id = order[last_i + 1] if last_i + 1 < len(order) else None
-            neighbors = [n for n in (prev_id, next_id) if n]
-            richer = None
-            if neighbors:
-                richer = max(neighbors, key=lambda sid: _segment_richness(by_id[sid]))
-                if (
-                    prev_id
-                    and next_id
-                    and abs(
-                        _segment_richness(by_id[prev_id]) - _segment_richness(by_id[next_id])
-                    )
-                    < 1e-6
-                ):
-                    richer = prev_id
-            fuse_side = "left" if richer == prev_id else ("right" if richer == next_id else "left")
+            touched.sort(key=lambda sid: index_of.get(sid, 1 << 30))
+        if not touched:
+            continue
+        first_i = min(index_of[s] for s in touched if s in index_of)
+        last_i = max(index_of[s] for s in touched if s in index_of)
+        prev_id = order[first_i - 1] if first_i > 0 else None
+        next_id = order[last_i + 1] if last_i + 1 < len(order) else None
+        if fuse_side not in {"left", "right", "bridge"}:
+            fuse_side = coerce_one_neighbor_fuse_side(
+                "",
+                prev_id=prev_id,
+                next_id=next_id,
+                by_id=by_id,
+                allow_bridge=False,
+            )
             if (
-                topic_unity == "same_conversation"
+                allow_bridge
+                and topic_unity == "same_conversation"
                 and prev_id
                 and next_id
                 and _topic_overlap_score(by_id[prev_id], by_id[next_id]) >= floor
             ):
                 fuse_side = "bridge"
+        fuse_side = coerce_one_neighbor_fuse_side(
+            fuse_side,
+            prev_id=prev_id,
+            next_id=next_id,
+            by_id=by_id,
+            allow_bridge=allow_bridge,
+        )
 
         if high_conf_flank_cuts is not None:
             cuts = high_conf_flank_cuts(

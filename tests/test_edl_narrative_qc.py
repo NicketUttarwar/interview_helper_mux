@@ -288,3 +288,57 @@ def test_validate_clone_voice_adjacency_allows_only_cut_recovery() -> None:
     )
     assert not any("cloned voice" in error for error in validate_flow1_edl_narrative(ctx, edl))
 
+
+def test_validate_framing_ignores_air_script_omitted_layup() -> None:
+    """QC must not require layup VO that air-script seated as native_handoff."""
+    ctx = RunContext("run_edl_air_script_omit_framing", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "understanding/gap_framing_plan.json",
+        {
+            "succinct_master_intent": True,
+            "acts": [
+                {
+                    "act_id": "act_1",
+                    "impact_blocks": [
+                        {
+                            "framing_line_ids": ["line_001"],
+                            "source_segment_ids": ["seg_b"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    from interview_mux.mastering_plan_loader import forced_sparse_plan, write_plan
+
+    plan = forced_sparse_plan(reason="air_script_omit_qc")
+    plan["air_script"] = {
+        "version": 1,
+        "pass": "pass_b",
+        "beats": [
+            {
+                "id": "b1",
+                "segment_id": "seg_a",
+                "montage_move": "vo_then_clip",
+                "line_id": "vo_preface_episode_orientation",
+                "is_orientation": True,
+            },
+            {"id": "b2", "segment_id": "seg_b", "montage_move": "native_handoff"},
+            {"id": "b3", "segment_id": "seg_c", "montage_move": "native_handoff"},
+        ],
+        "omits": [],
+        "energy_curve": [],
+        "cold_open": {"kind": "none"},
+        "vo_seats": {
+            "seated_line_ids": ["vo_preface_episode_orientation"],
+            "omitted_line_ids": ["line_001"],
+            "orientation_id": "vo_preface_episode_orientation",
+        },
+    }
+    write_plan(ctx, plan)
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("preceding framing VO" in e for e in errors)
+

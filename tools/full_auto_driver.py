@@ -160,12 +160,14 @@ DELIVERY_ORDER = (
     "narrative_arc_plan",
     "connector_fuse_pass_pre_ranking",
     "full_master_ranking",
+    "air_script_compose",
     "nugget_corpus_mine",
     "information_package_plan",
     "nugget_layup_compose",
     "refinement_agenda",
     "gap_framing_recompose",
     "selection_framing_apply",
+    "air_script_seams",
     "transitions",
     "sound_design_plan",
     "sound_design_vo_finalize",
@@ -179,6 +181,7 @@ DELIVERY_ORDER = (
     "mix",
     "junction_snip_qa",
     "master_finalize",
+    "master_transcript_build",
     "episode_meta_build",
     "episode_cover_prompt_craft",
     "podcast_encode_mp3",
@@ -243,6 +246,7 @@ _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
 _VO_REPAIR_FAILURES: dict[str, int] = {}
 _IDENTICAL_STAGE_FAILURES: dict[str, int] = {}
+_EDL_NARRATIVE_HEAL_SIGS: dict[str, int] = {}
 POLL_SEC = int(os.environ.get("MUX_POLL_SEC", "20"))
 MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
 
@@ -1042,6 +1046,21 @@ def repeated_vo_repair_failure(error: str) -> bool:
     key = "orientation" if "orientation" in low or "vo_preface" in low else "layup"
     _VO_REPAIR_FAILURES[key] = _VO_REPAIR_FAILURES.get(key, 0) + 1
     return _VO_REPAIR_FAILURES[key] >= 3
+
+
+def _edl_qc_heal_signature(errs: list[str]) -> str:
+    return "|".join(
+        str(e).split(". Re-run")[0].strip() for e in (errs or [])[:12]
+    )
+
+
+def _trip_edl_narrative_heal_loop(errs: list[str]) -> bool:
+    """Stop rebuild+synth when the same EDL QC issues repeat without progress."""
+    sig = _edl_qc_heal_signature(errs)
+    if not sig:
+        return False
+    _EDL_NARRATIVE_HEAL_SIGS[sig] = _EDL_NARRATIVE_HEAL_SIGS.get(sig, 0) + 1
+    return _EDL_NARRATIVE_HEAL_SIGS[sig] >= 3
 
 
 def write_vo_repair_decision_brief(error: str) -> dict[str, Any] | None:
@@ -2676,25 +2695,102 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             errs = validate_flow1_edl_narrative(ctx, edl)
             log(f"post-edl narrative heal: {errs[:3] or 'pass'}")
             if any("lacks preceding framing VO" in str(e) for e in errs):
-                # Stale gap_framing_plan after recompose/kill_dull — rebuild from
-                # current interviewer_lines, then synthesize missing VO wavs.
+                # Air-script omits unused layups (native Q→A / opening adjacency).
+                # Rebuilding the plan from those same lines and re-synthesizing
+                # cannot seat them on the EDL — stamp omits instead of looping.
                 try:
+                    from interview_mux.air_script import persist_air_script_omits_on_gap_report
+
+                    stamped = persist_air_script_omits_on_gap_report(ctx)
+                    if stamped:
+                        log(
+                            f"air-script omit: stamped {stamped} unused VO line(s) "
+                            "skipped_optional (keep orientation; drop unseated layups)"
+                        )
+                        log_decision(
+                            "minor",
+                            stage="edl",
+                            action="stamp_air_script_omits",
+                            reason="framing_vo_not_seated",
+                            detail=f"stamped={stamped}",
+                        )
+                        edl = build_flow1_edl(
+                            selection=ctx.read_json("master/selection.json"),
+                            segments_by_id=_segment_by_id(ctx),
+                            gap_report=(
+                                ctx.read_json("understanding/gap_report.json")
+                                if ctx.artifact_exists("understanding/gap_report.json")
+                                else None
+                            ),
+                            transitions=(
+                                ctx.read_json("master/transitions.json")
+                                if ctx.artifact_exists("master/transitions.json")
+                                else None
+                            ),
+                            resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
+                            vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
+                            resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
+                        )
+                        errs = validate_flow1_edl_narrative(ctx, edl)
+                        log(f"post-edl after air-script omit stamp: {errs[:3] or 'pass'}")
+                except Exception as exc:
+                    log(f"air-script omit stamp: {exc}")
+            if any("lacks preceding framing VO" in str(e) for e in errs):
+                if _trip_edl_narrative_heal_loop(errs):
+                    log_decision(
+                        "major",
+                        stage="edl",
+                        action="stop",
+                        reason="identical_edl_narrative_qc_x3",
+                        detail=_edl_qc_heal_signature(errs)[:240],
+                    )
+                    log(
+                        "STOP: edl_narrative_qc framing-VO heal repeated ≥3 times "
+                        "without progress — not a missing-wav problem; fix air-script "
+                        "seats vs QC, do not rebuild+synth"
+                    )
+                    raise SystemExit(
+                        "HARD: edl_narrative_qc heal looping on identical framing VO errors"
+                    )
+                # Remaining missing VO is actually seated by air-script — synth
+                # only seated_line_ids that lack wavs. Never rebuild from omitted layups.
+                try:
+                    from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
                     from interview_mux.gap_framing import (
                         build_gap_framing_plan,
                         persist_gap_framing_companion_artifacts,
                     )
+                    from interview_mux.mastering_plan_loader import load_plan_raw
 
                     gr = (
                         ctx.read_json("understanding/gap_report.json")
                         if ctx.artifact_exists("understanding/gap_report.json")
                         else {}
                     )
-                    lines = list((gr or {}).get("interviewer_lines") or [])
+                    plan_doc = (
+                        load_plan_raw(ctx)
+                        if ctx.artifact_exists("mastering/mastering_plan.json")
+                        else {}
+                    )
+                    seated = seated_vo_line_ids(plan_doc)
+                    omitted = omitted_vo_line_ids(plan_doc)
+                    lines = []
+                    for ln in list((gr or {}).get("interviewer_lines") or []):
+                        if not isinstance(ln, dict):
+                            continue
+                        if ln.get("skipped_optional") or ln.get("air_script_omit"):
+                            continue
+                        lid = str(ln.get("line_id") or "")
+                        if lid and lid in omitted:
+                            continue
+                        if seated and lid not in seated:
+                            continue
+                        lines.append(ln)
                     persist_gap_framing_companion_artifacts(ctx, {"interviewer_lines": lines})
                     plan = build_gap_framing_plan(ctx, lines)
                     ctx.write_json("understanding/gap_framing_plan.json", plan)
                     log(
-                        f"rebuilt gap_framing_plan from {len(lines)} lines "
+                        f"rebuilt gap_framing_plan from {len(lines)} seated live lines "
                         f"({sum(len(a.get('impact_blocks') or []) for a in (plan.get('acts') or []))} blocks)"
                     )
                 except Exception as exc:
@@ -6682,6 +6778,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 or "should not contain avoid/no vocals" in low_err
                 or "low keyword overlap with sonic_context" in low_err
                 or ("duration" in low_err and "sfx" in low_err)
+                or "craft vs plan" in low_err
+                or "duration mismatch" in low_err
             ) or (
                 "under 12 words" in low_err
                 or "outside mmaudio plan clamp" in low_err
@@ -6707,7 +6805,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                         errs = _lint_sfx_prompt_craft(repaired, ctx)
                         log(f"sfx_prompt lint heal: notes={notes[-6:]} errs={errs[:2] or 'pass'}")
-                        if not errs:
+                        dur_only = bool(errs) and all(
+                            "duration mismatch" in str(e).lower()
+                            or "craft vs plan" in str(e).lower()
+                            for e in errs
+                        )
+                        if not errs or dur_only:
                             ctx.mark_done("sfx_prompt_craft", force=True)
                             approve_sfx_prompts()
                             execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
@@ -7541,7 +7644,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx = RunContext(RUN_ID, create=False)
                     root = _P(ctx.run_dir)
                     # Re-export with current two-pass loudnorm — do not soft-loop publish.
-                    for sid in ("master_finalize", "podcast_encode_mp3", "podcast_publish"):
+                    for sid in ("master_finalize", "master_transcript_build", "podcast_encode_mp3", "podcast_publish"):
                         done = root / ".stage_done" / sid
                         if done.is_file():
                             done.unlink()

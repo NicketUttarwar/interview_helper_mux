@@ -57,8 +57,8 @@ Single low bricks and quiet gaps are **rejected**. Passionate / other-language /
 **Never standalone keepers.** Flow-preserving **island clusters** then absorb them:
 
 1. `group_high_value_island_clusters` joins same-flow L islands (`H–L–H–L–H`); separates on long H break or (one H + topic/subtopic change). Hinge H gets `hinge_attach=left|right`.
-2. **simple** (one L): deterministic left/right/bridge via richer-neighbor.
-3. **multi** (2+ L): one economy call per cluster — `island_cluster_structure_adjudicate` (structure only; richest local packet).
+2. **simple** (one L): deterministic left/right via richer-neighbor. Never both sides.
+3. **multi** (2+ L): one economy call per cluster — `island_cluster_structure_adjudicate` (structure only; richest local packet). `fuse_side` is left or right only; `bridge` is coerced to one neighbor.
 4. Exact cuts from **high-confidence flanks**; forced fuses lock seams so the global seam LLM cannot undo them.
 5. Loop until no fuse-eligible clusters remain.
 
@@ -70,21 +70,22 @@ On **`connector_fuse_pass_pre_ranking`**, cluster separation also consults narra
 
 ## Seam LLM loop
 
-Deterministic code enumerates **every** chronological adjacent pair (`tail_words` + `head_words` → packet). The economy stage `connector_seam_adjudicate` decides `fuse` vs `stay_independent`. Locked seams from HV cluster cuts stay independent. Code applies fuses by rewriting `segments/manifest.json` + `segments/boundaries.json` into **one** complete-thought segment (`fused_from`).
+Deterministic code enumerates **every** chronological adjacent pair (`tail_words` + `head_words` + earlier close → packet). The economy stage `connector_seam_adjudicate` decides `fuse` vs `stay_independent`. Fuse is **incomplete-thought only**: hanging setup, later clause-continuer open, or island-straddle. Same-speaker complete ideas stay independent even on the same topic. Locked seams from HV cluster cuts stay independent. Code applies fuses by rewriting `segments/manifest.json` + `segments/boundaries.json` into **one** complete-thought segment (`fused_from`). Non-incomplete editorial fuses are also capped (`max_fused_duration_ms` / `max_fused_members`).
 
 ```text
-per-cluster HV fuse rounds (structure LLM for multi; H-edge cuts; lock seams)
+per-cluster HV fuse rounds (structure LLM for multi; one-neighbor H-edge cuts; lock seams)
 loop until applied == 0 (fixed point) or identical fuse signature (oscillation halt)
   packets = enumerate all adjacent pairs (skip / force-keep locked)
   verdicts = LLM (economy → standard → flagship; halve batch on context_length)
-  apply fuses (no count budget; editorial seam-safety still applies)
+  complete-thought guard: fuse → stay unless hanging / continuer-open / straddle
+  apply fuses (no episode count budget; duration/member caps on non-incomplete glue)
 re-run resolve_keeper_air_bounds on fused slabs
 junction_heal uses force_readjudicate=True
 ```
 
 Artifacts: `analysis/connector_seam_packets.json`, `analysis/connector_seam_verdicts.json`, `analysis/connector_fuse_audit.json`, `analysis/connector_fuse_rounds.json`.
 
-Cross-speaker fuse is off by default. Island-straddle and high-value force fuse even if the LLM preferred stay.
+Cross-speaker fuse is off by default. Island-straddle and high-value still force fuse even if the LLM preferred stay — high-value attaches to **one** neighbor, never a left+right bridge.
 
 ## Selection guarantee
 

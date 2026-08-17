@@ -16,7 +16,7 @@ def _line_requires_vo(line: dict) -> bool:
     delivery = str(line.get("delivery") or "").lower()
     if delivery not in {"record", "synthesize"}:
         return False
-    if line.get("skipped_optional"):
+    if line.get("skipped_optional") or line.get("air_script_omit"):
         return False
     severity = str(line.get("severity") or "blocking").lower()
     return severity in {"blocking", "high", "medium", "critical"}
@@ -323,11 +323,22 @@ def check_g1_vo(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     report = ctx.read_json("understanding/gap_report.json")
+    omitted: set[str] = set()
+    try:
+        from interview_mux.air_script import omitted_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        if ctx.artifact_exists("mastering/mastering_plan.json"):
+            omitted = omitted_vo_line_ids(load_plan_raw(ctx))
+    except Exception:
+        omitted = set()
     missing: list[str] = []
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or not _line_requires_vo(line):
             continue
-        lid = line.get("line_id", "")
+        lid = str(line.get("line_id") or "")
+        if lid and lid in omitted:
+            continue
         seg = line.get("targets_segment_id", "")
         from interview_mux.stages.assembly import resolve_vo_pickup_path
 
@@ -405,6 +416,7 @@ _DELIVERY_ORDER = (
     "mix",
     "junction_snip_qa",
     "master_finalize",
+    "master_transcript_build",
     "episode_meta_build",
     "episode_cover_prompt_craft",
     "podcast_encode_mp3",

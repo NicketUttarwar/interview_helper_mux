@@ -410,6 +410,18 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
+def _check_master_transcript_build(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    for rel, hint in (
+        ("master/master.wav", "Run master_finalize first."),
+        ("master/edl.json", "EDL is required to remap sidecars onto the master timeline."),
+    ):
+        issue = _require_artifact(ctx, rel, remediation=hint)
+        if issue:
+            issues.append(issue)
+    return issues
+
+
 def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
@@ -646,6 +658,7 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "mix": _check_mix,
     "junction_snip_qa": _check_junction_snip_qa,
     "master_finalize": _check_master_finalize,
+    "master_transcript_build": _check_master_transcript_build,
     "mmaudio_sfx": _check_mmaudio_sfx,
     "edl": _check_edl,
 }

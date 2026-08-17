@@ -1723,7 +1723,7 @@ def create_app() -> FastAPI:
         job = runner.start(
             run_id,
             mode="stage",
-            from_stage="episode_meta_build",
+            from_stage="master_transcript_build",
             until_stage="podcast_publish",
         )
         return {"ok": True, "cleared": True, "started": True, "prepare_only": True, "job": job}

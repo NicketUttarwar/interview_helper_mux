@@ -264,13 +264,15 @@ def run_sound_design_plan(ctx: RunContext) -> None:
             )
         unders = by_kind.get("underscore_loop")
         if unders and unders.get("asset_id"):
+            from interview_mux.creative_delivery import audible_bed_level_db
+
             placeholder.append(
                 {
                     "cue_id": "palette_bed_placeholder",
                     "asset_id": str(unders["asset_id"]),
                     "role": str(unders.get("role") or "theme_underscore"),
                     "placement": "under_segment",
-                    "level_db": -26,
+                    "level_db": audible_bed_level_db(),
                     "crossfade_ms": 1500,
                 }
             )
@@ -361,6 +363,12 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
             band = (float(cfg_band[0]), float(cfg_band[1]))
         elif role in ROLE_DURATION_BANDS:
             band = ROLE_DURATION_BANDS.get(role)
+        if role in ROLE_DURATION_BANDS:
+            lint_lo, lint_hi = ROLE_DURATION_BANDS[role]
+            if band:
+                band = (max(float(band[0]), float(lint_lo)), max(float(band[1]), float(lint_hi)))
+            else:
+                band = (float(lint_lo), float(lint_hi))
         if band:
             # Soft bands: raise short clips to lo; allow stretch above hi for full beds.
             lo, hi = float(band[0]), float(band[1])
@@ -442,6 +450,7 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="sfx_prompt_craft",
         )
+        c.write_json(_SOUND_DESIGN_PLAN_REL, sdp, skip_handoff=True)
         from interview_mux.sfx_prompt_review import maybe_auto_approve_prompt_review
 
         maybe_auto_approve_prompt_review(c)
@@ -789,6 +798,18 @@ def _normalize_sfx_prompts(plan: dict, prompts: list[dict], ctx: RunContext | No
             "sfx_prompt_craft: prompts reference unknown asset_id(s) "
             + ", ".join(extra)
         )
+    # Craft may raise short stems to the MusicGen/role floor. Keep SDP in lockstep
+    # so post-commit craft-vs-plan duration checks cannot loop.
+    for aid, row in by_id.items():
+        asset = assets_by_id.get(aid)
+        if not isinstance(asset, dict):
+            continue
+        craft_d = row.get("duration_seconds")
+        if craft_d is None:
+            continue
+        plan_d = asset.get("duration_seconds")
+        if plan_d is None or abs(float(plan_d) - float(craft_d)) > 0.01:
+            asset["duration_seconds"] = float(craft_d)
     return [by_id[aid] for aid in sorted(by_id)]
 
 def _validate_flow2_asset_links(plan: dict) -> None:

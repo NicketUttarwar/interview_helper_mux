@@ -302,6 +302,32 @@ def test_opening_orientation_precedes_music_without_native_hook(
     ]
 
 
+def test_native_open_omit_places_music_before_body() -> None:
+    gap_report = {
+        "opening_orientation": {
+            "required": False,
+            "omitted": True,
+            "omit_reason": "native_open_self_orients",
+            "sequence": "music_body",
+            "target_segment_id": "seg_a",
+        },
+        "interviewer_lines": [],
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+    )
+    assert [
+        (clip["type"], clip.get("air_kind"))
+        for clip in edl["clips"]
+    ][:2] == [
+        ("silence", "opening_music"),
+        ("speech", None),
+    ]
+    assert not any(clip.get("type") == "vo_pickup" for clip in edl["clips"])
+
+
 def test_missing_orientation_wav_is_warned_not_silent_clip() -> None:
     gap_report = {
         "interviewer_lines": [

@@ -135,6 +135,9 @@ def package_is_complete(publish_dir: Path, *, layout: dict[str, Any] | None = No
         files["cover"],
         files["chapters"],
     ]
+    transcript = files.get("transcript")
+    if transcript:
+        required.append(str(transcript))
     for name in required:
         path = publish_dir / name
         if not path.is_file() or path.stat().st_size < 1:
@@ -390,6 +393,8 @@ def sync_ready_packages(
             cover_url = f"{base}/{prefix}/{files['cover']}"
             description_url = f"{base}/{prefix}/{files['description']}"
             chapters_url = f"{base}/{prefix}/{files['chapters']}"
+            transcript_name = str(files.get("transcript") or "transcript.vtt")
+            transcript_url = f"{base}/{prefix}/{transcript_name}" if transcript_name else ""
             episode_doc = {
                 "episode_number": episode_number,
                 "season": season,
@@ -407,6 +412,7 @@ def sync_ready_packages(
                 "cover_url": cover_url,
                 "description_url": description_url,
                 "chapters_url": chapters_url,
+                "transcript_url": transcript_url,
                 "link": enclosure_url,
                 "cover_source": pkg.cover_source,
             }

@@ -31,6 +31,7 @@ CONTENT_TYPES = {
     ".jpeg": "image/jpeg",
     ".json": "application/json",
     ".txt": "text/plain; charset=utf-8",
+    ".vtt": "text/vtt; charset=utf-8",
     ".wav": "audio/wav",
 }
 
@@ -413,6 +414,9 @@ def upload_episode_files(
     prefix = episode_prefix(episode_number, cfg=cfg)
 
     required_locals = [files["audio"], files["master"], files["cover"], files["chapters"]]
+    transcript_name = str(files.get("transcript") or "transcript.vtt")
+    if transcript_name:
+        required_locals.append(transcript_name)
     for name in required_locals:
         path = local_dir / name
         if not path.is_file() or path.stat().st_size < 1:
@@ -430,6 +434,8 @@ def upload_episode_files(
         files["chapters"]: f"{prefix}/{files['chapters']}",
         files["master"]: f"{prefix}/{files['master']}",
     }
+    if files.get("transcript"):
+        local_to_remote[files["transcript"]] = f"{prefix}/{files['transcript']}"
 
     uploaded: list[str] = []
     skipped: list[str] = []
@@ -580,6 +586,7 @@ def publish_episode_package(
         "cover_url": f"{base}/{prefix}/{files['cover']}",
         "description_url": f"{base}/{prefix}/{files['description']}",
         "chapters_url": f"{base}/{prefix}/{files['chapters']}",
+        "transcript_url": f"{base}/{prefix}/{files['transcript']}" if files.get("transcript") else "",
         "invalidation_id": inv_id,
         "episode_number": episode_number,
     }

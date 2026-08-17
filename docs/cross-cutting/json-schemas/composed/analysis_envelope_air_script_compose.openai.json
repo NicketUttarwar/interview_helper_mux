@@ -1,0 +1,910 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "version",
+        "cold_open",
+        "decisions",
+        "ordered_segment_ids",
+        "excluded_segment_ids",
+        "bespoke_rationale",
+        "invariants",
+        "agenda_ref",
+        "cross_critique_ref",
+        "generated_at",
+        "narrative_mode",
+        "montage_grammar",
+        "information_packages",
+        "episode_close",
+        "plan_status",
+        "pass",
+        "provisional_mode",
+        "confirmed_mode",
+        "pov",
+        "listener_outcome",
+        "degradation_reasons",
+        "evidence_packet_hash",
+        "hybrid_label",
+        "hybrid_prefer_forbid",
+        "air_script",
+        "story_spine",
+        "circumstance_card",
+        "sonic_scenes",
+        "sonic_opportunities"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "cold_open": {
+          "type": "object",
+          "required": [
+            "kind",
+            "segment_id",
+            "vo_line_id",
+            "vo_voice_speaker_id",
+            "sfx",
+            "reprise_later",
+            "rationale",
+            "evidence_refs",
+            "confidence",
+            "clarifying_questions"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "segment_hook",
+                "vo_clone_open",
+                "vo_plus_segment"
+              ]
+            },
+            "segment_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vo_line_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vo_voice_speaker_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sfx": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "cue_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "cue_ref"
+              ]
+            },
+            "reprise_later": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "clarifying_questions": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "owner_module",
+              "decision",
+              "rationale",
+              "evidence_refs",
+              "confidence"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "owner_module": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "decision": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "ordered_segment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "excluded_segment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "bespoke_rationale": {
+          "type": "string"
+        },
+        "invariants": {
+          "type": "object",
+          "required": [
+            "never_invent_unspoken_dialogue",
+            "prefer_pickup_voice",
+            "pickup_voice_only",
+            "pickup_eligible_speaker_id"
+          ],
+          "properties": {
+            "never_invent_unspoken_dialogue": {
+              "type": "boolean",
+              "const": true
+            },
+            "prefer_pickup_voice": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "pickup_voice_only": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "pickup_eligible_speaker_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "agenda_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cross_critique_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "narrative_mode": {
+          "type": "string",
+          "enum": [
+            "conversational_host",
+            "guide_summary",
+            "documentary_bridge",
+            "hook_montage",
+            "sparse_source",
+            "hybrid_bespoke"
+          ]
+        },
+        "montage_grammar": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "vo_then_clip",
+              "clip_then_react_vo",
+              "summary_replace_setup",
+              "cold_open_then_body",
+              "act_preface_blocks",
+              "interleaved_bridges",
+              "information_package_then_block"
+            ]
+          }
+        },
+        "information_packages": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "package_id",
+              "after_segment_id",
+              "before_segment_ids",
+              "music",
+              "vo",
+              "new_information_claim",
+              "why_package_required",
+              "evidence_refs",
+              "confidence",
+              "gate_scores"
+            ],
+            "properties": {
+              "package_id": {
+                "type": "string"
+              },
+              "after_segment_id": {
+                "type": "string"
+              },
+              "before_segment_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "music": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "vo": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "new_information_claim": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "why_package_required": {
+                "type": "string"
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "gate_scores": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "episode_close": {
+          "type": "object",
+          "required": [
+            "music",
+            "rationale",
+            "evidence_refs",
+            "confidence"
+          ],
+          "properties": {
+            "music": {
+              "type": "object",
+              "required": [
+                "required",
+                "role",
+                "placement",
+                "fade_out",
+                "fade_out_ms",
+                "may_underscore_last_native_tail"
+              ],
+              "properties": {
+                "required": {
+                  "type": "boolean"
+                },
+                "role": {
+                  "type": "string",
+                  "const": "theme_outro"
+                },
+                "placement": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fade_out": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fade_out_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "may_underscore_last_native_tail": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "plan_status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "degraded",
+            "forced_sparse",
+            "absent_legacy"
+          ]
+        },
+        "pass": {
+          "type": "string",
+          "enum": [
+            "provisional",
+            "confirmed"
+          ]
+        },
+        "provisional_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirmed_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pov": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listener_outcome": {
+          "type": "object",
+          "properties": {
+            "finishability": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recommendability": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rationale": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "finishability",
+            "recommendability",
+            "rationale"
+          ]
+        },
+        "degradation_reasons": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_packet_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hybrid_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hybrid_prefer_forbid": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "air_script": {
+          "type": "object",
+          "description": "Shape realization paper-edit: what airs, which VO seats, omits, energy curve.",
+          "properties": {
+            "version": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pass": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "segment_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "line_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "montage_move": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "native_handoff",
+                      "vo_then_clip",
+                      "clip_then_react_vo",
+                      "music_face_out",
+                      "air_breathe",
+                      "cold_open_hook",
+                      "information_package",
+                      "episode_close"
+                    ]
+                  },
+                  "know_entering": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "know_leaving": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "is_orientation": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "segment_id",
+                  "line_id",
+                  "montage_move",
+                  "know_entering",
+                  "know_leaving",
+                  "is_orientation"
+                ]
+              }
+            },
+            "omits": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "subject_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "compensating_path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "subject_id",
+                  "compensating_path",
+                  "reason_code"
+                ]
+              }
+            },
+            "energy_curve": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            },
+            "cold_open": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            },
+            "story_clarity": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            },
+            "vo_seats": {
+              "type": "object",
+              "description": "Live VO contract after Pass B. QC/G1/heals subscribe; do not rebuild from unfiltered interviewer_lines.",
+              "properties": {
+                "seated_line_ids": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "omitted_line_ids": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "orientation_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "seated_line_ids",
+                "omitted_line_ids",
+                "orientation_id"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "pass",
+            "beats",
+            "omits",
+            "energy_curve",
+            "cold_open",
+            "story_clarity",
+            "vo_seats"
+          ]
+        },
+        "story_spine": {
+          "type": "object",
+          "properties": {
+            "talking_point_ids": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "scenes": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "talking_point_ids",
+            "scenes"
+          ]
+        },
+        "circumstance_card": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "sonic_scenes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        "sonic_opportunities": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "segment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "suggested_role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "why": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "segment_id",
+              "suggested_role",
+              "why"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory_updates": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rerun_stage",
+              "operator",
+              "transcript_excerpt",
+              "human_fact"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "stage",
+          "reason",
+          "blocking",
+          "params"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "follow_up_investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "artifacts",
+    "memory_updates",
+    "needs",
+    "follow_up_investigations",
+    "confidence",
+    "reasoning_summary"
+  ],
+  "additionalProperties": false
+}

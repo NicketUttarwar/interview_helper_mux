@@ -524,6 +524,13 @@ def ensure_seam_glue(
                 tid = str(row.get("target_segment_id") or "").strip()
                 if tid and is_justified_skip_row(row, soft_migrate=True):
                     justified_skip_before.add(tid)
+    try:
+        from interview_mux.air_script import native_handoff_segment_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        justified_skip_before |= native_handoff_segment_ids(load_plan_raw(ctx))
+    except Exception:
+        pass
 
     bridges = rebuild_reorder_bridges(ctx, ordered, segments_by_id)
     missing = missing_reorder_bridges(

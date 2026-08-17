@@ -119,7 +119,12 @@ def test_run_sfx_generation_writes_one_wav_per_asset_id(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sfx_mmaudio, "generate_music_clip", fake_music)
     monkeypatch.setattr(sfx_mmaudio, "musicgen_enabled", lambda: True)
-    monkeypatch.setattr(sfx_mmaudio, "run_mmaudio_asset_qa", lambda ctx: {"assets": []})
+    def fake_qa(c):
+        doc = {"version": 1, "assets": []}
+        c.write_json("sound_design/mmaudio_qa.json", doc, skip_handoff=True, stage_key="mmaudio_sfx")
+        return doc
+
+    monkeypatch.setattr(sfx_mmaudio, "run_mmaudio_asset_qa", fake_qa)
     monkeypatch.setattr(sfx_mmaudio, "maybe_auto_refine", lambda *a, **k: None)
     monkeypatch.setattr(sfx_mmaudio, "execute_fitness_remediation", lambda *a, **k: None)
     monkeypatch.setattr(

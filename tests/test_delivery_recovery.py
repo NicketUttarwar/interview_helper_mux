@@ -74,6 +74,7 @@ def test_suggest_delivery_resume_with_assembly(tmp_path: Path):
     (done / "junction_snip_qa").write_text("1", encoding="utf-8")
     assert suggest_delivery_resume(ctx) in {
         "master_finalize",
+        "master_transcript_build",
         "junction_snip_qa",
         "episode_meta_build",
         "episode_cover_prompt_craft",

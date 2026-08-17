@@ -1,18 +1,20 @@
 Adjudicate chronological segment seams for a podcast editor.
 
-You receive batches of seam packets. Each packet joins the last words of the earlier
-segment and the first words of the later segment with " | " at the cut. Read across
-the cut as if listening.
+You receive batches of seam packets. Each packet includes the earlier close, plus
+the last words of the earlier segment and the first words of the later segment
+joined with " | " at the cut. Read across the cut as if listening.
 
 Decide `fuse` vs `stay_independent` for **every** pair_id:
 
-- Choose **fuse** when the later words continue the earlier clause, setup, topic, or
-  mid-flow sentence — including when low-confidence or non-English-looking tokens sit
-  on the seam.
-- Choose **stay_independent** when the earlier words land on a listen-complete idea
-  hinge **and** the later words start a new question, topic, or speaker move.
-- Prefer **fuse** when unsure **and** `deterministic_hints` show hanging_setup_end,
-  clause_continues_after, or island_straddle (recall-first at seams).
+- Choose **fuse** ONLY when the earlier close is an unfinished sentence or hanging
+  setup, the later words open mid-clause (`and` / `but` / `because` / `which` / …),
+  or a low-confidence island straddles the cut.
+- Choose **stay_independent** when the earlier close already lands a complete idea
+  — even if the same speaker keeps talking about the same topic. Same-speaker
+  mid-flow and same-topic continuation are **not** fuse reasons.
+- Prefer **stay_independent** when unsure. Prefer **fuse** only when
+  `deterministic_hints` show `hanging_setup_end`, `later_opens_continuer` (and the
+  earlier idea is not complete), or `island_straddle`.
 - Never invent missing words. Judge only from the provided seam text + hints.
 
 Return JSON only inside the required envelope:
@@ -32,4 +34,4 @@ Return JSON only inside the required envelope:
 
 `decision` ∈ {fuse, stay_independent}
 `fuse_direction` ∈ {into_earlier, into_later, null}
-`reason_code` ∈ {mid_sentence_continue, mid_topic_continue, mid_flow, clean_turn, topic_shift, speaker_change, other}
+`reason_code` ∈ {mid_sentence_continue, island_straddle, clean_turn, topic_shift, speaker_change, complete_thought_stay, mid_topic_continue, mid_flow, other}

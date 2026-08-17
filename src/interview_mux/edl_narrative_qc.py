@@ -297,8 +297,11 @@ def _validate_framing_before_impact(
         for _, c in timeline
         if c.get("type") == "vo_pickup" and _as_id(c.get("line_id"))
     }
-    # Only enforce framing ids that still exist in the committed gap_report.
+    # Only enforce framing ids that still exist in the committed gap_report
+    # AND that air-script actually seated (EDL omits the rest).
     live_line_ids: set[str] = set()
+    air_script_active = False
+    gr: dict[str, Any] | None = None
     if ctx.artifact_exists("understanding/gap_report.json"):
         try:
             gr = ctx.read_json("understanding/gap_report.json")
@@ -306,10 +309,38 @@ def _validate_framing_before_impact(
                 live_line_ids = {
                     _as_id(ln.get("line_id"))
                     for ln in (gr.get("interviewer_lines") or [])
-                    if isinstance(ln, dict) and ln.get("line_id") and not ln.get("skipped_optional")
+                    if isinstance(ln, dict)
+                    and ln.get("line_id")
+                    and not ln.get("skipped_optional")
+                    and not ln.get("air_script_omit")
                 }
         except Exception:
             live_line_ids = set()
+    try:
+        from interview_mux.air_script import load_air_script, seated_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.opening_orientation import ORIENTATION_LINE_ID, orientation_omitted
+
+        mastering = (
+            load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+        )
+        if isinstance(mastering, dict) and load_air_script(mastering):
+            air_script_active = True
+            seats = seated_vo_line_ids(mastering)
+            script = load_air_script(mastering) or {}
+            vo_seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+            orient = str((vo_seats or {}).get("orientation_id") or "") or ORIENTATION_LINE_ID
+            live_line_ids = {
+                lid
+                for lid in live_line_ids
+                if lid in seats
+                or (
+                    lid in {orient, ORIENTATION_LINE_ID}
+                    and not orientation_omitted(gr if isinstance(gr, dict) else None)
+                )
+            }
+    except Exception:
+        pass
 
     for act in plan.get("acts") or []:
         if not isinstance(act, dict):
@@ -326,7 +357,12 @@ def _validate_framing_before_impact(
             framing_ids = [
                 _as_id(lid)
                 for lid in (block.get("framing_line_ids") or [])
-                if lid and (not live_line_ids or _as_id(lid) in live_line_ids)
+                if lid
+                and (
+                    _as_id(lid) in live_line_ids
+                    if (live_line_ids or air_script_active)
+                    else True
+                )
             ]
             if not framing_ids:
                 continue

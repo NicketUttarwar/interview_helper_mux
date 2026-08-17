@@ -18,7 +18,9 @@ def test_path_to_master_stage_order():
     assert "vernacular_segment_sanitize" in order
     assert "disfluency_extract" not in order
     assert "master_finalize" in DELIVERY_ORDER_V2
-    assert DELIVERY_ORDER_V2.index("master_finalize") < DELIVERY_ORDER_V2.index("podcast_publish")
+    assert "master_transcript_build" in DELIVERY_ORDER_V2
+    assert DELIVERY_ORDER_V2.index("master_finalize") < DELIVERY_ORDER_V2.index("master_transcript_build")
+    assert DELIVERY_ORDER_V2.index("master_transcript_build") < DELIVERY_ORDER_V2.index("podcast_publish")
     assert "episode_structure_compose" in ANALYSIS_ORDER_V2
     assert order.index("transcribe") < order.index("audio_probe_build")
     assert order.index("boundary_topic_resplit") < order.index("vernacular_segment_sanitize")

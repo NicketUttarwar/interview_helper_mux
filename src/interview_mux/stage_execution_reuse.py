@@ -153,6 +153,11 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
         "master/remediation_run_log.json",
     ),
     "master_finalize": ("master/master.wav",),
+    "master_transcript_build": (
+        "master/transcript.json",
+        "master/transcript.vtt",
+        "master/transcript.txt",
+    ),
     "transcript_review": (
         "transcript/corrections.json",
         "transcript/full.json",

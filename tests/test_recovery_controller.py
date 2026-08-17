@@ -242,3 +242,43 @@ def test_qc_failed_uses_topology_synth_ladder(tmp_path: Path, monkeypatch):
     )
     assert qc_failed(entry) is False
     assert qc_failed(entry, ctx) is True
+
+
+def test_framing_vo_unseated_stops_on_unchanged_vo_seats(tmp_path: Path, monkeypatch):
+    ctx = RunContext(str(tmp_path / "rec_vo_seats"), create=True)
+    calls = {"n": 0}
+
+    def _stamp(_ctx):
+        calls["n"] += 1
+        return ["mastering/mastering_plan.json"]
+
+    monkeypatch.setattr(
+        "interview_mux.recovery_controller.playbook_stamp_air_script_omits",
+        _stamp,
+    )
+    monkeypatch.setattr(
+        "interview_mux.recovery_controller.vo_seats_fingerprint",
+        lambda _ctx: "samehash",
+    )
+    exc = RuntimeError("seg_011 lacks preceding framing VO vo_layup_seg_011")
+    assert classify_error_class("edl", exc) == "framing_vo_unseated"
+    first = handle_stage_failure(ctx, "edl", exc)
+    assert first.status == "recovered"
+    assert first.playbook_id == "stamp_air_script_omits"
+    second = handle_stage_failure(ctx, "edl", exc)
+    assert second.status == "recovered"
+    third = handle_stage_failure(ctx, "edl", exc)
+    assert third.status == "escalate"
+    assert third.playbook_id == "identical_vo_seats_x3"
+    assert calls["n"] == 2
+
+
+def test_mmaudio_qa_missing_resumes_producer(tmp_path: Path, monkeypatch):
+    ctx = RunContext(str(tmp_path / "rec_qa_resume"), create=True)
+    monkeypatch.setattr(
+        "interview_mux.recovery_controller.playbook_ensure_mmaudio_qa",
+        lambda _ctx: ["sound_design/mmaudio_qa.json"],
+    )
+    result = handle_stage_failure(ctx, "mix", RuntimeError("sound_design/mmaudio_qa.json missing"))
+    assert result.status == "recovered"
+    assert result.resume_stage == "mmaudio_sfx"

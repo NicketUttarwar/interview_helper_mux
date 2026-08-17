@@ -517,6 +517,18 @@ def resolve_mix_contract(ctx: RunContext) -> dict[str, Any]:
         if mc.get("rhythmic_presence_default") is not None:
             out["rhythmic_presence_default"] = mc["rhythmic_presence_default"]
         out["tempo_feel_bpm"] = mc.get("tempo_feel_bpm")
+        sap = load_profile(ctx) or {}
+        out["source_music_risk"] = sap.get("source_music_risk") or mc.get("source_music_risk")
+        try:
+            from interview_mux.mastering_plan_loader import load_plan_raw
+
+            plan = load_plan_raw(ctx) or {}
+            card = plan.get("circumstance_card") if isinstance(plan.get("circumstance_card"), dict) else {}
+            if card.get("dry_beds"):
+                out["dry_beds"] = True
+                out["source_music_risk"] = out.get("source_music_risk") or "high"
+        except Exception:
+            pass
         from interview_mux.creative_delivery import apply_creative_mix_contract
 
         return apply_creative_mix_contract(out)
@@ -530,6 +542,17 @@ def resolve_mix_contract(ctx: RunContext) -> dict[str, Any]:
         base["midrange_policy"] = raw["midrange_policy"]
     if raw.get("max_bed_coverage_ratio") is not None:
         base["max_bed_coverage_ratio"] = raw["max_bed_coverage_ratio"]
+    base["source_music_risk"] = sap.get("source_music_risk")
+    try:
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx) or {}
+        card = plan.get("circumstance_card") if isinstance(plan.get("circumstance_card"), dict) else {}
+        if card.get("dry_beds"):
+            base["dry_beds"] = True
+            base["source_music_risk"] = base.get("source_music_risk") or "high"
+    except Exception:
+        pass
     from interview_mux.creative_delivery import apply_creative_mix_contract
 
     return apply_creative_mix_contract(base)

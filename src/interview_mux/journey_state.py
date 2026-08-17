@@ -67,6 +67,7 @@ STAGE_TO_OPERATOR_PHASE: dict[str, str] = {
     "mux_flow1": "polish",
     "podcast_sfx_brief": "polish",
     "master_finalize": "ship",
+    "master_transcript_build": "ship",
 }
 
 

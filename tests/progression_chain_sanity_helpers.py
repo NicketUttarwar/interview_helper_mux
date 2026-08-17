@@ -384,8 +384,10 @@ def ensure_reanchored_content_brief(ctx: RunContext) -> None:
 def seed_vo_from_gap_report(ctx: RunContext) -> None:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return
+    from run_fixtures import write_fixture_vo_wav
+
     gap = ctx.read_json("understanding/gap_report.json")
-    vo_dir = ctx.path("vo_pickup")
+    vo_dir = ctx.final_path("vo_pickup")
     vo_dir.mkdir(parents=True, exist_ok=True)
     for row in gap.get("gaps") or gap.get("interviewer_lines") or []:
         if not isinstance(row, dict):
@@ -394,7 +396,7 @@ def seed_vo_from_gap_report(ctx: RunContext) -> None:
             lid = str(row.get("line_id") or "line_001")
             path = vo_dir / f"{lid}.wav"
             if not path.is_file():
-                path.write_bytes(b"RIFF" + b"\x00" * 64)
+                write_fixture_vo_wav(path)
 
 
 def prepare_flow_chain_gates(ctx: RunContext) -> None:

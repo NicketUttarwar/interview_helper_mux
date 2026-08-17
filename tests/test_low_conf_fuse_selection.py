@@ -21,6 +21,7 @@ from interview_mux.nugget_layup import (
 )
 from interview_mux.segment_fuse import (
     apply_connector_fuses,
+    adjudicate_seams,
     deterministic_fallback_verdict,
     enumerate_seam_packets,
     remap_fused_ids,
@@ -577,3 +578,176 @@ def test_layup_grace_rejects_canned_and_invented(tmp_path: Path):
     }
     craft_inv = evaluate_layup_craft(ctx, [invented])
     assert any("invented_island" in e for e in craft_inv["errors"])
+
+
+def test_packet_includes_earlier_close_and_complete_hint(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 2000, "The company shipped the snack bar in June."),
+        _seg("b", 2500, 4000, "I then started a second company in Austin."),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                *[_w(t, i * 200, 0.95) for i, t in enumerate("The company shipped the snack bar in June".split())],
+                *[
+                    _w(t, 2500 + i * 200, 0.95)
+                    for i, t in enumerate("I then started a second company in Austin".split())
+                ],
+            ]
+        },
+    )
+    doc = enumerate_seam_packets(ctx)
+    packet = doc["packets"][0]
+    assert "earlier_close_text" in packet
+    assert "June" in packet["earlier_close_text"]
+    hints = packet["deterministic_hints"]
+    assert hints.get("earlier_lands_complete_idea") is True
+    assert hints.get("later_opens_continuer") is False
+    assert deterministic_fallback_verdict(packet)["decision"] == "stay_independent"
+
+
+def test_llm_mid_flow_complete_thought_stays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 2000, "The company shipped the snack bar in June."),
+        _seg("b", 2500, 4000, "I then started a second company in Austin."),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(s) for s in segs]})
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                *[_w(t, i * 200, 0.95) for i, t in enumerate("The company shipped the snack bar in June".split())],
+                *[
+                    _w(t, 2500 + i * 200, 0.95)
+                    for i, t in enumerate("I then started a second company in Austin".split())
+                ],
+            ]
+        },
+    )
+
+    def _fuse_mid_flow(_ctx, packets, **kw):
+        return [
+            {
+                "pair_id": p["pair_id"],
+                "decision": "fuse",
+                "fuse_direction": "into_earlier",
+                "reason_code": "mid_flow",
+                "rationale": "same speaker still talking",
+                "confidence": 0.9,
+                "earlier_segment_id": p["earlier_segment_id"],
+                "later_segment_id": p["later_segment_id"],
+                "seam_hash": p.get("seam_hash"),
+                "deterministic_hints": p.get("deterministic_hints") or {},
+            }
+            for p in packets
+        ]
+
+    monkeypatch.setattr("interview_mux.segment_fuse.adjudicate_seams_llm", _fuse_mid_flow)
+    packets = enumerate_seam_packets(ctx)["packets"]
+    verdicts = adjudicate_seams(ctx, packets)
+    assert verdicts[0]["decision"] == "stay_independent"
+    assert verdicts[0]["reason_code"] == "complete_thought_stay"
+    applied = apply_connector_fuses(ctx, verdicts, pass_id="complete_stay")
+    assert applied["applied"] == 0
+    ids = [s["segment_id"] for s in ctx.read_json("segments/manifest.json")["segments"]]
+    assert ids == ["a", "b"]
+
+
+def test_continuer_open_still_fuses(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 1000, "we started building the product"),
+        _seg("b", 1100, 2200, "and the buyers were snacking on it every day"),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                *[_w(t, i * 100, 0.9) for i, t in enumerate("we started building the product".split())],
+                *[
+                    _w(t, 1100 + i * 100, 0.9)
+                    for i, t in enumerate("and the buyers were snacking on it every day".split())
+                ],
+            ]
+        },
+    )
+    packet = enumerate_seam_packets(ctx)["packets"][0]
+    assert packet["deterministic_hints"].get("later_opens_continuer") is True
+    assert packet["deterministic_hints"].get("earlier_lands_complete_idea") is False
+    verdict = deterministic_fallback_verdict(packet)
+    assert verdict["decision"] == "fuse"
+
+
+def test_fused_duration_cap_skips_editorial_glue(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 20000, "First complete beat about the launch."),
+        _seg("b", 20100, 40000, "Second complete beat about the aftermath."),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(s) for s in segs]})
+    ctx.write_json("transcript/full.json", {"words": []})
+    cfg = {
+        "analysis": {
+            "connector_fuse": {
+                "incomplete_thought_only": False,
+                "max_fused_duration_ms": 25000,
+                "max_fused_members": 3,
+            }
+        }
+    }
+    verdicts = [
+        {
+            "pair_id": "a__b",
+            "earlier_segment_id": "a",
+            "later_segment_id": "b",
+            "decision": "fuse",
+            "fuse_direction": "into_earlier",
+            "reason_code": "mid_flow",
+            "rationale": "editorial",
+            "confidence": 0.9,
+            "deterministic_hints": {"earlier_lands_complete_idea": True},
+        }
+    ]
+    result = apply_connector_fuses(ctx, verdicts, pass_id="cap", cfg=cfg)
+    assert result["applied"] == 0
+    assert any(row.get("reason") == "fused_duration_cap" for row in result["skipped"])
+
+
+def test_fused_member_cap_skips_editorial_glue(tmp_path: Path):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 1000, "one", fused_from=["x", "y", "a"]),
+        _seg("b", 1100, 2000, "two"),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(s) for s in segs]})
+    ctx.write_json("transcript/full.json", {"words": []})
+    cfg = {
+        "analysis": {
+            "connector_fuse": {
+                "incomplete_thought_only": False,
+                "max_fused_duration_ms": 60000,
+                "max_fused_members": 3,
+            }
+        }
+    }
+    verdicts = [
+        {
+            "pair_id": "a__b",
+            "earlier_segment_id": "a",
+            "later_segment_id": "b",
+            "decision": "fuse",
+            "reason_code": "mid_flow",
+            "deterministic_hints": {},
+        }
+    ]
+    result = apply_connector_fuses(ctx, verdicts, pass_id="members", cfg=cfg)
+    assert result["applied"] == 0
+    assert any(row.get("reason") == "fused_member_cap" for row in result["skipped"])

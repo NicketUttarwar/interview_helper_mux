@@ -60,7 +60,7 @@ def build_feed_xml(
 
     Each episode needs title, description, guid, pub_date, enclosure_url,
     enclosure_length, duration_seconds, cover_url, episode_number, season,
-    chapters_url (optional).
+    chapters_url (optional), transcript_url (optional).
     """
     title = _esc(channel["title"])
     author = _esc(channel["author"])
@@ -104,15 +104,21 @@ def build_feed_xml(
         season = int(ep.get("season") or default_season)
         item_link = _esc(str(ep.get("link") or ep.get("enclosure_url") or enc_url))
         chapters_url = str(ep.get("chapters_url") or "").strip()
+        transcript_url = str(ep.get("transcript_url") or "").strip()
         hh = dur // 3600
         mm = (dur % 3600) // 60
         ss = dur % 60
         itunes_dur = f"{hh}:{mm:02d}:{ss:02d}" if hh else f"{mm}:{ss:02d}"
-        chapters_xml = ""
+        extra_xml = ""
         if chapters_url:
-            chapters_xml = (
+            extra_xml += (
                 f'\n      <podcast:chapters url="{_esc(chapters_url)}" '
                 f'type="application/json+chapters"/>'
+            )
+        if transcript_url:
+            extra_xml += (
+                f'\n      <podcast:transcript url="{_esc(transcript_url)}" '
+                f'type="text/vtt" rel="captions" language="en"/>'
             )
         items.append(
             f"""    <item>
@@ -130,7 +136,7 @@ def build_feed_xml(
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:season>{season}</itunes:season>
       <itunes:episode>{ep_num}</itunes:episode>
-      <itunes:image href="{cover}"/>{chapters_xml}
+      <itunes:image href="{cover}"/>{extra_xml}
     </item>"""
         )
 

@@ -2,6 +2,8 @@
 
 | Stage | Tier | Outputs |
 |-------|------|---------|
+| `air_script_compose` | llm_full | mastering/mastering_plan.json |
+| `air_script_seams` | llm_full | mastering/mastering_plan.json |
 | `assembly_preview` | process | — |
 | `audio_preclean` | process | — |
 | `audio_probe_build` | process | — |
@@ -35,6 +37,7 @@
 | `listen_delight_audit` | process | — |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json |
 | `master_finalize` | process | — |
+| `master_transcript_build` | process | master/transcript.json, master/transcript.vtt |
 | `mastering_plan_confirm` | process | — |
 | `mastering_plan_synthesize` | process | — |
 | `mastering_research_rollup` | process | — |
@@ -44,7 +47,7 @@
 | `mastering_shape_candidates` | process | — |
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
 | `mix` | process | — |
-| `mmaudio_sfx` | process | — |
+| `mmaudio_sfx` | process | sound_design/mmaudio_qa.json |
 | `music_palette_compose` | llm_full | sound_design/music_palette_compose.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
 | `narrative_arc_refine` | deterministic | — |

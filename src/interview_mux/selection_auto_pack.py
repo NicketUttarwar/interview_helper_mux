@@ -266,7 +266,7 @@ def auto_pack_selection_to_brief(
     if max_sec_f is None or max_sec_f <= 0:
         return selection
 
-    return pack_selection_to_duration(
+    packed = pack_selection_to_duration(
         ctx,
         selection,
         target_sec=max_sec_f,
@@ -275,3 +275,10 @@ def auto_pack_selection_to_brief(
         action_id="pipeline.selection.auto_pack",
         log_label="Selection auto-pack",
     )
+    try:
+        from interview_mux.air_script import enforce_air_script_omits
+
+        packed = enforce_air_script_omits(ctx, packed)
+    except Exception:
+        pass
+    return packed

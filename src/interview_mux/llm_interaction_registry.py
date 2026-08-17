@@ -410,8 +410,8 @@ _OA_GOALS: dict[str, str] = {
 _OF_GOALS: dict[str, str] = {
     "topic_coverage_audit": "Theme coverage score",
     "narrative_arc_plan": "Chapter arc",
-    "connector_seam_adjudicate": "Fuse vs stay_independent for every chronological seam",
-    "island_cluster_structure_adjudicate": "Per multi-cluster structure: topic unity + left/right/bridge per low island",
+    "connector_seam_adjudicate": "Fuse unfinished thoughts only; same-speaker complete ideas stay independent",
+    "island_cluster_structure_adjudicate": "Per multi-cluster structure: topic unity + one-neighbor left/right per low island",
     "full_master_ranking": "Ordered segment_ids",
     "nugget_corpus_mine": "Full-tape grounded nuggets",
     "nugget_layup_compose": "Per-native before-VO layups",

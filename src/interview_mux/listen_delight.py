@@ -29,6 +29,7 @@ DIMENSION_KEYS: tuple[str, ...] = (
     "mode_coherence",
     "finishability",
     "recommendability",
+    "story_followability",
 )
 
 _DEFAULT_DIMENSION_FLOORS: dict[str, float] = {
@@ -39,6 +40,7 @@ _DEFAULT_DIMENSION_FLOORS: dict[str, float] = {
     "mode_coherence": 0.80,
     "finishability": 0.80,
     "recommendability": 0.75,
+    "story_followability": 0.85,
 }
 
 
@@ -162,6 +164,7 @@ def _cut_integrity(ctx: RunContext) -> float:
 
 def _conversation_fit(ctx: RunContext, *, consistency_ok: bool) -> float:
     """Bridge completeness (pair-specific glue) when present; else mode-consistency soft score."""
+    base = 0.9 if consistency_ok else 0.65
     if ctx.artifact_exists("master/bridge_completeness.json"):
         try:
             doc = ctx.read_json("master/bridge_completeness.json")
@@ -170,37 +173,79 @@ def _conversation_fit(ctx: RunContext, *, consistency_ok: bool) -> float:
         if isinstance(doc, dict):
             missing = int(doc.get("missing_count") or 0)
             stubs = int(doc.get("stub_count") or 0)
-            # When every reorder seam has glue (complete), repeated mint text is soft
-            # style debt — do not fail conversation_fit solely on stub_count.
             if missing == 0 and bool(doc.get("complete")):
-                return round(_clamp(0.95 - 0.005 * min(stubs, 20)), 4)
-            return round(_clamp(1.0 - 0.2 * missing - 0.05 * min(stubs, 6)), 4)
-    return 0.9 if consistency_ok else 0.65
+                base = round(_clamp(0.95 - 0.005 * min(stubs, 20)), 4)
+            else:
+                base = round(_clamp(1.0 - 0.2 * missing - 0.05 * min(stubs, 6)), 4)
+    try:
+        from interview_mux.air_script import load_air_script, paper_edit_scores
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx)
+        if load_air_script(plan):
+            paper = paper_edit_scores(ctx)
+            paper_fit = float(paper.get("conversation_fit") or base)
+            return round(_clamp(min(base, paper_fit) if paper_fit < 0.7 else (0.6 * base + 0.4 * paper_fit)), 4)
+    except Exception:
+        pass
+    return base
 
 
 def _sonic_weave(ctx: RunContext) -> float:
-    """Seam autopsy music_completeness / hard-edge counts when present; else soft default."""
-    if not ctx.artifact_exists("master/seam_autopsy.json"):
-        return 0.9
+    """Seam autopsy music_completeness / hard-edge counts when present; else soft default.
+
+    When air-script sonic_scenes exist, reward motif/scene-bed/outro architecture and
+    penalize an empty or every-Nth-only score.
+    """
+    base = 0.9
+    if ctx.artifact_exists("master/seam_autopsy.json"):
+        try:
+            doc = ctx.read_json("master/seam_autopsy.json")
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            scores = doc.get("scores") if isinstance(doc.get("scores"), dict) else {}
+            music = scores.get("music_completeness") if isinstance(scores, dict) else None
+            if isinstance(music, (int, float)):
+                base = round(_clamp(float(music)), 4)
+            else:
+                seams = doc.get("seams") if isinstance(doc.get("seams"), list) else []
+                hard_edges = sum(
+                    1
+                    for s in seams
+                    if isinstance(s, dict) and "music_hard_edge" in (s.get("risk_codes") or [])
+                )
+                if hard_edges:
+                    base = round(_clamp(1.0 - 0.1 * hard_edges), 4)
     try:
-        doc = ctx.read_json("master/seam_autopsy.json")
+        from interview_mux.air_script import load_air_script, paper_edit_scores
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx)
+        if load_air_script(plan) and (
+            plan.get("sonic_scenes") or plan.get("sonic_opportunities")
+        ):
+            paper = paper_edit_scores(ctx)
+            arch = float(paper.get("sonic_weave") or 0.85)
+            return round(_clamp(0.45 * base + 0.55 * arch), 4)
     except Exception:
-        return 0.9
-    if not isinstance(doc, dict):
-        return 0.9
-    scores = doc.get("scores") if isinstance(doc.get("scores"), dict) else {}
-    music = scores.get("music_completeness") if isinstance(scores, dict) else None
-    if isinstance(music, (int, float)):
-        return round(_clamp(float(music)), 4)
-    seams = doc.get("seams") if isinstance(doc.get("seams"), list) else []
-    hard_edges = sum(
-        1
-        for s in seams
-        if isinstance(s, dict) and "music_hard_edge" in (s.get("risk_codes") or [])
-    )
-    if hard_edges:
-        return round(_clamp(1.0 - 0.1 * hard_edges), 4)
-    return 0.9
+        pass
+    return base
+
+
+def _story_followability(ctx: RunContext) -> float:
+    """Paper-edit story contract. Soft-default high when air_script is absent."""
+    try:
+        from interview_mux.air_script import load_air_script, paper_edit_scores
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx)
+        if not load_air_script(plan):
+            return 0.88
+        paper = paper_edit_scores(ctx)
+        return round(_clamp(float(paper.get("story_followability") or 0.85)), 4)
+    except Exception:
+        return 0.88
 
 
 def _mode_coherence(consistency_ok: bool) -> float:
@@ -264,6 +309,7 @@ def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
         "recommendability": _recommendability(
             consistency_ok=consistency_ok, has_gap_lines=bool(lines), mode=narrative_mode
         ),
+        "story_followability": _story_followability(ctx),
     }
     overall = round(sum(dims.values()) / len(dims), 4)
 
@@ -408,10 +454,48 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     return audit
 
 
+def rerun_listen_delight_after_mix(ctx: RunContext) -> dict[str, Any]:
+    """Second pass after mix so sonic_weave sees composed cues / seam autopsy.
+
+    Writes the same audit path; does not Loud-fail (ship gate is master_finalize).
+    """
+    conf = listen_delight_cfg()
+    result = evaluate_listen_delight(ctx, cfg=conf)
+    prior: dict[str, Any] = {}
+    if ctx.artifact_exists(AUDIT_REL):
+        try:
+            loaded = ctx.read_json(AUDIT_REL)
+            if isinstance(loaded, dict):
+                prior = loaded
+        except Exception:
+            prior = {}
+    audit = dict(prior)
+    audit.update(
+        {
+            "version": 1,
+            "mode": result["mode"],
+            "pass": "post_mix",
+            "dimensions": result["dimensions"],
+            "overall": result["overall"],
+            "overall_min": result["overall_min"],
+            "dimension_floors": result["dimension_floors"],
+            "failed_dimensions": result["failed_dimensions"],
+            "passed": result["passed"],
+            "generated_at": _now(),
+        }
+    )
+    notes = list(audit.get("notes") or [])
+    notes.append("listen_delight dual-pass after mix")
+    audit["notes"] = notes
+    ctx.write_json(AUDIT_REL, audit)
+    return audit
+
+
 __all__ = [
     "AUDIT_REL",
     "DIMENSION_KEYS",
     "evaluate_listen_delight",
     "listen_delight_cfg",
+    "rerun_listen_delight_after_mix",
     "run_listen_delight_audit",
 ]

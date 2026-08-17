@@ -15,7 +15,8 @@
       "type": "object",
       "required": [
         "interviewer_lines",
-        "nugget_layup_authority"
+        "nugget_layup_authority",
+        "opening_orientation"
       ],
       "properties": {
         "interviewer_lines": {
@@ -290,6 +291,64 @@
           "type": [
             "boolean",
             "null"
+          ]
+        },
+        "opening_orientation": {
+          "type": "object",
+          "description": "Whether a synthetic episode preface earned a seat. omitted=true when native hosts already intro.",
+          "properties": {
+            "line_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sequence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "native_cold_open_segment_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target_segment_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "omitted": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "omit_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "line_id",
+            "sequence",
+            "native_cold_open_segment_id",
+            "target_segment_id",
+            "required",
+            "omitted",
+            "omit_reason"
           ]
         }
       },

@@ -1204,6 +1204,23 @@ def coverage_exempt_target_ids(
             continue
         if is_justified_skip_row(row, soft_migrate=True):
             exempt.add(tid)
+    try:
+        from interview_mux.air_script import VO_SEAT_MOVES, load_air_script
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        mastering = load_plan_raw(ctx)
+        script = load_air_script(mastering)
+        if script and str(script.get("pass") or "") == "pass_b":
+            for beat in script.get("beats") or []:
+                if not isinstance(beat, dict):
+                    continue
+                if str(beat.get("montage_move") or "") in VO_SEAT_MOVES:
+                    continue
+                sid = str(beat.get("segment_id") or "")
+                if sid:
+                    exempt.add(sid)
+    except Exception:
+        pass
     return exempt
 
 
@@ -2116,16 +2133,24 @@ def publish_layup_plan_to_gap_report(
         row_d = dict(row) if isinstance(row, dict) else {}
         tid = str(row_d.get("target_segment_id") or "").strip()
         if tid and tid in orientation_targets:
+            skip_code = "opening_orientation_owns_target"
+            skip_path = "opening_orientation"
+            try:
+                from interview_mux.opening_orientation import native_open_already_orients
+
+                if native_open_already_orients(ctx, _ordered_ids(ctx), target_segment_id=tid):
+                    skip_code = "episode_open_native_self_orients"
+                    skip_path = "native_self_orients"
+            except Exception:
+                pass
             stamp_typed_skip(
                 row_d,
-                reason_code=str(
-                    row_d.get("skip_reason_code") or "opening_orientation_owns_target"
-                ),
+                reason_code=str(row_d.get("skip_reason_code") or skip_code),
                 evidence_refs=[
                     f"target:{tid}",
                     "opening_orientation:owns_before_slot",
                 ],
-                compensating_path="opening_orientation",
+                compensating_path=skip_path,
                 revisit_if=["orientation_disabled", "opening_slot_freed"],
                 decision_confidence=0.95,
             )

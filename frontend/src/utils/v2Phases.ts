@@ -127,6 +127,7 @@ export const V2_PHASES: V2Phase[] = [
     description: "Master finalize and optional local episode package.",
     stages: [
       "master_finalize",
+      "master_transcript_build",
       "episode_meta_build",
       "episode_cover_prompt_craft",
       "podcast_encode_mp3",

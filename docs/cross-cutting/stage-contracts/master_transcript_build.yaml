@@ -1,0 +1,35 @@
+stage_id: master_transcript_build
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: master/transcript.json
+  schema: master_transcript.schema.json
+- path: master/transcript.vtt
+- path: master/transcript.txt
+inputs:
+  hard:
+  - path: master/master.wav
+    producer: master_finalize
+  - path: master/edl.json
+    producer: edl
+  soft:
+  - path: transcripts/index.json
+sufficiency:
+- path: cues
+  rule: min_rows
+  min_count: 0
+propagation:
+  invalidates_stages:
+  - episode_meta_build
+  - podcast_publish
+consumers:
+- podcast_publish
+remediation:
+  strategies:
+  - full_stage_rerun

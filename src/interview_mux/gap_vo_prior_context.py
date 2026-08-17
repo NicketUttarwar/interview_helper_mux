@@ -386,6 +386,15 @@ def _normalize_tok(tok: str) -> str:
     return (tok or "").lower().strip(".,!?;:\"'()[]")
 
 
+def opens_with_clause_continuer(text: str) -> bool:
+    """True when spoken text starts mid-clause (and/but/because/which/...)."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    first = _normalize_tok(stripped.split(None, 1)[0])
+    return first in _CONTINUER_OPEN_TOKENS
+
+
 def clause_continues_before(
     words: list[dict[str, Any]],
     start_ms: int,

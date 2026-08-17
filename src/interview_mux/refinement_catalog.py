@@ -112,6 +112,7 @@ _DEFAULT_BLACKLIST_STAGES = [
     "mmaudio_sfx",
     "mix",
     "master_finalize",
+    "master_transcript_build",
     "g1_vo_pickup",
     "vo_ingest",
 ]

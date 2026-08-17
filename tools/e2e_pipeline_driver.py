@@ -458,6 +458,7 @@ def build_steps(run_id: str) -> list[tuple[str, dict[str, Any]]]:
             "mix",
             "junction_snip_qa",
             "master_finalize",
+            "master_transcript_build",
             "episode_meta_build",
             "episode_cover_prompt_craft",
             "podcast_encode_mp3",

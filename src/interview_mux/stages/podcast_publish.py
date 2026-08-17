@@ -550,6 +550,22 @@ def run_podcast_publish(ctx: RunContext) -> None:
 
     chapters_doc = build_timed_chapters(ctx)
     ctx.write_json(f"publish/{files['chapters']}", chapters_doc)
+
+    transcript_name = str(files.get("transcript") or "transcript.vtt")
+    transcript_rel = f"publish/{transcript_name}"
+    transcript_dest = ctx.path(transcript_rel)
+    transcript_dest.parent.mkdir(parents=True, exist_ok=True)
+    master_vtt = None
+    if ctx.artifact_exists("master/transcript.vtt"):
+        master_vtt = ctx.read_path("master/transcript.vtt")
+    if master_vtt is None or not master_vtt.is_file():
+        from interview_mux.asset_transcripts import run_master_transcript_build
+
+        run_master_transcript_build(ctx)
+        master_vtt = ctx.read_path("master/transcript.vtt")
+    if not master_vtt.is_file() or master_vtt.stat().st_size < 1:
+        raise FileNotFoundError("master/transcript.vtt missing — cannot package Apple transcript")
+    shutil.copy2(master_vtt, transcript_dest)
     master_pub = ctx.path(f"publish/{files['master']}")
     if not master_pub.is_file():
         # Prefer encode's publish/master.wav copy; else master/master.wav.
@@ -564,7 +580,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
 
     require_cover_min_size(cover, min_px=1400)
 
-    for key in ("audio", "master", "cover", "chapters"):
+    for key in ("audio", "master", "cover", "chapters", "transcript"):
         rel = f"publish/{files[key]}"
         path = _existing_publish(rel)
         if not path.is_file() or path.stat().st_size < 1:
@@ -613,6 +629,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
                 "master": files["master"],
                 "cover": files["cover"],
                 "chapters": files["chapters"],
+                "transcript": files.get("transcript") or "transcript.vtt",
                 "meta": files["meta"],
                 "description": files["description"],
             },

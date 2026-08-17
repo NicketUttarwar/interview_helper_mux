@@ -128,6 +128,10 @@ class RunContext:
                     f"{rel}: schema validation failed — " + "; ".join(errors[:6])
                 )
             data = payload
+        if skip_handoff:
+            from interview_mux.write_staging import write_mirrored_json
+
+            return write_mirrored_json(self, rel, data)
         p = self.path(rel)
         fs_write_json(p, data)
         return p

@@ -26,6 +26,7 @@
               "mid_topic_continue",
               "mid_flow",
               "clean_turn",
+              "complete_thought_stay",
               "topic_shift",
               "speaker_change",
               "other",

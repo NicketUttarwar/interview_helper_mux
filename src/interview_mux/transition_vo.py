@@ -320,6 +320,12 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
             stage="edl",
             detail={"event": "transition_synth", "path": out.as_posix()},
         )
+        try:
+            from interview_mux.asset_transcripts import write_transition_sidecar_for_item
+
+            write_transition_sidecar_for_item(ctx, item, wav_path=out)
+        except Exception:
+            pass
     if writeback:
         ctx.write_json("master/transitions.json", doc)
     return results

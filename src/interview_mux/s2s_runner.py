@@ -349,6 +349,12 @@ def promote_synthesized_vo(ctx: RunContext, *, line_id: str, src: Path) -> Path 
             return None
         if dest.resolve() != normalized.resolve():
             dest.write_bytes(normalized.read_bytes())
+        try:
+            from interview_mux.asset_transcripts import write_vo_sidecar_from_pickup
+
+            write_vo_sidecar_from_pickup(ctx, line_id, wav_path=dest)
+        except Exception:
+            pass
         return dest
     except OSError:
         return None

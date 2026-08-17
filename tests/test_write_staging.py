@@ -410,3 +410,24 @@ def test_nested_staged_stage_commits_under_parent(
     flush_stage_writes(ctx, "boundary_topic_resplit")
     assert (ctx.run_dir / "segments" / "manifest.json").is_file()
     assert (ctx.run_dir / "segments" / "boundaries.json").is_file()
+
+
+def test_skip_handoff_commits_mmaudio_qa_through_flush(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QA must land on the committed tree even while mmaudio_sfx staging is active."""
+    ctx = _ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: False)
+    enter_stage_staging("mmaudio_sfx")
+    try:
+        ctx.write_json(
+            "sound_design/mmaudio_qa.json",
+            {"version": 1, "assets": []},
+            skip_handoff=True,
+            stage_key="mmaudio_sfx",
+        )
+    finally:
+        exit_stage_staging()
+    assert ctx.final_path("sound_design", "mmaudio_qa.json").is_file()
+    flush_stage_writes(ctx, "mmaudio_sfx")
+    assert ctx.final_path("sound_design", "mmaudio_qa.json").is_file()

@@ -6,6 +6,7 @@ Budget: at most one attempt per signature per run.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 RECOVERY_LOG_REL = "operator/recovery_actions.jsonl"
+FRAMING_VO_MAX_OBSERVATIONS = 3
 
 # Explicit consumer → producer for fingerprint restamp (never guess).
 FINGERPRINT_PRODUCER_BY_CONSUMER: dict[str, str] = {
@@ -49,6 +51,8 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         or "layup authority" in msg
     ):
         return "layup_coverage"
+    if stage == "edl" and "preceding framing vo" in msg:
+        return "framing_vo_unseated"
     if stage == "edl" and "targets_segment_id" in msg and "does not match gap_report" in msg:
         return "orientation_target_mismatch"
     if stage in {"edl", "mix", "junction_snip_qa", "master_finalize"} and (
@@ -109,6 +113,42 @@ def already_attempted(ctx: RunContext, signature: str) -> bool:
         if str(row.get("signature") or "") == signature:
             return True
     return False
+
+
+def vo_seats_fingerprint(ctx: RunContext) -> str:
+    try:
+        from interview_mux.air_script import load_air_script
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        script = load_air_script(load_plan_raw(ctx)) or {}
+        seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+        blob = json.dumps(seats, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        blob = ""
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _signature_hash_hits(ctx: RunContext, signature: str, vo_seats_hash: str) -> int:
+    n = 0
+    for row in _read_actions(ctx):
+        if str(row.get("signature") or "") != signature:
+            continue
+        if str(row.get("vo_seats_hash") or "") != vo_seats_hash:
+            continue
+        n += 1
+    return n
+
+
+def playbook_stamp_air_script_omits(ctx: RunContext) -> list[str]:
+    from interview_mux.air_script import persist_air_script_omits_on_gap_report
+
+    persist_air_script_omits_on_gap_report(ctx)
+    written: list[str] = []
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        written.append("mastering/mastering_plan.json")
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        written.append("understanding/gap_report.json")
+    return written
 
 
 def _result(
@@ -225,8 +265,31 @@ def playbook_mint_reorder_glue(ctx: RunContext) -> list[str]:
     if isinstance(transitions_doc, dict):
         ctx.write_json("master/transitions.json", transitions_doc)
         written.append("master/transitions.json")
+    waived: set[str] = set()
+    try:
+        from interview_mux.air_script import native_handoff_segment_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        waived = native_handoff_segment_ids(load_plan_raw(ctx))
+    except Exception:
+        waived = set()
     if isinstance(completeness, dict) and not completeness.get("complete"):
-        return []
+        leftover = []
+        for row in completeness.get("missing") or []:
+            if not isinstance(row, dict):
+                continue
+            dest = str(
+                row.get("before_segment_id")
+                or row.get("before_id")
+                or row.get("to")
+                or ""
+            )
+            if dest and dest not in waived:
+                leftover.append(dest)
+        if leftover:
+            return []
+        # Remaining incompleteness is native_handoff / air_breathe — dressed, not missing glue.
+        return written
     return written
 
 
@@ -246,7 +309,31 @@ def handle_stage_failure(
             detail="no_matching_playbook",
         )
     sig = signature_key(stage_id, error_class)
-    if already_attempted(ctx, sig):
+    vo_hash = ""
+    if error_class == "framing_vo_unseated":
+        vo_hash = vo_seats_fingerprint(ctx)
+        hits = _signature_hash_hits(ctx, sig, vo_hash)
+        if hits + 1 >= FRAMING_VO_MAX_OBSERVATIONS:
+            result = _result(
+                status="escalate",
+                playbook_id="identical_vo_seats_x3",
+                signature=sig,
+                resume_stage=stage_id,
+                detail="unchanged_vo_seats_hash",
+            )
+            _append_action(
+                ctx,
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "signature": sig,
+                    "playbook_id": result.playbook_id,
+                    "status": result.status,
+                    "detail": result.detail,
+                    "vo_seats_hash": vo_hash,
+                },
+            )
+            return result
+    elif already_attempted(ctx, sig):
         result = _result(
             status="escalate",
             playbook_id="budget_exhausted",
@@ -290,6 +377,11 @@ def handle_stage_failure(
             playbook_id = "orientation_retarget_open"
             artifacts = playbook_orientation_retarget(ctx)
             recovered = True
+        elif error_class == "framing_vo_unseated":
+            playbook_id = "stamp_air_script_omits"
+            artifacts = playbook_stamp_air_script_omits(ctx)
+            recovered = True
+            resume_stage = "edl"
         elif error_class == "naked_seam":
             playbook_id = "seam_mint_reorder"
             artifacts = playbook_mint_reorder_glue(ctx)
@@ -298,6 +390,7 @@ def handle_stage_failure(
             playbook_id = "ensure_mmaudio_qa"
             artifacts = playbook_ensure_mmaudio_qa(ctx)
             recovered = bool(artifacts)
+            resume_stage = "mmaudio_sfx"
         elif error_class == "episode_close_outro":
             playbook_id = "place_episode_close_cue"
             artifacts = playbook_place_episode_close(ctx)
@@ -339,6 +432,7 @@ def handle_stage_failure(
             "status": result.status,
             "artifacts": result.artifacts_written,
             "detail": result.detail,
+            **({"vo_seats_hash": vo_hash} if vo_hash else {}),
         },
     )
     return result

@@ -125,30 +125,41 @@ def _parent_ids_for_segment(
     return chapter_id, tp_id
 
 
-def _justified_skip_before_ids(ctx: RunContext) -> set[str]:
-    """Targets with typed justified layup skips — no spoken hinge required.
+def _glue_waive_reasons(ctx: RunContext) -> dict[str, str]:
+    """Dest segment_id → glue_waived reason.
 
-    Matches ``bridge_completeness`` / ``seam_glue``: clone adjacency, credits
-    outro, unhealable spoken copy, etc. carry a compensating path, so the
-    ledger must not demand VO/transition glue that authority deliberately omit.
+    Typed layup skips stamp ``justified_layup_skip``. Air-script
+    ``native_handoff`` / ``air_breathe`` overlay with those move names so
+    junction does not treat dressed Q→A joins as missing glue.
     """
+    reasons: dict[str, str] = {}
     try:
         from interview_mux.nugget_layup import PLAN_REL, is_justified_skip_row
     except Exception:
-        return set()
-    if not ctx.artifact_exists(PLAN_REL):
-        return set()
-    plan = ctx.read_json(PLAN_REL)
-    if not isinstance(plan, dict):
-        return set()
-    out: set[str] = set()
-    for row in plan.get("layups") or []:
-        if not isinstance(row, dict) or not row.get("skip"):
-            continue
-        tid = str(row.get("target_segment_id") or "").strip()
-        if tid and is_justified_skip_row(row, soft_migrate=True):
-            out.add(tid)
-    return out
+        PLAN_REL = ""
+        is_justified_skip_row = None  # type: ignore[assignment]
+    if PLAN_REL and ctx.artifact_exists(PLAN_REL):
+        plan = ctx.read_json(PLAN_REL)
+        if isinstance(plan, dict) and is_justified_skip_row is not None:
+            for row in plan.get("layups") or []:
+                if not isinstance(row, dict) or not row.get("skip"):
+                    continue
+                tid = str(row.get("target_segment_id") or "").strip()
+                if tid and is_justified_skip_row(row, soft_migrate=True):
+                    reasons[tid] = "justified_layup_skip"
+    try:
+        from interview_mux.air_script import native_handoff_waive_reasons
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        reasons.update(native_handoff_waive_reasons(load_plan_raw(ctx)))
+    except Exception:
+        pass
+    return reasons
+
+
+def _justified_skip_before_ids(ctx: RunContext) -> set[str]:
+    """Destinations whose spoken-glue demand is waived (layup skip or native handoff)."""
+    return set(_glue_waive_reasons(ctx))
 
 
 def _seam_index(
@@ -158,11 +169,15 @@ def _seam_index(
     bridges: dict[str, Any] | None,
     *,
     justified_skip_before_ids: set[str] | frozenset[str] | None = None,
+    glue_waive_reasons: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Index speech→speech joins and whether glue atoms sit between them."""
-    skip_before = {
-        str(x) for x in (justified_skip_before_ids or set()) if str(x).strip()
-    }
+    reasons = {str(k): str(v) for k, v in (glue_waive_reasons or {}).items() if k}
+    for sid in justified_skip_before_ids or set():
+        key = str(sid).strip()
+        if key:
+            reasons.setdefault(key, "justified_layup_skip")
+    skip_before = set(reasons)
     pair_meta = {}
     if isinstance(bridges, dict):
         for p in bridges.get("pairs") or []:
@@ -233,7 +248,7 @@ def _seam_index(
             "rebuilt_pair": bool(rebuilt),
         }
         if waived:
-            seam["glue_waived"] = "justified_layup_skip"
+            seam["glue_waived"] = reasons.get(b) or "justified_layup_skip"
         seams.append(seam)
     return seams
 
@@ -337,13 +352,15 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
     if ctx.artifact_exists("understanding/reorder_bridges.json"):
         bridges = ctx.read_json("understanding/reorder_bridges.json")
 
-    skip_before = _justified_skip_before_ids(ctx)
+    waive_reasons = _glue_waive_reasons(ctx)
+    skip_before = set(waive_reasons)
     seams = _seam_index(
         ordered,
         segments_by_id,
         clips_in,
         bridges if isinstance(bridges, dict) else None,
         justified_skip_before_ids=skip_before,
+        glue_waive_reasons=waive_reasons,
     )
     for seam in seams:
         a = seam["after_segment_id"]
@@ -365,9 +382,9 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
                     glue.append(atom["piece_id"])
         seam["glue_piece_ids"] = glue
         # Recompute naked after timeline glue scan; keep justified-skip waive.
-        if b in skip_before:
+        if b in waive_reasons:
             seam["requires_glue"] = False
-            seam["glue_waived"] = "justified_layup_skip"
+            seam["glue_waived"] = waive_reasons[b]
             seam["naked"] = False
         else:
             seam["naked"] = bool(seam.get("requires_glue") and not glue)

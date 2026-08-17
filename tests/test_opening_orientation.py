@@ -4,6 +4,7 @@ import json
 
 from interview_mux.opening_orientation import (
     SEQUENCE_COLD_OPEN,
+    SEQUENCE_NATIVE_OPEN,
     SEQUENCE_STRAIGHT,
     ensure_episode_orientation,
     validate_opening_orientation,
@@ -141,8 +142,8 @@ def test_orientation_repairs_generic_final_handoff_against_first_native(tmp_path
     assert any(a["action"] == "repair_episode_orientation_last_sentence" for a in actions)
 
 
-def test_orientation_repairs_intro_handoff_when_courtesy_seed_is_omitted(tmp_path) -> None:
-    """First native is a guest intro — stock courtesy seed is omitted by spoken_copy."""
+def test_orientation_omitted_when_native_hosts_already_intro(tmp_path) -> None:
+    """First native is a guest intro — synthetic preface is redundant."""
     ctx = isolated_run_ctx(tmp_path, "run_orientation_intro_handoff")
     first = (
         "Amr, we've got Mohan Uttarwar on the show today. Who is Mohan? "
@@ -185,11 +186,15 @@ def test_orientation_repairs_intro_handoff_when_courtesy_seed_is_omitted(tmp_pat
         },
         ["seg_002"],
     )
-    line = report["interviewer_lines"][0]
-    assert "Let's hear how it unfolded" not in line["text"]
-    assert line["text"].rstrip().endswith("?")
-    assert cold_open_layup_ok(line, target_text=first, ordered_ids=["seg_002"])
-    assert any(a["action"] == "repair_episode_orientation_last_sentence" for a in actions)
+    assert any(a.get("action") == "omit_episode_orientation" for a in actions)
+    assert not any(
+        ln.get("episode_orientation") for ln in report.get("interviewer_lines") or []
+    )
+    meta = report.get("opening_orientation") or {}
+    assert meta.get("omitted") is True
+    assert meta.get("required") is False
+    assert meta.get("sequence") == SEQUENCE_NATIVE_OPEN
+    assert validate_opening_orientation(gap_report=report, edl={"clips": []}) == []
 
 
 def test_opening_contract_accepts_both_sequences() -> None:
@@ -335,3 +340,97 @@ def test_orientation_omitted_when_native_open_self_orients(tmp_path) -> None:
     assert not any(
         ln.get("episode_orientation") for ln in report.get("interviewer_lines") or []
     )
+    meta = report.get("opening_orientation") or {}
+    assert meta.get("omitted") is True
+    assert meta.get("required") is False
+    assert meta.get("sequence") == SEQUENCE_NATIVE_OPEN
+
+
+def test_orientation_omitted_when_two_hosts_split_the_intro(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_omit_two_hosts")
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_a",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                    "text": (
+                        "Amr, we've got a special guest on the show today, "
+                        "and I want you to take this one."
+                    ),
+                    "start_ms": 0,
+                    "end_ms": 6000,
+                },
+                {
+                    "segment_id": "seg_b",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                    "text": (
+                        "Who is Mohan? Mohan is a biotech entrepreneur and "
+                        "the co-founder of OneCell.ai."
+                    ),
+                    "start_ms": 6000,
+                    "end_ms": 12000,
+                },
+                {
+                    "segment_id": "seg_c",
+                    "speaker_id": "spk_2",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                    "text": "Tissue biopsy is invasive and expensive.",
+                    "start_ms": 12000,
+                    "end_ms": 18000,
+                },
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx, {"interviewer_lines": []}, ["seg_a", "seg_b", "seg_c"]
+    )
+    assert any(a.get("action") == "omit_episode_orientation" for a in actions)
+    assert report["interviewer_lines"] == []
+    assert (report.get("opening_orientation") or {}).get("omitted") is True
+
+
+def test_opening_contract_accepts_omitted_native_intro() -> None:
+    report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_002",
+                "origin": "nugget_layup",
+                "text": "What should we listen for in the next beat?",
+                "targets_segment_id": "seg_002",
+                "placement": "before",
+            }
+        ],
+        "opening_orientation": {
+            "required": False,
+            "omitted": True,
+            "omit_reason": "native_open_self_orients",
+            "sequence": SEQUENCE_NATIVE_OPEN,
+            "target_segment_id": "seg_001",
+        },
+    }
+    edl = {
+        "clips": [
+            {
+                "type": "silence",
+                "air_kind": "opening_music",
+                "timeline_start_ms": 0,
+                "duration_ms": 8000,
+            },
+            {"type": "speech", "timeline_start_ms": 8000, "duration_ms": 5000},
+        ]
+    }
+    assert validate_opening_orientation(gap_report=report, edl=edl) == []

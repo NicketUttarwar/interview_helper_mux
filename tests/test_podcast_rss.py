@@ -111,6 +111,7 @@ def test_feed_xml_contains_itunes_and_enclosure():
                 "episode_number": 1,
                 "season": 1,
                 "chapters_url": "https://d111.cloudfront.net/episodes/0001/chapters.json",
+                "transcript_url": "https://d111.cloudfront.net/episodes/0001/transcript.vtt",
                 "link": "https://d111.cloudfront.net/episodes/0001/audio.mp3",
             }
         ],
@@ -125,6 +126,9 @@ def test_feed_xml_contains_itunes_and_enclosure():
     assert "<itunes:season>1</itunes:season>" in xml
     assert "podcast:guid" in xml
     assert "podcast:chapters" in xml
+    assert 'type="text/vtt"' in xml
+    assert "podcast:transcript" in xml
+    assert "transcript.vtt" in xml
     assert "nicketuttarwar.com" in xml
     assert "content:encoded" in xml
     assert "exec_1" in xml
@@ -136,6 +140,7 @@ def test_content_types():
     assert content_type_for_key("episodes/0001/cover.jpg") == "image/jpeg"
     assert content_type_for_key("episodes/0001/cover.png") == "image/png"
     assert content_type_for_key("episodes/0001/description.txt") == "text/plain; charset=utf-8"
+    assert content_type_for_key("episodes/0001/transcript.vtt") == "text/vtt; charset=utf-8"
     assert "max-age=0" in cache_control_for_key("feed.xml")
 
 
@@ -367,7 +372,7 @@ def test_vision_pick_brilliance_and_letter_disqualify(tmp_path: Path):
 def _write_ready_package(exec_dir: Path, *, title: str = "Ready Ep") -> Path:
     publish = exec_dir / "publish"
     publish.mkdir(parents=True, exist_ok=True)
-    for name in ("audio.mp3", "master.wav", "cover.jpg", "chapters.json"):
+    for name in ("audio.mp3", "master.wav", "cover.jpg", "chapters.json", "transcript.vtt"):
         (publish / name).write_bytes(b"x" * 64)
     (publish / "episode_meta.json").write_text(
         __import__("json").dumps({"title": title, "description": "desc"}),

@@ -71,6 +71,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | Validator | Artifact path | Wired on write? |
 |-----------|---------------|-----------------|
 | `validate_edl` | `master/edl.json` | Yes (`edl` + `write_json`) |
+| `validate_master_transcript` | `master/transcript.json` | Yes (`master_transcript_build` + `write_json`) |
+| `validate_asset_transcript` | `transcripts/{speech,vo,transition}/*.json` | Yes (`write_json` path glob) |
 | `validate_edl_narrative_audit` | `master/edl_narrative_audit.json` | Yes (`edl_narrative_audit` + `write_json`) |
 | `validate_source_acoustic_profile` | `understanding/source_acoustic_profile.json` | Yes |
 | `validate_analysis_state` | `understanding/analysis_state.json` | Yes |
