@@ -704,6 +704,18 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
 
         plan = artifacts.pop("gap_framing_plan", None)
         repaired, _ = repair_gap_report(c, artifacts)
+        from interview_mux.high_gap_vo import demote_uncovered_high_gaps, fill_uncovered_high_gaps
+
+        fill_applied: list[dict[str, Any]] = []
+        filled = fill_uncovered_high_gaps(
+            c, repaired, applied=fill_applied, origin="high_gap_vo_fill"
+        )
+        if filled:
+            c.log(
+                f"gap_framing_compose: filled {filled} uncovered high gap(s)",
+                level="info",
+                stage="gap_framing_compose",
+            )
         lines = repaired.get("interviewer_lines")
         if isinstance(lines, list):
             repaired["interviewer_lines"] = stamp_lines_prior_provenance(c, lines)
@@ -711,6 +723,13 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         persist_gap_framing_companion_artifacts(c, repaired)
         if isinstance(plan, dict):
             c.write_json("understanding/gap_framing_plan.json", plan)
+        demoted = demote_uncovered_high_gaps(c, gap_report=repaired)
+        if demoted:
+            c.log(
+                f"gap_framing_compose: demoted {demoted} uncovered high gap(s) after fill",
+                level="warning",
+                stage="gap_framing_compose",
+            )
         write_validated_artifact(
             c,
             "understanding/gap_report.json",

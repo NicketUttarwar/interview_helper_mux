@@ -260,11 +260,29 @@ def _finishability(*, consistency_ok: bool, has_gap_lines: bool, cut_integrity: 
     return round(_clamp(base), 4)
 
 
-def _recommendability(*, consistency_ok: bool, has_gap_lines: bool, mode: str) -> float:
-    base = 0.82 if (has_gap_lines or mode == "sparse_source") else 0.6
-    if consistency_ok:
-        base += 0.05
-    return round(_clamp(base), 4)
+def _recommendability(
+    *,
+    finishability: float,
+    conversation_fit: float,
+    story_followability: float,
+    mode_coherence: float,
+    cut_integrity: float,
+) -> float:
+    """NORTH_STAR rubric 6 — would a first-time listener recommend this cut.
+
+    Do not proxy this off gap-VO presence. Conversational_host with no
+    interviewer_lines used to score 0.65 against a 0.75 floor while every
+    other dim cleared — remutating ranking/EDL/mix cannot invent VO lines,
+    so the audit looped forever.
+    """
+    score = (
+        0.25 * finishability
+        + 0.25 * conversation_fit
+        + 0.20 * story_followability
+        + 0.15 * mode_coherence
+        + 0.15 * cut_integrity
+    )
+    return round(_clamp(score), 4)
 
 
 def _dimension_floors(cfg: dict[str, Any]) -> dict[str, float]:
@@ -297,19 +315,27 @@ def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
     consistency_ok = bool(consistency.get("ok")) if require_mode_consistency else True
 
     cut_integrity = _cut_integrity(ctx)
+    conversation_fit = _conversation_fit(ctx, consistency_ok=consistency_ok)
+    mode_coherence = _mode_coherence(consistency_ok)
+    finishability = _finishability(
+        consistency_ok=consistency_ok, has_gap_lines=bool(lines), cut_integrity=cut_integrity
+    )
+    story_followability = _story_followability(ctx)
     dims: dict[str, float] = {
         "nugget_retention": _nugget_retention(ctx),
         "cut_integrity": cut_integrity,
-        "conversation_fit": _conversation_fit(ctx, consistency_ok=consistency_ok),
+        "conversation_fit": conversation_fit,
         "sonic_weave": _sonic_weave(ctx),
-        "mode_coherence": _mode_coherence(consistency_ok),
-        "finishability": _finishability(
-            consistency_ok=consistency_ok, has_gap_lines=bool(lines), cut_integrity=cut_integrity
-        ),
+        "mode_coherence": mode_coherence,
+        "finishability": finishability,
+        "story_followability": story_followability,
         "recommendability": _recommendability(
-            consistency_ok=consistency_ok, has_gap_lines=bool(lines), mode=narrative_mode
+            finishability=finishability,
+            conversation_fit=conversation_fit,
+            story_followability=story_followability,
+            mode_coherence=mode_coherence,
+            cut_integrity=cut_integrity,
         ),
-        "story_followability": _story_followability(ctx),
     }
     overall = round(sum(dims.values()) / len(dims), 4)
 

@@ -917,7 +917,7 @@
         "max_block_chars": 48000
       }
     },
-    "_comment_connector_fuse": "Economy-LLM seam adjudication: fuse unfinished thoughts only; same-speaker complete ideas stay independent.",
+    "_comment_connector_fuse": "Economy-LLM seam adjudication: fuse unfinished thoughts only; same-speaker complete ideas stay independent. allow_cross_speaker_fuse=false blocks editorial cross-speaker fuses; incomplete-thought / hanging-setup fuses may still cross speakers.",
     "connector_fuse": {
       "enabled": true,
       "max_fuses_per_pass": 0,

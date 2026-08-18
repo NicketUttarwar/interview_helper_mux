@@ -21,6 +21,12 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 def run_topic_coverage(ctx: RunContext) -> None:
     from interview_mux.talking_points_authority import try_deterministic_coverage
     from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.coherence import maybe_run_coherence_analysis
+    from interview_mux.coherence.duration_gate import coherence_activated
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+
+    if coherence_activated(ctx) and not ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        maybe_run_coherence_analysis(ctx, phase="post_reanchor")
 
     det = try_deterministic_coverage(ctx)
     if det is not None:
@@ -285,7 +291,9 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         # LLM over-skip: under sparse_omit stamp remaining holes; never force-air.
         # Framing-needed may materialize skip rows from unlock/beat/nuggets.
         if not qc.get("ok") and any(
-            "layup_coverage" in str(e) or "min_layup_coverage" in str(e)
+            "layup_coverage" in str(e)
+            or "min_layup_coverage" in str(e)
+            or "open_must_keep" in str(e)
             for e in (qc.get("errors") or [])
         ):
             sparse_omit = False
@@ -331,6 +339,23 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                         level="warning",
                         stage="nugget_layup_compose",
                     )
+        if not qc.get("ok") and qc.get("open_must_keep_talking_point_ids"):
+            from interview_mux.nugget_layup import recover_open_must_keep_talking_points
+
+            doc, rec_notes = recover_open_must_keep_talking_points(c, doc)
+            if rec_notes:
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
+                doc = prepare_layup_plan_for_persist(c, doc)
+                persist_plan(c, doc)
+                report = publish_layup_plan_to_gap_report(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "recovered open must_keep talking points: "
+                    + "; ".join(str(n) for n in rec_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
         # After exhaustion: thinner grounded unlock may still pass grace floors;
         # fail-closed only when analysis minimum / canned / invent remain.
         assert_layup_qc_or_raise(c, qc)

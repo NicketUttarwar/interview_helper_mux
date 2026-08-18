@@ -56,10 +56,21 @@ def max_conductor_turns() -> int:
     return 3 * (len(ANALYSIS_ORDER) + len(DELIVERY_ORDER))
 
 
+def _identity_cap(identity: str, kind: str = "") -> int:
+    """Per-tool invoke cap. Conductor turns use max_conductor_turns, not the stage cap."""
+    if identity == "conductor_turn" or kind == "conductor_turn":
+        return max_conductor_turns()
+    return int(_cfg().get("max_invokes_per_identity") or MAX_INVOKES_PER_IDENTITY)
+
+
 def remaining(ctx: RunContext, identity: str) -> int:
     used = count_identity(ctx, identity)
-    cap = int(_cfg().get("max_invokes_per_identity") or MAX_INVOKES_PER_IDENTITY)
+    cap = _identity_cap(identity)
     return max(0, cap - used)
+
+
+def remaining_conductor_turns(ctx: RunContext) -> int:
+    return remaining(ctx, "conductor_turn")
 
 
 def check_dispatch(
@@ -72,10 +83,15 @@ def check_dispatch(
 ) -> None:
     """Refuse before side effects. Ledger is the source of counts."""
     limits = _cfg()
-    cap = int(limits.get("max_invokes_per_identity") or MAX_INVOKES_PER_IDENTITY)
+    cap = _identity_cap(identity, kind)
     used = count_identity(ctx, identity)
     if used >= cap:
-        _halt(ctx, identity, "max_invokes_per_identity", {"used": used, "cap": cap})
+        reason = (
+            "max_conductor_turns"
+            if identity == "conductor_turn" or kind == "conductor_turn"
+            else "max_invokes_per_identity"
+        )
+        _halt(ctx, identity, reason, {"used": used, "cap": cap})
     if packet_hash:
         from interview_mux.homunculus.ledger import has_packet_hash
 
@@ -91,10 +107,6 @@ def check_dispatch(
                 "max_problem_analyses_per_issue",
                 {"problem_id": problem_id, "used": analyses, "cap": once},
             )
-    turns = count_identity(ctx, "conductor_turn")
-    turn_cap = max_conductor_turns()
-    if kind == "conductor_turn" and turns >= turn_cap:
-        _halt(ctx, "conductor_turn", "max_conductor_turns", {"used": turns, "cap": turn_cap})
     if identity in {"mix", "master_finalize"}:
         mix_cap = int(limits.get("max_mix_cycles") or MAX_MIX_CYCLES)
         if used >= mix_cap:
@@ -154,9 +166,14 @@ def snapshot(ctx: RunContext) -> dict[str, Any]:
         if ident:
             identities[ident] = identities.get(ident, 0) + 1
     cap = int(_cfg().get("max_invokes_per_identity") or MAX_INVOKES_PER_IDENTITY)
+    turn_cap = max_conductor_turns()
+    remaining_map: dict[str, int] = {}
+    for k, v in identities.items():
+        ident_cap = turn_cap if k == "conductor_turn" else cap
+        remaining_map[k] = max(0, ident_cap - v)
     return {
         "max_invokes_per_identity": cap,
-        "max_conductor_turns": max_conductor_turns(),
+        "max_conductor_turns": turn_cap,
         "identities": identities,
-        "remaining": {k: max(0, cap - v) for k, v in identities.items()},
+        "remaining": remaining_map,
     }

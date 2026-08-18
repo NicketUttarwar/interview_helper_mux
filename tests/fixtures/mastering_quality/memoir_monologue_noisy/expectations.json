@@ -13,5 +13,13 @@
   ],
   "feasibility": {
     "cand_1": "pass"
+  },
+  "homunculus": {
+    "required_facts": ["source_card", "g0_transcript"],
+    "legal_skip": ["gap_framing_recompose", "vo_synthesize"],
+    "illegal_gate": {"category": "framing_consent", "action": "auto_resolve"},
+    "expected_implicated": [],
+    "framing_recommended": "skip",
+    "clone_policy": "least_spoken_host"
   }
 }

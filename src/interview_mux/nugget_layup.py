@@ -2482,6 +2482,102 @@ def normalize_layup_talking_point_ledger(
     return out
 
 
+def _talking_point_evidence_text(tp: dict[str, Any]) -> str:
+    parts = [str(tp.get("title") or ""), str(tp.get("why_it_matters") or "")]
+    for quote in tp.get("evidence_quotes") or []:
+        parts.append(str(quote or ""))
+    return " ".join(parts)
+
+
+def _text_covers_talking_point(text: str, tp: dict[str, Any]) -> bool:
+    hay = _norm(text).casefold()
+    if not hay:
+        return False
+    for quote in tp.get("evidence_quotes") or []:
+        qn = _norm(str(quote or "")).casefold()
+        if len(qn) >= 6 and qn in hay:
+            return True
+    title = _norm(str(tp.get("title") or "")).casefold()
+    if len(title) >= 8 and title in hay:
+        return True
+    return _overlap(_tokens(hay), _tokens(_talking_point_evidence_text(tp))) >= 0.35
+
+
+def recover_open_must_keep_talking_points(
+    ctx: RunContext,
+    plan: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Attach or discharge leftover must_keep talking points already on tape.
+
+    LLMs often leave must_keep ids open even when selected natives or existing
+    layup copy already carry the thesis. Attach the id onto a matching layup
+    row, or discharge when selected native text overlaps title/quotes. Do not
+    invent new VO.
+    """
+    out = dict(plan) if isinstance(plan, dict) else {}
+    out = normalize_layup_talking_point_ledger(ctx, out)
+    open_ids = [str(x) for x in (out.get("open_talking_point_ids") or []) if x]
+    if not open_ids:
+        return out, []
+    tp_by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("understanding/talking_points.json"):
+        tp_doc = ctx.read_json("understanding/talking_points.json")
+        for row in (tp_doc.get("talking_points") or []) if isinstance(tp_doc, dict) else []:
+            if not isinstance(row, dict):
+                continue
+            tpid = str(row.get("talking_point_id") or "")
+            if tpid:
+                tp_by_id[tpid] = row
+    layups = [r for r in (out.get("layups") or []) if isinstance(r, dict)]
+    ordered = [str(x) for x in (out.get("ordered_segment_ids") or _ordered_ids(ctx)) if x]
+    ordered_set = set(ordered)
+    segs_by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        man = ctx.read_json("segments/manifest.json")
+        if isinstance(man, dict):
+            for row in man.get("segments") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    segs_by_id[str(row["segment_id"])] = row
+    native_blob = " ".join(
+        str((segs_by_id.get(sid) or {}).get("text") or "") for sid in ordered
+    )
+    notes: list[str] = []
+    discharged = {str(x) for x in (out.get("discharged_talking_point_ids") or []) if x}
+    remaining: list[str] = []
+    for tpid in open_ids:
+        tp = tp_by_id.get(tpid) or {}
+        bound = {str(x) for x in (tp.get("segment_ids") or []) if x} & ordered_set
+        attached = False
+        for row in layups:
+            if row.get("skip"):
+                continue
+            tid = str(row.get("target_segment_id") or "")
+            blob = " ".join(
+                str(row.get(k) or "")
+                for k in ("text", "forward_unlock", "target_beat", "setup_from_nuggets")
+            )
+            if tid in bound or _text_covers_talking_point(blob, tp):
+                ids = [str(x) for x in (row.get("talking_point_ids") or []) if x]
+                if tpid not in ids:
+                    ids.append(tpid)
+                    row["talking_point_ids"] = ids
+                discharged.add(tpid)
+                attached = True
+                notes.append(f"attached:{tpid}:{tid or 'layup'}")
+                break
+        if attached:
+            continue
+        if bound or _text_covers_talking_point(native_blob, tp):
+            discharged.add(tpid)
+            notes.append(f"already_on_tape:{tpid}")
+            continue
+        remaining.append(tpid)
+    out["layups"] = layups
+    out["discharged_talking_point_ids"] = sorted(discharged)
+    out["open_talking_point_ids"] = remaining
+    return normalize_layup_talking_point_ledger(ctx, out), notes
+
+
 def evaluate_layup_qc(
     ctx: RunContext,
     plan: dict[str, Any] | None = None,

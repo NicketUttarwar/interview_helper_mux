@@ -342,3 +342,80 @@ def test_validate_framing_ignores_air_script_omitted_layup() -> None:
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert not any("preceding framing VO" in e for e in errors)
 
+
+def test_validate_air_script_native_handoff_does_not_require_transition_clip() -> None:
+    """exec_2058: air-script drops native_handoff pairs; QC must not still require the clip."""
+    ctx = RunContext("run_edl_air_script_native_handoff_tr", create=True)
+    _write_story_artifacts(ctx)
+    from interview_mux.mastering_plan_loader import forced_sparse_plan, write_plan
+
+    plan = forced_sparse_plan(reason="native_handoff_transition_qc")
+    plan["air_script"] = {
+        "version": 1,
+        "pass": "pass_b",
+        "beats": [
+            {"id": "b1", "segment_id": "seg_a", "montage_move": "vo_then_clip"},
+            {"id": "b2", "segment_id": "seg_b", "montage_move": "native_handoff"},
+            {"id": "b3", "segment_id": "seg_c", "montage_move": "native_handoff"},
+        ],
+        "omits": [],
+        "energy_curve": [],
+        "cold_open": {"kind": "none"},
+        "vo_seats": {
+            "seated_line_ids": [],
+            "omitted_line_ids": [],
+            "orientation_id": None,
+        },
+    }
+    write_plan(ctx, plan)
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "transition"]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("missing transition clip" in e for e in errors)
+
+
+def test_validate_vo_pickup_satisfies_planned_transition() -> None:
+    """One host turn per seam: VO on the hinge fulfills transitions.json."""
+    ctx = RunContext("run_edl_vo_satisfies_transition", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": "Already covered by the before-VO.",
+                    "type": "chapter",
+                }
+            ]
+        },
+    )
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "transition"]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("missing transition clip" in e for e in errors)
+
+
+def test_validate_transition_after_incomplete_thought_fails() -> None:
+    ctx = RunContext("run_edl_illegal_hinge_vo", create=True)
+    _write_story_artifacts(ctx)
+    hanging = "So early prediction of a reoccurrence, if I could do through cell biopsy."
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a", start_ms=0, end_ms=1000, text="Complete setup."),
+            minimal_manifest_segment("seg_b", start_ms=1000, end_ms=2000, text=hanging),
+            minimal_manifest_segment("seg_c", start_ms=2000, end_ms=3000, text="Complete payoff."),
+        ),
+    )
+    words = []
+    t = 1000
+    for tok in hanging.split():
+        words.append({"text": tok, "start_ms": t, "end_ms": t + 80, "speaker_id": "spk_0"})
+        t += 90
+    ctx.write_json("transcript/full.json", {"words": words})
+    edl = _good_edl()
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("incomplete thought" in e for e in errors)
+

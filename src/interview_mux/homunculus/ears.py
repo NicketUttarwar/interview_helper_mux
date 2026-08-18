@@ -5,7 +5,91 @@ from __future__ import annotations
 from typing import Any
 
 from interview_mux.homunculus.issues import emit_issue, ingest_catch
+from interview_mux.homunculus.source_card import wav_duration_s
 from interview_mux.run_context import RunContext
+
+
+def resolve_ears_wav_rel(ctx: RunContext, rel: str | None = None) -> str:
+    """Prefer master.wav; fall back to assembly.wav when the master is not written yet."""
+    requested = str(rel or "").strip()
+    if requested and ctx.artifact_exists(requested):
+        return requested
+    if ctx.artifact_exists("master/master.wav"):
+        return "master/master.wav"
+    if ctx.artifact_exists("master/assembly.wav"):
+        return "master/assembly.wav"
+    return requested or "master/master.wav"
+
+
+def _duration_ms(ctx: RunContext, rel: str) -> int:
+    path = ctx.path(rel)
+    if path.is_file():
+        sec = wav_duration_s(path)
+        if sec and sec > 0:
+            return int(sec * 1000)
+    try:
+        from interview_mux.interview_duration_policy import transcript_duration_ms
+
+        ms = int(transcript_duration_ms(ctx) or 0)
+        if ms > 0:
+            return ms
+    except Exception:
+        pass
+    return 0
+
+
+def _speaker_hinge_ms(ctx: RunContext, duration_ms: int) -> tuple[int, int] | None:
+    for rel in ("transcript/full.json", "ingest/transcript.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        blob = ctx.read_json(rel)
+        words = (blob.get("words") if isinstance(blob, dict) else None) or []
+        prev = None
+        for w in words:
+            if not isinstance(w, dict):
+                continue
+            sp = str(w.get("speaker") or w.get("speaker_id") or "")
+            start = int(w.get("start_ms") or w.get("start") or 0)
+            if prev and sp and sp != prev and 0 < start < duration_ms:
+                end = min(duration_ms, start + max(8000, int(duration_ms * 0.08)))
+                return (max(0, start - 2000), end)
+            if sp:
+                prev = sp
+        break
+    return None
+
+
+def plan_ear_windows(ctx: RunContext, duration_ms: int) -> tuple[tuple[str, int, int], ...]:
+    """Source-relative QC windows. Short tapes: one window. Never invent past EOF."""
+    if duration_ms <= 0:
+        return (("opening", 0, 8000),)
+    if duration_ms < 20_000:
+        return (("full", 0, duration_ms),)
+    open_end = max(4000, int(duration_ms * 0.08))
+    close_start = max(open_end, int(duration_ms * 0.92))
+    panel = False
+    try:
+        from interview_mux.homunculus.source_card import read_source_card
+
+        card = read_source_card(ctx) or {}
+        circ = [str(x).lower() for x in (card.get("circumstances") or [])]
+        panel = "panel" in circ or "panel" in str(card.get("topology") or "").lower()
+    except Exception:
+        panel = False
+    mid: tuple[str, int, int]
+    if panel:
+        hinge = _speaker_hinge_ms(ctx, duration_ms)
+        if hinge:
+            mid = ("hinge", hinge[0], hinge[1])
+        else:
+            mid = ("dense", int(duration_ms * 0.40), min(duration_ms, int(duration_ms * 0.50)))
+    else:
+        mid = ("dense", int(duration_ms * 0.40), min(duration_ms, int(duration_ms * 0.50)))
+    return (
+        ("opening", 0, min(duration_ms, open_end)),
+        mid,
+        ("closing", close_start, duration_ms),
+    )
 
 
 def stt_window(
@@ -30,7 +114,9 @@ def stt_window(
     }
     heard = ""
     try:
-        heard = _hear_slice(ctx, rel, start_ms, end_ms)
+        resolved = resolve_ears_wav_rel(ctx, rel)
+        comparison["rel"] = resolved
+        heard = _hear_slice(ctx, resolved, start_ms, end_ms)
     except Exception as exc:
         comparison["fail_open"] = True
         comparison["fail_open_reason"] = f"{type(exc).__name__}: {exc}"[:240]
@@ -63,11 +149,8 @@ def hear_master_windows(ctx: RunContext) -> dict[str, Any]:
         if isinstance(blob, dict):
             intended = str(blob.get("text") or "")[:4000]
             break
-    windows = (
-        ("opening", 0, 20000),
-        ("dense", 30000, 60000),
-        ("hinge", 90000, 110000),
-    )
+    wav_rel = resolve_ears_wav_rel(ctx)
+    windows = plan_ear_windows(ctx, _duration_ms(ctx, wav_rel))
     packets = []
     fail_open = False
     reason = ""
@@ -75,6 +158,7 @@ def hear_master_windows(ctx: RunContext) -> dict[str, Any]:
         row = stt_window(
             ctx,
             window_id=wid,
+            rel=wav_rel,
             start_ms=start,
             end_ms=end,
             intended_text=intended[:800],

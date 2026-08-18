@@ -108,6 +108,29 @@ def latest_run() -> str | None:
     return execs[0].name if execs else None
 
 
+def remutate_exhausted(run_id: str) -> bool:
+    """Do not relaunch when listen-delight remutate already exhausted (loop halt)."""
+    path = ASSETS / "executions" / run_id / "mastering" / "listen_delight_remutate.json"
+    if not path.is_file():
+        pending = (
+            ASSETS
+            / "executions"
+            / run_id
+            / ".pending_writes"
+            / "listen_delight_audit"
+            / "mastering"
+            / "listen_delight_remutate.json"
+        )
+        path = pending if pending.is_file() else path
+    if not path.is_file():
+        return False
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(isinstance(doc, dict) and doc.get("exhausted"))
+
+
 def pipeline_complete(run_id: str) -> bool:
     root = ASSETS / "executions" / run_id
     master = root / "master" / "master.wav"
@@ -203,6 +226,24 @@ def main() -> None:
             launch("server")
             time.sleep(3)
         if not e2e_alive():
+            halt_id = pointed or run_id
+            if halt_id and remutate_exhausted(halt_id):
+                write_status(halt_id)
+                log(
+                    f"STOP: listen_delight remutate exhausted — not relaunching run={halt_id}"
+                )
+                try:
+                    from full_auto_daemon_launch import shutdown_full_auto_stack
+
+                    info = shutdown_full_auto_stack(
+                        kill_keepalive=False,
+                        kill_server=not _keep_gui_server(),
+                        exclude_pid=os.getpid(),
+                    )
+                    log(f"stack shutdown: {info}")
+                except Exception as exc:
+                    log(f"stack shutdown failed: {exc}")
+                return
             if pointed and not pipeline_complete(pointed):
                 log(f"e2e down — resume {pointed}")
                 launch("e2e", "--run-id", pointed)

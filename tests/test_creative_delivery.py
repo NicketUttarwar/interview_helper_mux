@@ -52,6 +52,43 @@ def test_hydrate_cue_segments_from_cue_ids(tmp_path, monkeypatch):
     assert actions
 
 
+def test_hydrate_copies_under_segment_id_and_first_selected(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "run_hydrate_under")
+    seed_analysis_ready_artifacts(ctx)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001", "seg_002"]},
+        skip_handoff=True,
+    )
+    sdp = sound_design_plan_with(
+        assets=[{"asset_id": "bed_open", "role": "ambient_bed", "duration_seconds": 8}],
+        flow_plans={
+            "podcast": {
+                "profile": "podcast",
+                "cues": [
+                    {
+                        "cue_id": "bed_open_act",
+                        "asset_id": "bed_open",
+                        "placement": "under_segment",
+                        "under_segment_id": "seg_002",
+                    },
+                    {
+                        "cue_id": "bed_fallback",
+                        "asset_id": "bed_open",
+                        "placement": "under_segment",
+                    },
+                ],
+            }
+        },
+    )
+    actions = hydrate_flow_cue_segments(ctx, sdp)
+    cues = {c["cue_id"]: c for c in sdp["flow_plans"]["podcast"]["cues"]}
+    assert cues["bed_open_act"]["segment_id"] == "seg_002"
+    assert cues["bed_fallback"]["segment_id"] == "seg_001"
+    assert actions
+
+
 def test_validate_creative_density_requires_assets_and_cues(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_creative_density")

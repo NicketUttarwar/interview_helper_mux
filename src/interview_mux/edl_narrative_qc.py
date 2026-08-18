@@ -26,6 +26,96 @@ def _id_list(values: Any) -> list[str]:
     return out
 
 
+def _speech_clip_by_id(edl: dict[str, Any], segment_id: str) -> dict[str, Any] | None:
+    sid = _as_id(segment_id)
+    if not sid:
+        return None
+    for clip in edl.get("clips") or []:
+        if (
+            isinstance(clip, dict)
+            and clip.get("type") == "speech"
+            and _as_id(clip.get("segment_id")) == sid
+        ):
+            return clip
+    return None
+
+
+def _end_text_for_clip(
+    clip: dict[str, Any],
+    words: list[dict[str, Any]],
+    segments: dict[str, Any],
+) -> tuple[str, int | None]:
+    end_ms = clip.get("source_end_ms")
+    try:
+        end_ms_i = int(end_ms) if end_ms is not None else None
+    except (TypeError, ValueError):
+        end_ms_i = None
+    sid = _as_id(clip.get("segment_id"))
+    text = ""
+    if words and end_ms_i is not None:
+        toks = [
+            str(w.get("text") or "").strip()
+            for w in words
+            if isinstance(w, dict)
+            and int(w.get("end_ms") or 0) <= end_ms_i + 20
+            and int(w.get("end_ms") or 0) >= end_ms_i - 12_000
+        ]
+        text = " ".join(t for t in toks[-24:] if t)
+    if not text and sid and isinstance(segments.get(sid), dict):
+        text = str((segments.get(sid) or {}).get("text") or "")
+    return text, end_ms_i
+
+
+def _validate_vo_after_legal_hinge(
+    ctx: Any,
+    edl: dict[str, Any],
+    errors: list[str],
+) -> None:
+    """Refuse transition / vo_pickup after a hanging native close."""
+    from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+    words: list[dict[str, Any]] = []
+    if ctx.artifact_exists("transcript/full.json"):
+        try:
+            doc = ctx.read_json("transcript/full.json")
+            raw = (doc or {}).get("words") if isinstance(doc, dict) else None
+            if isinstance(raw, list):
+                words = [w for w in raw if isinstance(w, dict)]
+        except Exception:
+            words = []
+    segments: dict[str, Any] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        try:
+            man = ctx.read_json("segments/manifest.json")
+            for row in (man or {}).get("segments") or []:
+                if isinstance(row, dict) and row.get("segment_id"):
+                    segments[str(row["segment_id"])] = row
+        except Exception:
+            segments = {}
+
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        ctype = str(clip.get("type") or "")
+        if ctype not in {"transition", "vo_pickup"}:
+            continue
+        after = _as_id(clip.get("after_segment_id"))
+        if not after:
+            continue
+        speech = _speech_clip_by_id(edl, after)
+        if speech is None:
+            continue
+        text, end_ms = _end_text_for_clip(speech, words, segments)
+        if not text:
+            continue
+        if is_legal_conceptual_hinge(text, words=words or None, end_ms=end_ms):
+            continue
+        errors.append(
+            f'master/edl.json: {ctype} after "{after}" lands on an incomplete thought. '
+            "Fuse or recut to a complete-thought hinge before inserting VO."
+        )
+
+
 def _speech_order(edl: dict[str, Any]) -> list[str]:
     clips = edl.get("clips") or []
     if not isinstance(clips, list):
@@ -207,6 +297,59 @@ def _validate_ordering_constraints(
             )
 
 
+def _seam_has_host_turn(edl: dict[str, Any], after: str, before: str) -> bool:
+    """True when a vo_pickup (or transition) already sits between two speech clips."""
+    seeing = False
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        ctype = str(clip.get("type") or "")
+        if ctype == "speech" and _as_id(clip.get("segment_id")) == after:
+            seeing = True
+            continue
+        if not seeing:
+            continue
+        if ctype == "speech" and _as_id(clip.get("segment_id")) == before:
+            return False
+        if ctype in {"transition", "vo_pickup"}:
+            return True
+    return False
+
+
+def _effective_transitions_for_edl(
+    ctx: RunContext,
+    transitions: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Align QC with the EDL builder: air-script filter + framing-VO dedupe.
+
+    exec_2058 looped because filter_transitions_for_air_script dropped a
+    native_handoff pair while QC still required that clip from disk.
+    """
+    doc = transitions if isinstance(transitions, dict) else None
+    try:
+        from interview_mux.air_script import filter_transitions_for_air_script
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        filtered = filter_transitions_for_air_script(doc, load_plan_raw(ctx))
+        if filtered is not None:
+            doc = filtered
+    except Exception:
+        pass
+    try:
+        from interview_mux.gap_framing import dedupe_transitions_for_framing
+
+        gap = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
+        )
+        if isinstance(doc, dict):
+            doc = dedupe_transitions_for_framing(gap, doc)
+    except Exception:
+        pass
+    return doc
+
+
 def _validate_transitions(
     transitions: dict[str, Any] | None,
     edl: dict[str, Any],
@@ -222,6 +365,8 @@ def _validate_transitions(
             continue
         pair = (after, before)
         if pair in adjacency and pair not in edl_transition_pairs:
+            if _seam_has_host_turn(edl, after, before):
+                continue
             errors.append(
                 f'master/edl.json: missing transition clip between "{after}" '
                 f'and "{before}" from transitions.json. Re-run edl.'
@@ -689,6 +834,7 @@ def validate_flow1_edl_narrative(
         if ctx.artifact_exists("master/transitions.json")
         else None
     )
+    transitions = _effective_transitions_for_edl(ctx, transitions)
     speech = _speech_order(edl)
     if not speech:
         return ["master/edl.json: no speech clips available for narrative validation"]
@@ -698,6 +844,7 @@ def validate_flow1_edl_narrative(
     _validate_chapter_continuity(selection, speech, errors)
     _validate_ordering_constraints(narrative_plan, speech, errors)
     _validate_transitions(transitions, edl, speech, errors)
+    _validate_vo_after_legal_hinge(ctx, edl, errors)
     _validate_gap_placements(ctx, edl, speech, errors)
     _validate_clone_voice_adjacency(ctx, edl, selection, errors)
     _validate_framing_before_impact(ctx, edl, speech, errors)

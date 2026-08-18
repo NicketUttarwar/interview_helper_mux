@@ -101,6 +101,19 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
         exhausted = ctx.read_json("mastering/homunculus/limit_exhausted.json")
     from interview_mux.homunculus.gates import category_status
 
+    kb_lessons = 0
+    last_implicated: list[Any] = []
+    musicgen: dict[str, Any] = {}
+    try:
+        from interview_mux.homunculus.kb import lessons, read_kb
+
+        rows = lessons(ctx)
+        kb_lessons = len(rows)
+        if rows:
+            last_implicated = list((rows[-1] or {}).get("implicated_groups") or [])
+        musicgen = dict(read_kb(ctx).get("musicgen") or {})
+    except Exception:
+        pass
     return {
         "homunculus_version": homunculus_version(ctx),
         "active": is_homunculus_run(ctx),
@@ -113,4 +126,7 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
         "ledger_len": len(read_ledger(ctx)),
         "limit_exhausted": exhausted,
         "gates": category_status(ctx),
+        "kb_lessons": kb_lessons,
+        "last_implicated": last_implicated,
+        "musicgen": musicgen,
     }

@@ -161,7 +161,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.connector_fuse.uncertain_confidence_floor` | adjudicate | Default **0.55** — below this, complete-thought fuses are refused |
 | `analysis.connector_fuse.tail_words` / `head_words` / `llm_batch_size` | seam packets | Defaults **16** / **16** / **16** |
 | `analysis.connector_fuse.close_excerpt_max_chars` | seam packets | Default **480** — earlier close shown to the seam LLM |
-| `analysis.connector_fuse.allow_cross_speaker_fuse` | adjudicate | Default **false** |
+| `analysis.connector_fuse.allow_cross_speaker_fuse` | adjudicate | Default **false** for editorial same-topic fuses. Incomplete-thought / hanging-setup fuses may still cross speakers on a tight gap. |
 | `analysis.connector_fuse.llm_tier` | `connector_seam_adjudicate` | Default **economy** |
 | `analysis.connector_fuse.max_seam_gap_ms` | seam short-circuit / apply | Default **8000**; large gaps stay independent unless island-straddle / high-value force |
 | `analysis.connector_fuse.same_topic_score_floor` | apply fuse / high-value neighbor | Default **0.15**; refuse fuse when declared topics barely overlap (high-value force bypasses) |
@@ -1019,7 +1019,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.homunculus.mode` | `authoritative` | 0.1.0+ conductor authority (`advisory` debug) | Unused on 0.0.0 |
 | `mastering.homunculus.conductor_model` | `gpt-4o` | OpenAI model for the 0.1.0 tool loop | Nested stage LLMs still use the model registry |
 | `mastering.homunculus.limits.max_invokes_per_identity` | `3` | Hard cap per stage/function (repack counts) | Conductor cannot raise |
-| `mastering.homunculus.limits.max_problem_analyses_per_issue` | `1` | One analysis per problem signature | Repack does not grant a second analysis |
+| `mastering.homunculus.limits.max_problem_analyses_per_issue` | `1` | One analysis per `(kind, implicated, speaker_id)` signature | A different speaker or style tag is a new signature |
 | `mastering.homunculus.limits.max_complete_masters` | `3` | First master + at most two rebuilds | Halt `limit_exhausted` |
 | `mastering.homunculus.limits.max_mix_cycles` | `3` | Mix / master_finalize cap | Halt `limit_exhausted` |
 | `mastering.homunculus.limits.max_conductor_turns` | `195` | `3 × 65` global backstop | Halt `limit_exhausted` |

@@ -242,6 +242,125 @@ def _best_complete_thought_split(
     return best[1] if best else None
 
 
+def _all_complete_thought_split_points(
+    words: list[dict[str, Any]],
+    *,
+    start_ms: int,
+    end_ms: int,
+    pause_split_ms: int,
+    min_ms: int,
+) -> list[int]:
+    """Every legal complete-thought hinge in-span (not midpoints)."""
+    from interview_mux.gap_vo_prior_context import (
+        ends_complete_thought,
+        is_legal_conceptual_hinge,
+    )
+
+    span_words = _words_in_span(words, start_ms, end_ms)
+    if len(span_words) < 2:
+        return []
+    points: list[int] = []
+    for i in range(len(span_words) - 1):
+        prev = span_words[i]
+        nxt = span_words[i + 1]
+        gap = int(nxt["start_ms"]) - int(prev["end_ms"])
+        if gap < pause_split_ms:
+            continue
+        split_at = int(nxt["start_ms"])
+        if split_at <= start_ms + min_ms or split_at >= end_ms - min_ms:
+            continue
+        toks = [
+            str(w.get("text") or "").strip()
+            for w in span_words[: i + 1]
+            if str(w.get("text") or "").strip()
+        ]
+        text = " ".join(toks)
+        if not text:
+            continue
+        if not ends_complete_thought(text, next_pause_ms=gap):
+            continue
+        if not is_legal_conceptual_hinge(
+            text, words=span_words, end_ms=int(prev["end_ms"]), next_pause_ms=gap
+        ):
+            continue
+        points.append(split_at)
+    return points
+
+
+def split_complete_thought_hinges(
+    rows: list[dict[str, Any]],
+    transcript: dict[str, Any] | None,
+    *,
+    cfg: dict[str, Any] | None = None,
+    topic_split_times: list[int] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split each row at every legal complete-thought hinge, plus topic snaps."""
+    sc = _seg_cfg(cfg)
+    min_ms = int(sc.get("min_segment_duration_ms") or 4000)
+    pause_ms = int(
+        ((merged_config().get("analysis") or {}).get("prompt_thresholds") or {}).get(
+            "pause_split_ms"
+        )
+        or 1000
+    )
+    words = _words_from_transcript(transcript)
+    if not words:
+        return [dict(r) for r in rows], []
+    topic_times = sorted(int(t) for t in (topic_split_times or []) if t is not None)
+
+    applied: list[dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("start_ms") is None or row.get("end_ms") is None:
+            result.append(dict(row) if isinstance(row, dict) else row)
+            continue
+        start = int(row["start_ms"])
+        end = int(row["end_ms"])
+        points = _all_complete_thought_split_points(
+            words,
+            start_ms=start,
+            end_ms=end,
+            pause_split_ms=pause_ms,
+            min_ms=min_ms,
+        )
+        for target in topic_times:
+            if not (start + min_ms < target < end - min_ms):
+                continue
+            if any(abs(p - target) < 250 for p in points):
+                continue
+            snapped = _best_complete_thought_split(
+                words,
+                start_ms=start,
+                end_ms=end,
+                pause_split_ms=pause_ms,
+                target_ms=target,
+                min_ms=min_ms,
+            )
+            if snapped is not None and snapped not in points:
+                points.append(snapped)
+        points = sorted(set(points))
+        filtered: list[int] = []
+        cursor = start
+        for point in points:
+            if point - cursor >= min_ms and end - point >= min_ms:
+                filtered.append(point)
+                cursor = point
+        if not filtered:
+            result.append(dict(row))
+            continue
+        pieces = _split_row_at_points(row, filtered, reason="complete_thought")
+        if len(pieces) > 1:
+            applied.append(
+                {
+                    "action": "split_complete_thought",
+                    "splits": len(pieces) - 1,
+                    "segment_id": row.get("segment_id"),
+                }
+            )
+        result.extend(pieces)
+    return result, applied
+
+
 def enforce_max_segment_duration(
     rows: list[dict[str, Any]],
     transcript: dict[str, Any] | None,
@@ -410,6 +529,15 @@ def enrich_boundary_rows(
     current = bc_rows
 
     topic_times = topic_split_times_from_brief(content_brief, manifest)
+    hinge_rows, hinge_actions = split_complete_thought_hinges(
+        current,
+        transcript,
+        cfg=cfg,
+        topic_split_times=topic_times,
+    )
+    applied.extend(hinge_actions)
+    current = hinge_rows
+
     dur_rows, dur_actions = enforce_max_segment_duration(
         current,
         transcript,

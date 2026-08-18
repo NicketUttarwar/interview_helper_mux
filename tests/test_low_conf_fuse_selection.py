@@ -751,3 +751,71 @@ def test_fused_member_cap_skips_editorial_glue(tmp_path: Path):
     result = apply_connector_fuses(ctx, verdicts, pass_id="members", cfg=cfg)
     assert result["applied"] == 0
     assert any(row.get("reason") == "fused_member_cap" for row in result["skipped"])
+
+
+def test_cross_speaker_hanging_setup_fuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    ctx = _FakeCtx(tmp_path)
+    hanging = "So early prediction of a reoccurrence, if I could do through cell biopsy."
+    complete = "Okay. Then I think we have conquered the big thing."
+    segs = [
+        _seg("seg_031", 0, 5000, hanging, speaker_id="spk_0"),
+        _seg("seg_032", 5700, 12000, complete, speaker_id="spk_1"),
+    ]
+    words = []
+    t = 0
+    for tok in hanging.split():
+        words.append(_w(tok, t, 0.9, dur=180))
+        t += 200
+    cut = words[-1]["end_ms"]
+    segs[0]["end_ms"] = cut
+    t = cut + 700
+    for tok in complete.split():
+        words.append(_w(tok, t, 0.9, dur=180))
+        t += 200
+    segs[1]["start_ms"] = cut + 700
+    segs[1]["end_ms"] = t
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(s) for s in segs]})
+    ctx.write_json("transcript/full.json", {"words": words})
+    monkeypatch.setattr("interview_mux.segment_fuse._llm_adjudicate_batch", lambda *a, **k: None)
+    packets = enumerate_seam_packets(ctx)["packets"]
+    assert packets
+    hints = packets[0]["deterministic_hints"]
+    assert packets[0]["same_speaker"] is False
+    assert hints.get("hanging_setup_end") is True
+    verdicts = adjudicate_seams(ctx, packets)
+    assert verdicts[0]["decision"] == "fuse"
+    assert verdicts[0]["reason_code"] in {"cross_speaker_completion", "mid_sentence_continue"}
+    applied = apply_connector_fuses(ctx, verdicts, pass_id="hang_fuse")
+    assert applied["applied"] == 1
+    ids = [s["segment_id"] for s in ctx.read_json("segments/manifest.json")["segments"]]
+    assert ids == ["seg_031"]
+
+
+def test_finished_cross_speaker_turn_stays_independent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    ctx = _FakeCtx(tmp_path)
+    segs = [
+        _seg("a", 0, 2000, "The company shipped the snack bar in June.", speaker_id="spk_0"),
+        _seg("b", 4000, 7000, "What happened after that launch?", speaker_id="spk_1"),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("segments/boundaries.json", {"boundaries": [dict(s) for s in segs]})
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "words": [
+                *[_w(t, i * 200, 0.95) for i, t in enumerate("The company shipped the snack bar in June.".split())],
+                *[
+                    _w(t, 4000 + i * 200, 0.95)
+                    for i, t in enumerate("What happened after that launch?".split())
+                ],
+            ]
+        },
+    )
+    monkeypatch.setattr("interview_mux.segment_fuse._llm_adjudicate_batch", lambda *a, **k: None)
+    packets = enumerate_seam_packets(ctx)["packets"]
+    assert packets[0]["same_speaker"] is False
+    assert packets[0]["deterministic_hints"].get("hanging_setup_end") is False
+    verdicts = adjudicate_seams(ctx, packets)
+    assert verdicts[0]["decision"] == "stay_independent"
+    assert verdicts[0]["reason_code"] == "speaker_change"

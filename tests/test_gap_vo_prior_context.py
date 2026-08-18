@@ -320,3 +320,35 @@ def test_vo_value_gate_flags_restate_and_missing_rationale() -> None:
     assert any("restates next clip" in e for e in errs)
     assert any("missing rationale" in e for e in errs)
     assert not any("vo_good" in e for e in errs)
+
+
+def test_stt_period_on_fragment_is_hanging_setup() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        ends_complete_thought,
+        ends_hanging_setup,
+        is_legal_conceptual_hinge,
+    )
+
+    hanging = (
+        "So early prediction of a reoccurrence, if I could do through cell biopsy."
+    )
+    complete = "Okay. Then I think we have conquered the big thing."
+    assert ends_hanging_setup(hanging)
+    assert not ends_complete_thought(hanging)
+    assert not is_legal_conceptual_hinge(hanging, next_pause_ms=700)
+    assert not ends_hanging_setup(complete)
+    assert ends_complete_thought(complete)
+
+    words = []
+    t = 0
+    for tok in hanging.split():
+        words.append({"text": tok, "speaker_id": "spk_0", "start_ms": t, "end_ms": t + 180})
+        t += 200
+    cut = words[-1]["end_ms"]
+    t = cut + 700
+    for tok in complete.split():
+        words.append({"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 180})
+        t += 200
+    assert clause_continues_after(words, cut)
+    assert not is_legal_conceptual_hinge(hanging, words=words, end_ms=cut, next_pause_ms=700)

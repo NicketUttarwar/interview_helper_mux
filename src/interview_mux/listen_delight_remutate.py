@@ -22,7 +22,8 @@ _DIM_STAGES: dict[str, list[str]] = {
     "sonic_weave": ["sound_design_plan", "mix", "listen_delight_audit"],
     "mode_coherence": ["gap_framing_compose", "edl", "mix", "listen_delight_audit"],
     "finishability": ["full_master_ranking", "edl", "mix", "listen_delight_audit"],
-    "recommendability": ["full_master_ranking", "edl", "mix", "listen_delight_audit"],
+    # recommendability is a composite of other dims. Ranking/EDL/mix remutate
+    # cannot raise it independently (exec_1970 looped 70+ attempts).
 }
 
 
@@ -37,7 +38,10 @@ def plan_listen_delight_remutate(
     attempt = int((prior or {}).get("attempt") or 0) + 1
     stages: list[str] = []
     for dim in failed_dimensions or []:
-        for sid in _DIM_STAGES.get(str(dim), ["full_master_ranking", "listen_delight_audit"]):
+        mapped = _DIM_STAGES.get(str(dim))
+        if not mapped:
+            continue
+        for sid in mapped:
             if sid not in stages:
                 stages.append(sid)
     plan = {

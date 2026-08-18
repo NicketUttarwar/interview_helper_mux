@@ -439,9 +439,10 @@ def assert_fresh_layer_contract() -> None:
             if str(e.get("backend") or "") in {"chatterbox", "mlx_audio", "record"}
             and e.get("qc_pass") is not False
         ]
-        if not ok:
+        if synth and not ok:
             raise RuntimeError("HARD: no Chatterbox/record/mlx VO entries passed QC")
-        log(f"layer check: {len(ok)} approved VO synth entries")
+        if ok:
+            log(f"layer check: {len(ok)} approved VO synth entries")
 
     # EDL layers
     if not ctx.artifact_exists("master/edl.json"):
@@ -453,7 +454,17 @@ def assert_fresh_layer_contract() -> None:
     if speech_n < 1:
         raise RuntimeError("HARD: EDL has no speech clips")
     if vo_n < 1:
-        raise RuntimeError("HARD: EDL has no vo_pickup clips")
+        active_vo = 0
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gr = ctx.read_json("understanding/gap_report.json")
+            active_vo = sum(
+                1
+                for ln in ((gr or {}).get("interviewer_lines") or [])
+                if isinstance(ln, dict) and not ln.get("skipped_optional")
+            )
+        if active_vo:
+            raise RuntimeError("HARD: EDL has no vo_pickup clips")
+        log("layer check: no vo_pickup (no active interviewer_lines — native_handoff OK)")
     # Spot-check VO paths pass speech QA
     failed_vo = 0
     for c in clips:
@@ -2625,6 +2636,28 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             from interview_mux.transition_vo import resolve_transition_wav
 
             ctx = RunContext(RUN_ID, create=False)
+            stage_qc = {}
+            try:
+                meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+                stage_qc = ((meta or {}).get("qc_summaries") or {}).get("edl_narrative_qc") or {}
+            except Exception:
+                stage_qc = {}
+            stage_errs = [str(e) for e in (stage_qc.get("errors") or []) if e]
+            if _trip_edl_narrative_heal_loop(stage_errs or [err[:200]]):
+                log_decision(
+                    "major",
+                    stage="edl",
+                    action="stop",
+                    reason="identical_edl_narrative_qc_x3",
+                    detail=_edl_qc_heal_signature(stage_errs or [err])[:240],
+                )
+                log(
+                    "STOP: edl_narrative_qc heal repeated ≥3 times without progress "
+                    f"({(stage_errs or [err])[:1]})"
+                )
+                raise SystemExit(
+                    "HARD: edl_narrative_qc heal looping on identical errors"
+                )
             from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
 
             sel = ctx.read_json("master/selection.json")
@@ -2692,6 +2725,24 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         tr["transitions"] = kept
                         ctx.write_json("master/transitions.json", tr, stage_key="transitions", skip_handoff=True)
                         log(f"dropped non-adjacent transitions: {dropped[:6]}")
+                    try:
+                        from interview_mux.edl_narrative_qc import _effective_transitions_for_edl
+
+                        aligned = _effective_transitions_for_edl(ctx, tr)
+                        if isinstance(aligned, dict) and aligned.get("transitions") != tr.get("transitions"):
+                            ctx.write_json(
+                                "master/transitions.json",
+                                aligned,
+                                stage_key="transitions",
+                                skip_handoff=True,
+                            )
+                            log(
+                                "aligned transitions to air-script/framing "
+                                f"n={len(aligned.get('transitions') or [])}"
+                            )
+                            tr = aligned
+                    except Exception as exc:
+                        log(f"transition air-script align: {exc}")
             by_id = _segment_by_id(ctx)
             edl = build_flow1_edl(
                 selection=fp,
@@ -5668,6 +5719,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "HARD: listen_delight floors still failing after remutate"
                         )
                     applied = apply_listen_delight_remutate(ctx, plan)
+                    if not applied.get("ok"):
+                        log(
+                            "STOP: listen_delight remutate not applied "
+                            f"reason={applied.get('reason')}"
+                        )
+                        raise SystemExit(
+                            "HARD: listen_delight remutate refused "
+                            f"({applied.get('reason')})"
+                        )
                     from_stage = applied.get("from_stage") or "full_master_ranking"
                     log_decision(
                         "minor",
@@ -7550,6 +7610,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 "HARD: listen_delight floors still failing after remutate (pmq)"
                             )
                         applied = apply_listen_delight_remutate(ctx, plan)
+                        if not applied.get("ok"):
+                            raise SystemExit(
+                                "HARD: listen_delight remutate refused "
+                                f"({applied.get('reason')})"
+                            )
                         log_decision(
                             "minor",
                             stage="listen_delight_audit",
@@ -8111,7 +8176,10 @@ def ensure_run() -> bool:
     created = api(
         "POST",
         "/api/runs",
-        {"input_audio_path": INPUT_AUDIO},
+        {
+            "input_audio_path": INPUT_AUDIO,
+            "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+        },
         timeout=300,
     )
     new_id = str(created.get("run_id") or "")

@@ -65,12 +65,26 @@ def active_run_id() -> str | None:
 def ensure_run(*, fresh: bool = True) -> str:
     if fresh:
         clear_session()
-        created = api("POST", "/api/runs", {"input_audio_path": INPUT_AUDIO})
+        created = api(
+            "POST",
+            "/api/runs",
+            {
+                "input_audio_path": INPUT_AUDIO,
+                "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+            },
+        )
         return str(created["run_id"])
     existing = active_run_id()
     if existing:
         return existing
-    created = api("POST", "/api/runs", {"input_audio_path": INPUT_AUDIO})
+    created = api(
+        "POST",
+        "/api/runs",
+        {
+            "input_audio_path": INPUT_AUDIO,
+            "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+        },
+    )
     return str(created["run_id"])
 
 

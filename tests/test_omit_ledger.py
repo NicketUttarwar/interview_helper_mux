@@ -197,3 +197,75 @@ def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
     assert all(c.get("line_id") != "vo_layup_seg_005" for c in edl["clips"])
     assert edl["vo_pickup_clip_count"] == 0
     assert air_contract_errors(ctx, ledger=ledger, edl=edl) == []
+
+
+def test_heal_omit_ledger_stamps_gap_line_and_strips_edl():
+    from interview_mux.omit_ledger import heal_omit_ledger_air_contract, write_omit_ledger
+
+    ctx = RunContext("exec_omit_heal_air", create=True)
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="gap_line_skip",
+            subject_id="vo_001",
+            target_segment_id="seg_b",
+            decision="omit",
+            reason_code="g1_skipped_optional",
+            owner_stage="g1_vo_pickup",
+            compensating_path="operator_skip_optional",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"gap_line_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    write_omit_ledger(ctx, ledger)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_001",
+                    "targets_segment_id": "seg_b",
+                    "gap_type": "missing_setup",
+                    "text": "What happened after that turn?",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_b"],
+            "timeline_duration_ms": 8_000,
+            "clips": [
+                {
+                    "type": "vo_pickup",
+                    "line_id": "vo_001",
+                    "targets_segment_id": "seg_b",
+                    "placement": "before",
+                    "timeline_start_ms": 0,
+                    "duration_ms": 8_000,
+                    "source_path": "vo_pickup/synthesized/vo_001.wav",
+                }
+            ],
+            "vo_pickup_clip_count": 1,
+        },
+        skip_handoff=True,
+    )
+    before = air_contract_errors(ctx)
+    assert any("gap_line_not_skipped" in e for e in before)
+    report = heal_omit_ledger_air_contract(ctx)
+    assert report["healed"] is True
+    gap = ctx.read_json("understanding/gap_report.json")
+    assert gap["interviewer_lines"][0].get("skipped_optional") is True
+    edl = ctx.read_json("master/edl.json")
+    assert all(c.get("line_id") != "vo_001" for c in edl.get("clips") or [])
+    assert air_contract_errors(ctx) == []

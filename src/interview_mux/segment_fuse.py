@@ -19,10 +19,12 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.gap_vo_prior_context import (
+    CROSS_SPEAKER_COMPLETION_GAP_MS,
     clause_continues_after,
     ends_complete_thought,
     ends_hanging_setup,
     last_spoken_sentence,
+    opens_with_backchannel_completion,
     opens_with_clause_continuer,
 )
 from interview_mux.run_context import RunContext
@@ -101,6 +103,10 @@ def incomplete_thought_hints(hints: dict[str, Any] | None) -> bool:
     if not isinstance(hints, dict):
         return False
     if hints.get("hanging_setup_end") or hints.get("island_straddle"):
+        return True
+    if hints.get("later_opens_backchannel_completion") and not hints.get(
+        "earlier_lands_complete_idea"
+    ):
         return True
     return bool(
         hints.get("later_opens_continuer") and not hints.get("earlier_lands_complete_idea")
@@ -324,6 +330,9 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
         later_continuer = opens_with_clause_continuer(head_text) or opens_with_clause_continuer(
             str(later.get("text") or "")
         )
+        later_backchannel = opens_with_backchannel_completion(head_text) or (
+            opens_with_backchannel_completion(str(later.get("text") or ""))
+        )
         straddle, loose_on_seam = _island_hints(
             islands, earlier_end_ms=a_end, later_start_ms=b_start
         )
@@ -333,6 +342,7 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
         earlier_close = last_spoken_sentence(earlier_full) or earlier_full[-close_max:]
         if len(earlier_close) < min(80, close_max) and earlier_full:
             earlier_close = earlier_full[-close_max:]
+        hanging = hanging or ends_hanging_setup(earlier_close) or ends_hanging_setup(earlier_full)
         lands_complete = bool(
             ends_complete_thought(earlier_full or tail_text, next_pause_ms=gap_ms)
             and not hanging
@@ -343,6 +353,9 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
             "hanging_setup_end": bool(hanging),
             "clause_continues_after": bool(continues),
             "later_opens_continuer": bool(later_continuer),
+            "later_opens_backchannel_completion": bool(
+                later_backchannel and gap_ms <= CROSS_SPEAKER_COMPLETION_GAP_MS
+            ),
             "earlier_lands_complete_idea": lands_complete,
             "island_straddle": bool(straddle),
             "loose_cluster_on_seam": bool(loose_on_seam),
@@ -400,14 +413,25 @@ def deterministic_fallback_verdict(packet: dict[str, Any]) -> dict[str, Any]:
     if incomplete_thought_hints(hints):
         hanging = bool(hints.get("hanging_setup_end"))
         straddle = bool(hints.get("island_straddle"))
-        reason = "island_straddle" if straddle and not hanging else "mid_sentence_continue"
+        cross = not packet.get("same_speaker")
+        if straddle and not hanging:
+            reason = "island_straddle"
+        elif cross:
+            reason = "cross_speaker_completion"
+        else:
+            reason = "mid_sentence_continue"
         rationale = "Deterministic fallback: " + ", ".join(
             [
                 label
                 for label, fired in (
                     ("hanging setup", hanging),
                     ("later opens continuer", bool(hints.get("later_opens_continuer"))),
+                    (
+                        "later opens backchannel completion",
+                        bool(hints.get("later_opens_backchannel_completion")),
+                    ),
                     ("island straddles the cut", straddle),
+                    ("cross-speaker completion", cross),
                 )
                 if fired
             ]
@@ -622,6 +646,12 @@ def adjudicate_seams_llm(
             )
             continue
         if not allow_cross and not packet.get("same_speaker"):
+            hints = packet.get("deterministic_hints") or {}
+            gap_ms = int(packet.get("source_gap_ms") or 0)
+            max_gap = int(conf.get("max_seam_gap_ms") or 8000)
+            if incomplete_thought_hints(hints) and gap_ms <= max_gap:
+                pending.append(packet)
+                continue
             verdicts.append(_cross_speaker_verdict(packet))
             continue
         hints = packet.get("deterministic_hints") or {}
@@ -698,6 +728,21 @@ def adjudicate_seams(
                     "Complete idea already landed — same-speaker continuation stays independent."
                 )
                 verdict["forced_by"] = "complete_thought_guard"
+        if (
+            str(verdict.get("decision")) == "stay_independent"
+            and incomplete_thought_hints(hints)
+        ):
+            gap_ms = int(packet.get("source_gap_ms") or 0)
+            max_gap = int(conf.get("max_seam_gap_ms") or 8000)
+            if gap_ms <= max_gap:
+                forced = deterministic_fallback_verdict(packet)
+                verdict["decision"] = "fuse"
+                verdict["fuse_direction"] = forced.get("fuse_direction") or "into_earlier"
+                verdict["reason_code"] = forced.get("reason_code") or "mid_sentence_continue"
+                verdict["rationale"] = (
+                    "Forced fuse: incomplete thought / hanging setup at the seam."
+                )
+                verdict["forced_by"] = "incomplete_thought_hint"
         # Fail-catch: non-noise islands that straddle the cut force fuse even if the
         # LLM preferred stay_independent (recall-first at lexicon seams).
         if (
@@ -797,12 +842,13 @@ def apply_connector_fuses(
         if target is None or later is None or b_id in consumed or target_id == b_id:
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "pair_unavailable"})
             continue
-        if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(target) != _speaker_of(later):
-            skipped.append({"pair_id": verdict.get("pair_id"), "reason": "cross_speaker"})
-            continue
         gap_ms = max(0, _ms(later, "start_ms") - _ms(target, "end_ms"))
         max_gap = int(conf.get("max_seam_gap_ms") or 8000)
         hints = verdict.get("deterministic_hints") or {}
+        if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(target) != _speaker_of(later):
+            if not incomplete_thought_hints(hints):
+                skipped.append({"pair_id": verdict.get("pair_id"), "reason": "cross_speaker"})
+                continue
         forced = str(verdict.get("forced_by") or "")
         force_bypass = forced in {"island_straddle", "high_value_speech_island"}
         if gap_ms > max_gap and not hints.get("island_straddle") and not force_bypass:

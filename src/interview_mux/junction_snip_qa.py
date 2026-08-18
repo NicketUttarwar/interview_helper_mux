@@ -17,6 +17,8 @@ from interview_mux.audio_timeline import snap_cut_to_word_boundary
 from interview_mux.config import merged_config
 from interview_mux.gap_vo_prior_context import (
     ends_complete_thought,
+    is_backchannel_only_text,
+    is_legal_conceptual_hinge,
     is_micro_segment,
     looks_like_impact_beat,
     prior_context_cfg,
@@ -316,6 +318,8 @@ def _find_phrase_end_ms(
         if tok:
             accumulated.append(tok)
         candidate = " ".join(accumulated)
+        if is_backchannel_only_text(candidate):
+            continue
         pause = _pause_after_word(window, w, index=i)
         if pause is None:
             pause = _pause_after_word(words, w)
@@ -372,11 +376,10 @@ def _find_last_complete_phrase_end(
             pause = max(0, end_ms - int(window[i].get("end_ms") or 0))
             if pause == 0:
                 pause = _pause_after_word(words, window[i])
-        complete = last[-1:] in ".!?…" or ends_complete_thought(
-            text, next_pause_ms=pause
+        complete = is_legal_conceptual_hinge(
+            text, words=words, end_ms=int(window[i].get("end_ms") or 0), next_pause_ms=pause
         )
         if complete:
-            # Prefer true sentence end when available
             if last[-1:] in ".!?…" or i < len(window) - 1:
                 return int(window[i].get("end_ms") or 0)
     return None
@@ -455,9 +458,10 @@ def _merge_candidate_for_clip(
     selection: dict[str, Any],
     segs: dict[str, Any],
     gap_max_ms: int = 450,
+    allow_cross_speaker: bool = False,
 ) -> dict[str, Any] | None:
-    """Same-speaker adjacent speech within gap — prefer absorbing the micro."""
-    if not speaker:
+    """Adjacent speech within gap — prefer absorbing the incomplete close."""
+    if not speaker and not allow_cross_speaker:
         return None
     candidates: list[tuple[int, dict[str, Any]]] = []
     for j in (index - 1, index + 1):
@@ -470,7 +474,8 @@ def _merge_candidate_for_clip(
         if not oid or oid == sid:
             continue
         oseg = segs.get(oid) or {}
-        if _speaker_of(oseg if isinstance(oseg, dict) else None) != speaker:
+        other_speaker = _speaker_of(oseg if isinstance(oseg, dict) else None)
+        if other_speaker != speaker and not allow_cross_speaker:
             continue
         och = _chapter_id_for(oid, selection)
         if chapter and och and chapter != och:
@@ -712,6 +717,20 @@ def detect_junction_findings(
                     selection=selection,
                     segs=segs,
                 )
+                if merge is None:
+                    merge = _merge_candidate_for_clip(
+                        clips=clips,
+                        index=i,
+                        sid=sid,
+                        src_start=src_start,
+                        src_end=src_end,
+                        speaker=speaker,
+                        chapter=ch,
+                        selection=selection,
+                        segs=segs,
+                        gap_max_ms=max(1000, phrase_max),
+                        allow_cross_speaker=True,
+                    )
 
             next_src_start = _next_speech_source_start(clips, i)
             extend_hard_cap = (
@@ -735,12 +754,13 @@ def detect_junction_findings(
                     gap_max_ms=max(450, phrase_max),
                 )
 
+            extend_speaker = "" if continues else speaker
             if on_roll and not chapter_bleed:
                 extended = _find_phrase_end_ms(
                     words,
                     src_end,
                     max_extend_ms=phrase_max,
-                    speaker=speaker,
+                    speaker=extend_speaker,
                     hard_cap_ms=extend_hard_cap,
                 )
                 earlier = (
@@ -843,7 +863,7 @@ def detect_junction_findings(
                     words,
                     src_end,
                     max_extend_ms=phrase_max,
-                    speaker=speaker,
+                    speaker="" if continues else speaker,
                     hard_cap_ms=extend_hard_cap,
                 )
                 earlier = _find_last_complete_phrase_end(

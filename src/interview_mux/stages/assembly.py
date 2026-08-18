@@ -819,8 +819,14 @@ def run_edl(ctx: RunContext) -> None:
                 transitions if isinstance(transitions, dict) else None,
                 load_plan_raw(ctx),
             ) or transitions
-        except Exception as exc:
-            ctx.log(f"edl: air_script transition filter skipped: {exc}", level="warning", stage="edl")
+            if isinstance(transitions, dict):
+                ctx.write_json(
+                    "master/transitions.json",
+                    transitions,
+                    stage_key="transitions",
+                )
+        except Exception as trans_exc:
+            ctx.log(f"edl: air_script transition filter skipped: {trans_exc}", level="warning", stage="edl")
         if soft and not completeness.get("complete"):
             ctx.log(
                 f"bridge_completeness soft: "

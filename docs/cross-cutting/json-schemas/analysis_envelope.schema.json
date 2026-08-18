@@ -18,10 +18,10 @@
           "type": {
             "enum": ["rerun_stage", "operator", "transcript_excerpt", "human_fact"]
           },
-          "stage": { "type": "string" },
+          "stage": { "type": ["string", "null"] },
           "reason": { "type": "string" },
-          "blocking": { "type": "boolean" },
-          "params": { "type": "object" }
+          "blocking": { "type": ["boolean", "null"] },
+          "params": { "type": ["object", "null"] }
         }
       }
     },

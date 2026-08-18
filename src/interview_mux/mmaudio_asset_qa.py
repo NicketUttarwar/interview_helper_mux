@@ -487,6 +487,56 @@ def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
     return doc
 
 
+def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
+    """Make ``mmaudio_qa.json`` complete: every QA row has a wav, every wav has QA.
+
+    Phantom QA rows (asset ids without a wav) make the artifact ``partial`` and
+    halt ``mmaudio_sfx`` even when mix can continue without those stems.
+    """
+    qa = load_mmaudio_qa(ctx)
+    assets_dir = ctx.final_path("sound_design", "assets")
+    wav_ids = {p.stem for p in assets_dir.glob("*.wav")} if assets_dir.is_dir() else set()
+    qa_ids = {
+        str(row.get("asset_id"))
+        for row in (qa.get("assets") or [])
+        if isinstance(row, dict) and row.get("asset_id")
+    }
+    missing_qa = sorted(wav_ids - qa_ids)
+    extra_qa = sorted(qa_ids - wav_ids)
+    if not missing_qa and not extra_qa:
+        return {"healed": False, "dropped": [], "analyzed": []}
+    if missing_qa:
+        qa = run_mmaudio_asset_qa(ctx)
+        qa_ids = {
+            str(row.get("asset_id"))
+            for row in (qa.get("assets") or [])
+            if isinstance(row, dict) and row.get("asset_id")
+        }
+        extra_qa = sorted(qa_ids - wav_ids)
+    dropped: list[str] = []
+    if extra_qa:
+        keep = [
+            row
+            for row in (qa.get("assets") or [])
+            if isinstance(row, dict) and str(row.get("asset_id") or "") in wav_ids
+        ]
+        dropped = extra_qa
+        qa = {"version": int(qa.get("version") or 1), "assets": keep}
+        try:
+            ctx.write_json(OUTPUT_PATH, qa, stage_key="mmaudio_sfx", skip_handoff=True)
+        except Exception:
+            out = ctx.final_path(*OUTPUT_PATH.split("/"))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(qa, indent=2) + "\n", encoding="utf-8")
+    ctx.log(
+        "mmaudio_qa parity heal: "
+        + f"analyzed={missing_qa[:8]} dropped={dropped[:8]}",
+        level="warning",
+        stage="mmaudio_sfx",
+    )
+    return {"healed": True, "dropped": dropped, "analyzed": missing_qa}
+
+
 def loop_seam_score(samples: list[float], rate: int) -> float:
     """Score loop continuity using level, boundary, and waveform agreement."""
     if not samples or rate <= 0:

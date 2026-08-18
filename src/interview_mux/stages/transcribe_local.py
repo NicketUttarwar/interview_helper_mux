@@ -56,3 +56,13 @@ def run_transcribe(ctx: RunContext) -> None:
         stage="transcribe",
     )
     ctx.mark_done("transcribe")
+    try:
+        from interview_mux.homunculus.issues import is_homunculus_meta
+        from interview_mux.homunculus.source_card import build_source_card, refresh_source_profile
+
+        n_speakers = len((speakers.get("speakers") if isinstance(speakers, dict) else None) or [])
+        refresh_source_profile(ctx, stage="transcribe", speaker_count=n_speakers or None)
+        if is_homunculus_meta(ctx):
+            build_source_card(ctx)
+    except Exception:
+        pass

@@ -18,6 +18,7 @@ from interview_mux.nugget_layup import (
     coverage_exempt_target_ids,
     dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
+    recover_open_must_keep_talking_points,
     gap_has_layup_before,
     heal_layup_analysis_fields,
     is_justified_skip_row,
@@ -330,6 +331,68 @@ def test_qc_ignores_should_keep_and_discharged_open_ids():
     qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
     assert qc["ok"] is True
     assert qc["open_must_keep_talking_point_ids"] == []
+
+
+def test_recover_open_must_keep_already_on_native_tape():
+    ctx = RunContext("exec_nugget_layup_recover_must", create=True)
+    ctx.write_json(
+        "understanding/talking_points.json",
+        {
+            "strategy_summary": "Founder journey",
+            "through_line": "Growth",
+            "talking_points": [
+                {
+                    "talking_point_id": "tp_001",
+                    "title": "Bootstrap origin",
+                    "importance": "must_keep",
+                    "why_it_matters": "Origin",
+                    "evidence_quotes": ["bootstrapped from nothing"],
+                }
+            ],
+            "hard_excludes": [],
+            "warnings": [],
+        },
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_011"]},
+        skip_handoff=True,
+    )
+    from run_fixtures import minimal_manifest, minimal_manifest_segment
+
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_011",
+                text="We bootstrapped from nothing and kept the first store alive.",
+            )
+        ),
+        skip_handoff=True,
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_011"],
+        "layups": [
+            {
+                "target_segment_id": "seg_011",
+                "text": "What happened when Rabo wanted out of the deal?",
+                "nugget_ids": [],
+                "talking_point_ids": [],
+                "skip": False,
+                "forward_cue_ok": True,
+                **_ANALYSIS,
+            }
+        ],
+        "discharged_talking_point_ids": [],
+        "open_talking_point_ids": [],
+        "discharged_nugget_ids": [],
+        "open_high_salience_nugget_ids": [],
+    }
+    recovered, notes = recover_open_must_keep_talking_points(ctx, plan)
+    assert any(str(n).startswith("already_on_tape:tp_001") for n in notes)
+    qc = evaluate_layup_qc(ctx, recovered, {"nuggets": []})
+    assert qc["open_must_keep_talking_point_ids"] == []
+    assert qc["ok"] is True
 
 
 def test_layup_line_skips():

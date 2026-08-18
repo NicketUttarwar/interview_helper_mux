@@ -264,6 +264,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     with logged_step(f"{stage}/qa_and_finalize", ctx=ctx, stage=stage):
         run_mmaudio_asset_qa(ctx)
+        from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+        heal_mmaudio_qa_wav_parity(ctx)
         _log_sfx_event(ctx, "MMAudio QA completed", stage=stage, event="qa")
         from interview_mux.gates import sync_post_listen_gate_state
         from interview_mux.operator_snapshots import persist_operator_mmaudio_snapshots
@@ -284,6 +287,9 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
         maybe_run_placement_qa(ctx)
         execute_fitness_remediation(ctx, stage=stage)
+    from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+    heal_mmaudio_qa_wav_parity(ctx)
     qa_committed = ctx.final_path("sound_design", "mmaudio_qa.json")
     if not qa_committed.is_file():
         raise RuntimeError(

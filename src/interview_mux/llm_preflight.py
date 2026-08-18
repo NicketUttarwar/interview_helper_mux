@@ -332,6 +332,21 @@ def _preflight_podcast_show_description(ctx: RunContext) -> list[str]:
     return _check_upstream_artifacts(ctx, ("master/selection.json",))
 
 
+def _ensure_coherence_report(ctx: RunContext) -> None:
+    from interview_mux.coherence import coherence_active, maybe_run_coherence_analysis
+    from interview_mux.coherence.duration_gate import coherence_activated
+    from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+
+    if not coherence_active() or not coherence_activated(ctx):
+        return
+    if ctx.artifact_exists(COHERENCE_REPORT_PATH):
+        return
+    try:
+        maybe_run_coherence_analysis(ctx, phase="post_reanchor")
+    except Exception:
+        return
+
+
 def _coherence_report_preflight(ctx: RunContext) -> list[str]:
     from interview_mux.coherence import coherence_active
     from interview_mux.coherence.duration_gate import coherence_activated
@@ -349,6 +364,7 @@ def _coherence_report_preflight(ctx: RunContext) -> list[str]:
 
 def _preflight_narrative_arc_plan(ctx: RunContext) -> list[str]:
     errors = _check_upstream_artifacts(ctx, ("master/coverage_audit.json",))
+    _ensure_coherence_report(ctx)
     errors.extend(_coherence_report_preflight(ctx))
     return errors
 
@@ -366,6 +382,7 @@ def _preflight_transitions(ctx: RunContext) -> list[str]:
 
 def _preflight_topic_coverage(ctx: RunContext) -> list[str]:
     errors = _preflight_pre_delivery(ctx)
+    _ensure_coherence_report(ctx)
     errors.extend(_coherence_report_preflight(ctx))
     return errors
 

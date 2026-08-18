@@ -16,7 +16,7 @@ CONDUCTOR_PROMPT_REL = "docs/prompts/homunculus/conductor/system.txt"
 
 
 def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict[str, Any]) -> Any:
-    """Single OpenAI create. 0.0.0: passthrough. 0.1.0: budget + ledger + admit.
+    """Single OpenAI create. 0.0.0: passthrough. 0.1.0: budget + ledger + admit + packed user turns.
 
     Schema retries inside one stage invoke do not consume a second identity count.
     """
@@ -30,9 +30,13 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
             last_for = row
             break
     counting = not (last_for and last_for.get("status") == "started")
+    call_kwargs = dict(kwargs)
     if counting:
+        from interview_mux.homunculus.packer import apply_pack_to_kwargs
+
+        call_kwargs = apply_pack_to_kwargs(ctx, identity, call_kwargs)
         check_dispatch(ctx, identity=identity, kind="llm")
-        ph = packet_hash_for(kwargs.get("messages") or kwargs.get("user"))
+        ph = packet_hash_for(call_kwargs.get("messages") or call_kwargs.get("user"))
         check_dispatch(ctx, identity=identity, kind="llm", packet_hash=ph)
         append_ledger(
             ctx,
@@ -43,7 +47,7 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
                 "status": "started",
             },
         )
-    resp = client.chat.completions.create(**kwargs)
+    resp = client.chat.completions.create(**call_kwargs)
     if counting:
         admit(ctx, identity=identity, action="keep", payload={"identity": identity, "ok": True})
         append_ledger(ctx, {"kind": "llm", "identity": identity, "status": "done"})
@@ -103,6 +107,7 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
             quality_hypothesis=str(args.get("quality_hypothesis") or ""),
             action=str(args.get("action") or "retry"),
             docs_cited=list(args.get("docs_cited") or []),
+            style=str(args["style"]) if args.get("style") else None,
         )
     if name == "retrieve_canon":
         from interview_mux.homunculus.retrieve import record_docs_cited, retrieve_canon
@@ -178,9 +183,78 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
         from interview_mux.homunculus.speakers import build_speaker_dossier
 
         return build_speaker_dossier(ctx)
-    if name in {"run_musicgen", "run_mmaudio", "run_chatterbox", "run_s2s", "run_deepfilter", "verify_master"}:
-        append_ledger(ctx, {"kind": "host", "identity": spec.identity, "args": args, "status": "started"})
-        return {"ok": True, "identity": spec.identity, "queued": True, "note": "host callable via stage tools"}
+    if name == "skip_stage":
+        from interview_mux.homunculus.agenda import skip_stage
+
+        return skip_stage(
+            ctx,
+            str(args.get("stage") or ""),
+            reason=str(args.get("reason") or "conductor"),
+            compensating_fact=str(args["compensating_fact"]) if args.get("compensating_fact") else None,
+        )
+    if name == "schedule_stage":
+        from interview_mux.homunculus.agenda import schedule_stage
+
+        return schedule_stage(
+            ctx,
+            str(args.get("stage") or ""),
+            before=str(args["before"]) if args.get("before") else None,
+        )
+    if name == "rerun_stage":
+        from interview_mux.homunculus.agenda import rerun_stage
+
+        return rerun_stage(
+            ctx,
+            str(args.get("stage") or ""),
+            extra_fact_ids=list(args.get("fact_ids") or args.get("extra_fact_ids") or []),
+            overlay_rel=str(args["overlay_rel"]) if args.get("overlay_rel") else None,
+        )
+    if name == "walk_seed_remainder":
+        from interview_mux.homunculus.agenda import request_walk_seed_remainder
+
+        return request_walk_seed_remainder(ctx, reason=str(args.get("reason") or "conductor"))
+    if name == "invalidate_downstream":
+        from interview_mux.homunculus.agenda import invalidate_downstream
+
+        return invalidate_downstream(ctx, str(args.get("stage") or ""))
+    if name == "axis_select":
+        from interview_mux.homunculus.packer import pack_volley, select_axes
+
+        picked = select_axes(ctx, str(args.get("tool_id") or "nested"))
+        pack_volley(ctx, fact_ids=list(picked.get("fact_ids") or []), tool_id=str(args.get("tool_id") or "nested"))
+        return picked
+    if name == "write_thinking":
+        from interview_mux.homunculus.kb import append_thinking
+
+        return append_thinking(ctx, str(args.get("note") or ""), identity=str(args.get("identity") or "conductor"))
+    if name == "build_source_card":
+        from interview_mux.homunculus.source_card import build_source_card
+
+        return build_source_card(ctx)
+    if name == "run_musicgen":
+        from interview_mux.homunculus.host_tools import run_musicgen_host
+
+        return run_musicgen_host(ctx, args)
+    if name == "run_mmaudio":
+        from interview_mux.homunculus.host_tools import run_mmaudio_host
+
+        return run_mmaudio_host(ctx, args)
+    if name == "run_chatterbox":
+        from interview_mux.homunculus.host_tools import run_chatterbox_host
+
+        return run_chatterbox_host(ctx, args)
+    if name == "run_s2s":
+        from interview_mux.homunculus.host_tools import run_s2s_host
+
+        return run_s2s_host(ctx, args)
+    if name == "run_deepfilter":
+        from interview_mux.homunculus.host_tools import run_deepfilter_host
+
+        return run_deepfilter_host(ctx, args)
+    if name == "verify_master":
+        from interview_mux.homunculus.host_tools import run_verify_master_host
+
+        return run_verify_master_host(ctx, args)
     if spec.kind == "operator_action":
         append_ledger(ctx, {"kind": "operator_action", "identity": spec.identity, "args": args})
         return {"ok": True, "action_id": spec.identity, "presented": True}
@@ -195,7 +269,7 @@ def run_conductor(
     client: Any | None = None,
 ) -> dict[str, Any]:
     """Conductor tool loop. Tests inject a stub client."""
-    from interview_mux.homunculus.budget import max_conductor_turns
+    from interview_mux.homunculus.budget import remaining_conductor_turns
     from interview_mux.homunculus.prompts import load_conductor_system
 
     specs = [s for s in spec_by_name().values() if s.kind in {"stage", "host", "llm", "operator_action"}]
@@ -207,7 +281,7 @@ def run_conductor(
         {"role": "user", "content": user_message},
     ]
     turns = 0
-    cap = max_turns if max_turns is not None else min(12, max_conductor_turns())
+    cap = max_turns if max_turns is not None else remaining_conductor_turns(ctx)
     inflight: set[str] = set()
     last: dict[str, Any] = {"ok": True, "turns": 0}
     if client is None:

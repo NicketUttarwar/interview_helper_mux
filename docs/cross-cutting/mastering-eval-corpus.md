@@ -43,6 +43,7 @@ tests/fixtures/mastering_quality/{fixture_id}/
 | `expected_findings[]` | Integrity landmines that must be caught (`class_id` + `segment_id`) |
 | `must_not_flag[]` | False-positive traps that must stay clean |
 | `feasibility` | Expected verdict per seeded candidate |
+| `homunculus` | 0.1.0 conductor contracts: `required_facts`, `legal_skip`, `illegal_gate`, `expected_implicated` after a landmine |
 
 ---
 
@@ -85,7 +86,7 @@ Deterministic compilers are asserted exactly. LLM-dependent behavior is asserted
 | Contract | `tests/test_mastering_quality_critics_contract.py` | none (fixture responses) |
 | Smoke | `tests/test_mastering_quality_audition_smoke.py` | none (manifest only, no render) |
 
-CI runs all four. Real audio renders and real LLM calls stay out of the default suite.
+CI runs all four plus [`tests/test_homunculus_corpus.py`](../../tests/test_homunculus_corpus.py) (stub conductor, no live OpenAI). Homunculus oversees routing_hints rather than replacing feasibility/integrity compilers.
 
 ---
 

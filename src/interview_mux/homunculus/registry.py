@@ -127,6 +127,8 @@ def stage_tool_specs() -> list[ToolSpec]:
                         "issue_id": {"type": "string"},
                         "quality_hypothesis": {"type": "string"},
                         "action": {"type": "string"},
+                        "style": {"type": "string"},
+                        "docs_cited": {"type": "array", "items": {"type": "string"}},
                     },
                     "required": ["issue_id", "quality_hypothesis", "action"],
                 },
@@ -214,15 +216,27 @@ def stage_tool_specs() -> list[ToolSpec]:
             ),
             ToolSpec(
                 name="run_musicgen",
-                description="Host MusicGen generate (local weights; same callable stages use).",
-                parameters={"type": "object", "properties": {"prompt": {"type": "string"}}},
+                description=(
+                    "Host MusicGen generate. Prefers large; host ladder is large→medium→small "
+                    "then MMAudio backup. Same callable stages use."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string"},
+                        "role": {"type": "string"},
+                        "duration_sec": {"type": "number"},
+                        "model_id": {"type": "string"},
+                        "out_rel": {"type": "string"},
+                    },
+                },
                 kind="host",
                 identity="run_musicgen",
                 mutating_audio=True,
             ),
             ToolSpec(
                 name="run_mmaudio",
-                description="Host MMAudio generate (local; same callable stages use).",
+                description="Host MMAudio generate. Backup after MusicGen ladder for creative beds.",
                 parameters={"type": "object", "properties": {"prompt": {"type": "string"}}},
                 kind="host",
                 identity="run_mmaudio",
@@ -315,6 +329,100 @@ def stage_tool_specs() -> list[ToolSpec]:
                 },
                 kind="host",
                 identity="stack_prompt_module",
+            ),
+            ToolSpec(
+                name="skip_stage",
+                description="Skip a remaining stage with a reason. Island fuse stages cannot skip without artifacts.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "stage": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "compensating_fact": {"type": "string"},
+                    },
+                    "required": ["stage", "reason"],
+                },
+                kind="host",
+                identity="skip_stage",
+            ),
+            ToolSpec(
+                name="schedule_stage",
+                description="Reorder: run this stage next (optionally before another id).",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "stage": {"type": "string"},
+                        "before": {"type": "string"},
+                    },
+                    "required": ["stage"],
+                },
+                kind="host",
+                identity="schedule_stage",
+            ),
+            ToolSpec(
+                name="rerun_stage",
+                description="Surgical re-run of one done stage with extra facts. Does not clear downstream.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "stage": {"type": "string"},
+                        "fact_ids": {"type": "array", "items": {"type": "string"}},
+                        "overlay_rel": {"type": "string"},
+                    },
+                    "required": ["stage"],
+                },
+                kind="host",
+                identity="rerun_stage",
+            ),
+            ToolSpec(
+                name="walk_seed_remainder",
+                description="Explicit catch-up: walk leftover seed-order stages. Not automatic.",
+                parameters={
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}},
+                },
+                kind="host",
+                identity="walk_seed_remainder",
+            ),
+            ToolSpec(
+                name="invalidate_downstream",
+                description="Clear this stage and everything after (stale downstream). Not a surgical rerun.",
+                parameters={
+                    "type": "object",
+                    "properties": {"stage": {"type": "string"}},
+                    "required": ["stage"],
+                },
+                kind="host",
+                identity="invalidate_downstream",
+            ),
+            ToolSpec(
+                name="axis_select",
+                description="Choose source axes and fact IDs for the next packed volley.",
+                parameters={
+                    "type": "object",
+                    "properties": {"tool_id": {"type": "string"}},
+                    "required": ["tool_id"],
+                },
+                kind="host",
+                identity="axis_select",
+            ),
+            ToolSpec(
+                name="write_thinking",
+                description="Append a tape-meaning note to the per-run knowledge base.",
+                parameters={
+                    "type": "object",
+                    "properties": {"note": {"type": "string"}, "identity": {"type": "string"}},
+                    "required": ["note"],
+                },
+                kind="host",
+                identity="write_thinking",
+            ),
+            ToolSpec(
+                name="build_source_card",
+                description="Refresh source_card (topology, duration, islands) and admit it.",
+                parameters={"type": "object", "properties": {}},
+                kind="host",
+                identity="build_source_card",
             ),
         ]
     )

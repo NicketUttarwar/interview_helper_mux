@@ -176,6 +176,32 @@ _NEW_UNIT_OPENERS = frozenset(
     }
 )
 
+# Host/other-speaker tokens that often complete the prior speaker's hanging setup.
+_BACKCHANNEL_OPEN_TOKENS = frozenset(
+    {
+        "okay",
+        "ok",
+        "right",
+        "yeah",
+        "yep",
+        "yup",
+        "mm",
+        "mhm",
+        "mmhmm",
+        "uhhuh",
+        "uh-huh",
+        "alright",
+        "allright",
+    }
+)
+
+_SUBORDINATE_CLAUSE_OPEN_RE = re.compile(
+    r"^(?:if|because|when|while|although|though|unless|until|since|so that|as if)\b",
+    re.IGNORECASE,
+)
+
+CROSS_SPEAKER_COMPLETION_GAP_MS = 1000
+
 _MIC_DROP_HINT_RE = re.compile(
     r"\b(higher than|lower than|never|nobody|nothing|realized|truth is|bottom line|"
     r"cash in|account was|that was the|turning point)\b",
@@ -221,6 +247,39 @@ def _last_token(text: str) -> str:
 DEFAULT_PAUSE_SPLIT_MS = 1000
 
 
+def last_clause_is_subordinate_fragment(text: str) -> bool:
+    """True when the last clause is a subordinate leftover even if STT added ``.``."""
+    last = last_spoken_sentence(text)
+    last = re.sub(r"[.!?…]+$", "", (last or "").strip()).strip()
+    if not last:
+        return False
+    parts = re.split(r",\s*", last)
+    clause = (parts[-1] if parts else last).strip()
+    return bool(clause and _SUBORDINATE_CLAUSE_OPEN_RE.match(clause))
+
+
+def is_backchannel_only_text(text: str) -> bool:
+    """True when the span is only a backchannel (Okay / Right / Yeah)."""
+    toks = re.findall(r"[A-Za-z0-9']+", text or "")
+    if not toks:
+        return False
+    return all(t.lower() in _BACKCHANNEL_OPEN_TOKENS for t in toks)
+
+
+def opens_with_backchannel_completion(text: str) -> bool:
+    """True when later speech starts with Okay/Then completing the prior beat."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    toks = re.findall(r"[A-Za-z0-9']+", stripped)
+    if not toks:
+        return False
+    first = toks[0].lower()
+    if first in _BACKCHANNEL_OPEN_TOKENS:
+        return True
+    return first in {"then", "so"} and len(toks) > 1
+
+
 def ends_hanging_setup(text: str) -> bool:
     """True when the audible end is a hanging setup / incomplete promise."""
     stripped = (text or "").strip()
@@ -228,6 +287,9 @@ def ends_hanging_setup(text: str) -> bool:
         return False
     # Ellipsis / unfinished trail always hangs, even if a prior clause had punct.
     if stripped.endswith("...") or stripped.endswith("…"):
+        return True
+    # STT often puts a period on a fragment ("if I could do through cell biopsy.").
+    if last_clause_is_subordinate_fragment(stripped):
         return True
     if stripped[-1] in ".!?":
         return False
@@ -267,10 +329,10 @@ def ends_complete_thought(
     # Ellipsis is never a complete thought, even if listed among unicode dots.
     if stripped.endswith("...") or stripped.endswith("…"):
         return False
-    if stripped[-1] in ".!?":
-        return True
     if ends_hanging_setup(stripped):
         return False
+    if stripped[-1] in ".!?":
+        return True
     return next_pause_ms is not None and next_pause_ms >= pause_split_ms
 
 
@@ -308,30 +370,36 @@ def clause_continues_after(
     ahead.sort(key=lambda w: int(w.get("start_ms") or 0))
     first = ahead[0]
     gap = int(first.get("start_ms") or 0) - int(end_ms)
-    if gap >= pause_split_ms:
-        # Real pause then new unit — not same-clause continuation.
-        return False
     first_tok = _word_token(first).lower().strip(".,!?;:\"'")
-    # Terminal punct on the cut word itself means the idea closed.
     before = [
         w
         for w in words
         if isinstance(w, dict)
         and int(w.get("end_ms") or 0) <= end_ms + 20
-        and int(w.get("end_ms") or 0) >= end_ms - 80
+        and int(w.get("end_ms") or 0) >= end_ms - 12_000
         and _word_token(w)
     ]
+    end_text = " ".join(_word_token(w) for w in before[-24:]) if before else ""
+    hanging_close = bool(end_text) and ends_hanging_setup(end_text)
+    later_head = " ".join(_word_token(w) for w in ahead[:12])
+    if hanging_close and gap <= CROSS_SPEAKER_COMPLETION_GAP_MS:
+        if opens_with_backchannel_completion(later_head) or first_tok in _CONTINUER_OPEN_TOKENS:
+            return True
+    if gap >= pause_split_ms and not hanging_close:
+        # Real pause then new unit — not same-clause continuation.
+        return False
+    if hanging_close and gap < pause_split_ms:
+        return True
     if before:
         last_tok = _word_token(before[-1])
-        if last_tok[-1:] in ".!?…":
+        if last_tok[-1:] in ".!?…" and not hanging_close:
             return False
-        end_text = " ".join(_word_token(w) for w in before[-16:])
         if ends_hanging_setup(end_text):
             return True
         if _last_token(end_text) in _INCOMPLETE_TAIL_TOKENS:
             return True
     # Tight gap + content continuation of the same clause.
-    if first_tok in _NEW_UNIT_OPENERS and gap >= 350:
+    if first_tok in _NEW_UNIT_OPENERS and gap >= 350 and not hanging_close:
         return False
     # Look at a few upcoming tokens — lowercase continuers are same-clause.
     cont = " ".join(_word_token(w) for w in ahead[:8]).lower()

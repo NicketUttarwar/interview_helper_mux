@@ -1130,7 +1130,6 @@ def last_complete_thought_end_ms(
         if not toks:
             continue
         text = " ".join(toks)
-        last = toks[-1]
         pause: int | None
         if i + 1 < len(window):
             pause = max(
@@ -1155,7 +1154,7 @@ def last_complete_thought_end_ms(
             else:
                 pause = None
         cand = int(window[i].get("end_ms") or 0)
-        if last[-1:] in ".!?…" or is_legal_conceptual_hinge(
+        if is_legal_conceptual_hinge(
             text, words=words, end_ms=cand, next_pause_ms=pause
         ):
             if cand > start_ms + 300:

@@ -149,6 +149,7 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
             "MUX_E2E_SOFT_LISTENABILITY": "1",
             "INTERVIEW_MUX_E2E_SOFT": "1",
             "MUX_WEB_PORT": str(port),
+            "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
         },
     )
     (ASSETS / "full_auto_server.pid").write_text(str(pid))
@@ -196,6 +197,7 @@ def ensure_e2e(
         "MUX_RUN_MODE": os.environ.get("MUX_RUN_MODE", "full-auto"),
         "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
         "MUX_WEB_PORT": str(port),
+        "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
     }
     if keep_gui_server:
         env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"

@@ -222,3 +222,71 @@ def test_authoritative_fail_writes_remutate_plan(tmp_path):
     assert plan["attempt"] == 1
     assert plan.get("failed_dimensions")
     assert plan.get("passed") is not True
+
+
+def test_recommendability_clears_floor_without_gap_vo(tmp_path, monkeypatch):
+    """conversational_host + empty interviewer_lines must not fail recommendability.
+
+    exec_1970 scored 0.65 vs a 0.75 floor while every other dim passed; ranking
+    remutate cannot invent VO lines and looped 70+ times.
+    """
+    from interview_mux.listen_delight import evaluate_listen_delight
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_reco_no_vo")
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {
+            "mode": "authoritative",
+            "overall_min": 0.90,
+            "dimension_floors": {
+                "nugget_retention": 0.80,
+                "cut_integrity": 0.85,
+                "conversation_fit": 0.85,
+                "sonic_weave": 0.85,
+                "mode_coherence": 0.80,
+                "finishability": 0.80,
+                "recommendability": 0.75,
+                "story_followability": 0.85,
+            },
+        },
+    )
+    _write_raw(
+        ctx,
+        "understanding/delivery_brief.json",
+        {
+            "version": 1,
+            "target_duration_sec": {"min": 60, "ideal": 100, "max": 150},
+        },
+    )
+    _write_raw(
+        ctx,
+        "segments/manifest.json",
+        {"segments": [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 100000}]},
+    )
+    _write_raw(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_001"]})
+    _write_raw(ctx, "master/bridge_completeness.json", {"missing_count": 0, "stub_count": 0, "complete": True})
+    _write_raw(
+        ctx,
+        "master/seam_autopsy.json",
+        {"scores": {"music_completeness": 1.0}, "seams": []},
+    )
+    _write_raw(ctx, "understanding/gap_report.json", {"interviewer_lines": []})
+    _write_raw(
+        ctx,
+        "mastering/mastering_plan.json",
+        {"narrative_mode": "conversational_host", "plan_status": "complete"},
+    )
+    result = evaluate_listen_delight(ctx)
+    assert result["dimensions"]["recommendability"] >= 0.75
+    assert "recommendability" not in result["failed_dimensions"]
+    assert result["passed"] is True
+
+
+def test_recommendability_only_does_not_schedule_ranking_remutate(tmp_path):
+    from interview_mux.listen_delight_remutate import plan_listen_delight_remutate
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_reco_no_remutate")
+    plan = plan_listen_delight_remutate(ctx, failed_dimensions=["recommendability"])
+    assert plan["from_stages"] == []
+    assert plan["from_stage"] is None
+    assert plan["exhausted"] is True

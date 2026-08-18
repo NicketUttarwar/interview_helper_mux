@@ -164,6 +164,29 @@ def coerce_envelope_status(envelope: dict[str, Any]) -> dict[str, Any]:
     return envelope
 
 
+def coerce_envelope_needs(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Drop/normalize null need fields so OA envelope verification accepts LLM nulls."""
+    if not isinstance(envelope, dict):
+        return envelope
+    needs = envelope.get("needs")
+    if not isinstance(needs, list):
+        return envelope
+    cleaned: list[Any] = []
+    for item in needs:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        if row.get("stage") is None:
+            row["stage"] = ""
+        if row.get("blocking") is None:
+            row["blocking"] = False
+        if row.get("params") is None:
+            row["params"] = {}
+        cleaned.append(row)
+    envelope["needs"] = cleaned
+    return envelope
+
+
 def validate_envelope(envelope: dict[str, Any]) -> list[str]:
     """Validate analysis envelope shape before arbiter (BUILD-084)."""
     schema = _load_envelope_schema()
@@ -171,6 +194,7 @@ def validate_envelope(envelope: dict[str, Any]) -> list[str]:
         return []
     if isinstance(envelope, dict):
         coerce_envelope_status(envelope)
+        coerce_envelope_needs(envelope)
     return [f"envelope.{e}" for e in _validate_dict(envelope, schema)]
 
 def validate_investigation_queue(queue: dict[str, Any]) -> list[str]:

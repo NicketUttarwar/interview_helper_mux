@@ -169,11 +169,14 @@ See [mastering-homunculus.md](./mastering-homunculus.md). 0.0.0 writes `homuncul
 |------|---------|
 | `persona.json` | Identity + `perspectives_fired[]` |
 | `speaker_dossier.json` | Names/roles/intros from tape |
+| `source_card.json` | Topology / acoustics / duration / language-island axes |
 | `memory.json` / `admitted.jsonl` | Admitted facts |
+| `kb.json` / `thinking.jsonl` | Per-run lessons and conductor notes |
+| `reruns/` | Archived `.stage_done` markers from surgical re-runs |
 | `volley_packs/` | Fact-ID packs (host-rendered turns) |
-| `issues.jsonl` / `analyses/` | Issue bus |
+| `issues.jsonl` / `analyses/` | Issue bus (per speaker) |
 | `ledger.json` | Crash-safe dispatch log |
-| `agenda.json` | Phase remaining stages + seed-order fallback reason |
+| `agenda.json` | Phase remaining / skipped / scheduled order |
 | `gate_decisions.json` | Homunculus controller actions per gate category |
 | `prompt_stack.json` / `promotions.json` / `mints/` | Prompt stock |
 | `end_judgment.json` | Accept/reject after first master |

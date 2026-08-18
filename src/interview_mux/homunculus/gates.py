@@ -22,6 +22,20 @@ CATEGORIES = (
 DECISIONS_REL = "mastering/homunculus/gate_decisions.json"
 
 
+def recommended_framing_action(ctx: RunContext) -> str:
+    """Whether framing is on. Clone speaker stays least-spoken host."""
+    try:
+        from interview_mux.homunculus.source_card import read_source_card
+
+        card = read_source_card(ctx) or {}
+        circ = [str(x).lower() for x in (card.get("circumstances") or [])]
+        if card.get("framing_posture") == "sparse_omit" or "monologue" in circ:
+            return "skip"
+    except Exception:
+        pass
+    return "present_operator"
+
+
 def category_status(ctx: RunContext) -> dict[str, Any]:
     from interview_mux.gates import check_g1_vo, check_transcript_review_pending
 
@@ -56,7 +70,11 @@ def category_status(ctx: RunContext) -> dict[str, Any]:
             if isinstance(decisions.get("transcript_integrity"), dict)
             else decisions.get("transcript_integrity"),
         },
-        "framing_consent": {"open": framing_open},
+        "framing_consent": {
+            "open": framing_open,
+            "recommended": recommended_framing_action(ctx),
+            "clone_policy": "least_spoken_host",
+        },
         "vo_pickup": {"open": bool(g1.get("pending") if isinstance(g1, dict) else g1)},
         "source_preclean": {"open": False, "never_auto": True},
         "nle_optional": {"open": False},
@@ -75,6 +93,11 @@ def set_gate_decision(ctx: RunContext, category: str, action: str) -> dict[str, 
         raise ValueError(f"unknown gate category {category}")
     if category == "transcript_integrity" and action in {"skip", "auto_resolve"}:
         raise RuntimeError("transcript_integrity cannot skip or auto-resolve word-level STT")
+    if category == "framing_consent" and action == "auto_resolve":
+        if recommended_framing_action(ctx) == "skip":
+            raise RuntimeError(
+                "framing_consent cannot auto-resolve dense gap VO when posture is sparse_omit"
+            )
     doc = {"decisions": {}}
     if ctx.artifact_exists(DECISIONS_REL):
         raw = ctx.read_json(DECISIONS_REL)

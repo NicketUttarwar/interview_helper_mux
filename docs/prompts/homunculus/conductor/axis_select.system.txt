@@ -1,0 +1,5 @@
+You pick which source axes and fact IDs the host packer should include for one nested tool.
+
+Return JSON only: {"axes": ["source_card", "..."], "fact_ids": ["source_card", "..."], "reason": "..."}.
+
+Always consider source_card, g0_transcript, and operator must-keep when they exist. Add topology for panels, language_islands for code-switch/STT-skip, lessons after a reject, acoustics for mix. Do not invent IDs. Tape meaning only.

@@ -8,6 +8,7 @@ from interview_mux.boundary_enrich import (
     enforce_max_segment_duration,
     enrich_boundary_rows,
     split_backchannel_turns,
+    split_complete_thought_hinges,
 )
 
 
@@ -179,3 +180,48 @@ def test_enrich_boundary_rows_respects_min_duration_floor():
     rows = [{"start_ms": 0, "end_ms": 200, "speaker_id": "spk_0"}]
     out, _ = enrich_boundary_rows(rows, transcript=transcript, cfg={"min_segment_duration_ms": 3000})
     assert len(out) == 1
+
+
+def test_split_complete_thought_hinges_every_legal_pause():
+    words = []
+    t = 0
+    sentences = [
+        "We shipped the product in June.",
+        "Then the buyers came back every week.",
+        "That changed how we staffed the team.",
+    ]
+    for sent in sentences:
+        for tok in sent.split():
+            words.append(
+                {"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 200}
+            )
+            t += 220
+        t += 1200
+    rows = [{"start_ms": 0, "end_ms": t, "speaker_id": "spk_1"}]
+    cfg = {"min_segment_duration_ms": 400, "max_segment_duration_ms": 180_000}
+    out, actions = split_complete_thought_hinges(rows, {"words": words}, cfg=cfg)
+    assert len(out) >= 3
+    assert any(a.get("action") == "split_complete_thought" for a in actions)
+    assert not any(a.get("action") == "force_split_midpoint" for a in actions)
+
+
+def test_split_complete_thought_hinges_snaps_topic_shift():
+    words = []
+    t = 0
+    first = "We shipped the product in June and the buyers loved it."
+    second = "Hiring became the next constraint for the company."
+    for tok in first.split():
+        words.append({"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 200})
+        t += 220
+    topic_at = t + 1300
+    t = topic_at
+    for tok in second.split():
+        words.append({"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 200})
+        t += 220
+    rows = [{"start_ms": 0, "end_ms": t, "speaker_id": "spk_1"}]
+    cfg = {"min_segment_duration_ms": 400, "max_segment_duration_ms": 180_000}
+    out, actions = split_complete_thought_hinges(
+        rows, {"words": words}, cfg=cfg, topic_split_times=[topic_at]
+    )
+    assert len(out) >= 2
+    assert any(a.get("action") == "split_complete_thought" for a in actions)

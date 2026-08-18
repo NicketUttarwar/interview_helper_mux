@@ -76,3 +76,19 @@ def last_fact_ids(ctx: RunContext) -> list[str]:
         if isinstance(ids, list) and ids:
             return [str(x) for x in ids]
     return []
+
+
+def last_fact_ids_for_tool(ctx: RunContext, tool_id: str) -> list[str]:
+    for row in reversed(read_ledger(ctx)):
+        if row.get("kind") != "pack_volley":
+            continue
+        if str(row.get("tool_id") or "") != tool_id:
+            continue
+        ids = row.get("fact_ids")
+        if isinstance(ids, list) and ids:
+            return [str(x) for x in ids]
+    return []
+
+
+def remainder_requested(ctx: RunContext) -> bool:
+    return any(row.get("kind") == "walk_seed_remainder" for row in read_ledger(ctx))

@@ -206,6 +206,16 @@ def _selection_chapter_end_ids(ctx: RunContext) -> list[str]:
     return []
 
 
+def _first_selected_segment_id(ctx: RunContext) -> str | None:
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            for sid in sel.get("ordered_segment_ids") or []:
+                if sid:
+                    return str(sid)
+    return None
+
+
 def _segment_from_cue_id(cue_id: str) -> str | None:
     match = _CUE_SEG_RE.search(str(cue_id or ""))
     return match.group(1).lower() if match else None
@@ -240,16 +250,22 @@ def hydrate_flow_cue_segments(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
         seg_from_id = _segment_from_cue_id(cue_id)
 
         if placement == "under_segment" and not cue.get("segment_id"):
-            if seg_from_id:
-                cue["segment_id"] = seg_from_id
-                actions.append(f"hydrate:{cue_id}:segment_id={seg_from_id}")
+            sid = str(cue.get("under_segment_id") or "") or seg_from_id
+            if not sid:
+                sid = _first_selected_segment_id(ctx) or ""
+            if sid:
+                cue["segment_id"] = sid
+                actions.append(f"hydrate:{cue_id}:segment_id={sid}")
 
         if placement == "before_segment" and not (
             cue.get("segment_id") or cue.get("before_segment_id")
         ):
-            if seg_from_id:
-                cue["segment_id"] = seg_from_id
-                actions.append(f"hydrate:{cue_id}:segment_id={seg_from_id}")
+            sid = str(cue.get("before_segment_id") or cue.get("under_segment_id") or "") or seg_from_id
+            if not sid:
+                sid = _first_selected_segment_id(ctx) or ""
+            if sid:
+                cue["segment_id"] = sid
+                actions.append(f"hydrate:{cue_id}:segment_id={sid}")
 
         if placement == "after_segment" and not cue.get("after_segment_id"):
             ch_match = _CHAPTER_CUE_RE.search(cue_id)

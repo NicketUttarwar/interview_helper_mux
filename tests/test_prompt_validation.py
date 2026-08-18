@@ -147,3 +147,26 @@ def test_sap_prompt_files_mention_pace_class_and_underscore_policy(prompt_path: 
     text = (repo_root / prompt_path).read_text(encoding="utf-8")
     assert "pace_class" in text
     assert "underscore_policy" in text
+
+
+def test_validate_envelope_accepts_null_need_stage() -> None:
+    from interview_mux.prompt_validation import _load_envelope_schema, validate_envelope
+
+    _load_envelope_schema.cache_clear()
+    env = {
+        "status": "complete",
+        "artifacts": {},
+        "needs": [
+            {
+                "type": "operator",
+                "reason": "note",
+                "stage": None,
+                "blocking": None,
+                "params": None,
+            }
+        ],
+    }
+    assert validate_envelope(env) == []
+    assert env["needs"][0]["stage"] == ""
+    assert env["needs"][0]["blocking"] is False
+    assert env["needs"][0]["params"] == {}

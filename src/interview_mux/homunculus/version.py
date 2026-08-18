@@ -36,8 +36,8 @@ _BUILTIN: tuple[HomunculusBrain, ...] = (
         id="0.1.0",
         label="Homunculus",
         summary=(
-            "First mastering homunculus: tool-loop conductor, admit/pack, "
-            "persona, issue bus, Shape organ, ears. Higher-level syncing."
+            "Authoritative conductor: skip/reorder/rerun, dynamic packing, "
+            "KB, MusicGen ladder, source-relative ears."
         ),
         kind="homunculus",
         prompt_tree="docs/prompts/homunculus/",

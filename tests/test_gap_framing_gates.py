@@ -182,3 +182,37 @@ def test_dedupe_transitions_for_framing() -> None:
     assert out.get("transitions") == []
     assert out.get("framing_deduped_count") == 1
 
+
+def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None:
+    from interview_mux.deterministic_lint import _lint_optimal_questions
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_003",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "ok_with_light_bridge",
+                    "listener_confusion": "who is speaking",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": []},
+        skip_handoff=True,
+    )
+    before = _lint_optimal_questions({"interviewer_lines": []}, ctx)
+    assert any("has no interviewer line" in e for e in before)
+    assert demote_uncovered_high_gaps(ctx) == 1
+    after = _lint_optimal_questions({"interviewer_lines": []}, ctx)
+    assert not any("has no interviewer line" in e for e in after)
+    evals = ctx.read_json("understanding/gap_evaluations.json")
+    assert evals["evaluations"][0]["severity"] == "medium"
+    assert evals["evaluations"][0]["severity_demotion_reason"] == "uncovered_after_fill"
+

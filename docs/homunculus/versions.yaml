@@ -10,8 +10,8 @@ brains:
     kind: homunculus
     prompt_tree: docs/prompts/homunculus/
     summary: >
-      First mastering homunculus: tool-loop conductor, admit/pack, persona,
-      issue bus, Shape organ, ears. Higher-level syncing.
+      Authoritative conductor: skip/reorder/rerun, dynamic packing, KB,
+      MusicGen ladder, source-relative ears. Same host callables.
 
 # New runs default to the highest registered id unless config pins
 # mastering.homunculus.default_version (currently 0.1.0 via "latest").

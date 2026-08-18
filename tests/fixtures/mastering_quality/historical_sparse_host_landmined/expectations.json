@@ -15,5 +15,13 @@
   "feasibility": {
     "cand_1": "pass",
     "cand_2": "fail"
+  },
+  "homunculus": {
+    "required_facts": ["source_card"],
+    "legal_skip": ["sfx_asset_catalog"],
+    "illegal_gate": {"category": "transcript_integrity", "action": "skip"},
+    "expected_implicated": ["listen_delight_audit", "mix"],
+    "framing_recommended": "present_operator",
+    "clone_policy": "least_spoken_host"
   }
 }

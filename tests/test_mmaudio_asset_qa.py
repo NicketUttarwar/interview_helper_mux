@@ -181,3 +181,29 @@ def test_run_mmaudio_qa_trauma_percussive_fail(tmp_path, monkeypatch):
     assert row["verdict"] == "fail"
     assert "trauma_percussive_transient" in row.get("reasons", [])
 
+
+def test_heal_mmaudio_qa_drops_rows_without_wav(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "qa_parity")
+    assets = ctx.path("sound_design", "assets")
+    assets.mkdir(parents=True, exist_ok=True)
+    _write_wav(assets / "bed_ok.wav")
+    ctx.write_json(
+        "sound_design/mmaudio_qa.json",
+        {
+            "version": 1,
+            "assets": [
+                {"asset_id": "bed_ok", "verdict": "pass"},
+                {"asset_id": "ghost", "verdict": "pass"},
+            ],
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity, load_mmaudio_qa
+
+    heal = heal_mmaudio_qa_wav_parity(ctx)
+    assert heal["healed"] is True
+    assert "ghost" in heal["dropped"]
+    qa = load_mmaudio_qa(ctx)
+    assert {row["asset_id"] for row in qa["assets"]} == {"bed_ok"}
+

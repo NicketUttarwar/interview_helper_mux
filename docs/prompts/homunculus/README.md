@@ -4,8 +4,9 @@ Used only when the operator selects **0.1.0**. **0.0.0** keeps the existing per-
 
 | Path | Role |
 |------|------|
-| `conductor/system.txt` | OpenAI conductor: tool selection, admit/pack, gates, ears, judgment |
+| `conductor/system.txt` | OpenAI conductor: skip/reorder/rerun, admit/pack, KB, gates, ears, judgment |
 | `conductor/mlx.system.txt` | Shorter local-MLX conductor variant (same law, fewer tokens) |
+| `conductor/axis_select.system.txt` | Nested sub-agent: which axes/fact IDs to pack for one tool |
 | `perspectives/direct_listener_monetization.system.txt` | Omit subscribe/buy-now CTAs; keep interesting business-system talk |
 
 **Stock process (tools):** `stack_prompt_module`, `mint_prompt`, `promote_prompt`. Promotion requires `corpus_ok` (eval corpus thresholds). Minted bodies land under `mastering/homunculus/mints/`; promotions under `mastering/homunculus/promotions.json`.

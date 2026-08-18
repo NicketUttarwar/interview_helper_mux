@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import { V2_PHASES, isV2Enabled, phaseForStage } from "../../utils/v2Phases";
+import { resolvePipelineNav } from "../../utils/pipelineNavigation";
 import { StageStepWorkbench } from "./StageStepWorkbench";
 import { NlePanel } from "./NlePanel";
 import { HomunculusPanel } from "./HomunculusPanel";

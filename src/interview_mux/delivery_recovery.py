@@ -381,6 +381,12 @@ def ensure_mmaudio_qa_before_mix(
     """Restore, optionally generate, or note missing MMAudio QA before mix."""
     rel = "sound_design/mmaudio_qa.json"
     if ctx.artifact_exists(rel):
+        try:
+            from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+            heal_mmaudio_qa_wav_parity(ctx)
+        except Exception:
+            pass
         return {"ok": True, "restored": False, "path": rel}
     restored = restore_master_artifact(ctx, rel)
     if restored is not None and restored.is_file():

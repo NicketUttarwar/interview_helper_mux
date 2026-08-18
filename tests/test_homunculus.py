@@ -74,6 +74,16 @@ def test_fourth_invoke_refused() -> None:
     assert ctx.artifact_exists("mastering/homunculus/limit_exhausted.json")
 
 
+def test_conductor_turn_uses_conductor_cap_not_stage_cap() -> None:
+    """Stage identities cap at 3; conductor_turn must keep the run-wide turn budget."""
+    ctx = _ctx_010()
+    for _ in range(4):
+        check_dispatch(ctx, identity="conductor_turn", kind="conductor_turn")
+        append_ledger(ctx, {"kind": "conductor_turn", "identity": "conductor_turn"})
+    assert count_identity(ctx, "conductor_turn") == 4
+    assert not ctx.artifact_exists("mastering/homunculus/limit_exhausted.json")
+
+
 def test_second_issue_analysis_refused() -> None:
     ctx = _ctx_010()
     issue = emit_issue(ctx, kind="stage_failure", source="t", stage_id="edl", implicated=["edl"])
@@ -323,6 +333,19 @@ def test_recovery_blocked_until_analysis() -> None:
     assert recovery_allowed(ctx, "edl") is True
 
 
+def test_end_judgment_reads_listen_delight_audit_not_legacy_path() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.judge import after_complete_master
+
+    ctx.write_json(
+        "mastering/listen_delight_audit.json",
+        {"failed_dimensions": ["recommendability"], "passed": False},
+    )
+    out = after_complete_master(ctx)
+    assert out["verdict"] == "reject"
+    assert "recommendability" in out["reason"]
+
+
 def test_end_judgment_accept_requires_ears_or_fail_open() -> None:
     ctx = _ctx_010()
     from interview_mux.homunculus.judge import write_judgment
@@ -346,6 +369,28 @@ def test_ears_fail_open_missing_wav() -> None:
     assert row["fail_open"] is True
     assert row["qc_only"] is True
     assert row["overwrites_apple_vtt"] is False
+
+
+def test_resolve_ears_wav_falls_back_to_assembly() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.ears import resolve_ears_wav_rel
+
+    assembly = ctx.path("master/assembly.wav")
+    assembly.parent.mkdir(parents=True, exist_ok=True)
+    assembly.write_bytes(b"RIFF")
+    assert resolve_ears_wav_rel(ctx) == "master/assembly.wav"
+    master = ctx.path("master/master.wav")
+    master.write_bytes(b"RIFF")
+    assert resolve_ears_wav_rel(ctx) == "master/master.wav"
+
+
+def test_end_judgment_defers_accept_without_wav() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.judge import after_complete_master
+
+    out = after_complete_master(ctx)
+    assert out["verdict"] == "pending"
+    assert not ctx.artifact_exists("mastering/homunculus/end_judgment.json")
 
 
 def test_gate_cannot_skip_g0() -> None:
@@ -398,9 +443,11 @@ def test_seed_agenda_fallback_ledgered(monkeypatch) -> None:
     client = SimpleNamespace(chat=SimpleNamespace(completions=Boom()))
     run_homunculus_phase(ctx, "analysis", ["speaker_roles"], client=client)
     kinds = [r.get("kind") for r in read_ledger(ctx)]
+    identities = [r.get("identity") for r in read_ledger(ctx)]
     assert "fallback" in kinds
     assert "agenda" in kinds
-    assert walked
+    assert "conductor_error" in identities
+    assert walked == []
 
 
 def test_promote_prompt_requires_corpus() -> None:
@@ -432,3 +479,224 @@ def test_run_analysis_uses_agenda_not_silent_linear(monkeypatch) -> None:
     )
     run_analysis(ctx)
     assert called == ["analysis"]
+
+
+def test_no_automatic_leftover_walk() -> None:
+    from interview_mux.homunculus.agenda import remaining_stages, run_homunculus_phase
+
+    ctx = _ctx_010()
+
+    class Msg:
+        content = "stop"
+        tool_calls = []
+
+    class _C:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=Msg())])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    out = run_homunculus_phase(ctx, "analysis", ["speaker_roles"], client=client)
+    assert out["remaining_after"]
+    assert "speaker_roles" in remaining_stages(ctx, "analysis")
+
+
+def test_walk_seed_remainder_is_explicit(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import request_walk_seed_remainder, run_homunculus_phase
+
+    ctx = _ctx_010()
+    walked: list[str] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.extend(stages)
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+
+    class Msg:
+        content = "stop"
+        tool_calls = []
+
+    class _C:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=Msg())])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    request_walk_seed_remainder(ctx, reason="test")
+    run_homunculus_phase(ctx, "analysis", ["speaker_roles"], client=client)
+    assert "speaker_roles" in walked
+
+
+def test_skip_island_stage_without_artifacts_refused() -> None:
+    from interview_mux.homunculus.agenda import skip_stage
+
+    ctx = _ctx_010()
+    with pytest.raises(RuntimeError, match="cannot skip"):
+        skip_stage(ctx, "low_conf_island_scan", reason="nah")
+    ctx.write_json("analysis/low_conf_must_keep.json", {"segment_ids": ["seg_1"]})
+    doc = skip_stage(ctx, "low_conf_island_scan", reason="already have islands")
+    assert "low_conf_island_scan" in doc["skipped"]
+
+
+def test_surgical_rerun_does_not_clear_from(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import rerun_stage, unmark_stage_only
+
+    ctx = _ctx_010()
+    done = ctx.final_path(".stage_done", "speaker_roles")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    later = ctx.final_path(".stage_done", "content_context")
+    later.write_text("", encoding="utf-8")
+    seq = unmark_stage_only(ctx, "speaker_roles")
+    assert seq >= 1
+    assert not ctx.is_done("speaker_roles")
+    assert ctx.is_done("content_context")
+
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "interview_mux.pipeline.run_single_stage",
+        lambda _c, stage: ran.append(stage),
+    )
+    rerun_stage(ctx, "speaker_roles")
+    assert ran == ["speaker_roles"]
+    assert ctx.is_done("content_context")
+
+
+def test_nested_chat_create_packs_user_turn() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.source_card import build_source_card
+
+    build_source_card(ctx)
+    captured: list[dict] = []
+
+    class _C:
+        def create(self, **kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(id="r")
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    nested_chat_create(
+        ctx,
+        "speaker_roles",
+        client,
+        {"model": "x", "messages": [{"role": "system", "content": "sys"}, {"role": "user", "content": "dump"}]},
+    )
+    blob = str(captured[0]["messages"])
+    assert "dump" not in blob
+    assert any(m.get("role") == "system" for m in captured[0]["messages"])
+    assert "source_card" in blob or "source_card" in str(captured)
+
+
+def test_speaker_scoped_second_analysis_allowed() -> None:
+    ctx = _ctx_010()
+    a = emit_issue(
+        ctx, kind="stage_failure", source="t", stage_id="edl", implicated=["edl"], speaker_id="spk_a"
+    )
+    b = emit_issue(
+        ctx, kind="stage_failure", source="t", stage_id="edl", implicated=["edl"], speaker_id="spk_b"
+    )
+    assert a["issue_id"] != b["issue_id"]
+    analyze_issue(ctx, a["issue_id"], quality_hypothesis="a", action="retry", style="rushed")
+    analyze_issue(ctx, b["issue_id"], quality_hypothesis="b", action="retry", style="calm")
+    from interview_mux.homunculus.kb import read_kb
+
+    styles = read_kb(ctx).get("styles") or []
+    assert len(styles) >= 2
+
+
+def test_same_speaker_duplicate_analysis_refused() -> None:
+    ctx = _ctx_010()
+    issue = emit_issue(
+        ctx, kind="stage_failure", source="t", stage_id="mix", implicated=["mix"], speaker_id="spk_a"
+    )
+    analyze_issue(ctx, issue["issue_id"], quality_hypothesis="mud", action="retry")
+    with pytest.raises(RuntimeError, match="already ran"):
+        analyze_issue(ctx, issue["issue_id"], quality_hypothesis="again", action="retry")
+
+
+def test_ear_windows_are_source_relative() -> None:
+    from interview_mux.homunculus.ears import plan_ear_windows
+
+    ctx = _ctx_010()
+    short = plan_ear_windows(ctx, 9000)
+    assert len(short) == 1
+    assert short[0][2] <= 9000
+    longw = plan_ear_windows(ctx, 3_600_000)
+    assert len(longw) == 3
+    assert longw[0][2] < 3_600_000
+    assert longw[-1][1] >= int(3_600_000 * 0.9)
+    assert all(end <= 3_600_000 for _n, _s, end in longw)
+
+
+def test_reject_writes_kb_lessons() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.judge import write_judgment
+    from interview_mux.homunculus.kb import lesson_ids
+    from interview_mux.homunculus.packer import default_pack_fact_ids
+
+    ctx.write_json(
+        "mastering/listen_delight_audit.json",
+        {"failed_dimensions": ["conversation_fit"], "passed": False},
+    )
+    write_judgment(
+        ctx,
+        verdict="reject",
+        reason="conversation_fit",
+        implicated_groups=["mix"],
+        fail_open_reason="n/a",
+    )
+    ids = lesson_ids(ctx)
+    assert ids
+    packed = default_pack_fact_ids(ctx, "mix")
+    assert any(i in packed for i in ids)
+
+
+def test_host_musicgen_not_queued(monkeypatch) -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.host_tools import run_musicgen_host
+
+    def _fake_gen(**kwargs):
+        return {
+            "backend": "musicgen",
+            "fidelity_step": "ladder_large",
+            "model_id": "facebook/musicgen-large",
+        }
+
+    monkeypatch.setattr("interview_mux.musicgen_runner.generate_music_clip", _fake_gen)
+    out = run_musicgen_host(ctx, {"prompt": "motif", "role": "theme_underscore"})
+    assert out.get("queued") is not True
+    assert out["ok"] is True
+    assert out.get("fidelity_step") == "ladder_large"
+    from interview_mux.homunculus.kb import musicgen_large_aborted, read_kb
+
+    assert musicgen_large_aborted(ctx) is False
+    assert read_kb(ctx).get("musicgen", {}).get("last_backend") == "musicgen"
+
+
+def test_mmaudio_first_refused_for_creative_beds() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.host_tools import run_mmaudio_host
+
+    denied = run_mmaudio_host(ctx, {"prompt": "bed", "role": "theme_underscore"})
+    assert denied["ok"] is False
+    assert denied["error"] == "prefer_musicgen_first"
+
+
+def test_conductor_cap_uses_remaining_turns() -> None:
+    from interview_mux.homunculus.budget import remaining_conductor_turns
+    from interview_mux.homunculus.loop import run_conductor
+
+    ctx = _ctx_010()
+    assert remaining_conductor_turns(ctx) >= 12
+
+    class Msg:
+        content = "done"
+        tool_calls = []
+
+    class _C:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=Msg())])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    out = run_conductor(ctx, user_message="hi", client=client)
+    assert out["ok"] is True
+    assert out["turns"] == 1
+

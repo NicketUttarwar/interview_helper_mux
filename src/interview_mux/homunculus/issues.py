@@ -1,4 +1,4 @@
-"""Issue bus — every catch is recorded; analysis is once per problem signature."""
+"""Issue bus — every catch is recorded; analysis is once per speaker-scoped signature."""
 
 from __future__ import annotations
 
@@ -18,8 +18,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def problem_signature(kind: str, implicated: list[str] | None = None) -> str:
-    key = kind + "|" + ",".join(sorted(implicated or []))
+def problem_signature(
+    kind: str,
+    implicated: list[str] | None = None,
+    speaker_id: str | None = None,
+) -> str:
+    key = kind + "|" + ",".join(sorted(implicated or [])) + "|" + str(speaker_id or "")
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
@@ -31,8 +35,9 @@ def emit_issue(
     evidence: dict[str, Any] | None = None,
     stage_id: str | None = None,
     implicated: list[str] | None = None,
+    speaker_id: str | None = None,
 ) -> dict[str, Any]:
-    sig = problem_signature(kind, implicated)
+    sig = problem_signature(kind, implicated, speaker_id=speaker_id)
     for existing in read_issues(ctx):
         if existing.get("problem_id") == sig:
             return existing
@@ -44,6 +49,7 @@ def emit_issue(
         "source": source,
         "stage_id": stage_id,
         "implicated": list(implicated or []),
+        "speaker_id": speaker_id,
         "evidence": evidence or {},
         "caught_at": _now(),
         "analyzed": False,
@@ -88,6 +94,7 @@ def analyze_issue(
     action: str,
     implicated_tools: list[str] | None = None,
     docs_cited: list[str] | None = None,
+    style: str | None = None,
 ) -> dict[str, Any]:
     issue = next((i for i in read_issues(ctx) if i.get("issue_id") == issue_id), None)
     if issue is None:
@@ -110,9 +117,23 @@ def analyze_issue(
         "action": action,
         "implicated_tools": list(implicated_tools or []),
         "docs_cited": list(docs_cited or []),
+        "style": style,
+        "speaker_id": issue.get("speaker_id"),
         "at": _now(),
     }
     ctx.write_json(f"{ANALYSES_DIR}/{issue_id}.json", analysis)
+    if style or issue.get("speaker_id"):
+        try:
+            from interview_mux.homunculus.kb import record_style
+
+            record_style(
+                ctx,
+                speaker_id=str(issue.get("speaker_id") or "unknown"),
+                style=str(style or quality_hypothesis)[:240],
+                source="analyze_issue",
+            )
+        except Exception:
+            pass
     append_ledger(
         ctx,
         {
@@ -145,6 +166,7 @@ def ingest_catch(
     evidence: dict[str, Any] | None = None,
     stage_id: str | None = None,
     implicated: list[str] | None = None,
+    speaker_id: str | None = None,
 ) -> dict[str, Any] | None:
     """0.1.0: record the catch. 0.0.0: no-op."""
     if not is_homunculus_meta(ctx):
@@ -156,4 +178,5 @@ def ingest_catch(
         evidence=evidence,
         stage_id=stage_id,
         implicated=implicated,
+        speaker_id=speaker_id,
     )

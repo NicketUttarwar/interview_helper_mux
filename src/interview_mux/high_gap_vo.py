@@ -23,6 +23,91 @@ def _seg_text(ctx: RunContext, sid: str) -> str:
     return ""
 
 
+def targeted_segment_ids(lines: list[Any] | None) -> set[str]:
+    """Segment ids already covered by interviewer lines (targets, seeds, supports)."""
+    targeted: set[str] = set()
+    for ln in lines or []:
+        if not isinstance(ln, dict):
+            continue
+        for key in ("targets_segment_id", "segment_id"):
+            sid = str(ln.get(key) or "")
+            if sid:
+                targeted.add(sid)
+        lid = str(ln.get("line_id") or "")
+        if lid.startswith("vo_seed_") and len(lid) > len("vo_seed_"):
+            targeted.add(lid[len("vo_seed_") :])
+        if lid.startswith("vo_fill_") and len(lid) > len("vo_fill_"):
+            targeted.add(lid[len("vo_fill_") :])
+        for sid in ln.get("supports_segment_ids") or []:
+            if sid:
+                targeted.add(str(sid))
+        extracted = ln.get("extracted_from")
+        if isinstance(extracted, dict):
+            path = str(extracted.get("path") or "")
+            if path.startswith("repair_seed:"):
+                targeted.add(path.split(":", 1)[1].strip())
+    return targeted
+
+
+def demote_uncovered_high_gaps(
+    ctx: RunContext,
+    *,
+    gap_report: dict[str, Any] | None = None,
+    origin: str = "uncovered_after_fill",
+) -> int:
+    """Demote remaining high-severity evals that still have no interviewer line.
+
+    Compose lint rejects ``gap_report`` when a high gap has no targeting line.
+    After seed/fill (and skip of blank/contiguous/unspeakable spans), leftover
+    high rows cannot ship — demote them to medium with a typed reason so the
+    stage can commit instead of looping forever.
+    """
+    if not ctx.artifact_exists("understanding/gap_evaluations.json"):
+        return 0
+    try:
+        evals = ctx.read_json("understanding/gap_evaluations.json")
+    except Exception:
+        return 0
+    if not isinstance(evals, dict):
+        return 0
+    report = gap_report
+    if report is None and ctx.artifact_exists("understanding/gap_report.json"):
+        loaded = ctx.read_json("understanding/gap_report.json")
+        report = loaded if isinstance(loaded, dict) else {}
+    lines = (report or {}).get("interviewer_lines") if isinstance(report, dict) else []
+    targeted = targeted_segment_ids(lines if isinstance(lines, list) else [])
+    demoted = 0
+    rows: list[dict[str, Any]] = []
+    for row in evals.get("evaluations") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        sev = str(row.get("severity") or "").lower()
+        if sid and sev == "high" and sid not in targeted:
+            row = dict(row)
+            row["severity"] = "medium"
+            row["severity_demotion_reason"] = origin
+            demoted += 1
+        rows.append(row)
+    if not demoted:
+        return 0
+    out = dict(evals)
+    out["evaluations"] = rows
+    try:
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            ctx,
+            "understanding/gap_evaluations.json",
+            out,
+            merge_from_disk=False,
+            stage_key="missing_framing",
+        )
+    except Exception:
+        ctx.write_json("understanding/gap_evaluations.json", out)
+    return demoted
+
+
 def fill_uncovered_high_gaps(
     ctx: RunContext,
     out: dict[str, Any],
@@ -41,20 +126,7 @@ def fill_uncovered_high_gaps(
     if not isinstance(lines, list):
         lines = []
         out["interviewer_lines"] = lines
-    targeted: set[str] = set()
-    for ln in lines:
-        if not isinstance(ln, dict):
-            continue
-        for key in ("targets_segment_id", "segment_id"):
-            sid = str(ln.get(key) or "")
-            if sid:
-                targeted.add(sid)
-        lid = str(ln.get("line_id") or "")
-        if lid.startswith("vo_seed_") and len(lid) > 8:
-            targeted.add(lid[8:])
-        for sid in ln.get("supports_segment_ids") or []:
-            if sid:
-                targeted.add(str(sid))
+    targeted = targeted_segment_ids(lines)
     high = [
         r
         for r in (evals.get("evaluations") or [])

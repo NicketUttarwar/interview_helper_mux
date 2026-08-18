@@ -418,6 +418,75 @@ def air_contract_errors(
     return list(dict.fromkeys(errors))
 
 
+def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
+    """Mark gap-report lines skipped when the omit ledger already decided omit/defer."""
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return 0
+    ledger = (
+        ctx.read_json(OMIT_LEDGER_REL) if ctx.artifact_exists(OMIT_LEDGER_REL) else None
+    )
+    report = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(report, dict) or not isinstance(ledger, dict):
+        return 0
+    lines = [row for row in (report.get("interviewer_lines") or []) if isinstance(row, dict)]
+    by_id = {str(row.get("line_id") or ""): row for row in lines if row.get("line_id")}
+    stamped = 0
+    for entry in active_entries(ledger):
+        subject = str(entry.get("subject_id") or "").strip()
+        kind = str(entry.get("kind") or "")
+        if kind not in {"gap_line_skip", "layup_skip"}:
+            continue
+        line = by_id.get(subject)
+        if line is None and kind == "layup_skip":
+            tid = str(entry.get("target_segment_id") or "").strip()
+            if tid:
+                line = by_id.get(f"vo_layup_{tid}")
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        line["skipped_optional"] = True
+        if not line.get("skip_reason_code"):
+            line["skip_reason_code"] = str(entry.get("reason_code") or "omit_ledger")
+        stamped += 1
+    if not stamped:
+        return 0
+    report["interviewer_lines"] = lines
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, "understanding/gap_report.json", report)
+    except Exception:
+        ctx.write_json("understanding/gap_report.json", report)
+    return stamped
+
+
+def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
+    """Align gap report + EDL with the omit ledger before post-master QC."""
+    errors = air_contract_errors(ctx)
+    healable = {
+        e
+        for e in errors
+        if e == "omit_ledger_order_lock_stale"
+        or e.startswith("omit_ledger_gap_line_not_skipped:")
+        or e.startswith("omit_ledger_gap_line_still_in_edl:")
+        or e.startswith("omit_ledger_omitted_line_still_in_edl:")
+    }
+    if not healable:
+        return {"healed": False, "errors": errors, "notes": []}
+    notes: list[str] = []
+    if "omit_ledger_order_lock_stale" in healable:
+        rebuild_and_write_omit_ledger(ctx)
+        notes.append("rebuilt_stale_order_lock")
+    stamped = stamp_gap_report_omit_skips(ctx)
+    if stamped:
+        notes.append(f"stamped_gap_skips:{stamped}")
+    rec = reconcile_edl_with_omit_ledger(ctx)
+    removed = list(rec.get("removed") or [])
+    if removed:
+        notes.append(f"stripped_edl:{len(removed)}")
+    remaining = air_contract_errors(ctx)
+    return {"healed": True, "notes": notes, "errors": remaining, "removed": removed}
+
+
 def build_omit_ledger(
     ctx: RunContext,
     *,
