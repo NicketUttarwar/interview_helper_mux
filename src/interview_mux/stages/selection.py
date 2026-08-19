@@ -473,6 +473,17 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.order_hash import bump_order_lock
 
         artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        try:
+            from interview_mux.media_ip_cta import apply_cta_judgments
+
+            artifacts = apply_cta_judgments(c, artifacts)
+            artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        except Exception as exc:
+            c.log(
+                f"media_ip_cta apply failed (fail-open): {exc}",
+                level="warning",
+                stage="full_master_ranking",
+            )
         write_validated_artifact(
             c,
             "master/selection.json",

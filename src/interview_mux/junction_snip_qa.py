@@ -836,28 +836,80 @@ def detect_junction_findings(
                     evidence=f"incomplete end {end_text[-40:]!r}; same-speaker continuum",
                 )
             elif incomplete and chapter_bleed:
-                earlier = _find_last_complete_phrase_end(
-                    words, src_end, max_lookback_ms=max(phrase_max, 12_000)
-                )
-                can_cut = bool(
-                    earlier is not None
-                    and earlier > src_start + 300
-                    and earlier < src_end - 80
-                )
-                action = "cut_earlier" if can_cut else ("exclude_micro" if is_micro else "cut_earlier")
-                add(
-                    "chapter_bleed_incomplete",
-                    severity="critical",
-                    segment_id=sid,
-                    clip_index=i,
-                    action=action,
-                    detail={
-                        "recommended_ms": earlier,
-                        "end_text": end_text[-80:],
-                        "unrecoverable_within_clip": not can_cut and not is_micro,
-                    },
-                    evidence=f"incomplete at chapter hinge: {end_text[-40:]!r}",
-                )
+                from interview_mux.chapter_close_hitch import hitch_latch_committed
+
+                last_in_chapter = False
+                if ch and sid:
+                    ch_ids = []
+                    for crow in selection.get("chapters") or []:
+                        if not isinstance(crow, dict):
+                            continue
+                        if str(crow.get("chapter_id") or crow.get("id") or "") == str(ch):
+                            ch_ids = [str(s) for s in (crow.get("segment_ids") or []) if s]
+                            break
+                    last_in_chapter = bool(ch_ids) and ch_ids[-1] == sid
+                if hitch_latch_committed(ctx) and last_in_chapter:
+                    extended = _find_phrase_end_ms(
+                        words,
+                        src_end,
+                        max_extend_ms=phrase_max,
+                        speaker="" if continues else speaker,
+                        hard_cap_ms=extend_hard_cap,
+                    )
+                    earlier = _find_last_complete_phrase_end(
+                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
+                    )
+                    can_cut = bool(
+                        earlier is not None
+                        and earlier > src_start + 300
+                        and earlier < src_end - 80
+                    )
+                    action = _phrase_action_for_incomplete(
+                        can_extend=extended is not None,
+                        can_cut=can_cut,
+                        can_merge=merge is not None,
+                        is_micro=is_micro,
+                    )
+                    recommended = extended if extended is not None else earlier
+                    add(
+                        "chapter_bleed_incomplete",
+                        severity="critical",
+                        segment_id=sid,
+                        clip_index=i,
+                        action=action,
+                        detail={
+                            "recommended_ms": recommended,
+                            "end_text": end_text[-80:],
+                            "hitch_last_in_chapter": True,
+                            "unrecoverable_within_clip": (
+                                recommended is None and merge is None and not is_micro
+                            ),
+                        },
+                        evidence=f"incomplete at chapter hinge (hitch last): {end_text[-40:]!r}",
+                    )
+                else:
+                    earlier = _find_last_complete_phrase_end(
+                        words, src_end, max_lookback_ms=max(phrase_max, 12_000)
+                    )
+                    can_cut = bool(
+                        earlier is not None
+                        and earlier > src_start + 300
+                        and earlier < src_end - 80
+                    )
+                    action = "cut_earlier" if can_cut else ("exclude_micro" if is_micro else "cut_earlier")
+                    add(
+                        "chapter_bleed_incomplete",
+                        severity="critical",
+                        segment_id=sid,
+                        clip_index=i,
+                        action=action,
+                        detail={
+                            "recommended_ms": earlier,
+                            "end_text": end_text[-80:],
+                            "unrecoverable_within_clip": not can_cut and not is_micro,
+                        },
+                        evidence=f"incomplete at chapter hinge: {end_text[-40:]!r}",
+                    )
             elif incomplete:
                 extended = _find_phrase_end_ms(
                     words,

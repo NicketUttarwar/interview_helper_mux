@@ -22,14 +22,27 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
     """
     if not is_homunculus_run(ctx):
         return client.chat.completions.create(**kwargs)
+    from interview_mux.chapter_close_hitch import hitch_budget_identity
     from interview_mux.homunculus.ledger import read_ledger
 
+    budget_identity = hitch_budget_identity(ctx, identity)
+    try:
+        from interview_mux.media_ip_cta import cta_cover_budget_exempt
+
+        if cta_cover_budget_exempt(ctx):
+            call_kwargs = dict(kwargs)
+            from interview_mux.homunculus.packer import apply_pack_to_kwargs
+
+            call_kwargs = apply_pack_to_kwargs(ctx, identity, call_kwargs)
+            return client.chat.completions.create(**call_kwargs)
+    except Exception:
+        pass
     last_for = None
     open_stage = False
     stage_started = 0
     stage_closed = 0
     for row in read_ledger(ctx):
-        if row.get("identity") != identity:
+        if row.get("identity") != budget_identity:
             continue
         last_for = row
         if row.get("kind") == "stage":
@@ -47,22 +60,27 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
     # identity cap is suppressed while a stage dispatch is already counted.
     call_kwargs = apply_pack_to_kwargs(ctx, identity, call_kwargs)
     if counting:
-        check_dispatch(ctx, identity=identity, kind="llm")
+        check_dispatch(ctx, identity=budget_identity, kind="llm")
         ph = packet_hash_for(call_kwargs.get("messages") or call_kwargs.get("user"))
-        check_dispatch(ctx, identity=identity, kind="llm", packet_hash=ph)
+        check_dispatch(ctx, identity=budget_identity, kind="llm", packet_hash=ph)
         append_ledger(
             ctx,
             {
                 "kind": "llm",
-                "identity": identity,
+                "identity": budget_identity,
                 "packet_hash": ph,
                 "status": "started",
             },
         )
     resp = client.chat.completions.create(**call_kwargs)
     if counting:
-        admit(ctx, identity=identity, action="keep", payload={"identity": identity, "ok": True})
-        append_ledger(ctx, {"kind": "llm", "identity": identity, "status": "done"})
+        admit(
+            ctx,
+            identity=budget_identity,
+            action="keep",
+            payload={"identity": budget_identity, "ok": True},
+        )
+        append_ledger(ctx, {"kind": "llm", "identity": budget_identity, "status": "done"})
     return resp
 
 

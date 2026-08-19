@@ -945,8 +945,9 @@ def boundaries_already_from_ideal_cuts(ctx: RunContext) -> bool:
     contract = meta.get("segment_contract") if isinstance(meta, dict) else {}
     if not isinstance(contract, dict):
         return False
+    publisher = str(contract.get("publisher_stage") or "")
     return (
-        str(contract.get("publisher_stage") or "") == "ideal_cuts_materialize"
+        publisher in {"ideal_cuts_materialize", "chapter_close_hitch"}
         and bool(contract.get("timeline_valid"))
         and int(contract.get("segment_count") or 0) > 0
     )

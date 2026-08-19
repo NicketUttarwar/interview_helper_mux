@@ -153,6 +153,16 @@
       ],
       "has_write_validator": true
     },
+    "mastering/chapter_close_hitch.json": {
+      "schemas_by_producer": {
+        "chapter_close_hitch": "chapter_close_hitch.schema.json"
+      },
+      "producers": [
+        "chapter_close_hitch"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "master/selection.json": {
       "schemas_by_producer": {
         "full_master_ranking": "master_selection_artifact.schema.json"
@@ -161,6 +171,7 @@
         "full_master_ranking"
       ],
       "consumers": [
+        "chapter_close_hitch",
         "full_master_ranking"
       ],
       "has_write_validator": true
@@ -216,6 +227,7 @@
         "connector_fuse_pass_pre_ranking"
       ],
       "consumers": [
+        "chapter_close_hitch",
         "connector_seam_adjudicate",
         "island_cluster_structure_adjudicate"
       ],
@@ -374,6 +386,36 @@
       ],
       "consumers": [],
       "has_write_validator": true
+    },
+    "mastering/research/routing.json": {
+      "schemas_by_producer": {
+        "mastering_research_routing": null
+      },
+      "producers": [
+        "mastering_research_routing"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "mastering/research/waves.json": {
+      "schemas_by_producer": {
+        "mastering_research_waves": null
+      },
+      "producers": [
+        "mastering_research_waves"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "mastering/research/rollup.json": {
+      "schemas_by_producer": {
+        "mastering_research_rollup": null
+      },
+      "producers": [
+        "mastering_research_rollup"
+      ],
+      "consumers": [],
+      "has_write_validator": false
     },
     "sound_design/musicgen_candidates.json": {
       "schemas_by_producer": {

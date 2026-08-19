@@ -107,6 +107,7 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "segment_classification": ("segments/manifest.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
     "episode_structure_compose": (),
+    "chapter_close_hitch": ("mastering/chapter_close_hitch.json",),
 }
 
 
@@ -164,6 +165,13 @@ def write_agenda(ctx: RunContext, phase: str, remaining: list[str], *, source: s
 
 
 def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: str | None = None) -> dict[str, Any]:
+    if stage == "chapter_close_hitch":
+        from interview_mux.chapter_close_hitch import hitch_latch_committed
+
+        if not hitch_latch_committed(ctx):
+            raise RuntimeError(
+                "cannot skip chapter_close_hitch until the one-shot latch is committed"
+            )
     if stage in PROTECTED_ISLAND_STAGES:
         has_art = any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
         if not has_art:
@@ -382,8 +390,8 @@ def run_homunculus_phase(
                 f"Cite docs via retrieve_canon. Do not invent dialogue. Respect G0. "
                 f"Do not skip low_conf_island_scan or connector_fuse_pass unless artifacts exist. "
                 f"Do not skip content_context, talking_points_compose, ideal_cuts_propose, "
-                f"ideal_cuts_materialize, boundary_detection, or episode_structure_compose "
-                f"unless artifacts exist. Prefer MusicGen large for beds. Hard limits apply. "
+                f"ideal_cuts_materialize, boundary_detection, episode_structure_compose, "
+                f"or chapter_close_hitch unless artifacts exist (hitch only after latch). Prefer MusicGen large for beds. Hard limits apply. "
                 f"walk_seed_remainder is optional catch-up only."
             )
             conductor_out = run_conductor(ctx, user_message=msg, client=client)

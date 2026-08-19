@@ -9,6 +9,7 @@
 | `audio_probe_build` | process | — |
 | `boundary_detection` | llm_full | segments/boundaries.json |
 | `boundary_topic_resplit` | llm_full | segments/boundaries.json |
+| `chapter_close_hitch` | process | mastering/chapter_close_hitch.json, mastering/chapter_close_hitch/intent_plan.json, mastering/chapter_close_hitch/remap.json |
 | `connector_fuse_pass` | process | analysis/connector_fuse_audit.json |
 | `connector_fuse_pass_pre_ranking` | process | analysis/connector_fuse_rounds.json |
 | `connector_seam_adjudicate` | llm_full | analysis/connector_seam_verdicts.json |
@@ -37,12 +38,12 @@
 | `listen_delight_audit` | process | — |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json |
 | `master_finalize` | process | — |
-| `master_transcript_build` | process | master/transcript.json, master/transcript.vtt |
+| `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt |
 | `mastering_plan_confirm` | process | — |
 | `mastering_plan_synthesize` | process | — |
-| `mastering_research_rollup` | process | — |
-| `mastering_research_routing` | process | — |
-| `mastering_research_waves` | process | — |
+| `mastering_research_rollup` | process | mastering/research/rollup.json |
+| `mastering_research_routing` | process | mastering/research/routing.json |
+| `mastering_research_waves` | process | mastering/research/waves.json |
 | `mastering_shape_agenda` | process | — |
 | `mastering_shape_candidates` | process | — |
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |

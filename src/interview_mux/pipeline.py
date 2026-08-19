@@ -139,6 +139,9 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
     return {
         "topic_coverage_audit": lambda: analysis_extended.run_topic_coverage(ctx),
         "narrative_arc_plan": lambda: analysis_extended.run_narrative_arc(ctx),
+        "chapter_close_hitch": lambda: __import__(
+            "interview_mux.chapter_close_hitch", fromlist=["run_chapter_close_hitch"]
+        ).run_chapter_close_hitch(ctx),
         "connector_fuse_pass_pre_ranking": lambda: __import__(
             "interview_mux.stages.low_conf_fuse_stages",
             fromlist=["run_connector_fuse_pass_pre_ranking"],

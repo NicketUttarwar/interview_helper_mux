@@ -11,3 +11,16 @@ perspectives:
       - mastering_plan_synthesize
       - end_judgment
       - analyze_issue
+  - id: media_ip_cta
+    title: Media-IP CTA + VO shape
+    qualification: >
+      Flagship-on-the-fly: drop clear this-listener media-property pitches (any
+      speaker); keep when unsure; recut mixed clips; never-touch dropped words;
+      opener third person; per-line body POV including let's-hear hinges.
+    attach:
+      - full_master_ranking
+      - nugget_corpus_mine
+      - nugget_layup_compose
+      - gap_framing_compose
+      - mastering_plan_synthesize
+      - end_judgment

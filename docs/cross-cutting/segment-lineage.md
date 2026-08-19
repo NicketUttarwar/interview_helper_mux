@@ -2,11 +2,14 @@
 
 Canonical segment IDs (`seg_001`, `seg_002`, …) flow from **`segments/boundaries.json`** through **`segments/manifest.json`** into every analysis and delivery artifact that references speech spans.
 
+`chapter_close_hitch` is the one allowed **full ID churn** after the first chapter map: it writes `mastering/chapter_close_hitch/remap.json` (`old_id → new_id` via overlap + `talking_point_id`) and rewrites surviving upstream refs (content brief, talking points, ideal cuts, operator must-keeps, NLE, **omit ledger**, **context index**, **gap report / VO filenames**). Unmatched must-keeps stay flagged, never silently dropped. Downstream of `boundary_detection` is archived on purpose so ranking / fuse / EDL cannot keep stale ids. A crash while the latch is `running` resumes without recutting again. After the inner restage, G1 `vo_pickup` WAVs and omit/skip rows are rebound onto the live ids, and `episode_structure` is aligned to the remapped chapters.
+
 ## Canonical sources
 
 | Artifact | Role |
 |----------|------|
-| `segments/boundaries.json` | Timeline contract; IDs assigned by deterministic collate after `boundary_detection` |
+| `segments/boundaries.json` | Timeline contract; IDs assigned by deterministic collate after `boundary_detection` (or republished by `chapter_close_hitch`) |
+| `mastering/chapter_close_hitch/remap.json` | One-shot old→new `seg_*` table after the chapter-close recut |
 | `segments/manifest.json` | Full segment rows (times, speaker, text, `topic_tags`) — runtime authority |
 | `master/selection.json` | From `full_master_ranking` onward, delivery checks often use `ordered_segment_ids` |
 
@@ -27,7 +30,7 @@ Canonical segment IDs (`seg_001`, `seg_002`, …) flow from **`segments/boundari
 ## Validation stack
 
 1. **Write path** — `artifact_writes.write_validated_artifact()` normalizes boundaries/manifest, enforces `seg_NNN` format, syncs content brief after boundary commit.
-2. **Repairs** — `artifact_repairs.py` drops orphan refs, infers narrative chapter `segment_ids`, rewrites NLE split parents to children.
+2. **Repairs** — `artifact_repairs.py` drops orphan refs, infers narrative chapter `segment_ids`, rewrites NLE split parents to children. `chapter_close_hitch` uses map-replace (`apply_segment_id_map`), not orphan-drop.
 3. **Cross-artifact checkpoints** — `artifact_cross_validate.py` at stage boundaries (`post_segmentation`, `post_reanchor`, `post_coverage_audit`, `post_episode_structure`, `post_edl`, …).
 4. **Lineage audit** — `python tools/audit_segment_lineage.py --run-id <exec_id>` or `--fixture` (CI).
 

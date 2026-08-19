@@ -27,6 +27,7 @@ CRITICAL_FIELDS: dict[str, frozenset[str]] = {
     "optimal_questions": frozenset({"gaps"}),
     "topic_coverage_audit": frozenset({"coverage_score"}),
     "narrative_arc_plan": frozenset({"chapters"}),
+    "chapter_close_hitch": frozenset({"status"}),
     "full_master_ranking": frozenset({"ordered_segment_ids"}),
     "transitions": frozenset({"transitions"}),
     "sound_design_plan": frozenset({"assets", "flow_plans"}),
@@ -94,6 +95,15 @@ NULLABLE_FIELDS: dict[str, frozenset[str]] = {
             "chapters[].act_title",
             "chapters[].tension_level",
             "chapters[].is_moat_chapter",
+        }
+    ),
+    "chapter_close_hitch": frozenset(
+        {
+            "reason",
+            "rewritten",
+            "restaged",
+            "unmatched_must_keep_ids",
+            "chapter_authority",
         }
     ),
     "full_master_ranking": frozenset({"excluded_segment_ids", "notes"}),

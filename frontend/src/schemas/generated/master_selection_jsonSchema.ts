@@ -25,4 +25,14 @@ export const master_selection_jsonSchema = z.object({
   "order_authority": z.string().optional(),
   "optimizer_candidate_id": z.string().optional(),
   "optimizer_score": z.unknown().optional(),
+  "media_ip_cta": z.array(z.object({
+  "segment_id": z.string(),
+  "clearly_media_ip_pitch": z.boolean(),
+  "mixed_with_story": z.boolean().optional(),
+  "must_keep_in_clip": z.boolean().optional(),
+  "cta_region": z.enum(["whole", "start", "end", "middle"]).optional(),
+  "cut_ms": z.array(z.number()).optional(),
+  "cta_open": z.boolean().optional(),
+  "open_choice": z.enum(["story_child_first", "third_person_opener"]).optional(),
+})).optional(),
 });

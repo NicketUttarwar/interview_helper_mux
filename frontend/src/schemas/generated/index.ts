@@ -20,6 +20,10 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./master_transcript_jsonSchema")).master_transcript_jsonSchema,
   "master/transitions.json": async () =>
     (await import("./master_transitions_jsonSchema")).master_transitions_jsonSchema,
+  "mastering/chapter_close_hitch.json": async () =>
+    (await import("./mastering_chapter_close_hitch_jsonSchema")).mastering_chapter_close_hitch_jsonSchema,
+  "mastering/media_ip_cta.json": async () =>
+    (await import("./mastering_media_ip_cta_jsonSchema")).mastering_media_ip_cta_jsonSchema,
   "run_meta.json": async () =>
     (await import("./run_meta_jsonSchema")).run_meta_jsonSchema,
   "segments/boundaries.json": async () =>

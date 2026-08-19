@@ -512,6 +512,16 @@ def _check_narrative_arc_plan(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
+def _check_chapter_close_hitch(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    issue = _require_artifact(
+        ctx, "master/narrative_plan.json", remediation="Run narrative_arc_plan."
+    )
+    if issue:
+        issues.append(issue)
+    return issues
+
+
 def _check_full_master_ranking(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     issues.extend(_check_flow1_profile_gate(ctx))
@@ -652,6 +662,7 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "vo_ingest": _check_vo_ingest,
     "topic_coverage_audit": _check_topic_coverage_audit,
     "narrative_arc_plan": _check_narrative_arc_plan,
+    "chapter_close_hitch": _check_chapter_close_hitch,
     "full_master_ranking": _check_full_master_ranking,
     "sound_design_plan": _check_sound_design_plan,
     "assembly_preview": _check_assembly_preview,

@@ -1582,6 +1582,11 @@
         "max_remux_rounds": 2
       }
     },
+    "chapter_close_hitch": {
+      "enabled": true,
+      "max_cut_ms": 180000,
+      "next_keeper_eps_ms": 80
+    },
     "junction_snip_qa": {
       "mode": "authoritative",
       "micro_nudge_ms": 2500,
@@ -1656,7 +1661,7 @@
         "max_problem_analyses_per_issue": 1,
         "max_complete_masters": 3,
         "max_mix_cycles": 3,
-        "max_conductor_turns": 195,
+        "max_conductor_turns": 198,
         "max_ear_windows": 24,
         "max_s2s_eval_sec": 90
       }

@@ -86,6 +86,7 @@ PHASES: list[dict[str, Any]] = [
         "stages": [
             "topic_coverage_audit",
             "narrative_arc_plan",
+            "chapter_close_hitch",
             "connector_fuse_pass_pre_ranking",
             "full_master_ranking",
             "air_script_compose",

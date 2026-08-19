@@ -295,6 +295,7 @@ def test_all_registered_stages_have_read_path_coverage() -> None:
         not in {
             "topic_coverage_audit",
             "narrative_arc_plan",
+            "chapter_close_hitch",
             "connector_fuse_pass_pre_ranking",
             "full_master_ranking",
             "air_script_compose",

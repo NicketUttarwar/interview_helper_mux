@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MediaIpCta",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "locked": { "type": "boolean" },
+    "judgments": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "dropped_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "never_touch_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "never_touch_texts": { "type": "array", "items": { "type": "string" } },
+    "cover_target_ids": { "type": "array", "items": { "type": "string" } },
+    "recuts": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "cta_open_parent": { "type": ["string", "null"] },
+    "open_choice": { "type": ["string", "null"] },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

@@ -342,7 +342,7 @@ def stage_tool_specs() -> list[ToolSpec]:
                 description=(
                     "Skip a remaining stage with a reason. Island fuse stages and "
                     "required analysis stages (content_context, talking_points, "
-                    "ideal_cuts, boundary_detection, episode_structure) cannot skip "
+                    "ideal_cuts, boundary_detection, episode_structure, chapter_close_hitch) cannot skip "
                     "without their artifacts. After a span/coverage failure, rerun "
                     "that stage instead of skipping."
                 ),

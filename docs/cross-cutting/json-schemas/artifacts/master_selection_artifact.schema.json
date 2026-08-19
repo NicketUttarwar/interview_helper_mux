@@ -48,6 +48,33 @@
     },
     "order_authority": { "type": "string" },
     "optimizer_candidate_id": { "type": "string" },
-    "optimizer_score": {}
+    "optimizer_score": {},
+    "media_ip_cta": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "clearly_media_ip_pitch"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "clearly_media_ip_pitch": { "type": "boolean" },
+          "mixed_with_story": { "type": "boolean" },
+          "must_keep_in_clip": { "type": "boolean" },
+          "cta_region": {
+            "type": "string",
+            "enum": ["whole", "start", "end", "middle"]
+          },
+          "cut_ms": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "cta_open": { "type": "boolean" },
+          "open_choice": {
+            "type": "string",
+            "enum": ["story_child_first", "third_person_opener"]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
   }
 }

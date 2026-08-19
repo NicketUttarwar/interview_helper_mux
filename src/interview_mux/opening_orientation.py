@@ -569,6 +569,14 @@ def ensure_episode_orientation(
             }
         )
 
+    try:
+        from interview_mux.homunculus.runtime import is_homunculus_run
+
+        if is_homunculus_run(ctx):
+            chosen["vo_shape"] = str(chosen.get("vo_shape") or "third_person")
+    except Exception:
+        pass
+
     orientation_ids = {
         str(x.get("line_id") or "") for x in orientations if x.get("line_id")
     }

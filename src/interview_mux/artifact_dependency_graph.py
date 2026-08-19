@@ -97,9 +97,18 @@ _PROPAGATION_SEEDS: dict[str, tuple[str, ...]] = {
         "transitions",
     ),
     "narrative_arc_plan": (
+        "chapter_close_hitch",
         "connector_fuse_pass_pre_ranking",
         "full_master_ranking",
         "transitions",
+    ),
+    "chapter_close_hitch": (
+        "connector_fuse_pass_pre_ranking",
+        "full_master_ranking",
+    ),
+    "master_transcript_build": (
+        "episode_meta_build",
+        "podcast_publish",
     ),
     "full_master_ranking": (
         "nugget_corpus_mine",

@@ -13,6 +13,7 @@ PROMOTIONS_REL = "mastering/homunculus/promotions.json"
 
 ATTACH_ALWAYS = (
     "docs/prompts/homunculus/perspectives/direct_listener_monetization.system.txt",
+    "docs/prompts/homunculus/perspectives/media_ip_cta.system.txt",
 )
 
 RANKING_AIR_SHAPE = frozenset(
@@ -23,6 +24,9 @@ RANKING_AIR_SHAPE = frozenset(
         "mastering_plan_synthesize",
         "mastering_shape_agenda",
         "mastering_shape_candidates",
+        "nugget_corpus_mine",
+        "nugget_layup_compose",
+        "gap_framing_compose",
     }
 )
 

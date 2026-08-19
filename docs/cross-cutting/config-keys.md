@@ -996,6 +996,9 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.quality_hardening.polish.mode` | `advisory` | Closed-loop polish | `authoritative` blocks `master_finalize` on a failing audit |
 | `mastering.quality_hardening.polish.audio_grounded` | `true` | Audit scores rendered audio, not plan text | `false` reverts to the weaker text-only audit |
 | `mastering.quality_hardening.polish.max_remux_rounds` | `2` | Bounded remux budget | `0` disables repair; high values loop on marginal issues |
+| `mastering.chapter_close_hitch.enabled` | `true` | One-shot `chapter_close_hitch` after the first `narrative_arc_plan` | `false` writes a committed skip latch and leaves first-pass cuts |
+| `mastering.chapter_close_hitch.max_cut_ms` | `180000` | Ceiling on last-listen-complete search from a keeper open | Too small chops chapter/TP closes; too large can wander |
+| `mastering.chapter_close_hitch.next_keeper_eps_ms` | `80` | Interior keepers stop this far before the next keeper start | `0` can swallow the next keeper |
 | `mastering.junction_snip_qa.mode` | `authoritative` | `junction_snip_qa` stage (`off` / `advisory` / `authoritative`) | Non-authoritative modes do not block finalize on unresolved critical joins |
 | `mastering.junction_snip_qa.micro_nudge_ms` | `2500` | Energy/word micro search window (scaled by pace) | Too small misses valleys; too large over-trims |
 | `mastering.junction_snip_qa.phrase_extend_max_ms` | `24000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search; unresolved critical clauses hard-stop after two runs |
@@ -1023,7 +1026,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.homunculus.limits.max_problem_analyses_per_issue` | `1` | One analysis per `(kind, implicated, speaker_id)` signature | A different speaker or style tag is a new signature |
 | `mastering.homunculus.limits.max_complete_masters` | `3` | First master + at most two rebuilds | Halt `limit_exhausted` |
 | `mastering.homunculus.limits.max_mix_cycles` | `3` | Mix / master_finalize cap | Halt `limit_exhausted` |
-| `mastering.homunculus.limits.max_conductor_turns` | `195` | `3 × 65` global backstop | Halt `limit_exhausted` |
+| `mastering.homunculus.limits.max_conductor_turns` | `198` | `3 × 66` global backstop | Halt `limit_exhausted` |
 | `mastering.synthetic_framing.allow_canned_bridge_fallback` | `false` | `seam_glue.mint_missing_transitions`, `synthetic_framing.validate_synthetic_plan` | `true` mints marked `auto_minted` canned bridges and skips validate hard-stop for uncovered reorder seams; default loud-fails |
 | `mastering.music_continuity.prefer_contiguous_beds` | `true` | `sound_design.py` contiguous under_segment merge; `seam_autopsy.score_seam` `continue_bed` hint | `false` forces per-segment hard fades / seam-level bed restarts instead of scene beds |
 | `mastering.music_continuity.scene_crossfade_ms` | `1800` | Contiguous bed XF floor | Too short → scene seams click |

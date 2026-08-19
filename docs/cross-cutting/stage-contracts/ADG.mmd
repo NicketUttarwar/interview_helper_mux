@@ -80,9 +80,14 @@ flowchart LR
   topic_coverage_audit -->|I| nugget_corpus_mine
   topic_coverage_audit -->|I| nugget_layup_compose
   topic_coverage_audit -->|I| transitions
+  narrative_arc_plan -->|I| chapter_close_hitch
   narrative_arc_plan -->|I| connector_fuse_pass_pre_ranking
   narrative_arc_plan -->|I| full_master_ranking
   narrative_arc_plan -->|I| transitions
+  chapter_close_hitch -->|I| connector_fuse_pass_pre_ranking
+  chapter_close_hitch -->|I| full_master_ranking
+  master_transcript_build -->|I| episode_meta_build
+  master_transcript_build -->|I| podcast_publish
   full_master_ranking -->|I| nugget_corpus_mine
   full_master_ranking -->|I| nugget_layup_compose
   full_master_ranking -->|I| transitions
@@ -111,6 +116,9 @@ flowchart LR
   air_script_seams -->|R| nugget_layup_compose
   boundary_detection -->|R| content_context
   boundary_topic_resplit -->|R| content_brief_reanchor
+  chapter_close_hitch -->|R| narrative_arc_plan
+  chapter_close_hitch -->|R| segment_classification
+  chapter_close_hitch -->|R| transcribe
   connector_seam_adjudicate -->|R| connector_fuse_pass
   connector_seam_adjudicate -->|R| segment_classification
   content_brief_reanchor -->|R| segment_classification
@@ -127,8 +135,6 @@ flowchart LR
   island_cluster_structure_adjudicate -->|R| transcribe
   junction_feel_audit -->|R| junction_snip_qa
   junction_feel_audit -->|R| edl
-  master_transcript_build -->|I| episode_meta_build
-  master_transcript_build -->|I| podcast_publish
   master_transcript_build -->|R| master_finalize
   master_transcript_build -->|R| edl
   missing_framing -->|R| boundary_topic_resplit

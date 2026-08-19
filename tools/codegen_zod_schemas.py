@@ -34,6 +34,8 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "segments/manifest.json": "artifacts/manifest_artifact.schema.json",
     "master/coverage_audit.json": "artifacts/coverage_audit_artifact.schema.json",
     "master/narrative_plan.json": "artifacts/narrative_plan_artifact.schema.json",
+    "mastering/chapter_close_hitch.json": "artifacts/chapter_close_hitch.schema.json",
+    "mastering/media_ip_cta.json": "artifacts/media_ip_cta.schema.json",
     "master/selection.json": "artifacts/master_selection_artifact.schema.json",
     "master/transitions.json": "artifacts/transitions_artifact.schema.json",
     "master/podcast_sfx_brief.json": "artifacts/podcast_sfx_artifact.schema.json",

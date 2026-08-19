@@ -25,6 +25,7 @@
     "writes": [
       "master/edl.json",
       "master/selection.json",
+      "master/transitions.json",
       "understanding/gap_report.json"
     ]
   },
@@ -61,6 +62,7 @@
       "master/coverage_audit.json",
       "master/narrative_plan.json",
       "master/selection.json",
+      "mastering/mastering_plan.json",
       "understanding/content_brief.json"
     ],
     "writes": []
@@ -129,6 +131,7 @@
     "reads": [
       "master/narrative_plan.json",
       "master/selection.json",
+      "master/transcript.vtt",
       "publish/cover_meta.json",
       "publish/cover_prompt.json",
       "publish/episode_meta.json",

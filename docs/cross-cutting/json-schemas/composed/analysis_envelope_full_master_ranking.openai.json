@@ -21,7 +21,8 @@
         "order_lock",
         "order_authority",
         "optimizer_candidate_id",
-        "optimizer_score"
+        "optimizer_score",
+        "media_ip_cta"
       ],
       "properties": {
         "ordered_segment_ids": {
@@ -167,6 +168,83 @@
           "properties": {},
           "required": [],
           "additionalProperties": false
+        },
+        "media_ip_cta": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "segment_id",
+              "clearly_media_ip_pitch",
+              "mixed_with_story",
+              "must_keep_in_clip",
+              "cta_region",
+              "cut_ms",
+              "cta_open",
+              "open_choice"
+            ],
+            "properties": {
+              "segment_id": {
+                "type": "string"
+              },
+              "clearly_media_ip_pitch": {
+                "type": "boolean"
+              },
+              "mixed_with_story": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "must_keep_in_clip": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cta_region": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "whole",
+                  "start",
+                  "end",
+                  "middle"
+                ]
+              },
+              "cut_ms": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "cta_open": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "open_choice": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "story_child_first",
+                  "third_person_opener"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

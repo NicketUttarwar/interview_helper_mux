@@ -263,11 +263,17 @@ def canned_air_violations(text: str) -> list[str]:
     clean = _norm(text)
     if not clean:
         return []
+    try:
+        from interview_mux.media_ip_cta import is_lets_hear_hinge
+    except Exception:
+        is_lets_hear_hinge = lambda _t: False  # noqa: E731
     menu = canned_air_phrases()
     violations: list[str] = []
     for sentence in _SENTENCE_SPLIT.split(clean):
         key = _canned_key(sentence)
         if not key:
+            continue
+        if is_lets_hear_hinge(sentence):
             continue
         if key in menu:
             violations.append(f"canned_hinge:{sentence.strip()}")
@@ -327,6 +333,14 @@ def build_corpus_mine_input(ctx: RunContext) -> dict[str, Any]:
         if sid in excluded_meta:
             seg["why_dropped"] = excluded_meta[sid]["why_dropped"]
             seg["recovery_value"] = excluded_meta[sid]["recovery_value"]
+        try:
+            from interview_mux.media_ip_cta import never_touch_segment_ids
+
+            if sid in never_touch_segment_ids(ctx):
+                seg["never_touch_cta"] = True
+                seg["recovery_value"] = "none"
+        except Exception:
+            pass
         segments.append(seg)
     talking_points = (
         ctx.read_json("understanding/talking_points.json")
@@ -348,7 +362,7 @@ def build_corpus_mine_input(ctx: RunContext) -> dict[str, Any]:
         if ctx.artifact_exists("understanding/content_brief.json")
         else {}
     )
-    return {
+    payload = {
         "ordered_segment_ids": ordered,
         "segments": segments,
         "talking_points": talking_points if isinstance(talking_points, dict) else {},
@@ -365,6 +379,12 @@ def build_corpus_mine_input(ctx: RunContext) -> dict[str, Any]:
             "low-conf cluster, set evidence_partial:true and quote only comprehensible tokens."
         ),
     }
+    try:
+        from interview_mux.media_ip_cta import attach_to_mine_input
+
+        return attach_to_mine_input(ctx, payload)
+    except Exception:
+        return payload
 
 
 def _compact_gap_evals(doc: dict[str, Any]) -> list[dict[str, Any]]:
@@ -810,6 +830,12 @@ def build_layup_compose_input(
     corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {"nuggets": []}
     corpus = corpus if isinstance(corpus, dict) else {"nuggets": []}
     nuggets = [n for n in (corpus.get("nuggets") or []) if isinstance(n, dict)]
+    try:
+        from interview_mux.media_ip_cta import nugget_from_never_touch
+
+        nuggets = [n for n in nuggets if not nugget_from_never_touch(ctx, n)]
+    except Exception:
+        pass
     prior_plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
     prior_by_target = {
         str(r.get("target_segment_id") or ""): r
@@ -948,7 +974,7 @@ def build_layup_compose_input(
         except Exception:
             dense_targets = {}
     scope_ids = [str(x) for x in (target_segment_ids or ordered) if x]
-    return {
+    payload = {
         "ordered_segment_ids": scope_ids,
         "full_ordered_segment_ids": list(ordered),
         "opening_owned_segment_ids": sorted(opening_owned),
@@ -993,6 +1019,12 @@ def build_layup_compose_input(
             "from master/selection.json after compose."
         ),
     }
+    try:
+        from interview_mux.media_ip_cta import attach_to_compose_input
+
+        return attach_to_compose_input(ctx, payload)
+    except Exception:
+        return payload
 
 
 def _word_count(text: str) -> int:
@@ -1048,6 +1080,14 @@ def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
         line["detail_budget"] = detail_budget
     if row.get("information_package_id"):
         line["information_package_id"] = row.get("information_package_id")
+    if row.get("cta_cover"):
+        line["cta_cover"] = True
+        line["cta_cover_regenerate"] = True
+        line["clone_adjacency_exempt"] = True
+        if row.get("vo_shape"):
+            line["vo_shape"] = row.get("vo_shape")
+    elif row.get("clone_adjacency_exempt"):
+        line["clone_adjacency_exempt"] = True
     return line
 
 
@@ -1093,6 +1133,7 @@ _COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
         "clone_voice_adjacency",
+        "media_ip_cta_hole",
     }
 )
 
@@ -1103,6 +1144,7 @@ JUSTIFIED_SKIP_REASON_CODES = frozenset(
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
         "clone_voice_adjacency",
+        "media_ip_cta_hole",
         "episode_open_native_self_orients",
         "self_explanatory_native",
         "native_self_orients",
@@ -1123,6 +1165,7 @@ _DEFAULT_COMPENSATING_PATHS = {
     "spoken_copy_unhealable": "omit_unsafe_spoken_copy",
     "opening_orientation_owns_target": "opening_orientation",
     "clone_voice_adjacency": "clone_voice_policy",
+    "media_ip_cta_hole": "media_ip_cta_omit",
     "episode_open_native_self_orients": "native_self_orients",
     "self_explanatory_native": "native_self_orients",
     "native_self_orients": "native_self_orients",
@@ -1330,6 +1373,12 @@ def derive_forward_unlock(
 ) -> str:
     """Build a concrete, non-canned forward_unlock from beat / listener need / target."""
     existing = str(row.get("forward_unlock") or "").strip()
+    try:
+        from interview_mux.media_ip_cta import is_lets_hear_hinge
+    except Exception:
+        is_lets_hear_hinge = lambda _t: False  # noqa: E731
+    if existing and is_lets_hear_hinge(existing):
+        return existing
     if (
         existing
         and not canned_air_violations(existing)
@@ -1407,8 +1456,14 @@ def heal_layup_analysis_fields(
         body = stripped or _strip_trailing_canned_unlock(before)
         if not body:
             body = str(row.get("setup_from_nuggets") or row.get("target_beat") or "").strip()
-        # Ensure the spoken line ends on the concrete unlock, not a canned hinge.
-        if body and not body.rstrip().endswith("?"):
+        try:
+            from interview_mux.media_ip_cta import is_lets_hear_hinge
+        except Exception:
+            is_lets_hear_hinge = lambda _t: False  # noqa: E731
+        # Compose's third-person + "let's hear…" hinge wins — do not restyle into a WH-question.
+        if body and (is_lets_hear_hinge(body) or is_lets_hear_hinge(unlock)):
+            text = body if is_lets_hear_hinge(body) else f"{body.rstrip('.!?')}. {unlock}".strip()
+        elif body and not body.rstrip().endswith("?"):
             text = f"{body.rstrip('.!?')}. {unlock}"
         elif body and canned_air_violations(body):
             text = f"{_strip_trailing_canned_unlock(body).rstrip('.!?')}. {unlock}".strip()
@@ -1452,6 +1507,13 @@ def apply_clone_voice_adjacency_skips(
     """
     out, notes = dedupe_layup_rows_by_target(plan)
     try:
+        from interview_mux.media_ip_cta import apply_cover_policy
+
+        out, cover_notes = apply_cover_policy(ctx, out)
+        notes.extend(cover_notes)
+    except Exception:
+        pass
+    try:
         from interview_mux.gap_framing import is_cut_recovery_vo
         from interview_mux.source_topology import pickup_eligible_speaker_id
     except Exception:
@@ -1472,6 +1534,8 @@ def apply_clone_voice_adjacency_skips(
 
     for row in out.get("layups") or []:
         if not isinstance(row, dict) or row.get("skip"):
+            continue
+        if row.get("cta_cover") or row.get("clone_adjacency_exempt"):
             continue
         tid = str(row.get("target_segment_id") or "").strip()
         if not tid:
@@ -1587,6 +1651,8 @@ def apply_clear_native_handoff_skips(
 
     for row in out.get("layups") or []:
         if not isinstance(row, dict) or row.get("skip"):
+            continue
+        if row.get("cta_cover"):
             continue
         tid = str(row.get("target_segment_id") or "").strip()
         if not tid or tid not in position or position[tid] <= 0:
@@ -2795,6 +2861,13 @@ def evaluate_layup_craft(
             if violations:
                 canned_lines.append({"target_segment_id": tid, "violations": violations})
                 errors.append(f"canned_air[{tid}]: " + "; ".join(violations[:2]))
+        try:
+            from interview_mux.media_ip_cta import air_overlaps_never_touch
+
+            if air_overlaps_never_touch(ctx, text):
+                errors.append(f"never_touch_cta[{tid}]: lay-up reuses dropped CTA wording")
+        except Exception:
+            pass
         from interview_mux.spoken_copy_guard import spoken_copy_violations
 
         target_text = str(
@@ -2954,6 +3027,7 @@ def materialize_over_skipped_layups(
             "spoken_copy_unhealable",
             "opening_orientation_owns_target",
             "clone_voice_adjacency",
+            "media_ip_cta_hole",
         }:
             notes.append(f"preserve_unhealable_skip:{tid}:{reason}")
             continue

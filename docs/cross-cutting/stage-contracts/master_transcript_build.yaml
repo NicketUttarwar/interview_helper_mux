@@ -4,12 +4,14 @@ lifecycle:
   phases:
   - prestage
   - pre_call
+  - llm_execute
   - staged_validate
   - committed
   - post_commit_validate
 outputs:
 - path: master/transcript.json
   schema: master_transcript.schema.json
+  staging: false
 - path: master/transcript.vtt
 - path: master/transcript.txt
 inputs:
@@ -32,4 +34,5 @@ consumers:
 - podcast_publish
 remediation:
   strategies:
+  - volley_retry
   - full_stage_rerun

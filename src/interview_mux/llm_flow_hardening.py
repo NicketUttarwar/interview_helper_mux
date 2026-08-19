@@ -61,6 +61,7 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "delivery_brief_build": "gap_framing_compose",
     "topic_coverage_audit": "delivery_brief_build",
     "narrative_arc_plan": "topic_coverage_audit",
+    "chapter_close_hitch": "narrative_arc_plan",
     "full_master_ranking": "narrative_arc_plan",
     "nugget_corpus_mine": "full_master_ranking",
     "nugget_layup_compose": "information_package_plan",

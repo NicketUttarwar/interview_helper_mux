@@ -187,13 +187,19 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
         return
 
     persist = make_stage_persist(CORPUS_REL, "nugget_corpus_mine")
+
+    def persist_corpus(c: RunContext, artifacts: dict) -> None:
+        from interview_mux.media_ip_cta import strip_never_touch_nuggets
+
+        persist(c, strip_never_touch_nuggets(c, artifacts if isinstance(artifacts, dict) else {}))
+
     with logged_step("nugget_corpus_mine/llm_stage", ctx=ctx, stage="nugget_corpus_mine"):
         run_flow_llm_stage(
             ctx,
             "nugget_corpus_mine",
             prompt_variant("nugget_layup/nugget-corpus-mine.system.txt", ctx),
             build_corpus_mine_input,
-            persist,
+            persist_corpus,
         )
 
 

@@ -79,6 +79,10 @@ _PROCESS_SUFFICIENCY: dict[str, list[dict]] = {
         },
     ],
     "mmaudio_sfx": [{"path": "assets", "rule": "min_rows", "min_count": 0}],
+    "chapter_close_hitch": [
+        {"path": "status", "rule": "non_empty_string", "min_length": 1},
+    ],
+    "master_transcript_build": [{"path": "cues", "rule": "min_rows", "min_count": 0}],
 }
 
 _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
@@ -118,6 +122,9 @@ _OUTPUT_PATH_OVERRIDES = {
     "episode_meta_build": "publish/episode_meta.json",
     "episode_cover_prompt_craft": "publish/cover_prompt.json",
 }
+_OUTPUT_SCHEMA_OVERRIDES = {
+    "chapter_close_hitch": "chapter_close_hitch.schema.json",
+}
 
 _CONSUMER_OVERRIDES = {
     "episode_meta_build": [
@@ -131,6 +138,11 @@ _CONSUMER_OVERRIDES = {
     "air_script_compose": ["air_script_seams", "edl"],
     "air_script_seams": ["transitions", "music_palette_compose", "edl"],
     "mmaudio_sfx": ["mix"],
+    "chapter_close_hitch": [
+        "connector_fuse_pass_pre_ranking",
+        "full_master_ranking",
+    ],
+    "master_transcript_build": ["podcast_publish"],
 }
 
 # Extra declared inputs for stages whose reads are not derivable from
@@ -161,6 +173,20 @@ _EXTRA_INPUTS: dict[str, dict[str, list[dict]]] = {
         ],
         "soft": [],
     },
+    "chapter_close_hitch": {
+        "hard": [{"path": "master/narrative_plan.json", "producer": "narrative_arc_plan"}],
+        "soft": [
+            {"path": "segments/manifest.json", "producer": "segment_classification"},
+            {"path": "transcript/full.json", "producer": "transcribe"},
+        ],
+    },
+    "master_transcript_build": {
+        "hard": [
+            {"path": "master/master.wav", "producer": "master_finalize"},
+            {"path": "master/edl.json", "producer": "edl"},
+        ],
+        "soft": [{"path": "transcripts/index.json"}],
+    },
     "air_script_compose": {
         "hard": [{"path": "master/selection.json", "producer": "full_master_ranking"}],
         "soft": [{"path": "mastering/mastering_plan.json", "producer": "mastering_plan_synthesize"}],
@@ -183,6 +209,21 @@ _EXTRA_OUTPUTS: dict[str, list[dict]] = {
             "staging": True,
         }
     ],
+    "chapter_close_hitch": [
+        {
+            "path": "mastering/chapter_close_hitch/intent_plan.json",
+            "schema": "narrative_plan_artifact.schema.json",
+            "staging": True,
+        },
+        {
+            "path": "mastering/chapter_close_hitch/remap.json",
+            "staging": True,
+        },
+    ],
+    "master_transcript_build": [
+        {"path": "master/transcript.vtt"},
+        {"path": "master/transcript.txt"},
+    ],
 }
 
 _PROCESS_STAGES = [
@@ -200,6 +241,8 @@ _PROCESS_STAGES = [
     "delivery_brief_build",
     "soundscape_policy_build",
     "source_topology_build",
+    "chapter_close_hitch",
+    "master_transcript_build",
     "_arbiter",
 ]
 
@@ -252,7 +295,7 @@ def _contract_for(stage_id: str) -> dict:
         tier = "process"
 
     rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id) or _OUTPUT_PATH_OVERRIDES.get(stage_id)
-    schema_file = STAGE_ARTIFACT_SCHEMAS.get(stage_id)
+    schema_file = STAGE_ARTIFACT_SCHEMAS.get(stage_id) or _OUTPUT_SCHEMA_OVERRIDES.get(stage_id)
 
     doc: dict = {
         "stage_id": stage_id,

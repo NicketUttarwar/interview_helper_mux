@@ -557,13 +557,20 @@ def avoid_clone_voice_adjacency(
         exempt = is_cut_recovery_vo(
             line, ordered_segment_ids=ordered, nugget_corpus=nugget_corpus
         )
-        if exempt:
+        if exempt or bool(line.get("cta_cover")) or bool(line.get("clone_adjacency_exempt")):
             line["clone_adjacency_exempt"] = True
             changed = changed or raw_line.get("clone_adjacency_exempt") is not True
         elif "clone_adjacency_exempt" in line:
             line.pop("clone_adjacency_exempt", None)
             changed = True
-        if not voice or not target or target not in position or exempt:
+        if (
+            not voice
+            or not target
+            or target not in position
+            or exempt
+            or bool(line.get("cta_cover"))
+            or bool(line.get("clone_adjacency_exempt"))
+        ):
             kept.append(line)
             continue
 

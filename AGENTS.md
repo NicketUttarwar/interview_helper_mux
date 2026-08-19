@@ -9,7 +9,7 @@
 ./scripts/run.sh              # launch GUI
 ```
 
-**Pipeline size:** **65 stages** — 34 analysis + 31 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
+**Pipeline size:** **66 stages** — 34 analysis + 32 delivery — [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py) · [docs/v2/port-manifest.csv](docs/v2/port-manifest.csv).
 
 **Brains:** Start-tab slider. **0.1.0** (default — latest registered) first homunculus. **0.0.0** original linear walk (still available). Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
 

@@ -4,7 +4,7 @@ Turn a long-form interview recording into a **mastered podcast** (`master/master
 
 Details: [NORTH_STAR.md](NORTH_STAR.md) · [SETUP.md](SETUP.md) · [AGENTS.md](AGENTS.md) · [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md) · [terraform/README.md](terraform/README.md)
 
-Pipeline: **61 stages** (34 analysis + 27 delivery) in [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
+Pipeline: **66 stages** (34 analysis + 32 delivery) in [`src/interview_mux/v2/config.py`](src/interview_mux/v2/config.py).
 
 ---
 

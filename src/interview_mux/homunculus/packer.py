@@ -155,6 +155,12 @@ def _inject_bootstrap_facts(ctx: RunContext, available: dict[str, dict[str, Any]
             "nugget_corpus",
             {"fact_id": "nugget_corpus", "identity": "nugget_corpus", "meaning": corpus},
         )
+    cta = _compact_media_ip_cta(ctx)
+    if cta:
+        available.setdefault(
+            "media_ip_cta",
+            {"fact_id": "media_ip_cta", "identity": "media_ip_cta", "meaning": cta},
+        )
 
 
 def heuristic_axes(tool_id: str, card: dict[str, Any] | None) -> list[str]:
@@ -204,6 +210,8 @@ def default_pack_fact_ids(ctx: RunContext, tool_id: str) -> list[str]:
                 ids.append("selection")
             if ctx.artifact_exists("understanding/nugget_corpus.json"):
                 ids.append("nugget_corpus")
+            if ctx.artifact_exists("mastering/media_ip_cta.json"):
+                ids.append("media_ip_cta")
     if "language_islands" in axes:
         if ctx.artifact_exists("analysis/low_conf_must_keep.json"):
             ids.append("low_conf_must_keep")
@@ -319,7 +327,7 @@ def pack_volley(
     if tool_id in _SPINE_TOOLS:
         extra_ids = ["content_brief", "segment_manifest"]
         if tool_id in {"nugget_layup_compose", "nugget_corpus_mine"}:
-            extra_ids.extend(["selection", "nugget_corpus"])
+            extra_ids.extend(["selection", "nugget_corpus", "media_ip_cta"])
         for fid in extra_ids:
             if fid not in resolved_ids and fid in available:
                 selected.append(available[fid])
@@ -513,6 +521,7 @@ def _compact_selection(ctx: RunContext) -> dict[str, Any] | None:
     return {
         "ordered_segment_ids": list(doc.get("ordered_segment_ids") or []),
         "excluded_segment_ids": list(doc.get("excluded_segment_ids") or [])[:40],
+        "media_ip_cta": list(doc.get("media_ip_cta") or [])[:12],
     }
 
 
@@ -539,6 +548,24 @@ def _compact_nugget_corpus(ctx: RunContext) -> dict[str, Any] | None:
             }
         )
     return {"nuggets": rows} if rows else None
+
+
+def _compact_media_ip_cta(ctx: RunContext) -> dict[str, Any] | None:
+    if not ctx.artifact_exists("mastering/media_ip_cta.json"):
+        return None
+    try:
+        doc = ctx.read_json("mastering/media_ip_cta.json")
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    return {
+        "dropped_segment_ids": list(doc.get("dropped_segment_ids") or [])[:12],
+        "never_touch_segment_ids": list(doc.get("never_touch_segment_ids") or [])[:12],
+        "cover_target_ids": list(doc.get("cover_target_ids") or [])[:12],
+        "open_choice": doc.get("open_choice"),
+        "notes": list(doc.get("notes") or [])[:8],
+    }
 
 
 def _keep_host_user_packet(text: str) -> bool:

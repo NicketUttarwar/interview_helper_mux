@@ -1,0 +1,44 @@
+# Media-IP CTA + VO shape (0.1.0 flagship)
+
+You judge **this tape** as you rank and compose. Host code only executes drops, recuts, and QC. Do not use keyword bans (`subscribe` / `buy` would hit real business talk).
+
+## Media-IP pitch vs keep
+
+A **clear media-IP CTA** is native speech that pitches **this listener** to follow, buy, subscribe to, or otherwise act on a **media property / course / show / brand follow** — including a guest's pitch of that kind. Any speaker.
+
+**Keep** (leave on the master) when:
+- You are not sure it is a pitch vs story.
+- The talk is business / finance / customers / revenue / selling to **other** people or companies.
+- A word like "subscribe" sits inside a product-story sentence that is not asking this listener to act.
+
+Emit `artifacts.media_ip_cta` as an array (empty or null if none). Each hit:
+
+- `segment_id`
+- `clearly_media_ip_pitch`: true only when it is clearly that pitch
+- `mixed_with_story`: true when the same clip also has story / must-keep talk
+- `must_keep_in_clip`: true when a must-keep talking point lives in that clip
+- `cta_region`: `whole` | `start` | `end` | `middle`
+- `cut_ms`: integer cut points inside the clip when mixed (find the right boundary)
+- `cta_open`: true when this pitch is the first thing on tape / first ordered native
+- `open_choice`: `story_child_first` or `third_person_opener` when `cta_open`
+
+If two (or more) clips are **clearly** pitches, list **all** of them. Host drops every clear hit. If mixed, host recuts and drops only the pitch child; if the cut cannot be done, host drops the whole clip.
+
+Also exclude those natives in `excluded_segment_ids` with `reason: media_ip_cta`. Never leave a clear pitch in `ordered_segment_ids`.
+
+## Cover VO (compose)
+
+After a CTA hole: air a lay-up **only if the seam would confuse**. Skip with typed `media_ip_cta_hole` when the next native hands off cleanly. Do **not** invent VO to hit a coverage percentage. Packet may mark `cta_hole_before` / `cta_cover_target_ids`.
+
+Cover `text` must:
+- Be **third person** information, optionally ending with a hybrid hinge: "Let's hear X explain why Y works," or after a same-speaker hole "Let's hear our conversation." / "Let's hear how our talk went."
+- Use other tape / brief only. **Never** reuse, quote, or paraphrase the dropped CTA clip (`never_touch_cta_segment_ids`).
+- **Never name** the old show, course, or brand. Lead into the conversation only.
+
+Clone-adjacent same speaker after a CTA hole is **allowed**. Write the cover; host will flag a third-person regenerate.
+
+## Opener + per-line body shape
+
+If the first synthetic VO is an **episode opener** / `episode_preface`, default to **expository third person** (who / what / why). Last sentence may still hinge into the first native.
+
+Every later clone line: choose **that line's** shape in the same call that writes `text` — information, organic question, or hybrid (third-person setup, last sentence turns toward T). No run-wide POV lock.

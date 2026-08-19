@@ -38,6 +38,7 @@ episode_structure_compose,understand,non_llm,episode_structure.py,yes,end of ANA
 g1_vo_pickup,g1,gate,gates.py,yes,optional VO recording (not in DELIVERY_ORDER)
 topic_coverage_audit,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
 narrative_arc_plan,plan_rank,llm,stages/analysis_extended.py,yes,deterministic when talking_points_authority on
+chapter_close_hitch,plan_rank,process,chapter_close_hitch.py,yes,one-shot chapter-close recut + id remap
 full_master_ranking,plan_rank,llm,stages/selection.py,yes,NLE overrides
 air_script_compose,plan_rank,non_llm,air_script.py,yes,Pass A membership/order/omits on mastering_plan
 nugget_corpus_mine,plan_rank,llm,stages/analysis_extended.py,yes,full-tape nugget mine after ranking

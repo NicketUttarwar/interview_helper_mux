@@ -146,6 +146,7 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 |------|-------|
 | `coverage_audit.json` | topic coverage audit |
 | `narrative_plan.json` | narrative arc plan |
+| `narrative_plan.qc.json` | second `narrative_arc_plan` output kept as QC after `chapter_close_hitch` |
 | `selection.json` | ordered segments, chapters |
 | `transitions.json` | interviewer bridges |
 | `edl_narrative_audit.json` | flagship semantic audit before final EDL ([edl_narrative_audit_artifact.schema.json](./json-schemas/artifacts/edl_narrative_audit_artifact.schema.json)) |
@@ -160,6 +161,19 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `transcript.vtt` | Apple Podcasts ingest file |
 | `transcript.txt` | plain-text episode transcript |
 | `understanding/sound_design_plan.json` | coherent SFX plan root (initialized in shared analysis, expanded in Wave 5) |
+
+## Chapter-close hitch — `mastering/`
+
+| Path | Purpose |
+|------|---------|
+| `chapter_close_hitch.json` | One-shot latch (`running` / `committed`) — [chapter_close_hitch.schema.json](./json-schemas/artifacts/chapter_close_hitch.schema.json) |
+| `chapter_close_hitch/intent_plan.json` | Frozen first `narrative_arc_plan` |
+| `chapter_close_hitch/remap.json` | `old_seg → new_seg` after recut |
+| `chapter_close_hitch/pre_keepers.json` | Frozen pre-hitch keepers for crash resume (never recut twice) |
+| `chapter_close_hitch/hitch_keepers.json` | Keepers at hitch publish time (compose hitch→live after fuse/resplit) |
+| `chapter_close_hitch/vo_snapshot.json` | G1 gap lines + VO file list so pickup WAVs rebind after restage |
+| `chapter_close_hitch/omit_ledger.json` | Snapshot of omit/skip rows remapped with the hitch table |
+| `media_ip_cta.json` | 0.1.0 host record of flagship media-IP CTA drops (never-touch ids, recuts, cover targets) — [media_ip_cta.schema.json](./json-schemas/artifacts/media_ip_cta.schema.json) |
 
 ## Homunculus (0.1.0+) — `mastering/homunculus/`
 

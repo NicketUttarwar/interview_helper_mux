@@ -31,6 +31,10 @@ _OPERATIONAL_EXACT = frozenset(
 def _is_operational_artifact(rel: str) -> bool:
     if rel in _OPERATIONAL_EXACT:
         return True
+    if rel == "mastering/chapter_close_hitch.json" or rel.startswith(
+        "mastering/chapter_close_hitch/"
+    ):
+        return True
     return any(rel.startswith(p) for p in _OPERATIONAL_PREFIXES)
 
 

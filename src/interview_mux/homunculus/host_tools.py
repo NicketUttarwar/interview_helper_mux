@@ -117,36 +117,67 @@ def run_deepfilter_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]
 
 
 def run_chatterbox_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]:
+    from contextlib import nullcontext
+
     from interview_mux.chatterbox_runner import synthesize_line
+    from interview_mux.media_ip_cta import cta_cover_regenerate_scope
 
     line = {
         "line_id": str(args.get("line_id") or "homunculus_vo"),
         "text": str(args.get("text") or ""),
     }
-    append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "started"})
+    cover = _line_is_cta_cover(ctx, str(line["line_id"]))
+    scope = cta_cover_regenerate_scope(ctx) if cover else nullcontext()
+    if not cover:
+        append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "started"})
     try:
-        path = synthesize_line(ctx, line)
-        append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "done"})
+        with scope:
+            path = synthesize_line(ctx, line)
+        if not cover:
+            append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "done"})
         return {"ok": True, "identity": "run_chatterbox", "path": str(path)}
     except Exception as exc:
-        append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "failed"})
+        if not cover:
+            append_ledger(ctx, {"kind": "host", "identity": "run_chatterbox", "status": "failed"})
         return {"ok": False, "error": type(exc).__name__, "message": str(exc)[:400]}
 
 
+def _line_is_cta_cover(ctx: RunContext, line_id: str) -> bool:
+    if not line_id or not ctx.artifact_exists("understanding/gap_report.json"):
+        return False
+    try:
+        report = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return False
+    for row in (report or {}).get("interviewer_lines") or []:
+        if isinstance(row, dict) and str(row.get("line_id") or "") == line_id:
+            return bool(row.get("cta_cover") or row.get("cta_cover_regenerate"))
+    return False
+
+
 def run_s2s_host(ctx: RunContext, args: dict[str, Any]) -> dict[str, Any]:
+    from contextlib import nullcontext
+
+    from interview_mux.media_ip_cta import cta_cover_regenerate_scope
     from interview_mux.s2s_runner import synthesize_line
 
     line = {
         "line_id": str(args.get("line_id") or "homunculus_s2s"),
         "text": str(args.get("text") or ""),
     }
-    append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "started"})
+    cover = _line_is_cta_cover(ctx, str(line["line_id"]))
+    scope = cta_cover_regenerate_scope(ctx) if cover else nullcontext()
+    if not cover:
+        append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "started"})
     try:
-        path = synthesize_line(ctx, line)
-        append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "done"})
+        with scope:
+            path = synthesize_line(ctx, line)
+        if not cover:
+            append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "done"})
         return {"ok": True, "identity": "run_s2s", "path": str(path)}
     except Exception as exc:
-        append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "failed"})
+        if not cover:
+            append_ledger(ctx, {"kind": "host", "identity": "run_s2s", "status": "failed"})
         return {"ok": False, "error": type(exc).__name__, "message": str(exc)[:400]}
 
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChapterCloseHitch",
+  "type": "object",
+  "required": ["version", "status"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "status": { "type": "string", "enum": ["running", "committed"] },
+    "seq": { "type": "integer", "minimum": 1 },
+    "skipped": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "any_end_changed": { "type": "boolean" },
+    "remap_count": { "type": "integer", "minimum": 0 },
+    "rewritten": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "restaged": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "unmatched_must_keep_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "chapter_authority": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

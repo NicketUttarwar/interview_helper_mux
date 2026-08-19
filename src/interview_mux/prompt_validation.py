@@ -80,6 +80,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "optimal_questions": "understanding/gap_report.json",
     "topic_coverage_audit": "master/coverage_audit.json",
     "narrative_arc_plan": "master/narrative_plan.json",
+    "chapter_close_hitch": "mastering/chapter_close_hitch.json",
     "full_master_ranking": "master/selection.json",
     "connector_seam_adjudicate": "analysis/connector_seam_verdicts.json",
     "island_cluster_structure_adjudicate": "analysis/island_cluster_structure_verdicts.json",
@@ -455,6 +456,14 @@ def validate_junction_snip_qa(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("junction_snip_qa.schema.json", data)
 
 
+def validate_chapter_close_hitch(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("chapter_close_hitch.schema.json", data)
+
+
+def validate_media_ip_cta(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("media_ip_cta.schema.json", data)
+
+
 def validate_junction_feel_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("junction_feel_audit.schema.json", data)
 
@@ -510,6 +519,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "master/transcript.json": validate_master_transcript,
     "vo_pickup/synthesis_report.json": validate_synthesis_report,
     "master/junction_snip_qa.json": validate_junction_snip_qa,
+    "mastering/chapter_close_hitch.json": validate_chapter_close_hitch,
+    "mastering/media_ip_cta.json": validate_media_ip_cta,
     "master/junction_feel_audit.json": validate_junction_feel_audit,
     "master/seam_autopsy.json": validate_seam_autopsy,
     "master/failure_review.json": validate_failure_review,

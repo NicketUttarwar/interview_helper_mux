@@ -87,6 +87,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_omit_ledger` | `understanding/omit_ledger.json` | Yes |
 | `validate_coverage_audit` | `master/coverage_audit.json` | Yes |
 | `validate_narrative_plan` | `master/narrative_plan.json` | Yes |
+| `validate_chapter_close_hitch` | `mastering/chapter_close_hitch.json` | Yes (`chapter_close_hitch` + `write_json`) |
+| `validate_media_ip_cta` | `mastering/media_ip_cta.json` | Yes (`full_master_ranking` host persist + `write_json`) |
 | `validate_transitions` | `master/transitions.json` | Yes |
 | `validate_podcast_sfx_brief` | `master/podcast_sfx_brief.json` | Yes |
 | `validate_highlights_selection` | `REMOVED_flow2/selection.json` | Yes |
@@ -149,6 +151,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `sound_design/placement_adjustments.json` | `placement_adjustments.schema.json` | Yes (mix-time QA hints) |
 | `understanding/source_acoustic_profile.json` | `source_acoustic_profile.schema.json` | Yes (`source_acoustic_profile` stage + GUI) |
 | `run_meta.json` | `run_meta.schema.json` | Yes (`write_json`) |
+| `mastering/chapter_close_hitch.json` | `chapter_close_hitch.schema.json` | Yes (`chapter_close_hitch` + `write_json`) |
 | `mastering/homunculus/*.json` | ledger/persona/judgment/agenda/gates/prompt stock (jsonl for issues/admitted) | 0.1.0 brain — not in generated `artifact-manifest.json` (that file is stage-disk-path codegen). Layout: [artifact-layout.md](./artifact-layout.md) · [mastering-homunculus.md](./mastering-homunculus.md) |
 | `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |
 | `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |

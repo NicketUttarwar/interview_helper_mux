@@ -390,6 +390,18 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         ("master/narrative_plan.json",),
     ),
     StageInfo(
+        "chapter_close_hitch",
+        "Chapter-close hitch",
+        "One-shot recut of native ends toward chapter/talking-point closes, remap segment ids, then continue.",
+        "delivery",
+        (
+            "mastering/chapter_close_hitch.json",
+            "mastering/chapter_close_hitch/intent_plan.json",
+            "mastering/chapter_close_hitch/remap.json",
+        ),
+        (),
+    ),
+    StageInfo(
         "connector_fuse_pass_pre_ranking",
         "Pre-ranking seam fuse",
         "Second connector fuse pass before ranking so mid-thought chops do not survive into selection.",
@@ -953,6 +965,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
 }
 _STAGE_REUSE_POLICY.update(
     {
+        "chapter_close_hitch": "none",
         "vo_ingest": "on_demand",
         "transcript_review": "gate",
         "g1_vo_pickup": "gate",
