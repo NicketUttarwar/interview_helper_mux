@@ -22,6 +22,92 @@ _ISLAND_ARTIFACTS = (
     "analysis/low_conf_islands.json",
     "analysis/connector_fuse_audit.json",
 )
+# After G0 is closed, re-STT / re-ingest is not a surgical rerun — pack g0_transcript.
+G0_LOCKED_RERUN_STAGES = frozenset({"transcribe", "ingest", "audio_preclean"})
+PREPARE_STAGE_OUTPUTS: dict[str, tuple[str, ...]] = {
+    "audio_preclean": (
+        "preclean/isolated.wav",
+        "preclean/provider.json",
+        "preclean/lineage.json",
+    ),
+    "ingest": ("ingest/normalized.wav",),
+    "transcribe": ("transcript/full.json",),
+}
+
+
+def prepare_outputs_present(ctx: RunContext, stage: str) -> bool:
+    needed = PREPARE_STAGE_OUTPUTS.get(stage)
+    if not needed:
+        return True
+    if stage in {"ingest", "transcribe"}:
+        return all(ctx.artifact_exists(rel) for rel in needed)
+    return any(ctx.artifact_exists(rel) for rel in needed)
+
+
+def unmark_hollow_prepare_stages(ctx: RunContext) -> list[str]:
+    """Clear .stage_done for prepare stages that never wrote their artifacts."""
+    cleared: list[str] = []
+    for stage in G0_LOCKED_RERUN_STAGES:
+        if ctx.is_done(stage) and not prepare_outputs_present(ctx, stage):
+            unmark_stage_only(ctx, stage)
+            cleared.append(stage)
+    return cleared
+
+
+def _refuse_g0_locked_rerun(ctx: RunContext, stage: str, *, action: str) -> None:
+    from interview_mux.homunculus.packer import g0_closed
+
+    if stage not in G0_LOCKED_RERUN_STAGES:
+        return
+    if not g0_closed(ctx):
+        return
+    if not prepare_outputs_present(ctx, stage):
+        # Hollow done marker — this is the first real run, not a post-G0 rerun.
+        return
+    raise RuntimeError(
+        f"cannot {action} {stage}: G0 is closed; pack g0_transcript instead of re-running STT"
+    )
+
+
+def _manifest_has_classified_segments(ctx: RunContext) -> bool:
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return False
+    try:
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return False
+    segs = man.get("segments") if isinstance(man, dict) else []
+    return any(
+        isinstance(s, dict) and s.get("segment_id") and s.get("speaker_role")
+        for s in (segs or [])
+    )
+
+
+def _refuse_classified_manifest_rerun(ctx: RunContext, stage: str, *, action: str) -> None:
+    """Nested gap-eval often asks to reclassify when it only saw G0 words."""
+    if stage != "segment_classification":
+        return
+    if not _manifest_has_classified_segments(ctx):
+        return
+    raise RuntimeError(
+        f"cannot {action} segment_classification: classified segment_id and "
+        "speaker_role already exist; pack segment_manifest for gap eval"
+    )
+
+
+# Required analysis stages — skip only when the compensating artifact exists.
+PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
+    "ingest": ("ingest/normalized.wav",),
+    "transcribe": ("transcript/full.json",),
+    "content_context": ("understanding/content_brief.json",),
+    "talking_points_compose": ("understanding/talking_points.json",),
+    "ideal_cuts_propose": ("understanding/ideal_cuts.json",),
+    "ideal_cuts_materialize": ("understanding/ideal_cuts_materialized.json",),
+    "boundary_detection": ("segments/boundaries.json",),
+    "segment_classification": ("segments/manifest.json",),
+    "content_brief_reanchor": ("understanding/content_brief.json",),
+    "episode_structure_compose": (),
+}
 
 
 def _order_for(phase: str) -> list[str]:
@@ -46,10 +132,10 @@ def skipped_stages(ctx: RunContext) -> set[str]:
 
 
 def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
-    skipped = skipped_stages(ctx)
-    scheduled = [str(s) for s in (_read_agenda(ctx).get("scheduled") or [])]
-    order = scheduled if scheduled else _order_for(phase)
-    return [s for s in order if not ctx.is_done(s) and s not in skipped]
+    # Seed order is the remainder walk. Conductor `skipped` / `scheduled` may
+    # reorder tools, but leftover walk must still run incomplete stages
+    # (a skip without .stage_done is a hole, not progress).
+    return [s for s in _order_for(phase) if not ctx.is_done(s)]
 
 
 def write_agenda(ctx: RunContext, phase: str, remaining: list[str], *, source: str) -> dict[str, Any]:
@@ -85,6 +171,21 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
                 f"cannot skip {stage}: language-island artifacts missing "
                 "(low_conf_island_scan / connector_fuse_pass required)"
             )
+    if stage in PROTECTED_CORE_STAGES:
+        needed = PROTECTED_CORE_STAGES[stage]
+        has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
+        if compensating_fact:
+            has_art = has_art or ctx.artifact_exists(compensating_fact)
+        if not has_art:
+            raise RuntimeError(
+                f"cannot skip {stage}: required analysis artifact missing "
+                f"({', '.join(needed) if needed else 'episode_structure_compose'})"
+            )
+        if not ctx.is_done(stage):
+            ctx.mark_done(stage, force=True)
+    if stage in PROTECTED_ISLAND_STAGES and not ctx.is_done(stage):
+        if any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS):
+            ctx.mark_done(stage, force=True)
     doc = _read_agenda(ctx)
     skipped = [str(s) for s in (doc.get("skipped") or [])]
     if stage not in skipped:
@@ -153,6 +254,8 @@ def rerun_stage(
     extra_fact_ids: list[str] | None = None,
     overlay_rel: str | None = None,
 ) -> dict[str, Any]:
+    _refuse_g0_locked_rerun(ctx, stage, action="rerun")
+    _refuse_classified_manifest_rerun(ctx, stage, action="rerun")
     seq = unmark_stage_only(ctx, stage)
     if extra_fact_ids:
         from interview_mux.homunculus.packer import pack_volley
@@ -183,6 +286,7 @@ def rerun_stage(
 
 
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
+    _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     ctx.clear_from(stage, order)
     append_ledger(
@@ -221,8 +325,15 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
 
     setattr(ctx, "_homunculus_seed_walk", True)
     try:
+        unmark_hollow_prepare_stages(ctx)
         for stage in stages:
             if ctx.is_done(stage) or stage in skipped_stages(ctx):
+                continue
+            try:
+                _refuse_g0_locked_rerun(ctx, stage, action="walk")
+            except RuntimeError:
+                if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
+                    ctx.mark_done(stage, force=True)
                 continue
             run_single_stage(ctx, stage)
             if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
@@ -240,6 +351,10 @@ def run_homunculus_phase(
     client: Any | None = None,
 ) -> dict[str, Any]:
     """Conductor selects tools. Leftover stages walk seed order only if requested."""
+    prior = list(remaining)
+    cleared = unmark_hollow_prepare_stages(ctx)
+    want = set(prior) | set(cleared)
+    remaining = [s for s in _order_for(phase) if s in want and not ctx.is_done(s)]
     write_agenda(ctx, phase, remaining, source="conductor")
     from interview_mux.homunculus.persona import write_persona
     from interview_mux.homunculus.source_card import build_source_card
@@ -266,7 +381,9 @@ def run_homunculus_phase(
                 f"Select run_stage_* tools. Admit every output. Pack volleys by fact IDs. "
                 f"Cite docs via retrieve_canon. Do not invent dialogue. Respect G0. "
                 f"Do not skip low_conf_island_scan or connector_fuse_pass unless artifacts exist. "
-                f"Prefer MusicGen large for beds. Hard limits apply. "
+                f"Do not skip content_context, talking_points_compose, ideal_cuts_propose, "
+                f"ideal_cuts_materialize, boundary_detection, or episode_structure_compose "
+                f"unless artifacts exist. Prefer MusicGen large for beds. Hard limits apply. "
                 f"walk_seed_remainder is optional catch-up only."
             )
             conductor_out = run_conductor(ctx, user_message=msg, client=client)
@@ -281,7 +398,7 @@ def run_homunculus_phase(
                     "error": conductor_out["message"],
                 },
             )
-    still = remaining_stages(ctx, phase)
+    still = [s for s in remaining if not ctx.is_done(s)]
     if still and remainder_requested(ctx):
         walk_seed_agenda(ctx, still, reason="walk_seed_remainder")
     return {"conductor": conductor_out, "remaining_after": remaining_stages(ctx, phase)}

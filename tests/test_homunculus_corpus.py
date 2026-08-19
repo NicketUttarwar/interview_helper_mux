@@ -59,6 +59,7 @@ def _apply_fixture(ctx: RunContext, fixture: dict) -> None:
     )
     (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / ".stage_done" / "transcript_review_build").write_text("", encoding="utf-8")
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
     dur_ms = int(fixture.get("source_duration_ms") or 0)
     if dur_ms:
         _raw("transcript/full.json", {"duration_ms": dur_ms, "text": "tape"})

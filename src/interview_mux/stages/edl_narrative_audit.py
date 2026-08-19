@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
@@ -12,6 +14,67 @@ from interview_mux.stages.analysis_stage import run_flow_llm_stage
 
 def _optional_json(ctx: RunContext, rel_path: str) -> dict:
     return ctx.read_json(rel_path) if ctx.artifact_exists(rel_path) else {}
+
+
+def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
+    """Seated/omitted/rendered status for gap VO — not pipeline exists flags."""
+    from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
+    from interview_mux.mastering_plan_loader import load_plan_raw
+    from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
+
+    plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+    seated = seated_vo_line_ids(plan)
+    omitted = omitted_vo_line_ids(plan)
+    gap = _optional_json(ctx, "understanding/gap_report.json")
+    pickup = ctx.final_path("vo_pickup")
+    rows: list[dict[str, Any]] = []
+    for line in gap.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        lid = str(line.get("line_id") or "").strip()
+        if not lid:
+            continue
+        wav = pickup / f"{lid}.wav"
+        syn = pickup / "synthesized" / f"{lid}.wav"
+        present = wav.is_file() or syn.is_file()
+        script_match = False
+        if present:
+            try:
+                script_match, _reason = synthesis_entry_matches_line(ctx, line)
+            except Exception:
+                script_match = present
+        if lid in omitted and lid not in seated:
+            coverage = "omitted"
+        elif present and script_match:
+            coverage = "rendered"
+        elif present:
+            coverage = "wav_stale"
+        else:
+            coverage = "missing"
+        rows.append(
+            {
+                "line_id": lid,
+                "coverage": coverage,
+                "required": bool(line.get("required")),
+                "severity": line.get("severity"),
+                "script_match": bool(script_match),
+            }
+        )
+    return rows
+
+
+def compact_air_script_vo_seats(ctx: RunContext) -> dict[str, Any]:
+    from interview_mux.air_script import load_air_script
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+    script = load_air_script(plan) or {}
+    seats = script.get("vo_seats") if isinstance(script.get("vo_seats"), dict) else {}
+    return {
+        "seated_line_ids": list(seats.get("seated_line_ids") or []),
+        "omitted_line_ids": list(seats.get("omitted_line_ids") or []),
+        "orientation_id": seats.get("orientation_id"),
+    }
 
 
 def run_edl_narrative_audit(ctx: RunContext) -> None:
@@ -27,6 +90,8 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             "gap_report": _optional_json(c, "understanding/gap_report.json"),
             "nle_edits": _optional_json(c, "segments/nle_edits.json"),
             "sound_design_plan": _optional_json(c, "understanding/sound_design_plan.json"),
+            "air_script_vo_seats": compact_air_script_vo_seats(c),
+            "vo_coverage": compact_vo_coverage(c),
         }
         sdp = payload.get("sound_design_plan")
         if isinstance(sdp, dict):

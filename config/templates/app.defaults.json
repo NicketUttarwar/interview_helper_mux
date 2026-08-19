@@ -20,6 +20,7 @@
       "upward_attack_ms": 50.0,
       "upward_release_ms": 300.0,
       "upward_knee": 2.5,
+      "skip_upward_after_preclean": true,
       "dynaudnorm_frame_ms": 500,
       "dynaudnorm_gausssize": 31,
       "dynaudnorm_peak": 0.95,

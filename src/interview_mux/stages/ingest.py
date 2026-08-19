@@ -11,6 +11,7 @@ from interview_mux.operator_subprocess import format_command, run_logged_command
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.source_loudness import (
+    apply_preclean_leveling_policy,
     build_ingest_loudness_filter,
     loudness_lineage_payload,
     loudness_stabilize_cfg,
@@ -87,14 +88,21 @@ def run_ingest(ctx: RunContext) -> Path:
     rate = int(cfg.get("sample_rate", 48000))
 
     source_label = "preclean/isolated.wav" if preclean is not None else str(ctx.input_audio())
-    loud_cfg = loudness_stabilize_cfg(cfg)
+    loud_cfg, skip_upward_reason = apply_preclean_leveling_policy(
+        loudness_stabilize_cfg(cfg),
+        used_preclean=preclean is not None,
+    )
     af_filter = build_ingest_loudness_filter(loud_cfg)
     touch_job_message(ctx, "Ingest: normalizing audio…")
-    stabilize_note = (
-        f" + loudness stabilize ({loud_cfg['target_lufs']:g} LUFS)"
-        if af_filter
-        else " (format only)"
-    )
+    if skip_upward_reason:
+        stabilize_note = (
+            f" + loudnorm ({loud_cfg['target_lufs']:g} LUFS; "
+            f"upward skipped after preclean)"
+        )
+    elif af_filter:
+        stabilize_note = f" + loudness stabilize ({loud_cfg['target_lufs']:g} LUFS)"
+    else:
+        stabilize_note = " (format only)"
     ctx.log(
         f"Ingest: normalizing {source_label} → ingest/normalized.wav "
         f"({rate} Hz mono{stabilize_note}).",
@@ -106,6 +114,7 @@ def run_ingest(ctx: RunContext) -> Path:
             "output": "ingest/normalized.wav",
             "loudness_stabilize": af_filter is not None,
             "af_filter": af_filter,
+            "skip_upward_reason": skip_upward_reason,
         },
     )
     touch_job_message(
@@ -143,7 +152,11 @@ def run_ingest(ctx: RunContext) -> Path:
             action_id="subprocess.ffmpeg",
         )
 
-    lineage = loudness_lineage_payload(loud_cfg, af_filter=af_filter)
+    lineage = loudness_lineage_payload(
+        loud_cfg,
+        af_filter=af_filter,
+        skip_upward_reason=skip_upward_reason,
+    )
     with logged_step("ingest/loudness_lineage", ctx=ctx, stage="ingest"):
         ctx.write_json("ingest/loudness.json", lineage)
 

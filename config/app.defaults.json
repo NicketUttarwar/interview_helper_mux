@@ -22,6 +22,7 @@
       "upward_attack_ms": 50.0,
       "upward_release_ms": 300.0,
       "upward_knee": 2.5,
+      "skip_upward_after_preclean": true,
       "dynaudnorm_frame_ms": 500,
       "dynaudnorm_gausssize": 31,
       "dynaudnorm_peak": 0.95,
@@ -155,7 +156,7 @@
       "attack_ms": 40,
       "release_ms": 900,
       "hop_ms": 20,
-      "pause_ride_db": 1.0
+      "pause_ride_db": 2.0
     },
     "music_presence": {
       "cold_open_lead_in_fade_ms": 900,
@@ -177,7 +178,7 @@
       "bed_duck_db": 12,
       "vo_silence_threshold": 0.02,
       "punctuator_peak_db": -10,
-      "bed_under_dialogue_db": -20,
+      "bed_under_dialogue_db": -16,
       "foley_under_dialogue_db": -20,
       "transition_whoosh_peak_db": -8
     },
@@ -267,8 +268,8 @@
       "min_stingers": 1,
       "min_foley": 0,
       "min_bed_coverage_ratio": 0.40,
-      "min_audible_bed_level_db": -22,
-      "max_audible_bed_level_db": -18,
+      "min_audible_bed_level_db": -18,
+      "max_audible_bed_level_db": -14,
       "min_audible_stinger_level_db": -15,
       "min_audible_cold_open_level_db": -9,
       "max_audible_cold_open_level_db": -5,
@@ -327,15 +328,15 @@
       "max_foley": 12,
       "music_preset": "music_forward_documentary",
       "mix_overrides": {
-        "bed_under_dialogue_db": -20,
+        "bed_under_dialogue_db": -16,
         "foley_under_dialogue_db": -20,
         "punctuator_peak_db": -9,
-        "pause_ride_db": 1.0,
+        "pause_ride_db": 2.0,
         "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -22,
-        "max_audible_bed_level_db": -18,
+        "min_audible_bed_level_db": -18,
+        "max_audible_bed_level_db": -14,
         "min_audible_cold_open_level_db": -9,
         "max_audible_cold_open_level_db": -5
       }
@@ -352,15 +353,15 @@
         "best_of_n_underscore": 3
       },
       "mix_overrides": {
-        "bed_under_dialogue_db": -18,
+        "bed_under_dialogue_db": -14,
         "foley_under_dialogue_db": -18,
         "punctuator_peak_db": -7,
-        "pause_ride_db": 1.5,
+        "pause_ride_db": 2.0,
         "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -22,
-        "max_audible_bed_level_db": -18,
+        "min_audible_bed_level_db": -18,
+        "max_audible_bed_level_db": -14,
         "min_audible_cold_open_level_db": -7,
         "max_audible_cold_open_level_db": -3
       }
@@ -398,9 +399,9 @@
       "max_foley": 12,
       "mix_overrides": {
         "punctuator_peak_db": -7,
-        "bed_under_dialogue_db": -20,
+        "bed_under_dialogue_db": -16,
         "foley_under_dialogue_db": -20,
-        "pause_ride_db": 1.0,
+        "pause_ride_db": 2.0,
         "bed_duck_db": 12
       },
       "adaptation_defaults": {

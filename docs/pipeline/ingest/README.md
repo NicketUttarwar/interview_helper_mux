@@ -23,6 +23,8 @@ Run workspace: `ASSETS/executions/exec_NNN_…/` ([assets-and-executions.md](../
 
 After optional preclean, ingest applies an **upward-only soft boost** (`acompressor` mode=`upward` — raises quiet passages, leaves louder speech alone) then **loudnorm** to **−18 LUFS** / −1.5 dBTP so quiet captures are enjoyable for STT review and listening without mid-word ducking. Final `master_finalize` still loudnorms the mix to podcast **−16 LUFS**.
 
+When ingest reads `preclean/isolated.wav`, **skip the upward compressor** (keep loudnorm). DeepFilterNet already lifted speech vs noise; leftover quiet energy is residual hiss/room, and upward compression would raise that floor. Set `skip_upward_after_preclean: false` only if you still want the boost after denoise.
+
 Config: `ingest.loudness_stabilize.*` — [config-keys.md](../../cross-cutting/config-keys.md). Default `dynaudnorm_mode=upward_only`; set `classic` only if you want legacy bidirectional `dynaudnorm`. Set `enabled: false` for format-only ingest.
 
 ## Outputs

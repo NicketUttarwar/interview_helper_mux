@@ -411,7 +411,17 @@ def air_contract_errors(
             if not replacement:
                 errors.append(f"omit_ledger_suppress_missing_replacement:{subject_id}")
             elif replacement == "episode_orientation":
-                if not any(bool(row.get("episode_orientation")) for row in lines):
+                from interview_mux.opening_orientation import (
+                    is_episode_orientation,
+                    orientation_omitted,
+                )
+
+                has_orientation_line = any(is_episode_orientation(row) for row in lines)
+                # Native-open already intros: ensure_episode_orientation omits the
+                # synthetic preface. That *is* the compensating air — do not fail
+                # QC because the ledger still says suppress→episode_orientation.
+                native_compensates = orientation_omitted(gap_report)
+                if not has_orientation_line and not native_compensates:
                     errors.append(
                         f"omit_ledger_orientation_replacement_missing:{subject_id}"
                     )

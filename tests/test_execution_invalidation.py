@@ -174,3 +174,29 @@ def test_clear_from_stamps_stale_metadata(
     if boundaries.is_file():
         doc = json.loads(boundaries.read_text(encoding="utf-8"))
         assert (doc.get("_meta") or {}).get("stale") is True
+
+
+def test_clear_from_ideal_cuts_keeps_upstream_content_brief(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    brief = ctx.final_path("understanding/content_brief.json")
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text(
+        json.dumps(
+            {
+                "thesis": "Precision oncology from circulating tumour cells.",
+                "topics": [{"name": "liquid biopsy", "summary": "blood draw diagnostics"}],
+                "_meta": {"producer_stage": "content_context", "stale": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.mark_done("content_context", force=True)
+    ctx.final_path(".stage_done", "content_context").unlink()
+    ctx.clear_from("ideal_cuts_propose", ANALYSIS_ORDER)
+    assert brief.is_file()
+    doc = json.loads(brief.read_text(encoding="utf-8"))
+    assert not (doc.get("_meta") or {}).get("stale")

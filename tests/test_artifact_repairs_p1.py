@@ -160,6 +160,68 @@ def test_repair_edl_audit_demotes_premature_vo_nle_placement(
     )
 
 
+def test_repair_edl_audit_demotes_stale_meta_question(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_edl_stale")
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "episode_orientation": True,
+                    "line_category": "episode_preface",
+                    "text": (
+                        "In this conversation, an entrepreneur traces how rural "
+                        "farming roots led to a healthy-snack business. Let's hear "
+                        "how that opening beat lands."
+                    ),
+                    "delivery": "synthesize",
+                    "gap_type": "missing_setup",
+                    "placement": "before",
+                    "targets_segment_id": "seg_001",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "type": "transition",
+                    "after_segment_id": "seg_001",
+                    "before_segment_id": "seg_002",
+                    "text": "At university, an unexpected encounter changed that direction.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    doc = {
+        "verdict": "fail",
+        "blocking_issues": [
+            {
+                "issue": (
+                    "The required opening-orientation line does not supply the guest "
+                    "identity; it is only a meta-question."
+                ),
+                "evidence": ["gap_report.interviewer_lines[line_id=vo_preface_episode_orientation].text"],
+            },
+            {
+                "issue": "Two different transition lines occupy identical selected-order adjacencies.",
+                "evidence": ["transitions.transitions[0] and transitions.transitions[2]"],
+            },
+        ],
+        "warnings": [],
+    }
+    patched, applied = repair_edl_audit(ctx, doc)
+    assert patched["verdict"] in ("pass", "warn")
+    assert not patched.get("blocking_issues")
+    assert any(row.get("action") == "demote_stale_audit_vs_disk" for row in applied)
+
+
 def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_cov")

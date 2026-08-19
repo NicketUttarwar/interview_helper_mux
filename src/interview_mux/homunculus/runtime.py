@@ -33,6 +33,23 @@ def dispatch_stage(
     source: str = "conductor",
 ) -> None:
     """Budget + serialize + ledger, then host impl, then admit. 0.1.0 only."""
+    from interview_mux.homunculus.agenda import (
+        _refuse_g0_locked_rerun,
+        prepare_outputs_present,
+        unmark_hollow_prepare_stages,
+        unmark_stage_only,
+    )
+
+    unmark_hollow_prepare_stages(ctx)
+    try:
+        _refuse_g0_locked_rerun(ctx, stage, action="run")
+    except RuntimeError:
+        if prepare_outputs_present(ctx, stage):
+            if not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
+        elif ctx.is_done(stage):
+            unmark_stage_only(ctx, stage)
+        raise
     identity = stage
     inflight = _INFLIGHT.setdefault(ctx.run_id, set())
     check_dispatch(ctx, identity=identity, kind="stage")
@@ -49,6 +66,17 @@ def dispatch_stage(
     inflight.add(identity)
     try:
         impl()
+        from interview_mux.homunculus.agenda import PROTECTED_CORE_STAGES
+
+        needed = PROTECTED_CORE_STAGES.get(stage) or ()
+        if needed and not all(ctx.artifact_exists(rel) for rel in needed):
+            raise RuntimeError(
+                f"{stage} finished without required artifact ({', '.join(needed)})"
+            )
+        if stage in PROTECTED_CORE_STAGES and needed and not ctx.is_done(stage):
+            ctx.mark_done(stage, force=True)
+            if not ctx.is_done(stage):
+                raise RuntimeError(f"{stage} finished without a done marker")
     except Exception as exc:
         inflight.discard(identity)
         issue = emit_issue(
@@ -67,6 +95,13 @@ def dispatch_stage(
                 "status": "failed",
                 "issue_id": issue.get("issue_id"),
             },
+        )
+        raise
+    except BaseException:
+        inflight.discard(identity)
+        append_ledger(
+            ctx,
+            {"kind": "stage", "identity": identity, "status": "failed", "source": source},
         )
         raise
     inflight.discard(identity)

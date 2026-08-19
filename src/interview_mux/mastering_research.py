@@ -199,6 +199,7 @@ def run_research_rollup(ctx: RunContext) -> dict[str, Any]:
         "generated_at": _now(),
     }
     ctx.write_json(DOSSIER_REL, dossier)
+    ctx.write_json("mastering/research/rollup.json", dossier)
     return dossier
 
 
@@ -262,8 +263,16 @@ def run_mastering_research_routing(ctx: RunContext) -> None:
 
 
 def run_mastering_research_waves(ctx: RunContext) -> None:
-    for wave in sorted(WAVE_FIELDS.keys()):
-        run_research_wave(ctx, wave)
+    summaries = [run_research_wave(ctx, wave) for wave in sorted(WAVE_FIELDS.keys())]
+    ctx.write_json(
+        "mastering/research/waves.json",
+        {
+            "version": 1,
+            "waves": summaries,
+            "field_count": sum(len(v) for v in WAVE_FIELDS.values()),
+            "generated_at": _now(),
+        },
+    )
 
 
 def run_mastering_research_rollup(ctx: RunContext) -> None:

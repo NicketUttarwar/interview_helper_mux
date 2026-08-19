@@ -434,3 +434,66 @@ def test_opening_contract_accepts_omitted_native_intro() -> None:
         ]
     }
     assert validate_opening_orientation(gap_report=report, edl=edl) == []
+
+
+def test_meta_question_orientation_rewritten_from_brief(tmp_path) -> None:
+    from interview_mux.opening_orientation import orientation_copy_unusable
+
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_meta_q")
+    ctx.path("understanding", "content_brief.json").parent.mkdir(parents=True, exist_ok=True)
+    ctx.path("understanding", "content_brief.json").write_text(
+        json.dumps(
+            {
+                "thesis": (
+                    "An entrepreneur traces how rural farming roots, software-product "
+                    "lessons, and repeated consumer-market setbacks led to a "
+                    "healthy-snack business now seeking scale through Zydus Wellness."
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "type": "interviewee_answer",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "topic_tags": [],
+                    "text": "I grew up in a village where farming was the family work.",
+                }
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "text": "What should we listen for as that opens?",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "orientation_missions": [
+                        "guest_identity",
+                        "conversation_topic",
+                        "listener_stakes",
+                    ],
+                }
+            ]
+        },
+        ["seg_001"],
+    )
+    line = report["interviewer_lines"][0]
+    assert any(a.get("action") == "rewrite_episode_orientation_meta_question" for a in actions)
+    assert orientation_copy_unusable(line["text"]) is False
+    assert "?" not in line["text"].split(".")[0]
+    blob = line["text"].lower()
+    assert any(tok in blob for tok in ("entrepreneur", "farming", "zydus", "healthy"))

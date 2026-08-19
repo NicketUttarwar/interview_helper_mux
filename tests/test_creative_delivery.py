@@ -8,7 +8,12 @@ from interview_mux.creative_delivery import (
     validate_creative_density,
     validate_cue_segment_anchors,
 )
-from run_fixtures import isolated_run_ctx, seed_analysis_ready_artifacts, sound_design_plan_with
+from run_fixtures import (
+    isolated_run_ctx,
+    minimal_source_acoustic_profile,
+    seed_analysis_ready_artifacts,
+    sound_design_plan_with,
+)
 
 
 def test_hydrate_cue_segments_from_cue_ids(tmp_path, monkeypatch):
@@ -131,9 +136,9 @@ def test_apply_creative_mix_contract_upgrades_sparse():
         {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 8}
     )
     assert out["underscore_policy"] == "normal"
-    # Creative path forces audible bed band (−22…−18 by default).
-    assert out["bed_level_db_range"][0] >= -22
-    assert out["bed_level_db_range"][1] >= -18
+    # Creative path forces audible bed band (−18…−14 by default).
+    assert out["bed_level_db_range"][0] >= -18
+    assert out["bed_level_db_range"][1] >= -14
     assert out["duck_under_speech_db"] >= 12
 
 
@@ -152,7 +157,7 @@ def test_audibility_level_db_role_aware():
     from interview_mux.creative_delivery import audibility_level_db
 
     bed = audibility_level_db(role="bed", default=-30.0)
-    assert -22.0 <= bed <= -18.0
+    assert -18.0 <= bed <= -14.0
     cold = audibility_level_db(role="theme_cold_open", default=-20.0)
     assert cold >= -9.0
     emph = audibility_level_db(role="theme_emphasis", default=-20.0)
@@ -190,8 +195,26 @@ def test_alternate_contiguous_loop_assets_breaks_long_runs():
 def test_clamp_bed_level_db_moves_placeholder_into_audible_band():
     from interview_mux.creative_delivery import audible_bed_level_db, clamp_bed_level_db
 
-    assert -22.0 <= clamp_bed_level_db(-26.0) <= -18.0
-    assert -22.0 <= audible_bed_level_db() <= -18.0
+    assert -18.0 <= clamp_bed_level_db(-26.0) <= -14.0
+    assert -18.0 <= audible_bed_level_db() <= -14.0
+
+
+def test_adaptive_bed_level_stays_inside_audible_band(tmp_path, monkeypatch):
+    """Talk-heavy tape must not bury undersores below the configured bed band."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "run_adaptive_bed")
+    ctx.write_json(
+        "understanding/source_acoustic_profile.json",
+        minimal_source_acoustic_profile(pacing={"speech_active_ratio": 0.9}),
+        skip_handoff=True,
+    )
+    from interview_mux.creative_delivery import _bed_level_band
+    from interview_mux.sound_design import _adaptive_bed_level_db
+
+    lo, hi = _bed_level_band()
+    level = _adaptive_bed_level_db(ctx, default_level_db=hi)
+    assert lo <= level <= hi
+    assert level == lo
 
 
 def test_repair_sfx_prompts_syncs_plan_duration_to_role_floor(tmp_path, monkeypatch):

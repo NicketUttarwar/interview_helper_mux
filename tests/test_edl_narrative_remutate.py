@@ -17,6 +17,18 @@ def test_classify_issue_needles() -> None:
     assert classify_edl_narrative_issue("gap VO orphan on timeline") == "rebase_gap_vo"
     assert classify_edl_narrative_issue("blank segment near-silence") == "drop_blank"
     assert classify_edl_narrative_issue("something novel") == "operator"
+    assert (
+        classify_edl_narrative_issue(
+            "The required opening-orientation line is only a meta-question."
+        )
+        == "rebase_gap_vo"
+    )
+    assert (
+        classify_edl_narrative_issue(
+            "high-severity layup has no rendered VO asset or transition coverage"
+        )
+        == "rebase_gap_vo"
+    )
 
 
 def test_classify_audit_unique_actions() -> None:
@@ -48,3 +60,147 @@ def test_plan_increments_and_exhausts(tmp_path) -> None:
     p3 = plan_edl_narrative_remutate(ctx, audit)
     assert p3["attempt"] == 3
     assert p3["exhausted"] is True
+
+
+def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path) -> None:
+    import json
+
+    from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
+    from interview_mux.opening_orientation import orientation_copy_unusable
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_host_repair")
+    brief = ctx.path("understanding", "content_brief.json")
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text(
+        json.dumps(
+            {
+                "thesis": (
+                    "An entrepreneur traces how rural farming roots led to a "
+                    "healthy-snack business now seeking scale through Zydus Wellness."
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001", "seg_002"]})
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "opening_orientation": {
+                "line_id": "vo_preface_episode_orientation",
+                "required": True,
+                "target_segment_id": "seg_001",
+            },
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "gap_type": "missing_setup",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "text": "What should we listen for as that opens?",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "orientation_missions": [
+                        "guest_identity",
+                        "conversation_topic",
+                        "listener_stakes",
+                    ],
+                }
+            ],
+        },
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "type": "transition",
+                    "after_segment_id": "seg_001",
+                    "before_segment_id": "seg_002",
+                    "text": "What did that first encounter change?",
+                },
+                {
+                    "type": "transition",
+                    "after_segment_id": "seg_001",
+                    "before_segment_id": "seg_002",
+                    "text": "At university, an unexpected encounter changed that direction.",
+                },
+            ]
+        },
+    )
+    audit_path = ctx.path("master", "edl_narrative_audit.json")
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "verdict": "fail",
+                "blocking_issues": [
+                    {"issue": "The required opening-orientation line is only a meta-question."}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    applied = apply_edl_narrative_host_repair(ctx)
+    assert "rewrite_episode_orientation_meta_question" in applied["notes"]
+    assert "dedupe_transitions_by_adjacency" in applied["notes"]
+    assert "discard_stale_layup_pending" not in applied["notes"]
+    assert "drop_stale_fail_audit" in applied["notes"]
+    assert not audit_path.is_file()
+    gap = ctx.read_json("understanding/gap_report.json")
+    line = gap["interviewer_lines"][0]
+    assert orientation_copy_unusable(line["text"]) is False
+    tr = ctx.read_json("master/transitions.json")
+    assert len(tr["transitions"]) == 1
+    assert not str(tr["transitions"][0]["text"]).endswith("?")
+
+
+def test_compact_vo_coverage_marks_omitted_and_rendered(tmp_path) -> None:
+    import json
+
+    from interview_mux.mastering_plan_loader import forced_sparse_plan, write_plan
+    from interview_mux.stages.edl_narrative_audit import compact_vo_coverage
+
+    ctx = isolated_run_ctx(tmp_path, "exec_vo_cov")
+    write_plan(ctx, forced_sparse_plan(reason="vo_cov"))
+    plan = ctx.read_json("mastering/mastering_plan.json")
+    plan["air_script"] = {
+        "version": 1,
+        "pass": "pass_b",
+        "beats": [],
+        "vo_seats": {
+            "seated_line_ids": ["vo_preface_episode_orientation"],
+            "omitted_line_ids": ["vo_layup_seg_016"],
+            "orientation_id": "vo_preface_episode_orientation",
+        },
+    }
+    write_plan(ctx, plan)
+    gap_path = ctx.path("understanding", "gap_report.json")
+    gap_path.parent.mkdir(parents=True, exist_ok=True)
+    gap_path.write_text(
+        json.dumps(
+            {
+                "interviewer_lines": [
+                    {
+                        "line_id": "vo_preface_episode_orientation",
+                        "text": "In this conversation, an entrepreneur traces a path to scale.",
+                        "required": True,
+                    },
+                    {
+                        "line_id": "vo_layup_seg_016",
+                        "text": "The Zydus transaction closed yesterday.",
+                        "required": True,
+                        "severity": "high",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    pickup = ctx.final_path("vo_pickup")
+    pickup.mkdir(parents=True, exist_ok=True)
+    (pickup / "vo_preface_episode_orientation.wav").write_bytes(b"RIFF")
+    rows = {r["line_id"]: r for r in compact_vo_coverage(ctx)}
+    assert rows["vo_layup_seg_016"]["coverage"] == "omitted"
+    assert rows["vo_preface_episode_orientation"]["coverage"] in {"rendered", "wav_stale", "missing"}

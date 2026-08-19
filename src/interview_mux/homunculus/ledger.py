@@ -39,15 +39,34 @@ def append_ledger(ctx: RunContext, entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def count_identity(ctx: RunContext, identity: str) -> int:
-    """Count invokes. started (or unstatused) rows only — done/failed are not extra invokes."""
-    n = 0
-    for row in read_ledger(ctx):
-        if row.get("identity") != identity:
-            continue
+    """Count open invokes: started rows not closed by a matching failed status.
+
+    Successful runs keep their ``started`` row (``done`` is not an extra invoke).
+    Failed attempts do not burn the cap. Nested ``llm`` rows for a stage that
+    already has ``kind=stage`` (or host) dispatches are part of that invoke —
+    they must not consume extra identity counts.
+    """
+    rows = [r for r in read_ledger(ctx) if r.get("identity") == identity]
+    kinds = {r.get("kind") for r in rows}
+    if "stage" in kinds or "host" in kinds:
+        rows = [r for r in rows if r.get("kind") in {"stage", "host"}]
+    started = 0
+    failed = 0
+    done = 0
+    for row in rows:
         status = row.get("status")
         if status in (None, "started"):
-            n += 1
-    return n
+            started += 1
+        elif status == "failed":
+            failed += 1
+        elif status == "done":
+            done += 1
+    if "stage" in kinds or "host" in kinds:
+        # Only finished pipeline work burns the cap. Unclosed started rows
+        # (SystemExit / recycle) and ledger-done without .stage_done do not.
+        if not ctx.is_done(identity):
+            return 0
+    return max(0, started - failed)
 
 
 def count_problem(ctx: RunContext, problem_id: str) -> int:
@@ -59,10 +78,21 @@ def count_problem(ctx: RunContext, problem_id: str) -> int:
 
 
 def has_packet_hash(ctx: RunContext, identity: str, packet_hash: str) -> bool:
-    return any(
-        row.get("identity") == identity and row.get("packet_hash") == packet_hash
-        for row in read_ledger(ctx)
-    )
+    """True only while an identical packed call is in flight for this identity.
+
+    Completed hashes may retry when the stage did not persist — schema retries
+    and re-executes after a starved pack must not hard-stop the run.
+    """
+    open_started = False
+    for row in read_ledger(ctx):
+        if row.get("identity") != identity or row.get("packet_hash") != packet_hash:
+            continue
+        status = row.get("status")
+        if status == "started":
+            open_started = True
+        elif status in {"done", "failed"}:
+            open_started = False
+    return open_started
 
 
 def packet_hash_for(payload: Any) -> str:

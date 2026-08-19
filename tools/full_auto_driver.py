@@ -2,7 +2,7 @@
 """Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
 Creates a new run from
-ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
+ASSETS/input/Baba_zydus_town_hall.mp4
 (MUX_FRESH=1, default when MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator
 gates until master/master.wav. Override with MUX_INPUT_AUDIO.
 """
@@ -203,7 +203,7 @@ BASE = os.environ.get(
 )
 INPUT_AUDIO = os.environ.get(
     "MUX_INPUT_AUDIO",
-    "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
+    "ASSETS/input/Baba_zydus_town_hall.mp4",
 )
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
@@ -269,12 +269,40 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
     """Typed remutate instead of flipping edl_narrative_audit verdict to pass."""
     global _NARRATIVE_REMUTATE_DRIVES
     from interview_mux.edl_narrative_remutate import (
+        HOST_REPAIR_PROGRESS_NOTES,
+        apply_edl_narrative_host_repair,
         apply_edl_narrative_remutate,
         plan_edl_narrative_remutate,
     )
 
-    _NARRATIVE_REMUTATE_DRIVES += 1
-    if _NARRATIVE_REMUTATE_DRIVES > 2:
+    issues = []
+    if isinstance(audit, dict):
+        issues = [
+            str(item.get("issue") or "")[:160]
+            for item in (audit.get("blocking_issues") or [])
+            if isinstance(item, dict)
+        ]
+    host = apply_edl_narrative_host_repair(ctx)
+    if HOST_REPAIR_PROGRESS_NOTES.intersection(host.get("notes") or []):
+        log(
+            f"edl_narrative host repair ({label}): notes={host.get('notes')} "
+            "→ G1 synth then edl_narrative_audit (not transitions)"
+        )
+        try:
+            heal_layup_spoken_copy()
+        except Exception as exc:
+            log(f"host repair spoken-copy: {exc}")
+        if not synthesize_g1():
+            log(f"host repair G1 synth incomplete ({label}) — wait/retry, not edl")
+            return "continue"
+        execute(
+            {
+                "mode": "delivery",
+                "from_stage": host.get("from_stage") or "edl_narrative_audit",
+            }
+        )
+        return "continue"
+    if _trip_edl_narrative_heal_loop(issues or [label]):
         log_decision(
             "major",
             stage="edl_narrative_audit",
@@ -1318,6 +1346,16 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
         mapped = _LLM_STAGE_TO_PIPELINE.get(n, n)
         return mapped if mapped in pipeline_stages else ""
 
+    # Prefer the stage that actually failed — needs[].stage often names a
+    # suggested rerun (e.g. segment_classification) and is a longer token.
+    import re as _re
+
+    llm_fail = _re.search(r"LLM stage ([a-z0-9_]+) incomplete", err, flags=_re.I)
+    if llm_fail:
+        mapped = _canonicalize(llm_fail.group(1))
+        if mapped:
+            return mapped
+
     # Prefer artifact/path hints over a stale from_stage left on the job object.
     # Span-coverage / redistribute failures always belong to ideal_cuts_propose.
     if "span coverage" in low or "clustered early" in low or "redistribute across" in low:
@@ -2338,8 +2376,24 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         return "continue"
                 except Exception as exc:
                     log(f"layup prerequisite waive: {exc}")
+            earliest = first_pending(ANALYSIS_ORDER)
+            if (
+                earliest
+                and need in ANALYSIS_ORDER
+                and ANALYSIS_ORDER.index(earliest) < ANALYSIS_ORDER.index(need)
+            ):
+                log(
+                    f"prerequisite {need} still has earlier pending {earliest} — "
+                    "resume from there"
+                )
+                need = earliest
             log(f"prerequisite incomplete: {need} — resuming from there")
-            mode = "delivery" if "delivery" in str(body.get("mode") or "") else "analysis"
+            if need in ANALYSIS_ORDER:
+                mode = "analysis"
+            elif need in DELIVERY_ORDER:
+                mode = "delivery"
+            else:
+                mode = "delivery" if "delivery" in str(body.get("mode") or "") else "analysis"
             execute({"mode": mode, "from_stage": need})
             return "advance"
         return "stuck"
@@ -2377,6 +2431,35 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             log("analysis profile verified")
         except RuntimeError as exc:
             log(f"profile verify: {exc}")
+        # Combined gate messages include both profile + pending writes. The
+        # profile matcher used to return here and skip write-approval heal, so
+        # delivery re-blocked on leaked transcript_review_build staging.
+        if "write approval pending" in low:
+            try:
+                from interview_mux.run_context import RunContext
+                from interview_mux.write_staging import (
+                    approve_stage_writes,
+                    stages_with_pending_writes,
+                )
+
+                ctx_w = RunContext(RUN_ID, create=False)
+                stale = stages_with_pending_writes(ctx_w)
+                saved: list[str] = []
+                for sid in stale:
+                    committed_ok = False
+                    if sid == "segment_classification":
+                        committed_ok = ctx_w.artifact_exists("segments/manifest.json")
+                    elif ctx_w.is_done(sid):
+                        committed_ok = True
+                    if committed_ok or ctx_w.is_done(sid):
+                        try:
+                            approve_stage_writes(ctx_w, sid)
+                            saved.append(sid)
+                        except Exception as approve_exc:
+                            log(f"write-approval save {sid}: {approve_exc}")
+                log(f"write-approval heal: saved pending {saved or stale}")
+            except Exception as exc:
+                log(f"write-approval heal: {exc}")
         execute(body)
         return "continue"
 
@@ -3480,8 +3563,59 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             )
             from interview_mux.artifact_writes import write_validated_artifact
             from interview_mux.framing_coverage_guard import enforce_framing_ranking
+            from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
 
             ctx = RunContext(RUN_ID, create=False)
+            audit = (
+                ctx.read_json("master/edl_narrative_audit.json")
+                if ctx.artifact_exists("master/edl_narrative_audit.json")
+                else {"verdict": "fail", "blocking_issues": [{"issue": msg}]}
+            )
+            issue_blob = " ".join(
+                str(item.get("issue") or "")
+                + " "
+                + str(item.get("recommended_action") or "")
+                for item in (audit.get("blocking_issues") or [])
+                if isinstance(item, dict)
+            ).lower()
+            if any(
+                needle in issue_blob
+                for needle in (
+                    "orientation",
+                    "meta-question",
+                    "vo_layup",
+                    "identical selected-order",
+                    "one transition per",
+                    "competing spoken bridges",
+                )
+            ):
+                sig = [
+                    str(item.get("issue") or "")[:160]
+                    for item in (audit.get("blocking_issues") or [])
+                    if isinstance(item, dict)
+                ]
+                applied = apply_edl_narrative_host_repair(ctx)
+                log(f"edl_narrative host repair: {applied.get('notes')}")
+                from interview_mux.edl_narrative_remutate import HOST_REPAIR_PROGRESS_NOTES
+
+                if not HOST_REPAIR_PROGRESS_NOTES.intersection(applied.get("notes") or []):
+                    if _trip_edl_narrative_heal_loop(sig or [msg]):
+                        log("STOP: edl_narrative_audit host-repair repeated ≥3")
+                        raise SystemExit("HARD: edl_narrative_audit host-repair loop x3")
+                try:
+                    heal_layup_spoken_copy()
+                except Exception as exc:
+                    log(f"host repair spoken-copy: {exc}")
+                if not synthesize_g1():
+                    log("host repair G1 synth incomplete — wait/retry, not edl")
+                    return "continue"
+                execute(
+                    {
+                        "mode": "delivery",
+                        "from_stage": applied.get("from_stage") or "edl_narrative_audit",
+                    }
+                )
+                return "continue"
             drop: set[str] = set()
             issue_text = ""
             if ctx.artifact_exists("master/edl_narrative_audit.json"):
@@ -3887,6 +4021,30 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         m = re.search(r"prerequisite stage\s+([a-z0-9_]+)", low)
         if m:
             need = m.group(1)
+            try:
+                from interview_mux.llm_flow_hardening import producer_artifact_path
+                from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+                from interview_mux.run_context import RunContext
+
+                ctx_p = RunContext(RUN_ID, create=False)
+                rel = producer_artifact_path(need)
+                if (
+                    rel
+                    and ctx_p.artifact_exists(rel)
+                    and upstream_artifact_acceptable(need, rel, ctx_p)
+                ):
+                    ctx_p.mark_done(need, force=True)
+                    nxt = first_pending(
+                        [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
+                    ) or "missing_framing"
+                    log(
+                        f"prerequisite {need} already has acceptable {rel} — "
+                        f"stamp done, resume {nxt}"
+                    )
+                    execute({"mode": "analysis", "from_stage": nxt})
+                    return "advance"
+            except Exception as exc:
+                log(f"prerequisite keep-artifact: {exc}")
             log(f"prerequisite missing: {need} — resuming from there")
             execute({"mode": "analysis" if "delivery" not in str(body.get("mode")) else "delivery", "from_stage": need})
             return "advance"
@@ -4807,6 +4965,93 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
             low_err = err.lower()
+            if (
+                stage == "edl_narrative_audit"
+                or "opening-orientation" in low_err
+                or "meta-question" in low_err
+                or "edl_narrative_audit verdict is fail" in low_err
+            ):
+                try:
+                    from interview_mux.edl_narrative_remutate import (
+                        HOST_REPAIR_PROGRESS_NOTES,
+                        apply_edl_narrative_host_repair,
+                    )
+                    from interview_mux.run_context import RunContext
+
+                    ctx_h = RunContext(RUN_ID, create=False)
+                    applied = apply_edl_narrative_host_repair(ctx_h)
+                    log(f"edl_narrative host repair (error): {applied.get('notes')}")
+                    if not HOST_REPAIR_PROGRESS_NOTES.intersection(applied.get("notes") or []):
+                        if _trip_edl_narrative_heal_loop([err[:160]]):
+                            log("STOP: edl_narrative_audit host-repair repeated ≥3")
+                            raise SystemExit("HARD: edl_narrative_audit host-repair loop x3")
+                    try:
+                        heal_layup_spoken_copy()
+                    except Exception as exc:
+                        log(f"host repair spoken-copy: {exc}")
+                    if not synthesize_g1():
+                        log("host repair G1 synth incomplete (error) — wait/retry, not edl")
+                        continue
+                    execute(
+                        {
+                            "mode": "delivery",
+                            "from_stage": applied.get("from_stage") or "edl_narrative_audit",
+                        }
+                    )
+                    continue
+                except SystemExit:
+                    raise
+                except Exception as exc:
+                    log(f"edl_narrative host repair (error): {exc}")
+            if (
+                "topic_coverage_audit" in low_err
+                and "needs_input" in low_err
+            ):
+                try:
+                    from interview_mux.run_context import RunContext
+
+                    ctx_c = RunContext(RUN_ID, create=False)
+                    if ctx_c.artifact_exists(
+                        "understanding/content_brief.json"
+                    ) and ctx_c.artifact_exists("segments/manifest.json"):
+                        log(
+                            "topic_coverage needs_input with brief+manifest on disk — "
+                            "resume topic_coverage_audit (pack spine facts)"
+                        )
+                        execute({"mode": "delivery", "from_stage": "topic_coverage_audit"})
+                        continue
+                except Exception as exc:
+                    log(f"coverage keep-artifact heal: {exc}")
+            if (
+                stage == "boundary_detection"
+                and (
+                    "needs_input" in low_err
+                    or "transcript_excerpt" in low_err
+                    or "truncated final line" in low_err
+                )
+            ):
+                try:
+                    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+                    from interview_mux.run_context import RunContext
+
+                    ctx_b = RunContext(RUN_ID, create=False)
+                    if ctx_b.artifact_exists(
+                        "segments/boundaries.json"
+                    ) and upstream_artifact_acceptable(
+                        "boundary_detection", "segments/boundaries.json", ctx_b
+                    ):
+                        ctx_b.mark_done("boundary_detection", force=True)
+                        nxt = first_pending(
+                            [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
+                        ) or "missing_framing"
+                        log(
+                            "boundary needs_input with acceptable boundaries.json — "
+                            f"keep segments, resume {nxt}"
+                        )
+                        execute({"mode": "analysis", "from_stage": nxt})
+                        continue
+                except Exception as exc:
+                    log(f"boundary keep-artifact heal: {exc}")
             # Stop identical empty-snap loops — product must fix word_index/anchor
             # collapse; re-executing the same materialize cannot invent cuts.
             if stage == "ideal_cuts_materialize" and (
@@ -6238,6 +6483,46 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "batched missing_framing incomplete" in low_err
                 or "missing_framing incomplete" in low_err
             ):
+                wants_ids = (
+                    "canonical segment" in low_err
+                    or "no canonical segment" in low_err
+                    or ("rerun_stage" in low_err and "segment_classification" in low_err)
+                )
+                if wants_ids:
+                    fail_key = "missing_framing:needs_input_segment_ids"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    has_ids = False
+                    try:
+                        from interview_mux.run_context import RunContext
+
+                        ctx_m = RunContext(RUN_ID, create=False)
+                        man = (
+                            ctx_m.read_json("segments/manifest.json")
+                            if ctx_m.artifact_exists("segments/manifest.json")
+                            else {}
+                        )
+                        segs = man.get("segments") if isinstance(man, dict) else []
+                        has_ids = any(
+                            isinstance(s, dict) and s.get("segment_id") for s in (segs or [])
+                        )
+                    except Exception as exc:
+                        log(f"missing_framing segment-id probe: {exc}")
+                    if has_ids:
+                        if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                            log(
+                                "STOP: missing_framing needs_input segment_ids ×3 "
+                                "with classified manifest on disk — packer must keep "
+                                "host segments / segment_manifest (not batch-coverage)"
+                            )
+                            raise SystemExit(2)
+                        log(
+                            "missing_framing needs_input with classified manifest — "
+                            "resume missing_framing (pack segment_manifest, skip G0 words)"
+                        )
+                        execute({"mode": "analysis", "from_stage": "missing_framing"})
+                        continue
                 # Fixed in gaps.py (coverage pass + deterministic fill). Resume the
                 # stage only — do not rewind to mastering_research_waves.
                 log("missing_framing batch-coverage heal — resume missing_framing")
@@ -8178,6 +8463,8 @@ def ensure_run() -> bool:
         "/api/runs",
         {
             "input_audio_path": INPUT_AUDIO,
+            "run_mode": "full-auto",
+            "full_auto": True,
             "homunculus_version": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
         },
         timeout=300,

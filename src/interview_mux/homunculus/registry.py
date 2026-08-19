@@ -61,7 +61,14 @@ def stage_tool_specs() -> list[ToolSpec]:
         specs.append(
             ToolSpec(
                 name=f"run_stage_{stage}",
-                description=f"Run pipeline stage {stage} (host callable from pipeline.py).",
+                description=(
+                    f"Run pipeline stage {stage} (host callable from pipeline.py)."
+                    + (
+                        " After G0 is closed this is refused — pack g0_transcript instead of re-STT."
+                        if stage in {"transcribe", "ingest", "audio_preclean"}
+                        else ""
+                    )
+                ),
                 parameters={
                     "type": "object",
                     "properties": {"stage": {"type": "string", "const": stage}},
@@ -332,7 +339,13 @@ def stage_tool_specs() -> list[ToolSpec]:
             ),
             ToolSpec(
                 name="skip_stage",
-                description="Skip a remaining stage with a reason. Island fuse stages cannot skip without artifacts.",
+                description=(
+                    "Skip a remaining stage with a reason. Island fuse stages and "
+                    "required analysis stages (content_context, talking_points, "
+                    "ideal_cuts, boundary_detection, episode_structure) cannot skip "
+                    "without their artifacts. After a span/coverage failure, rerun "
+                    "that stage instead of skipping."
+                ),
                 parameters={
                     "type": "object",
                     "properties": {
@@ -361,7 +374,7 @@ def stage_tool_specs() -> list[ToolSpec]:
             ),
             ToolSpec(
                 name="rerun_stage",
-                description="Surgical re-run of one done stage with extra facts. Does not clear downstream.",
+                description="Surgical re-run of one done stage with extra facts. Does not clear downstream. After G0 is closed, transcribe/ingest/audio_preclean are refused — pack g0_transcript instead. Do not rerun segment_classification when segments/manifest.json already has segment_id and speaker_role — pack segment_manifest for gap eval.",
                 parameters={
                     "type": "object",
                     "properties": {
@@ -386,7 +399,11 @@ def stage_tool_specs() -> list[ToolSpec]:
             ),
             ToolSpec(
                 name="invalidate_downstream",
-                description="Clear this stage and everything after (stale downstream). Not a surgical rerun.",
+                description=(
+                    "Clear this stage and everything after (stale downstream). "
+                    "Not a surgical rerun. Do not use for a single-stage QC miss "
+                    "such as ideal_cuts span coverage — rerun_stage that stage instead."
+                ),
                 parameters={
                     "type": "object",
                     "properties": {"stage": {"type": "string"}},

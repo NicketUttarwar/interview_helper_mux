@@ -102,6 +102,9 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "mmaudio_sfx": "sound_design/mmaudio_qa.json",
     "junction_feel_audit": "master/junction_feel_audit.json",
     "master_transcript_build": "master/transcript.json",
+    "mastering_research_routing": "mastering/research/routing.json",
+    "mastering_research_waves": "mastering/research/waves.json",
+    "mastering_research_rollup": "mastering/research/rollup.json",
 }
 
 def _schemas_dir() -> Path:

@@ -184,7 +184,7 @@ def ensure_e2e(
     audio = (
         input_audio
         or os.environ.get("MUX_INPUT_AUDIO")
-        or "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3"
+        or "ASSETS/input/Baba_zydus_town_hall.mp4"
     )
     env = {
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",

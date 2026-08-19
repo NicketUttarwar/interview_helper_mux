@@ -250,9 +250,18 @@ def run_talking_points_compose(ctx: RunContext) -> None:
         ctx.mark_done("talking_points_compose", force=True)
         return
 
-    persist = make_stage_persist(
+    base_tp_persist = make_stage_persist(
         "understanding/talking_points.json", "talking_points_compose"
     )
+
+    def persist(c: RunContext, artifacts: dict[str, Any]) -> None:
+        from interview_mux.ideal_cuts import spread_talking_point_time_hints
+        from interview_mux.interview_duration_policy import transcript_duration_ms
+
+        doc = artifacts if isinstance(artifacts, dict) else {}
+        duration_ms = int(transcript_duration_ms(c) or 0)
+        base_tp_persist(c, spread_talking_point_time_hints(doc, duration_ms))
+
     prompt_rel = "understanding/talking-points-compose.system.txt"
     transcript = ctx.read_json("transcript/full.json")
     full_text = str(transcript.get("text") or "")
@@ -337,7 +346,11 @@ def run_talking_points_compose(ctx: RunContext) -> None:
 
 def run_ideal_cuts_propose(ctx: RunContext) -> None:
     """Propose timed native windows for each talking point."""
-    from interview_mux.ideal_cuts import cut_span_coverage_ratio, ideal_cuts_cfg
+    from interview_mux.ideal_cuts import (
+        cut_span_coverage_ratio,
+        ideal_cuts_cfg,
+        redistribute_clustered_cuts,
+    )
     from interview_mux.interview_duration_policy import transcript_duration_ms
     from interview_mux.stage_input_helpers import compact_transcript_for_boundaries
 
@@ -388,15 +401,40 @@ def run_ideal_cuts_propose(ctx: RunContext) -> None:
     def persist(c: RunContext, artifacts: dict[str, Any]) -> None:
         duration_ms = int(transcript_duration_ms(c) or 0)
         floor = float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0.45)
+        doc = artifacts if isinstance(artifacts, dict) else {}
         # Only enforce span distribution on long interviews (short tapes can cluster).
         if duration_ms >= 900_000:
-            ratio = cut_span_coverage_ratio(artifacts if isinstance(artifacts, dict) else {}, duration_ms)
+            ratio = cut_span_coverage_ratio(doc, duration_ms)
             if ratio < floor:
-                raise RuntimeError(
-                    f"ideal_cuts_propose span coverage {ratio:.3f} < min {floor:.3f} "
-                    f"(cuts clustered early — redistribute across the interview)"
+                transcript = (
+                    c.read_json("transcript/full.json")
+                    if c.artifact_exists("transcript/full.json")
+                    else {}
                 )
-        base_persist(c, artifacts)
+                tps = (
+                    c.read_json("understanding/talking_points.json")
+                    if c.artifact_exists("understanding/talking_points.json")
+                    else {}
+                )
+                doc = redistribute_clustered_cuts(
+                    doc,
+                    duration_ms,
+                    talking_points=tps if isinstance(tps, dict) else {},
+                    transcript=transcript if isinstance(transcript, dict) else {},
+                    floor=floor,
+                )
+                ratio = cut_span_coverage_ratio(doc, duration_ms)
+                if ratio < floor:
+                    raise RuntimeError(
+                        f"ideal_cuts_propose span coverage {ratio:.3f} < min {floor:.3f} "
+                        f"(cuts clustered early — redistribute across the interview)"
+                    )
+                c.log(
+                    f"ideal_cuts_propose redistributed clustered cuts to span {ratio:.3f}",
+                    level="warning",
+                    stage="ideal_cuts_propose",
+                )
+        base_persist(c, doc)
 
     with logged_step(
         "ideal_cuts_propose/llm_stage", ctx=ctx, stage="ideal_cuts_propose"
@@ -775,19 +813,19 @@ def _derive_mix_contract(pacing: dict[str, Any], source_music_risk: str) -> dict
     pace = pacing.get("pace_class", "conversational")
     # Audible beds under dialogue — presence via level + restrained duck, never drowning speech.
     if pace == "dense":
-        bed_range = [-22, -18]
+        bed_range = [-18, -14]
         duck = 14
         max_stingers = 1
     elif pace == "brisk":
-        bed_range = [-22, -18]
+        bed_range = [-18, -14]
         duck = 12
         max_stingers = 2
     elif pace == "calm":
-        bed_range = [-22, -18]
+        bed_range = [-18, -14]
         duck = 12
         max_stingers = 3
     else:
-        bed_range = [-22, -18]
+        bed_range = [-18, -14]
         duck = 12
         max_stingers = 2
 

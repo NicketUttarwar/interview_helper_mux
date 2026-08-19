@@ -269,3 +269,75 @@ def test_heal_omit_ledger_stamps_gap_line_and_strips_edl():
     edl = ctx.read_json("master/edl.json")
     assert all(c.get("line_id") != "vo_001" for c in edl.get("clips") or [])
     assert air_contract_errors(ctx) == []
+
+
+def test_air_contract_accepts_native_omitted_orientation_as_replacement():
+    """exec_2058-style: opening layup suppressed for orientation, then native-open omitted it."""
+    ctx = RunContext("exec_omit_native_orient", create=True)
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="layup_skip",
+            subject_id="vo_layup_seg_002",
+            target_segment_id="seg_002",
+            decision="suppress",
+            reason_code="opening_orientation_owns_target",
+            owner_stage="nugget_layup_compose",
+            compensating_path="opening_orientation",
+            replacement_ref="episode_orientation",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"layup_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    errors = air_contract_errors(
+        ctx,
+        ledger=ledger,
+        gap_report={
+            "nugget_layup_authority": True,
+            "opening_orientation": {
+                "line_id": None,
+                "sequence": "music_body",
+                "target_segment_id": "seg_002",
+                "required": False,
+                "omitted": True,
+                "omit_reason": "native_open_self_orients",
+            },
+            "interviewer_lines": [],
+        },
+        edl={"clips": [{"type": "speech", "segment_id": "seg_002"}]},
+    )
+    assert errors == []
+
+
+def test_build_omit_ledger_native_open_skip_is_omit_not_suppress():
+    ctx = RunContext("exec_omit_native_skip", create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_a"],
+            "order_lock": {"version": 1, "revision": 1, "order_content_hash": "h1"},
+        },
+        skip_handoff=True,
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_a"],
+        "layups": [
+            stamp_typed_skip(
+                {"target_segment_id": "seg_a", "line_id": "vo_layup_seg_a", "nugget_ids": []},
+                reason_code="episode_open_native_self_orients",
+            )
+        ],
+    }
+    ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
+    ledger = build_omit_ledger(ctx, plan=plan)
+    active = [e for e in ledger["entries"] if e.get("active") and e.get("kind") == "layup_skip"]
+    assert active
+    assert active[0]["decision"] == "omit"
+    assert active[0].get("replacement_ref") in (None, "")
+    assert air_contract_errors(ctx, ledger=ledger, gap_report={"interviewer_lines": []}) == []

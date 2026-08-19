@@ -2760,6 +2760,40 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
                     "count": len(demoted_sel),
                 }
             )
+            blocking = kept_blocking
+
+    # Demote LLM complaints already falsified by current gap/transitions/VO.
+    if isinstance(blocking, list) and blocking:
+        kept_blocking = []
+        demoted_stale: list[dict[str, Any]] = []
+        for row in blocking:
+            if isinstance(row, dict) and _edl_issue_contradicted_by_disk(ctx, row):
+                demoted_stale.append(row)
+                continue
+            if isinstance(row, dict):
+                kept_blocking.append(row)
+        if demoted_stale:
+            warnings = [
+                dict(row)
+                for row in (out.get("warnings") or [])
+                if isinstance(row, dict)
+            ]
+            for row in demoted_stale:
+                warning = dict(row)
+                warning["issue"] = (
+                    str(warning.get("issue") or "stale_audit")
+                    + " (demoted: current artifacts contradict this complaint)"
+                )
+                warnings.append(warning)
+            out["warnings"] = warnings
+            out["blocking_issues"] = kept_blocking
+            applied.append(
+                {
+                    "action": "demote_stale_audit_vs_disk",
+                    "count": len(demoted_stale),
+                }
+            )
+            blocking = kept_blocking
 
     if out.get("blocking_issues"):
         out["verdict"] = "fail"
@@ -2867,6 +2901,65 @@ def _edl_issue_premature_vo_nle_placement(ctx: Any, row: dict[str, Any]) -> bool
     if not lines:
         return False
     return all(_wav_exists(ln) for ln in lines)
+
+
+def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
+    """True when the audit issue no longer matches current gap/transitions/VO."""
+    text = " ".join(
+        str(x)
+        for x in (
+            row.get("issue"),
+            row.get("detail"),
+            row.get("recommended_action"),
+            " ".join(str(e) for e in (row.get("evidence") or [])),
+        )
+        if x
+    ).lower()
+    if any(
+        needle in text
+        for needle in (
+            "meta-question",
+            "opening-orientation",
+            "episode framing",
+            "vo_preface_episode_orientation",
+        )
+    ):
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            from interview_mux.opening_orientation import (
+                is_episode_orientation,
+                orientation_copy_unusable,
+            )
+
+            gap = ctx.read_json("understanding/gap_report.json")
+            for line in (gap.get("interviewer_lines") or []) if isinstance(gap, dict) else []:
+                if isinstance(line, dict) and is_episode_orientation(line):
+                    return not orientation_copy_unusable(str(line.get("text") or ""))
+    if any(
+        needle in text
+        for needle in (
+            "identical selected-order",
+            "competing spoken",
+            "two different transition",
+            "three entries after_segment",
+            "three competing",
+        )
+    ) and ctx.artifact_exists("master/transitions.json"):
+        from collections import Counter
+
+        tr = ctx.read_json("master/transitions.json")
+        pairs: list[tuple[str, str]] = []
+        for item in (tr.get("transitions") or []) if isinstance(tr, dict) else []:
+            if not isinstance(item, dict):
+                continue
+            pairs.append(
+                (
+                    str(item.get("after_segment_id") or ""),
+                    str(item.get("before_segment_id") or ""),
+                )
+            )
+        counts = Counter(pairs)
+        return bool(pairs) and all(c == 1 for c in counts.values())
+    return False
 
 
 def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:

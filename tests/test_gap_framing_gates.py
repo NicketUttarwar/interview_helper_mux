@@ -183,6 +183,49 @@ def test_dedupe_transitions_for_framing() -> None:
     assert out.get("framing_deduped_count") == 1
 
 
+def test_dedupe_transitions_by_adjacency_prefers_statement() -> None:
+    from interview_mux.gap_framing import dedupe_transitions_by_adjacency
+
+    doc = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_001",
+                "before_segment_id": "seg_002",
+                "text": "What did that first encounter with computers change?",
+            },
+            {
+                "after_segment_id": "seg_008",
+                "before_segment_id": "seg_009",
+                "text": "Where did that early consumer bet begin to falter?",
+            },
+            {
+                "after_segment_id": "seg_001",
+                "before_segment_id": "seg_002",
+                "text": "At university, an unexpected encounter would change that direction.",
+            },
+            {
+                "after_segment_id": "seg_008",
+                "before_segment_id": "seg_009",
+                "text": "The next challenge was finding the customer those bars were really for.",
+            },
+            {
+                "after_segment_id": "seg_001",
+                "before_segment_id": "seg_002",
+                "text": "Education would soon open a door he never expected.",
+            },
+        ]
+    }
+    out = dedupe_transitions_by_adjacency(doc)
+    kept = out["transitions"]
+    assert len(kept) == 2
+    assert out.get("adjacency_deduped_count") == 3
+    by_pair = {
+        (row["after_segment_id"], row["before_segment_id"]): row["text"] for row in kept
+    }
+    assert not by_pair[("seg_001", "seg_002")].endswith("?")
+    assert not by_pair[("seg_008", "seg_009")].endswith("?")
+
+
 def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None:
     from interview_mux.deterministic_lint import _lint_optimal_questions
     from interview_mux.high_gap_vo import demote_uncovered_high_gaps

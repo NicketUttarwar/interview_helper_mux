@@ -1068,6 +1068,26 @@ def _opening_owned_targets(ctx: RunContext) -> set[str]:
     return {sid for sid in owned if sid}
 
 
+def _opening_layup_skip_spec(ctx: RunContext, target_segment_id: str) -> tuple[str, str]:
+    """Skip code + compensating path for an opening-owned before-VO slot.
+
+    When the native open already greets / introduces, orientation is omitted
+    (``native_open_self_orients``). Claiming ``opening_orientation_owns_target``
+    in that case leaves omit-ledger ``suppress`` pointing at a missing
+    episode-orientation line and fails post-master air-contract QC.
+    """
+    try:
+        from interview_mux.opening_orientation import native_open_already_orients
+
+        if native_open_already_orients(
+            ctx, _ordered_ids(ctx), target_segment_id=target_segment_id
+        ):
+            return "episode_open_native_self_orients", "native_self_orients"
+    except Exception:
+        pass
+    return "opening_orientation_owns_target", "opening_orientation"
+
+
 _COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
     {
         "spoken_copy_unhealable",
@@ -1753,6 +1773,7 @@ def repair_or_skip_spoken_copy_layups(
         repair_last_sentence_layup,
         vo_target_overlap_ratio,
     )
+    from interview_mux.opening_orientation import orientation_copy_unusable
 
     opening_targets = _opening_owned_targets(ctx)
 
@@ -1778,15 +1799,16 @@ def repair_or_skip_spoken_copy_layups(
             continue
         target = str(row.get("target_segment_id") or "")
         if target and target in opening_targets:
+            skip_code, skip_path = _opening_layup_skip_spec(ctx, target)
             stamp_typed_skip(
                 row,
-                reason_code="opening_orientation_owns_target",
+                reason_code=skip_code,
                 evidence_refs=[
                     f"target:{target}",
                     "opening_orientation:owns_before_slot",
                 ],
                 value_forgone=row_nugget_ids(row),
-                compensating_path="opening_orientation",
+                compensating_path=skip_path,
                 revisit_if=["orientation_disabled", "opening_slot_freed"],
                 decision_confidence=0.95,
                 owner_stage="nugget_layup_compose",
@@ -1804,6 +1826,23 @@ def repair_or_skip_spoken_copy_layups(
         text = str(row.get("text") or "").strip()
         leaked = analysis_fields_leaked_into_text(row)
         setup = str(row.get("setup_from_nuggets") or "").strip()
+        if orientation_copy_unusable(text):
+            core = setup or str(row.get("target_beat") or "").strip()
+            if core:
+                core = " ".join(core.split()).strip()
+                if core[-1:] not in ".!":
+                    core = core.rstrip("?") + "."
+                rewritten = f"{core} Let's hear what that means for what follows."
+                row["text"] = rewritten
+                row["word_count"] = _word_count(rewritten)
+                notes.append(
+                    {
+                        "action": "rewrite_meta_question_layup",
+                        "target_segment_id": target,
+                        "line_id": row.get("line_id"),
+                    }
+                )
+                text = rewritten
         if leaked:
             unlock_early = str(row.get("forward_unlock") or "").strip()
             recover_bits = [
@@ -2081,6 +2120,7 @@ def publish_layup_plan_to_gap_report(
     from interview_mux.opening_orientation import (
         ensure_episode_orientation,
         is_episode_orientation,
+        orientation_omitted,
     )
     from interview_mux.artifact_writes import write_validated_artifact
 
@@ -2130,22 +2170,15 @@ def publish_layup_plan_to_gap_report(
     orientation_targets = _opening_owned_targets(ctx)
 
     for row in plan.get("layups") or []:
-        row_d = dict(row) if isinstance(row, dict) else {}
+        if not isinstance(row, dict):
+            continue
+        row_d = row
         tid = str(row_d.get("target_segment_id") or "").strip()
         if tid and tid in orientation_targets:
-            skip_code = "opening_orientation_owns_target"
-            skip_path = "opening_orientation"
-            try:
-                from interview_mux.opening_orientation import native_open_already_orients
-
-                if native_open_already_orients(ctx, _ordered_ids(ctx), target_segment_id=tid):
-                    skip_code = "episode_open_native_self_orients"
-                    skip_path = "native_self_orients"
-            except Exception:
-                pass
+            skip_code, skip_path = _opening_layup_skip_spec(ctx, tid)
             stamp_typed_skip(
                 row_d,
-                reason_code=str(row_d.get("skip_reason_code") or skip_code),
+                reason_code=skip_code,
                 evidence_refs=[
                     f"target:{tid}",
                     "opening_orientation:owns_before_slot",
@@ -2197,6 +2230,27 @@ def publish_layup_plan_to_gap_report(
     report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
     ordered = _ordered_ids(ctx)
     report, _notes = ensure_episode_orientation(ctx, report, ordered)
+    if orientation_omitted(report):
+        for row in plan.get("layups") or []:
+            if not isinstance(row, dict):
+                continue
+            tid = str(row.get("target_segment_id") or "").strip()
+            if tid and tid in orientation_targets:
+                stamp_typed_skip(
+                    row,
+                    reason_code="episode_open_native_self_orients",
+                    evidence_refs=[
+                        f"target:{tid}",
+                        "opening_orientation:native_open_self_orients",
+                    ],
+                    compensating_path="native_self_orients",
+                    revisit_if=["orientation_disabled", "opening_slot_freed"],
+                    decision_confidence=0.95,
+                )
+        try:
+            ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+        except Exception:
+            pass
     if ctx.artifact_exists("segments/manifest.json"):
         from interview_mux.gap_framing import avoid_clone_voice_adjacency
         from interview_mux.source_topology import pickup_eligible_speaker_id

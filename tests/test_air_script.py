@@ -201,6 +201,68 @@ def test_vo_leak_filtered_from_edl(tmp_path):
     assert "seat_ok" in line_ids
 
 
+def test_recovery_layup_after_guest_is_seated(tmp_path):
+    """Interviewee must not match as host via 'interview' substring."""
+    ctx = isolated_run_ctx(tmp_path, "exec_air_guest_layup")
+    ordered = ["seg_015", "seg_016"]
+    segs = [
+        {
+            "segment_id": "seg_015",
+            "speaker_id": "spk_guest",
+            "speaker_role": "interviewee",
+            "type": "interviewee_answer",
+            "start_ms": 0,
+            "end_ms": 8_000,
+            "text": "We created protein chips as a new concept.",
+            "topic_tags": ["product"],
+        },
+        {
+            "segment_id": "seg_016",
+            "speaker_id": "spk_host",
+            "speaker_role": "interviewer",
+            "type": "interviewer_question",
+            "start_ms": 9_000,
+            "end_ms": 17_000,
+            "text": "We built the business to 160 crores and now need resources.",
+            "topic_tags": ["scale"],
+        },
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segs})
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": list(ordered)})
+    write_plan(ctx, forced_sparse_plan(reason="air_script_test"))
+    compose_pass_a(ctx)
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_016",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_016",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "origin": "nugget_layup",
+                    "required": True,
+                    "severity": "high",
+                    "nugget_ids": ["nug_019"],
+                    "selected_nugget_ids": ["nug_019"],
+                    "text": "The Zydus transaction closed yesterday.",
+                    "air_script_omit": True,
+                    "skipped_optional": True,
+                }
+            ]
+        },
+    )
+    plan = compose_pass_b(ctx)
+    beat = next(b for b in plan["air_script"]["beats"] if b.get("segment_id") == "seg_016")
+    assert beat["montage_move"] == "vo_then_clip"
+    assert beat.get("line_id") == "vo_layup_seg_016"
+    seats = plan["air_script"]["vo_seats"]
+    assert "vo_layup_seg_016" in (seats.get("seated_line_ids") or [])
+    assert "vo_layup_seg_016" not in (seats.get("omitted_line_ids") or [])
+
+
 def test_unpaid_cold_open_fails_story_lint():
     lint = lint_story_clarity(
         beats=[

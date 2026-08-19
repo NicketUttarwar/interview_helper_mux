@@ -25,16 +25,28 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
     from interview_mux.homunculus.ledger import read_ledger
 
     last_for = None
-    for row in reversed(read_ledger(ctx)):
-        if row.get("identity") == identity:
-            last_for = row
-            break
-    counting = not (last_for and last_for.get("status") == "started")
+    open_stage = False
+    stage_started = 0
+    stage_closed = 0
+    for row in read_ledger(ctx):
+        if row.get("identity") != identity:
+            continue
+        last_for = row
+        if row.get("kind") == "stage":
+            st = row.get("status")
+            if st == "started":
+                stage_started += 1
+            elif st in {"failed", "done"}:
+                stage_closed += 1
+    open_stage = stage_started > stage_closed
+    counting = not open_stage and not (last_for and last_for.get("status") == "started")
     call_kwargs = dict(kwargs)
-    if counting:
-        from interview_mux.homunculus.packer import apply_pack_to_kwargs
+    from interview_mux.homunculus.packer import apply_pack_to_kwargs
 
-        call_kwargs = apply_pack_to_kwargs(ctx, identity, call_kwargs)
+    # Always pack — open stage/schema-retry must not skip G0/facts. Only the
+    # identity cap is suppressed while a stage dispatch is already counted.
+    call_kwargs = apply_pack_to_kwargs(ctx, identity, call_kwargs)
+    if counting:
         check_dispatch(ctx, identity=identity, kind="llm")
         ph = packet_hash_for(call_kwargs.get("messages") or call_kwargs.get("user"))
         check_dispatch(ctx, identity=identity, kind="llm", packet_hash=ph)

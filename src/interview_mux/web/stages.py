@@ -258,7 +258,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Mastering research waves",
         "Run mastering research wave packets.",
         "analysis",
-        ("mastering/research/waves.json",),
+        ("mastering/research/waves.json", "mastering/research/"),
         (),
     ),
     StageInfo(
@@ -266,7 +266,7 @@ ANALYSIS_STAGES_CONTINUED: tuple[StageInfo, ...] = (
         "Mastering research rollup",
         "Roll up research fields for construction.",
         "analysis",
-        ("mastering/research/rollup.json",),
+        ("mastering/research/rollup.json", "mastering/research_dossier.json"),
         (),
     ),
     StageInfo(

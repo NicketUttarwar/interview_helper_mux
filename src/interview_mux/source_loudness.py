@@ -8,6 +8,11 @@ speech alone — it must not ride gain down on louder syllables (classic
 ``dynaudnorm`` did that and ducked mid-word peaks). Opt into
 ``dynaudnorm_mode=classic`` only if you explicitly want bidirectional leveling.
 
+After full-source DeepFilterNet (``preclean/isolated.wav``), skip within-file
+leveling by default. Residual energy below the upward threshold is mostly
+hiss and room, not quiet speech — lifting it worsens SNR. Loudnorm still
+runs; it scales the whole file and preserves the denoise.
+
 Master finalize still loudnorms the assembly bus to −16 LUFS.
 """
 
@@ -64,6 +69,7 @@ def loudness_stabilize_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "upward_attack_ms": float(raw.get("upward_attack_ms", DEFAULT_UPWARD_ATTACK_MS)),
         "upward_release_ms": float(raw.get("upward_release_ms", DEFAULT_UPWARD_RELEASE_MS)),
         "upward_knee": float(raw.get("upward_knee", DEFAULT_UPWARD_KNEE)),
+        "skip_upward_after_preclean": bool(raw.get("skip_upward_after_preclean", True)),
     }
 
 
@@ -115,6 +121,26 @@ def _build_classic_dynaudnorm(cfg: dict[str, Any]) -> str:
     )
 
 
+def apply_preclean_leveling_policy(
+    loud_cfg: dict[str, Any],
+    *,
+    used_preclean: bool,
+) -> tuple[dict[str, Any], str | None]:
+    """Drop within-file boost when ingesting DeepFilterNet output.
+
+    Returns ``(effective_cfg, skip_reason)``. Loudnorm is unchanged.
+    """
+    if not used_preclean:
+        return loud_cfg, None
+    if not bool(loud_cfg.get("skip_upward_after_preclean", True)):
+        return loud_cfg, None
+    if not bool(loud_cfg.get("dynaudnorm", True)):
+        return loud_cfg, None
+    out = dict(loud_cfg)
+    out["dynaudnorm"] = False
+    return out, "preclean_isolated"
+
+
 def build_ingest_loudness_filter(loud_cfg: dict[str, Any] | None = None) -> str | None:
     """Return ffmpeg ``-af`` chain for source stabilize, or None when disabled."""
     cfg = loud_cfg if loud_cfg is not None else loudness_stabilize_cfg()
@@ -147,7 +173,12 @@ def build_ingest_loudness_filter(loud_cfg: dict[str, Any] | None = None) -> str 
     return ",".join(parts)
 
 
-def loudness_lineage_payload(loud_cfg: dict[str, Any], *, af_filter: str | None) -> dict[str, Any]:
+def loudness_lineage_payload(
+    loud_cfg: dict[str, Any],
+    *,
+    af_filter: str | None,
+    skip_upward_reason: str | None = None,
+) -> dict[str, Any]:
     """Artifact metadata written beside ingest/normalized.wav."""
     enabled = af_filter is not None
     dyn_on = bool(loud_cfg.get("dynaudnorm", True)) if enabled else False
@@ -156,6 +187,19 @@ def loudness_lineage_payload(loud_cfg: dict[str, Any], *, af_filter: str | None)
         if dyn_on
         else None
     )
+    if skip_upward_reason:
+        note = (
+            "Within-file upward/dynaudnorm skipped after preclean "
+            f"({skip_upward_reason}); loudnorm only so residual hiss is not lifted. "
+            "master_finalize still targets podcast LUFS."
+        )
+    elif enabled:
+        note = (
+            "Source stabilize after optional preclean; soft-only upward boost by default "
+            "(no loud-syllable ducking); master_finalize still targets podcast LUFS."
+        )
+    else:
+        note = "Loudness stabilize disabled — format normalize only."
     return {
         "enabled": enabled,
         "af_filter": af_filter,
@@ -166,10 +210,7 @@ def loudness_lineage_payload(loud_cfg: dict[str, Any], *, af_filter: str | None)
         "lra": float(loud_cfg.get("lra", DEFAULT_LRA)) if enabled else None,
         "dynaudnorm": dyn_on,
         "dynaudnorm_mode": mode,
-        "note": (
-            "Source stabilize after optional preclean; soft-only upward boost by default "
-            "(no loud-syllable ducking); master_finalize still targets podcast LUFS."
-            if enabled
-            else "Loudness stabilize disabled — format normalize only."
-        ),
+        "skip_upward_after_preclean": bool(loud_cfg.get("skip_upward_after_preclean", True)),
+        "skip_upward_reason": skip_upward_reason,
+        "note": note,
     }

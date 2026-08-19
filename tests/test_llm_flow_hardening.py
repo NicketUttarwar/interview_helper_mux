@@ -127,6 +127,19 @@ def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="Prerequisite stage speaker_roles"):
         require_llm_stage_progress(ctx, "speaker_roles")
 
+
+def test_require_llm_stage_progress_stamps_done_when_artifact_ok(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _cfg())
+    ctx = isolated_run_ctx(tmp_path, "fh_upstream_stamp")
+    ctx.write_json(
+        "understanding/speakers.json",
+        _minimal_speakers(),
+        skip_handoff=True,
+    )
+    require_llm_stage_progress(ctx, "speaker_roles")
+    assert ctx.is_done("speaker_roles")
+
 def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
@@ -145,6 +158,29 @@ def test_maybe_require_upstream_llm_progress_noop_when_disabled(tmp_path, monkey
     patch_merged_config(monkeypatch, _cfg(enabled=False))
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_off")
     maybe_require_upstream_llm_progress(ctx, "content_context")
+
+def test_maybe_require_names_earliest_incomplete_seed(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _cfg())
+    ctx = isolated_run_ctx(tmp_path, "fh_earliest_seed")
+    for sid in (
+        "audio_preclean",
+        "ingest",
+        "transcribe",
+        "audio_probe_build",
+        "transcript_review_build",
+        "source_acoustic_profile",
+        "interview_spine_build",
+        "speaker_roles",
+        "source_topology_build",
+        "content_context",
+        "talking_points_compose",
+        "ideal_cuts_propose",
+        "ideal_cuts_materialize",
+    ):
+        ctx.mark_done(sid, force=True)
+    with pytest.raises(SystemExit, match="Prerequisite stage boundary_detection"):
+        maybe_require_upstream_llm_progress(ctx, "content_brief_reanchor")
 
 def test_llm_upstream_stage_maps_content_context(tmp_path):
     assert LLM_UPSTREAM_STAGE["content_context"] == "speaker_roles"

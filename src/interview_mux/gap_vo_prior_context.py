@@ -1149,9 +1149,9 @@ def _target_aware_forward_cues(target_text: str, *, category: str) -> list[str]:
     if category == "episode_preface":
         cues.extend(
             [
-                "What should we listen for as that opens?",
-                "Why open on that beat?",
-                "What makes that the right place to begin?",
+                "Let's hear how that opening beat lands.",
+                "That opening sets the stakes we'll follow.",
+                "Let's start with how that story begins.",
             ]
         )
     else:
@@ -1208,6 +1208,9 @@ def repair_last_sentence_layup(
         if spoken_copy_violations(cue, evidence=evidence, seen_texts=[]):
             continue
         candidate = f"{body} {cue}".strip() if body else cue
+        if not body and cue.endswith("?"):
+            # A question with no factual body is not a layup/orientation.
+            continue
         probe = {
             "text": candidate,
             "line_category": category,
@@ -1219,10 +1222,12 @@ def repair_last_sentence_layup(
             continue
         return candidate
 
-    # Last resort: keep body + a minimal interrogative that still has a forward cue.
-    fallback = "What should we listen for next?"
+    # Last resort: keep any factual body and a forward cue that is not a lone question.
+    fallback = "Let's hear how that beat lands."
     if body:
         return f"{body} {fallback}".strip()
+    if stripped and not stripped.endswith("?"):
+        return stripped
     return fallback or seeded or stripped
 
 
@@ -1328,7 +1333,7 @@ def courtesy_seed_text(
             # Avoid show-scaffold phrases that spoken_copy_guard omits entirely
             # ("Coming up — where does this stretch lead?"), which left orientation
             # with no forward cue and failed cold_open_layup_ok.
-            candidate = "What should we listen for as that opens?"
+            candidate = "Let's hear how that opening beat lands."
     elif category == "segment_summary":
         if quote:
             candidate = "Keep that beat in mind — what claim follows?"

@@ -789,6 +789,10 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
 
         if _edl_issue_premature_vo_nle_placement(ctx, item):
             continue
+        from interview_mux.artifact_repairs import _edl_issue_contradicted_by_disk
+
+        if _edl_issue_contradicted_by_disk(ctx, item):
+            continue
         remaining.append(item)
     if not remaining:
         return []

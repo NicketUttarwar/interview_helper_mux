@@ -56,6 +56,59 @@ def test_strip_provisional_ids_and_span_coverage():
     ) == 0.5
 
 
+def test_redistribute_clustered_cuts_reaches_floor():
+    from interview_mux.ideal_cuts import redistribute_clustered_cuts
+
+    duration_ms = 3_000_000
+    words = []
+    t = 0
+    while t < duration_ms:
+        words.append({"word": "x", "start_ms": t, "end_ms": t + 400})
+        t += 500
+    out = redistribute_clustered_cuts(
+        {
+            "cuts": [
+                {
+                    "cut_id": "c1",
+                    "talking_point_id": "tp_001",
+                    "start_ms": 0,
+                    "end_ms": 40_000,
+                    "priority": "must_keep",
+                    "rationale": "early",
+                }
+            ]
+        },
+        duration_ms,
+        talking_points={
+            "talking_points": [
+                {"talking_point_id": "tp_001", "importance": "must_keep"}
+            ]
+        },
+        transcript={"words": words},
+        floor=0.45,
+    )
+    assert cut_span_coverage_ratio(out, duration_ms) >= 0.45
+    assert any(str(c.get("cut_id") or "").startswith("cut_span_") for c in out["cuts"])
+
+
+def test_spread_talking_point_time_hints_on_long_tape():
+    from interview_mux.ideal_cuts import spread_talking_point_time_hints
+
+    doc = spread_talking_point_time_hints(
+        {
+            "talking_points": [
+                {"talking_point_id": "tp_001", "approx_time_hint_ms": 30_000},
+                {"talking_point_id": "tp_002", "approx_time_hint_ms": 45_000},
+                {"talking_point_id": "tp_003", "approx_time_hint_ms": 80_000},
+            ]
+        },
+        3_000_000,
+        floor=0.45,
+    )
+    hints = [int(p["approx_time_hint_ms"]) for p in doc["talking_points"]]
+    assert (max(hints) - min(hints)) / 3_000_000 >= 0.45
+
+
 def test_map_cuts_attaches_multi_overlap_segment_ids():
     snapped = {
         "cuts": [

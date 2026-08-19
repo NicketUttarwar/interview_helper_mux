@@ -9,6 +9,7 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.source_loudness import (
+    apply_preclean_leveling_policy,
     build_ingest_loudness_filter,
     loudness_lineage_payload,
     loudness_stabilize_cfg,
@@ -34,6 +35,7 @@ def test_loudness_stabilize_defaults_upward_only() -> None:
     assert cfg["target_lufs"] == -18.0
     assert cfg["dynaudnorm"] is True
     assert cfg["dynaudnorm_mode"] == "upward_only"
+    assert cfg["skip_upward_after_preclean"] is True
     af = build_ingest_loudness_filter(cfg)
     assert af is not None
     assert af.startswith("acompressor=mode=upward")
@@ -56,6 +58,39 @@ def test_loudness_stabilize_loudnorm_only() -> None:
     )
     af = build_ingest_loudness_filter(cfg)
     assert af == "loudnorm=I=-18:TP=-1.5:LRA=11:dual_mono=true"
+
+
+def test_preclean_policy_skips_upward_keeps_loudnorm() -> None:
+    cfg = loudness_stabilize_cfg({})
+    effective, reason = apply_preclean_leveling_policy(cfg, used_preclean=True)
+    assert reason == "preclean_isolated"
+    assert effective["dynaudnorm"] is False
+    assert cfg["dynaudnorm"] is True
+    af = build_ingest_loudness_filter(effective)
+    assert af == "loudnorm=I=-18:TP=-1.5:LRA=11:dual_mono=true"
+    lineage = loudness_lineage_payload(effective, af_filter=af, skip_upward_reason=reason)
+    assert lineage["dynaudnorm"] is False
+    assert lineage["skip_upward_reason"] == "preclean_isolated"
+    assert "hiss" in str(lineage["note"]).lower()
+
+
+def test_preclean_policy_keeps_upward_without_isolated() -> None:
+    cfg = loudness_stabilize_cfg({})
+    effective, reason = apply_preclean_leveling_policy(cfg, used_preclean=False)
+    assert reason is None
+    assert effective["dynaudnorm"] is True
+    af = build_ingest_loudness_filter(effective)
+    assert af is not None
+    assert af.startswith("acompressor=mode=upward")
+
+
+def test_preclean_policy_can_opt_out() -> None:
+    cfg = loudness_stabilize_cfg(
+        {"ingest": {"loudness_stabilize": {"skip_upward_after_preclean": False}}}
+    )
+    effective, reason = apply_preclean_leveling_policy(cfg, used_preclean=True)
+    assert reason is None
+    assert effective["dynaudnorm"] is True
 
 
 def test_loudness_stabilize_classic_dynaudnorm() -> None:
@@ -198,3 +233,10 @@ def test_run_ingest_uses_preclean_then_stabilizes(tmp_path, monkeypatch) -> None
     ingest_mod.run_ingest(ctx)
     assert captured["cmd"][captured["cmd"].index("-i") + 1] == str(isolated)
     assert "-af" in captured["cmd"]
+    af = captured["cmd"][captured["cmd"].index("-af") + 1]
+    assert "acompressor=" not in af
+    assert "dynaudnorm=" not in af
+    assert af.startswith("loudnorm=")
+    lineage = ctx.read_json("ingest/loudness.json")
+    assert lineage["skip_upward_reason"] == "preclean_isolated"
+    assert lineage["dynaudnorm"] is False

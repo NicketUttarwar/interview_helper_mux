@@ -179,6 +179,13 @@ def synthesize_line(
         raise ValueError(f"VO script empty for {lid} — refuse Chatterbox with incomplete text")
 
     evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
+    from interview_mux.opening_orientation import is_episode_orientation
+
+    if is_episode_orientation(line):
+        # Brief-grounded orientation often names the same topic the open illustrates.
+        evidence.pop("target_excerpt", None)
+        evidence.pop("after_excerpt", None)
+        evidence.pop("next_clip_text", None)
     guarded = assert_guarded_spoken_copy(
         raw_text,
         evidence=evidence,

@@ -593,7 +593,10 @@ def run_transitions(ctx: RunContext) -> None:
     persist = make_stage_persist("master/transitions.json", "transitions")
 
     def persist_with_framing_dedupe(c: RunContext, artifacts: dict) -> None:
-        from interview_mux.gap_framing import dedupe_transitions_for_framing
+        from interview_mux.gap_framing import (
+            dedupe_transitions_by_adjacency,
+            dedupe_transitions_for_framing,
+        )
         from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
         gap_report = (
@@ -602,6 +605,7 @@ def run_transitions(ctx: RunContext) -> None:
             else None
         )
         artifacts = dedupe_transitions_for_framing(gap_report, artifacts)
+        artifacts = dedupe_transitions_by_adjacency(artifacts)
         manifest = (
             c.read_json("segments/manifest.json")
             if c.artifact_exists("segments/manifest.json")

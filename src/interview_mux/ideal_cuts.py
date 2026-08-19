@@ -86,6 +86,191 @@ def cut_span_coverage_ratio(
     return max(0.0, min(1.0, float(span) / float(duration_ms)))
 
 
+def _word_window_around(
+    words: list[dict[str, Any]],
+    center_ms: int,
+    *,
+    want_ms: int,
+    min_cut_ms: int,
+    max_cut_ms: int,
+) -> tuple[int, int, int, int] | None:
+    """Nearest listen-complete word span around ``center_ms``."""
+    indexed: list[tuple[int, int, int]] = []
+    for i, word in enumerate(words):
+        try:
+            s = int(word.get("start_ms") or 0)
+            e = int(word.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if e > s:
+            indexed.append((i, s, e))
+    if not indexed:
+        return None
+    nearest = min(indexed, key=lambda row: abs(row[1] - center_ms))
+    lo = hi = nearest[0]
+    by_i = {i: (s, e) for i, s, e in indexed}
+    start_ms, end_ms = by_i[lo]
+    while (end_ms - start_ms) < want_ms:
+        grew = False
+        if (lo - 1) in by_i:
+            lo -= 1
+            start_ms = by_i[lo][0]
+            grew = True
+        if (end_ms - start_ms) >= want_ms:
+            break
+        if (hi + 1) in by_i:
+            hi += 1
+            end_ms = by_i[hi][1]
+            grew = True
+        if not grew:
+            break
+    dur = end_ms - start_ms
+    if dur < min_cut_ms or dur > max_cut_ms:
+        return None
+    return start_ms, end_ms, lo, hi
+
+
+def spread_talking_point_time_hints(
+    talking_points: dict[str, Any] | None,
+    duration_ms: int,
+    *,
+    floor: float | None = None,
+) -> dict[str, Any]:
+    """Re-spread early-clustered ``approx_time_hint_ms`` across a long tape."""
+    doc = dict(talking_points or {})
+    points = [dict(p) for p in (doc.get("talking_points") or []) if isinstance(p, dict)]
+    if duration_ms < 900_000 or len(points) < 2:
+        return talking_points if isinstance(talking_points, dict) else doc
+    ratio_floor = floor
+    if ratio_floor is None:
+        ratio_floor = float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0.45)
+    hints: list[int] = []
+    for row in points:
+        try:
+            hints.append(int(row.get("approx_time_hint_ms") or 0))
+        except (TypeError, ValueError):
+            hints.append(0)
+    span = (max(hints) - min(hints)) if hints else 0
+    if duration_ms > 0 and (span / float(duration_ms)) >= ratio_floor:
+        return talking_points if isinstance(talking_points, dict) else doc
+    n = len(points)
+    for i, row in enumerate(points):
+        row["approx_time_hint_ms"] = int(duration_ms * (0.05 + 0.85 * i / max(n - 1, 1)))
+    out = dict(doc)
+    out["talking_points"] = points
+    warnings = [str(w) for w in (out.get("warnings") or []) if w]
+    note = "approx_time_hints_spread_across_source"
+    if note not in warnings:
+        warnings.append(note)
+    out["warnings"] = warnings
+    return out
+
+
+def redistribute_clustered_cuts(
+    artifacts: dict[str, Any] | None,
+    duration_ms: int,
+    *,
+    talking_points: dict[str, Any] | None = None,
+    transcript: dict[str, Any] | None = None,
+    floor: float | None = None,
+) -> dict[str, Any]:
+    """Add mid/late native windows when propose clustered in the cold open."""
+    out = dict(artifacts or {})
+    cuts = [dict(c) for c in (out.get("cuts") or []) if isinstance(c, dict)]
+    ratio_floor = floor
+    if ratio_floor is None:
+        ratio_floor = float(ideal_cuts_cfg().get("min_span_coverage_ratio") or 0.45)
+    if duration_ms <= 0 or cut_span_coverage_ratio({"cuts": cuts}, duration_ms) >= ratio_floor:
+        if cuts:
+            out["cuts"] = cuts
+        return out
+    cfg = ideal_cuts_cfg()
+    min_cut_ms = int(cfg.get("min_cut_ms") or 2500)
+    max_cut_ms = int(cfg.get("max_cut_ms") or 180_000)
+    want_ms = max(min_cut_ms, min(16_000, max_cut_ms, duration_ms // 80 or min_cut_ms))
+    tps = [
+        t
+        for t in ((talking_points or {}).get("talking_points") or [])
+        if isinstance(t, dict)
+    ]
+    ranked = [
+        t
+        for t in tps
+        if str(t.get("importance") or "").lower() in {"must_keep", "should_keep"}
+    ] or tps
+    fallback_tp = str(
+        (ranked[-1] if ranked else {}).get("talking_point_id")
+        or (cuts[-1].get("talking_point_id") if cuts else "")
+        or "tp_span"
+    )
+    words = [w for w in ((transcript or {}).get("words") or []) if isinstance(w, dict)]
+    existing_ids = {str(c.get("cut_id") or "") for c in cuts}
+
+    def _overlaps(start_ms: int, end_ms: int) -> bool:
+        for cut in cuts:
+            try:
+                s = int(cut.get("start_ms") or 0)
+                e = int(cut.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            if e > s and not (end_ms <= s or start_ms >= e):
+                return True
+        return False
+
+    added: list[str] = []
+    for i, frac in enumerate((0.50, 0.82)):
+        center = int(duration_ms * frac)
+        window = _word_window_around(
+            words,
+            center,
+            want_ms=want_ms,
+            min_cut_ms=min_cut_ms,
+            max_cut_ms=max_cut_ms,
+        )
+        if window is None:
+            start_ms = max(0, center - want_ms // 2)
+            end_ms = min(duration_ms, start_ms + want_ms)
+            if end_ms - start_ms < min_cut_ms:
+                continue
+            si = ei = 0
+        else:
+            start_ms, end_ms, si, ei = window
+        if _overlaps(start_ms, end_ms):
+            continue
+        cid = f"cut_span_{i + 1}"
+        if cid in existing_ids:
+            cid = f"cut_span_{i + 1}_{start_ms}"
+        row: dict[str, Any] = {
+            "cut_id": cid,
+            "talking_point_id": fallback_tp,
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "priority": "should_keep",
+            "rationale": (
+                "Deterministic span redistribution: native window in a later third "
+                "so proofs are not cold-open-only."
+            ),
+        }
+        if words and window is not None:
+            row["start_word_index"] = si
+            row["end_word_index"] = ei
+        cuts.append(row)
+        existing_ids.add(cid)
+        added.append(cid)
+    cuts.sort(key=lambda c: int(c.get("start_ms") or 0))
+    out["cuts"] = cuts
+    if added:
+        warnings = [str(w) for w in (out.get("warnings") or []) if w]
+        note = f"span_redistributed:{','.join(added)}"
+        if note not in warnings:
+            warnings.append(note)
+        out["warnings"] = warnings
+        extra = "Added later-third native windows after propose clustered early."
+        prev = str(out.get("coverage_notes") or "").strip()
+        out["coverage_notes"] = f"{prev} {extra}".strip() if prev else extra
+    return out
+
+
 def strip_provisional_segment_ids(snapped: dict[str, Any]) -> dict[str, Any]:
     """Clear segment bindings stamped by a skipped boundary bind."""
     out = dict(snapped)

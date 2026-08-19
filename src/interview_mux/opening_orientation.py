@@ -139,6 +139,28 @@ def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
     }
 
 
+def orientation_copy_unusable(text: str) -> bool:
+    """True when copy cannot carry guest identity, topic, and listener stakes.
+
+    A trailing forward-cue question is fine after a factual setup. A line that
+    is only a meta-question ("What should we listen for as that opens?") is not.
+    """
+    t = " ".join(str(text or "").split())
+    if not t:
+        return True
+    if len(t.split()) < 6:
+        return True
+    low = t.lower()
+    if "listen for" in low and "open" in low and "." not in t and "!" not in t[:-1]:
+        return True
+    # Entire copy is a question — no prior statement that could name guest/topic.
+    if t.endswith("?") and "." not in t and "!" not in t[:-1]:
+        return True
+    if "before the science" in low or "meet the founder at the center" in low:
+        return True
+    return False
+
+
 def _target_text(ctx: RunContext, target_segment_id: str) -> str:
     if not target_segment_id or not ctx.artifact_exists("segments/manifest.json"):
         return ""
@@ -390,6 +412,19 @@ def ensure_episode_orientation(
         "conversation_topic",
         "listener_stakes",
     ]
+    if str(chosen.get("origin") or "") != "operator" and orientation_copy_unusable(
+        str(chosen.get("text") or "")
+    ):
+        text, extracted_from = _fallback_orientation_text(ctx)
+        chosen["text"] = text
+        chosen["extracted_from"] = extracted_from
+        chosen["origin"] = "deterministic_orientation_guard"
+        actions.append(
+            {
+                "action": "rewrite_episode_orientation_meta_question",
+                "line_id": chosen["line_id"],
+            }
+        )
     # The legacy fallback ends "Let's hear how it unfolded."  That is a generic
     # origin cue, not a handoff into the actual opening native.  Always repair
     # the final sentence against the final selected first clip.
@@ -401,19 +436,26 @@ def ensure_episode_orientation(
 
         target_text = _target_text(ctx, target)
         if not cold_open_layup_ok(chosen, target_text=target_text, ordered_ids=ordered):
-            chosen["text"] = repair_last_sentence_layup(
-                str(chosen.get("text") or ""),
+            prior_text = str(chosen.get("text") or "")
+            repaired_text = repair_last_sentence_layup(
+                prior_text,
                 target_text=target_text,
                 category="episode_preface",
                 target_segment_id=target,
             )
-            actions.append(
-                {
-                    "action": "repair_episode_orientation_last_sentence",
-                    "line_id": chosen["line_id"],
-                    "targets_segment_id": target,
-                }
-            )
+            if orientation_copy_unusable(repaired_text) and not orientation_copy_unusable(
+                prior_text
+            ):
+                repaired_text = prior_text
+            if repaired_text != prior_text:
+                chosen["text"] = repaired_text
+                actions.append(
+                    {
+                        "action": "repair_episode_orientation_last_sentence",
+                        "line_id": chosen["line_id"],
+                        "targets_segment_id": target,
+                    }
+                )
         # Spoken-copy at G1 synth uses richer run evidence than cold-open alone.
         # A topic body that restates the first native still deadlocks synthesize.
         try:
@@ -431,9 +473,12 @@ def ensure_episode_orientation(
                     "target_excerpt": target_text,
                 },
             )
-            # Orientation is grounded from the brief; enrich may copy thesis into
-            # target_excerpt — that must not count as restating the next native clip.
-            if not target_text:
+            # Orientation is grounded from the brief; the opening native often
+            # illustrates that same thesis. That overlap is not restatement.
+            if (
+                not target_text
+                or str(chosen.get("origin") or "") == "deterministic_orientation_guard"
+            ):
                 evidence.pop("target_excerpt", None)
                 evidence.pop("after_excerpt", None)
                 evidence.pop("next_clip_text", None)
@@ -442,7 +487,7 @@ def ensure_episode_orientation(
             ):
                 speakable = (
                     "Before the science, meet the founder at the center of this "
-                    "conversation. Who is he — and why start there?"
+                    "conversation. Let's hear why that introduction matters."
                 )
                 repaired = repair_last_sentence_layup(
                     "Before the science, meet the founder at the center of this conversation.",
@@ -452,6 +497,8 @@ def ensure_episode_orientation(
                 )
                 # Prefer the full grounded body+cue before a cue-only repair.
                 for candidate in (speakable, repaired):
+                    if orientation_copy_unusable(candidate):
+                        continue
                     probe = dict(chosen)
                     probe["text"] = candidate
                     if spoken_copy_violations(
@@ -478,9 +525,9 @@ def ensure_episode_orientation(
         pass
     # Retargeting / courtesy rewrites can leave a 1–4 word hinge that fails the
     # opening contract (<6 words). Replace with grounded fallback copy.
-    if len(str(chosen.get("text") or "").split()) < 6:
+    if orientation_copy_unusable(str(chosen.get("text") or "")):
         text, extracted_from = _fallback_orientation_text(ctx)
-        if len(text.split()) >= 6:
+        if not orientation_copy_unusable(text):
             chosen["text"] = text
             if extracted_from:
                 chosen["extracted_from"] = extracted_from
@@ -656,7 +703,7 @@ def validate_opening_orientation(
             "opening_orientation_missions_missing="
             + ",".join(sorted(required_missions - missions))
         )
-    if len(str(line.get("text") or "").split()) < 6:
+    if orientation_copy_unusable(str(line.get("text") or "")):
         errors.append("opening_orientation_text_too_thin")
     clips = [x for x in ((edl or {}).get("clips") or []) if isinstance(x, dict)]
     audible = [

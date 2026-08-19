@@ -229,7 +229,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 
 ### `ingest` — source format + loudness stabilize
 
-Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `preclean/isolated.wav` when present). Default on: **upward-only** soft boost (`acompressor` mode=`upward`) then `loudnorm` to −18 LUFS headroom so quiet captures are enjoyable for STT/review **without ducking louder syllables**; `master_finalize` still targets podcast −16 LUFS.
+Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `preclean/isolated.wav` when present). Default on: **upward-only** soft boost (`acompressor` mode=`upward`) then `loudnorm` to −18 LUFS headroom so quiet captures are enjoyable for STT/review **without ducking louder syllables**. After full-source preclean, skip the upward stage (loudnorm only) so residual hiss is not lifted. `master_finalize` still targets podcast −16 LUFS.
 
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
@@ -245,6 +245,7 @@ Runs on the ingest ffmpeg pass **after** optional `audio_preclean` (uses `precle
 | `ingest.loudness_stabilize.upward_attack_ms` | `50.0` | Upward attack | Outside 0.01–2000 rejected |
 | `ingest.loudness_stabilize.upward_release_ms` | `300.0` | Upward release | Outside 0.01–9000 rejected |
 | `ingest.loudness_stabilize.upward_knee` | `2.5` | Soft knee | Outside 1–8 rejected |
+| `ingest.loudness_stabilize.skip_upward_after_preclean` | `true` | Skip `acompressor`/`dynaudnorm` when ingesting `preclean/isolated.wav` | `false` re-lifts residual hiss after DeepFilterNet |
 | `ingest.loudness_stabilize.dynaudnorm_frame_ms` | `500` | Classic `dynaudnorm` f= only | Outside 10–8000 rejected |
 | `ingest.loudness_stabilize.dynaudnorm_gausssize` | `31` | Classic `dynaudnorm` g= only | Must be odd and ≥ 3 |
 | `ingest.loudness_stabilize.dynaudnorm_peak` | `0.95` | Classic `dynaudnorm` p= only | Outside (0, 1] rejected |

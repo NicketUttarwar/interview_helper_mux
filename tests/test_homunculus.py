@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -67,11 +68,76 @@ def test_010_is_homunculus_run() -> None:
 
 def test_fourth_invoke_refused() -> None:
     ctx = _ctx_010()
+
+    def _ok() -> None:
+        ctx.mark_done("mix", force=True)
+
     for _ in range(3):
-        dispatch_stage(ctx, "mix", lambda: None, source="test")
+        dispatch_stage(ctx, "mix", _ok, source="test")
     with pytest.raises(LimitExhausted):
-        dispatch_stage(ctx, "mix", lambda: None, source="test")
+        dispatch_stage(ctx, "mix", _ok, source="test")
     assert ctx.artifact_exists("mastering/homunculus/limit_exhausted.json")
+
+
+def _write_boundaries(ctx: RunContext) -> None:
+    path = ctx.path("segments/boundaries.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"boundaries": []}', encoding="utf-8")
+
+
+def test_failed_stage_invokes_do_not_burn_cap() -> None:
+    ctx = _ctx_010()
+
+    def _boom() -> None:
+        raise RuntimeError("pre-stage lifecycle failed")
+
+    for _ in range(3):
+        with pytest.raises(RuntimeError, match="pre-stage"):
+            dispatch_stage(ctx, "boundary_detection", _boom, source="test")
+    assert count_identity(ctx, "boundary_detection") == 0
+    dispatch_stage(ctx, "boundary_detection", lambda: _write_boundaries(ctx), source="test")
+    assert count_identity(ctx, "boundary_detection") == 1
+
+
+def test_nested_llm_does_not_burn_stage_identity_cap() -> None:
+    ctx = _ctx_010()
+
+    def _boom() -> None:
+        raise RuntimeError("pre-stage lifecycle failed")
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="pre-stage"):
+            dispatch_stage(ctx, "boundary_detection", _boom, source="test")
+    for i in range(3):
+        append_ledger(
+            ctx,
+            {"kind": "llm", "identity": "boundary_detection", "status": "started"},
+        )
+        append_ledger(
+            ctx,
+            {"kind": "llm", "identity": "boundary_detection", "status": "done"},
+        )
+    assert count_identity(ctx, "boundary_detection") == 0
+    dispatch_stage(ctx, "boundary_detection", lambda: _write_boundaries(ctx), source="test")
+    assert count_identity(ctx, "boundary_detection") == 1
+
+
+def test_hollow_stage_done_with_pending_writes_does_not_burn_cap() -> None:
+    ctx = _ctx_010()
+    pending = ctx.path(".pending_writes/mastering_research_waves/mastering/research")
+    pending.mkdir(parents=True, exist_ok=True)
+    (pending / "waves.json").write_text('{"version": 1}', encoding="utf-8")
+    for _ in range(3):
+        append_ledger(
+            ctx,
+            {"kind": "stage", "identity": "mastering_research_waves", "status": "started"},
+        )
+        append_ledger(
+            ctx,
+            {"kind": "stage", "identity": "mastering_research_waves", "status": "done"},
+        )
+    assert not ctx.is_done("mastering_research_waves")
+    assert count_identity(ctx, "mastering_research_waves") == 0
 
 
 def test_conductor_turn_uses_conductor_cap_not_stage_cap() -> None:
@@ -104,6 +170,7 @@ def test_bootstrap_g0_pack_with_empty_store() -> None:
     ctx = _ctx_010()
     (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / ".stage_done" / "transcript_review_build").write_text("", encoding="utf-8")
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
     ctx.write_json("ingest/transcript.json", {"text": "Hello I am Jordan with me today is Sam."})
     pack = pack_volley(ctx, fact_ids=[], tool_id="speaker_roles")
     blob = " ".join(t["content"] for t in pack["turns"])
@@ -111,6 +178,88 @@ def test_bootstrap_g0_pack_with_empty_store() -> None:
     assert pack["g0_bootstrapped"] is True
     assert "run_meta" not in blob
     assert "stage_done" not in blob
+
+
+def test_bootstrap_g0_from_transcript_full_and_integrity_alias() -> None:
+    ctx = _ctx_010()
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
+    ctx.write_json("transcript/full.json", {"text": "Late tape proof about circulating tumour cells."})
+    pack = pack_volley(ctx, fact_ids=["transcript_integrity"], tool_id="boundary_detection")
+    blob = " ".join(t["content"] for t in pack["turns"])
+    assert "circulating tumour cells" in blob
+    assert pack["g0_bootstrapped"] is True
+    assert "(no admitted facts; G0 not closed)" not in blob
+
+
+def test_g0_pack_includes_full_transcript_not_12k_slice() -> None:
+    ctx = _ctx_010()
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
+    body = ("word " * 8000).strip()
+    ctx.write_json("transcript/full.json", {"text": body + " UNIQUE_TAIL_TOKEN"})
+    pack = pack_volley(ctx, fact_ids=[], tool_id="boundary_detection")
+    blob = " ".join(t["content"] for t in pack["turns"])
+    assert "UNIQUE_TAIL_TOKEN" in blob
+    assert "part " in blob.lower() or len(blob) > 12000
+
+
+def test_g0_pack_prefers_timestamped_words_over_untimed_text() -> None:
+    ctx = _ctx_010()
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "The Life Sciences without times",
+            "words": [
+                {"text": "The", "start_ms": 0, "end_ms": 560, "speaker_id": "spk_0"},
+                {"text": "Life", "start_ms": 560, "end_ms": 780, "speaker_id": "spk_0"},
+            ],
+            "segments": [],
+        },
+    )
+    pack = pack_volley(ctx, fact_ids=[], tool_id="boundary_detection")
+    blob = " ".join(t["content"] for t in pack["turns"])
+    assert "spk_0" in blob
+    assert "0.00-" in blob
+    assert "without times" not in blob
+
+
+def test_coverage_pack_includes_brief_and_manifest() -> None:
+    ctx = _ctx_010()
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
+    ctx.write_json("transcript/full.json", {"text": "hello tape"})
+    from run_fixtures import minimal_content_brief
+
+    ctx.write_json(
+        "understanding/content_brief.json",
+        minimal_content_brief(thesis="CTDNA thesis UNIQUE_BRIEF"),
+        skip_handoff=True,
+    )
+    man_path = ctx.run_dir / "segments" / "manifest.json"
+    man_path.parent.mkdir(parents=True, exist_ok=True)
+    man_path.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "seg_001",
+                        "start_ms": 0,
+                        "end_ms": 1000,
+                        "speaker_id": "spk_0",
+                        "text": "hello tape",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    pack = pack_volley(ctx, fact_ids=["source_card"], tool_id="topic_coverage_audit")
+    blob = " ".join(t["content"] for t in pack["turns"])
+    assert "UNIQUE_BRIEF" in blob
+    assert "seg_001" in blob
 
 
 def test_pack_never_includes_run_meta() -> None:
@@ -201,6 +350,14 @@ def test_identical_packed_call_once() -> None:
     append_ledger(ctx, {"kind": "llm", "identity": "speaker_roles", "packet_hash": ph, "status": "started"})
     with pytest.raises(LimitExhausted):
         check_dispatch(ctx, identity="speaker_roles", kind="llm", packet_hash=ph)
+
+
+def test_completed_packet_hash_may_retry() -> None:
+    ctx = _ctx_010()
+    ph = packet_hash_for([{"role": "user", "content": "same"}])
+    append_ledger(ctx, {"kind": "llm", "identity": "speaker_roles", "packet_hash": ph, "status": "started"})
+    append_ledger(ctx, {"kind": "llm", "identity": "speaker_roles", "packet_hash": ph, "status": "done"})
+    check_dispatch(ctx, identity="speaker_roles", kind="llm", packet_hash=ph)
 
 
 def test_coverage_complete() -> None:
@@ -523,6 +680,83 @@ def test_walk_seed_remainder_is_explicit(monkeypatch) -> None:
     request_walk_seed_remainder(ctx, reason="test")
     run_homunculus_phase(ctx, "analysis", ["speaker_roles"], client=client)
     assert "speaker_roles" in walked
+    assert walked[0] == "speaker_roles"
+    assert "boundary_detection" not in walked
+
+
+def test_walk_seed_does_not_rewind_before_planned(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import request_walk_seed_remainder, run_homunculus_phase
+
+    ctx = _ctx_010()
+    walked: list[str] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.extend(stages)
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+
+    class Msg:
+        content = "stop"
+        tool_calls = []
+
+    class _C:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=Msg())])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    request_walk_seed_remainder(ctx, reason="test")
+    run_homunculus_phase(ctx, "analysis", ["missing_framing"], client=client)
+    assert walked == ["missing_framing"]
+
+
+def test_remaining_stages_uses_seed_order_not_scheduled_reorder() -> None:
+    from interview_mux.homunculus.agenda import remaining_stages, write_agenda
+
+    ctx = _ctx_010()
+    write_agenda(ctx, "analysis", ["boundary_detection"], source="test")
+    ctx.write_json(
+        "mastering/homunculus/agenda.json",
+        {
+            "phase": "analysis",
+            "remaining": ["content_brief_reanchor"],
+            "source": "conductor",
+            "seed_order": [],
+            "skipped": [],
+            "scheduled": [
+                "boundary_topic_resplit",
+                "segment_classification",
+                "boundary_detection",
+                "content_brief_reanchor",
+            ],
+            "reruns": [],
+        },
+    )
+    rem = remaining_stages(ctx, "analysis")
+    assert rem.index("boundary_detection") < rem.index("boundary_topic_resplit")
+    assert rem.index("boundary_detection") < rem.index("content_brief_reanchor")
+    assert "content_brief_reanchor" in rem
+
+
+def test_skip_without_done_marker_stays_in_remaining() -> None:
+    from interview_mux.homunculus.agenda import remaining_stages, write_agenda
+
+    ctx = _ctx_010()
+    write_agenda(ctx, "analysis", ["content_brief_reanchor"], source="test")
+    ctx.write_json(
+        "mastering/homunculus/agenda.json",
+        {
+            "phase": "analysis",
+            "remaining": ["boundary_topic_resplit"],
+            "source": "conductor",
+            "seed_order": [],
+            "skipped": ["content_brief_reanchor"],
+            "scheduled": [],
+            "reruns": [],
+        },
+    )
+    rem = remaining_stages(ctx, "analysis")
+    assert "content_brief_reanchor" in rem
+    assert rem.index("content_brief_reanchor") < rem.index("boundary_topic_resplit")
 
 
 def test_skip_island_stage_without_artifacts_refused() -> None:
@@ -534,6 +768,38 @@ def test_skip_island_stage_without_artifacts_refused() -> None:
     ctx.write_json("analysis/low_conf_must_keep.json", {"segment_ids": ["seg_1"]})
     doc = skip_stage(ctx, "low_conf_island_scan", reason="already have islands")
     assert "low_conf_island_scan" in doc["skipped"]
+    assert ctx.is_done("low_conf_island_scan")
+
+
+def test_skip_core_analysis_stage_without_artifact_refused() -> None:
+    from interview_mux.homunculus.agenda import skip_stage
+
+    ctx = _ctx_010()
+    with pytest.raises(RuntimeError, match="cannot skip"):
+        skip_stage(ctx, "ideal_cuts_propose", reason="coverage miss")
+    ctx.path("understanding/ideal_cuts.json").parent.mkdir(parents=True, exist_ok=True)
+    ctx.path("understanding/ideal_cuts.json").write_text('{"cuts": [{"cut_id": "c1"}]}', encoding="utf-8")
+    doc = skip_stage(ctx, "ideal_cuts_propose", reason="already proposed")
+    assert "ideal_cuts_propose" in doc["skipped"]
+    assert ctx.is_done("ideal_cuts_propose")
+
+
+def test_persist_analysis_complete_before_episode_structure_refused() -> None:
+    ctx = _ctx_010()
+    admit(
+        ctx,
+        identity="write:analysis_complete.json",
+        action="keep",
+        payload={"ok": True},
+        fact_id="write:analysis_complete.json",
+    )
+    with pytest.raises(RuntimeError, match="episode_structure_compose"):
+        persist_artifact(
+            ctx,
+            "analysis_complete.json",
+            {"ok": True},
+            fact_id="write:analysis_complete.json",
+        )
 
 
 def test_surgical_rerun_does_not_clear_from(monkeypatch) -> None:
@@ -560,6 +826,126 @@ def test_surgical_rerun_does_not_clear_from(monkeypatch) -> None:
     assert ctx.is_done("content_context")
 
 
+def _close_g0(ctx: RunContext, text: str = "Hello from the reviewed tape.") -> None:
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcript_review").write_text("", encoding="utf-8")
+    ctx.write_json("transcript/full.json", {"text": text})
+
+
+def test_g0_closed_false_on_fresh_run() -> None:
+    from interview_mux.homunculus.packer import g0_closed
+
+    ctx = _ctx_010()
+    assert g0_closed(ctx) is False
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "transcribe").write_text("", encoding="utf-8")
+    assert g0_closed(ctx) is False
+
+
+def test_rerun_transcribe_refused_when_g0_closed(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import rerun_stage
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    done = ctx.final_path(".stage_done", "transcribe")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "interview_mux.pipeline.run_single_stage",
+        lambda _c, stage: ran.append(stage),
+    )
+    with pytest.raises(RuntimeError, match="G0 is closed"):
+        rerun_stage(ctx, "transcribe")
+    assert ran == []
+    assert ctx.is_done("transcribe")
+
+
+def test_rerun_segment_classification_refused_when_manifest_classified(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import rerun_stage
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 800,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest_story"],
+                    "text": "classified already",
+                }
+            ]
+        },
+    )
+    done = ctx.final_path(".stage_done", "segment_classification")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "interview_mux.pipeline.run_single_stage",
+        lambda _c, stage: ran.append(stage),
+    )
+    with pytest.raises(RuntimeError, match="pack segment_manifest"):
+        rerun_stage(ctx, "segment_classification")
+    assert ran == []
+    assert ctx.is_done("segment_classification")
+
+
+def test_dispatch_run_stage_transcribe_refused_when_g0_closed(monkeypatch) -> None:
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    done = ctx.final_path(".stage_done", "transcribe")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    ran: list[str] = []
+    with pytest.raises(RuntimeError, match="G0 is closed"):
+        dispatch_stage(ctx, "transcribe", lambda: ran.append("ran"), source="conductor")
+    assert ran == []
+    assert ctx.is_done("transcribe")
+
+
+def test_dispatch_runs_transcribe_on_fresh_run() -> None:
+    ctx = _ctx_010()
+    ran: list[str] = []
+
+    def _impl() -> None:
+        ran.append("ran")
+        ctx.write_json("transcript/full.json", {"text": "fresh tape"})
+
+    dispatch_stage(ctx, "transcribe", _impl, source="conductor")
+    assert ran == ["ran"]
+
+
+def test_hollow_transcribe_done_is_unmarked_and_run() -> None:
+    from interview_mux.homunculus.agenda import unmark_hollow_prepare_stages
+
+    ctx = _ctx_010()
+    done = ctx.final_path(".stage_done", "transcribe")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    ingest = ctx.final_path(".stage_done", "ingest")
+    ingest.write_text("", encoding="utf-8")
+    cleared = unmark_hollow_prepare_stages(ctx)
+    assert "transcribe" in cleared
+    assert "ingest" in cleared
+    assert not ctx.is_done("transcribe")
+    assert not ctx.is_done("ingest")
+    ran: list[str] = []
+
+    def _impl() -> None:
+        ran.append("ran")
+        ctx.write_json("transcript/full.json", {"text": "repaired tape"})
+
+    dispatch_stage(ctx, "transcribe", _impl, source="conductor")
+    assert ran == ["ran"]
+
+
 def test_nested_chat_create_packs_user_turn() -> None:
     ctx = _ctx_010()
     from interview_mux.homunculus.source_card import build_source_card
@@ -583,6 +969,147 @@ def test_nested_chat_create_packs_user_turn() -> None:
     assert "dump" not in blob
     assert any(m.get("role") == "system" for m in captured[0]["messages"])
     assert "source_card" in blob or "source_card" in str(captured)
+
+
+def test_apply_pack_keeps_host_layup_stage_packet() -> None:
+    from interview_mux.homunculus.packer import apply_pack_to_kwargs
+
+    ctx = _ctx_010()
+    host = json.dumps(
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "natives": [
+                {
+                    "segment_id": "seg_001",
+                    "text": "hello from the native beat " + ("x" * 80),
+                    "already_aired_nugget_ids": [],
+                    "opening_owner": False,
+                }
+            ],
+            "nugget_corpus": {"nuggets": []},
+        }
+    )
+    out = apply_pack_to_kwargs(
+        ctx,
+        "nugget_layup_compose",
+        {"messages": [{"role": "system", "content": "sys"}, {"role": "user", "content": host}]},
+    )
+    user = " ".join(str(m.get("content")) for m in out["messages"] if m.get("role") == "user")
+    assert "already_aired_nugget_ids" in user
+    assert "seg_001" in user
+    assert "--- stage input ---" in user
+
+
+def test_missing_framing_packs_manifest_not_empty_transcript_segments() -> None:
+    """G0 words without transcript.segments must not starve gap eval of segment_id."""
+    from interview_mux.homunculus.packer import apply_pack_to_kwargs, default_pack_fact_ids
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "timestamped tape",
+            "segments": [],
+            "words": [
+                {"word": "hello", "start": 0.0, "end": 0.4, "speaker": "spk_0"},
+                {"word": "there", "start": 0.4, "end": 0.8, "speaker": "spk_0"},
+            ],
+        },
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 800,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest_story"],
+                    "text": "hello there from the classified manifest",
+                }
+            ]
+        },
+    )
+    ids = default_pack_fact_ids(ctx, "missing_framing")
+    assert "segment_manifest" in ids
+    assert "g0_transcript" not in ids
+    host = json.dumps(
+        {
+            "content_brief": {"thesis": "guest story"},
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "text": "hello there from the classified manifest " + ("x" * 80),
+                }
+            ],
+        }
+    )
+    out = apply_pack_to_kwargs(
+        ctx,
+        "missing_framing",
+        {"messages": [{"role": "system", "content": "sys"}, {"role": "user", "content": host}]},
+    )
+    user = " ".join(str(m.get("content")) for m in out["messages"] if m.get("role") == "user")
+    assert "seg_001" in user
+    assert "interviewee" in user
+    assert "--- stage input ---" in user
+    assert "G0 transcript (closed)" not in user
+    assert "[g0_transcript" not in user
+
+
+def test_omit_g0_drops_g0_even_when_fact_ids_ask_for_it() -> None:
+    from interview_mux.homunculus.packer import pack_volley
+
+    ctx = _ctx_010()
+    _close_g0(ctx, "UNIQUE_G0_MARKER_WORDS")
+    pack = pack_volley(
+        ctx,
+        fact_ids=["g0_transcript"],
+        tool_id="missing_framing",
+        omit_g0=True,
+    )
+    blob = str(pack.get("turns") or "")
+    assert "UNIQUE_G0_MARKER_WORDS" not in blob
+    assert "G0 transcript (closed)" not in blob
+
+
+def test_nested_chat_packs_during_open_stage() -> None:
+    ctx = _ctx_010()
+    from interview_mux.homunculus.source_card import build_source_card
+
+    build_source_card(ctx)
+    append_ledger(ctx, {"kind": "stage", "identity": "boundary_detection", "status": "started"})
+    captured: list[dict] = []
+
+    class _C:
+        def create(self, **kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(id="r")
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+    nested_chat_create(
+        ctx,
+        "boundary_detection",
+        client,
+        {"model": "x", "messages": [{"role": "user", "content": "dump"}]},
+    )
+    blob = str(captured[0]["messages"])
+    assert "dump" not in blob
+    # Open stage rows do not burn the identity cap until .stage_done exists.
+    assert count_identity(ctx, "boundary_detection") == 0
+
+
+def test_dispatch_stage_without_required_artifact_is_failure() -> None:
+    ctx = _ctx_010()
+    with pytest.raises(RuntimeError, match="without required artifact"):
+        dispatch_stage(ctx, "boundary_detection", lambda: None, source="test")
+    assert count_identity(ctx, "boundary_detection") == 0
+    assert not ctx.artifact_exists("segments/boundaries.json")
 
 
 def test_speaker_scoped_second_analysis_allowed() -> None:

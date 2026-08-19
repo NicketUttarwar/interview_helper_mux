@@ -77,6 +77,17 @@ def test_forced_sparse_and_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert loaded["narrative_mode"] == "sparse_source"
 
 
+def test_research_waves_writes_waves_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from interview_mux.mastering_research import run_mastering_research_waves
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_ne_waves", create=True)
+    run_mastering_research_waves(ctx)
+    assert ctx.artifact_exists("mastering/research/waves.json")
+    doc = ctx.read_json("mastering/research/waves.json")
+    assert len(doc.get("waves") or []) == 8
+
+
 def test_research_rollup_fail_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     patch_executions_root(monkeypatch, tmp_path)
     ctx = RunContext("exec_ne_research", create=True)

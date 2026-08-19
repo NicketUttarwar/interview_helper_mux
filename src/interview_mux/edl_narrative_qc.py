@@ -345,6 +345,9 @@ def _effective_transitions_for_edl(
         )
         if isinstance(doc, dict):
             doc = dedupe_transitions_for_framing(gap, doc)
+            from interview_mux.gap_framing import dedupe_transitions_by_adjacency
+
+            doc = dedupe_transitions_by_adjacency(doc)
     except Exception:
         pass
     return doc

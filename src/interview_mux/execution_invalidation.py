@@ -74,14 +74,18 @@ def _preserve_cross_order_upstream_artifact(
     if not producers:
         return False
     from_order = tuple(order)
+    from_idx = min((order.index(s) for s in invalidation_slice if s in order), default=-1)
     for producer in producers:
         if producer in invalidation_slice:
             continue
-        if not ctx.is_done(producer):
+        if producer not in order:
             continue
-        # Upstream stage still valid — keep its committed artifact when only
-        # downstream stages are invalidated (same order or cross-order).
-        return True
+        # Upstream owner of a shared path (content_brief, boundaries) must
+        # survive even if its done marker was already cleared.
+        if from_idx >= 0 and order.index(producer) < from_idx:
+            return True
+        if ctx.is_done(producer):
+            return True
     return False
 
 

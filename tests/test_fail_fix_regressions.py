@@ -34,3 +34,21 @@ def test_hyphen_boundary_keeps_ingest_out_of_vo_ingest() -> None:
     assert is_token is False
     assert "vo-ingest" in low
     assert "edl" in low
+
+
+def test_parse_failed_stage_prefers_llm_stage_over_needs_rerun() -> None:
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "tools"))
+    import full_auto_driver
+
+    job = {
+        "stage": "topic_coverage_audit",
+        "message": (
+            "LLM stage topic_coverage_audit incomplete: status=needs_input "
+            "needs=[{'stage': 'segment_classification', 'type': 'rerun_stage'}]"
+        ),
+    }
+    assert full_auto_driver.parse_failed_stage(job) == "topic_coverage_audit"

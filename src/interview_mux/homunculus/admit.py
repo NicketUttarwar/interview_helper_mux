@@ -61,6 +61,12 @@ def persist_artifact(ctx: RunContext, rel: str, payload: Any, *, fact_id: str) -
     """Write only after a keep/reformat admit for this fact."""
     if not _fact_admitted_keep(ctx, fact_id):
         raise RuntimeError(f"persist refused: fact {fact_id} was not keep/reformat admitted")
+    if str(rel).rstrip("/") == "analysis_complete.json" and not ctx.is_done(
+        "episode_structure_compose"
+    ):
+        raise RuntimeError(
+            "persist refused: analysis_complete.json before episode_structure_compose is done"
+        )
     from interview_mux.homunculus.ledger import read_ledger
 
     for row in read_ledger(ctx):

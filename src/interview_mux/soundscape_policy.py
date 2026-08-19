@@ -211,7 +211,7 @@ def score_cue_slots(
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     sap = load_profile(ctx) or {}
     music_risk = str(sap.get("source_music_risk") or "low")
-    bed_range = mix_contract.get("bed_level_db_range") or [-22.0, -18.0]
+    bed_range = mix_contract.get("bed_level_db_range") or [-18.0, -14.0]
     bed_level = float(bed_range[0] + bed_range[-1]) / 2.0 if isinstance(bed_range, list) and len(bed_range) == 2 else _DEFAULT_BED_LEVEL
     if pace in {"brisk", "dense"}:
         # Prefer quieter beds under dense dialogue — never hotter than −20.
@@ -354,9 +354,9 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         or sap_mix.get("stinger_max_per_minute")
         or 4
     )
-    bed_range = sap_mix.get("bed_level_db_range") or [-22.0, -18.0]
+    bed_range = sap_mix.get("bed_level_db_range") or [-18.0, -14.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
-        bed_range = [-22.0, -18.0]
+        bed_range = [-18.0, -14.0]
     coverage = 0.55
     if underscore == "sparse":
         coverage = 0.40

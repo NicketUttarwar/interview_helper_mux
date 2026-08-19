@@ -853,3 +853,36 @@ def dedupe_transitions_for_framing(
         out["framing_deduped_count"] = dropped
         return out
     return transitions_doc
+
+
+def dedupe_transitions_by_adjacency(transitions_doc: dict[str, Any]) -> dict[str, Any]:
+    """Keep exactly one spoken transition per selected-order adjacency."""
+    items = list(transitions_doc.get("transitions") or [])
+    if not items:
+        return transitions_doc
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    extras = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            str(item.get("after_segment_id") or ""),
+            str(item.get("before_segment_id") or ""),
+        )
+        prev = best.get(key)
+        if prev is None:
+            best[key] = item
+            order.append(key)
+            continue
+        extras += 1
+        prev_q = str(prev.get("text") or "").strip().endswith("?")
+        new_q = str(item.get("text") or "").strip().endswith("?")
+        if prev_q and not new_q:
+            best[key] = item
+    if extras == 0:
+        return transitions_doc
+    out = dict(transitions_doc)
+    out["transitions"] = [best[k] for k in order]
+    out["adjacency_deduped_count"] = extras
+    return out

@@ -8,6 +8,17 @@ from interview_mux.run_context import RunContext
 
 REMUTATE_REL = "mastering/edl_narrative_remutate.json"
 MAX_ATTEMPTS = 2
+HOST_REPAIR_PROGRESS_NOTES = frozenset(
+    {
+        "rewrite_episode_orientation_meta_question",
+        "rewrite_meta_question_layup",
+        "dedupe_transitions_by_adjacency",
+        "drop_stale_orientation_wav",
+        "reseat_required_recovery_layup",
+        "promoted_pending_layup_plan",
+        "layup_repair",
+    }
+)
 
 # Allowlisted issue → action classifiers (substring match on lowered text).
 _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
@@ -46,6 +57,9 @@ _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
             "interviewer line",
             "layup",
             "framing line",
+            "orientation",
+            "meta-question",
+            "episode framing",
         ),
     ),
     (
@@ -72,7 +86,26 @@ def classify_edl_narrative_issue(text: str) -> str:
     blob = str(text or "").strip().lower()
     if not blob:
         return "operator"
+    # VO/orientation defects often mention "transition coverage". Classify those
+    # as gap-VO repair before the generic "transition" needle.
+    vo_needles = (
+        "orientation",
+        "meta-question",
+        "episode framing",
+        "gap vo",
+        "vo pickup",
+        "vo_layup",
+        "vo_ingest",
+        "missing_question",
+        "interviewer line",
+        "layup",
+        "framing line",
+    )
+    if any(n in blob for n in vo_needles):
+        return "rebase_gap_vo"
     for action, needles in _CLASSIFIERS:
+        if action == "rebase_gap_vo":
+            continue
         if any(n in blob for n in needles):
             return action
     return "operator"
@@ -129,14 +162,204 @@ def plan_edl_narrative_remutate(
     return plan
 
 
+def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
+    """Rewrite unusable orientation/layup copy and keep one transition per adjacency.
+
+    Does not rewind ranking or recompose layup. Does not soft-pass the audit.
+    """
+    notes: list[str] = []
+    before_orientation = ""
+    try:
+        from interview_mux.opening_orientation import (
+            is_episode_orientation,
+            retarget_orientation_to_open,
+        )
+
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap0 = ctx.read_json("understanding/gap_report.json")
+            for line in (gap0.get("interviewer_lines") or []) if isinstance(gap0, dict) else []:
+                if isinstance(line, dict) and is_episode_orientation(line):
+                    before_orientation = str(line.get("text") or "")
+                    break
+        written = retarget_orientation_to_open(ctx)
+        after_orientation = before_orientation
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap1 = ctx.read_json("understanding/gap_report.json")
+            for line in (gap1.get("interviewer_lines") or []) if isinstance(gap1, dict) else []:
+                if isinstance(line, dict) and is_episode_orientation(line):
+                    after_orientation = str(line.get("text") or "")
+                    break
+        if after_orientation != before_orientation:
+            notes.append("rewrite_episode_orientation_meta_question")
+        elif written:
+            notes.append("retarget_orientation")
+    except Exception as exc:
+        notes.append(f"orientation:{exc}")
+    try:
+        import json
+        from pathlib import Path
+
+        from interview_mux.nugget_layup import (
+            PLAN_REL,
+            publish_layup_plan_to_gap_report,
+            repair_or_skip_spoken_copy_layups,
+        )
+
+        if not ctx.artifact_exists(PLAN_REL):
+            pending = (
+                Path(ctx.run_dir)
+                / ".pending_writes"
+                / "nugget_layup_compose"
+                / "understanding"
+                / "nugget_layup_plan.json"
+            )
+            if pending.is_file():
+                ctx.write_json(
+                    PLAN_REL,
+                    json.loads(pending.read_text(encoding="utf-8")),
+                )
+                notes.append("promoted_pending_layup_plan")
+        if ctx.artifact_exists(PLAN_REL):
+            plan = ctx.read_json(PLAN_REL)
+            repaired, repair_notes = repair_or_skip_spoken_copy_layups(
+                ctx, plan if isinstance(plan, dict) else {}
+            )
+            ctx.write_json(PLAN_REL, repaired)
+            publish_layup_plan_to_gap_report(ctx, repaired)
+            if any(
+                isinstance(n, dict) and n.get("action") == "rewrite_meta_question_layup"
+                for n in repair_notes
+            ):
+                notes.append("rewrite_meta_question_layup")
+            elif repair_notes:
+                notes.append("layup_repair")
+        from interview_mux.write_staging import discard_stage_writes
+
+        pending_dir = Path(ctx.run_dir) / ".pending_writes" / "nugget_layup_compose"
+        had_pending = pending_dir.exists() and any(pending_dir.rglob("*"))
+        discard_stage_writes(ctx, "nugget_layup_compose")
+        if had_pending:
+            notes.append("discard_stale_layup_pending")
+    except Exception as exc:
+        notes.append(f"layup:{exc}")
+    try:
+        from interview_mux.air_script import (
+            compose_pass_b,
+            load_air_script,
+            omitted_vo_line_ids,
+            persist_air_script_omits_on_gap_report,
+        )
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan0 = load_plan_raw(ctx)
+        if isinstance(plan0, dict) and load_air_script(plan0):
+            omitted_before = omitted_vo_line_ids(plan0)
+            compose_pass_b(ctx)
+            persist_air_script_omits_on_gap_report(ctx)
+            omitted_after = omitted_vo_line_ids(load_plan_raw(ctx))
+            if omitted_before - omitted_after:
+                notes.append("reseat_required_recovery_layup")
+    except Exception as exc:
+        notes.append(f"air_script:{exc}")
+    if ctx.artifact_exists("master/transitions.json"):
+        try:
+            from interview_mux.gap_framing import (
+                dedupe_transitions_by_adjacency,
+                dedupe_transitions_for_framing,
+            )
+
+            tr = ctx.read_json("master/transitions.json")
+            if isinstance(tr, dict):
+                gap = (
+                    ctx.read_json("understanding/gap_report.json")
+                    if ctx.artifact_exists("understanding/gap_report.json")
+                    else {}
+                )
+                before = len(tr.get("transitions") or [])
+                tr = dedupe_transitions_for_framing(
+                    gap if isinstance(gap, dict) else {}, tr
+                )
+                tr = dedupe_transitions_by_adjacency(tr)
+                ctx.write_json("master/transitions.json", tr)
+                after = len(tr.get("transitions") or [])
+                if after < before:
+                    notes.append("dedupe_transitions_by_adjacency")
+        except Exception as exc:
+            notes.append(f"transitions:{exc}")
+    try:
+        prior = (
+            ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else {}
+        )
+        if not isinstance(prior, dict):
+            prior = {}
+        prior["exhausted"] = False
+        prior["attempt"] = 0
+        prior["host_repair"] = notes
+        ctx.write_json(REMUTATE_REL, prior)
+    except Exception:
+        pass
+    cleared: list[str] = []
+    for sid in ("g1_vo_pickup", "edl", "edl_narrative_audit"):
+        marker = ctx.run_dir / ".stage_done" / str(sid)
+        if marker.is_file():
+            marker.unlink(missing_ok=True)
+            cleared.append(str(sid))
+    if "rewrite_episode_orientation_meta_question" in notes:
+        try:
+            from interview_mux.opening_orientation import ORIENTATION_LINE_ID
+
+            pickup = ctx.final_path("vo_pickup")
+            for folder in (pickup, pickup / "synthesized"):
+                wav = folder / f"{ORIENTATION_LINE_ID}.wav"
+                if wav.is_file():
+                    wav.unlink()
+                    notes.append("drop_stale_orientation_wav")
+        except Exception:
+            pass
+    try:
+        audit_path = ctx.path("master", "edl_narrative_audit.json")
+        if audit_path.is_file():
+            import json as _json
+
+            try:
+                prior_audit = _json.loads(audit_path.read_text(encoding="utf-8"))
+            except Exception:
+                prior_audit = {}
+            if str((prior_audit or {}).get("verdict") or "").strip().lower() == "fail":
+                audit_path.unlink(missing_ok=True)
+                notes.append("drop_stale_fail_audit")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "from_stage": "edl_narrative_audit",
+        "notes": notes,
+        "cleared": cleared,
+        "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),
+    }
+
+
 def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Clear mapped stage markers so delivery can re-enter. Does not soft-pass audit."""
+    host = apply_edl_narrative_host_repair(ctx)
     doc = plan or (
         ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else None
     )
+    actions = set((doc or {}).get("actions") or []) if isinstance(doc, dict) else set()
+    vo_notes = HOST_REPAIR_PROGRESS_NOTES
+    # Orientation / duplicate-adjacency / question-only layup are host-fixed.
+    # Rewinding transitions or layup compose recreates the same defects.
+    if vo_notes.intersection(host.get("notes") or []) and not (actions & {"rerank", "drop_blank"}):
+        return {
+            "ok": True,
+            "cleared": host.get("cleared") or [],
+            "from_stage": "edl_narrative_audit",
+            "host_fixed": True,
+            "notes": host.get("notes") or [],
+        }
     if not isinstance(doc, dict) or doc.get("exhausted"):
-        return {"ok": False, "reason": "exhausted_or_missing"}
-    cleared: list[str] = []
+        return {"ok": False, "reason": "exhausted_or_missing", **host}
+    cleared: list[str] = list(host.get("cleared") or [])
     for sid in doc.get("from_stages") or []:
         marker = ctx.run_dir / ".stage_done" / str(sid)
         if marker.is_file():

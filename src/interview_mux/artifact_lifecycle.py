@@ -110,6 +110,9 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         return None
     if not ctx.artifact_exists(rel):
         return None
+    # The producing stage may rewrite its own stale file (rerun / self-heal).
+    if STAGE_ARTIFACT_DISK_PATHS.get(consumer_stage) == rel:
+        return None
     try:
         from interview_mux.file_store import read_json as fs_read_json
         from interview_mux.write_staging import resolve_read_path
@@ -179,6 +182,10 @@ def invalidate_downstream_memory(ctx: Any, from_stage: str) -> list[str]:
 
 
 def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
+    from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    from_idx = order.index(from_stage) if from_stage in order else -1
     stamped: list[str] = []
     for sid in transitive_invalidate(from_stage):
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
@@ -188,6 +195,15 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
             doc = ctx.read_json(rel)
             if isinstance(doc, dict):
                 meta = dict(doc.get("_meta") or {})
+                producer = str(meta.get("producer_stage") or "")
+                if (
+                    from_idx >= 0
+                    and producer in order
+                    and order.index(producer) < from_idx
+                ):
+                    # Shared disk paths (content_brief, boundaries) must not
+                    # stale an upstream producer when a later alias is downstream.
+                    continue
                 meta["stale"] = True
                 meta["stale_reason"] = f"invalidated_by:{from_stage}"
                 doc["_meta"] = meta

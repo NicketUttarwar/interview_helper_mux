@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from interview_mux.artifact_repairs import repair_gap_report
@@ -1483,3 +1485,96 @@ def test_sparse_omit_stamps_valueless_skips_without_materialize(monkeypatch):
     assert qc.get("ok") is True or not any(
         "layup_coverage" in str(e) for e in (qc.get("errors") or [])
     )
+
+
+def test_publish_restamps_stale_opening_skip_when_native_self_orients(tmp_path):
+    """Opening layup stamped for orientation must become native-self-orient skip."""
+    from interview_mux.omit_ledger import OMIT_LEDGER_REL
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "exec_layup_native_open_restamp")
+    ordered = ["seg_010", "seg_011"]
+    brief_path = ctx.path("understanding", "content_brief.json")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        json.dumps({"guest_name": "Mohan", "thesis": "Liquid biopsy changes trials."}),
+        encoding="utf-8",
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ordered}, skip_handoff=True)
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_010",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": [],
+                    "text": (
+                        "Welcome Mohan — today we talk about liquid biopsy, "
+                        "trial design, and why a blood draw changes diagnostics."
+                    ),
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                },
+                {
+                    "segment_id": "seg_011",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                    "text": "Tissue biopsy is invasive and expensive.",
+                    "start_ms": 8000,
+                    "end_ms": 14000,
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    plan = {
+        "ordered_segment_ids": ordered,
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_010",
+                    "line_id": "vo_layup_seg_010",
+                    "nugget_ids": ["nug_001"],
+                    **_ANALYSIS,
+                },
+                reason_code="opening_orientation_owns_target",
+            ),
+            {
+                "target_segment_id": "seg_011",
+                "line_id": "vo_layup_seg_011",
+                "text": (
+                    "Tissue sampling is the old default. What makes a blood draw "
+                    "the better diagnostic path?"
+                ),
+                "nugget_ids": ["nug_002"],
+                "origin": "nugget_layup",
+                **_ANALYSIS,
+            },
+        ],
+    }
+    ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+    ctx.write_json(GAP_REL, {"interviewer_lines": []}, skip_handoff=True)
+    from interview_mux.opening_orientation import native_open_already_orients
+
+    assert native_open_already_orients(ctx, ordered, target_segment_id="seg_010")
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    persisted = ctx.read_json(PLAN_REL)
+    opening = next(r for r in persisted["layups"] if r.get("target_segment_id") == "seg_010")
+    assert opening.get("skip") is True
+    assert opening.get("skip_reason_code") == "episode_open_native_self_orients"
+    meta = report.get("opening_orientation") or {}
+    assert meta.get("omitted") is True
+    ledger = ctx.read_json(OMIT_LEDGER_REL) if ctx.artifact_exists(OMIT_LEDGER_REL) else {}
+    layup_entries = [
+        e
+        for e in (ledger.get("entries") or [])
+        if e.get("active") and e.get("subject_id") == "vo_layup_seg_010"
+    ]
+    assert layup_entries
+    assert layup_entries[0].get("decision") == "omit"
+    assert layup_entries[0].get("replacement_ref") in (None, "")

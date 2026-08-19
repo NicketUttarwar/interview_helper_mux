@@ -59,8 +59,13 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 - All `narrative_plan.ordering_constraints` satisfied in final order.
 - `coverage_audit` topics/claims represented in ordered timeline (or excluded with upstream rationale still valid).
 - Every `high` severity gap has VO or transition coverage in timeline adjacency.
-  Pre-EDL: a resolvable `vo_pickup/<line_id>.wav` counts as VO coverage — do **not**
-  fail solely because `nle_edits` is empty or EDL has not placed the clip yet.
+  Pre-EDL: `vo_coverage[].coverage=rendered` (script-matched wav) counts as VO
+  coverage. Do **not** fail solely because `nle_edits` is empty or EDL has not
+  placed the clip yet.
+  Judge opening-orientation from **this packet's** `gap_report.interviewer_lines`
+  text. A factual setup is not a meta-question.
+  Duplicate spoken bridges only fail when **this packet's** `transitions.transitions`
+  still has two or more rows for the same after/before pair.
 - Chapter boundaries align with `narrative_plan` + `selection.chapters`; no empty chapters.
 - No duplicate VO + transition text for same adjacency.
 
@@ -80,6 +85,8 @@ Use deterministic evidence — subjective polish alone never yields `fail`.
 - Brief topic or key claim with zero representation post-selection **and** no documented exclude.
 - `high` severity gap with no VO file on disk, no transition, segment still in master.
   Missing NLE/EDL placement alone is **not** a fail before `edl` runs.
+  `vo_coverage[].coverage=omitted` (air-script did not seat the line) is **not** a
+  missing-VO fail. `coverage=rendered` is VO coverage even if `nle_edits` is empty.
 - Duplicate `segment_id` in order, missing segment referenced by transition/VO, or chapter open pointing to excluded segment that is still required by a selected constraint.
 - `gap_report` line targets excluded segment.
 - Panel handoff leaves listener unable to identify who speaks next (missing name when two guests alternate after reorder).

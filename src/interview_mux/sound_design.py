@@ -2083,20 +2083,27 @@ def count_overlay_roles(overlays: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float:
-    from interview_mux.creative_delivery import audibility_level_db, creative_delivery_required
+    from interview_mux.creative_delivery import (
+        _bed_level_band,
+        audibility_level_db,
+        creative_delivery_required,
+    )
 
     default_level_db = audibility_level_db(role="bed", default=default_level_db)
-    # Always prefer quieter beds under dense speech — creative delivery still
-    # stays inside the audible band, but never hotter than speech can carry.
+    # Prefer quieter beds under dense speech, but stay inside the audible band.
+    # Hard caps below that band used to bury underscores (~−22) on talk-heavy tape.
+    lo, hi = _bed_level_band()
+    if not creative_delivery_required():
+        lo, hi = lo - 2.0, hi - 2.0
     profile = load_profile(ctx)
     if not isinstance(profile, dict):
         return default_level_db
     pacing = profile.get("pacing") if isinstance(profile.get("pacing"), dict) else {}
     speech_active_ratio = float(pacing.get("speech_active_ratio") or 0.0)
     if speech_active_ratio >= 0.75:
-        return min(default_level_db, -22.0 if creative_delivery_required() else -24.0)
+        return min(default_level_db, lo)
     if speech_active_ratio >= 0.6:
-        return min(default_level_db, -20.0 if creative_delivery_required() else -22.0)
+        return min(default_level_db, (lo + hi) / 2.0)
     return default_level_db
 
 

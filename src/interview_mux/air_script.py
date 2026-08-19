@@ -501,6 +501,32 @@ def enforce_air_script_omits(ctx: RunContext, selection: dict[str, Any]) -> dict
     return out
 
 
+def _prev_is_frame_turn(prev: dict[str, Any] | None) -> bool:
+    """True when the previous aired clip is already a host/interviewer turn.
+
+    Do not substring-match ``interview`` — that also matches ``interviewee`` and
+    ``interviewee_answer``, which wrongly native-handoffs recovery layups after
+    a guest beat.
+    """
+    if not isinstance(prev, dict):
+        return False
+    role = str(prev.get("speaker_role") or "").strip().lower()
+    try:
+        from interview_mux.conversation_context import role_is_frame
+
+        if role_is_frame(role):
+            return True
+    except Exception:
+        if role in {"interviewer", "moderator", "co_host", "host", "frame"}:
+            return True
+    typ = str(prev.get("type") or "").strip().lower()
+    if typ in {"interviewer_question", "host_question", "moderator_question"}:
+        return True
+    if typ.startswith("interviewer_") or typ.startswith("host_"):
+        return True
+    return False
+
+
 def _same_speaker_contiguous(
     prev: dict[str, Any] | None, cur: dict[str, Any] | None
 ) -> bool:
@@ -522,7 +548,11 @@ def _gap_line_for(
         return None
     matches: list[dict[str, Any]] = []
     for line in gap_report.get("interviewer_lines") or []:
-        if not isinstance(line, dict) or line.get("skipped_optional"):
+        if not isinstance(line, dict):
+            continue
+        # Required recovery layups must remain visible so Pass B can revive a
+        # bad omit (e.g. interviewee matched as host via substring).
+        if line.get("skipped_optional") and not line.get("required"):
             continue
         if str(line.get("targets_segment_id") or "") != segment_id:
             continue
@@ -755,10 +785,8 @@ def compose_pass_b(ctx: RunContext) -> dict[str, Any]:
                 move = "native_handoff"
         elif i > 0 and not _same_speaker_contiguous(prev, cur):
             move = "music_face_out"
-        prev_role = str((prev or {}).get("speaker_role") or (prev or {}).get("type") or "").lower()
         if (
-            prev
-            and ("interview" in prev_role or prev_role in {"host", "interviewer"})
+            _prev_is_frame_turn(prev)
             and move in VO_SEAT_MOVES
             and not orient
         ):

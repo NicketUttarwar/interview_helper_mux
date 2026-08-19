@@ -8,6 +8,7 @@ from interview_mux.artifact_completeness import artifact_status
 from interview_mux.config import merged_config
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, STAGE_ARTIFACT_SCHEMAS
 from interview_mux.run_context import RunContext
+from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 
 CRITICAL_LLM_STAGES = frozenset(
     {
@@ -338,6 +339,14 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
     """Raise SystemExit when an upstream LLM stage is not done with complete artifact."""
     if not flow_hardening_enabled():
         return
+    rel = producer_artifact_path(upstream_stage)
+    if rel:
+        from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+
+        if ctx.artifact_exists(rel) and upstream_artifact_acceptable(upstream_stage, rel, ctx):
+            if not ctx.is_done(upstream_stage):
+                ctx.mark_done(upstream_stage, force=True)
+            return
     if not ctx.is_done(upstream_stage):
         exit_msg = (
             f"Prerequisite stage {upstream_stage} is not complete. "
@@ -345,7 +354,6 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
         )
         ctx.log(exit_msg, level="error", stage=upstream_stage)
         raise SystemExit(exit_msg)
-    rel = producer_artifact_path(upstream_stage)
     if not rel:
         return
     from interview_mux.llm_output_resilience import upstream_artifact_acceptable
@@ -360,9 +368,25 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
     raise SystemExit(exit_msg)
 
 
+def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | None:
+    """First not-done seed-order stage before `stage_key`."""
+    for order in (ANALYSIS_ORDER, DELIVERY_ORDER):
+        if stage_key not in order:
+            continue
+        for earlier in order[: order.index(stage_key)]:
+            if not ctx.is_done(earlier):
+                return earlier
+        return None
+    return None
+
+
 def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None:
-    """When hardening is on, verify immediate upstream LLM stage before running stage_key."""
+    """When hardening is on, verify seed-order progress before running stage_key."""
     if not flow_hardening_enabled():
+        return
+    earliest = _earliest_incomplete_seed_stage(ctx, stage_key)
+    if earliest:
+        require_llm_stage_progress(ctx, earliest)
         return
     upstream = resolve_llm_upstream_stage(ctx, stage_key)
     if upstream:
