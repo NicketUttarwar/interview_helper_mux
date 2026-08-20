@@ -1315,6 +1315,11 @@ Local mlx-audio STT + S2S — [speech-to-speech-vo.md](./speech-to-speech-vo.md)
 | `local_speech.interrogate_mode` | `stt_listen` | Certified path: clip STT → contract answer (`stt_listen`) |
 | `local_speech.interrogate_timeout_sec` | `120` | Per-probe listen timeout |
 | `local_speech.warmup_voice_wav` | `ASSETS/local_speech/warmup_voice/neutral.wav` | Neutral warm-up voice (auto-created via `scripts/ensure_warmup_voice.py`) |
+| `local_speech.diarization_verify_max_pairs` | `200` | Cap GPU same-speaker pair checks per run after G0; hanging-setup flips run first |
+| `local_speech.diarization_verify_timeout_sec` | `300` | Per-pair Sortformer / interrogate timeout |
+| `local_speech.micro_other_max_ms` | `700` | Max duration of a nested um/uh island that can be absorbed into a monologue |
+| `local_speech.micro_other_max_words` | `2` | Max tokens in an absorbable filled-pause island |
+| `local_speech.dominant_speaker_min_share` | `0.98` | Enclosing-run duration share required to absorb a nested micro island |
 
 ---
 

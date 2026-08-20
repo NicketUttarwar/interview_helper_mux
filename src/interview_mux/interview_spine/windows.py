@@ -41,6 +41,9 @@ def build_windows(
     window_ms = int(_pace_window_sec(pace_class, resolved) * 1000)
     hop_ms = int(float(resolved.get("hop_sec", 5)) * 1000)
     sorted_words = sorted(words, key=lambda w: float(w.get("start_ms", 0)))
+    from interview_mux.diarization_suspicion import absorbable_micro_word_indexes
+
+    micro_idxs = absorbable_micro_word_indexes(sorted_words)
 
     raw_spans: list[tuple[int, int, list[dict[str, Any]]]] = []
     bucket: list[dict[str, Any]] = []
@@ -55,6 +58,8 @@ def build_windows(
             nxt = sorted_words[i + 1]
             pause_after = int(nxt["start_ms"]) - int(w["end_ms"]) >= PAUSE_SPLIT_MS
             speaker_change = nxt.get("speaker_id") != w.get("speaker_id")
+            if speaker_change and (i in micro_idxs or (i + 1) in micro_idxs):
+                speaker_change = False
         duration = int(w["end_ms"]) - bucket_start
         if pause_after or speaker_change or duration >= window_ms or i == len(sorted_words) - 1:
             raw_spans.append((bucket_start, int(w["end_ms"]), list(bucket)))

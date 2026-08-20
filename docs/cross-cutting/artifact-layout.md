@@ -70,7 +70,8 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `ingest/normalized.wav` | ingest |
 | `ingest/loudness.json` | ingest (loudness stabilize lineage) |
 | `ingest/checksums.json` | ingest ([ingest_checksums.schema.json](./json-schemas/ingest_checksums.schema.json)) |
-| `transcript/full.json` | transcription; dock word edits set `words[].corrected`; `review_applied_at` on G0 complete |
+| `transcript/full.json` | transcription; dock word edits set `words[].corrected`; `review_applied_at` on G0 complete; post-G0 pair-verify may rewrite `speaker_id` |
+| `transcript/diarization_repairs.json` | post-G0 Sortformer YES/NO + absorb_micro provenance ([diarization_repairs.schema.json](./json-schemas/diarization_repairs.schema.json)) |
 | `transcripts/speech/{segment_id}.json` | per-segment sidecar (G0 words sliced to the live window) |
 | `transcripts/vo/{line_id}.json` | synthetic / recorded VO sidecar (script + WAV duration) |
 | `transcripts/transition/{clip_id}.json` | spoken transition sidecar |

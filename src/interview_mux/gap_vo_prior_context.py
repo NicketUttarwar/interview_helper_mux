@@ -195,12 +195,40 @@ _BACKCHANNEL_OPEN_TOKENS = frozenset(
     }
 )
 
+# Nested disfluencies (not a real host turn). Used to absorb um/uh inside a monologue.
+_FILLED_PAUSE_TOKENS = frozenset(
+    {
+        "um",
+        "uh",
+        "ah",
+        "er",
+        "mm",
+        "hmm",
+        "hm",
+        "mhm",
+        "mmhmm",
+        "uhhuh",
+        "uh-huh",
+    }
+)
+
 _SUBORDINATE_CLAUSE_OPEN_RE = re.compile(
     r"^(?:if|because|when|while|although|though|unless|until|since|so that|as if)\b",
     re.IGNORECASE,
 )
 
-CROSS_SPEAKER_COMPLETION_GAP_MS = 1000
+# Same-clause continuation / flip-detection ceiling. Do not retarget spine PAUSE_SPLIT_MS.
+CLAUSE_CONTINUE_MAX_GAP_MS = 4000
+CROSS_SPEAKER_COMPLETION_GAP_MS = CLAUSE_CONTINUE_MAX_GAP_MS
+
+_DETERMINERS = frozenset({"a", "an", "the"})
+_INTENSIFIERS = frozenset({"very", "really", "quite", "highly", "so", "too", "extremely"})
+_NOMINAL_ADJECTIVE_RE = re.compile(
+    r"^(?:novel|new|unique|specific|particular|interesting|important|"
+    r"different|special|critical|essential|available|actionable|"
+    r".+(?:al|ive|ous|ic|able|ible|ful|less|ish|ary|ent|ant))$",
+    re.IGNORECASE,
+)
 
 _MIC_DROP_HINT_RE = re.compile(
     r"\b(higher than|lower than|never|nobody|nothing|realized|truth is|bottom line|"
@@ -259,11 +287,19 @@ def last_clause_is_subordinate_fragment(text: str) -> bool:
 
 
 def is_backchannel_only_text(text: str) -> bool:
-    """True when the span is only a backchannel (Okay / Right / Yeah)."""
+    """True when the span is only a backchannel (Okay / Right / Yeah / um)."""
     toks = re.findall(r"[A-Za-z0-9']+", text or "")
     if not toks:
         return False
     return all(t.lower() in _BACKCHANNEL_OPEN_TOKENS for t in toks)
+
+
+def is_filled_pause_only_text(text: str) -> bool:
+    """True when the span is only filled-pause disfluency (um / uh / ah), not yeah/okay."""
+    toks = re.findall(r"[A-Za-z0-9']+", text or "")
+    if not toks:
+        return False
+    return all(t.lower() in _FILLED_PAUSE_TOKENS for t in toks)
 
 
 def opens_with_backchannel_completion(text: str) -> bool:
@@ -305,7 +341,47 @@ def ends_hanging_setup(text: str) -> bool:
         return True
     if _last_token(stripped) in _INCOMPLETE_TAIL_TOKENS:
         return True
+    if ends_unfinished_nominal(stripped):
+        return True
     return bool(_HANGING_SETUP_RE.search(stripped))
+
+
+def ends_unfinished_nominal(text: str) -> bool:
+    """Determiner + optional intensifier + adjective-like last token, no terminal close.
+
+    Catches *a very novel* / *a novel*. Does not mark bare evaluative closes
+    (*that's novel*, *really powerful*).
+    """
+    stripped = (text or "").strip()
+    if not stripped or stripped[-1:] in ".!?":
+        return False
+    toks = [t.lower() for t in re.findall(r"[A-Za-z0-9']+", stripped)]
+    if len(toks) < 2:
+        return False
+    last = toks[-1]
+    if not _NOMINAL_ADJECTIVE_RE.match(last):
+        return False
+    idx = len(toks) - 2
+    while idx >= 0 and toks[idx] in _INTENSIFIERS:
+        idx -= 1
+    return idx >= 0 and toks[idx] in _DETERMINERS
+
+
+def later_opens_nominal_complement(text: str) -> bool:
+    """True when later speech opens the missing noun/number complement of a hanging NP."""
+    toks = [t.lower() for t in re.findall(r"[A-Za-z0-9']+", text or "")]
+    if not toks:
+        return False
+    first = toks[0]
+    if first[:1].isdigit():
+        return True
+    if first in _NEW_UNIT_OPENERS:
+        return False
+    if first in _CONTINUER_OPEN_TOKENS:
+        return True
+    if first in {"i", "you", "we", "they", "he", "she", "it", "okay", "yeah", "yes", "no"}:
+        return False
+    return True
 
 
 def ends_complete_thought(
@@ -348,7 +424,7 @@ def clause_continues_after(
     words: list[dict[str, Any]],
     end_ms: int,
     *,
-    max_lookahead_ms: int = 4000,
+    max_lookahead_ms: int = CLAUSE_CONTINUE_MAX_GAP_MS,
     pause_split_ms: int = DEFAULT_PAUSE_SPLIT_MS,
 ) -> bool:
     """True when G0 words after ``end_ms`` continue the same unfinished clause/setup.
@@ -381,9 +457,12 @@ def clause_continues_after(
     ]
     end_text = " ".join(_word_token(w) for w in before[-24:]) if before else ""
     hanging_close = bool(end_text) and ends_hanging_setup(end_text)
+    unfinished_np = bool(end_text) and ends_unfinished_nominal(end_text)
     later_head = " ".join(_word_token(w) for w in ahead[:12])
-    if hanging_close and gap <= CROSS_SPEAKER_COMPLETION_GAP_MS:
+    if hanging_close and gap <= CLAUSE_CONTINUE_MAX_GAP_MS:
         if opens_with_backchannel_completion(later_head) or first_tok in _CONTINUER_OPEN_TOKENS:
+            return True
+        if unfinished_np and later_opens_nominal_complement(later_head):
             return True
     if gap >= pause_split_ms and not hanging_close:
         # Real pause then new unit — not same-clause continuation.
@@ -393,6 +472,8 @@ def clause_continues_after(
     if before:
         last_tok = _word_token(before[-1])
         if last_tok[-1:] in ".!?…" and not hanging_close:
+            return False
+        if unfinished_np:
             return False
         if ends_hanging_setup(end_text):
             return True

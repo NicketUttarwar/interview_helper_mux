@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 # Catalog version bumps invalidate audio_probe_build fingerprints.
-PROBE_CATALOG_VERSION = "1"
+PROBE_CATALOG_VERSION = "2"
 
 PROBES: list[dict[str, Any]] = [
     {
@@ -196,6 +196,16 @@ PROBES: list[dict[str, Any]] = [
         "budget_class": "narrative",
         "prefilter": "stress_or_salience",
         "gate_class": "soft_prefer",
+        "escalation": [],
+    },
+    {
+        "probe_id": "vprobe.same_speaker_pair",
+        "pack": "defect",
+        "prompt_file": "same_speaker_pair.system.txt",
+        "output": "YES_NO",
+        "budget_class": "defect",
+        "prefilter": "escalation_only",
+        "gate_class": "advisory",
         "escalation": [],
     },
 ]

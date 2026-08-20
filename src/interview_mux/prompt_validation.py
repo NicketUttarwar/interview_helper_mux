@@ -316,6 +316,11 @@ def validate_transcript_corrections(data: dict[str, Any]) -> list[str]:
     """Validate `transcript/corrections.json`."""
     return _validate_dict(data, _load_root_schema("transcript_corrections.schema.json"))
 
+
+def validate_diarization_repairs(data: dict[str, Any]) -> list[str]:
+    """Validate `transcript/diarization_repairs.json`."""
+    return _validate_dict(data, _load_root_schema("diarization_repairs.schema.json"))
+
 def validate_ingest_checksums(data: dict[str, Any]) -> list[str]:
     """Validate `ingest/checksums.json`."""
     return _validate_dict(data, _load_root_schema("ingest_checksums.schema.json"))
@@ -572,6 +577,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "master/underbed_ab_qc.json": validate_underbed_ab_qc,
     "ingest/checksums.json": validate_ingest_checksums,
     "transcript/corrections.json": validate_transcript_corrections,
+    "transcript/diarization_repairs.json": validate_diarization_repairs,
     "transcript/review_queue.json": validate_transcript_review_queue,
     "transcript/disfluencies.json": validate_disfluencies,
     "segments/nle_edits.json": validate_nle_edits,

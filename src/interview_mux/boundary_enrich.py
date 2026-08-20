@@ -192,6 +192,10 @@ def _split_points_from_backchannels(
         if _word_count(turn_words) <= backchannel_max_words:
             split_start = int(turn_words[0]["start_ms"])
             split_end = int(turn_words[-1]["end_ms"])
+            from interview_mux.diarization_suspicion import island_is_absorbable_micro
+
+            if island_is_absorbable_micro(words, turn_words):
+                continue
             if start_ms + 500 < split_start < end_ms - 500:
                 splits.append(split_start)
             if start_ms + 500 < split_end < end_ms - 500:

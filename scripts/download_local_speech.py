@@ -22,10 +22,37 @@ def _run_tool(script: str, flag: str) -> bool:
     return True
 
 
+def _verify_diarization() -> bool:
+    import subprocess
+
+    code = (
+        "from mlx_audio.vad import load\n"
+        "load('mlx-community/diar_sortformer_4spk-v1-fp32')\n"
+        "print('ok diarization')"
+    )
+    proc = subprocess.run(
+        [str(PY), "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        print((proc.stderr or proc.stdout or "diarization verify failed")[:800], file=sys.stderr)
+        return False
+    print((proc.stdout or "").strip() or "ok diarization")
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-stt", action="store_true")
     parser.add_argument("--verify-s2s", action="store_true")
+    parser.add_argument(
+        "--verify-diarization",
+        action="store_true",
+        help="Import mlx_audio.vad and load Sortformer (identity classify).",
+    )
     parser.add_argument("--verify", action="store_true", help="Verify STT + S2S")
     args = parser.parse_args()
     if args.verify:
@@ -37,7 +64,9 @@ def main() -> None:
         ok = _run_tool("stt_transcribe.py", "--verify") and ok
     if args.verify_s2s:
         ok = _run_tool("s2s_generate.py", "--verify") and ok
-    if not args.verify_stt and not args.verify_s2s:
+    if args.verify_diarization:
+        ok = _verify_diarization() and ok
+    if not args.verify_stt and not args.verify_s2s and not args.verify_diarization:
         parser.print_help()
         sys.exit(2)
     sys.exit(0 if ok else 1)

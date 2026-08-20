@@ -24,6 +24,7 @@ from interview_mux.gap_vo_prior_context import (
     ends_complete_thought,
     ends_hanging_setup,
     last_spoken_sentence,
+    later_opens_nominal_complement,
     opens_with_backchannel_completion,
     opens_with_clause_continuer,
 )
@@ -109,7 +110,8 @@ def incomplete_thought_hints(hints: dict[str, Any] | None) -> bool:
     ):
         return True
     return bool(
-        hints.get("later_opens_continuer") and not hints.get("earlier_lands_complete_idea")
+        (hints.get("later_opens_continuer") or hints.get("later_opens_nominal_complement"))
+        and not hints.get("earlier_lands_complete_idea")
     )
 
 
@@ -154,7 +156,12 @@ def _editorial_fuse_allowed(
 ) -> tuple[bool, str]:
     """Whether a fuse verdict may rewrite segments (incomplete / forced only)."""
     forced = str(verdict.get("forced_by") or "")
-    if forced in {"island_straddle", "high_value_speech_island"}:
+    if forced in {
+        "island_straddle",
+        "high_value_speech_island",
+        "diarization_yes_same",
+        "micro_other_absorb",
+    }:
         return True, ""
     hints = verdict.get("deterministic_hints") or {}
     if incomplete_thought_hints(hints):
@@ -330,6 +337,9 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
         later_continuer = opens_with_clause_continuer(head_text) or opens_with_clause_continuer(
             str(later.get("text") or "")
         )
+        later_nominal = later_opens_nominal_complement(head_text) or later_opens_nominal_complement(
+            str(later.get("text") or "")
+        )
         later_backchannel = opens_with_backchannel_completion(head_text) or (
             opens_with_backchannel_completion(str(later.get("text") or ""))
         )
@@ -353,6 +363,7 @@ def enumerate_seam_packets(ctx: RunContext, *, cfg: dict[str, Any] | None = None
             "hanging_setup_end": bool(hanging),
             "clause_continues_after": bool(continues),
             "later_opens_continuer": bool(later_continuer),
+            "later_opens_nominal_complement": bool(later_nominal and hanging),
             "later_opens_backchannel_completion": bool(
                 later_backchannel and gap_ms <= CROSS_SPEAKER_COMPLETION_GAP_MS
             ),
@@ -845,12 +856,20 @@ def apply_connector_fuses(
         gap_ms = max(0, _ms(later, "start_ms") - _ms(target, "end_ms"))
         max_gap = int(conf.get("max_seam_gap_ms") or 8000)
         hints = verdict.get("deterministic_hints") or {}
+        forced = str(verdict.get("forced_by") or "")
         if not bool(conf.get("allow_cross_speaker_fuse", False)) and _speaker_of(target) != _speaker_of(later):
-            if not incomplete_thought_hints(hints):
+            if not incomplete_thought_hints(hints) and forced not in {
+                "diarization_yes_same",
+                "micro_other_absorb",
+            }:
                 skipped.append({"pair_id": verdict.get("pair_id"), "reason": "cross_speaker"})
                 continue
-        forced = str(verdict.get("forced_by") or "")
-        force_bypass = forced in {"island_straddle", "high_value_speech_island"}
+        force_bypass = forced in {
+            "island_straddle",
+            "high_value_speech_island",
+            "diarization_yes_same",
+            "micro_other_absorb",
+        }
         if gap_ms > max_gap and not hints.get("island_straddle") and not force_bypass:
             skipped.append({"pair_id": verdict.get("pair_id"), "reason": "seam_gap_cap"})
             continue
@@ -983,150 +1002,16 @@ def _rewrite_id_list(ids: list[Any], remap: dict[str, str]) -> list[str]:
 
 
 def _remap_downstream_ids(ctx: RunContext, remap: dict[str, str]) -> None:
-    """Rewrite selection / ideal-cut / talking-point references onto surviving fused ids."""
+    """Rewrite every known ``seg_*`` consumer onto surviving fused ids."""
     if not remap:
         return
+    from interview_mux.diarization_suspicion import stamp_fused_segment_ids
+    from interview_mux.segment_id_remap import apply_full_segment_id_remap
 
-    def _patch_json(rel: str, mutator) -> None:  # noqa: ANN001
-        if not ctx.artifact_exists(rel):
-            return
-        try:
-            doc = ctx.read_json(rel)
-        except Exception:
-            return
-        if not isinstance(doc, dict):
-            return
-        if mutator(doc):
-            ctx.write_json(rel, doc, stage_key="connector_fuse_pass")
-
-    def _sel(doc: dict[str, Any]) -> bool:
-        changed = False
-        ordered = doc.get("ordered_segment_ids")
-        if isinstance(ordered, list):
-            new = _rewrite_id_list(ordered, remap)
-            if new != [str(x) for x in ordered]:
-                doc["ordered_segment_ids"] = new
-                changed = True
-        excl = doc.get("excluded_segment_ids")
-        if isinstance(excl, list):
-            new_excl: list[Any] = []
-            seen: set[str] = set()
-            for row in excl:
-                sid = ""
-                if isinstance(row, dict):
-                    sid = str(row.get("segment_id") or "")
-                    mapped = remap.get(sid, sid)
-                    if mapped and mapped not in seen:
-                        item = dict(row)
-                        item["segment_id"] = mapped
-                        new_excl.append(item)
-                        seen.add(mapped)
-                else:
-                    sid = str(row or "")
-                    mapped = remap.get(sid, sid)
-                    if mapped and mapped not in seen:
-                        new_excl.append(mapped)
-                        seen.add(mapped)
-            if new_excl != excl:
-                doc["excluded_segment_ids"] = new_excl
-                changed = True
-        return changed
-
-    def _ideal(doc: dict[str, Any]) -> bool:
-        changed = False
-        for key in ("cuts", "ideal_cuts", "keepers"):
-            rows = doc.get(key)
-            if not isinstance(rows, list):
-                continue
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                for field in ("segment_id", "primary_segment_id"):
-                    sid = str(row.get(field) or "")
-                    if sid in remap:
-                        row[field] = remap[sid]
-                        changed = True
-                for field in ("segment_ids", "overlap_segment_ids", "source_segment_ids"):
-                    vals = row.get(field)
-                    if isinstance(vals, list):
-                        rewritten = _rewrite_id_list(vals, remap)
-                        if rewritten != [str(x) for x in vals]:
-                            row[field] = rewritten
-                            changed = True
-        return changed
-
-    def _tp(doc: dict[str, Any]) -> bool:
-        changed = False
-        for row in doc.get("talking_points") or []:
-            if not isinstance(row, dict):
-                continue
-            vals = row.get("segment_ids")
-            if isinstance(vals, list):
-                rewritten = _rewrite_id_list(vals, remap)
-                if rewritten != [str(x) for x in vals]:
-                    row["segment_ids"] = rewritten
-                    changed = True
-        return changed
-
-    _patch_json("master/selection.json", _sel)
-    _patch_json("understanding/ideal_cuts.json", _ideal)
-    _patch_json("understanding/talking_points.json", _tp)
-
-    def _must_keep(doc: dict[str, Any]) -> bool:
-        changed = False
-        for key in ("must_keep_segment_ids", "high_value_segment_ids"):
-            vals = doc.get(key)
-            if not isinstance(vals, list):
-                continue
-            rewritten = _rewrite_id_list(vals, remap)
-            if rewritten != [str(x) for x in vals]:
-                doc[key] = rewritten
-                changed = True
-        scores = doc.get("scores")
-        if isinstance(scores, list):
-            for row in scores:
-                if not isinstance(row, dict):
-                    continue
-                sid = str(row.get("segment_id") or "")
-                if sid in remap:
-                    row["segment_id"] = remap[sid]
-                    changed = True
-        return changed
-
-    def _hv(doc: dict[str, Any]) -> bool:
-        changed = False
-        touched = doc.get("segment_ids_touched")
-        if isinstance(touched, list):
-            rewritten = _rewrite_id_list(touched, remap)
-            if rewritten != [str(x) for x in touched]:
-                doc["segment_ids_touched"] = rewritten
-                changed = True
-        for island in doc.get("islands") or []:
-            if not isinstance(island, dict):
-                continue
-            vals = island.get("segment_ids_touched")
-            if isinstance(vals, list):
-                rewritten = _rewrite_id_list(vals, remap)
-                if rewritten != [str(x) for x in vals]:
-                    island["segment_ids_touched"] = rewritten
-                    changed = True
-        return changed
-
-    def _boosts(doc: dict[str, Any]) -> bool:
-        changed = False
-        for row in doc.get("priors") or []:
-            if not isinstance(row, dict):
-                continue
-            sid = str(row.get("segment_id") or "")
-            if sid in remap:
-                row["segment_id"] = remap[sid]
-                changed = True
-        return changed
-
-    _patch_json("analysis/low_conf_must_keep.json", _must_keep)
-    _patch_json("analysis/high_value_speech_islands.json", _hv)
-    _patch_json("analysis/high_value_speech_boosts.json", _boosts)
-    _patch_json("analysis/stt_lexicon_island_boosts.json", _boosts)
+    apply_full_segment_id_remap(
+        ctx, remap, stage_key="connector_fuse_pass", skip_handoff=True
+    )
+    stamp_fused_segment_ids(ctx, remap)
 
 
 def rerun_air_bounds_on_fused(ctx: RunContext, *, fused_ids: list[str] | None = None) -> dict[str, Any]:
@@ -1875,8 +1760,23 @@ def run_connector_fuse_pass(
     cap = int(conf.get("max_fuses_per_pass") or 0)
     if cap <= 0:
         cap = 10_000_000
+
+    from interview_mux.diarization_suspicion import forced_diarization_fuse_verdicts
+
+    diar_verdicts = forced_diarization_fuse_verdicts(ctx)
+    diar_applied = 0
+    if diar_verdicts:
+        diar_result = apply_connector_fuses(
+            ctx, diar_verdicts, max_fuses=cap, pass_id=pass_id, cfg=conf
+        )
+        diar_applied = int(diar_result.get("applied") or 0)
+        rounds_doc["diarization_forced_fuse"] = {
+            "pairs": len(diar_verdicts),
+            "applied": diar_applied,
+        }
+
     batch_size = int(conf.get("llm_batch_size") or 16)
-    total_applied = hv_applied
+    total_applied = hv_applied + diar_applied
     last_sig = ""
 
     for round_index in range(max_rounds):

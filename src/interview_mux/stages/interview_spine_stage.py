@@ -25,6 +25,18 @@ def run_interview_spine_build(ctx: RunContext) -> None:
             "understanding/source_acoustic_profile.json — run source_acoustic_profile first."
         )
 
+    with logged_step("interview_spine_build/diarization_verify", ctx=ctx, stage="interview_spine_build"):
+        try:
+            from interview_mux.diarization_suspicion import run_diarization_verify
+
+            run_diarization_verify(ctx, stage="interview_spine_build")
+        except Exception as exc:  # noqa: BLE001 — fail-open keeps original labels
+            ctx.log(
+                f"Diarization verify fail-open: {exc}",
+                level="warning",
+                stage="interview_spine_build",
+            )
+
     if can_skip_rebuild(ctx):
         ctx.log("Interview spine unchanged; skipping rebuild.", level="info", stage="interview_spine_build")
         ctx.mark_done("interview_spine_build")

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiarizationRepairs",
+  "type": "object",
+  "required": ["version", "applied", "candidate_count", "pairs"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "applied": { "type": "boolean" },
+    "candidate_count": { "type": "integer", "minimum": 0 },
+    "candidates_truncated": { "type": "integer", "minimum": 0 },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from_speaker_id", "to_speaker_id", "verdict", "action"],
+        "properties": {
+          "start_ms": { "type": "integer" },
+          "end_ms": { "type": "integer" },
+          "seam_end_ms": { "type": "integer" },
+          "next_start_ms": { "type": "integer" },
+          "from_speaker_id": { "type": "string" },
+          "to_speaker_id": { "type": "string" },
+          "gap_ms": { "type": "integer" },
+          "hanging_setup": { "type": "boolean" },
+          "verdict": { "type": "string", "enum": ["yes_same", "no_different", "skipped"] },
+          "action": { "type": "string", "enum": ["relabel", "keep", "absorb_micro"] },
+          "clip_paths": { "type": "object" },
+          "model_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "words_relabeled": { "type": "integer" },
+          "fused_segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "dominant_share": { "type": "number" },
+          "island_start_ms": { "type": "integer" },
+          "island_end_ms": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

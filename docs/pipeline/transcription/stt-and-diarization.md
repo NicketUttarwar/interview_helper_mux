@@ -84,7 +84,7 @@ Good for **privacy**, **repeatable dev**, and **no per-minute bill**; you own **
 ## Operational checklist (any vendor)
 
 1. **Sample rate / format** — normalize to project ingest (see [ingest](../ingest/README.md)).
-2. **Crosstalk** — expect diarization errors; flag in segmentation (`heavy_crosstalk`) and G0.
+2. **Crosstalk** — expect diarization errors; flag in segmentation (`heavy_crosstalk`) and G0. After G0, `interview_spine_build` runs **Sortformer** (`mlx-community/diar_sortformer_4spk-v1-fp32` via `mlx_audio.vad`, pinned **mlx-audio 0.4.8** in [`requirements-local-speech.txt`](../../../requirements-local-speech.txt) / [anchored-toolchain.md](../../cross-cutting/anchored-toolchain.md)) YES/NO pair-verify on every `speaker_id` flip with gap ≤ 4s. **YES** rewrites `transcript/full.json` `speaker_id` and later fuses keepers at `connector_fuse_pass`. **NO** is not automatically a cut: nested filled pauses (`um`/`uh`/`ah`) inside a ≥98% dominant-speaker run are absorbed so spine/boundaries do not mint extra keepers; word labels stay truthful. Chapter / talking-point closes still snap to the last listen-complete hinge. Fail-open (timeout / missing `mlx_audio.vad`) keeps labels; unfinished-nominal hang still forbids a *novel*-style keeper end. Provenance: `transcript/diarization_repairs.json`. Identity classify is Sortformer, not Qwen S2S. Do not brief later LLMs that “diarization is often wrong.”
 3. **Domain vocabulary** — use custom vocabulary / hints where the API supports it.
 4. **Failure strings** — log full provider `FailureReason` / HTTP body — see [troubleshooting](../../workflows/troubleshooting.md).
 

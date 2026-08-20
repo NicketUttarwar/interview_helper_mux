@@ -9,7 +9,6 @@ consumer, invalidates stale delivery, restages through a second chapter plan
 
 from __future__ import annotations
 
-import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +16,12 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
+from interview_mux.segment_id_remap import (
+    apply_segment_id_map,
+    compose_segment_maps,
+    rewrite_artifact_segment_refs,
+    rewrite_embedded_segment_ids,
+)
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 
 STAGE_ID = "chapter_close_hitch"
@@ -38,34 +43,6 @@ HITCH_PRESERVE_PREFIXES = (
     "mastering/chapter_close_hitch/",
 )
 
-_SEGMENT_ID_KEYS = frozenset(
-    {
-        "segment_id",
-        "suggested_open_segment_id",
-        "before_segment_id",
-        "after_segment_id",
-        "targets_segment_id",
-        "drop_segment_id",
-        "survivor_segment_id",
-        "open_segment_id",
-        "hook_segment_id",
-    }
-)
-_SEGMENT_ID_LIST_KEYS = frozenset(
-    {
-        "segment_ids",
-        "ordered_segment_ids",
-        "excluded_segment_ids",
-        "must_keep_segment_ids",
-        "high_value_segment_ids",
-        "bound_segment_ids",
-        "evidence_segment_ids",
-        "fused_from",
-        "orphan_segment_ids",
-        "vernacular_must_keep_segment_ids",
-        "must_keep_ids",
-    }
-)
 
 
 def hitch_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -477,97 +454,11 @@ def build_segment_remap(
     }
 
 
-def rewrite_embedded_segment_ids(text: str, mapping: dict[str, str]) -> str:
-    """Rewrite exact ids and embedded tokens (``vo_seed_seg_001``, evidence refs)."""
-    if not mapping or not text:
-        return text
-    if text in mapping:
-        return mapping[text]
-    pairs = sorted(mapping.items(), key=lambda kv: len(kv[0]), reverse=True)
-    out = text
-    for old, new in pairs:
-        if not old or old == new or old not in out:
-            continue
-        out = re.sub(rf"(?<![0-9A-Za-z]){re.escape(old)}(?![0-9A-Za-z])", new, out)
-    return out
-
-
-def compose_segment_maps(*maps: dict[str, str]) -> dict[str, str]:
-    """Chain old→mid→live maps so leftover hitch ids and original ids both resolve."""
-    combined: dict[str, str] = {}
-    for mapping in maps:
-        if not mapping:
-            continue
-        chained = {old: mapping.get(new, new) for old, new in combined.items()}
-        combined = chained
-        for old, new in mapping.items():
-            if old and new:
-                combined[str(old)] = str(new)
-    return combined
-
-
-def apply_segment_id_map(value: Any, mapping: dict[str, str]) -> Any:
-    """Rewrite segment ids in nested JSON. Map replace, not orphan-drop."""
-    if not mapping:
-        return value
-    if isinstance(value, str):
-        return rewrite_embedded_segment_ids(value, mapping)
-    if isinstance(value, list):
-        return [apply_segment_id_map(v, mapping) for v in value]
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for k, v in value.items():
-            if k in _SEGMENT_ID_KEYS and isinstance(v, str):
-                out[k] = rewrite_embedded_segment_ids(v, mapping)
-            elif k in _SEGMENT_ID_LIST_KEYS and isinstance(v, list):
-                mapped: list[Any] = []
-                for item in v:
-                    if isinstance(item, str):
-                        mapped.append(rewrite_embedded_segment_ids(item, mapping))
-                    else:
-                        mapped.append(apply_segment_id_map(item, mapping))
-                out[k] = mapped
-            else:
-                out[k] = apply_segment_id_map(v, mapping)
-        return out
-    return value
-
-
-_UPSTREAM_REMAP_RELS = (
-    "understanding/content_brief.json",
-    "understanding/talking_points.json",
-    "understanding/ideal_cuts.json",
-    "understanding/ideal_cuts_materialized.json",
-    "understanding/ideal_cuts_selection_seed.json",
-    "analysis/low_conf_must_keep.json",
-    "analysis/high_value_speech_boosts.json",
-    "segments/nle_edits.json",
-    "operator/must_keep.json",
-    "understanding/analysis_state.json",
-    "understanding/investigation_queue.json",
-    "understanding/context_index.json",
-    "understanding/omit_ledger.json",
-    "understanding/gap_report.json",
-    "understanding/gap_evaluations.json",
-    "understanding/episode_structure.json",
-    "vo_pickup/synthesis_report.json",
-    INTENT_REL,
-)
-
-
 def rewrite_upstream_segment_refs(ctx: RunContext, mapping: dict[str, str]) -> list[str]:
-    updated: list[str] = []
-    if not mapping:
-        return updated
-    for rel in _UPSTREAM_REMAP_RELS:
-        if not ctx.artifact_exists(rel):
-            continue
-        doc = ctx.read_json(rel)
-        rewritten = apply_segment_id_map(doc, mapping)
-        if rewritten != doc:
-            ctx.write_json(rel, rewritten, skip_handoff=True)
-            updated.append(rel)
-    return updated
+    """Rewrite hitch-class artifacts plus shared consumers onto surviving ids."""
+    return rewrite_artifact_segment_refs(
+        ctx, mapping, extra_rels=(INTENT_REL,), skip_handoff=True
+    )
 
 
 def _mapping_from_remap_doc(remap_doc: dict[str, Any] | None) -> dict[str, str]:

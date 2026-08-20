@@ -352,3 +352,70 @@ def test_stt_period_on_fragment_is_hanging_setup() -> None:
         t += 200
     assert clause_continues_after(words, cut)
     assert not is_legal_conceptual_hinge(hanging, words=words, end_ms=cut, next_pause_ms=700)
+
+
+def _novel_1080_words(*, gap_ms: int, later_speaker: str = "spk_0") -> tuple[list[dict], int]:
+    left = "we have developed a very novel".split()
+    right = "1080 gene panel that works".split()
+    words: list[dict] = []
+    t = 0
+    for tok in left:
+        words.append({"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 180})
+        t += 200
+    cut = words[-1]["end_ms"]
+    t = cut + gap_ms
+    for tok in right:
+        words.append({"text": tok, "speaker_id": later_speaker, "start_ms": t, "end_ms": t + 180})
+        t += 200
+    return words, cut
+
+
+def test_unfinished_nominal_novel_is_hang_not_evaluative_close() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        ends_complete_thought,
+        ends_hanging_setup,
+        ends_unfinished_nominal,
+        is_legal_conceptual_hinge,
+    )
+
+    hang = "we have developed a very novel"
+    assert ends_unfinished_nominal(hang)
+    assert ends_hanging_setup(hang)
+    assert not ends_complete_thought(hang, next_pause_ms=1120)
+    assert not is_legal_conceptual_hinge(hang, next_pause_ms=1120)
+    assert not ends_hanging_setup("that's novel")
+    assert not ends_unfinished_nominal("that's novel")
+    assert not ends_hanging_setup("really powerful")
+    assert not ends_unfinished_nominal("really powerful")
+    assert ends_complete_thought("that's novel", next_pause_ms=1120)
+
+
+def test_novel_1080_continues_at_1120_and_3900_not_4100() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        is_legal_conceptual_hinge,
+    )
+
+    close = "we have developed a very novel"
+    for gap in (1120, 3900):
+        words, cut = _novel_1080_words(gap_ms=gap)
+        assert clause_continues_after(words, cut), gap
+        assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=gap)
+
+    words, cut = _novel_1080_words(gap_ms=4100)
+    assert not clause_continues_after(words, cut)
+    # Still not a legal hinge: unfinished nominal even when lookahead misses the complement.
+    assert not is_legal_conceptual_hinge(close, words=words, end_ms=cut, next_pause_ms=4100)
+
+    # Non-hang close + 4.1s pause is a real split.
+    done = "the treatment is ready"
+    t = 0
+    words = []
+    for tok in done.split():
+        words.append({"text": tok, "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 180})
+        t += 200
+    cut = words[-1]["end_ms"]
+    t = cut + 4100
+    words.append({"text": "Next", "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 180})
+    assert not clause_continues_after(words, cut)
+    assert is_legal_conceptual_hinge(done, words=words, end_ms=cut, next_pause_ms=4100)

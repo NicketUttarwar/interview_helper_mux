@@ -51,12 +51,13 @@ def _segments_to_words(segments: list[Any]) -> list[dict[str, Any]]:
 
 
 def _fallback_whisper_model(model_id: str) -> str:
-    """Pick a mlx-audio STT model known to work with the installed stack."""
-    if "whisper" in model_id.lower():
-        if model_id.endswith("-asr-fp16"):
-            return "mlx-community/whisper-large-v3-turbo"
-        return model_id
-    return "mlx-community/whisper-large-v3-turbo"
+    """mlx-audio 0.4.8 Whisper ids need the ``-asr-fp16`` processor package."""
+    raw = (model_id or "").strip()
+    if "whisper-large-v3-turbo-asr-fp16" in raw:
+        return raw
+    if "whisper-large-v3-turbo" in raw.lower() or "whisper" in raw.lower():
+        return "mlx-community/whisper-large-v3-turbo-asr-fp16"
+    return "mlx-community/whisper-large-v3-turbo-asr-fp16"
 
 
 def _transcribe_vibevoice(audio: Path, model_id: str) -> dict[str, Any]:
@@ -141,7 +142,7 @@ def _transcribe_whisper(audio: Path, model_id: str) -> dict[str, Any]:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             result = generate_transcription(
                 model=model_id,
-                audio_path=str(audio),
+                audio=str(audio),
                 output_path=out_prefix,
                 format="txt",
                 verbose=False,

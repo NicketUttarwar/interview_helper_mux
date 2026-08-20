@@ -645,7 +645,12 @@
     "interrogate_model_id": "",
     "interrogate_mode": "stt_listen",
     "interrogate_timeout_sec": 120,
-    "warmup_voice_wav": "ASSETS/local_speech/warmup_voice/neutral.wav"
+    "warmup_voice_wav": "ASSETS/local_speech/warmup_voice/neutral.wav",
+    "diarization_verify_max_pairs": 200,
+    "diarization_verify_timeout_sec": 300,
+    "micro_other_max_ms": 700,
+    "micro_other_max_words": 2,
+    "dominant_speaker_min_share": 0.98
   },
   "_comment_audio_probes": "Local Audio Probe Platform + Vernacular Evidence Covenant. For hard vernacular protection set enforcement_mode=authoritative.",
   "audio_probes": {

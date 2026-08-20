@@ -1,0 +1,1 @@
+Listen to the first talker clip then the second talker clip. Answer YES or NO only. YES if this is the same speaker continuing one thought and diarization was wrong to label them as two people. NO if these are two different speakers taking a real turn.

@@ -52,6 +52,37 @@ def test_split_backchannel_turns_isolates_host_affirmation():
     assert any(a.get("action") == "split_backchannel" for a in actions)
 
 
+def test_split_backchannel_turns_skips_nested_um():
+    transcript = {
+        "words": _words(
+            ("So", "spk_1", 0, 200),
+            ("we", "spk_1", 210, 400),
+            ("built", "spk_1", 410, 700),
+        )
+        + [{"text": "um", "speaker_id": "spk_0", "start_ms": 800, "end_ms": 950}]
+        + [
+            {"text": f"f{i}", "speaker_id": "spk_1", "start_ms": 1600 + i * 200, "end_ms": 1750 + i * 200}
+            for i in range(80)
+        ]
+    }
+    speakers = {
+        "speakers": [
+            {"speaker_id": "spk_0", "role": "interviewer"},
+            {"speaker_id": "spk_1", "role": "interviewee"},
+        ]
+    }
+    rows = [{"start_ms": 0, "end_ms": 18_000, "speaker_id": "spk_1", "segment_id": "seg_001"}]
+    cfg = {
+        "split_backchannels": True,
+        "backchannel_max_words": 8,
+        "min_segment_duration_ms": 400,
+        "default_granularity": "fine",
+    }
+    out, actions = split_backchannel_turns(rows, transcript, speakers, cfg=cfg)
+    assert not any(a.get("action") == "split_backchannel" for a in actions)
+    assert len(out) == 1
+
+
 def test_enforce_max_segment_duration_splits_long_span():
     # Long pauses after complete sentences so splits stay sentence-safe.
     words = []

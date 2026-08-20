@@ -155,6 +155,7 @@ Treat these as **contract TBD** until a schema lands (and ideally a validator or
 | `mastering/homunculus/*.json` | ledger/persona/judgment/agenda/gates/prompt stock (jsonl for issues/admitted) | 0.1.0 brain — not in generated `artifact-manifest.json` (that file is stage-disk-path codegen). Layout: [artifact-layout.md](./artifact-layout.md) · [mastering-homunculus.md](./mastering-homunculus.md) |
 | `ingest/checksums.json` | `ingest_checksums.schema.json` | Yes (`ingest` stage) |
 | `transcript/corrections.json` | `transcript_corrections.schema.json` | Yes (transcript review + GUI) |
+| `transcript/diarization_repairs.json` | `diarization_repairs.schema.json` | Yes (`interview_spine_build` pair-verify) |
 | `segments/manifest.json` | Same as manifest artifact | Via `segment_classification` output only |
 | `master/selection.json` | Via `master_selection_artifact` shape | When produced by ranking stage |
 | `master/edl_narrative_audit.json` | `edl_narrative_audit_artifact.schema.json` | Yes (`edl_narrative_audit`) |

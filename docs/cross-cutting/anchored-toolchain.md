@@ -135,6 +135,8 @@ Install on macOS (example): `brew install ffmpeg` — then confirm versions agai
 
 Local MMAudio and DeepFilterNet run as subprocesses in isolated venvs — see [local-audio-stack.md](./local-audio-stack.md). No ElevenLabs HTTP surface. No Amazon Transcribe.
 
+**Local speech venv** (`ASSETS/local_speech/venv`, [`requirements-local-speech.txt`](../../requirements-local-speech.txt)): **mlx-audio 0.4.8** (STT + Sortformer `mlx_audio.vad` identity classify). Verify: `python scripts/download_local_speech.py --verify-stt` and `--verify-diarization`. Identity is Sortformer, not Qwen S2S.
+
 ---
 
 ## Optional research / spike libraries (not in default lock)

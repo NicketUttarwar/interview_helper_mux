@@ -37,14 +37,24 @@ def _verify() -> int:
         import mlx_audio  # noqa: F401
     except ImportError as exc:
         return _out({"ok": False, "error": f"mlx_audio missing: {exc}", "fallback": "heuristic"}, 0)
-    return _out(
-        {
-            "ok": True,
-            "stack": "mlx-audio",
-            "modes": ["warmup", "classify"],
-            "listen_path": "stt_listen",
-        }
-    )
+    vad_ok = False
+    vad_error = ""
+    try:
+        from mlx_audio.vad import load  # noqa: F401
+
+        vad_ok = True
+    except Exception as exc:  # noqa: BLE001
+        vad_error = str(exc)[:200]
+    payload = {
+        "ok": True,
+        "stack": "mlx-audio",
+        "modes": ["warmup", "classify", "speaker_pair"],
+        "listen_path": "stt_listen",
+        "vad_ok": vad_ok,
+    }
+    if vad_error:
+        payload["vad_error"] = vad_error
+    return _out(payload)
 
 
 def _warmup(payload: dict[str, Any]) -> int:
@@ -216,10 +226,140 @@ def _classify(payload: dict[str, Any]) -> int:
     )
 
 
+def _concat_pair(a: Path, b: Path, dest: Path, silence_ms: int = 300) -> str | None:
+    import subprocess
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    sil_s = max(silence_ms, 1) / 1000.0
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", str(a),
+            "-f", "lavfi", "-t", f"{sil_s:.3f}", "-i", "anullsrc=r=48000:cl=mono",
+            "-i", str(b),
+            "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
+            "-map", "[out]",
+            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            str(dest),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0 or not dest.is_file():
+        return (proc.stderr or proc.stdout or "concat failed")[-400:]
+    return None
+
+
+def _speaker_pair(payload: dict[str, Any]) -> int:
+    """Identity YES/NO from two clips via Sortformer (not STT text)."""
+    clip_a = Path(str(payload.get("clip_a_wav") or ""))
+    clip_b = Path(str(payload.get("clip_b_wav") or ""))
+    concat = Path(str(payload.get("clip_wav") or ""))
+    model_id = str(
+        payload.get("diarization_model_id")
+        or "mlx-community/diar_sortformer_4spk-v1-fp32"
+    ).strip()
+    probe_id = str(payload.get("probe_id") or "vprobe.same_speaker_pair")
+    if not concat.is_file():
+        if not (clip_a.is_file() and clip_b.is_file()):
+            return _out({"ok": False, "error": "clip_a_wav and clip_b_wav required", "fallback": "heuristic"}, 0)
+        concat = clip_a.parent / "pair_concat.wav"
+        err = _concat_pair(clip_a, clip_b, concat)
+        if err:
+            return _out({"ok": False, "error": f"pair concat failed: {err}", "fallback": "heuristic"}, 0)
+
+    try:
+        from mlx_audio.vad import load
+    except Exception as exc:  # noqa: BLE001
+        return _out(
+            {
+                "ok": False,
+                "error": f"mlx_audio.vad unavailable: {exc}",
+                "fallback": "heuristic",
+                "probe_id": probe_id,
+            },
+            0,
+        )
+
+    try:
+        model = load(model_id)
+        result = model.generate(str(concat), threshold=0.4, min_duration=0.15, merge_gap=0.4)
+    except Exception as exc:  # noqa: BLE001
+        return _out(
+            {
+                "ok": False,
+                "error": f"sortformer generate failed: {exc}"[:400],
+                "fallback": "heuristic",
+                "model_id": model_id,
+            },
+            0,
+        )
+
+    segs: list[dict[str, Any]] = []
+    for seg in getattr(result, "segments", None) or []:
+        speaker = getattr(seg, "speaker", None)
+        start = getattr(seg, "start", None)
+        end = getattr(seg, "end", None)
+        if isinstance(seg, dict):
+            speaker = speaker or seg.get("speaker") or seg.get("speaker_id")
+            start = start if start is not None else seg.get("start")
+            end = end if end is not None else seg.get("end")
+        segs.append({"speaker": str(speaker), "start_s": float(start or 0), "end_s": float(end or 0)})
+
+    ids = sorted({s["speaker"] for s in segs})
+    if not segs:
+        return _out({"ok": False, "error": "sortformer returned no segments", "fallback": "heuristic", "model_id": model_id}, 0)
+    if len(ids) <= 1:
+        verdict = "YES"
+        reason = "one speaker on the concatenated pair"
+    else:
+        # Split at midpoint of concat (clip A | silence | clip B).
+        mid = (max(s["end_s"] for s in segs) + min(s["start_s"] for s in segs)) / 2.0
+        left = sorted({s["speaker"] for s in segs if s["start_s"] < mid - 0.05})
+        right = sorted({s["speaker"] for s in segs if s["end_s"] > mid + 0.05})
+        if left and right and set(left) == set(right) and len(left) == 1:
+            verdict = "YES"
+            reason = "same sortformer speaker id on both sides"
+        elif left and right and set(left).isdisjoint(set(right)):
+            verdict = "NO"
+            reason = "different sortformer speaker ids on each side"
+        else:
+            return _out(
+                {
+                    "ok": False,
+                    "error": "ambiguous sortformer speaker overlap",
+                    "fallback": "heuristic",
+                    "segments": segs[:40],
+                    "model_id": model_id,
+                },
+                0,
+            )
+
+    return _out(
+        {
+            "ok": True,
+            "source": "sortformer_pair",
+            "listen_mode": "speaker_pair",
+            "verdict": verdict,
+            "answer": verdict,
+            "text": verdict,
+            "reason": reason,
+            "model_id": model_id,
+            "probe_id": probe_id,
+            "contract": "YES_NO",
+            "segments": segs[:40],
+            "clip_a_wav": str(clip_a) if clip_a.is_file() else "",
+            "clip_b_wav": str(clip_b) if clip_b.is_file() else "",
+        }
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audio probe MLX interrogate helper")
     parser.add_argument("--verify", action="store_true")
-    parser.add_argument("--mode", choices=("warmup", "classify"), default="")
+    parser.add_argument("--mode", choices=("warmup", "classify", "speaker_pair"), default="")
     args, _unknown = parser.parse_known_args(argv)
     if args.verify:
         return _verify()
@@ -235,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
         return _warmup(payload)
     if mode == "classify":
         return _classify(payload)
+    if mode == "speaker_pair":
+        return _speaker_pair(payload)
     return _out({"ok": False, "error": f"unknown mode: {mode}", "fallback": "heuristic"}, 0)
 
 
