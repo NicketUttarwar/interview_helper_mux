@@ -619,6 +619,16 @@ def run_analysis(
             raise SystemExit(msg)
         if until_stage and until_stage != "optimal_questions":
             return
+        from interview_mux.homunculus.agenda import pending_analysis_for_delivery
+
+        blocked = pending_analysis_for_delivery(ctx)
+        if blocked:
+            ctx.log(
+                "Analysis incomplete — delivery prereqs missing: " + ", ".join(blocked),
+                level="warning",
+                stage=blocked[0],
+            )
+            return
         from interview_mux.analysis_memory import update_completion_from_analysis
 
         completion = update_completion_from_analysis(ctx)
@@ -765,7 +775,12 @@ def _run_steps(
     ):
         from interview_mux.homunculus.agenda import run_homunculus_phase
 
-        run_homunculus_phase(ctx, "delivery", planned)
+        result = run_homunculus_phase(ctx, "delivery", planned)
+        blocked = (result.get("conductor") or {}).get("blocked_on_analysis") if isinstance(result, dict) else None
+        if blocked:
+            raise RuntimeError(
+                "Delivery blocked — analysis incomplete: " + ", ".join(str(s) for s in blocked)
+            )
         if ctx.artifact_exists("master/master.wav"):
             from interview_mux.homunculus.judge import after_complete_master
 

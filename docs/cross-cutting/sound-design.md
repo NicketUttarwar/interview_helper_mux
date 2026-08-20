@@ -43,8 +43,7 @@ Sound design is a **timeline artifact**, not a one-shot JSON before export:
    `asset_id` WAV. Candidate evidence lives in `sound_design/musicgen_candidates.json`.
 5. **Arrange** chapter-aware scenes that alternate the primary and related lift loop,
    with deliberate dry breaks rather than one tiled bed across the entire show.
-6. **Mix** with a modest speech-presence EQ carve, soft-gate ducking, pause-ride in air,
-   and automated underbed A/B QC with bounded targeted remux.
+6. **Mix** with a modest speech-presence EQ carve, a **constant** underbed `level_db` (no speech-gate duck), and automated underbed A/B QC with bounded targeted remux.
 
 **Open grammar (mix):** after show-open/hook VO, play a speech-free `theme_cold_open` bridge, then the interviewer question, then the answer (soft underscore under speech). Cue roles resolve from the asset when the cue omits `role`. Music lanes (`theme_bookend` / `theme_punctuator` / `theme_bed`) are exclusive beyond a short crossfade — no stacked cold_open + emphasis + bed at the same instant. Emphasis/resolve/outro cues must bind to matching `theme_*` assets (`music_lane.py` + SDP repair).
 
@@ -271,7 +270,7 @@ Stored on each row in `sound_design/sfx_prompts.json` when the asset uses pitch 
 
 ### Podcast-safe defaults
 
-- **Theme underscores (`theme_underscore`):** May carry a **restrained rhythmic pulse** (soft even meter, sparse plucked/perc ticks). Speech always wins via soft speech-gate duck; beds sit in the audible-but-subordinate band (~−22…−18 dBFS). Forbid loud kits, vocal-like leads, dense midrange hooks.
+- **Theme underscores (`theme_underscore`):** May carry a **restrained rhythmic pulse** (soft even meter, sparse plucked/perc ticks). Speech always wins via the 1.5–4 kHz carve plus the constant audible band (~−16…−12 dB). Forbid loud kits, vocal-like leads, dense midrange hooks.
 - **Ambient / MMAudio environmental beds (heritage):** No pitch center, no meter, no pulse — only environmental spectrum and motion (wind, room). Do not confuse these with MusicGen theme underscores.
 - **Chapter stingers:** At most **one** pitch gesture over ≤2 s; prefer noise+filter sweep over diatonic melody.
 - **Montage transitions:** Forward spectral motion; avoid memorable melodic hooks listeners would hum.
@@ -371,14 +370,12 @@ an existing stinger may mark a pause-safe hinge. This prevents both per-cut rest
 chatter and long-loop boredom.
 
 **Automated enjoyment/presence check:** mix measures the known rendered bed stem
-against the speech-only stem per underbed window. Masking triggers more carve/duck;
+against the speech-only stem per underbed window. Masking triggers more carve/level-cut;
 an inaudible bed receives a bounded level lift. Persistent masking remains blocking,
 while a presence-only miss warns after the two-cycle remediation cap. The evidence
 is written to `master/underbed_ab_qc.json`.
-and [seam-autopsy.md](./seam-autopsy.md#music). Ducking (step 4's under-speech
-attenuation) is **speech-wins** regardless of whether the speech is native or a
-recorded VO pickup — same envelope-follower contract, see
-[mix-house-chain.md](./mix-house-chain.md#speech-wins-ducking--vonative-harmony-plan-4).
+Accents that overlap speech still sidechain-duck; underbeds stay at a constant level
+— see [mix-house-chain.md](./mix-house-chain.md#speech-wins-beds--vonative-harmony-plan-4).
 
 Bed/hinge-stinger coverage floors are the same **Shape-owned soft bands**
 (`bed_coverage` `0.40–0.88`, `hinge_stinger_coverage` `0.3–1.0`) enforced by

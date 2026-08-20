@@ -71,3 +71,18 @@ def test_nle_apply_stages_full_refresh_mode(ctx: RunContext) -> None:
     stages = runner._nle_apply_stages(ctx, full_refresh=True, apply_mode="full_refresh")
     assert "transitions" in stages
     assert "edl_narrative_audit" in stages
+
+
+def test_delivery_skips_master_qa_until_master_exists(ctx: RunContext) -> None:
+    runner = JobRunner()
+    assert runner._should_verify_master_after_delivery(ctx) is False
+    ctx.mark_done("master_finalize", force=True)
+    assert runner._should_verify_master_after_delivery(ctx) is True
+
+
+def test_delivery_runs_master_qa_when_master_wav_exists(ctx: RunContext) -> None:
+    runner = JobRunner()
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    assert runner._should_verify_master_after_delivery(ctx) is True

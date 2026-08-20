@@ -43,6 +43,7 @@ STAGE_PRIMARY_IDS: dict[str, str] = {
     "sfx_brief": "OF-L2",
     "sfx_prompt_refine": "OF-L3",
     "junction_feel_audit": "OH-J1",
+    "junction_thought_complete": "OH-J2",
 }
 
 SPECIALIST_IDS: dict[str, str] = {
@@ -390,6 +391,14 @@ _OH_META: dict[str, tuple[str, str, str, str, str, str]] = {
         "Single final feel audit of assembled master junctions",
         "junction_feel_audit",
     ),
+    "OH-J2": (
+        "thought_complete_recut.run_junction_thought_complete",
+        "mastering/junction-thought-complete.system.txt",
+        "junction_thought_complete.schema.json",
+        "standard",
+        "Batched transcript+LLM complete-thought recuts for hanging native ends",
+        "junction_thought_complete",
+    ),
 }
 
 _OA_GOALS: dict[str, str] = {
@@ -487,6 +496,7 @@ def expected_gateway_sites() -> dict[str, tuple[str, ...]]:
             "podcast_publish",
             "timeline_optimizer",
             "segment_fuse",
+            "thought_complete_recut",
             "high_gap_vo",
             "safe_pruning",
         ),

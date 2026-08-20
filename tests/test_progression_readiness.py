@@ -54,14 +54,28 @@ def test_invisible_staging_does_not_block_delivery_readiness(tmp_path):
     assert "pending_write_approval" not in blocker_ids
 
 
-def test_operator_visible_staging_blocks_delivery_readiness(tmp_path):
-    ctx = isolated_run_ctx(tmp_path, "readiness_visible_staging")
-    staging = ctx.run_dir / ".pending_writes" / "topic_coverage_audit" / "master"
-    staging.mkdir(parents=True)
-    (staging / "coverage_audit.json").write_text('{"coverage_score": 0.9}', encoding="utf-8")
+def test_operator_visible_staging_blocks_delivery_readiness(tmp_path, monkeypatch):
+    from run_fixtures import patch_write_approval_enabled
 
+    patch_write_approval_enabled(monkeypatch, enabled=True)
+    monkeypatch.setattr(
+        "interview_mux.write_staging.all_pending_stages",
+        lambda ctx, savable_only=True: ["topic_coverage_audit"],
+    )
+    ctx = isolated_run_ctx(tmp_path, "readiness_visible_staging")
     report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
     assert any(b.get("id") == "pending_write_approval" for b in report.get("blockers") or [])
+
+
+def test_leftover_pending_writes_do_not_block_when_write_approval_off(tmp_path):
+    ctx = isolated_run_ctx(tmp_path, "readiness_leftover_pending")
+    staging = ctx.run_dir / ".pending_writes" / "narrative_arc_plan" / "master"
+    staging.mkdir(parents=True)
+    (staging / "narrative_plan.json").write_text('{"beats": []}', encoding="utf-8")
+
+    report = build_delivery_readiness_report(ctx, target_stage="topic_coverage_audit")
+    blocker_ids = [b.get("id") for b in report.get("blockers") or []]
+    assert "pending_write_approval" not in blocker_ids
 
 
 def test_context_index_sync_under_staging_does_not_block_delivery(tmp_path):

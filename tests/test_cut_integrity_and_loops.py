@@ -320,7 +320,10 @@ def test_mid_clause_residual_not_soft_passable(tmp_path) -> None:
     # Soften path must leave unrecoverable / incomplete kinds critical for cut_integrity.
     for f in incomplete:
         detail = f.get("detail") if isinstance(f.get("detail"), dict) else {}
-        if detail.get("recommended_ms") is None and f.get("action") != "merge_micro":
+        if detail.get("recommended_ms") is None and f.get("action") not in {
+            "merge_micro",
+            "thought_complete_recut",
+        }:
             assert detail.get("unrecoverable_within_clip") or f.get("severity") == "critical"
 
 

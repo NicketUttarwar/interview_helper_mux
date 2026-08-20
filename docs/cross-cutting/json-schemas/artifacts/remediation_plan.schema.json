@@ -41,6 +41,7 @@
               "resnip_earlier",
               "resnip_later",
               "merge_micro",
+              "thought_complete_recut",
               "exclude_micro",
               "rebuild_synthetic_plan",
               "rewrite_vo_line",

@@ -34,6 +34,7 @@ def dispatch_stage(
 ) -> None:
     """Budget + serialize + ledger, then host impl, then admit. 0.1.0 only."""
     from interview_mux.homunculus.agenda import (
+        _refuse_delivery_timeline_rewind,
         _refuse_g0_locked_rerun,
         prepare_outputs_present,
         unmark_hollow_prepare_stages,
@@ -43,6 +44,7 @@ def dispatch_stage(
     unmark_hollow_prepare_stages(ctx)
     try:
         _refuse_g0_locked_rerun(ctx, stage, action="run")
+        _refuse_delivery_timeline_rewind(ctx, stage, action="run")
     except RuntimeError:
         if prepare_outputs_present(ctx, stage):
             if not ctx.is_done(stage):

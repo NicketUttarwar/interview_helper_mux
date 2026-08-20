@@ -1,0 +1,39 @@
+stage_id: junction_thought_complete
+tier: llm_full
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: master/junction_thought_complete.json
+  schema: junction_thought_complete.schema.json
+  staging: true
+inputs:
+  hard:
+  - path: master/edl.json
+    producer: edl
+  soft:
+  - path: transcript/full.json
+    producer: transcription
+sufficiency:
+- path: cuts
+  rule: min_rows
+  min_count: 0
+propagation:
+  invalidates_stages: []
+consumers:
+- junction_snip_qa
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun
+critical_fields:
+- cuts
+nullable_fields:
+- cuts[].remainder_start_ms
+- cuts[].rationale
+- error

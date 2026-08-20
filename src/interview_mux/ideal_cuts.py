@@ -508,22 +508,9 @@ def _anchors_inside_window(
 
 
 def _majority_speaker(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str | None:
-    counts: dict[str, int] = {}
-    for word in words:
-        try:
-            w0 = int(float(word.get("start_ms") or 0))
-            w1 = int(float(word.get("end_ms") or w0))
-        except (TypeError, ValueError):
-            continue
-        if w1 < start_ms or w0 > end_ms:
-            continue
-        sid = str(word.get("speaker_id") or word.get("speaker") or "").strip()
-        if not sid:
-            continue
-        counts[sid] = counts.get(sid, 0) + max(1, w1 - w0)
-    if not counts:
-        return None
-    return max(counts.items(), key=lambda kv: kv[1])[0]
+    from interview_mux.boundary_enrich import majority_speaker_for_span
+
+    return majority_speaker_for_span(words, start_ms, end_ms)
 
 
 def _span_text(words: list[dict[str, Any]], start_ms: int, end_ms: int, *, max_chars: int = 240) -> str:

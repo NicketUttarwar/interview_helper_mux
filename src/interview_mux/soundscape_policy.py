@@ -42,7 +42,7 @@ _FOLEY_ROLES = frozenset({"accent_foley", "environmental_foley", "transition_who
 
 _MIN_BED_SEGMENT_MS = 12_000
 _MIN_BED_SEGMENT_MS_FINE = 6_000
-_DEFAULT_BED_LEVEL = -20.0
+_DEFAULT_BED_LEVEL = -12.0
 
 
 def _min_bed_segment_ms(cfg: dict[str, Any] | None = None) -> int:
@@ -211,11 +211,15 @@ def score_cue_slots(
     overlap_high = {str(x) for x in (flags.get("overlap_high") or [])}
     sap = load_profile(ctx) or {}
     music_risk = str(sap.get("source_music_risk") or "low")
-    bed_range = mix_contract.get("bed_level_db_range") or [-18.0, -14.0]
+    bed_range = mix_contract.get("bed_level_db_range") or [-16.0, -12.0]
     bed_level = float(bed_range[0] + bed_range[-1]) / 2.0 if isinstance(bed_range, list) and len(bed_range) == 2 else _DEFAULT_BED_LEVEL
     if pace in {"brisk", "dense"}:
-        # Prefer quieter beds under dense dialogue — never hotter than −20.
-        bed_level = min(bed_level, -20.0)
+        # Prefer the quiet end of the constant bed band under dense dialogue.
+        lo = float(bed_range[0]) if isinstance(bed_range, list) and bed_range else -16.0
+        hi = float(bed_range[-1]) if isinstance(bed_range, list) and len(bed_range) > 1 else lo
+        if lo > hi:
+            lo, hi = hi, lo
+        bed_level = min(bed_level, lo)
 
     sdp = {}
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -354,9 +358,9 @@ def build_policy(ctx: RunContext, *, refresh_slots: bool = True) -> dict[str, An
         or sap_mix.get("stinger_max_per_minute")
         or 4
     )
-    bed_range = sap_mix.get("bed_level_db_range") or [-18.0, -14.0]
+    bed_range = sap_mix.get("bed_level_db_range") or [-16.0, -12.0]
     if not isinstance(bed_range, list) or len(bed_range) != 2:
-        bed_range = [-18.0, -14.0]
+        bed_range = [-16.0, -12.0]
     coverage = 0.55
     if underscore == "sparse":
         coverage = 0.40

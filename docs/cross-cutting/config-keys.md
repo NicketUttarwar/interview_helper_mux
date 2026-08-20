@@ -1004,6 +1004,9 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.junction_snip_qa.phrase_extend_max_ms` | `24000` | Max phrase-complete extend/cut for on-a-roll | Caps continuum search; unresolved critical clauses hard-stop after two runs |
 | `mastering.junction_snip_qa.impact_hold_ms_min` / `max` | `1200` / `3500` | Music-only sit after impact native close | Scaled by pace class |
 | `mastering.junction_snip_qa.feel_audit_enabled` | `true` | One OH-J1 feel LLM after deterministic repairs | `false` skips LLM entirely |
+| `mastering.junction_snip_qa.thought_complete_llm_enabled` | `true` | One batched OH-J2 recut LLM for hanging native ends | `false` uses transcript-only complete-thought cuts |
+| `mastering.junction_snip_qa.thought_complete_max_segments` | `4` | Max following same-speaker clips to traverse | Caps lookahead; does not absorb whole sections |
+| `mastering.junction_snip_qa.thought_complete_max_ms` | `24000` | Max source-ms after a hanging end to search | Independent of in-clip `phrase_extend_max_ms` |
 | `mastering.junction_snip_qa.max_remaster_rounds` | `2` | Cap remasters (deterministic + feel) | Hard ceiling 2 |
 | `mastering.junction_snip_qa.apply_repairs` | `true` | Apply NLE/EDL/placement repairs | `false` detect-only |
 | `mastering.junction_snip_qa.music_soft_crossfade_ms` | `180` | Suggested bed/theme crossfade when hard | Transition-only — never recreates stems |
@@ -1197,7 +1200,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `soundscape.remediation.max_regen_per_asset` | `2` | `execute_fitness_remediation` | Caps MMAudio regen per asset_id |
 | `soundscape.min_density.min_bed_coverage_ratio` | `0.40` | `artifact_repairs.repair_sound_design_plan` coverage-floor seeding; raises `listenability_guards.bed_coverage_min_ratio` when higher | Mirrors the Shape-owned soft-band floor below — not a hard remux target |
 | `soundscape.min_density.min_beds` / `min_stingers` / `min_foley` | `2` / `1` / `0` | Same coverage-floor seeding | Minimum active cue counts for creative delivery |
-| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-22` / `-18` | Bed level plausibility bounds | Speech-first audible band (+3 dB vs prior −25/−21) — beds stay present but must not drown native/synthetic dialogue |
+| `soundscape.min_density.min_audible_bed_level_db` / `max_audible_bed_level_db` | `-16` / `-12` | Constant underbed gain band | Mix applies this `level_db` with no speech-gate duck. Dense tape uses the quiet end (−16). Speech-maximal profile stays quieter (−20/−16). |
 
 **Bed coverage / hinge-stinger are Shape-owned soft bands, not remux theater.** The [`creative_delivery.listenability_guards`](#creative_deliverylistenability_guards) table above sets `bed_coverage_min_ratio`/`max_ratio` = **`0.40`/`0.88`** and `hinge_stinger_coverage_min_ratio`/`max_ratio` = **`0.3`/`1.0`**. These bands describe what a well-produced Shape-driven master already looks like across many source types — the verify/remediation ladder measures the *real* plan (`soundscape_verify._estimate_bed_coverage` sums actual planned bed duration over actual selection duration) and, when short, delegates to `artifact_repairs.repair_sound_design_plan`'s palette/quartile-anchored, contiguous-preferring bed seeding rather than fabricating disjoint per-clip beds purely to move the ratio. See [mix-house-chain.md](./mix-house-chain.md) and [soundscape-policy.md](./soundscape-policy.md#standards-measurable).
 
@@ -1227,17 +1230,17 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.per_speaker_level_match.enabled` | `speaker_level_match`, `sound_design.mix` | Matches dialogue speakers to the run median before assembly (default `true`) |
 | `mix.per_speaker_level_match.max_gain_db` | `speaker_level_match` | Caps per-speaker correction at ±6 dB by default |
 | `mix.per_speaker_level_match.min_speech_sec` | `speaker_level_match` | Speakers with less usable speech fail open at 0 dB |
-| `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Uses the speech envelope to duck beds and recover them during pauses |
-| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Controls soft speech-gate response and envelope resolution (defaults ~40 / 900 / 20) |
-| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | How far beds ride up in intentional air (default ~1.0; keep modest so adjacent VO stays on top) |
+| `mix.sidechain_duck.enabled` | `sidechain_duck`, `sound_design.py` | Envelope-ducks **accents / overlapping bookends** only; underbeds use a constant `level_db` |
+| `mix.sidechain_duck.attack_ms` / `release_ms` / `hop_ms` | `sidechain_duck` | Soft speech-gate response for those overlapping hits (defaults ~40 / 900 / 20) |
+| `mix.sidechain_duck.pause_ride_db` | `sidechain_duck` | Air lift for sidechained accents; underbeds ignore this |
 | `mix.underbed_arrangement.enabled` | `music_palette_compose` | Enables chapter-aware bed scenes and primary/alternate loop rotation |
 | `mix.underbed_arrangement.max_scene_segments` / `dry_break_chapters` | `music_palette_compose` | Bounds repeated-loop runs and inserts dry chapter breaks when no alternate loop exists |
 | `mix.underbed_arrangement.scene_crossfade_ms` | `music_palette_compose`, `sound_design` | Minimum handoff/crossfade length for underbed scenes |
-| `mix.underbed_eq.enabled` | `sound_design` | Applies a cached speech-presence carve to underbed stems before ducking |
+| `mix.underbed_eq.enabled` | `sound_design` | Applies a cached speech-presence carve to underbed stems before the constant level |
 | `mix.underbed_eq.low_hz` / `high_hz` / `carve_db` / `max_carve_db` | `sound_design` | Configures the broad 1.5–4 kHz carve and remediation ceiling |
 | `mix.underbed_ab_qc.enabled` | `sound_design`, `underbed_ab_qc` | Runs automated speech-vs-rendered-bed A/B measurements after mix |
-| `mix.underbed_ab_qc.min_bed_relative_db` / `max_speech_band_excess_db` | `underbed_ab_qc` | Presence floor and masking ceiling |
-| `mix.underbed_ab_qc.lift_step_db` / `duck_step_db` / `carve_step_db` | `sound_design` | Bounded targeted remux adjustments |
+| `mix.underbed_ab_qc.min_bed_relative_db` / `max_speech_band_excess_db` | `underbed_ab_qc` | Presence floor (default −24) and masking ceiling |
+| `mix.underbed_ab_qc.lift_step_db` / `level_cut_step_db` / `carve_step_db` | `sound_design` | Bounded targeted remux: lift ghosts, cut/carve masking. `duck_step_db` is a legacy alias for the cut step |
 | `mix.underbed_ab_qc.max_remux_cycles` / `fail_closed_on_masking` | `sound_design` | Caps automatic retries; persistent masking blocks while presence-only misses warn |
 | `mix.music_presence.cold_open_lead_in_fade_ms` | `sound_design.py` | Fade-in for speech-free cold open / outro bookends |
 | `mix.music_presence.cold_open_air_ms` | `sound_design.py` / `_cold_open_bridge_budget_ms` | Air reserved after preface VO for the cold-open bridge before the question |

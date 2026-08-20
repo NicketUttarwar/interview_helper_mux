@@ -63,7 +63,7 @@ The live mastering ids are enumerated in [llm-interaction-catalog.md](./llm-inte
 
 ### Realization junction layer (post-mix)
 
-Separate from Shape gates: delivery stage **`junction_snip_qa`** (after `mix`, before `master_finalize`) runs **deterministic** start/end snip + music-transition repairs on every junction, then **one** feel-audit LLM (`OH-J1`). Config: `mastering.junction_snip_qa.*`. Never per-edge OpenAI. Remaster ≤2. Artifacts: `master/junction_snip_qa.json`, `master/junction_feel_audit.json`.
+Separate from Shape gates: delivery stage **`junction_snip_qa`** (after `mix`, before `master_finalize`) runs **deterministic** start/end snip + music-transition repairs on every junction, a **batched thought-complete recut LLM** (`OH-J2`) for hanging native ends (transcript lookahead; never whole-segment absorb), then **one** feel-audit LLM (`OH-J1`). Config: `mastering.junction_snip_qa.*`. Never per-edge OpenAI. Remaster ≤2. Artifacts: `master/junction_snip_qa.json`, `master/junction_thought_complete.json`, `master/junction_feel_audit.json`.
 
 ---
 

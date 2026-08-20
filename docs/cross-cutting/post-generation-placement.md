@@ -94,9 +94,9 @@ When enabled (default), `flow1_overlays_from_sdp()` adjusts bed `level_db` via `
 
 | SAP `speech_active_ratio` | Effective bed ceiling (creative delivery) |
 |---------------------------|---------------------------------------------|
-| ≥ 0.75 | `min(default_level_db, -22 dB)` |
-| ≥ 0.60 | `min(default_level_db, -20 dB)` |
-| else | `default_level_db` from SDP cue |
+| ≥ 0.75 | quiet end of the audible bed band (typically −16 dB) |
+| ≥ 0.60 | mid-band |
+| else | high end of the band (typically −12 dB) |
 
 Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech-first default; extra −2 dB for `panel`, `trauma_adjacent`, `noisy_room` buckets).
 
@@ -108,7 +108,7 @@ Placement QA may add `suggested_level_db_delta` on top (typically −2 dB speech
 
 ## Bed trim
 
-Ambient beds (`placement: under_segment`) are looped to segment duration, ducked, and faded — not placed at full generated length blindly.
+Ambient beds (`placement: under_segment`) are looped to segment duration, held at a constant `level_db`, EQ-carved, and faded — not placed at full generated length blindly.
 
 ### Algorithm (`flow1_overlays_from_sdp`)
 
@@ -116,11 +116,11 @@ Ambient beds (`placement: under_segment`) are looped to segment duration, ducked
 2. `dur = end_ms - start_ms`; skip if `dur ≤ 0`.
 3. Apply the cached broad 1.5–4 kHz speech-presence carve to the selected source stem.
 4. `loop_to_duration(base, dur)` — trim or tile asset to exact window.
-5. Apply soft speech-gate duck (`level_db` then up to `duck_under_speech_db`, floor `MIN_DUCK_DB` = 12).
+5. Apply a **constant** `level_db` (audible bed band, typically −12). Do not speech-gate duck underbeds.
 6. **Fade in 120 ms**, **fade out 150 ms** at segment edges.
 
 After overlay, automated A/B QC compares the known rendered bed and speech-only
-stems. It writes `master/underbed_ab_qc.json`; masking receives bounded carve/duck
+stems. It writes `master/underbed_ab_qc.json`; masking receives bounded carve/level-cut
 remediation, while an inaudible bed receives a bounded lift. Valid beds are never
 silently removed to satisfy the presence check.
 
@@ -131,11 +131,11 @@ silently removed to satisfy the presence check.
 | Bed must not extend past segment end | Hard trim at `end_ms` | Prevents bleed into next speaker |
 | Bed on non-palette segment | Lint + crossval reject | `sdp_cross_validate` |
 | Loop seam | Regen if audible click | Operator post-listen fail |
-| Dense speech (high WPM) | Prefer quieter / sparser beds | SAP adaptive level + coverage caps |
+| Dense speech (high WPM) | Prefer the quiet end of the constant bed band | SAP adaptive level + coverage caps |
 
 ### Bed entry overlap (plan intent)
 
-SDP may specify bed enters **200–400 ms before** segment start for emotional priming. Mix engine positions at `start_ms`; fade-in handles overlap under prior speech. Duck depth must keep consonants intelligible (typically **12–16 dB** per [source-derived-sonic-mix-profile.md](./source-derived-sonic-mix-profile.md)).
+SDP may specify bed enters **200–400 ms before** segment start for emotional priming. Mix engine positions at `start_ms`; fade-in handles overlap under prior speech. The constant bed band plus 1.5–4 kHz carve keep consonants intelligible.
 
 ### VO bridge co-trim
 

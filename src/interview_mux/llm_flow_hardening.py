@@ -341,13 +341,14 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
     if not flow_hardening_enabled():
         return
     rel = producer_artifact_path(upstream_stage)
-    if rel:
-        from interview_mux.llm_output_resilience import upstream_artifact_acceptable
+    if not rel:
+        return
+    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
 
-        if ctx.artifact_exists(rel) and upstream_artifact_acceptable(upstream_stage, rel, ctx):
-            if not ctx.is_done(upstream_stage):
-                ctx.mark_done(upstream_stage, force=True)
-            return
+    if ctx.artifact_exists(rel) and upstream_artifact_acceptable(upstream_stage, rel, ctx):
+        if not ctx.is_done(upstream_stage):
+            ctx.mark_done(upstream_stage, force=True)
+        return
     if not ctx.is_done(upstream_stage):
         exit_msg = (
             f"Prerequisite stage {upstream_stage} is not complete. "
@@ -355,10 +356,6 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
         )
         ctx.log(exit_msg, level="error", stage=upstream_stage)
         raise SystemExit(exit_msg)
-    if not rel:
-        return
-    from interview_mux.llm_output_resilience import upstream_artifact_acceptable
-
     if upstream_artifact_acceptable(upstream_stage, rel, ctx):
         return
     exit_msg = (

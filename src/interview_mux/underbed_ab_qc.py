@@ -95,7 +95,7 @@ def underbed_qc_settings(mix_cfg: dict[str, Any] | None = None) -> dict[str, Any
         "fail_closed": bool(
             cfg.get("fail_closed_on_masking", legacy_cfg.get("fail_closed", True))
         ),
-        "min_bed_relative_db": float(cfg.get("min_bed_relative_db", -38.0)),
+        "min_bed_relative_db": float(cfg.get("min_bed_relative_db", -24.0)),
         "min_rendered_bed_dbfs": float(cfg.get("min_rendered_bed_dbfs", -62.0)),
         "max_masking_excess_db": float(
             cfg.get("max_speech_band_excess_db", cfg.get("max_masking_excess_db", -6.0))
@@ -103,12 +103,22 @@ def underbed_qc_settings(mix_cfg: dict[str, Any] | None = None) -> dict[str, Any
         "speech_active_floor_dbfs": float(cfg.get("speech_active_floor_dbfs", -55.0)),
         "min_window_ms": max(50, int(cfg.get("min_window_ms", 250))),
         "duck_step_db": max(0.0, min(6.0, float(cfg.get("duck_step_db", 2.0)))),
+        "level_cut_step_db": max(
+            0.0,
+            min(
+                6.0,
+                float(cfg.get("level_cut_step_db", cfg.get("duck_step_db", 2.0))),
+            ),
+        ),
         "carve_step_db": max(0.0, min(3.0, float(cfg.get("carve_step_db", 1.5)))),
         "bed_lift_step_db": max(
             0.0, min(4.0, float(cfg.get("lift_step_db", cfg.get("bed_lift_step_db", 2.0))))
         ),
         "max_total_bed_lift_db": max(
             0.0, min(8.0, float(cfg.get("max_total_bed_lift_db", 4.0)))
+        ),
+        "max_total_bed_cut_db": max(
+            0.0, min(8.0, float(cfg.get("max_total_bed_cut_db", 6.0)))
         ),
         "max_remux_cycles": max(0, min(2, int(cfg.get("max_remux_cycles", 2)))),
     }

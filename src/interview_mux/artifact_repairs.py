@@ -2285,6 +2285,62 @@ def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
             )
             mapped.add(text.casefold())
             applied.append({"action": "seed_claim_mapping_from_brief", "claim": text[:80]})
+    # Narrative QC: open coherence missing_callback topics must appear as
+    # missing_coverage.item (or mapped with segment_ids). Generic
+    # "coherence:{id}" rows do not match the topic-name check.
+    try:
+        from interview_mux.coherence.paths import COHERENCE_REPORT_PATH
+        from interview_mux.narrative_qc import (
+            _documented_excludes,
+            _norm_name,
+            _topic_mapping_index,
+        )
+
+        if ctx.artifact_exists(COHERENCE_REPORT_PATH):
+            report = ctx.read_json(COHERENCE_REPORT_PATH)
+            if (report.get("gate") or {}).get("activated"):
+                missing_rows = out.get("missing_coverage")
+                if not isinstance(missing_rows, list):
+                    missing_rows = []
+                    out["missing_coverage"] = missing_rows
+                documented = _documented_excludes(missing_rows)
+                by_topic = _topic_mapping_index(out.get("topic_mappings") or [])
+                for risk in report.get("risks") or []:
+                    if not isinstance(risk, dict):
+                        continue
+                    if risk.get("kind") != "missing_callback" or risk.get("status") == "resolved":
+                        continue
+                    topic = str(
+                        (risk.get("evidence") or {}).get("topic") or risk.get("theme_id") or ""
+                    ).strip()
+                    if not topic:
+                        continue
+                    norm = _norm_name(topic)
+                    mapping = by_topic.get(norm)
+                    if mapping and (mapping.get("segment_ids") or []):
+                        continue
+                    if norm in documented:
+                        continue
+                    missing_rows.append(
+                        {
+                            "item": topic,
+                            "topic": topic,
+                            "suggestion": (
+                                "Coherence missing_callback documented for narrative_qc."
+                            ),
+                            "reason": "coherence_missing_callback",
+                            "severity": "low",
+                        }
+                    )
+                    documented.add(norm)
+                    applied.append(
+                        {
+                            "action": "seed_missing_coverage_from_coherence_callback",
+                            "topic": topic[:80],
+                        }
+                    )
+    except Exception:
+        pass
     # Post-commit lint requires non-empty missing_coverage when coherence risks are open.
     if not out.get("missing_coverage"):
         try:

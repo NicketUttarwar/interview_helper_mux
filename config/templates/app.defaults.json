@@ -138,7 +138,7 @@
     },
     "underbed_ab_qc": {
       "enabled": true,
-      "min_bed_relative_db": -38.0,
+      "min_bed_relative_db": -24.0,
       "max_speech_band_excess_db": 3.0,
       "lift_step_db": 2.0,
       "duck_step_db": 2.0,
@@ -548,6 +548,9 @@
     "junction_snip_qa": {
       "mode": "advisory",
       "feel_audit_enabled": true,
+      "thought_complete_llm_enabled": true,
+      "thought_complete_max_segments": 4,
+      "thought_complete_max_ms": 24000,
       "max_remaster_rounds": 2,
       "apply_repairs": true
     },

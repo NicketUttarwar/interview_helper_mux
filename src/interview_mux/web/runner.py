@@ -667,7 +667,7 @@ class JobRunner:
                         invalidate=invalidate,
                     )
                     refresh_journey_meta(ctx)
-                    if mode == "delivery" and not us:
+                    if mode == "delivery" and not us and self._should_verify_master_after_delivery(ctx):
                         self._run_master_qa(ctx, flow="podcast", rel_path="master/master.wav")
                 elif mode == "nle_apply":
                     mode_arg = "full_refresh" if nle_full_refresh else nle_apply_mode
@@ -1210,6 +1210,17 @@ class JobRunner:
                 ctx.log(message, level="warning", stage=stage)
                 raise RuntimeError(message)
         run_single_stage(ctx, stage)
+
+    def _should_verify_master_after_delivery(self, ctx: RunContext) -> bool:
+        """Homunculus 0.1.0 may return from a delivery phase before master_finalize.
+
+        Master QA belongs after a real master exists (or master_finalize is done
+        and the file is missing — that is a product failure). Partial delivery
+        must not raise FileNotFoundError and poison Full-auto retries.
+        """
+        if ctx.artifact_exists("master/master.wav"):
+            return True
+        return bool(ctx.is_done("master_finalize") or ctx.is_done("podcast_publish"))
 
     def _run_master_qa(self, ctx: RunContext, *, flow: FlowName, rel_path: str) -> None:
         master = ctx.path(rel_path)

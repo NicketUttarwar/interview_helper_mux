@@ -91,8 +91,7 @@ authority, master existence, and listener scorecard floors all pass
 
 `junction_feel_audit_unavailable` after retry is a blocking reason. Music fade
 repairs commit `sound_design/placement_adjustments.json` and patch SDP
-`crossfade_ms` so remasters keep soft fades. Phrase recovery prefers
-extend → same-speaker `merge_micro` → cut → exclude (true micros only).
+`crossfade_ms` so remasters keep soft fades. Phrase recovery prefers extend (in-clip) → transcript+LLM **thought-complete recut** (traverse following same-speaker speech, cut at the complete thought, leave leftover independent) → cut → exclude (true micros only). Whole-segment `merge_micro` absorb is not used for hanging native ends.
 Learning rows in `ASSETS/remediation_learning.jsonl` bias the next
 `plan_all_fixes` action choice when the source hash or failure codes match.
 

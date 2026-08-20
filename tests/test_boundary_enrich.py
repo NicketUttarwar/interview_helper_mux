@@ -225,3 +225,74 @@ def test_split_complete_thought_hinges_snaps_topic_shift():
     )
     assert len(out) >= 2
     assert any(a.get("action") == "split_complete_thought" for a in actions)
+
+
+def test_stamp_span_speakers_uses_majority_talk_time_not_first_word():
+    from interview_mux.boundary_enrich import majority_speaker_for_span, stamp_span_speakers
+
+    words = _words(
+        ("Hi", "spk_0", 0, 400),
+        ("thanks", "spk_0", 410, 800),
+        ("The", "spk_1", 1000, 20000),
+        ("science", "spk_1", 20100, 40000),
+        ("evolved", "spk_1", 40100, 78000),
+    )
+    assert majority_speaker_for_span(words, 0, 78000) == "spk_1"
+    rows = stamp_span_speakers(
+        [{"segment_id": "seg_003", "start_ms": 0, "end_ms": 78000, "speaker_id": "spk_0"}],
+        {"words": words},
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer"},
+                {"speaker_id": "spk_1", "role": "interviewee"},
+            ]
+        },
+    )
+    assert rows[0]["speaker_id"] == "spk_1"
+    assert rows[0]["speaker_role"] == "interviewee"
+
+
+def test_restamp_run_span_speakers_rewrites_manifest_from_words(tmp_path):
+    from interview_mux.boundary_enrich import restamp_run_span_speakers
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "restamp_majority")
+    words = _words(
+        ("Hi", "spk_0", 0, 400),
+        ("The", "spk_1", 1000, 40000),
+        ("science", "spk_1", 40100, 78000),
+    )
+    ctx.write_json("transcript/full.json", {"words": words, "text": "Hi The science"}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.9},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_003",
+                    "start_ms": 0,
+                    "end_ms": 78000,
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "topic_tags": ["guest"],
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    changed = restamp_run_span_speakers(ctx)
+    assert changed["manifest"] >= 1
+    row = ctx.read_json("segments/manifest.json")["segments"][0]
+    assert row["speaker_id"] == "spk_1"
+    assert row["speaker_role"] == "interviewee"
+    assert row["type"] == "interviewee_answer"

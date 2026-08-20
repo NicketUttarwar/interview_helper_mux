@@ -1,0 +1,43 @@
+Batched **thought-complete recut** for hanging native speech ends.
+
+A kept clip ended mid-thought. You receive the hanging close plus the following
+same-speaker transcript (gap words and later clips). Choose new cut times so the
+native speaker finishes that thought and leftover later speech stays independent.
+
+North star: complete the hanging clause; do **not** absorb a whole following
+section the way a blind micro-merge would.
+
+For every `case_id`:
+
+- `keep_end_ms` MUST be one of `legal_cut_ms` (complete-thought word ends, including
+  a close just before a new-beat opener like "okay"/"so"/"then" even without `.!?`).
+  Prefer the earliest cut that finishes the hanging clause, skipping backchannel-only
+  closes ("okay", "yeah") when a real completion follows.
+- `remainder_start_ms` is where leftover following speech should reopen, or
+  `null` when leftover is empty / backchannel-only and should be dropped.
+- Never invent words. Never jump past a second complete idea just to glue two
+  whole segments together.
+- `consumed_segment_ids` lists following `speech` segment ids whose windows are
+  fully or partially eaten by `keep_end_ms`. Partial consume is expected; the
+  leftover of that segment reopens at `remainder_start_ms`.
+
+Use `deterministic_proposal` when it already lands a legal complete thought.
+Override it only when the hanging clause clearly continues past that cut.
+
+Return JSON matching `junction_thought_complete.schema.json`:
+
+{
+  "version": 1,
+  "generated_at": "<ISO-8601>",
+  "cuts": [
+    {
+      "case_id": "seg_007",
+      "keep_end_ms": 817200,
+      "remainder_start_ms": 817460,
+      "consumed_segment_ids": [],
+      "rationale": "Finish 'making sense out of it' then leave the next beat independent.",
+      "confidence": 0.86
+    }
+  ],
+  "llm_calls": 1
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JunctionThoughtComplete",
+  "type": "object",
+  "required": ["version", "generated_at", "cuts"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string" },
+    "cuts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case_id", "keep_end_ms"],
+        "properties": {
+          "case_id": { "type": "string", "minLength": 1 },
+          "keep_end_ms": { "type": "integer", "minimum": 0 },
+          "remainder_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "consumed_segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "rationale": { "type": "string" },
+          "confidence": { "type": "number" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "llm_calls": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "source": { "type": "string" },
+    "error": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

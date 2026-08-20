@@ -216,8 +216,12 @@ def _preflight_blockers(ctx: RunContext, stage_id: str) -> list[ProgressionBlock
     ]
 
 def _pending_write_blocker(ctx: RunContext) -> ProgressionBlocker | None:
-    from interview_mux.write_staging import all_pending_stages
+    from interview_mux.write_staging import all_pending_stages, write_approval_enabled
 
+    # v2 auto-commits staged writes. Leftover .pending_writes from a crashed
+    # mid-stage must not hard-block later delivery (homunculus 0.1.0).
+    if not write_approval_enabled():
+        return None
     stages = sorted(all_pending_stages(ctx))
     if not stages:
         return None

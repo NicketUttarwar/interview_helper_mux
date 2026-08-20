@@ -760,3 +760,23 @@ def test_010_perspective_attaches_to_compose() -> None:
     assert "Let's hear" in block or "let's hear" in block.lower()
     assert "clearly_media_ip_pitch" in block
     assert perspective_block_for_stage("transcribe") == ""
+
+
+def test_hard_keep_excludes_never_touch_cta() -> None:
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    ctx = _ctx_010()
+    cuts = ctx.path("understanding/ideal_cuts.json")
+    cuts.parent.mkdir(parents=True, exist_ok=True)
+    cuts.write_text(
+        '{"cuts":[{"segment_id":"seg_cta","must_keep":true,"text":"pitch"}],'
+        '"must_keep_segment_ids":["seg_cta"]}',
+        encoding="utf-8",
+    )
+    cta = ctx.path("mastering/media_ip_cta.json")
+    cta.parent.mkdir(parents=True, exist_ok=True)
+    cta.write_text(
+        '{"dropped_segment_ids":["seg_cta"],"never_touch_segment_ids":["seg_cta"]}',
+        encoding="utf-8",
+    )
+    assert "seg_cta" not in hard_keep_segment_ids(ctx)

@@ -2,7 +2,7 @@
 """Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
 Creates a new run from
-ASSETS/input/Baba_zydus_town_hall.mp4
+ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
 (MUX_FRESH=1, default when MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator
 gates until master/master.wav. Override with MUX_INPUT_AUDIO.
 """
@@ -204,7 +204,7 @@ BASE = os.environ.get(
 )
 INPUT_AUDIO = os.environ.get(
     "MUX_INPUT_AUDIO",
-    "ASSETS/input/Baba_zydus_town_hall.mp4",
+    "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
 )
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
@@ -436,8 +436,6 @@ def pipeline_complete() -> bool:
     if not (done_dir / "podcast_publish").is_file():
         return False
     if not (done_dir / "episode_cover_generate").is_file():
-        return False
-    if not (done_dir / "junction_snip_qa").is_file():
         return False
     pub = MASTER.parent.parent / "publish"
     if not ((pub / "cover.jpg").is_file() or (pub / "cover.png").is_file()):
@@ -1263,7 +1261,15 @@ def _first_pending_for_label(label: str) -> str | None:
             [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES and s != "audio_preclean"]
         )
     if label == "delivery":
-        return delivery_resume_stage() or first_pending(DELIVERY_ORDER)
+        resume = delivery_resume_stage()
+        if resume:
+            return resume
+        # Ship already on disk — do not fall through to junction_snip_qa.
+        if master_ready() and (
+            MASTER.parent.parent / ".stage_done" / "podcast_publish"
+        ).is_file():
+            return None
+        return first_pending(DELIVERY_ORDER)
     return None
 
 
@@ -1883,6 +1889,48 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         detail=msg[:200],
     )
 
+    # Homunculus delivery rewind archives gap artifacts, then this gate retries
+    # topic_coverage_audit forever. Fill analysis producers instead.
+    if (
+        stage == "topic_coverage_audit" or "topic_coverage_audit" in low
+    ) and (
+        "gap_evaluations.json" in low
+        or "gap_report.json" in low
+        or "delivery_brief.json" in low
+        or "p0 spine incomplete" in low
+        or "segments/manifest.json is pending" in low
+    ):
+        fail_key = "topic_coverage_audit:analysis_prereq_pending"
+        _IDENTICAL_STAGE_FAILURES[fail_key] = _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+        resume = "missing_framing"
+        try:
+            from interview_mux.run_context import RunContext
+
+            ctx_g = RunContext(RUN_ID, create=False)
+            for cand, rel in (
+                ("segment_classification", "segments/manifest.json"),
+                ("content_brief_reanchor", "understanding/content_brief.json"),
+                ("missing_framing", "understanding/gap_evaluations.json"),
+                ("gap_framing_compose", "understanding/gap_report.json"),
+                ("delivery_brief_build", "understanding/delivery_brief.json"),
+            ):
+                if not ctx_g.artifact_exists(rel):
+                    resume = cand
+                    break
+        except Exception as exc:
+            log(f"topic_coverage analysis-prereq probe: {exc}")
+        log(
+            f"topic_coverage blocked on analysis artifacts — "
+            f"resume analysis from {resume} (x{_IDENTICAL_STAGE_FAILURES[fail_key]})"
+        )
+        if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+            log(
+                "STOP: topic_coverage analysis-prereq re-delivery heal looping ≥3 — "
+                "forcing analysis resume, not delivery"
+            )
+        execute({"mode": "analysis", "from_stage": resume})
+        return "continue"
+
     if "missing master/assembly.wav" in low or ("assembly.wav" in low and "missing" in low):
         try:
             from pathlib import Path as _P
@@ -2192,6 +2240,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 # Restore junction reports if needed so finalize is not blocked on redo.
                 for name in (
                     "junction_snip_qa.json",
+                    "junction_thought_complete.json",
                     "junction_feel_audit.json",
                     "seam_autopsy.json",
                     "render_ledger.json",
@@ -2396,7 +2445,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             else:
                 mode = "delivery" if "delivery" in str(body.get("mode") or "") else "analysis"
             execute({"mode": mode, "from_stage": need})
-            return "advance"
+            return "continue"
         return "stuck"
 
     # Coherence / operator profile — must run before the generic "blocked…missing" matcher,
@@ -2671,6 +2720,33 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             resume = "low_conf_island_scan"
         elif "content_brief" in low or "content_brief_reanchor" in low:
             resume = "content_brief_reanchor"
+            try:
+                from interview_mux.artifact_lifecycle import read_stale_guard
+                from interview_mux.run_context import RunContext
+
+                ctx_b = RunContext(RUN_ID, create=False)
+                if ctx_b.artifact_exists("understanding/content_brief.json"):
+                    # Clears spurious stale from boundary_detection on the shared brief.
+                    read_stale_guard(
+                        ctx_b,
+                        "understanding/content_brief.json",
+                        consumer_stage=stage or "sonic_context_build",
+                    )
+                    doc_b = ctx_b.read_json("understanding/content_brief.json")
+                    if not (doc_b.get("_meta") or {}).get("stale"):
+                        fail_key = "content_brief:spurious_stale_boundary"
+                        _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                            _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                        )
+                        resume = stage if stage in ANALYSIS_ORDER else "sonic_context_build"
+                        log(
+                            "cleared spurious content_brief stale "
+                            f"(invalidated_by boundary_detection) — resume {resume}"
+                        )
+                        if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                            log("STOP: content_brief stale-brief heal ×3 after clear — resume analysis")
+            except Exception as exc:
+                log(f"content_brief stale clear: {exc}")
         elif "boundary_topic_resplit" in low:
             resume = "boundary_topic_resplit"
         else:
@@ -3111,8 +3187,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     shutil.copy2(cands[-1], target)
                     log(f"restored sound_design/{name} from {cands[-1]}")
             if not dest.is_file():
-                log("no archived edl.json to restore")
-                return "stuck"
+                if not ctx.artifact_exists("master/selection.json"):
+                    log("no edl and no selection — resume full_master_ranking")
+                    execute({"mode": "delivery", "from_stage": "full_master_ranking"})
+                    return "continue"
+                log("no archived edl.json to restore — resume edl")
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
             edl = _json.loads(dest.read_text())
             for c in edl.get("clips") or []:
                 if not isinstance(c, dict):
@@ -3991,7 +4072,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     return "continue"
                 # Prefer edl when ranking/transitions/SDP already exist — avoid LLM re-entry.
                 resume = "edl"
-                if not ctx.is_done("sound_design_vo_finalize") and not ctx.artifact_exists(
+                if not ctx.artifact_exists("master/selection.json"):
+                    resume = "full_master_ranking"
+                elif not ctx.is_done("sound_design_vo_finalize") and not ctx.artifact_exists(
                     "understanding/sound_design_plan.json"
                 ):
                     resume = "full_master_ranking"
@@ -4003,12 +4086,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     resume = "junction_snip_qa" if not ctx.is_done("junction_snip_qa") else "master_finalize"
                 execute({"mode": "delivery", "from_stage": resume})
                 return "continue"
-            # Still failing — do not blindly re-execute mix body (thrash). Stay put.
-            log(f"narrative_qc heal incomplete ({len(errs)} left) — retry junction/finalize path")
-            if (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
+            # Still failing — ranking, not mix. Mix without selection/edl is a dead loop.
+            log(f"narrative_qc heal incomplete ({len(errs)} left) — resume ranking/edl")
+            if not ctx.artifact_exists("master/selection.json"):
+                execute({"mode": "delivery", "from_stage": "full_master_ranking"})
+            elif (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
             else:
-                execute({"mode": "delivery", "from_stage": "mix"})
+                execute({"mode": "delivery", "from_stage": "edl"})
             return "continue"
         except Exception as exc:
             log(f"narrative_qc repair: {exc}")
@@ -4831,6 +4916,52 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         f"{label}: ignoring premature complete "
                         f"({(job.get('message') or '')[:120]}) — resume {resume}"
                     )
+                    fail_key = f"{label}:premature_complete:{resume}"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    if (
+                        label == "analysis"
+                        and resume == "boundary_detection"
+                        and ctx_p is not None
+                        and ctx_p.artifact_exists("segments/boundaries.json")
+                    ):
+                        ctx_p.mark_done("boundary_detection", force=True)
+                        resume = _first_pending_for_label(label) or "segment_classification"
+                        log(
+                            "boundary_detection artifact on disk — mark done, "
+                            f"resume {resume} (not re-cut)"
+                        )
+                    if (
+                        label == "delivery"
+                        and resume == "topic_coverage_audit"
+                        and ctx_p is not None
+                        and ctx_p.artifact_exists("master/coverage_audit.json")
+                    ):
+                        ctx_p.mark_done("topic_coverage_audit", force=True)
+                        resume = _first_pending_for_label(label) or "narrative_arc_plan"
+                        log(
+                            "topic_coverage artifact on disk — mark done, "
+                            f"resume {resume}"
+                        )
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            f"STOP: premature complete resume {fail_key} ×3 — "
+                            "advance to next pending instead of repeating"
+                        )
+                        if ctx_p is not None and resume and ctx_p.artifact_exists(
+                            {
+                                "boundary_detection": "segments/boundaries.json",
+                                "segment_classification": "segments/manifest.json",
+                                "content_brief_reanchor": "understanding/content_brief.json",
+                            }.get(resume, "")
+                        ):
+                            ctx_p.mark_done(resume, force=True)
+                        nxt = _first_pending_for_label(label)
+                        if not nxt or nxt == resume:
+                            log(f"{label}: premature-complete loop exhausted — advance phase")
+                            return job
+                        resume = nxt
                     try:
                         if label == "analysis":
                             predecline_pending_reuse(
@@ -4966,6 +5097,76 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
             low_err = err.lower()
+            if "fingerprint mismatch" in low_err:
+                fail_key = f"{stage or 'unknown'}:fingerprint_mismatch"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log(
+                        "STOP: fingerprint mismatch re-execute ×3 — "
+                        "lifecycle must restamp drifted hashes"
+                    )
+                    raise SystemExit("HARD: fingerprint mismatch loop x3")
+                try:
+                    import re as _re_fp
+
+                    from interview_mux.artifact_lifecycle import restamp_committed_artifact
+                    from interview_mux.run_context import RunContext
+
+                    ctx_fp = RunContext(RUN_ID, create=False)
+                    matched = _re_fp.findall(
+                        r"([a-z0-9_./-]+\.json)\s+fingerprint mismatch[^\n]*?producer\s+([a-z0-9_]+)",
+                        low_err,
+                    )
+                    for rel, producer in matched:
+                        restamp_committed_artifact(
+                            ctx_fp, rel, producer_stage=producer
+                        )
+                        log(f"error-path restamp {rel} producer={producer}")
+                    execute(
+                        {
+                            "mode": "delivery" if label == "delivery" else "analysis",
+                            "from_stage": stage or str(body.get("from_stage") or ""),
+                        }
+                    )
+                    continue
+                except SystemExit:
+                    raise
+                except Exception as exc:
+                    log(f"fingerprint restamp: {exc}")
+            if "expected master file missing after" in low_err:
+                fail_key = f"{stage}:premature_master_qa"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                try:
+                    from interview_mux.run_context import RunContext
+
+                    ctx_m = RunContext(RUN_ID, create=False)
+                    master_ready = ctx_m.is_done("master_finalize") or ctx_m.artifact_exists(
+                        "master/master.wav"
+                    )
+                except Exception as exc:
+                    log(f"premature master QA probe: {exc}")
+                    master_ready = False
+                if not master_ready:
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: premature master QA after partial delivery ×3 — "
+                            "host must skip verify_master until master_finalize"
+                        )
+                        raise SystemExit("HARD: premature master QA loop x3")
+                    resume = first_pending(DELIVERY_ORDER) or "topic_coverage_audit"
+                    log_decision(
+                        "minor",
+                        stage=str(stage or "delivery"),
+                        action="resume_partial_delivery",
+                        reason="premature_master_qa",
+                        detail=resume,
+                    )
+                    execute({"mode": "delivery", "from_stage": resume})
+                    continue
             if (
                 stage == "edl_narrative_audit"
                 or "opening-orientation" in low_err
@@ -5006,6 +5207,48 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log(f"edl_narrative host repair (error): {exc}")
             if (
                 "topic_coverage_audit" in low_err
+                and (
+                    "gap_evaluations.json" in low_err
+                    or "gap_report.json" in low_err
+                    or "delivery_brief.json" in low_err
+                    or "p0 spine incomplete" in low_err
+                    or "segments/manifest.json is pending" in low_err
+                )
+            ):
+                try:
+                    from interview_mux.run_context import RunContext
+
+                    ctx_c = RunContext(RUN_ID, create=False)
+                    resume = "missing_framing"
+                    for cand, rel in (
+                        ("segment_classification", "segments/manifest.json"),
+                        ("content_brief_reanchor", "understanding/content_brief.json"),
+                        ("missing_framing", "understanding/gap_evaluations.json"),
+                        ("gap_framing_compose", "understanding/gap_report.json"),
+                        ("delivery_brief_build", "understanding/delivery_brief.json"),
+                    ):
+                        if not ctx_c.artifact_exists(rel):
+                            resume = cand
+                            break
+                    fail_key = "topic_coverage_audit:analysis_prereq_pending"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: topic_coverage needs_input/prereq re-delivery ×3 — "
+                            "resume analysis instead"
+                        )
+                    log(
+                        f"topic_coverage error with missing analysis artifact — "
+                        f"resume analysis from {resume}"
+                    )
+                    execute({"mode": "analysis", "from_stage": resume})
+                    continue
+                except Exception as exc:
+                    log(f"coverage analysis-prereq heal: {exc}")
+            if (
+                "topic_coverage_audit" in low_err
                 and "needs_input" in low_err
             ):
                 try:
@@ -5023,6 +5266,26 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         continue
                 except Exception as exc:
                     log(f"coverage keep-artifact heal: {exc}")
+            if (
+                stage == "boundary_detection"
+                and "content_brief.json is marked stale" in low_err
+            ):
+                fail_key = "boundary_detection:stale_content_brief"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log(
+                        "STOP: boundary_detection stale-brief re-execute ×3 — "
+                        "lifecycle must ignore self-invalidation of content_brief"
+                    )
+                    raise SystemExit("HARD: boundary_detection stale content_brief loop x3")
+                log(
+                    "boundary_detection blocked on stale content_brief "
+                    "(likely self-invalidation) — retry once after lifecycle"
+                )
+                execute({"mode": "analysis", "from_stage": "boundary_detection"})
+                continue
             if (
                 stage == "boundary_detection"
                 and (

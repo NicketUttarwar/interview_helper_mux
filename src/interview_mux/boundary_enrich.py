@@ -36,6 +36,121 @@ def _speaker_roles(speakers_doc: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
+def majority_speaker_for_span(
+    words: list[dict[str, Any]], start_ms: int, end_ms: int
+) -> str | None:
+    """Speaker with the most overlapping talk-time in [start_ms, end_ms], not the first word."""
+    counts: dict[str, int] = {}
+    for word in words:
+        try:
+            w0 = int(float(word.get("start_ms") or 0))
+            w1 = int(float(word.get("end_ms") or w0))
+        except (TypeError, ValueError):
+            continue
+        if w1 < start_ms or w0 > end_ms:
+            continue
+        sid = str(word.get("speaker_id") or word.get("speaker") or "").strip()
+        if not sid:
+            continue
+        counts[sid] = counts.get(sid, 0) + max(1, w1 - w0)
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def stamp_span_speakers(
+    rows: list[dict[str, Any]],
+    transcript: dict[str, Any] | None,
+    speakers_doc: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Set speaker_id (and speaker_role when known) from word-level majority duration."""
+    words = _words_from_transcript(transcript)
+    roles = _speaker_roles(speakers_doc)
+    if not words:
+        return [dict(r) if isinstance(r, dict) else r for r in rows]
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        r = dict(row)
+        if r.get("start_ms") is None or r.get("end_ms") is None:
+            out.append(r)
+            continue
+        sid = majority_speaker_for_span(words, int(r["start_ms"]), int(r["end_ms"]))
+        if sid:
+            r["speaker_id"] = sid
+            if sid in roles:
+                r["speaker_role"] = roles[sid]
+        out.append(r)
+    return out
+
+
+def restamp_run_span_speakers(ctx: Any) -> dict[str, int]:
+    """Rewrite boundary/manifest speaker_id from word majority; keep 0.1.0 stable."""
+    transcript = (
+        ctx.read_json("transcript/full.json")
+        if ctx.artifact_exists("transcript/full.json")
+        else None
+    )
+    speakers_doc = (
+        ctx.read_json("understanding/speakers.json")
+        if ctx.artifact_exists("understanding/speakers.json")
+        else None
+    )
+    roles = _speaker_roles(speakers_doc)
+    changed = {"boundaries": 0, "manifest": 0}
+    if ctx.artifact_exists("segments/boundaries.json"):
+        doc = ctx.read_json("segments/boundaries.json")
+        rows = [r for r in (doc.get("boundaries") or []) if isinstance(r, dict)] if isinstance(doc, dict) else []
+        stamped = stamp_span_speakers(rows, transcript, speakers_doc)
+        n = sum(
+            1
+            for a, b in zip(rows, stamped)
+            if str(a.get("speaker_id") or "") != str(b.get("speaker_id") or "")
+        )
+        if n:
+            out = dict(doc)
+            out["boundaries"] = stamped
+            ctx.write_json("segments/boundaries.json", out, skip_handoff=True)
+            changed["boundaries"] = n
+    if ctx.artifact_exists("segments/manifest.json"):
+        doc = ctx.read_json("segments/manifest.json")
+        rows = [r for r in (doc.get("segments") or []) if isinstance(r, dict)] if isinstance(doc, dict) else []
+        stamped = stamp_span_speakers(rows, transcript, speakers_doc)
+        n = 0
+        for row in stamped:
+            sid = str(row.get("speaker_id") or "")
+            role = roles.get(sid)
+            if role:
+                if str(row.get("speaker_role") or "") != role:
+                    n += 1
+                row["speaker_role"] = role
+                typ = str(row.get("type") or "")
+                if role == "interviewee" and typ == "interviewer_question":
+                    row["type"] = "interviewee_answer"
+                    n += 1
+                elif role == "interviewer" and typ == "interviewee_answer":
+                    row["type"] = "interviewer_question"
+                    n += 1
+            orig = next((r for r in rows if r.get("segment_id") == row.get("segment_id")), None)
+            if orig and str(orig.get("speaker_id") or "") != sid:
+                n += 1
+        if n:
+            out = dict(doc)
+            out["segments"] = stamped
+            ctx.write_json("segments/manifest.json", out, skip_handoff=True)
+            changed["manifest"] = n
+    if any(changed.values()) and hasattr(ctx, "log"):
+        ctx.log(
+            f"restamped span speakers boundaries={changed['boundaries']} "
+            f"manifest={changed['manifest']}",
+            level="info",
+            stage="segment_classification",
+        )
+    return changed
+
+
 def _words_in_span(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> list[dict[str, Any]]:
     return [
         w
@@ -545,4 +660,5 @@ def enrich_boundary_rows(
         topic_split_times=topic_times,
     )
     applied.extend(dur_actions)
-    return dur_rows, applied
+    stamped = stamp_span_speakers(dur_rows, transcript, speakers_doc)
+    return stamped, applied

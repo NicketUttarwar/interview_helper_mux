@@ -1,8 +1,10 @@
-"""Mastering Junction Snips — deterministic edge QA + one final feel LLM.
+"""Mastering Junction Snips — deterministic edge QA + O(1) thought-complete + feel LLM.
 
 Plan 2 (v2): every timeline junction is evaluated with transcript/energy signals
-(zero per-edge OpenAI). A single ``junction_feel_audit`` LLM pass judges how the
-assembled master feels. Remaster is bounded (≤2).
+(zero per-edge OpenAI). Hanging native ends traverse following transcript and
+use one batched ``junction_thought_complete`` LLM to recut — never whole-segment
+``merge_micro`` absorb. A single ``junction_feel_audit`` LLM pass then judges how
+the assembled master feels. Remaster is bounded (≤2).
 """
 
 from __future__ import annotations
@@ -51,12 +53,14 @@ ALLOWED_FEEL_ACTIONS = frozenset(
         "adjust_crossfade",
         "exclude_micro",
         "merge_micro",
+        "thought_complete_recut",
         "retarget_vo_anchor",
     }
 )
 
 _EDGE_ACTION_PRIORITY = {
     "extend_later": 100,
+    "thought_complete_recut": 95,
     "merge_micro": 90,
     "cut_earlier": 80,
     "exclude_micro": 70,
@@ -88,6 +92,9 @@ def junction_snip_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "impact_hold_ms_min": 1200,
         "impact_hold_ms_max": 3500,
         "feel_audit_enabled": True,
+        "thought_complete_llm_enabled": True,
+        "thought_complete_max_segments": 4,
+        "thought_complete_max_ms": 24000,
         "max_remaster_rounds": 2,
         "apply_repairs": True,
         "music_soft_crossfade_ms": 180,
@@ -431,14 +438,14 @@ def _phrase_action_for_incomplete(
     *,
     can_extend: bool,
     can_cut: bool,
-    can_merge: bool,
+    can_complete: bool,
     is_micro: bool,
 ) -> str:
-    """Ladder: extend → merge → cut → exclude(micros) / residual critical."""
+    """Ladder: extend (in-clip) → thought-complete recut → cut → exclude(micros)."""
     if can_extend:
         return "extend_later"
-    if can_merge:
-        return "merge_micro"
+    if can_complete:
+        return "thought_complete_recut"
     if can_cut:
         return "cut_earlier"
     if is_micro:
@@ -560,7 +567,13 @@ def detect_junction_findings(
     def _edge_key(segment_id: str | None, action: str, detail: dict[str, Any]) -> tuple[str, str] | None:
         if not segment_id:
             return None
-        if action in {"extend_later", "cut_earlier", "merge_micro", "exclude_micro"}:
+        if action in {
+            "extend_later",
+            "cut_earlier",
+            "merge_micro",
+            "thought_complete_recut",
+            "exclude_micro",
+        }:
             return (segment_id, "end")
         if action == "nudge_source_bounds":
             return (segment_id, str(detail.get("edge") or "end"))
@@ -704,33 +717,24 @@ def detect_junction_findings(
                 is_micro_segment(seg if isinstance(seg, dict) else None, cfg=prior_cfg)
                 or _BACKCHANNEL_RE.match(str((seg or {}).get("text") or "").strip())
             )
-            merge = None
-            if incomplete and not chapter_bleed:
-                merge = _merge_candidate_for_clip(
+            from interview_mux.thought_complete_recut import lookahead_available
+
+            can_complete = bool(
+                incomplete
+                and not chapter_bleed
+                and lookahead_available(
                     clips=clips,
                     index=i,
-                    sid=sid,
-                    src_start=src_start,
-                    src_end=src_end,
+                    words=words,
                     speaker=speaker,
-                    chapter=ch,
-                    selection=selection,
                     segs=segs,
+                    max_segments=max(1, int(conf.get("thought_complete_max_segments") or 4)),
+                    max_ms=max(
+                        phrase_max,
+                        int(conf.get("thought_complete_max_ms") or phrase_max),
+                    ),
                 )
-                if merge is None:
-                    merge = _merge_candidate_for_clip(
-                        clips=clips,
-                        index=i,
-                        sid=sid,
-                        src_start=src_start,
-                        src_end=src_end,
-                        speaker=speaker,
-                        chapter=ch,
-                        selection=selection,
-                        segs=segs,
-                        gap_max_ms=max(1000, phrase_max),
-                        allow_cross_speaker=True,
-                    )
+            )
 
             next_src_start = _next_speech_source_start(clips, i)
             extend_hard_cap = (
@@ -738,21 +742,6 @@ def detect_junction_findings(
                 if next_src_start is not None
                 else None
             )
-            # Prefer absorbing same-speaker continuum when phrase end would invade
-            # the next keep — widen merge gap to phrase budget for on-a-roll.
-            if incomplete and not chapter_bleed and merge is None and on_roll:
-                merge = _merge_candidate_for_clip(
-                    clips=clips,
-                    index=i,
-                    sid=sid,
-                    src_start=src_start,
-                    src_end=src_end,
-                    speaker=speaker,
-                    chapter=ch,
-                    selection=selection,
-                    segs=segs,
-                    gap_max_ms=max(450, phrase_max),
-                )
 
             extend_speaker = "" if continues else speaker
             if on_roll and not chapter_bleed:
@@ -787,17 +776,9 @@ def detect_junction_findings(
                 action = _phrase_action_for_incomplete(
                     can_extend=extended is not None,
                     can_cut=can_cut,
-                    can_merge=merge is not None,
+                    can_complete=can_complete,
                     is_micro=is_micro,
                 )
-                # Continuum with no safe phrase end: merge across keepers rather
-                # than shipping a mid-flow chop or impact-hold band-aid.
-                if (
-                    action == "cut_earlier"
-                    and not can_cut
-                    and merge is not None
-                ):
-                    action = "merge_micro"
                 recommended = extended if extended is not None else earlier
                 if recommended is not None and action == "extend_later":
                     recommended = _clamp_end_before_next_speech(
@@ -808,24 +789,20 @@ def detect_junction_findings(
                         action = _phrase_action_for_incomplete(
                             can_extend=False,
                             can_cut=can_cut,
-                            can_merge=merge is not None,
+                            can_complete=can_complete,
                             is_micro=is_micro,
                         )
-                        if action == "cut_earlier" and not can_cut and merge is not None:
-                            action = "merge_micro"
                         recommended = earlier if can_cut else None
                 detail: dict[str, Any] = {
                     "recommended_ms": recommended,
                     "end_text": end_text[-80:],
                     "unrecoverable_within_clip": (
                         recommended is None
-                        and merge is None
+                        and not can_complete
                         and not is_micro
-                        and action != "merge_micro"
+                        and action != "thought_complete_recut"
                     ),
                 }
-                if action == "merge_micro" and merge:
-                    detail.update(merge)
                 add(
                     "on_a_roll",
                     severity="critical",
@@ -867,7 +844,7 @@ def detect_junction_findings(
                     action = _phrase_action_for_incomplete(
                         can_extend=extended is not None,
                         can_cut=can_cut,
-                        can_merge=merge is not None,
+                        can_complete=False,
                         is_micro=is_micro,
                     )
                     recommended = extended if extended is not None else earlier
@@ -882,7 +859,7 @@ def detect_junction_findings(
                             "end_text": end_text[-80:],
                             "hitch_last_in_chapter": True,
                             "unrecoverable_within_clip": (
-                                recommended is None and merge is None and not is_micro
+                                recommended is None and not is_micro
                             ),
                         },
                         evidence=f"incomplete at chapter hinge (hitch last): {end_text[-40:]!r}",
@@ -937,7 +914,7 @@ def detect_junction_findings(
                 action = _phrase_action_for_incomplete(
                     can_extend=extended is not None,
                     can_cut=can_cut,
-                    can_merge=merge is not None,
+                    can_complete=can_complete,
                     is_micro=is_micro,
                 )
                 recommended = extended if extended is not None else earlier
@@ -950,7 +927,7 @@ def detect_junction_findings(
                         action = _phrase_action_for_incomplete(
                             can_extend=False,
                             can_cut=can_cut,
-                            can_merge=merge is not None,
+                            can_complete=can_complete,
                             is_micro=is_micro,
                         )
                 detail = {
@@ -958,13 +935,11 @@ def detect_junction_findings(
                     "end_text": end_text[-80:],
                     "unrecoverable_within_clip": (
                         recommended is None
-                        and merge is None
+                        and not can_complete
                         and not is_micro
-                        and action != "merge_micro"
+                        and action != "thought_complete_recut"
                     ),
                 }
-                if action == "merge_micro" and merge:
-                    detail.update(merge)
                 add(
                     "incomplete_clause",
                     severity="critical",
@@ -1223,6 +1198,25 @@ def apply_junction_repairs(
         ]
         applied.append({**f, "status": "applied", "survivor_segment_id": survivor_id})
         changed = True
+
+    # Surgical thought-complete recut (hanging end → transcript/LLM cut, leftover independent)
+    from interview_mux.thought_complete_recut import ACTION as _THOUGHT_COMPLETE, apply_thought_complete_to_clips
+
+    for f in findings:
+        if f.get("action") != _THOUGHT_COMPLETE:
+            continue
+        clips, overrides, did = apply_thought_complete_to_clips(
+            clips,
+            f,
+            overrides=overrides,
+            excluded=excluded,
+            exclude_reasons=exclude_reasons,
+        )
+        if did:
+            applied.append({**f, "status": "applied", "keep_end_ms": (f.get("detail") or {}).get("keep_end_ms")})
+            changed = True
+        else:
+            applied.append({**f, "status": "skipped_no_recommendation"})
 
     # Bound nudges / extend / cut
     for f in findings:
@@ -1952,6 +1946,8 @@ def apply_feel_directives(
             action = "adjust_music_fade"
             if "suggested_crossfade_ms" not in detail:
                 detail["suggested_crossfade_ms"] = int(conf.get("music_soft_crossfade_ms") or 180)
+        if action == "merge_micro":
+            action = "thought_complete_recut"
         severity = str(d.get("severity") or "warn")
         # Feel must not re-nudge edges already applied this stage unless critical.
         if action == "nudge_source_bounds" and severity != "critical":
@@ -1972,6 +1968,11 @@ def apply_feel_directives(
         )
     if not findings:
         return False
+    from interview_mux.thought_complete_recut import enrich_thought_complete_findings
+
+    findings, _ = enrich_thought_complete_findings(
+        ctx, edl, findings, cfg=conf, allow_llm=False
+    )
     _edl2, applied, changed = apply_junction_repairs(ctx, edl, findings, cfg=conf)
     audit = dict(audit)
     audit["applied_directives"] = applied
@@ -2021,6 +2022,12 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         raise ValueError("master/edl.json is not an object")
 
     findings = detect_junction_findings(ctx, edl, cfg=conf)
+    from interview_mux.thought_complete_recut import enrich_thought_complete_findings
+
+    thought_llm_calls = 0
+    findings, thought_llm_calls = enrich_thought_complete_findings(
+        ctx, edl, findings, cfg=conf
+    )
     remaster_rounds = 0
     applied: list[dict[str, Any]] = []
     max_rounds = max(1, int(conf.get("max_remaster_rounds") or 8))
@@ -2075,6 +2082,10 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 stage=STAGE_ID,
             )
             residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
+            residual_findings, extra_llm = enrich_thought_complete_findings(
+                ctx, current_edl, residual_findings, cfg=conf, allow_llm=False
+            )
+            thought_llm_calls += extra_llm
             break
         prior_applied_sig = applied_sig
         if needs:
@@ -2099,6 +2110,10 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             else next_edl
         )
         residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
+        residual_findings, extra_llm = enrich_thought_complete_findings(
+            ctx, current_edl, residual_findings, cfg=conf, allow_llm=False
+        )
+        thought_llm_calls += extra_llm
         critical_residuals = [
             f for f in residual_findings if str(f.get("severity") or "") == "critical"
         ]
@@ -2160,7 +2175,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         "residual_findings": residual_findings,
         "remaster_rounds": remaster_rounds,
         "remediation_runs": remediation_runs,
-        "llm_calls": 0,
+        "llm_calls": thought_llm_calls,
         "advisory": mode != "authoritative",
         "blocking": mode == "authoritative",
         "generated_at": _now(),
@@ -2168,7 +2183,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     ctx.write_json(QA_REL, report)
 
     audit = run_junction_feel_audit(ctx, report, cfg=conf)
-    report["llm_calls"] = int(audit.get("llm_calls") or 0)
+    report["llm_calls"] = thought_llm_calls + int(audit.get("llm_calls") or 0)
     ctx.write_json(QA_REL, report)
 
     if report["llm_calls"] > 6:

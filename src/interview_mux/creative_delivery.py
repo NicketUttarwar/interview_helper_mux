@@ -70,14 +70,14 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
     if underscore in {"sparse", "sparse_or_skip"} and not keep_dry:
         out["underscore_policy"] = "normal"
     mins = min_density_cfg()
-    quiet_lo = float(mins.get("min_audible_bed_level_db", -18.0))
-    quiet_hi = float(mins.get("max_audible_bed_level_db", -14.0))
+    quiet_lo = float(mins.get("min_audible_bed_level_db", -16.0))
+    quiet_hi = float(mins.get("max_audible_bed_level_db", -12.0))
     if quiet_lo > quiet_hi:
         quiet_lo, quiet_hi = quiet_hi, quiet_lo
-    # Force beds into the configured audible band (speech-first ≈ −18…−14).
+    # Constant underbed band (speech-first ≈ −16…−12). Mix does not duck beds.
     out["bed_level_db_range"] = [quiet_lo, quiet_hi]
     duck = float(out.get("duck_under_speech_db") or 12.0)
-    # Speech still wins, but keep undersores present under dialogue (plan: ≥12).
+    # Accents / overlapping bookends still sidechain; underbeds ignore this.
     out["duck_under_speech_db"] = max(duck, 12.0)
     return out
 
@@ -85,8 +85,8 @@ def apply_creative_mix_contract(contract: dict[str, Any]) -> dict[str, Any]:
 def _bed_level_band(mix_contract: dict[str, Any] | None = None) -> tuple[float, float]:
     """Return (quiet_lo, quiet_hi) for speech-first beds, quieter first (more negative)."""
     mins = min_density_cfg()
-    lo = float(mins.get("min_audible_bed_level_db", -18.0))
-    hi = float(mins.get("max_audible_bed_level_db", -14.0))
+    lo = float(mins.get("min_audible_bed_level_db", -16.0))
+    hi = float(mins.get("max_audible_bed_level_db", -12.0))
     rng = (mix_contract or {}).get("bed_level_db_range") if isinstance(mix_contract, dict) else None
     if isinstance(rng, list) and len(rng) == 2:
         try:
@@ -99,7 +99,7 @@ def _bed_level_band(mix_contract: dict[str, Any] | None = None) -> tuple[float, 
 
 
 def audible_bed_level_db(mix_contract: dict[str, Any] | None = None) -> float:
-    """High end of the audible bed band (speech-first, typically −14 dB)."""
+    """High end of the audible bed band (speech-first, typically −12 dB)."""
     _lo, hi = _bed_level_band(mix_contract)
     return hi
 
@@ -378,8 +378,8 @@ def audibility_level_db(*, role: str, default: float) -> float:
     mins = min_density_cfg()
     role_s = str(role or "")
     if role_s == "bed" or role_s == "theme_underscore":
-        lo = float(mins.get("min_audible_bed_level_db", -18.0))
-        hi = float(mins.get("max_audible_bed_level_db", -14.0))
+        lo = float(mins.get("min_audible_bed_level_db", -16.0))
+        hi = float(mins.get("max_audible_bed_level_db", -12.0))
         if lo > hi:
             lo, hi = hi, lo
         return max(lo, min(hi, float(default)))

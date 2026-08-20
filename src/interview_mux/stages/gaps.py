@@ -251,7 +251,10 @@ def _missing_framing_payload(
 
 
 def run_missing_framing(ctx: RunContext) -> None:
+    from interview_mux.boundary_enrich import restamp_run_span_speakers
     from interview_mux.llm_simple import run_llm_stage_simple
+
+    restamp_run_span_speakers(ctx)
 
     persist = make_stage_persist("understanding/gap_evaluations.json", "missing_framing")
     prompt_rel = prompt_variant("interviewer-gap/missing-framing.system.txt", ctx)
@@ -716,6 +719,9 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 level="info",
                 stage="gap_framing_compose",
             )
+        # Spoken-copy omit can drop seed/fill lines that still "target" a high gap.
+        # Re-run repair, then demote leftover highs so post-commit lint can commit.
+        repaired, _ = repair_gap_report(c, repaired)
         lines = repaired.get("interviewer_lines")
         if isinstance(lines, list):
             repaired["interviewer_lines"] = stamp_lines_prior_provenance(c, lines)

@@ -609,13 +609,14 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "junction_snip_qa",
         "Junction snip QA",
-        "Deterministic start/end snip QA on every junction, then one feel audit; remaster when repairs apply.",
+        "Deterministic start/end snip QA, batched thought-complete recuts, then one feel audit; remaster when repairs apply.",
         "delivery",
         # Reports + commitment artifacts.  EDL/assembly remasters are side effects
         # flushed by write staging (not listed here so clear_from(mix) does not
         # archive the upstream EDL ownership).
         (
             "master/junction_snip_qa.json",
+            "master/junction_thought_complete.json",
             "master/junction_feel_audit.json",
             "master/seam_autopsy.json",
             "master/render_ledger.json",

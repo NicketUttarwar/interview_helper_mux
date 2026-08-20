@@ -14,7 +14,7 @@ from typing import Any
 BASE = "http://127.0.0.1:8765"
 INPUT_AUDIO = os.environ.get(
     "MUX_INPUT_AUDIO",
-    "ASSETS/input/Baba_zydus_town_hall.mp4",
+    "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
 )
 POLL_SEC = 15
 MAX_WAIT_SEC = 7200

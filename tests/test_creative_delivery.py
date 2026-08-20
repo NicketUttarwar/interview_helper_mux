@@ -136,9 +136,9 @@ def test_apply_creative_mix_contract_upgrades_sparse():
         {"underscore_policy": "sparse", "bed_level_db_range": [-30, -26], "duck_under_speech_db": 8}
     )
     assert out["underscore_policy"] == "normal"
-    # Creative path forces audible bed band (−18…−14 by default).
-    assert out["bed_level_db_range"][0] >= -18
-    assert out["bed_level_db_range"][1] >= -14
+    # Creative path forces audible bed band (−16…−12 by default).
+    assert out["bed_level_db_range"][0] >= -16
+    assert out["bed_level_db_range"][1] >= -12
     assert out["duck_under_speech_db"] >= 12
 
 
@@ -157,7 +157,7 @@ def test_audibility_level_db_role_aware():
     from interview_mux.creative_delivery import audibility_level_db
 
     bed = audibility_level_db(role="bed", default=-30.0)
-    assert -18.0 <= bed <= -14.0
+    assert -16.0 <= bed <= -12.0
     cold = audibility_level_db(role="theme_cold_open", default=-20.0)
     assert cold >= -9.0
     emph = audibility_level_db(role="theme_emphasis", default=-20.0)
@@ -195,8 +195,8 @@ def test_alternate_contiguous_loop_assets_breaks_long_runs():
 def test_clamp_bed_level_db_moves_placeholder_into_audible_band():
     from interview_mux.creative_delivery import audible_bed_level_db, clamp_bed_level_db
 
-    assert -18.0 <= clamp_bed_level_db(-26.0) <= -14.0
-    assert -18.0 <= audible_bed_level_db() <= -14.0
+    assert -16.0 <= clamp_bed_level_db(-26.0) <= -12.0
+    assert -16.0 <= audible_bed_level_db() <= -12.0
 
 
 def test_adaptive_bed_level_stays_inside_audible_band(tmp_path, monkeypatch):

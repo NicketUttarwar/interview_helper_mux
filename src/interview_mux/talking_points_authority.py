@@ -378,6 +378,7 @@ def manifest_from_ideal_cuts(
             cut_by_seg[sid] = cut
 
     segments: list[dict[str, Any]] = []
+    pri_by_id: dict[str, str] = {}
     for row in boundaries.get("boundaries") or []:
         if not isinstance(row, dict):
             continue
@@ -398,6 +399,7 @@ def manifest_from_ideal_cuts(
         title = str(tp.get("title") or cut.get("rationale") or sid).strip()
         tags = [tp_id] if tp_id else ([title[:40]] if title else [])
         seg_type = _segment_type_for_role(role, priority=priority)
+        pri_by_id[sid] = priority
         segments.append(
             {
                 "segment_id": sid,
@@ -412,12 +414,33 @@ def manifest_from_ideal_cuts(
                 "_meta": {"source": "talking_points_authority"},
             }
         )
+    from interview_mux.boundary_enrich import stamp_span_speakers
+
+    transcript = (
+        ctx.read_json("transcript/full.json")
+        if ctx.artifact_exists("transcript/full.json")
+        else None
+    )
+    speakers_doc = (
+        ctx.read_json("understanding/speakers.json")
+        if ctx.artifact_exists("understanding/speakers.json")
+        else None
+    )
+    stamped = stamp_span_speakers(segments, transcript, speakers_doc)
+    for row in stamped:
+        if not isinstance(row, dict):
+            continue
+        speaker = str(row.get("speaker_id") or "").strip()
+        role = role_map.get(speaker) or str(row.get("speaker_role") or "unknown")
+        row["speaker_role"] = role
+        pri = pri_by_id.get(str(row.get("segment_id") or ""), "optional")
+        row["type"] = _segment_type_for_role(role, priority=pri)
     return {
-        "segments": segments,
+        "segments": stamped,
         "_meta": {
             "source": "talking_points_authority",
             "publisher_stage": "segment_classification",
-            "segment_count": len(segments),
+            "segment_count": len(stamped),
         },
     }
 

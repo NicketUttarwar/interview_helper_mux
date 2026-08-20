@@ -231,7 +231,7 @@ def test_duck_bed_static_fallback_when_speech_unusable() -> None:
     assert abs(out.dBFS - expected.dBFS) < 0.75
 
 
-def test_sidechain_bed_under_speech_quieter_than_silence(tmp_path: Path, monkeypatch) -> None:
+def test_underbed_holds_constant_level_under_speech_and_air(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     from interview_mux.config import merged_config
 
@@ -253,7 +253,7 @@ def test_sidechain_bed_under_speech_quieter_than_silence(tmp_path: Path, monkeyp
             "creative_delivery": {**(base_cfg.get("creative_delivery") or {}), "required": False},
         },
     )
-    ctx = RunContext("run_sidechain_bed", create=True)
+    ctx = RunContext("run_constant_underbed", create=True)
     init_run_meta_for_test(ctx)
 
     speech = _tone(300, 1500, gain_db=-3.0) + AudioSegment.silent(duration=1500, frame_rate=48000)
@@ -305,7 +305,10 @@ def test_sidechain_bed_under_speech_quieter_than_silence(tmp_path: Path, monkeyp
     assert stats["beds"] == 1
     bed = overlays[0]["audio"]
     assert isinstance(bed, AudioSegment)
-    assert bed[:1200].rms < bed[1800:].rms
+    assert float(overlays[0].get("duck_db") or 0.0) == 0.0
+    speech_half = bed[:1200]
+    air_half = bed[1800:]
+    assert abs(speech_half.dBFS - air_half.dBFS) < 1.5
 
 
 def test_stingers_not_sidechain_ducked(tmp_path: Path, monkeypatch) -> None:

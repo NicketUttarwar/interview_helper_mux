@@ -316,6 +316,22 @@
     "llm_calls": 1,
     "remaster_round": 0
   },
+  "junction_thought_complete": {
+    "version": 1,
+    "generated_at": "2026-01-01T00:00:00+00:00",
+    "cuts": [
+      {
+        "case_id": "seg_a",
+        "keep_end_ms": 4200,
+        "remainder_start_ms": 4500,
+        "consumed_segment_ids": ["seg_b"],
+        "rationale": "Finish the hanging clause then leave the next beat independent.",
+        "confidence": 0.9
+      }
+    ],
+    "llm_calls": 1,
+    "source": "llm"
+  },
   "synthetic_framing_plan": {
     "selection_order_content_hash": "fixture-order-hash",
     "strategy_summary": "Use one concise host bridge to restore comprehension.",

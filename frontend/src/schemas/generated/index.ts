@@ -10,6 +10,8 @@ const schemaLoaders: Record<string, () => Promise<z.ZodTypeAny>> = {
     (await import("./master_edl_narrative_audit_jsonSchema")).master_edl_narrative_audit_jsonSchema,
   "master/junction_feel_audit.json": async () =>
     (await import("./master_junction_feel_audit_jsonSchema")).master_junction_feel_audit_jsonSchema,
+  "master/junction_thought_complete.json": async () =>
+    (await import("./master_junction_thought_complete_jsonSchema")).master_junction_thought_complete_jsonSchema,
   "master/narrative_plan.json": async () =>
     (await import("./master_narrative_plan_jsonSchema")).master_narrative_plan_jsonSchema,
   "master/podcast_sfx_brief.json": async () =>

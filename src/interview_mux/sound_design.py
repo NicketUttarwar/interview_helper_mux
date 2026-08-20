@@ -75,7 +75,6 @@ def _check_bed_presence_band(
     )
     report["remux_cycle"] = remux_cycle
     report["adjustments"] = {
-        "duck_boost_db": float(contract.get("underbed_duck_boost_db") or 0.0),
         "bed_lift_db": float(contract.get("underbed_level_adjust_db") or 0.0),
         "carve_depth_db": float(eq["depth_db"]),
     }
@@ -93,16 +92,20 @@ def _check_bed_presence_band(
     verdict = str(report["verdict"])
     max_cycles = int(settings["max_remux_cycles"])
     if verdict == "remux_masking" and remux_cycle < max_cycles:
-        duck_step = float(settings["duck_step_db"])
         carve_step = float(settings["carve_step_db"])
-        current_duck = float(contract.get("underbed_duck_boost_db") or 0.0)
+        cut_step = float(settings["level_cut_step_db"])
         current_depth = float(eq["depth_db"])
+        current_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
+        cut = max(
+            -float(settings["max_total_bed_cut_db"]),
+            current_lift - cut_step,
+        )
 
         def _deepen(m: dict) -> None:
-            m["mix_underbed_duck_boost_db"] = min(12.0, current_duck + duck_step)
             m["mix_underbed_carve_depth_db"] = min(
                 float(eq["max_depth_db"]), current_depth + carve_step
             )
+            m["mix_underbed_lift_db"] = cut
 
         try:
             ctx.mutate_run_meta(_deepen)
@@ -346,12 +349,6 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                             "bed_under_dialogue_db": float(
                                 meta["mix_bed_presence_lift_db"]
                             ),
-                        }
-                    duck_boost = float(meta.get("mix_underbed_duck_boost_db") or 0.0)
-                    if duck_boost:
-                        contract = {
-                            **contract,
-                            "underbed_duck_boost_db": duck_boost,
                         }
                     if meta.get("mix_underbed_carve_depth_db") is not None:
                         contract = {
@@ -814,22 +811,29 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         ):
             boost = float(intel_cfg.get("remux_duck_boost_db") or 4.0)
             prev = float(contract.get("duck_under_speech_db") or 16.0)
+            prev_lift = float(contract.get("underbed_level_adjust_db") or 0.0)
+            bed_cut = prev_lift - boost
 
             def _boost_duck(m: dict) -> None:
-                # Persist deeper duck for remux cycle via run meta hint.
+                # Accents still sidechain; constant underbeds drop level instead.
                 m["mix_intelligibility_remux_duck_db"] = prev + boost
+                m["mix_underbed_lift_db"] = bed_cut
 
             try:
                 ctx.mutate_run_meta(_boost_duck)
             except Exception:
                 pass
             ctx.log(
-                f"mix: intelligibility remux with deeper duck (+{boost} dB, cycle {remux_cycle})",
+                f"mix: intelligibility remux duck +{boost} dB / underbed {bed_cut:+.1f} dB "
+                f"(cycle {remux_cycle})",
                 level="warning",
                 stage="mix",
             )
-            # Apply deeper duck into contract for recursive remux.
-            contract = {**contract, "duck_under_speech_db": prev + boost}
+            contract = {
+                **contract,
+                "duck_under_speech_db": prev + boost,
+                "underbed_level_adjust_db": bed_cut,
+            }
             return mix(ctx, remux_cycle=remux_cycle + 1)
         if intel is not None and not intel.ok and remux_on_fail:
             raise RuntimeError(
@@ -1219,23 +1223,15 @@ def flow1_overlays_from_sdp(
     max_stingers = stinger_cap * timeline_minutes
     stinger_count = 0
     duck_default = float(contract.get("duck_under_speech_db", 16.0))
-    underbed_duck_boost_db = float(contract.get("underbed_duck_boost_db") or 0.0)
     underbed_level_adjust_db = float(contract.get("underbed_level_adjust_db") or 0.0)
     sonic = load_sonic_context(ctx) or {}
     scenario = sonic.get("scenario") if isinstance(sonic.get("scenario"), dict) else {}
     atlas_bucket = str(scenario.get("atlas_bucket") or "")
     segment_flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
     overlap_high = {str(x) for x in (segment_flags.get("overlap_high") or [])}
-    # Soft map episode_structure music_transition verbs → duck / level nudge
-    # Speech (native + synthetic VO) always wins — deeper duck under dialogue/VO.
-    _verb_duck = {
-        "under_speech": max(duck_default, MIN_DUCK_DB),
-        "into_speech": max(duck_default, MIN_DUCK_DB + 2.0),
-        "around_vo": max(duck_default, MIN_DUCK_DB + 4.0),
-        "silence_as_transition": 99.0,
-        "resolve_swell": max(MIN_DUCK_DB - 2.0, duck_default - 2.0),
-        "tension_hold": max(duck_default, MIN_DUCK_DB) + 2.0,
-    }
+    # Accents / overlapping bookends still sidechain. Underbeds use a constant
+    # level plus EQ carve — a 12 dB speech-gate was pumping and burying them.
+    _verb_skip_bed = {"silence_as_transition"}
 
     # Consecutive per-segment beds using the same motif are one musical scene,
     # not dozens of independently faded clips. Collapse them before rendering.
@@ -1305,7 +1301,7 @@ def flow1_overlays_from_sdp(
             level_db = audibility_level_db(role="bed", default=level_db)
         else:
             level_db = audibility_level_db(role="stinger", default=level_db)
-        from interview_mux.tbiy_mix import apply_pan_position, tbiy_duck_db, tbiy_level_adjustment_db
+        from interview_mux.tbiy_mix import apply_pan_position, tbiy_level_adjustment_db
 
         level_db += tbiy_level_adjustment_db(ctx, cue, asset)
         if cue.get("skip") is True:
@@ -1361,13 +1357,8 @@ def flow1_overlays_from_sdp(
                 level_db = _adaptive_bed_level_db(ctx, default_level_db=level_db)
             level_db += underbed_level_adjust_db
             verb = str(cue.get("music_transition") or "").strip()
-            duck_for_cue = float(_verb_duck.get(verb, duck_default))
-            if verb == "silence_as_transition":
+            if verb in _verb_skip_bed:
                 continue
-            duck_db = (
-                max(MIN_DUCK_DB, tbiy_duck_db(ctx, cue, duck_for_cue))
-                + underbed_duck_boost_db
-            )
             fade_in, fade_out, fade_curve = _bed_fade_ms(
                 placement=placement, cue=cue, profile=profile if isinstance(profile, dict) else None
             )
@@ -1390,17 +1381,7 @@ def flow1_overlays_from_sdp(
                 ),
             )
             bed = apply_underbed_eq(bed, eq_settings)
-            speech_window = None
-            if speech_stem is not None and len(speech_stem) > 0:
-                speech_window = speech_stem[max(0, start_ms) : max(start_ms, end_ms)]
-            from interview_mux.sidechain_duck import duck_bed_with_sidechain
-
-            bed = duck_bed_with_sidechain(
-                bed,
-                speech_window,
-                level_db=level_db,
-                duck_db=duck_db,
-            )
+            bed = bed.apply_gain(level_db)
             bed = organic_fade_in(bed, fade_in, curve=fade_curve)
             bed = organic_fade_out(bed, fade_out, curve=fade_curve)
             out.append(
@@ -1413,7 +1394,7 @@ def flow1_overlays_from_sdp(
                     "cue_id": str(cue.get("cue_id") or ""),
                     "segment_ids": span_ids,
                     "level_db": level_db,
-                    "duck_db": duck_db,
+                    "duck_db": 0.0,
                     "underbed_eq": eq_settings,
                 }
             )
@@ -2090,8 +2071,7 @@ def _adaptive_bed_level_db(ctx: RunContext, *, default_level_db: float) -> float
     )
 
     default_level_db = audibility_level_db(role="bed", default=default_level_db)
-    # Prefer quieter beds under dense speech, but stay inside the audible band.
-    # Hard caps below that band used to bury underscores (~−22) on talk-heavy tape.
+    # Prefer the quiet end of the constant bed band under dense speech.
     lo, hi = _bed_level_band()
     if not creative_delivery_required():
         lo, hi = lo - 2.0, hi - 2.0

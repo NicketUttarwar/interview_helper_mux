@@ -467,21 +467,29 @@ def test_multi_speaker_incomplete_detection(tmp_path):
     findings = detect_junction_findings(ctx, edl)
     assert any(
         f.get("segment_id") == "seg_a"
-        and f.get("action") in {"extend_later", "cut_earlier", "merge_micro"}
+        and f.get("action") in {"extend_later", "cut_earlier", "thought_complete_recut", "merge_micro"}
         for f in findings
     )
 
 
-def test_same_speaker_incomplete_prefers_merge_micro(tmp_path, monkeypatch):
-    ctx = isolated_run_ctx(tmp_path, "exec_junction_merge")
+def test_same_speaker_incomplete_prefers_thought_complete_recut(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_thought")
     segments = [
         _seg("seg_a", start_ms=0, end_ms=4000, text="I think the real issue is if", speaker="spk_0"),
-        _seg("seg_b", start_ms=4200, end_ms=9000, text="we never shipped the release.", speaker="spk_0"),
+        _seg(
+            "seg_b",
+            start_ms=4200,
+            end_ms=14000,
+            text="we never shipped the release. Then we went to market later.",
+            speaker="spk_0",
+        ),
     ]
     ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
-    # Transcript has no extend room after the incomplete cut — forces merge ladder.
-    words = _words_from_segments([segments[0]])
-    ctx.write_json("transcript/full.json", {"words": words}, skip_handoff=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": _words_from_segments(segments)},
+        skip_handoff=True,
+    )
     ctx.write_json(
         "master/selection.json",
         stamp_order_hash({"ordered_segment_ids": ["seg_a", "seg_b"], "chapters": []}),
@@ -504,30 +512,131 @@ def test_same_speaker_incomplete_prefers_merge_micro(tmp_path, monkeypatch):
                     "type": "speech",
                     "segment_id": "seg_b",
                     "source_start_ms": 4200,
-                    "source_end_ms": 9000,
+                    "source_end_ms": 14000,
                     "timeline_start_ms": 4000,
-                    "duration_ms": 4800,
+                    "duration_ms": 9800,
                 },
             ],
-            "timeline_duration_ms": 8800,
+            "timeline_duration_ms": 13800,
         }
     )
     monkeypatch.setattr(
         "interview_mux.junction_snip_qa._find_last_complete_phrase_end",
         lambda *a, **k: None,
     )
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa._find_phrase_end_ms",
+        lambda *a, **k: None,
+    )
     findings = detect_junction_findings(ctx, edl)
-    merge = [f for f in findings if f.get("action") == "merge_micro"]
-    assert merge, f"expected merge_micro, got {[f.get('action') for f in findings]}"
-    new_edl, applied, changed = apply_junction_repairs(ctx, edl, merge)
+    recut = [f for f in findings if f.get("action") == "thought_complete_recut"]
+    assert recut, f"expected thought_complete_recut, got {[f.get('action') for f in findings]}"
+    assert not [f for f in findings if f.get("action") == "merge_micro"]
+
+    from interview_mux.thought_complete_recut import enrich_thought_complete_findings
+
+    findings, _ = enrich_thought_complete_findings(ctx, edl, recut, allow_llm=False)
+    detail = findings[0].get("detail") or {}
+    assert detail.get("keep_end_ms") is not None
+    assert int(detail["keep_end_ms"]) < 14000
+    new_edl, applied, changed = apply_junction_repairs(ctx, edl, findings)
     assert changed
     assert any(a.get("status") == "applied" for a in applied)
-    speech_ids = [
-        str(c.get("segment_id"))
+    speech = [
+        c
         for c in (new_edl.get("clips") or [])
         if str(c.get("type") or "") == "speech"
     ]
-    assert len(speech_ids) == 1
+    assert [str(c.get("segment_id")) for c in speech] == ["seg_a", "seg_b"]
+    hanging = next(c for c in speech if c["segment_id"] == "seg_a")
+    leftover = next(c for c in speech if c["segment_id"] == "seg_b")
+    assert int(hanging["source_end_ms"]) == int(detail["keep_end_ms"])
+    assert int(leftover["source_start_ms"]) >= int(hanging["source_end_ms"])
+    assert int(leftover["source_end_ms"]) == 14000
+
+
+def test_thought_complete_gap_words_do_not_swallow_next_section(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_gap")
+    segments = [
+        _seg("seg_a", start_ms=0, end_ms=2000, text="making", speaker="spk_0"),
+        _seg(
+            "seg_b",
+            start_ms=3500,
+            end_ms=8000,
+            text="Okay. Correlating the data later.",
+            speaker="spk_0",
+        ),
+    ]
+    gap_words = [
+        {"text": "sense", "start_ms": 2100, "end_ms": 2400, "speaker_id": "spk_0"},
+        {"text": "out", "start_ms": 2400, "end_ms": 2600, "speaker_id": "spk_0"},
+        {"text": "of", "start_ms": 2600, "end_ms": 2750, "speaker_id": "spk_0"},
+        {"text": "it,", "start_ms": 2750, "end_ms": 3200, "speaker_id": "spk_0"},
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {"words": _words_from_segments([segments[0]]) + gap_words + _words_from_segments([segments[1]])},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_a", "seg_b"], "chapters": []}),
+        skip_handoff=True,
+    )
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_a", "seg_b"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_a",
+                    "source_start_ms": 0,
+                    "source_end_ms": 2000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 2000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_b",
+                    "source_start_ms": 3500,
+                    "source_end_ms": 8000,
+                    "timeline_start_ms": 2000,
+                    "duration_ms": 4500,
+                },
+            ],
+            "timeline_duration_ms": 6500,
+        }
+    )
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa._find_last_complete_phrase_end",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.junction_snip_qa._find_phrase_end_ms",
+        lambda *a, **k: None,
+    )
+    findings = [
+        f for f in detect_junction_findings(ctx, edl) if f.get("action") == "thought_complete_recut"
+    ]
+    assert findings
+    from interview_mux.thought_complete_recut import enrich_thought_complete_findings
+
+    findings, _ = enrich_thought_complete_findings(ctx, edl, findings, allow_llm=False)
+    keep_end = int((findings[0].get("detail") or {}).get("keep_end_ms") or 0)
+    assert 2750 <= keep_end <= 3500
+    new_edl, _, changed = apply_junction_repairs(ctx, edl, findings)
+    assert changed
+    speech = {
+        str(c.get("segment_id")): c
+        for c in (new_edl.get("clips") or [])
+        if str(c.get("type") or "") == "speech"
+    }
+    assert set(speech) == {"seg_a", "seg_b"}
+    assert int(speech["seg_a"]["source_end_ms"]) == keep_end
+    assert int(speech["seg_b"]["source_start_ms"]) >= keep_end
+    assert int(speech["seg_b"]["source_end_ms"]) == 8000
 
 
 def test_exclude_reason_uses_finding_kind(tmp_path):

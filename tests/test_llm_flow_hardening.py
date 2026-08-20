@@ -120,12 +120,12 @@ def test_complete_llm_stage_or_halt_legacy_marks_done_on_failure(tmp_path, monke
     assert ok is True
     assert ctx.is_done("content_context")
 
-def test_require_llm_stage_progress_upstream_not_done(tmp_path, monkeypatch):
+def test_require_llm_stage_progress_skips_stages_without_producer(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
-    ctx = isolated_run_ctx(tmp_path, "fh_upstream_nd")
-    with pytest.raises(SystemExit, match="Prerequisite stage speaker_roles"):
-        require_llm_stage_progress(ctx, "speaker_roles")
+    ctx = isolated_run_ctx(tmp_path, "fh_no_producer")
+    require_llm_stage_progress(ctx, "vernacular_segment_sanitize")
+    maybe_require_upstream_llm_progress(ctx, "low_conf_island_scan")
 
 
 def test_require_llm_stage_progress_stamps_done_when_artifact_ok(tmp_path, monkeypatch):

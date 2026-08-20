@@ -209,7 +209,7 @@
     },
     "underbed_ab_qc": {
       "enabled": true,
-      "min_bed_relative_db": -38.0,
+      "min_bed_relative_db": -24.0,
       "max_speech_band_excess_db": 3.0,
       "lift_step_db": 2.0,
       "duck_step_db": 2.0,
@@ -268,8 +268,8 @@
       "min_stingers": 1,
       "min_foley": 0,
       "min_bed_coverage_ratio": 0.40,
-      "min_audible_bed_level_db": -18,
-      "max_audible_bed_level_db": -14,
+      "min_audible_bed_level_db": -16,
+      "max_audible_bed_level_db": -12,
       "min_audible_stinger_level_db": -15,
       "min_audible_cold_open_level_db": -9,
       "max_audible_cold_open_level_db": -5,
@@ -335,8 +335,8 @@
         "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -18,
-        "max_audible_bed_level_db": -14,
+        "min_audible_bed_level_db": -16,
+        "max_audible_bed_level_db": -12,
         "min_audible_cold_open_level_db": -9,
         "max_audible_cold_open_level_db": -5
       }
@@ -360,8 +360,8 @@
         "bed_duck_db": 12
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -18,
-        "max_audible_bed_level_db": -14,
+        "min_audible_bed_level_db": -14,
+        "max_audible_bed_level_db": -10,
         "min_audible_cold_open_level_db": -7,
         "max_audible_cold_open_level_db": -3
       }
@@ -385,8 +385,8 @@
         "bed_duck_db": 14
       },
       "soundscape_min_density_overrides": {
-        "min_audible_bed_level_db": -24,
-        "max_audible_bed_level_db": -20,
+        "min_audible_bed_level_db": -20,
+        "max_audible_bed_level_db": -16,
         "min_audible_cold_open_level_db": -11,
         "max_audible_cold_open_level_db": -7
       }
@@ -1594,6 +1594,9 @@
       "impact_hold_ms_min": 1200,
       "impact_hold_ms_max": 3500,
       "feel_audit_enabled": true,
+      "thought_complete_llm_enabled": true,
+      "thought_complete_max_segments": 4,
+      "thought_complete_max_ms": 24000,
       "max_remaster_rounds": 2,
       "apply_repairs": true,
       "music_soft_crossfade_ms": 180,

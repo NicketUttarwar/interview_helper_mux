@@ -19,6 +19,7 @@ Runtime (future): prepend `_shared/analysis-preamble.system.txt` when wired into
 | `flagship-synthesize.system.txt` | Authoritative mastering_plan | flagship |
 | `polish-audit.system.txt` | Audio-grounded post-mix polish + bounded remux (heritage; OH-P1 dropped) | flagship |
 | `junction-feel-audit.system.txt` | Single post-mix feel audit of junctions (`OH-J1`) — never per-edge | standard |
+| `junction-thought-complete.system.txt` | Batched hanging-end recuts (`OH-J2`) — transcript lookahead, not whole-segment absorb | standard |
 
 North-star pillars must appear in every shape-related mint/edit.
 

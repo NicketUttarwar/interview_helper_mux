@@ -377,6 +377,16 @@
       "consumers": [],
       "has_write_validator": true
     },
+    "master/junction_thought_complete.json": {
+      "schemas_by_producer": {
+        "junction_thought_complete": "junction_thought_complete.schema.json"
+      },
+      "producers": [
+        "junction_thought_complete"
+      ],
+      "consumers": [],
+      "has_write_validator": true
+    },
     "master/transcript.json": {
       "schemas_by_producer": {
         "master_transcript_build": "master_transcript.schema.json"

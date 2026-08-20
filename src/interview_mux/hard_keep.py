@@ -57,6 +57,12 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
                 ids.update(str(s) for s in (row.get("segment_ids") or []) if s)
         except Exception:
             pass
+    try:
+        from interview_mux.media_ip_cta import never_touch_segment_ids
+
+        ids -= never_touch_segment_ids(ctx)
+    except Exception:
+        pass
     return {s for s in ids if s}
 
 

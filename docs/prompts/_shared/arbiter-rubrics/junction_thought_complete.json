@@ -1,0 +1,24 @@
+{
+  "stage_key": "junction_thought_complete",
+  "severity": "high",
+  "accept_criteria": [
+    "Each cut finishes the hanging native clause at a legal complete-thought word end",
+    "keep_end_ms is one of the provided legal_cut_ms values",
+    "Leftover following speech stays independent at remainder_start_ms or is dropped when backchannel-only",
+    "Following sections are not absorbed whole the way a micro-merge would"
+  ],
+  "reject_patterns": [
+    "keep_end_ms jumps past a second complete idea to glue two whole segments",
+    "Cut invents words or times that are not in the lookahead transcript",
+    "Remainder opens mid-clause after a continuer with no leftover content",
+    "Whole following same-speaker section is consumed when a nearer thought-complete cut exists"
+  ],
+  "min_confidence_on_accept": 0.75,
+  "decompose_eligible": false,
+  "deterministic_lint_keys": [
+    "envelope_status_complete",
+    "schema_errors_empty",
+    "producer_artifact_complete",
+    "upstream_artifacts_complete"
+  ]
+}

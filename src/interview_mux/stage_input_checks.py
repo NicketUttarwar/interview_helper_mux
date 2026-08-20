@@ -464,23 +464,12 @@ def _check_edl(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def _check_flow1_profile_gate(ctx: RunContext) -> list[StageInputIssue]:
-    if not ctx.artifact_exists("understanding/analysis_state.json"):
-        return [
-            StageInputIssue(
-                "analysis_state.json missing",
-                "Complete analysis through optimal_questions.",
-            )
-        ]
-    state = ctx.read_json("understanding/analysis_state.json")
-    meta = state.get("meta") if isinstance(state, dict) else {}
-    if isinstance(meta, dict) and meta.get("operator_verified"):
-        return []
-    return [
-        StageInputIssue(
-            "Interview profile not operator-verified",
-            "Open Interview profile in the GUI and Mark verified before Flow 1 extended stages.",
-        )
-    ]
+    """v2 removed the analysis-profile / ``operator_verified`` operator gate.
+
+    Callers keep the helper so stage checkers stay call-compatible, but it must
+    never block delivery. Homunculus 0.1.0 and Full-auto both hit this path.
+    """
+    return []
 
 
 def _check_topic_coverage_audit(ctx: RunContext) -> list[StageInputIssue]:

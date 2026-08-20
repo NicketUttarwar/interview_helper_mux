@@ -28,7 +28,7 @@ Make music/SFX **dynamically decided and measurably enforced** for each recordin
   "pace_class": "conversational",
   "sfx_density": { "max_beds": 2, "max_punctuators": 2, "max_foley": 1 },
   "mix_contract": {
-    "bed_level_db_range": [-22, -18],
+    "bed_level_db_range": [-16, -12],
     "duck_under_speech_db": 12,
     "stinger_max_per_minute": 2,
     "midrange_policy": "carve_speech",

@@ -292,3 +292,18 @@ def test_check_write_approval_deferred_same_stage_soft_blocks(
     pending = check_write_approval_before_execute(ctx, stage_id="source_topology_build")
     assert pending is not None
     assert pending.stage_id == "source_topology_build"
+
+
+def test_topic_coverage_audit_does_not_require_removed_profile_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import populated_analysis_state
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(
+        "understanding/analysis_state.json",
+        populated_analysis_state(ctx.run_id, verified=False),
+        skip_handoff=True,
+    )
+    issues = collect_stage_input_issues(ctx, "topic_coverage_audit")
+    assert not any("operator-verified" in issue.message.lower() for issue in issues)

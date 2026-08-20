@@ -923,7 +923,7 @@ def hunt_sonic_opportunities(ctx: RunContext) -> list[dict[str, Any]]:
                     "segment_id": segs[0],
                     "span_segment_ids": segs,
                     "suggested_role": "theme_underscore" if not lift else "optional_loop",
-                    "why": f"abundant ducked underbed for scene {scene.get('scene_id')}",
+                    "why": f"abundant constant-level underbed for scene {scene.get('scene_id')}",
                 }
             )
         opportunities.append(

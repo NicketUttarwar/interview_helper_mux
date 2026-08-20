@@ -606,10 +606,13 @@ def _patch_brief_ids_after_resplit(ctx: RunContext) -> None:
 
 def run_classification(ctx: RunContext) -> None:
     from interview_mux.artifact_writes import write_validated_artifact
+    from interview_mux.boundary_enrich import restamp_run_span_speakers
     from interview_mux.classification_obligation import classification_context_cfg
     from interview_mux.llm_simple import StageError, run_llm_stage_simple
     from interview_mux.segmentation_input_resolver import build_classification_payload
     from interview_mux.talking_points_authority import try_deterministic_classification
+
+    restamp_run_span_speakers(ctx)
 
     det = try_deterministic_classification(ctx)
     if det is not None and (det.get("segments") or []):
@@ -647,7 +650,37 @@ def run_classification(ctx: RunContext) -> None:
         segments = artifacts.get("segments") or artifacts
         if isinstance(segments, dict):
             segments = segments.get("segments", [])
-        return {"segments": segments}
+        from interview_mux.boundary_enrich import stamp_span_speakers
+
+        transcript = (
+            ctx.read_json("transcript/full.json")
+            if ctx.artifact_exists("transcript/full.json")
+            else None
+        )
+        speakers_doc = (
+            ctx.read_json("understanding/speakers.json")
+            if ctx.artifact_exists("understanding/speakers.json")
+            else None
+        )
+        rows = [s for s in segments if isinstance(s, dict)]
+        stamped = stamp_span_speakers(rows, transcript, speakers_doc)
+        role_map: dict[str, str] = {}
+        if isinstance(speakers_doc, dict):
+            for sp in speakers_doc.get("speakers") or []:
+                if isinstance(sp, dict) and sp.get("speaker_id"):
+                    role_map[str(sp["speaker_id"])] = str(sp.get("role") or "unknown")
+        for row in stamped:
+            sid = str(row.get("speaker_id") or "")
+            role = role_map.get(sid)
+            if not role:
+                continue
+            row["speaker_role"] = role
+            typ = str(row.get("type") or "")
+            if role == "interviewee" and typ == "interviewer_question":
+                row["type"] = "interviewee_answer"
+            elif role == "interviewer" and typ == "interviewee_answer":
+                row["type"] = "interviewer_question"
+        return {"segments": stamped}
 
     persist = make_stage_persist(
         "segments/manifest.json",

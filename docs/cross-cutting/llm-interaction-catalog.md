@@ -107,8 +107,9 @@ Only entrypoint: `local_volley_framer.prepare_volley_for_llm` (fail-open).
 | OH-C1–C6 | L4 critic panel | `mastering_critics.build_critic_packets` |
 | OH-A1 | `l4_arbiter` | `mastering_critics.merge_panel` |
 | OH-J1 | `junction_feel_audit` | `junction_snip_qa.run_junction_feel_audit` |
+| OH-J2 | `junction_thought_complete` | `thought_complete_recut.run_junction_thought_complete` |
 
-Gate status: [mastering-quality-hardening.md](./mastering-quality-hardening.md). **Dropped in v2:** OH-01 (`research_router`) and OH-P1 (`polish_audit_audio`). Junction snip QA itself is mostly deterministic; OH-J1 is the single feel-audit LLM (never per-edge).
+Gate status: [mastering-quality-hardening.md](./mastering-quality-hardening.md). **Dropped in v2:** OH-01 (`research_router`) and OH-P1 (`polish_audit_audio`). Junction snip QA is deterministic plus two O(1) LLMs: OH-J2 (batched hanging-end recuts) then OH-J1 (feel audit). Never per-edge OpenAI.
 
 ---
 

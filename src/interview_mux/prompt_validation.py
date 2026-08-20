@@ -46,6 +46,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "mmaudio_sfx": "mmaudio_qa.schema.json",
     "sfx_brief": "sfx_montage_artifact.schema.json",
     "junction_feel_audit": "junction_feel_audit.schema.json",
+    "junction_thought_complete": "junction_thought_complete.schema.json",
     "master_transcript_build": "master_transcript.schema.json",
 }
 
@@ -102,6 +103,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "sfx_prompt_refine": "sound_design/sfx_prompts.json",
     "mmaudio_sfx": "sound_design/mmaudio_qa.json",
     "junction_feel_audit": "master/junction_feel_audit.json",
+    "junction_thought_complete": "master/junction_thought_complete.json",
     "master_transcript_build": "master/transcript.json",
     "mastering_research_routing": "mastering/research/routing.json",
     "mastering_research_waves": "mastering/research/waves.json",
@@ -468,6 +470,10 @@ def validate_junction_feel_audit(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("junction_feel_audit.schema.json", data)
 
 
+def validate_junction_thought_complete(data: dict[str, Any]) -> list[str]:
+    return _validate_by_artifact_schema("junction_thought_complete.schema.json", data)
+
+
 def validate_seam_autopsy(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("seam_autopsy.schema.json", data)
 
@@ -522,6 +528,7 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "mastering/chapter_close_hitch.json": validate_chapter_close_hitch,
     "mastering/media_ip_cta.json": validate_media_ip_cta,
     "master/junction_feel_audit.json": validate_junction_feel_audit,
+    "master/junction_thought_complete.json": validate_junction_thought_complete,
     "master/seam_autopsy.json": validate_seam_autopsy,
     "master/failure_review.json": validate_failure_review,
     "master/remediation_plan.json": validate_remediation_plan,

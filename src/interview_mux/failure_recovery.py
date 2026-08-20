@@ -26,6 +26,7 @@ SUPPORTED_ACTIONS = frozenset(
         "resnip_earlier",
         "resnip_later",
         "merge_micro",
+        "thought_complete_recut",
         "exclude_micro",
         "rebuild_synthetic_plan",
         "rewrite_vo_line",
@@ -228,6 +229,7 @@ def _default_action(piece: dict[str, Any]) -> dict[str, Any]:
     action_type = {
         "exclude_micro": "exclude_micro",
         "merge_micro": "merge_micro",
+        "thought_complete_recut": "thought_complete_recut",
         "extend_later": "resnip_later",
         "cut_earlier": "resnip_earlier",
         "nudge_source_bounds": "resnip_later",
@@ -328,6 +330,7 @@ def _bias_action_from_hints(
         mapped = {
             "exclude_micro": "exclude_micro",
             "merge_micro": "merge_micro",
+            "thought_complete_recut": "thought_complete_recut",
             "extend_later": "resnip_later",
             "cut_earlier": "resnip_earlier",
             "resnip_later": "resnip_later",

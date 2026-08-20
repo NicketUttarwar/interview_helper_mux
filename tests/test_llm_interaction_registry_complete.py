@@ -39,7 +39,7 @@ def test_registry_has_all_catalog_ids():
         "OM-01", "OM-F01", "OM-SAFE",
         "OS-01", "OS-02", "OS-03", "OS-04", "OS-05",
         "LX-01", "LX-01a", "LX-01b", "LX-01c", "LX-01d",
-        "OH-02", "OH-03", "OH-A1", "OH-J1",
+        "OH-02", "OH-03", "OH-A1", "OH-J1", "OH-J2",
         "OH-C1", "OH-C2", "OH-C3", "OH-C4", "OH-C5", "OH-C6",
     }
     assert expected.issubset(registry_ids())
@@ -92,10 +92,12 @@ def test_resolve_interaction_id_only_returns_registered_ids():
         {"stage_key": "content_context", "task_kind": "local_primary", "provider": "local_mlx"},
         {"stage_key": "content_context__itr", "task_kind": "itr", "provider": "local_mlx"},
         {"stage_key": "junction_feel_audit", "task_kind": "primary"},
+        {"stage_key": "junction_thought_complete", "task_kind": "primary"},
     ]
     for case in cases:
         assert resolve_interaction_id(**case) in ids, case
     assert resolve_interaction_id(stage_key="junction_feel_audit", task_kind="primary") == "OH-J1"
+    assert resolve_interaction_id(stage_key="junction_thought_complete", task_kind="primary") == "OH-J2"
 
 
 def test_run_prompt_envelope_sites_in_expected_modules():

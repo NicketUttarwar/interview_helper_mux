@@ -145,6 +145,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "mix": ("master/assembly.wav",),
     "junction_snip_qa": (
         "master/junction_snip_qa.json",
+        "master/junction_thought_complete.json",
         "master/junction_feel_audit.json",
         "master/seam_autopsy.json",
         "master/render_ledger.json",

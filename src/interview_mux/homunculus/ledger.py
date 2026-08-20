@@ -121,4 +121,12 @@ def last_fact_ids_for_tool(ctx: RunContext, tool_id: str) -> list[str]:
 
 
 def remainder_requested(ctx: RunContext) -> bool:
-    return any(row.get("kind") == "walk_seed_remainder" for row in read_ledger(ctx))
+    """True only until the matching seed walk runs — not sticky across later phases."""
+    requested = False
+    for row in read_ledger(ctx):
+        kind = row.get("kind")
+        if kind == "walk_seed_remainder":
+            requested = True
+        elif kind == "fallback" and row.get("identity") == "walk_seed_agenda":
+            requested = False
+    return requested

@@ -206,7 +206,7 @@ def test_arrangement_alternates_slot_safe_contiguous_scenes() -> None:
     assert scene_assets[0] != scene_assets[1]
     assert scene_assets[0] == scene_assets[2]
     assert len({c["asset_id"] for c in beds[2:]}) == 1
-    assert all(c["level_db"] == -28 and c["crossfade_ms"] >= 1500 for c in beds)
+    assert all(float(c["level_db"]) >= -16 and c["crossfade_ms"] >= 1500 for c in beds)
 
 
 def test_single_loop_caps_scenes_and_leaves_dry_chapter(

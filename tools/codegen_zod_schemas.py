@@ -43,6 +43,7 @@ ARTIFACT_SCHEMA_FILES: dict[str, str] = {
     "master/edl.json": "artifacts/edl.schema.json",
     "master/transcript.json": "artifacts/master_transcript.schema.json",
     "master/junction_feel_audit.json": "artifacts/junction_feel_audit.schema.json",
+    "master/junction_thought_complete.json": "artifacts/junction_thought_complete.schema.json",
     "show_notes/show_description.json": "artifacts/show_description_artifact.schema.json",
     "sound_design/sfx_prompts.json": "artifacts/sfx_prompts_artifact.schema.json",
     "sound_design/mmaudio_qa.json": "artifacts/mmaudio_qa.schema.json",

@@ -709,6 +709,145 @@ def test_walk_seed_does_not_rewind_before_planned(monkeypatch) -> None:
     assert walked == ["missing_framing"]
 
 
+def test_walk_seed_remainder_is_consumed_after_fallback() -> None:
+    from interview_mux.homunculus.agenda import request_walk_seed_remainder
+    from interview_mux.homunculus.ledger import append_ledger, remainder_requested
+
+    ctx = _ctx_010()
+    request_walk_seed_remainder(ctx, reason="test")
+    assert remainder_requested(ctx) is True
+    append_ledger(
+        ctx,
+        {
+            "kind": "fallback",
+            "identity": "walk_seed_agenda",
+            "reason": "walk_seed_remainder",
+        },
+    )
+    assert remainder_requested(ctx) is False
+
+
+def test_delivery_refuses_boundary_rewind_when_classified(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import write_agenda
+    from interview_mux.homunculus.runtime import dispatch_stage
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    write_agenda(ctx, "delivery", ["topic_coverage_audit"], source="test")
+    bpath = ctx.path("segments/boundaries.json")
+    bpath.parent.mkdir(parents=True, exist_ok=True)
+    bpath.write_text(
+        '{"boundaries":[{"segment_id":"seg_001","start_ms":0,"end_ms":8000,'
+        '"proposed_split_reason":"pause"}]}',
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                }
+            ]
+        },
+    )
+    done = ctx.final_path(".stage_done", "boundary_detection")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    ran: list[str] = []
+    with pytest.raises(RuntimeError, match="timeline artifacts exist"):
+        dispatch_stage(ctx, "boundary_detection", lambda: ran.append("ran"), source="conductor")
+    assert ran == []
+
+
+def test_g0_refuses_boundary_rewind_even_during_analysis() -> None:
+    from interview_mux.homunculus.agenda import write_agenda
+    from interview_mux.homunculus.runtime import dispatch_stage
+
+    ctx = _ctx_010()
+    _close_g0(ctx)
+    write_agenda(ctx, "analysis", ["boundary_detection"], source="test")
+    bpath = ctx.path("segments/boundaries.json")
+    bpath.parent.mkdir(parents=True, exist_ok=True)
+    bpath.write_text(
+        '{"boundaries":[{"segment_id":"seg_001","start_ms":0,"end_ms":8000,'
+        '"proposed_split_reason":"pause"}]}',
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                }
+            ]
+        },
+    )
+    ran: list[str] = []
+    with pytest.raises(RuntimeError, match="timeline artifacts exist"):
+        dispatch_stage(ctx, "boundary_detection", lambda: ran.append("ran"), source="conductor")
+    assert ran == []
+
+
+def test_pending_analysis_for_delivery_lists_missing_gap_artifacts() -> None:
+    from interview_mux.homunculus.agenda import pending_analysis_for_delivery
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "speaker_id": "spk_1",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+    )
+    bpath = ctx.path("segments/boundaries.json")
+    bpath.parent.mkdir(parents=True, exist_ok=True)
+    bpath.write_text(
+        '{"boundaries":[{"segment_id":"seg_001","start_ms":0,"end_ms":8000,'
+        '"proposed_split_reason":"pause"}]}',
+        encoding="utf-8",
+    )
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "boundary_detection").write_text("", encoding="utf-8")
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "segment_classification").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {
+            "thesis": "Precision oncology from circulating tumour cells.",
+            "topics": [{"name": "liquid biopsy", "summary": "blood draw diagnostics"}],
+        },
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done" / "content_brief_reanchor").write_text("", encoding="utf-8")
+    pending = pending_analysis_for_delivery(ctx)
+    assert pending[0] == "missing_framing"
+    assert "gap_framing_compose" in pending
+    assert "delivery_brief_build" in pending
+
+
 def test_remaining_stages_uses_seed_order_not_scheduled_reorder() -> None:
     from interview_mux.homunculus.agenda import remaining_stages, write_agenda
 

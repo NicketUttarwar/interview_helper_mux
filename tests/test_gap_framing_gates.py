@@ -259,3 +259,65 @@ def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None
     assert evals["evaluations"][0]["severity"] == "medium"
     assert evals["evaluations"][0]["severity_demotion_reason"] == "uncovered_after_fill"
 
+
+def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None:
+    """Seed lines that fail spoken-copy must not leave a high gap uncovered at lint."""
+    from interview_mux.artifact_repairs import repair_gap_report
+    from interview_mux.deterministic_lint import _lint_optimal_questions
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_022",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_callback",
+                    "listener_confusion": "unclear wait",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_022",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "text": "Okay. You know, so you don't have to wait.",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    repaired, notes = repair_gap_report(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_seed_seg_022",
+                    "text": "",
+                    "targets_segment_id": "seg_022",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+    )
+    assert any(
+        n.get("action") == "omit_unsafe_optional_vo" for n in notes if isinstance(n, dict)
+    ) or not any(
+        str(ln.get("line_id")) == "vo_seed_seg_022" and str(ln.get("text") or "").strip()
+        for ln in (repaired.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    )
+    assert demote_uncovered_high_gaps(ctx, gap_report=repaired) == 1
+    after = _lint_optimal_questions(repaired, ctx)
+    assert not any("has no interviewer line" in e for e in after)
+

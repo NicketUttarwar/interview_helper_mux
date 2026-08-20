@@ -22,8 +22,32 @@ _ISLAND_ARTIFACTS = (
     "analysis/low_conf_islands.json",
     "analysis/connector_fuse_audit.json",
 )
-# After G0 is closed, re-STT / re-ingest is not a surgical rerun — pack g0_transcript.
-G0_LOCKED_RERUN_STAGES = frozenset({"transcribe", "ingest", "audio_preclean"})
+# After G0 is closed, re-STT / re-ingest / re-clip is not a surgical rerun — pack g0_transcript.
+G0_LOCKED_RERUN_STAGES = frozenset(
+    {"transcribe", "ingest", "audio_preclean", "transcript_review_build"}
+)
+# Delivery must not rewind the classified timeline; fill gap artifacts instead.
+DELIVERY_LOCKED_TIMELINE_STAGES = frozenset(
+    {
+        "transcript_review_build",
+        "speaker_roles",
+        "content_context",
+        "talking_points_compose",
+        "ideal_cuts_propose",
+        "ideal_cuts_materialize",
+        "boundary_detection",
+        "segment_classification",
+        "content_brief_reanchor",
+    }
+)
+DELIVERY_ANALYSIS_PREREQS: tuple[tuple[str, str], ...] = (
+    ("boundary_detection", "segments/boundaries.json"),
+    ("segment_classification", "segments/manifest.json"),
+    ("content_brief_reanchor", "understanding/content_brief.json"),
+    ("missing_framing", "understanding/gap_evaluations.json"),
+    ("gap_framing_compose", "understanding/gap_report.json"),
+    ("delivery_brief_build", "understanding/delivery_brief.json"),
+)
 PREPARE_STAGE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "audio_preclean": (
         "preclean/isolated.wav",
@@ -92,6 +116,54 @@ def _refuse_classified_manifest_rerun(ctx: RunContext, stage: str, *, action: st
     raise RuntimeError(
         f"cannot {action} segment_classification: classified segment_id and "
         "speaker_role already exist; pack segment_manifest for gap eval"
+    )
+
+
+def _delivery_phase_active(ctx: RunContext) -> bool:
+    return str(_read_agenda(ctx).get("phase") or "") == "delivery"
+
+
+def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
+    """Analysis producers topic_coverage_audit needs before a delivery walk."""
+    pending: list[str] = []
+    for stage, rel in DELIVERY_ANALYSIS_PREREQS:
+        if ctx.artifact_exists(rel) and ctx.is_done(stage):
+            continue
+        if ctx.artifact_exists(rel) and not ctx.is_done(stage):
+            ctx.mark_done(stage, force=True)
+            continue
+        pending.append(stage)
+    return pending
+
+
+def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str) -> None:
+    """Do not rewind the classified timeline after G0 when artifacts already exist."""
+    if stage not in DELIVERY_LOCKED_TIMELINE_STAGES:
+        return
+    from interview_mux.homunculus.packer import g0_closed
+
+    if not g0_closed(ctx):
+        return
+    if stage == "transcript_review_build":
+        if not ctx.is_done(stage):
+            ctx.mark_done(stage, force=True)
+        raise RuntimeError(
+            f"cannot {action} transcript_review_build: G0 is closed"
+        )
+    if stage == "segment_classification":
+        _refuse_classified_manifest_rerun(ctx, stage, action=action)
+        return
+    needed = PROTECTED_CORE_STAGES.get(stage) or ()
+    has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
+    classified = _manifest_has_classified_segments(ctx)
+    if not has_art and not classified:
+        return
+    if has_art and not ctx.is_done(stage):
+        ctx.mark_done(stage, force=True)
+    raise RuntimeError(
+        f"cannot {action} {stage}: timeline artifacts exist after G0; "
+        "pack existing facts and fill missing_framing / gap_framing_compose / "
+        "delivery_brief_build instead of rewinding the classified tape"
     )
 
 
@@ -264,6 +336,7 @@ def rerun_stage(
 ) -> dict[str, Any]:
     _refuse_g0_locked_rerun(ctx, stage, action="rerun")
     _refuse_classified_manifest_rerun(ctx, stage, action="rerun")
+    _refuse_delivery_timeline_rewind(ctx, stage, action="rerun")
     seq = unmark_stage_only(ctx, stage)
     if extra_fact_ids:
         from interview_mux.homunculus.packer import pack_volley
@@ -295,6 +368,7 @@ def rerun_stage(
 
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
+    _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")
     order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     ctx.clear_from(stage, order)
     append_ledger(
@@ -339,6 +413,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 continue
             try:
                 _refuse_g0_locked_rerun(ctx, stage, action="walk")
+                _refuse_delivery_timeline_rewind(ctx, stage, action="walk")
             except RuntimeError:
                 if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
                     ctx.mark_done(stage, force=True)
@@ -364,6 +439,33 @@ def run_homunculus_phase(
     want = set(prior) | set(cleared)
     remaining = [s for s in _order_for(phase) if s in want and not ctx.is_done(s)]
     write_agenda(ctx, phase, remaining, source="conductor")
+    if phase == "delivery":
+        pending_analysis = pending_analysis_for_delivery(ctx)
+        if pending_analysis:
+            ctx.log(
+                "homunculus delivery blocked on analysis prereqs — "
+                f"walking {pending_analysis}",
+                level="warning",
+                stage=pending_analysis[0],
+            )
+            walk_seed_agenda(ctx, pending_analysis, reason="delivery_needs_analysis")
+            pending_analysis = pending_analysis_for_delivery(ctx)
+            if pending_analysis:
+                ctx.log(
+                    "homunculus delivery still blocked on analysis "
+                    f"({', '.join(pending_analysis)}); topic_coverage must wait",
+                    level="warning",
+                    stage=pending_analysis[0],
+                )
+                return {
+                    "conductor": {
+                        "ok": False,
+                        "blocked_on_analysis": pending_analysis,
+                    },
+                    "remaining_after": remaining_stages(ctx, phase),
+                }
+            remaining = [s for s in _order_for(phase) if s in want and not ctx.is_done(s)]
+            write_agenda(ctx, phase, remaining, source="conductor")
     from interview_mux.homunculus.persona import write_persona
     from interview_mux.homunculus.source_card import build_source_card
     from interview_mux.homunculus.speakers import build_speaker_dossier
@@ -407,6 +509,36 @@ def run_homunculus_phase(
                 },
             )
     still = [s for s in remaining if not ctx.is_done(s)]
+    if still:
+        ctx.log(
+            f"homunculus {phase} incomplete after conductor "
+            f"({len(still)} remaining; master QA must wait)",
+            level="info",
+            stage=still[0],
+        )
     if still and remainder_requested(ctx):
         walk_seed_agenda(ctx, still, reason="walk_seed_remainder")
+    elif (
+        still
+        and phase == "delivery"
+        and not ctx.artifact_exists("master/master.wav")
+    ):
+        ctx.log(
+            "homunculus delivery walking remaining seed to master "
+            f"({len(still)} stage(s))",
+            level="warning",
+            stage=still[0],
+        )
+        walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
+    elif phase == "analysis":
+        pending = pending_analysis_for_delivery(ctx)
+        prereq_ids = {s for s, _ in DELIVERY_ANALYSIS_PREREQS}
+        if pending and any(s in prereq_ids for s in still):
+            ctx.log(
+                "homunculus analysis filling delivery prereqs — "
+                f"walking {still[:12]}",
+                level="warning",
+                stage=still[0],
+            )
+            walk_seed_agenda(ctx, still, reason="analysis_fill_delivery_prereqs")
     return {"conductor": conductor_out, "remaining_after": remaining_stages(ctx, phase)}

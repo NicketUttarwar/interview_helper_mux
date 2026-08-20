@@ -102,7 +102,30 @@ def post_commit_validate(ctx: Any, stage_key: str) -> list[str]:
     from interview_mux.stage_acceptance import stage_acceptance_ok
 
     result = stage_acceptance_ok(ctx, stage_key, staged=False, include_downstream=False)
-    return result.all_errors
+    errors = list(result.all_errors or [])
+    if stage_key == "gap_framing_compose" and any(
+        "has no interviewer line" in str(e) for e in errors
+    ):
+        try:
+            from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+
+            report = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else {"interviewer_lines": []}
+            )
+            if demote_uncovered_high_gaps(
+                ctx,
+                gap_report=report if isinstance(report, dict) else None,
+                origin="post_commit_uncovered_high",
+            ):
+                result = stage_acceptance_ok(
+                    ctx, stage_key, staged=False, include_downstream=False
+                )
+                errors = list(result.all_errors or [])
+        except Exception:
+            pass
+    return errors
 
 
 def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
@@ -128,7 +151,30 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         return None
     meta = doc.get("_meta") or {}
     if meta.get("stale"):
-        return f"{rel} is marked stale ({meta.get('stale_reason') or 'upstream fix'})"
+        reason = str(meta.get("stale_reason") or "")
+        if reason == f"invalidated_by:{consumer_stage}":
+            # A stage must not deadlock on a stale stamp it just wrote.
+            return None
+        if rel == "understanding/content_brief.json" and reason.startswith("invalidated_by:"):
+            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+            from_stage = reason.split(":", 1)[-1]
+            order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+            if (
+                from_stage in order
+                and "content_brief_reanchor" in order
+                and order.index(from_stage) < order.index("content_brief_reanchor")
+            ):
+                # Shared path: boundary_detection must not stale the pre-reanchor brief.
+                meta.pop("stale", None)
+                meta.pop("stale_reason", None)
+                doc["_meta"] = meta
+                try:
+                    ctx.write_json(rel, doc, skip_handoff=True)
+                except Exception:
+                    pass
+                return None
+        return f"{rel} is marked stale ({reason or 'upstream fix'})"
     stored = {}
     if ctx.artifact_exists("run_meta.json"):
         try:
@@ -138,6 +184,15 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
             stored = {}
     entry = stored.get(rel) or {}
     if entry.get("hash") and meta.get("content_hash") and entry["hash"] != meta["content_hash"]:
+        producer = str(entry.get("producer_stage") or consumer_stage or "")
+        try:
+            restamped = restamp_committed_artifact(
+                ctx, rel, producer_stage=producer, doc=doc
+            )
+            if restamped is not None:
+                return None
+        except Exception:
+            pass
         return f"{rel} fingerprint mismatch — re-run producer {entry.get('producer_stage')}"
     return None
 
@@ -203,6 +258,16 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
                 ):
                     # Shared disk paths (content_brief, boundaries) must not
                     # stale an upstream producer when a later alias is downstream.
+                    continue
+                if (
+                    rel == "understanding/content_brief.json"
+                    and "content_brief_reanchor" in order
+                    and from_idx >= 0
+                    and from_idx < order.index("content_brief_reanchor")
+                ):
+                    # Reanchor shares content_brief.json with content_context.
+                    # Re-running boundary_detection must not stale the still-valid
+                    # pre-reanchor brief (that deadlock blocked boundaries forever).
                     continue
                 meta["stale"] = True
                 meta["stale_reason"] = f"invalidated_by:{from_stage}"

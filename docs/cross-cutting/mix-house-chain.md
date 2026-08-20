@@ -7,26 +7,15 @@ Audacity-class **order**, not a full DAW UI. Speech / [speaker volleys](./volley
 3. Edit — keep speaker volleys intact; fades at edges  
 4. Per-speaker level match (`mix.per_speaker_level_match`, median LUFS/RMS, ±6 dB clamp)  
 5. Place VO at volley boundaries / framing-before-impact  
-6. Place beds under active speaker volleys; stingers at hinges  
-7. Duck — speech-wins envelope sidechain under volleys (`mix.sidechain_duck`; static fallback)  
+6. Place beds under active speaker volleys at a **constant** `level_db`; stingers at hinges  
+7. Speech-wins: underbeds keep that constant level plus a 1.5–4 kHz EQ carve; accents / overlapping bookends still envelope-sidechain (`mix.sidechain_duck`)  
 8. Glue / safety limiter (`master.safety_limiter_*` → FFmpeg `alimiter`)  
 9. Loudnorm → `master/master.wav` (−16 LUFS podcast)  
 10. QC — `verify_master`, intelligibility, soundscape remux capped  
 
-## Speech-wins ducking / VO↔native harmony (Plan 4)
+## Speech-wins beds / VO↔native harmony (Plan 4)
 
-Step 7 is **speech-wins** by construction, not just by name: `sidechain_duck.envelope_duck`
-follows a soft speech gate (attack 40 ms / release 900 ms defaults) and attenuates the
-bed under *any* active voice on the timeline — recorded/native speech **and** synthetic VO
-pickups alike, since both render through the same speech clip path before beds overlay.
-There is no separate "VO mode" vs "native mode" duck depth; the same envelope-follower
-contract keeps beds out of the way of whichever voice is speaking, so a VO bridge and the
-native answer either side of it duck identically. `pause_ride_db` (`mix.sidechain_duck` /
-`mix.pause_ride_db`) is the one intentional asymmetry: beds are allowed to ride *up* during
-intentional air (post-VO gaps, pauses) precisely because no voice — native or synthetic —
-is competing for the band there. Per-speaker level match (step 4, `speaker_level_match.py`)
-runs *before* ducking so the envelope follower sees a level-matched speech signal rather
-than chasing per-speaker gain differences.
+Underbeds do **not** follow the speech gate. Mix applies a single `level_db` (audible band ≈ −16…−12, typically −12) plus the cached speech-presence carve so the bed stays even under talk and in air — a 12 dB sidechain was pumping and burying underscores. Speech still wins spectrally (carve) and by absolute level (the bed band sits under dialogue). Accents and cold-opens that spill into speech still use `sidechain_duck.envelope_duck` so hits do not sit on consonants. There is no separate "VO mode" vs "native mode"; both voices share the same speech stem. `pause_ride_db` no longer lifts underbeds in air (they are already at the constant level). Per-speaker level match (step 4, `speaker_level_match.py`) runs *before* overlays so the envelope follower on accents sees a level-matched speech signal.
 
 ## Bed coverage / hinge stinger — Shape-owned soft bands (Plan 4)
 
