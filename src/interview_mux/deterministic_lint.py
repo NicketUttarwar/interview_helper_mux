@@ -285,6 +285,11 @@ def _lint_speaker_roles(artifacts: dict[str, Any], _ctx: RunContext) -> list[str
             for s in speakers
         ):
             errors.append("conversation_hypotheses present but all speakers unknown — confirm hypothesis or assign roles")
+    conflict = artifacts.get("role_tape_conflict")
+    if isinstance(conflict, dict) and conflict.get("blocking"):
+        errors.append(
+            "role_tape_conflict: interviewer/guest labels contradict tape — fix G0/diarization before missing_framing"
+        )
     return errors
 
 
@@ -548,6 +553,16 @@ def _lint_sfx_prompt_craft(artifacts: dict[str, Any], _ctx: RunContext) -> list[
     prompts = artifacts.get("prompts") or []
     if not prompts:
         return ["no crafted prompts"]
+    seen_ids: set[str] = set()
+    for row in prompts:
+        if not isinstance(row, dict):
+            continue
+        aid = str(row.get("asset_id") or "").strip()
+        if not aid:
+            continue
+        if aid in seen_ids:
+            errors.append(f"duplicate crafted prompt asset_id {aid}")
+        seen_ids.add(aid)
     mmaudio_cfg = (merged_config().get("mmaudio") or {})
     min_gen = float(mmaudio_cfg.get("min_duration_sec", 3.0))
     max_gen = float(mmaudio_cfg.get("max_duration_sec", 8.0))
@@ -1177,6 +1192,8 @@ def lint_remediation_hint(error: str) -> str | None:
         "interviewer" in low and ("speaker" in low or "speakers.json" in low)
     ):
         return "Re-run Speaker roles and verify interviewer or moderator assignment."
+    if "role_tape_conflict" in low:
+        return "Fix G0 transcript/diarization labels; do not rerun speaker_roles in a loop."
     if "truncation_requires_decompose" in low:
         return "Next retry will use decompose/shard path — or shorten transcript input."
     if "confidence_gte_min" in low:

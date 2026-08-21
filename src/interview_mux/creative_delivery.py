@@ -407,8 +407,10 @@ def enforce_creative_selection_edit(
 ) -> dict[str, Any]:
     """Editorial soft-pack toward the brief's ``trim_target`` (default: ideal).
 
-    Single pack pass — no forced minimum-trim on top of an already-tight
-    selection. Shares the volley-intact drop preference with
+    Prefer landing at or under ideal (concise). The brief max (1.5× source)
+    is a ceiling, not a target to fill. Single pack pass — no forced
+    minimum-trim on top of an already-tight selection. Shares the
+    volley-intact drop preference with
     ``selection_auto_pack.auto_pack_selection_to_brief`` via
     ``pack_selection_to_duration``.
     """

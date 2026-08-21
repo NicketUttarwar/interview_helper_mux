@@ -135,6 +135,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "sound_design_plan": ("understanding/sound_design_plan.json",),
     "sound_design_vo_finalize": ("understanding/sound_design_plan.json",),
     "edl_narrative_audit": ("master/edl_narrative_audit.json",),
+    "vo_synthesize": ("mastering/vo_synthesize.json",),
     "edl": ("master/edl.json",),
     "assembly_preview": ("master/assembly_preview.wav",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),

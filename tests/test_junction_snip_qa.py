@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from interview_mux.junction_snip_qa import (
     _clip_end_text,
+    _find_phrase_end_ms,
     apply_junction_repairs,
     detect_junction_findings,
     junction_snip_cfg,
@@ -24,6 +25,22 @@ def test_clip_end_text_tracks_remediated_edl_bound_not_static_segment_text():
     ]
     assert _clip_end_text(segment, words, 1400).endswith("if")
     assert _clip_end_text(segment, words, 1800).endswith("finish.")
+
+
+def test_phrase_end_stops_at_first_terminal_punctuation():
+    words = [
+        {"text": "reshape", "start_ms": 90000, "end_ms": 91000},
+        {"text": "clinical", "start_ms": 91000, "end_ms": 92000},
+        {"text": "trials,", "start_ms": 92000, "end_ms": 93000},
+        {"text": "and", "start_ms": 93000, "end_ms": 93500},
+        {"text": "diagnostics.", "start_ms": 97000, "end_ms": 97920},
+        {"text": "Well,", "start_ms": 98500, "end_ms": 99000},
+        {"text": "before", "start_ms": 99000, "end_ms": 100000},
+        {"text": "we", "start_ms": 100000, "end_ms": 101000},
+        {"text": "begin,", "start_ms": 101000, "end_ms": 102000},
+    ]
+    end = _find_phrase_end_ms(words, 93000, max_extend_ms=8000)
+    assert end == 97920
 
 
 def _seg(segment_id: str, *, start_ms: int, end_ms: int, text: str, speaker: str = "spk_0") -> dict:

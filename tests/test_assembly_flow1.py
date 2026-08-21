@@ -111,17 +111,14 @@ def test_edl_never_emits_a_sentence_twice_for_different_targets(tmp_path: Path) 
         ]
     }
 
-    edl = build_flow1_edl(
-        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
-        segments_by_id=_segments(),
-        gap_report=gap_report,
-        resolve_vo_path=lambda line: vo_files.get(line.get("line_id", "")),
-        vo_duration_ms=lambda _path: 2_000,
-    )
-
-    assert [
-        clip["line_id"] for clip in edl["clips"] if clip.get("type") == "vo_pickup"
-    ] == ["line_a"]
+    with pytest.raises(ValueError, match="duplicate spoken sentence"):
+        build_flow1_edl(
+            selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+            segments_by_id=_segments(),
+            gap_report=gap_report,
+            resolve_vo_path=lambda line: vo_files.get(line.get("line_id", "")),
+            vo_duration_ms=lambda _path: 2_000,
+        )
 
 
 def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
@@ -449,7 +446,7 @@ def test_cold_open_with_many_before_vo_keeps_orientation_early(
     assert non_silence[0]["type"] == "speech"
 
 
-def test_cold_open_orientation_survives_next_before_layup(tmp_path: Path) -> None:
+def test_cold_open_orientation_not_stacked_with_next_layup(tmp_path: Path) -> None:
     wav = tmp_path / "vo.wav"
     wav.write_bytes(b"\x00")
     gap_report = {
@@ -485,7 +482,7 @@ def test_cold_open_orientation_survives_next_before_layup(tmp_path: Path) -> Non
     assert any(
         c.get("line_id") == "vo_preface_episode_orientation" for c in edl["clips"]
     )
-    assert any(c.get("line_id") == "vo_layup_seg_b" for c in edl["clips"])
+    assert not any(c.get("line_id") == "vo_layup_seg_b" for c in edl["clips"])
 
 
 def test_native_hook_precedes_music_and_orientation(tmp_path: Path) -> None:
@@ -694,3 +691,91 @@ def test_resync_required_synthesize_wavs_calls_synth_when_unresolved(
     notes = resync_required_synthesize_wavs(ctx, {"interviewer_lines": [line]})
     assert called == ["vo_preface_episode_orientation"]
     assert notes == ["vo_preface_episode_orientation"]
+
+
+def test_build_flow1_edl_active_layup_drops_transition(tmp_path: Path) -> None:
+    wav = tmp_path / "vo.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "origin": "nugget_layup",
+                "text": "Next he explains why a live cell is the starting point.",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "text": "That capture model is the setup — next, what a live cell actually lets you do.",
+                "type": "spoken_bridge",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        transitions=transitions,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+        resolve_transition_path=lambda _a, _b: wav,
+    )
+    synth = [
+        c
+        for c in edl["clips"]
+        if c.get("type") in {"vo_pickup", "transition"}
+    ]
+    assert len(synth) == 1
+    assert synth[0].get("type") == "vo_pickup"
+    assert synth[0].get("line_id") == "vo_layup_seg_b"
+
+
+def test_build_flow1_edl_skipped_layup_keeps_only_transition(tmp_path: Path) -> None:
+    wav = tmp_path / "vo.wav"
+    wav.write_bytes(b"\x00")
+    gap_report = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "origin": "nugget_layup",
+                "skipped_optional": True,
+                "text": "The native describes the claimed data?",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "text": "That capture model is the setup — next, what a live cell actually lets you do.",
+                "type": "spoken_bridge",
+            }
+        ]
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_a", "seg_b"]},
+        segments_by_id=_segments(),
+        gap_report=gap_report,
+        transitions=transitions,
+        resolve_vo_path=lambda _line: wav,
+        vo_duration_ms=lambda _path: 2_000,
+        resolve_transition_path=lambda _a, _b: wav,
+    )
+    synth = [
+        c
+        for c in edl["clips"]
+        if c.get("type") in {"vo_pickup", "transition"}
+    ]
+    assert len(synth) == 1
+    assert synth[0].get("type") == "transition"

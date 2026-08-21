@@ -260,6 +260,44 @@ def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None
     assert evals["evaluations"][0]["severity_demotion_reason"] == "uncovered_after_fill"
 
 
+def test_fill_uncovered_high_gaps_sets_schema_fields(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Filled lines must include gap_type + placement so gap_report.json validates."""
+    from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_003",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "who is speaking",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    def _fake_envelope(*_a: object, **_k: object) -> dict:
+        return {"artifacts": {"text": "Before we continue, who is speaking here?"}}
+
+    monkeypatch.setattr(
+        "interview_mux.stages.llm_runner.run_prompt_envelope", _fake_envelope
+    )
+    seed: dict = {"interviewer_lines": []}
+    added = fill_uncovered_high_gaps(ctx, seed, applied=[])
+    assert added == 1
+    line = seed["interviewer_lines"][0]
+    assert line["gap_type"] == "missing_setup"
+    assert line["placement"] == "before"
+    assert line["targets_segment_id"] == "seg_003"
+
+
 def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None:
     """Seed lines that fail spoken-copy must not leave a high gap uncovered at lint."""
     from interview_mux.artifact_repairs import repair_gap_report
@@ -320,4 +358,90 @@ def test_unspeakable_high_gap_seed_omitted_then_demoted(ctx: RunContext) -> None
     assert demote_uncovered_high_gaps(ctx, gap_report=repaired) == 1
     after = _lint_optimal_questions(repaired, ctx)
     assert not any("has no interviewer line" in e for e in after)
+
+
+def test_fill_uncovered_high_gaps_skips_when_identity_exhausted(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_003",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "who is speaking",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "interview_mux.homunculus.budget.identity_exhausted", lambda *_a, **_k: True
+    )
+    calls = {"n": 0}
+
+    def _boom(*_a: object, **_k: object) -> dict:
+        calls["n"] += 1
+        raise AssertionError("LLM must not run when identity is exhausted")
+
+    monkeypatch.setattr("interview_mux.stages.llm_runner.run_prompt_envelope", _boom)
+    seed: dict = {"interviewer_lines": []}
+    applied: list[dict] = []
+    added = fill_uncovered_high_gaps(ctx, seed, applied=applied)
+    assert added == 0
+    assert calls["n"] == 0
+    assert any(row.get("reason") == "limit_exhausted" for row in applied)
+    evals = ctx.read_json("understanding/gap_evaluations.json")
+    assert evals["evaluations"][0]["severity"] == "medium"
+
+
+def test_fill_uncovered_high_gaps_stops_on_limit_exhausted(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.homunculus.budget import LimitExhausted
+    from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": sid,
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "who is speaking",
+                }
+                for sid in ("seg_003", "seg_004")
+            ]
+        },
+        skip_handoff=True,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "interview_mux.homunculus.budget.identity_exhausted", lambda *_a, **_k: False
+    )
+    calls = {"n": 0}
+
+    def _raise(*_a: object, **_k: object) -> dict:
+        calls["n"] += 1
+        raise LimitExhausted(
+            "high_gap_vo_fill", "max_invokes_per_identity", {"used": 3, "cap": 3}
+        )
+
+    monkeypatch.setattr("interview_mux.stages.llm_runner.run_prompt_envelope", _raise)
+    seed: dict = {"interviewer_lines": []}
+    applied: list[dict] = []
+    added = fill_uncovered_high_gaps(ctx, seed, applied=applied)
+    assert added == 0
+    assert calls["n"] == 1
+    assert any(row.get("reason") == "limit_exhausted" for row in applied)
+    evals = ctx.read_json("understanding/gap_evaluations.json")
+    assert all(row["severity"] == "medium" for row in evals["evaluations"])
 

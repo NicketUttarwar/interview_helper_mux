@@ -287,6 +287,17 @@ def test_starvation_when_required_fact_missing() -> None:
 def test_cta_omit_and_keep_intro() -> None:
     assert should_hard_omit_cta("Please like and subscribe and buy now") is True
     assert should_hard_omit_cta("Our two-sided market lets other businesses pay") is False
+    assert should_hard_omit_cta(
+        "The Life Sciences DNA podcast is sponsored by Agilisium Labs."
+    ) is True
+    assert should_hard_omit_cta("This episode is presented by Acme Analytics.") is True
+    assert should_hard_omit_cta("Brought to you by Contoso Labs — visit contoso.com") is True
+    assert should_hard_omit_cta("Powered by NovaBio for this series.") is True
+    assert should_hard_omit_cta("In partnership with Horizon Genomics.") is True
+    assert should_hard_omit_cta(
+        "Sponsored-by: BrandX (with punctuation noise)"
+    ) is True
+    assert should_hard_omit_cta("hospitals subscribe to the protein snack model") is False
     from interview_mux.homunculus.speakers import build_speaker_dossier
 
     ctx = _ctx_010()
@@ -923,6 +934,46 @@ def test_skip_core_analysis_stage_without_artifact_refused() -> None:
     assert ctx.is_done("ideal_cuts_propose")
 
 
+def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
+    from interview_mux.homunculus.agenda import skip_stage
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_055",
+                    "before_segment_id": "seg_058",
+                    "text": "Meanwhile the trial enrolled.",
+                    "type": "bridge",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    with pytest.raises(RuntimeError, match="cannot skip vo_synthesize"):
+        skip_stage(ctx, "vo_synthesize", reason="conductor whim")
+    ctx.write_json(
+        "mastering/vo_synthesize.json",
+        {"version": 1, "still_missing_pairs": []},
+        skip_handoff=True,
+    )
+    dest = ctx.path("master", "transitions")
+    dest.mkdir(parents=True, exist_ok=True)
+    import wave
+
+    wav = dest / "tr_seg_055_seg_058.wav"
+    with wave.open(str(wav), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48_000)
+        handle.writeframes(b"\x00\x00" * 4800)
+    doc = skip_stage(ctx, "vo_synthesize", reason="pairs on disk")
+    assert "vo_synthesize" in doc["skipped"]
+    assert ctx.is_done("vo_synthesize")
+
+
 def test_persist_analysis_complete_before_episode_structure_refused() -> None:
     ctx = _ctx_010()
     admit(
@@ -1139,6 +1190,73 @@ def test_apply_pack_keeps_host_layup_stage_packet() -> None:
     assert "--- stage input ---" in user
 
 
+def test_apply_pack_always_keeps_gap_framing_host_packet() -> None:
+    from interview_mux.homunculus.packer import apply_pack_to_kwargs
+
+    ctx = _ctx_010()
+    host = json.dumps(
+        {
+            "gap_evaluations": {"evaluations": [{"segment_id": "seg_001"}]},
+            "gap_framing_policy": {"min_vo_insert_ratio": 0.08},
+            "prior_native_contexts": {"seg_001": {"segment_id": "seg_000"}},
+        }
+    )
+    out = apply_pack_to_kwargs(
+        ctx,
+        "gap_framing_compose",
+        {"messages": [{"role": "system", "content": "sys"}, {"role": "user", "content": host}]},
+    )
+    user = " ".join(str(m.get("content")) for m in out["messages"] if m.get("role") == "user")
+    assert "--- stage input ---" not in user
+    assert "prior_native_contexts" in user
+    assert "gap_evaluations" in user
+    assert user.strip().startswith("{")
+
+
+def test_apply_pack_prefers_stage_json_over_prior_native_turns() -> None:
+    """Prior-beat volley turns must not replace missing_framing / gap compose JSON."""
+    from interview_mux.homunculus.packer import apply_pack_to_kwargs
+
+    ctx = _ctx_010()
+    host = json.dumps(
+        {
+            "segments": {
+                "segments": [
+                    {
+                        "segment_id": "seg_002",
+                        "speaker_role": "interviewee",
+                        "text": "guest answer text " + ("x" * 80),
+                    }
+                ]
+            },
+            "content_brief": {"thesis": "guest story"},
+        }
+    )
+    prior = (
+        "PRIOR NATIVE BEATS (immediate previous ordered segments before VO targets).\n"
+        "still use prior_native_contexts in the stage input JSON.\n"
+        + ("y" * 80)
+    )
+    out = apply_pack_to_kwargs(
+        ctx,
+        "missing_framing",
+        {
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": prior},
+                {"role": "assistant", "content": "Understood."},
+                {"role": "user", "content": "Now write the gap framing interviewer_lines."},
+                {"role": "user", "content": host},
+            ]
+        },
+    )
+    user = " ".join(str(m.get("content")) for m in out["messages"] if m.get("role") == "user")
+    assert "seg_002" in user
+    assert "guest answer text" in user
+    assert "PRIOR NATIVE BEATS" not in user
+    assert user.strip().startswith("{")
+
+
 def test_missing_framing_packs_manifest_not_empty_transcript_segments() -> None:
     """G0 words without transcript.segments must not starve gap eval of segment_id."""
     from interview_mux.homunculus.packer import apply_pack_to_kwargs, default_pack_fact_ids
@@ -1196,7 +1314,6 @@ def test_missing_framing_packs_manifest_not_empty_transcript_segments() -> None:
     user = " ".join(str(m.get("content")) for m in out["messages"] if m.get("role") == "user")
     assert "seg_001" in user
     assert "interviewee" in user
-    assert "--- stage input ---" in user
     assert "G0 transcript (closed)" not in user
     assert "[g0_transcript" not in user
 

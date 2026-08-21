@@ -32,6 +32,7 @@ def enforce_mix_completeness(
     missing_vo: list[str] | None = None,
     missing_sfx: list[str] | None = None,
     empty_speech: bool = False,
+    retried_vo: list[str] | None = None,
 ) -> None:
     """Hard-fail blocking VO / empty speech; soft-fail SFX placeholders under first_try."""
     if not completeness_gate_enabled():
@@ -43,9 +44,11 @@ def enforce_mix_completeness(
     hard_vo = bool(cfg.get("hard_fail_missing_blocking_vo", True))
     hard_speech = bool(cfg.get("hard_fail_empty_speech", True))
     soft_sfx = bool(cfg.get("soft_fail_sfx_placeholder", True)) or allow_placeholder_mix()
+    last_chance = bool((merged_config().get("mix") or {}).get("missing_vo_retry_once", True))
 
     vo = sorted({str(x) for x in (missing_vo or []) if x})
     sfx = sorted({str(x) for x in (missing_sfx or []) if x})
+    retried = sorted({str(x) for x in (retried_vo or []) if x})
     qa_missing = _missing_sfx_from_mmaudio_qa(ctx)
     if qa_missing:
         sfx = sorted(set(sfx) | qa_missing)
@@ -61,13 +64,21 @@ def enforce_mix_completeness(
     parts: list[str] = []
     if vo:
         parts.append(f"missing VO: {vo}")
+    if retried:
+        parts.append(f"retried_once: {retried}")
     if sfx:
         parts.append(f"missing/placeholder SFX: {sfx}")
 
     message = f"{stage}: mix completeness — {'; '.join(parts)}"
     mode = completeness_gate_mode()
 
-    block_for_vo = bool(vo) and hard_vo and (mode == "block" or first_try_mode_enabled())
+    # Last-chance mix retry already ran (or is the policy): warn, do not hard-block ship.
+    block_for_vo = (
+        bool(vo)
+        and hard_vo
+        and not last_chance
+        and (mode == "block" or first_try_mode_enabled())
+    )
     block_for_sfx = bool(sfx) and mode == "block" and not soft_sfx
 
     if block_for_vo or block_for_sfx:
@@ -77,7 +88,7 @@ def enforce_mix_completeness(
             "Record VO, regenerate SFX, or adjust mix.completeness_gate."
         )
 
-    ctx.log(message, level="warning", stage=stage, detail=f"flow={flow} mode=warn soft_sfx={soft_sfx}")
+    ctx.log(message, level="warning", stage=stage, detail=f"flow={flow} mode=warn soft_sfx={soft_sfx} retried_once={bool(retried)}")
 
 
 def _missing_sfx_from_mmaudio_qa(ctx: RunContext) -> set[str]:

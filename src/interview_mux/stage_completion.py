@@ -49,7 +49,35 @@ def stage_artifact_incompleteness(
         st = artifact_status_for_stage(path, ctx, stage_id)
         if st != "complete":
             return f"{path} is {st}"
+    if stage_id == "vo_synthesize":
+        try:
+            from interview_mux.transition_vo import current_transition_pairs_missing
+
+            missing_pairs = current_transition_pairs_missing(ctx)
+        except Exception:
+            missing_pairs = []
+        if missing_pairs:
+            return f"current transition pairs missing WAV: {', '.join(missing_pairs[:4])}"
+    if stage_id == "edl":
+        try:
+            from interview_mux.transition_vo import seated_vo_paths_missing
+
+            missing = seated_vo_paths_missing(ctx)
+        except Exception:
+            missing = []
+        if missing:
+            return f"seated VO missing: {', '.join(missing[:4])}"
     return None
+
+
+def vo_synthesize_should_defer_done(ctx: RunContext, stage_id: str) -> str | None:
+    """If set, do not mark vo_synthesize done and do not abort the delivery batch.
+
+    Mix last-chance is the remaining net. GUI/reconcile still see incompleteness.
+    """
+    if stage_id != "vo_synthesize":
+        return None
+    return stage_artifact_incompleteness(ctx, stage_id)
 
 
 def reconcile_stage_done_marker(ctx: RunContext, stage_id: str) -> bool:

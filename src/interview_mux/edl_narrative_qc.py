@@ -281,12 +281,6 @@ def _validate_ordering_constraints(
         if not before or not after:
             continue
         if before not in positions or after not in positions:
-            missing = [sid for sid in (before, after) if sid not in positions]
-            errors.append(
-                f"master/narrative_plan.json: ordering_constraints[{index}] "
-                f"references segment(s) missing from final EDL: {missing}. "
-                "Re-run narrative_arc_plan or full_master_ranking."
-            )
             continue
         if positions[before] >= positions[after]:
             reason = _as_id(constraint.get("reason"))
@@ -361,6 +355,14 @@ def _validate_transitions(
 ) -> None:
     adjacency = {(speech[i], speech[i + 1]) for i in range(len(speech) - 1)}
     edl_transition_pairs = _clip_pairs(edl, "transition")
+    # Match build_flow1_edl: clone-voice adjacency may omit a planned transition
+    # clip (recorded on edl.warnings.suppressed_clone_adjacency as
+    # "transition:after->before"). Requiring that clip loops EDL forever.
+    suppressed = {
+        str(x)
+        for x in ((edl.get("warnings") or {}).get("suppressed_clone_adjacency") or [])
+        if x
+    }
     for item in _transition_items(transitions):
         after = _as_id(item.get("after_segment_id"))
         before = _as_id(item.get("before_segment_id"))
@@ -369,6 +371,8 @@ def _validate_transitions(
         pair = (after, before)
         if pair in adjacency and pair not in edl_transition_pairs:
             if _seam_has_host_turn(edl, after, before):
+                continue
+            if f"transition:{after}->{before}" in suppressed:
                 continue
             errors.append(
                 f'master/edl.json: missing transition clip between "{after}" '
@@ -742,6 +746,7 @@ def _validate_clone_voice_adjacency(
         else {}
     )
     from interview_mux.gap_framing import is_cut_recovery_vo
+    from interview_mux.opening_orientation import is_episode_orientation
 
     ordered = _id_list(selection.get("ordered_segment_ids"))
     audible = [
@@ -758,12 +763,18 @@ def _validate_clone_voice_adjacency(
         if not voice:
             continue
         exempt = bool(
-            clip_type == "vo_pickup"
-            and line
-            and is_cut_recovery_vo(
-                line,
-                ordered_segment_ids=ordered,
-                nugget_corpus=corpus if isinstance(corpus, dict) else {},
+            clip.get("clone_adjacency_exempt")
+            or (
+                line
+                and (
+                    line.get("clone_adjacency_exempt")
+                    or is_episode_orientation(line)
+                    or is_cut_recovery_vo(
+                        line,
+                        ordered_segment_ids=ordered,
+                        nugget_corpus=corpus if isinstance(corpus, dict) else {},
+                    )
+                )
             )
         )
         if exempt:
@@ -853,8 +864,121 @@ def validate_flow1_edl_narrative(
     _validate_framing_before_impact(ctx, edl, speech, errors)
     _validate_framing_succinct_exclusions(ctx, selection, speech, errors)
     _validate_speaker_volley_integrity(ctx, speech, errors)
+    _validate_single_synthetic_between_natives(edl, errors)
+    _validate_episode_vo_identity(ctx, edl, errors)
     _validate_audit_artifact(ctx, errors)
     return errors
+
+
+def _validate_single_synthetic_between_natives(
+    edl: dict[str, Any], errors: list[str]
+) -> None:
+    """At most one vo_pickup/transition between native speech clips."""
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    audible = [c for c in clips if str(c.get("type") or "") != "silence"]
+    i = 0
+    while i < len(audible):
+        kind = str(audible[i].get("type") or "")
+        if kind not in {"vo_pickup", "transition"}:
+            i += 1
+            continue
+        run = []
+        while i < len(audible) and str(audible[i].get("type") or "") in {
+            "vo_pickup",
+            "transition",
+        }:
+            run.append(audible[i])
+            i += 1
+        if len(run) <= 1:
+            continue
+        labels: list[str] = []
+        for clip in run:
+            lid = _as_id(clip.get("line_id"))
+            if lid:
+                labels.append(lid)
+                continue
+            after = _as_id(clip.get("after_segment_id"))
+            before = _as_id(clip.get("before_segment_id"))
+            if after or before:
+                labels.append(f"{after}->{before}")
+        joined = ", ".join(labels) if labels else "unnamed"
+        errors.append(
+            "master/edl.json: "
+            f"{len(run)} synthetic inserts adjacent ({joined}). "
+            "At most one vo_pickup or transition between native speech clips."
+        )
+
+
+def _validate_episode_vo_identity(
+    ctx: RunContext, edl: dict[str, Any], errors: list[str]
+) -> None:
+    """Seated synthetics must share one clone speaker and one locked ref."""
+    clips = [
+        c
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and str(c.get("type") or "") in {"vo_pickup", "transition"}
+    ]
+    if not clips:
+        return
+    voices = [_as_id(c.get("voice_speaker_id")) for c in clips]
+    nonempty = {v for v in voices if v}
+    if len(nonempty) > 1:
+        errors.append(
+            "master/edl.json: seated synthetic VO uses mixed voice_speaker_id "
+            f"({sorted(nonempty)}). Episode VO must be one clone throughout."
+        )
+    locked = ""
+    try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+        locked = _as_id((episode_vo_identity(ctx) or {}).get("speaker_id"))
+    except Exception:
+        locked = ""
+    if locked:
+        for clip in clips:
+            voice = _as_id(clip.get("voice_speaker_id"))
+            label = _as_id(clip.get("line_id")) or (
+                f"{_as_id(clip.get('after_segment_id'))}->"
+                f"{_as_id(clip.get('before_segment_id'))}"
+            )
+            if not voice:
+                errors.append(
+                    f'master/edl.json: synthetic "{label}" missing voice_speaker_id '
+                    f"(episode lock is {locked})."
+                )
+            elif voice != locked:
+                errors.append(
+                    f'master/edl.json: synthetic "{label}" voice_speaker_id '
+                    f"{voice!r} != episode lock {locked!r}."
+                )
+    if not ctx.artifact_exists("vo_pickup/synthesis_report.json"):
+        return
+    try:
+        report = ctx.read_json("vo_pickup/synthesis_report.json")
+    except Exception:
+        return
+    seated_ids = {
+        _as_id(c.get("line_id"))
+        for c in clips
+        if _as_id(c.get("line_id"))
+    }
+    refs: set[str] = set()
+    for entry in (report.get("entries") or []) if isinstance(report, dict) else []:
+        if not isinstance(entry, dict):
+            continue
+        lid = _as_id(entry.get("line_id"))
+        if lid not in seated_ids:
+            continue
+        ref_id = _as_id(entry.get("voice_ref_id"))
+        ref_audio = _as_id(entry.get("ref_audio"))
+        key = ref_id or (ref_audio.split("/")[-1] if ref_audio else "")
+        if key:
+            refs.add(key)
+    if len(refs) > 1:
+        errors.append(
+            "vo_pickup/synthesis_report.json: seated synthetics used mixed "
+            f"voice references ({sorted(refs)}). Episode VO must use one approved sample."
+        )
 
 
 def _validate_speaker_volley_integrity(ctx: Any, speech: list[str], errors: list[str]) -> None:

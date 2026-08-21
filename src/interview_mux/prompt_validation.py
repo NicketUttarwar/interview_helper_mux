@@ -91,6 +91,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "nugget_corpus_mine": "understanding/nugget_corpus.json",
     "nugget_layup_compose": "understanding/nugget_layup_plan.json",
     "edl_narrative_audit": "master/edl_narrative_audit.json",
+    "vo_synthesize": "mastering/vo_synthesize.json",
     "edl": "master/edl.json",
     "air_script_compose": "mastering/mastering_plan.json",
     "air_script_seams": "mastering/mastering_plan.json",

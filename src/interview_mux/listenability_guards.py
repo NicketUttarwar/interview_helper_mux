@@ -6,6 +6,7 @@ and timeline quartiles. Counts emerge from show length and editorial need.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config
@@ -521,6 +522,334 @@ def evaluate_listenability(
         "stage": stage,
         "fail_closed": bool(float(guards.get("fail_closed") or 0) >= 0.5),
     }
+
+
+def reindex_edl_timeline(edl: dict[str, Any]) -> None:
+    cursor = 0
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        clip["timeline_start_ms"] = cursor
+        cursor += max(0, int(clip.get("duration_ms") or 0))
+
+
+SYNTHETIC_SPEECH_TYPES = frozenset({"vo_pickup", "transition"})
+
+
+def prior_nonsilence_clip(clips: list[Any], idx: int) -> dict[str, Any] | None:
+    for j in range(idx - 1, -1, -1):
+        clip = clips[j] if j < len(clips) else None
+        if not isinstance(clip, dict):
+            continue
+        if str(clip.get("type") or "") == "silence":
+            continue
+        return clip
+    return None
+
+
+def synthetic_count_before_index(clips: list[Any], idx: int) -> int:
+    """Count vo_pickup/transition after the previous speech and before ``idx``."""
+    count = 0
+    for j in range(idx - 1, -1, -1):
+        clip = clips[j] if j < len(clips) else None
+        if not isinstance(clip, dict):
+            continue
+        kind = str(clip.get("type") or "")
+        if kind == "speech":
+            break
+        if kind in SYNTHETIC_SPEECH_TYPES:
+            count += 1
+    return count
+
+
+def _local_wav_duration_ms(path: Path) -> int:
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as fh:
+            rate = int(fh.getframerate() or 1)
+            return max(0, int(fh.getnframes() / rate * 1000))
+    except Exception:
+        try:
+            from interview_mux.stages.assembly import _wav_duration_ms
+
+            return _wav_duration_ms(path)
+        except Exception:
+            return 0
+
+
+def _gap_lines_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return {}
+    gap = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(gap, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for line in gap.get("interviewer_lines") or []:
+        if isinstance(line, dict) and line.get("line_id"):
+            out[str(line["line_id"])] = line
+    return out
+
+
+def _clip_speaker(ctx: RunContext, clip: dict[str, Any]) -> str:
+    sid = str(clip.get("segment_id") or "").strip()
+    if not sid:
+        return ""
+    try:
+        from interview_mux.speaker_level_match import speaker_id_for_segment
+
+        return str(speaker_id_for_segment(ctx, sid) or "").strip()
+    except Exception:
+        return str(clip.get("speaker_id") or "").strip()
+
+
+def _clone_safe_before_speech(
+    ctx: RunContext, *, voice_speaker_id: str, speech_clip: dict[str, Any]
+) -> bool:
+    if not voice_speaker_id:
+        return True
+    return _clip_speaker(ctx, speech_clip) != voice_speaker_id
+
+
+def _vo_line_blocked_from_seating(ctx: RunContext, line_id: str, line: dict[str, Any]) -> str | None:
+    """Return a skip note if this gap line must not be mix-seated."""
+    if line.get("skipped_optional"):
+        return f"skip_skipped_optional:{line_id}"
+    try:
+        from interview_mux.omit_ledger import OMIT_LEDGER_REL, effective_air_contract
+
+        ledger = (
+            ctx.read_json(OMIT_LEDGER_REL)
+            if ctx.artifact_exists(OMIT_LEDGER_REL)
+            else None
+        )
+        status = str((effective_air_contract(ledger, line_id=line_id) or {}).get("status") or "")
+        if status in {"omitted", "suppressed", "deferred"}:
+            return f"skip_omit_ledger:{line_id}:{status}"
+    except Exception:
+        pass
+    try:
+        from interview_mux.air_script import (
+            load_air_script,
+            omitted_vo_line_ids,
+            seated_vo_line_ids,
+        )
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        plan = load_plan_raw(ctx)
+        script = load_air_script(plan)
+        if script:
+            if line_id in omitted_vo_line_ids(plan):
+                return f"skip_air_script_omitted:{line_id}"
+            seats = script.get("vo_seats")
+            if isinstance(seats, dict) and "seated_line_ids" in seats:
+                if line_id not in seated_vo_line_ids(plan):
+                    return f"skip_air_script_unseated:{line_id}"
+    except Exception:
+        pass
+    return None
+
+
+def _seat_unused_host_vo(ctx: RunContext, edl: dict[str, Any], *, min_ratio: float) -> list[str]:
+    """Insert already-rendered pickup WAVs when host-VO duration is short of the band."""
+    notes: list[str] = []
+    if host_vo_duration_ratio(ctx, edl) + 0.001 >= min_ratio:
+        return notes
+    clips = edl.setdefault("clips", [])
+    if not isinstance(clips, list):
+        return notes
+    seated = {
+        str(c.get("line_id") or "")
+        for c in clips
+        if isinstance(c, dict) and str(c.get("type") or "") == "vo_pickup"
+    }
+    root = Path(ctx.run_dir)
+    wavs: dict[str, Path] = {}
+    for folder in (root / "vo_pickup" / "synthesized", root / "vo_pickup"):
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.wav")):
+            wavs.setdefault(path.stem, path)
+    lines = _gap_lines_by_id(ctx)
+    speech_index = {
+        str(c.get("segment_id") or ""): i
+        for i, c in enumerate(clips)
+        if isinstance(c, dict) and str(c.get("type") or "") == "speech" and c.get("segment_id")
+    }
+    guards = listenability_guards_cfg()
+
+    def _insert(line_id: str, wav_path: Path, *, target: str, voice: str, exempt: bool) -> None:
+        nonlocal clips
+        idx = speech_index[target]
+        prior = prior_nonsilence_clip(clips, idx)
+        if prior is not None and str(prior.get("type") or "") in SYNTHETIC_SPEECH_TYPES:
+            notes.append(f"skip_adjacent_synthetic:{line_id}->{target}")
+            return
+        if synthetic_count_before_index(clips, idx) >= 1:
+            notes.append(f"skip_adjacent_synthetic:{line_id}->{target}")
+            return
+        dur = _local_wav_duration_ms(wav_path)
+        if dur < 400:
+            return
+        try:
+            rel = str(wav_path.relative_to(root))
+        except ValueError:
+            rel = str(wav_path)
+        air = air_pad_ms(dur, kind="after_vo", cfg=guards)
+        clips.insert(
+            idx,
+            {
+                "type": "vo_pickup",
+                "line_id": line_id,
+                "targets_segment_id": target,
+                "placement": "before",
+                "voice_speaker_id": voice,
+                "source_path": rel,
+                "duration_ms": dur,
+                "listenability_seated": True,
+                "clone_adjacency_exempt": bool(exempt),
+            },
+        )
+        clips.insert(
+            idx + 1,
+            {
+                "type": "silence",
+                "air_kind": "after_vo",
+                "duration_ms": air,
+            },
+        )
+        seated.add(line_id)
+        speech_index.clear()
+        speech_index.update(
+            {
+                str(c.get("segment_id") or ""): i
+                for i, c in enumerate(clips)
+                if isinstance(c, dict) and str(c.get("type") or "") == "speech" and c.get("segment_id")
+            }
+        )
+        notes.append(f"seat_host_vo:{line_id}:{dur}ms")
+
+    deferred: list[tuple[str, Path, str, str]] = []
+    for line_id, wav_path in wavs.items():
+        if host_vo_duration_ratio(ctx, edl) + 0.001 >= min_ratio:
+            break
+        if not line_id or line_id in seated:
+            continue
+        line = lines.get(line_id) or {}
+        target = str(line.get("targets_segment_id") or "").strip()
+        if not target and line_id.startswith("vo_layup_"):
+            target = line_id[len("vo_layup_") :]
+        if not target or target not in speech_index:
+            continue
+        blocked = _vo_line_blocked_from_seating(ctx, line_id, line)
+        if blocked:
+            notes.append(blocked)
+            continue
+        speech_clip = clips[speech_index[target]]
+        prior = prior_nonsilence_clip(clips, speech_index[target])
+        if prior is not None and str(prior.get("type") or "") in SYNTHETIC_SPEECH_TYPES:
+            notes.append(f"skip_adjacent_synthetic:{line_id}->{target}")
+            continue
+        if synthetic_count_before_index(clips, speech_index[target]) >= 1:
+            notes.append(f"skip_adjacent_synthetic:{line_id}->{target}")
+            continue
+        voice = str(line.get("voice_speaker_id") or "").strip()
+        if not voice:
+            try:
+                from interview_mux.source_topology import pickup_eligible_speaker_id
+
+                voice = str(pickup_eligible_speaker_id(ctx) or "").strip()
+            except Exception:
+                voice = ""
+        if not _clone_safe_before_speech(ctx, voice_speaker_id=voice, speech_clip=speech_clip):
+            notes.append(f"skip_clone_adjacent:{line_id}->{target}")
+            deferred.append((line_id, wav_path, target, voice))
+            continue
+        _insert(line_id, wav_path, target=target, voice=voice, exempt=False)
+    for line_id, wav_path, target, voice in deferred:
+        if host_vo_duration_ratio(ctx, edl) + 0.001 >= min_ratio:
+            break
+        if line_id in seated or target not in speech_index:
+            continue
+        _insert(line_id, wav_path, target=target, voice=voice, exempt=True)
+        notes.append(f"seat_host_vo_clone_exempt:{line_id}")
+    return notes
+
+
+def _top_up_intentional_air(edl: dict[str, Any], *, min_ratio: float) -> list[str]:
+    notes: list[str] = []
+    if intentional_air_ratio(edl) + 0.001 >= min_ratio:
+        return notes
+    clips = edl.setdefault("clips", [])
+    if not isinstance(clips, list):
+        return notes
+    guards = listenability_guards_cfg()
+    pad = max(int(guards.get("air_pad_floor_ms") or 250), 400)
+    ceil = int(guards.get("air_pad_ceil_ms") or 1800)
+    pad = min(pad, ceil)
+    dead_air_clamp = 2400
+    i = 0
+    while i < len(clips) - 1 and intentional_air_ratio(edl) + 0.001 < min_ratio:
+        a = clips[i] if isinstance(clips[i], dict) else {}
+        b = clips[i + 1] if isinstance(clips[i + 1], dict) else {}
+        if str(a.get("type") or "") == "speech" and str(b.get("type") or "") == "speech":
+            clips.insert(
+                i + 1,
+                {
+                    "type": "silence",
+                    "air_kind": "before_answer",
+                    "duration_ms": pad,
+                    "listenability_air_topup": True,
+                },
+            )
+            notes.append(f"air_between:{a.get('segment_id')}->{b.get('segment_id')}:{pad}ms")
+            i += 2
+            continue
+        i += 1
+    guard = 0
+    while intentional_air_ratio(edl) + 0.001 < min_ratio and guard < 80:
+        guard += 1
+        progressed = False
+        for clip in clips:
+            if not isinstance(clip, dict) or str(clip.get("type") or "") != "silence":
+                continue
+            cur = int(clip.get("duration_ms") or 0)
+            if cur >= dead_air_clamp:
+                continue
+            bump = min(pad, dead_air_clamp - cur)
+            if bump <= 0:
+                continue
+            clip["duration_ms"] = cur + bump
+            notes.append(f"air_extend:{clip.get('air_kind')}:{cur}->{cur + bump}")
+            progressed = True
+            if intentional_air_ratio(edl) + 0.001 >= min_ratio:
+                break
+        if not progressed:
+            break
+    return notes
+
+
+def remediate_listenability_edl(
+    ctx: RunContext, edl: dict[str, Any] | None
+) -> tuple[dict[str, Any], list[str]]:
+    """Meet host-VO duration and intentional-air floors without regenerating music."""
+    if not isinstance(edl, dict):
+        return {}, []
+    guards = listenability_guards_cfg()
+    notes: list[str] = []
+    notes.extend(
+        _seat_unused_host_vo(
+            ctx, edl, min_ratio=float(guards.get("host_vo_duration_min_ratio") or 0.04)
+        )
+    )
+    notes.extend(
+        _top_up_intentional_air(
+            edl, min_ratio=float(guards.get("intentional_air_min_ratio") or 0.01)
+        )
+    )
+    if notes:
+        reindex_edl_timeline(edl)
+    return edl, notes
 
 
 def write_listenability_contract(ctx: RunContext, report: dict[str, Any]) -> None:

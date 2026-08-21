@@ -108,3 +108,277 @@ def test_gap_fill_cap_uncapped_at_ratio_one():
     from interview_mux.coverage_limits import gap_fill_cap
 
     assert gap_fill_cap(100, {"analysis": {"coverage_limits": {"gap_fill_max_ratio": 1.0}}}) == 100
+
+
+def test_top_up_air_inserts_between_speech_joins():
+    from interview_mux.listenability_guards import (
+        _top_up_intentional_air,
+        intentional_air_ratio,
+        reindex_edl_timeline,
+    )
+
+    edl = {
+        "clips": [
+            {"type": "speech", "segment_id": "seg_a", "duration_ms": 50_000},
+            {"type": "speech", "segment_id": "seg_b", "duration_ms": 50_000},
+            {"type": "speech", "segment_id": "seg_c", "duration_ms": 50_000},
+            {"type": "vo_pickup", "line_id": "vo_x", "duration_ms": 9_000},
+        ]
+    }
+    assert intentional_air_ratio(edl) == 0.0
+    notes = _top_up_intentional_air(edl, min_ratio=0.01)
+    assert notes
+    # evaluate_listenability treats value + 0.001 >= min as in-band
+    assert intentional_air_ratio(edl) + 0.001 >= 0.01
+    reindex_edl_timeline(edl)
+    assert edl["clips"][1]["type"] == "silence"
+
+
+def test_seat_unused_host_vo_skips_clone_adjacent(tmp_path, monkeypatch):
+    import array
+    import json
+    import wave
+
+    from interview_mux.listenability_guards import (
+        host_vo_duration_ratio,
+        remediate_listenability_edl,
+    )
+
+    run = tmp_path / "run"
+    (run / "vo_pickup" / "synthesized").mkdir(parents=True)
+    (run / "understanding").mkdir()
+    wav = run / "vo_pickup" / "synthesized" / "vo_layup_seg_b.wav"
+    rate = 16000
+    with wave.open(str(wav), "w") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(rate)
+        fh.writeframes(array.array("h", [0] * (rate * 2)).tobytes())
+
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "targets_segment_id": "seg_b",
+                "voice_speaker_id": "spk_0",
+            }
+        ]
+    }
+    (run / "understanding" / "gap_report.json").write_text(json.dumps(gap))
+
+    class _Ctx:
+        run_dir = str(run)
+
+        def artifact_exists(self, rel):
+            return (run / rel).is_file()
+
+        def read_json(self, rel):
+            return json.loads((run / rel).read_text())
+
+        def path(self, *parts):
+            return run.joinpath(*parts)
+
+    edl = {
+        "clips": [
+            {
+                "type": "vo_pickup",
+                "line_id": "vo_existing",
+                "duration_ms": 20_000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_guest",
+                "speaker_id": "spk_1",
+                "duration_ms": 100_000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_b",
+                "speaker_id": "spk_0",
+                "duration_ms": 50_000,
+            },
+        ]
+    }
+
+    def _spk(_ctx, sid):
+        return "spk_0" if sid == "seg_b" else "spk_1"
+
+    monkeypatch.setattr(
+        "interview_mux.speaker_level_match.speaker_id_for_segment",
+        _spk,
+    )
+    out, notes = remediate_listenability_edl(_Ctx(), edl)
+    assert host_vo_duration_ratio(_Ctx(), out) + 0.001 >= 0.04
+    # Already in-band from existing VO — do not force clone-adjacent seating.
+    assert not any(c.get("line_id") == "vo_layup_seg_b" for c in out["clips"])
+
+
+def test_seat_unused_host_vo_before_other_speaker(tmp_path, monkeypatch):
+    import array
+    import json
+    import wave
+
+    from interview_mux.listenability_guards import (
+        host_vo_duration_ratio,
+        remediate_listenability_edl,
+    )
+
+    run = tmp_path / "run"
+    (run / "vo_pickup" / "synthesized").mkdir(parents=True)
+    (run / "understanding").mkdir()
+    wav = run / "vo_pickup" / "synthesized" / "vo_layup_seg_b.wav"
+    rate = 16000
+    n = rate * 5
+    with wave.open(str(wav), "w") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(rate)
+        fh.writeframes(array.array("h", [0] * n).tobytes())
+
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "targets_segment_id": "seg_b",
+                "voice_speaker_id": "spk_0",
+            }
+        ]
+    }
+    (run / "understanding" / "gap_report.json").write_text(json.dumps(gap))
+
+    class _Ctx:
+        run_dir = str(run)
+
+        def artifact_exists(self, rel):
+            return (run / rel).is_file()
+
+        def read_json(self, rel):
+            return json.loads((run / rel).read_text())
+
+        def path(self, *parts):
+            return run.joinpath(*parts)
+
+    edl = {
+        "clips": [
+            {"type": "speech", "segment_id": "seg_b", "duration_ms": 80_000},
+        ]
+    }
+    monkeypatch.setattr(
+        "interview_mux.speaker_level_match.speaker_id_for_segment",
+        lambda _ctx, sid: "spk_1",
+    )
+    out, notes = remediate_listenability_edl(_Ctx(), edl)
+    assert any(n.startswith("seat_host_vo:vo_layup_seg_b") for n in notes)
+    assert any(c.get("line_id") == "vo_layup_seg_b" for c in out["clips"])
+    assert host_vo_duration_ratio(_Ctx(), out) > 0.04
+
+
+def _write_silent_wav(path, *, seconds: int = 5) -> None:
+    import array
+    import wave
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rate = 16000
+    with wave.open(str(path), "w") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(rate)
+        fh.writeframes(array.array("h", [0] * (rate * seconds)).tobytes())
+
+
+def test_seat_unused_host_vo_skips_skipped_optional(tmp_path, monkeypatch):
+    import json
+
+    from interview_mux.listenability_guards import remediate_listenability_edl
+
+    run = tmp_path / "run"
+    wav = run / "vo_pickup" / "synthesized" / "vo_layup_seg_b.wav"
+    _write_silent_wav(wav)
+    (run / "understanding").mkdir(parents=True)
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "targets_segment_id": "seg_b",
+                "voice_speaker_id": "spk_0",
+                "skipped_optional": True,
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    (run / "understanding" / "gap_report.json").write_text(json.dumps(gap))
+
+    class _Ctx:
+        run_dir = str(run)
+
+        def artifact_exists(self, rel):
+            return (run / rel).is_file()
+
+        def read_json(self, rel):
+            return json.loads((run / rel).read_text())
+
+        def path(self, *parts):
+            return run.joinpath(*parts)
+
+    edl = {"clips": [{"type": "speech", "segment_id": "seg_b", "duration_ms": 80_000}]}
+    monkeypatch.setattr(
+        "interview_mux.speaker_level_match.speaker_id_for_segment",
+        lambda _ctx, sid: "spk_1",
+    )
+    out, notes = remediate_listenability_edl(_Ctx(), edl)
+    assert any("skip_skipped_optional:vo_layup_seg_b" in n for n in notes)
+    assert not any(c.get("line_id") == "vo_layup_seg_b" for c in out["clips"])
+
+
+def test_seat_unused_host_vo_skips_adjacent_transition(tmp_path, monkeypatch):
+    import json
+
+    from interview_mux.listenability_guards import remediate_listenability_edl
+
+    run = tmp_path / "run"
+    wav = run / "vo_pickup" / "synthesized" / "vo_layup_seg_b.wav"
+    _write_silent_wav(wav)
+    (run / "understanding").mkdir(parents=True)
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_b",
+                "targets_segment_id": "seg_b",
+                "voice_speaker_id": "spk_0",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    (run / "understanding" / "gap_report.json").write_text(json.dumps(gap))
+
+    class _Ctx:
+        run_dir = str(run)
+
+        def artifact_exists(self, rel):
+            return (run / rel).is_file()
+
+        def read_json(self, rel):
+            return json.loads((run / rel).read_text())
+
+        def path(self, *parts):
+            return run.joinpath(*parts)
+
+    edl = {
+        "clips": [
+            {"type": "speech", "segment_id": "seg_a", "duration_ms": 80_000},
+            {
+                "type": "transition",
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "duration_ms": 500,
+            },
+            {"type": "speech", "segment_id": "seg_b", "duration_ms": 80_000},
+        ]
+    }
+    monkeypatch.setattr(
+        "interview_mux.speaker_level_match.speaker_id_for_segment",
+        lambda _ctx, sid: "spk_1",
+    )
+    out, notes = remediate_listenability_edl(_Ctx(), edl)
+    assert any("skip_adjacent_synthetic:vo_layup_seg_b" in n for n in notes)
+    assert not any(c.get("line_id") == "vo_layup_seg_b" for c in out["clips"])

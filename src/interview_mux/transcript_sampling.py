@@ -38,6 +38,47 @@ def stratified_transcript_samples(
     return samples
 
 
+def _speaker_labeled_span(chunk: list[dict[str, Any]]) -> str:
+    """Join words, prefixing each turn with [speaker_id] when diarization exists.
+
+    Unlabeled windows made speaker_roles guess at 0.5 confidence because the
+    LLM saw only bare text ("turn-level attribution is absent").
+    """
+    has_speaker = any(
+        isinstance(w, dict) and (w.get("speaker_id") or w.get("speaker"))
+        for w in chunk
+    )
+    if not has_speaker:
+        return " ".join(
+            str(w.get("text") or w.get("word") or "")
+            for w in chunk
+            if isinstance(w, dict) and (w.get("text") or w.get("word"))
+        ).strip()
+    parts: list[str] = []
+    cur: str | None = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if not buf:
+            return
+        parts.append(f"[{cur or 'unk'}] " + " ".join(buf))
+
+    for w in chunk:
+        if not isinstance(w, dict):
+            continue
+        tok = str(w.get("text") or w.get("word") or "").strip()
+        if not tok:
+            continue
+        sid = str(w.get("speaker_id") or w.get("speaker") or "") or None
+        if sid != cur and buf:
+            flush()
+            buf = []
+        cur = sid
+        buf.append(tok)
+    flush()
+    return "\n".join(parts)
+
+
 def stratified_transcript_samples_from_words(
     words: list[dict[str, Any]],
     *,
@@ -46,7 +87,13 @@ def stratified_transcript_samples_from_words(
 ) -> dict[str, str]:
     """Build stratified samples from word-level transcript, biasing middle toward questions."""
     text = " ".join(str(w.get("text", "")) for w in words if w.get("text"))
-    if not words or len(text) <= total_chars:
+    if not words:
+        return stratified_transcript_samples(text, total_chars=total_chars, windows=windows)
+    labeled_all = _speaker_labeled_span(list(words))
+    if labeled_all.startswith("["):
+        if len(labeled_all) <= total_chars:
+            return {"opening": labeled_all}
+    elif len(text) <= total_chars:
         return stratified_transcript_samples(text, total_chars=total_chars, windows=windows)
 
     per_window = max(1, total_chars // max(windows, 1))
@@ -55,7 +102,7 @@ def stratified_transcript_samples_from_words(
 
     def _span(start: int, end: int) -> str:
         chunk = words[max(0, start) : min(n, end)]
-        return " ".join(str(w.get("text", "")) for w in chunk if w.get("text"))
+        return _speaker_labeled_span(chunk)
 
     question_idx = _best_question_window_start(words, start=third, end=2 * third)
     mid_start = question_idx if question_idx is not None else max(0, (n // 2) - third // 2)

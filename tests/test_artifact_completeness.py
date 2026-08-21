@@ -95,6 +95,18 @@ def test_artifact_status_pending_and_complete(tmp_path, monkeypatch):
     assert artifact_status("understanding/content_brief.json", ctx) == "complete"
 
 
+def test_preferred_fill_stage_uses_reanchor_after_manifest(tmp_path, monkeypatch):
+    from interview_mux.artifact_completeness import preferred_fill_stage
+
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    assert preferred_fill_stage("understanding/content_brief.json", ctx) == "content_context"
+    manifest = ctx.path("segments", "manifest.json")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text('{"segments":[{"segment_id":"seg_001"}]}', encoding="utf-8")
+    assert preferred_fill_stage("understanding/content_brief.json", ctx) == "content_brief_reanchor"
+
+
 def test_should_run_stage_when_gaps_remain(tmp_path, monkeypatch):
     import json
 

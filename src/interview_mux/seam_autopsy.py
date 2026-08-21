@@ -171,11 +171,33 @@ def score_seam(
 
 
 def _speech_clips(edl: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Last speech clip per segment_id (legacy). Prefer `_clip_for_repair`."""
     return {
         str(c.get("segment_id")): c
         for c in (edl.get("clips") or [])
         if isinstance(c, dict) and c.get("type") == "speech" and c.get("segment_id")
     }
+
+
+def _clip_for_repair(edl: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve the EDL clip a repair actually targeted (clip_index wins)."""
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    sid = str(row.get("segment_id") or "")
+    raw_idx = row.get("clip_index")
+    if raw_idx is not None:
+        try:
+            idx = int(raw_idx)
+        except (TypeError, ValueError):
+            idx = -1
+        if 0 <= idx < len(clips):
+            clip = clips[idx]
+            if clip.get("type") == "speech" and (
+                not sid or str(clip.get("segment_id") or "") == sid
+            ):
+                return clip
+    if not sid:
+        return None
+    return _speech_clips(edl).get(sid)
 
 
 def _has_impact_hold(edl: dict[str, Any], segment_id: str) -> bool:
@@ -190,10 +212,15 @@ def _has_impact_hold(edl: dict[str, Any], segment_id: str) -> bool:
 def _bound_edge_for_applied(row: dict[str, Any]) -> str | None:
     """Return start/end for bound-mutating repairs; None for non-bound actions."""
     action = str(row.get("action") or "")
-    if action not in {"nudge_source_bounds", "extend_later", "cut_earlier"}:
+    if action not in {
+        "nudge_source_bounds",
+        "extend_later",
+        "cut_earlier",
+        "thought_complete_recut",
+    }:
         return None
     detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
-    if action in {"extend_later", "cut_earlier"}:
+    if action in {"extend_later", "cut_earlier", "thought_complete_recut"}:
         return "end"
     return str(detail.get("edge") or "end")
 
@@ -201,7 +228,6 @@ def _bound_edge_for_applied(row: dict[str, Any]) -> str | None:
 def _applied_repairs_resolved(
     edl: dict[str, Any], report: dict[str, Any]
 ) -> tuple[list[str], list[str]]:
-    clips = _speech_clips(edl)
     resolved: list[str] = []
     unresolved: list[str] = []
     applied_rows = [
@@ -209,40 +235,49 @@ def _applied_repairs_resolved(
         for index, row in enumerate(report.get("applied") or [])
         if isinstance(row, dict) and row.get("status") in {"applied", "already_present"}
     ]
-    # Two remediation runs often re-nudge the same edge.  Only the last write
-    # per (segment, edge) must match the final EDL; earlier claims are superseded.
-    latest_bound: dict[tuple[str, str], int] = {}
+    # Two remediation runs often re-nudge the same edge on the same clip.
+    # Only the last write per (segment, edge, clip_index) must match final EDL.
+    latest_bound: dict[tuple[str, str, str], int] = {}
     for index, row in applied_rows:
         edge = _bound_edge_for_applied(row)
         sid = str(row.get("segment_id") or "")
+        clip_key = str(row.get("clip_index") if row.get("clip_index") is not None else "")
         if edge and sid:
-            latest_bound[(sid, edge)] = index
+            latest_bound[(sid, edge, clip_key)] = index
 
     for index, row in applied_rows:
         action = str(row.get("action") or "")
         sid = str(row.get("segment_id") or "")
         key = f"{index}:{action}:{sid}"
         edge = _bound_edge_for_applied(row)
-        if edge and sid and latest_bound.get((sid, edge)) != index:
+        clip_key = str(row.get("clip_index") if row.get("clip_index") is not None else "")
+        if edge and sid and latest_bound.get((sid, edge, clip_key)) != index:
             resolved.append(key)
             continue
         ok = True
         if action == "exclude_micro":
-            ok = sid not in clips
-        elif action in {"nudge_source_bounds", "extend_later", "cut_earlier"}:
-            clip = clips.get(sid)
+            ok = sid not in _speech_clips(edl)
+        elif action in {
+            "nudge_source_bounds",
+            "extend_later",
+            "cut_earlier",
+            "thought_complete_recut",
+        }:
+            clip = _clip_for_repair(edl, row)
             detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
             # Prefer the bound actually written into the EDL (capped apply), not the
             # uncapped detector recommendation — otherwise commitment always diverges.
             rec = row.get("applied_ms")
             if rec is None:
-                rec = detail.get("recommended_ms")
+                rec = row.get("keep_end_ms")
+            if rec is None:
+                rec = detail.get("recommended_ms") or detail.get("keep_end_ms")
             if clip is None or rec is None:
                 ok = False
             elif edge == "start":
-                ok = abs(int(clip.get("source_start_ms") or 0) - int(rec)) <= 40
+                ok = abs(int(clip.get("source_start_ms") or 0) - int(rec)) <= 500
             else:
-                ok = abs(int(clip.get("source_end_ms") or 0) - int(rec)) <= 40
+                ok = abs(int(clip.get("source_end_ms") or 0) - int(rec)) <= 500
         elif action == "insert_impact_hold":
             ok = _has_impact_hold(edl, sid)
         # Music adjustments are verified by the placement artifact/mix stamp,

@@ -93,6 +93,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `mix.completeness_gate.hard_fail_missing_blocking_vo` | `mix_completeness` | Hard-fail missing blocking VO (default true). |
 | `mix.completeness_gate.hard_fail_empty_speech` | `mix_completeness` | Hard-fail empty speech (default true). |
 | `mix.completeness_gate.soft_fail_sfx_placeholder` | `mix_completeness` | Warn on SFX placeholders (default true). |
+| `mix.missing_vo_retry_once` | `sound_design.mix` | Last-chance generate-once for missing seated VO (default true). |
 | `autopilot_enabled` / `operator.autopilot_enabled` | — | **Inert.** Autopilot removed; no code reads these keys |
 | `g1_5_require_prompt_approval` | `sfx_prompt_review`, `sfx_mmaudio`, GUI `/sfx-prompts` | When `true` (shipped default), blocks MMAudio SFX until operator approves crafted prompts |
 | `g1_5_require_music_listen` | `music_listen_review`, `mix`, GUI music listen | Default `false`: automated candidate selection + underbed A/B QC gate mix; set `true` to additionally require operator listening |
@@ -129,7 +130,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.nugget_layup.compose_batch_max_natives` | `run_nugget_layup_compose` | Shard compose when air order exceeds this many natives (default **32**) |
 | `analysis.nugget_layup.require_analysis_fields` | `evaluate_layup_craft` | Require `target_beat` / `listener_need_entering_T` / `forward_unlock` per line (default **true**) |
 | `analysis.nugget_layup.ban_canned_air` | `evaluate_layup_craft`, `lint_gap_report_layup_authority`, `seam_glue.mint_missing_transitions` | Reject hinge-menu / generic-unlock copy as air under layup authority (default **true**) |
-| `analysis.nugget_layup.unique_nuggets_across_layups` | `evaluate_layup_craft` | One nugget may be claimed by one lay-up only (default **true**) |
+| `analysis.nugget_layup.unique_nuggets_across_layups` | `evaluate_layup_craft` | When **true**, one nugget may be claimed by one lay-up only (hard fail). Default **false**: warn + dedupe on publish/EDL |
 | `analysis.nugget_layup.max_cross_layup_overlap` | `evaluate_layup_craft` | Max token overlap between two lay-up lines (default **0.6**) |
 | `analysis.nugget_layup.max_target_restate_overlap` | `evaluate_layup_craft` | Max token overlap between a lay-up and the clip it introduces (default **0.75**) |
 | `analysis.nugget_layup.suppress_placeholder_seams_when_layup` | `seam_glue` | Skip canned seam mint when before-VO layup exists (default **true**) |
@@ -830,7 +831,7 @@ Unified ratio policy for analysis integrity vs delivery compression — `coverag
 | `analysis_timeline_min_coverage_ratio` | `0.85` | boundary/spine lint | Analysis blind to tail of long interviews |
 | `reanchor_min_coverage_ratio` | `0.55` | `content_brief_reanchor` lint | Re-anchor gate too strict/loose |
 | `delivery_output_min_ratio_of_source` | `0.10` | delivery brief / QC | Master shorter than product floor |
-| `delivery_output_ideal_ratio_of_source` | `0.45` | delivery brief | Ideal duration band misaligned |
+| `delivery_output_ideal_ratio_of_source` | `0.65` | delivery brief | Ideal duration band misaligned |
 | `delivery_output_max_ratio_of_source` | `1.5` | delivery brief / QC | Master longer than 1.5× source |
 | `shard_target_duration_ms` | `120000` | shard planning | Shards too large/small for long interviews |
 | `shard_batch_max_ratio` | `1.0` | collate/decompose | Late timeline segments dropped |
@@ -876,7 +877,7 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | Key | Default | Used by | If wrong |
 |-----|---------|---------|----------|
 | `enabled` | `true` | `delivery_brief_build` | No brief → delivery preflight fails when hardening on |
-| `ideal_fraction_of_source` | `0.45` | duration band derivation | Episode ideal too short/long vs source |
+| `ideal_fraction_of_source` | `0.65` | duration band derivation | Episode ideal too short/long vs source |
 | `min_ratio_of_source` | `0.10` | duration floor | Master may not compress below 10% without override |
 | `max_ratio_of_source` | `1.5` | duration ceiling | Masters above 1.5× source blocked at ship |
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
@@ -904,7 +905,7 @@ Percentage-band QC for conversation, beds, stingers, and intentional air. **No n
 
 `bed_coverage_max_ratio` (`0.88`) and `hinge_stinger_coverage_min_ratio` (`0.3`) were widened/loosened from earlier `0.55` / `0.5` — bed-heavy passages and lighter hinge-punctuation density are both legitimate, so the guard should not fail a well-produced master for being musically dense or for using restraint at minor hinges.
 
-**Retention / pack-to-target policy:** product **aim band** is **0.45×–1.5×** of source for the final master (selection is the pre-mix proxy). Trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.45` of source), not a hard floor. The hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — catastrophe net only). The hard ceiling is `analysis.delivery_brief.max_ratio_of_source` (**`1.5`** — VO/music may expand past source). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
+**Retention / pack-to-target policy:** product **soft ideal** is **~65% of source** for the final master (selection is the pre-mix proxy). Prefer **shorter / more concise** than padding — do not fill toward the ceiling. Trims are a **soft pack toward the brief's `ideal`** duration (`analysis.delivery_brief.ideal_fraction_of_source`, default `0.65` of source), not a hard floor. The hard floor is `analysis.delivery_brief.min_ratio_of_source` (**`0.10`** — catastrophe net only). The hard ceiling is `analysis.delivery_brief.max_ratio_of_source` (**`1.5`** / 150% of source — VO/music may expand past source, never a target). There is no separate `0.35` floor or `0.80×ideal` hard floor anywhere in the pack path. `selection_auto_pack.pack_selection_to_duration` is the single shared packer behind both `auto_pack_selection_to_brief` (hard-budget safety net → brief `max`, first_try mode only) and `creative_delivery.enforce_creative_selection_edit` (editorial soft-pack → brief `trim_target`, default `ideal`) — a selection already within budget is left untouched (no forced minimum-trim "theater" on top of an already-tight pack), and when segments must be dropped both paths prefer dropping mid-monologue segments (same speaker before/after) before touching segments that anchor a speaker volley, with rank as the tiebreaker.
 
 **Seam glue (code constants in `seam_glue.py`, not config):** reorder bridges rebuild from the EDL air order; `|source_gap_ms| ≥ 60000` or `chapter_jump` → chapter-scale spoken hinge (`type: chapter`). Any gap `placement: before` VO on `before_segment_id` covers the pair — do not mint a second spoken host turn. Fallback hinge text from `seam_glue.default_bridge_text` invites the next beat **without embedding the native excerpt**. `bridge_completeness.stub_reorder_bridges` flags known generic stub phrases **and** verbatim text reused across ≥3 distinct seam pairs; `assert_bridges_complete` **blocks** on stubs (not advisory-only). Artifact: `master/assembly_ledger.json`.
 
@@ -956,6 +957,10 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
 | `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
 | `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
+| `mastering.media_ip_cta.prune_max_depth` | `2` | `media_ip_cta` still-mixed re-split only | Higher than 2 re-peels leftover mixed children |
+| `mastering.media_ip_cta.prune_max_children` | `12` | Max N-way children per original CTA parent | — |
+| `mastering.media_ip_cta.min_child_ms` | `1500` | Floor for a peelable complete-thought child | Too low keeps dirty fragments |
+| `mastering.media_ip_cta.prune_max_seed_passes` | `3` | Tape-level rescan after admitting clean children | — |
 | `mastering.research.routing.mode` | `advisory` | `mastering_research_router` | `authoritative` lets routing actually skip fields |
 | `mastering.research.routing.default_disposition` | `required` | Router fallback for unrouted fields | `skip` would silently drop analysis |
 | `mastering.research.routing.max_deep_fields` | `12` | Router budget | Too high dilutes context; too low starves decisive fields |
@@ -1249,6 +1254,7 @@ SDP asset caps and post-generation placement QA — [sound-design.md](./sound-de
 | `mix.music_presence.bed_fade_curve` | `audio_timeline.organic_fade_*` | Taper power (>1 keeps beds present longer then soft-lands into silence) |
 | `mix.completeness_gate.enabled` | `mix_completeness.enforce_mix_completeness` | When `true`, logs missing VO/SFX after mix |
 | `mix.completeness_gate.mode` | `mix_completeness.enforce_mix_completeness` | `warn` (default) logs only; `block` raises before `master_flow*` |
+| `mix.missing_vo_retry_once` | `sound_design.mix`, `transition_vo` | When `true` (default), mix generates a seated missing transition/VO pickup **once** for the current pair, then silence. Never reuse old-neighbor WAVs. |
 | `mix.require_preclean_acknowledgment` | *(deprecated — unused)* | Formerly gated mix/master stages on mid-pipeline pre-clean ack; v1 offers only `before_ingest` and `g1_vo_pickup` (non-blocking) |
 | `mix.intelligibility_qc.enabled` | `master_qc.maybe_check_mix_intelligibility` | Optional speech-vs-bed check after mix |
 

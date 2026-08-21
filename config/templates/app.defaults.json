@@ -118,6 +118,7 @@
       "enabled": true,
       "mode": "warn"
     },
+    "missing_vo_retry_once": true,
     "intelligibility_qc": {
       "enabled": true,
       "silent_speech_mix_ceiling_dbfs": -32,
@@ -410,7 +411,9 @@
     },
     "delivery_brief": {
       "enabled": true,
-      "ideal_fraction_of_source": 0.85,
+      "ideal_fraction_of_source": 0.65,
+      "min_ratio_of_source": 0.1,
+      "max_ratio_of_source": 1.5,
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
       "question_budget_max": 6,
@@ -527,6 +530,18 @@
   "mastering": {
     "prompt_edit": { "allow_global_promotion": false, "require_operator_approval": true },
     "research": { "routing": { "mode": "advisory", "default_disposition": "required", "max_deep_fields": 12 } },
+    "air_script": {
+      "enable": true,
+      "fail_open": true,
+      "bed_coverage_aim_lo": 0.55,
+      "bed_coverage_aim_hi": 0.88
+    },
+    "media_ip_cta": {
+      "prune_max_depth": 2,
+      "prune_max_children": 12,
+      "min_child_ms": 1500,
+      "prune_max_seed_passes": 3
+    },
     "quality_hardening": {
       "enabled": true,
       "context": { "mode": "advisory", "default_max_tokens": 24000 },

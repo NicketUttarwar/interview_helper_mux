@@ -7,6 +7,7 @@ from interview_mux.media_ip_cta import (
     SKIP_HOLE,
     apply_cover_policy,
     apply_cta_judgments,
+    apply_editorial_omits,
     cta_cover_budget_exempt,
     cta_cover_regenerate_scope,
     extract_judgments,
@@ -74,6 +75,22 @@ def test_extract_keeps_unsure_and_requires_clear() -> None:
     assert {h["segment_id"] for h in hits} == {"seg_cta", "seg_story"}
 
 
+def test_extract_omits_null_cut_ms() -> None:
+    hits = extract_judgments(
+        {
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_cta",
+                    "clearly_media_ip_pitch": True,
+                    "cut_ms": None,
+                }
+            ]
+        }
+    )
+    assert hits[0]["segment_id"] == "seg_cta"
+    assert "cut_ms" not in hits[0]
+
+
 def test_000_is_noop_even_with_judgments() -> None:
     ctx = _ctx_000()
     ctx.write_json(
@@ -116,6 +133,74 @@ def test_standalone_cta_dropped_any_speaker() -> None:
     assert "seg_cta" in never_touch_segment_ids(ctx)
     cover = ctx.read_json("mastering/media_ip_cta.json")
     assert "seg_b" in cover["cover_target_ids"]
+
+
+def test_leftover_ranking_cta_exclude_leaves_air_order() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_001",
+                "The show is sponsored by Agilisium Labs. Visit labs.agilisium.com.",
+                start=0,
+                end=5000,
+            ),
+            _seg("seg_002", "Mohan joins to talk oncology", start=5000, end=9000),
+        ),
+    )
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [
+                {
+                    "segment_id": "seg_001",
+                    "reason": "direct_listener_sponsor_promotion; sponsor message",
+                }
+            ],
+            "media_ip_cta": [],
+        },
+    )
+    assert out["ordered_segment_ids"] == ["seg_002"]
+    assert "seg_001" not in out["ordered_segment_ids"]
+
+
+def test_apply_editorial_omits_drops_sponsor_rationale_and_hard_omit() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_001",
+                "The Life Sciences DNA podcast is sponsored by Agilisium Labs.",
+                start=0,
+                end=5000,
+            ),
+            _seg("seg_002", "Who is Mohan Utawar?", start=5000, end=9000),
+            _seg(
+                "seg_biz",
+                "Our two-sided market lets other businesses pay for access.",
+                start=9000,
+                end=13000,
+            ),
+        ),
+    )
+    out = apply_editorial_omits(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002", "seg_biz"],
+            "excluded_segment_ids": [],
+            "exclude_rationales": {
+                "seg_001": "direct_listener_sponsor_promotion; the sponsor message does not support the oncology narrative",
+            },
+        },
+    )
+    assert "seg_001" not in out["ordered_segment_ids"]
+    assert "seg_002" in out["ordered_segment_ids"]
+    assert "seg_biz" in out["ordered_segment_ids"]
+    assert out["exclude_rationales"]["seg_001"].startswith("direct_listener_sponsor_promotion")
+    assert "seg_001" in never_touch_segment_ids(ctx)
 
 
 def test_two_clear_hits_both_dropped() -> None:
@@ -780,3 +865,240 @@ def test_hard_keep_excludes_never_touch_cta() -> None:
         encoding="utf-8",
     )
     assert "seg_cta" not in hard_keep_segment_ids(ctx)
+
+
+def test_zero_hits_writes_empty_prune_tree() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(_seg("seg_a", "hospitals buy reagents from other labs")),
+    )
+    out = apply_cta_judgments(
+        ctx,
+        {"ordered_segment_ids": ["seg_a"], "excluded_segment_ids": [], "media_ip_cta": []},
+    )
+    assert out["ordered_segment_ids"] == ["seg_a"]
+    state = ctx.read_json("mastering/media_ip_cta.json")
+    assert state.get("prune_tree") == []
+    assert state.get("seed_count") == 0
+    assert "no_clear_media_ip_cta" in (state.get("notes") or [])
+
+
+def test_seg_003_shaped_mixed_parent_hard_keep(monkeypatch) -> None:
+    ctx = _ctx_010()
+    intro = "OneCell is a platform that lets oncologists see living tumor biology."
+    bumper = (
+        "Well, before we begin, please subscribe, hit the like button, "
+        "use the comments section, and download the audio-only version of the show."
+    )
+    welcome = "Let's welcome Mohan to talk about the science."
+    text = f"{intro} {bumper} {welcome}"
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(_seg("seg_003", text, start=0, end=72000), _seg("seg_004", "after", start=72000, end=80000)),
+    )
+    cuts = ctx.path("understanding/ideal_cuts.json")
+    cuts.parent.mkdir(parents=True, exist_ok=True)
+    cuts.write_text(
+        '{"cuts":[{"segment_id":"seg_003","must_keep":true}],'
+        '"must_keep_segment_ids":["seg_003"]}',
+        encoding="utf-8",
+    )
+
+    def _split(ctx_inner, segment_id, cut_ms):
+        cuts = sorted(cut_ms)
+        ctx_inner.write_json(
+            "segments/nle_edits.json",
+            {
+                "sequence_order": ["seg_003a", "seg_003b", "seg_003c", "seg_004"],
+                "segment_overrides": {
+                    "seg_003a": {"start_ms": 0, "end_ms": cuts[0], "parent_id": "seg_003", "label": intro},
+                    "seg_003b": {
+                        "start_ms": cuts[0],
+                        "end_ms": cuts[1],
+                        "parent_id": "seg_003",
+                        "label": bumper,
+                    },
+                    "seg_003c": {
+                        "start_ms": cuts[1],
+                        "end_ms": 72000,
+                        "parent_id": "seg_003",
+                        "label": welcome,
+                    },
+                    "seg_003": {"excluded": True, "split_into": ["seg_003a", "seg_003b", "seg_003c"]},
+                },
+            },
+        )
+        return ctx_inner.read_json("segments/nle_edits.json")
+
+    monkeypatch.setattr("interview_mux.nle_state.split_segment_at_cuts", _split)
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_003", "seg_004"],
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_003",
+                    "clearly_media_ip_pitch": True,
+                    "mixed_with_story": True,
+                    "cta_region": "middle",
+                    "cut_ms": [20000, 50000],
+                }
+            ],
+        },
+    )
+    assert "seg_003a" in out["ordered_segment_ids"]
+    assert "seg_003c" in out["ordered_segment_ids"]
+    assert "seg_003b" not in out["ordered_segment_ids"]
+    assert "seg_003" not in out["ordered_segment_ids"]
+    assert "seg_003b" in never_touch_segment_ids(ctx)
+
+
+def test_multi_parent_cta_in_one_apply() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_001", "The show is sponsored by Agilisium Labs.", start=0, end=5000),
+            _seg("seg_keep", "Mohan rebuilt the assay.", start=5000, end=9000),
+            _seg(
+                "seg_mid",
+                "Please subscribe to my channel before we continue.",
+                start=9000,
+                end=13000,
+            ),
+            _seg("seg_story", "Then the trial enrolled.", start=13000, end=18000),
+            _seg(
+                "seg_076",
+                "Thanks again to our sponsor for making this possible.",
+                start=18000,
+                end=22000,
+            ),
+        ),
+    )
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001", "seg_keep", "seg_mid", "seg_story", "seg_076"],
+            "media_ip_cta": [
+                {"segment_id": "seg_001", "clearly_media_ip_pitch": True},
+                {"segment_id": "seg_076", "clearly_media_ip_pitch": True},
+            ],
+        },
+    )
+    assert out["ordered_segment_ids"] == ["seg_keep", "seg_story"]
+    never = never_touch_segment_ids(ctx)
+    assert {"seg_001", "seg_mid", "seg_076"} <= never
+    state = ctx.read_json("mastering/media_ip_cta.json")
+    assert int(state.get("seed_count") or 0) >= 3
+
+
+def test_two_dirty_spans_in_one_parent(monkeypatch) -> None:
+    ctx = _ctx_010()
+    chunks = [
+        ("The assay story continued cleanly.", 0, 5000),
+        ("Please subscribe to my show now.", 5000, 10000),
+        ("Then the trial enrolled patients.", 10000, 15000),
+        ("Thanks to our sponsor for this episode.", 15000, 20000),
+    ]
+    text = " ".join(c[0] for c in chunks)
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(_seg("seg_mix", text, start=0, end=20000)),
+    )
+    words = []
+    for blob, a, b in chunks:
+        toks = blob.split()
+        step = max(1, (b - a) // max(1, len(toks)))
+        t = a
+        for tok in toks:
+            words.append({"text": tok, "start_ms": t, "end_ms": t + step - 1})
+            t += step
+    ctx.write_json("transcript/full.json", {"words": words})
+
+    def _split(ctx_inner, segment_id, cut_ms):
+        ctx_inner.write_json(
+            "segments/nle_edits.json",
+            {
+                "sequence_order": ["seg_mixa", "seg_mixb", "seg_mixc", "seg_mixd"],
+                "segment_overrides": {
+                    "seg_mixa": {"start_ms": 0, "end_ms": 5000, "parent_id": "seg_mix", "label": chunks[0][0]},
+                    "seg_mixb": {"start_ms": 5000, "end_ms": 10000, "parent_id": "seg_mix", "label": chunks[1][0]},
+                    "seg_mixc": {"start_ms": 10000, "end_ms": 15000, "parent_id": "seg_mix", "label": chunks[2][0]},
+                    "seg_mixd": {"start_ms": 15000, "end_ms": 20000, "parent_id": "seg_mix", "label": chunks[3][0]},
+                    "seg_mix": {
+                        "excluded": True,
+                        "split_into": ["seg_mixa", "seg_mixb", "seg_mixc", "seg_mixd"],
+                    },
+                },
+            },
+        )
+        return ctx_inner.read_json("segments/nle_edits.json")
+
+    monkeypatch.setattr("interview_mux.nle_state.split_segment_at_cuts", _split)
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_mix"],
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_mix",
+                    "clearly_media_ip_pitch": True,
+                    "mixed_with_story": True,
+                    "cta_region": "end",
+                    "cut_ms": [5000, 10000, 15000],
+                }
+            ],
+        },
+    )
+    assert "seg_mixa" in out["ordered_segment_ids"]
+    assert "seg_mixc" in out["ordered_segment_ids"]
+    assert "seg_mixb" not in out["ordered_segment_ids"]
+    assert "seg_mixd" not in out["ordered_segment_ids"]
+
+
+def test_hard_keep_does_not_skip_parent_prune() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_003", "Please subscribe to my show before we talk science.", start=0, end=8000),
+            _seg("seg_004", "The assay worked.", start=8000, end=12000),
+        ),
+    )
+    cuts = ctx.path("understanding/ideal_cuts.json")
+    cuts.parent.mkdir(parents=True, exist_ok=True)
+    cuts.write_text(
+        '{"must_keep_segment_ids":["seg_003"],'
+        '"cuts":[{"segment_id":"seg_003","must_keep":true}]}',
+        encoding="utf-8",
+    )
+    out = apply_editorial_omits(
+        ctx,
+        {"ordered_segment_ids": ["seg_003", "seg_004"], "excluded_segment_ids": []},
+    )
+    assert "seg_003" not in out["ordered_segment_ids"]
+    assert "seg_004" in out["ordered_segment_ids"]
+    assert "seg_003" in never_touch_segment_ids(ctx)
+
+
+def test_layup_residue_prunes_all_remaining() -> None:
+    from interview_mux.media_ip_cta import heal_on_air_cta_residue
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_a", "Please subscribe to my channel.", start=0, end=4000),
+            _seg("seg_b", "Thanks to our sponsor again.", start=4000, end=8000),
+            _seg("seg_c", "The science continued.", start=8000, end=12000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]},
+    )
+    out = heal_on_air_cta_residue(ctx)
+    assert "seg_a" not in out["ordered_segment_ids"]
+    assert "seg_b" not in out["ordered_segment_ids"]
+    assert "seg_c" in out["ordered_segment_ids"]

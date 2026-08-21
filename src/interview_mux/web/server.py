@@ -2481,7 +2481,10 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/fill-artifact-gaps")
     def fill_artifact_gaps(run_id: str, body: FillArtifactGapsBody) -> dict[str, Any]:
-        from interview_mux.artifact_completeness import stage_keys_for_artifact_path
+        from interview_mux.artifact_completeness import (
+            preferred_fill_stage,
+            stage_keys_for_artifact_path,
+        )
 
         stage: str
         with _guarded_run(run_id):
@@ -2491,7 +2494,7 @@ def create_app() -> FastAPI:
             if not stage_ids:
                 raise HTTPException(400, f"No LLM stage registered for artifact path: {body.path}")
             set_active_execution(run_id)
-            stage = stage_ids[0]
+            stage = preferred_fill_stage(body.path, ctx) or stage_ids[0]
             ctx.log(
                 f"Fill gaps requested for {body.path} — re-running stage {stage}",
                 level="info",

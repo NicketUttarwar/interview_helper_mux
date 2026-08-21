@@ -48,6 +48,11 @@ _HOST_PACKET_MARKERS = (
     "vo_coverage",
     "air_script_vo_seats",
     "interviewer_lines",
+    "prior_native_contexts",
+    "target_native_contexts",
+    "vo_missions",
+    "gap_evaluations",
+    "gap_framing_policy",
 )
 
 
@@ -161,6 +166,16 @@ def _inject_bootstrap_facts(ctx: RunContext, available: dict[str, dict[str, Any]
             "media_ip_cta",
             {"fact_id": "media_ip_cta", "identity": "media_ip_cta", "meaning": cta},
         )
+    hints = _compact_editorial_omit_hints(ctx)
+    if hints:
+        available.setdefault(
+            "editorial_omit_hints",
+            {
+                "fact_id": "editorial_omit_hints",
+                "identity": "editorial_omit_hints",
+                "meaning": hints,
+            },
+        )
 
 
 def heuristic_axes(tool_id: str, card: dict[str, Any] | None) -> list[str]:
@@ -205,13 +220,18 @@ def default_pack_fact_ids(ctx: RunContext, tool_id: str) -> list[str]:
             ids.append("content_brief")
         if ctx.artifact_exists("segments/manifest.json"):
             ids.append("segment_manifest")
-        if tool_id in {"nugget_layup_compose", "nugget_corpus_mine"}:
+        if tool_id in {"nugget_layup_compose", "nugget_corpus_mine", "full_master_ranking", "ranking", "selection"}:
             if ctx.artifact_exists("master/selection.json"):
                 ids.append("selection")
-            if ctx.artifact_exists("understanding/nugget_corpus.json"):
+            if ctx.artifact_exists("understanding/nugget_corpus.json") and tool_id in {
+                "nugget_layup_compose",
+                "nugget_corpus_mine",
+            }:
                 ids.append("nugget_corpus")
             if ctx.artifact_exists("mastering/media_ip_cta.json"):
                 ids.append("media_ip_cta")
+        if tool_id in _RANKING_TOOLS and ctx.artifact_exists("master/selection.json"):
+            ids.append("editorial_omit_hints")
     if "language_islands" in axes:
         if ctx.artifact_exists("analysis/low_conf_must_keep.json"):
             ids.append("low_conf_must_keep")
@@ -249,20 +269,36 @@ def apply_pack_to_kwargs(ctx: RunContext, identity: str, kwargs: dict[str, Any])
         if fid and fid not in fact_ids:
             fact_ids.append(fid)
     messages = list(kwargs.get("messages") or [])
-    host_user = ""
-    for msg in messages:
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            host_user = str(msg.get("content") or "")
-            break
-    keep_host = _keep_host_user_packet(host_user)
+    host_user = _primary_host_user_content(messages, tool_id)
+    keep_host = _keep_host_user_packet(host_user) or tool_id in _GAP_EVAL_TOOLS
     pack = pack_volley(ctx, fact_ids=fact_ids, tool_id=tool_id, omit_g0=keep_host)
     packed_user = ""
     if pack.get("turns"):
         packed_user = str(pack["turns"][0].get("content") or "")
     if keep_host:
-        merged = (
-            f"{packed_user}\n\n--- stage input ---\n{host_user}" if packed_user else host_user
-        )
+        if tool_id in _GAP_EVAL_TOOLS:
+            from interview_mux.gap_packet_guard import (
+                host_packet_from_user_text,
+                merge_gap_bootstrap_keys,
+            )
+
+            host_obj = host_packet_from_user_text(host_user)
+            if isinstance(host_obj, dict):
+                facts: dict[str, Any] = {}
+                brief = _compact_content_brief(ctx)
+                if brief:
+                    facts["content_brief"] = brief
+                manifest = _compact_segment_manifest(ctx)
+                if manifest and isinstance(manifest.get("segments"), list):
+                    facts["segments"] = manifest["segments"]
+                merge_gap_bootstrap_keys(host_obj, facts)
+                merged = json.dumps(host_obj, ensure_ascii=False, default=str)
+            else:
+                merged = host_user
+        else:
+            merged = (
+                f"{packed_user}\n\n--- stage input ---\n{host_user}" if packed_user else host_user
+            )
     else:
         merged = packed_user
     new_msgs: list[dict[str, Any]] = []
@@ -521,7 +557,11 @@ def _compact_selection(ctx: RunContext) -> dict[str, Any] | None:
     return {
         "ordered_segment_ids": list(doc.get("ordered_segment_ids") or []),
         "excluded_segment_ids": list(doc.get("excluded_segment_ids") or [])[:40],
+        "exclude_rationales": dict(doc.get("exclude_rationales") or {})
+        if isinstance(doc.get("exclude_rationales"), dict)
+        else {},
         "media_ip_cta": list(doc.get("media_ip_cta") or [])[:12],
+        "notes": str(doc.get("notes") or "")[:400] or None,
     }
 
 
@@ -560,12 +600,83 @@ def _compact_media_ip_cta(ctx: RunContext) -> dict[str, Any] | None:
     if not isinstance(doc, dict):
         return None
     return {
-        "dropped_segment_ids": list(doc.get("dropped_segment_ids") or [])[:12],
-        "never_touch_segment_ids": list(doc.get("never_touch_segment_ids") or [])[:12],
-        "cover_target_ids": list(doc.get("cover_target_ids") or [])[:12],
+        "dropped_segment_ids": list(doc.get("dropped_segment_ids") or [])[:24],
+        "never_touch_segment_ids": list(doc.get("never_touch_segment_ids") or [])[:24],
+        "cover_target_ids": list(doc.get("cover_target_ids") or [])[:24],
         "open_choice": doc.get("open_choice"),
-        "notes": list(doc.get("notes") or [])[:8],
+        "notes": list(doc.get("notes") or [])[:12],
+        "seed_count": doc.get("seed_count"),
+        "seed_ids": list(doc.get("seed_ids") or [])[:24],
+        "prune_tree": list(doc.get("prune_tree") or [])[:12],
     }
+
+
+def _compact_editorial_omit_hints(ctx: RunContext) -> dict[str, Any] | None:
+    """Prior-stage keep/avoid suggestions for ranking (tape meaning only)."""
+    hints: dict[str, Any] = {}
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+        except Exception:
+            sel = None
+        if isinstance(sel, dict):
+            rationales = sel.get("exclude_rationales")
+            if isinstance(rationales, dict) and rationales:
+                hints["exclude_rationales"] = {
+                    str(k): str(v)[:200] for k, v in list(rationales.items())[:40]
+                }
+            editorial_excl = []
+            for row in sel.get("excluded_segment_ids") or []:
+                if not isinstance(row, dict):
+                    continue
+                reason = str(row.get("reason") or "")
+                try:
+                    from interview_mux.media_ip_cta import is_editorial_exclude_reason
+
+                    if not is_editorial_exclude_reason(reason):
+                        continue
+                except Exception:
+                    pass
+                editorial_excl.append(
+                    {
+                        "segment_id": row.get("segment_id"),
+                        "reason": reason[:200],
+                    }
+                )
+            if editorial_excl:
+                hints["editorial_excluded"] = editorial_excl[:40]
+            notes = str(sel.get("notes") or "").strip()
+            if notes:
+                hints["selection_notes"] = notes[:400]
+    cta = _compact_media_ip_cta(ctx)
+    if cta and (cta.get("dropped_segment_ids") or cta.get("notes")):
+        hints["media_ip_cta"] = cta
+    return hints or None
+
+
+def _primary_host_user_content(messages: list[Any], tool_id: str) -> str:
+    """Pick the stage JSON packet, not an earlier prior-beat volley turn.
+
+    Gap stages prepend PRIOR NATIVE BEATS user turns. Using the first user
+    message as the host packet drops segments / gap_evaluations / policy and
+    the nested LLM asks to rerun for missing stage input.
+    """
+    users = [
+        str(msg.get("content") or "")
+        for msg in messages
+        if isinstance(msg, dict) and msg.get("role") == "user"
+    ]
+    if not users:
+        return ""
+    json_users = [u for u in users if u.lstrip().startswith(("{", "["))]
+    if json_users:
+        return max(json_users, key=len)
+    if tool_id in _GAP_EVAL_TOOLS:
+        marked = [u for u in users if _keep_host_user_packet(u)]
+        if marked:
+            return max(marked, key=len)
+        return users[-1]
+    return users[0]
 
 
 def _keep_host_user_packet(text: str) -> bool:

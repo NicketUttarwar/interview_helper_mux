@@ -68,6 +68,7 @@ STAGE_TEST_COVERAGE: dict[str, list[str]] = {
     "sdp_intent_refine": ["test_refinement_core.py", "test_pipeline.py"],
     "sound_design_vo_finalize": ["test_mix_acoustic_profile.py", "test_pipeline.py"],
     "edl_narrative_audit": ["test_edl_narrative_qc.py", "test_pipeline.py"],
+    "vo_synthesize": ["test_vo_edl_file_contract.py", "test_pipeline.py"],
     "edl_narrative_refine": ["test_refinement_core.py", "test_pipeline.py"],
     "edl": ["test_assembly.py", "test_edl_qc.py", "test_pipeline.py"],
     "assembly_preview": ["test_assembly.py", "test_sound_design_crossfade.py", "test_pipeline.py"],

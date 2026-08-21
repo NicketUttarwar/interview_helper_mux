@@ -356,7 +356,10 @@ def analyze_asset_wav(
 
 
 def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
-    assets_dir = ctx.final_path("sound_design", "assets")
+    # Prefer staging-aware path: generation writes via ctx.path(); final_path is
+    # empty until stage flush, which previously yielded assets=[] QA forever.
+    assets_dir = ctx.path("sound_design", "assets")
+    assets_dir.mkdir(parents=True, exist_ok=True)
     plan_by_id: dict[str, dict[str, Any]] = {}
     sdp_palettes: list[dict[str, Any]] = []
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -494,7 +497,7 @@ def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
     halt ``mmaudio_sfx`` even when mix can continue without those stems.
     """
     qa = load_mmaudio_qa(ctx)
-    assets_dir = ctx.final_path("sound_design", "assets")
+    assets_dir = ctx.path("sound_design", "assets")
     wav_ids = {p.stem for p in assets_dir.glob("*.wav")} if assets_dir.is_dir() else set()
     qa_ids = {
         str(row.get("asset_id"))

@@ -154,6 +154,61 @@ def test_commitment_rejects_false_applied_claim(tmp_path):
     assert "claimed_repairs_missing_from_edl" in commitment["reasons"]
 
 
+def test_commitment_uses_clip_index_for_duplicate_segment_ids(tmp_path):
+    """Ideal-cut segments can appear twice; repairs must bind to clip_index."""
+    from interview_mux.seam_autopsy import _applied_repairs_resolved
+
+    edl = {
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_005",
+                "source_start_ms": 100,
+                "source_end_ms": 213510,
+            },
+            {"type": "silence", "duration_ms": 100},
+            {
+                "type": "speech",
+                "segment_id": "seg_005",
+                "source_start_ms": 264660,
+                "source_end_ms": 344510,
+            },
+        ]
+    }
+    report = {
+        "applied": [
+            {
+                "status": "applied",
+                "action": "nudge_source_bounds",
+                "segment_id": "seg_005",
+                "clip_index": 2,
+                "edge": "end",
+                "applied_ms": 344510,
+                "detail": {"edge": "end", "recommended_ms": 344510},
+            }
+        ]
+    }
+    resolved, unresolved = _applied_repairs_resolved(edl, report)
+    assert unresolved == []
+    assert resolved
+    # Claiming the second clip's bound against the first clip_index must diverge.
+    bad = {
+        "applied": [
+            {
+                "status": "applied",
+                "action": "nudge_source_bounds",
+                "segment_id": "seg_005",
+                "clip_index": 0,
+                "edge": "end",
+                "applied_ms": 344510,
+                "detail": {"edge": "end"},
+            }
+        ]
+    }
+    _res, unr = _applied_repairs_resolved(edl, bad)
+    assert unr
+
+
 def test_commitment_accepts_superseded_earlier_bound_claims(tmp_path):
     """Two remaster runs leave intermediate applied_ms that no longer match EDL."""
     ctx, edl = _ctx_with_timeline(tmp_path)
@@ -178,6 +233,31 @@ def test_commitment_accepts_superseded_earlier_bound_claims(tmp_path):
     commitment = verify_commitment(ctx, report, edl=edl)
     assert commitment["status"] == "committed"
     assert commitment["repairs_claimed"] == commitment["repairs_committed"] == 2
+
+
+def test_commitment_accepts_thought_complete_superseding_nudge(tmp_path):
+    ctx, edl = _ctx_with_timeline(tmp_path)
+    report = {
+        "applied": [
+            {
+                "status": "applied",
+                "action": "nudge_source_bounds",
+                "segment_id": "seg_a",
+                "applied_ms": 700,
+                "detail": {"edge": "end"},
+            },
+            {
+                "status": "applied",
+                "action": "thought_complete_recut",
+                "segment_id": "seg_a",
+                "keep_end_ms": 1000,
+                "detail": {"keep_end_ms": 1000},
+            },
+        ]
+    }
+    commitment = verify_commitment(ctx, report, edl=edl)
+    assert commitment["status"] == "committed"
+    assert not commitment["unresolved_repair_keys"]
 
 
 def test_selection_repair_never_reincludes_narrative_only_segments(tmp_path):

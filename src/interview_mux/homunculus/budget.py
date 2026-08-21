@@ -69,6 +69,21 @@ def remaining(ctx: RunContext, identity: str) -> int:
     return max(0, cap - used)
 
 
+def mark_identity_exhausted(ctx: RunContext, identity: str) -> None:
+    cache = getattr(ctx, "_budget_exhausted_identities", None)
+    if cache is None:
+        cache = set()
+        setattr(ctx, "_budget_exhausted_identities", cache)
+    cache.add(identity)
+
+
+def identity_exhausted(ctx: RunContext, identity: str) -> bool:
+    cache = getattr(ctx, "_budget_exhausted_identities", None)
+    if isinstance(cache, set) and identity in cache:
+        return True
+    return remaining(ctx, identity) <= 0
+
+
 def remaining_conductor_turns(ctx: RunContext) -> int:
     return remaining(ctx, "conductor_turn")
 
@@ -101,6 +116,7 @@ def check_dispatch(
             if identity == "conductor_turn" or kind == "conductor_turn"
             else "max_invokes_per_identity"
         )
+        mark_identity_exhausted(ctx, identity)
         _halt(ctx, identity, reason, {"used": used, "cap": cap})
     if packet_hash:
         from interview_mux.homunculus.ledger import has_packet_hash

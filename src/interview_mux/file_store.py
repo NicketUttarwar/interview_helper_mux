@@ -21,6 +21,13 @@ def read_json(path: Path) -> Any:
 
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.name == "edl.json" and path.parent.name == "master" and isinstance(data, dict):
+        try:
+            from interview_mux.edl_source_contract import sanitize_edl_json_for_path
+
+            data = sanitize_edl_json_for_path(path, data)
+        except Exception:
+            pass
     payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     with FileLock(lock_path_for(path)):
         tmp = path.with_suffix(path.suffix + ".tmp")

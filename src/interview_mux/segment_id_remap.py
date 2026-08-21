@@ -128,10 +128,74 @@ def apply_segment_id_map(value: Any, mapping: dict[str, str]) -> Any:
                     else:
                         mapped.append(apply_segment_id_map(item, mapping))
                 out[k] = mapped
+            elif k == "source_path":
+                # File pointers are not segment-id fields. Rewriting tokens inside
+                # ``tr_seg_055_seg_061.wav`` would invent a missing ``…058…`` name.
+                out[k] = v
             else:
                 out[k] = apply_segment_id_map(v, mapping)
         return out
     return value
+
+
+def _pop_transition_source_paths(edl: dict[str, Any]) -> dict[str, Any]:
+    """Drop transition file pointers after neighbor ids change (never reuse old-pair WAVs)."""
+    clips: list[Any] = []
+    changed = False
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
+            clips.append(clip)
+            continue
+        if "source_path" not in clip:
+            clips.append(clip)
+            continue
+        row = dict(clip)
+        row.pop("source_path", None)
+        row["duration_ms"] = 0
+        clips.append(row)
+        changed = True
+    if not changed:
+        return edl
+    out = dict(edl)
+    out["clips"] = clips
+    return out
+
+
+def _clear_stale_vo_stage_done(ctx: RunContext) -> None:
+    for sid in ("vo_synthesize", "edl", "mix"):
+        marker = ctx.final_path(".stage_done", sid)
+        if marker.is_file():
+            try:
+                marker.unlink()
+            except OSError:
+                pass
+
+
+def _resync_current_transition_audio(ctx: RunContext) -> None:
+    """Generate current-pair WAVs and restamp EDL paths after neighbor ids change."""
+    from interview_mux.transition_vo import (
+        commit_current_transition_wavs,
+        restamp_edl_transition_source_paths,
+    )
+
+    if ctx.artifact_exists("master/transitions.json"):
+        try:
+            commit_current_transition_wavs(ctx)
+        except Exception as exc:
+            ctx.log(
+                f"segment remap VO resync: {exc}",
+                level="warning",
+                stage="segment_id_remap",
+            )
+    try:
+        restamp_edl_transition_source_paths(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"segment remap EDL restamp: {exc}",
+            level="warning",
+            stage="segment_id_remap",
+        )
+    _clear_stale_vo_stage_done(ctx)
 
 
 def rewrite_artifact_segment_refs(
@@ -159,6 +223,8 @@ def rewrite_artifact_segment_refs(
         except Exception:
             continue
         rewritten = apply_segment_id_map(doc, mapping)
+        if rel == "master/edl.json" and isinstance(rewritten, dict):
+            rewritten = _pop_transition_source_paths(rewritten)
         if rewritten != doc:
             kwargs: dict[str, Any] = {"skip_handoff": skip_handoff}
             if stage_key:
@@ -189,4 +255,7 @@ def apply_full_segment_id_remap(
         from interview_mux.chapter_close_hitch import rebind_vo_pickup_files
 
         updated.extend(rebind_vo_pickup_files(ctx, mapping))
+    vo_artifacts = {"master/transitions.json", "master/edl.json"}
+    if mapping and vo_artifacts.intersection(updated):
+        _resync_current_transition_audio(ctx)
     return updated

@@ -10,7 +10,12 @@ BRIDGE_MAX_WORDS = 35
 SUMMARY_MAX_WORDS = 40
 
 
-def choose_bridge_voice(pair: dict[str, Any], *, narrative_mode: str | None = None) -> dict[str, Any]:
+def choose_bridge_voice(
+    pair: dict[str, Any],
+    *,
+    narrative_mode: str | None = None,
+    episode_vo_shape: str | None = None,
+) -> dict[str, Any]:
     """Return suggested_line_category, suggested_pov, max_words for one adjacency."""
     kind = str(pair.get("kind") or "reorder")
     mode = str(narrative_mode or "")
@@ -48,6 +53,12 @@ def choose_bridge_voice(pair: dict[str, Any], *, narrative_mode: str | None = No
     elif mode in {"conversational_host", "sparse_source"} and category == "story_bridge":
         pov = "host_second_person"
 
+    locked = str(episode_vo_shape or "").strip()
+    if locked:
+        from interview_mux.speaker_delivery_plan import vo_shape_to_pov
+
+        pov = vo_shape_to_pov(locked)
+
     return {
         **pair,
         "suggested_line_category": category,
@@ -60,8 +71,15 @@ def annotate_reorder_bridges(
     doc: dict[str, Any],
     *,
     narrative_mode: str | None = None,
+    episode_vo_shape: str | None = None,
 ) -> dict[str, Any]:
-    pairs = [choose_bridge_voice(p, narrative_mode=narrative_mode) for p in (doc.get("pairs") or []) if isinstance(p, dict)]
+    pairs = [
+        choose_bridge_voice(
+            p, narrative_mode=narrative_mode, episode_vo_shape=episode_vo_shape
+        )
+        for p in (doc.get("pairs") or [])
+        if isinstance(p, dict)
+    ]
     out = dict(doc)
     out["pairs"] = pairs
     out["count"] = len(pairs)

@@ -4,9 +4,9 @@
 
 One source interview → one deliverable: **`master/master.wav`**. Product Essence: find golden nuggets, cut for listenability, weave native + grounded synthetic + music/SFX/air under Shape — [NORTH_STAR.md](../NORTH_STAR.md). Optional Ship packaging + ASSETS-wide S3 sync is separate from the north-star master.
 
-Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 32 delivery = 66 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
+Canonical stage ids: [`src/interview_mux/v2/config.py`](../src/interview_mux/v2/config.py) (**34 analysis + 33 delivery = 67 stages**). Inventory: [v2/port-manifest.csv](./v2/port-manifest.csv). Flow 2 / Flow 3 and G2 were **removed** — [v2/drop-manifest.md](./v2/drop-manifest.md).
 
-**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~45%); hard retention floor ~10% only. Bed coverage **0.40–0.88**, hinge stinger **0.3–1.0**.
+**Quality target:** Narrative order via the [Mastering Process](./cross-cutting/mastering-process.md), gap-framing VO when enabled, SDP beds/stingers via local MMAudio, measured loudness (`tools/verify_master.py`), and **authoritative listen_delight** (blocks ship when floors fail). Soft duration ideal (~65%, prefer concise); hard retention floor ~10%; hard ceiling 1.5× source. Bed coverage **0.40–0.88**, hinge stinger **0.3–1.0**.
 
 ```mermaid
 flowchart TB
@@ -21,13 +21,13 @@ flowchart TB
         Gaps --> Brief
     end
     Brief --> G1{G1 VO optional}
-    G1 --> Del[Delivery — 31 stages]
+    G1 --> Del[Delivery — 33 stages]
     Del --> Rank[Coverage → arc → ranking → Refinement Pass]
-    Rank --> Sound[SDP → EDL → preview → SFX → mix → junction QA]
+    Rank --> Sound[SDP → VO synth → EDL → preview → SFX → mix → junction QA]
     Sound --> Ship[master_finalize → optional G-Publish package]
 ```
 
-**Brains:** **0.1.0** (default — latest registered) uses the same 65 host stages as tools under the mastering homunculus conductor (logged seed-agenda fallback if the tool loop cannot finish). **0.0.0** walks this graph linearly. See [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md).
+**Brains:** **0.1.0** (default — latest registered) uses the same 67 host stages as tools under the mastering homunculus conductor (logged seed-agenda fallback if the tool loop cannot finish). **0.0.0** walks this graph linearly. See [cross-cutting/mastering-homunculus.md](./cross-cutting/mastering-homunculus.md).
 
 ---
 
@@ -45,7 +45,7 @@ All work starts from a single long-form interview recording in `./ASSETS/`. Oper
 | **Delivery brief / structure** | Adaptive policy + episode structure | delivery brief, soundscape policy, episode structure |
 | **G1** | Record/synthesize pickup or skip | `vo_pickup/` |
 | **Plan & refine** | Coverage, arc, ranking, Refinement Pass | ranking + refine artifacts |
-| **Sound & build** | SDP, EDL, preview, MMAudio, mix, junction QA | `master/assembly.wav`, SFX assets |
+| **Sound & build** | SDP, VO synth, EDL, preview, MMAudio, mix, junction QA | `master/assembly.wav`, SFX assets |
 | **Ship** | Loudness master; optional local RSS package | `master/master.wav`, `publish/` |
 
 **Optional pre-clean:** Offered before ingest and after G1 pickup recording — never auto-run. See [audio pre-clean](./pipeline/audio_preclean/README.md).

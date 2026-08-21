@@ -115,6 +115,7 @@ def remaster_sync(ctx: RunContext, *, until_mix: bool = True) -> None:
             "mmaudio_sfx",
             "mix",
             "junction_snip_qa",
+            "vo_synthesize",
         }:
             continue
         if sid == "mix" and not until_mix:
@@ -129,6 +130,12 @@ def remaster_sync(ctx: RunContext, *, until_mix: bool = True) -> None:
                 pass
 
     # Rebuild EDL + mix; reuse existing MMAudio assets when present
+    try:
+        from interview_mux.transition_vo import commit_current_transition_wavs
+
+        commit_current_transition_wavs(ctx)
+    except Exception as exc:
+        ctx.log(f"optimizer remaster VO resync: {exc}", level="warning", stage="timeline_optimizer")
     assembly.run_edl(ctx)
     assembly.run_mix(ctx)
 

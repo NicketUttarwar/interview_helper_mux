@@ -1,4 +1,4 @@
-"""Stage-family adapters for the resilience runtime (all 66 pipeline stages)."""
+"""Stage-family adapters for the resilience runtime (all 67 pipeline stages)."""
 
 from __future__ import annotations
 
@@ -47,6 +47,7 @@ _SELECTION = frozenset(
         "refinement_agenda",
         "air_script_seams",
         "edl_narrative_audit",
+        "vo_synthesize",
         "edl",
         "assembly_preview",
         "listen_delight_audit",

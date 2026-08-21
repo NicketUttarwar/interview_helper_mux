@@ -305,7 +305,7 @@ Follow isolated-runtime pattern from [local-audio-stack.md](./local-audio-stack.
 | Verify | `scripts/verify_local_models.sh` gate + `install.json` |
 | CLI | `tools/s2s_generate.py` — `--text`, `--reference`, `--context`, `--tone`, `--out` |
 | Runner | `src/interview_mux/s2s_runner.py` (subprocess via `local_runtime.py`) |
-| Stage | `vo_synthesize` on-demand at G1 or in delivery order after gap lines finalized |
+| Stage | `vo_synthesize` in `DELIVERY_ORDER` after `edl_narrative_audit` (before `edl`); G1 API still synthesizes one gap line |
 | QA sidecar | `vo_pickup/s2s_qa.json` (model id, reference speaker, duration, tone) — mirror `mmaudio_qa.json` |
 | Config | `s2s.enabled`, `s2s.model`, `s2s.min_reference_sec`, `s2s.fail_open` (default **true**) — document in [config-keys.md](./config-keys.md) when shipped |
 
@@ -339,6 +339,26 @@ Extend [evaluation-metrics.md](./evaluation-metrics.md) gap/segment and listen Q
 | Mispronunciation | Manual G0 term spot-check on synthesized lines (names, acronyms) |
 
 Future-proofing row: [future-proofing.md](../roadmap/future-proofing.md).
+
+---
+
+## VO/EDL file contract (seated synthetic lines)
+
+Pair-named transition WAVs (`master/transitions/tr_{after}_{before}.wav`) are bound to the **current** neighbor pair. After an order swap (e.g. `seg_061` → `seg_058`), the new filenames must be synthesized and committed; leftover `…061…` files must **not** be reused on the new seats.
+
+**Invariant:** any EDL clip may carry `source_path` only if that file exists on disk (committed or staged). Otherwise the key is omitted (explicit empty seat for `vo_pickup` / `transition`). Ghost filenames must never be saved.
+
+**Write boundary (every persist):** `sanitize_edl_source_paths` runs inside `RunContext.write_json`, `write_committed_json`, `write_mirrored_json`, `write_pending_content`, and `file_store.write_json` (so even a raw `fs_write_json` of `master/edl.json` cannot save a ghost). Flush and promote re-heal after a byte copy. Junction remaster, omit-ledger, listenability, remap, mix, optimizer, and the auto-driver therefore cannot emit a dangling path even when they skip `run_edl`.
+
+**Already-on-disk ghosts** (archive restore, raw `Path.write_text`): `persist_sanitized_edl` / `heal_committed_edl_source_paths` at mix entry, `post_edl` cross-validate, and `pre_mix` rewrite the artifact before downstream mix/QC. Leftover ghosts after heal are a hard cross-validate error.
+
+**Order-change seams** (`resync_spoken_transitions` / `commit_current_transition_wavs`): EDL, optimizer remaster, junction remaster, narrative remutate. Staging must promote `master/transitions/*.wav` (`write_staging.promote_staged_side_effects` accepts directory prefixes).
+
+**`vo_synthesize` done-marker:** not complete while **current spoken pairs** in `master/transitions.json` lack a **usable WAV** (`transition_vo.current_transition_pairs_missing` / `current_pair_wav_usable`). Synthesis-report audit match is not required for completeness. Leftover `…061…` files do not count. Delivery **fail-opens**: missing pairs leave `.stage_done/vo_synthesize` unset and do not abort the batch — `edl` / mix last-chance still run. Homunculus 0.1.0 cannot skip the stage while pairs are missing.
+
+**EDL/mix pair QC:** `post_edl` logs missing current pairs (advisory; not a hard gate). Mix resyncs then last-chance-synths. After mix, still-missing pairs are logged at error and written to `mastering/vo_synthesize.json` (`still_missing_pairs`, `last_source`). Remap/junction `commit_current_transition_wavs` updates that same report even when synth **raises** (persist in `finally`; holes measured from disk so an empty in-memory list cannot look like success).
+
+**Mix last-chance** (`mix.missing_vo_retry_once`, default true): if a seated clip's WAV is still missing, generate **that** current pair once, QA (`vo_speech_qa` + no duplicate seated line), remux onto `master.wav`. Fail → silence + warn; do not hard-block ship; do not copy an old-neighbor WAV.
 
 ---
 

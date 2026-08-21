@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -391,6 +392,46 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         words = _transcript_words(ctx)
         ctx.log("mix: loading EDL and ingest stem", level="info", stage="mix")
         edl = ctx.read_json("master/edl.json")
+        if isinstance(edl, dict):
+            from interview_mux.edl_source_contract import persist_sanitized_edl, sanitize_edl_source_paths
+
+            edl, ghosts = sanitize_edl_source_paths(ctx, edl)
+            if ghosts:
+                persist_sanitized_edl(ctx, edl)
+            from interview_mux.listenability_guards import remediate_listenability_edl
+
+            edl_before = copy.deepcopy(edl)
+            edl, listen_fix_notes = remediate_listenability_edl(ctx, edl)
+            if listen_fix_notes:
+                from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
+
+                qc_errors = validate_flow1_edl_narrative(ctx, edl)
+                if qc_errors:
+                    edl = edl_before
+                    ctx.log(
+                        "mix: reverted listenability seating; narrative QC failed",
+                        level="warning",
+                        stage="mix",
+                        detail=(listen_fix_notes[:8] + qc_errors[:8]),
+                    )
+                else:
+                    ctx.write_json("master/edl.json", edl)
+                    ctx.log(
+                        "mix: listenability EDL remediations applied",
+                        level="info",
+                        stage="mix",
+                        detail=listen_fix_notes[:12],
+                    )
+                    try:
+                        from interview_mux.homunculus.kb import append_thinking
+
+                        append_thinking(
+                            ctx,
+                            "listenability remediations: " + "; ".join(listen_fix_notes[:8]),
+                            identity="mix",
+                        )
+                    except Exception:
+                        pass
         source = load_audio(ctx.read_path("ingest", "normalized.wav"))
 
     base = AudioSegment.silent(duration=0, frame_rate=DEFAULT_FRAME_RATE)
@@ -398,6 +439,8 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
     speech_count = 0
     vo_count = 0
     missing_vo: list[str] = []
+    retried_vo: list[str] = []
+    _vo_retry_attempted: set[str] = set()
     prev_speech_seg_id = ""
     live_vo_windows: list[tuple[int, int]] = []
     live_landmarks: dict[str, Any] = {
@@ -495,29 +538,57 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             elif ctype == "vo_pickup":
                 src_rel = clip.get("source_path")
                 line_id = str(clip.get("line_id") or "")
+                audio = None
                 if src_rel:
                     vo_path = ctx.read_path(str(src_rel))
                     if vo_path.is_file():
                         audio = load_audio(vo_path)
+                if audio is None:
+                    from interview_mux.transition_vo import last_chance_synth_missing_clip
+
+                    retry_path = last_chance_synth_missing_clip(
+                        ctx, clip, edl=edl, attempted=_vo_retry_attempted
+                    )
+                    if retry_path is not None and retry_path.is_file():
+                        audio = load_audio(retry_path)
+                        clip["source_path"] = str(retry_path.relative_to(ctx.run_dir)) if str(retry_path).startswith(str(ctx.run_dir)) else str(src_rel or retry_path)
+                        retried_vo.append(line_id or str(retry_path))
                     else:
                         audio = placeholder_from_clip(clip)
-                        missing_vo.append(line_id or str(src_rel))
-                else:
-                    audio = placeholder_from_clip(clip)
-                    missing_vo.append(line_id or "unknown")
+                        missing_vo.append(line_id or str(src_rel or "unknown"))
+                        clip.pop("source_path", None)
                 vo_count += 1
                 clip_crossfade = crossfade_ms
                 last_vo_kind = classify_vo_line(line_id)
             elif ctype == "transition":
                 src_rel = clip.get("source_path")
+                audio = None
                 if src_rel:
                     tr_path = ctx.read_path(str(src_rel))
                     if tr_path.is_file():
                         audio = load_audio(tr_path)
-                    else:
+                if audio is None and (src_rel or str(clip.get("text") or "").strip()):
+                    from interview_mux.transition_vo import last_chance_synth_missing_clip
+
+                    retry_path = last_chance_synth_missing_clip(
+                        ctx, clip, edl=edl, attempted=_vo_retry_attempted
+                    )
+                    if retry_path is not None and retry_path.is_file():
+                        audio = load_audio(retry_path)
+                        try:
+                            clip["source_path"] = retry_path.relative_to(ctx.run_dir).as_posix()
+                        except ValueError:
+                            clip["source_path"] = retry_path.as_posix()
+                        retried_vo.append(
+                            f"transition:{clip.get('after_segment_id')}->{clip.get('before_segment_id')}"
+                        )
+                    elif src_rel:
                         audio = placeholder_from_clip(clip)
                         missing_vo.append(f"transition:{src_rel}")
-                else:
+                        clip.pop("source_path", None)
+                    else:
+                        continue
+                elif audio is None:
                     # Text-less or silent transition marker — skip (zero duration).
                     continue
                 vo_count += 1
@@ -606,6 +677,16 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 level="warning",
                 stage="mix",
             )
+        if retried_vo:
+            ctx.log(
+                f"mix: last-chance VO synth seated {sorted(set(retried_vo))}",
+                level="info",
+                stage="mix",
+            )
+            try:
+                ctx.write_json("master/edl.json", edl)
+            except Exception:
+                pass
 
         ctx.log(
             (
@@ -881,6 +962,7 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             stage="mix",
             missing_vo=missing_vo,
             missing_sfx=list(overlay_stats.get("missing_assets") or []),
+            retried_vo=retried_vo,
         )
         from interview_mux.listenability_guards import (
             evaluate_listenability,

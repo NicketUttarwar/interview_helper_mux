@@ -73,6 +73,7 @@ def bootstrap_manifest_topic_tags(ctx: RunContext, *, min_score: float = 0.45) -
         return 0
 
     applied = 0
+    untagged: list[dict[str, Any]] = []
     for seg in segments:
         if not isinstance(seg, dict) or not seg.get("segment_id"):
             continue
@@ -89,6 +90,29 @@ def bootstrap_manifest_topic_tags(ctx: RunContext, *, min_score: float = 0.45) -
         if best_slug and best_score >= min_score:
             seg["topic_tags"] = [best_slug]
             applied += 1
+        else:
+            untagged.append(seg)
+
+    # When classification left every (or most) rows untagged, force a best-effort
+    # slug so content_brief_reanchor host repair can map segment_ids. Prefer the
+    # highest-scoring topic even below min_score; fall back to chronological buckets.
+    if untagged and applied == 0:
+        topic_slugs = [_topic_slug(str(t.get("name") or "")) for t in topics]
+        topic_slugs = [s for s in topic_slugs if s]
+        if topic_slugs:
+            for idx, seg in enumerate(untagged):
+                best_slug = ""
+                best_score = -1.0
+                for topic in topics:
+                    score = _score_topic_for_segment(topic, seg)
+                    slug = _topic_slug(str(topic.get("name") or ""))
+                    if slug and score > best_score:
+                        best_score = score
+                        best_slug = slug
+                if not best_slug:
+                    best_slug = topic_slugs[idx % len(topic_slugs)]
+                seg["topic_tags"] = [best_slug]
+                applied += 1
 
     if not applied:
         return 0

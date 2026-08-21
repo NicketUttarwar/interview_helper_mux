@@ -138,14 +138,26 @@ def fill_uncovered_high_gaps(
     if not high:
         return 0
     try:
+        from interview_mux.homunculus.budget import (
+            LimitExhausted,
+            identity_exhausted,
+            mark_identity_exhausted,
+        )
         from interview_mux.stages.llm_runner import run_prompt_envelope
     except Exception:
         return 0
     import os
 
+    fill_identity = "high_gap_vo_fill"
+    if identity_exhausted(ctx, fill_identity):
+        applied.append({"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"})
+        demote_uncovered_high_gaps(ctx, gap_report=out, origin="limit_exhausted")
+        return 0
+
     if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
         return 0
     added = 0
+    consecutive_empty = 0
     for row in high[:12]:
         sid = str(row.get("segment_id") or "")
         payload = {
@@ -170,6 +182,13 @@ def fill_uncovered_high_gaps(
                     explicit_tier=tier,
                     response_format={"type": "json_object"},
                 )
+            except LimitExhausted:
+                mark_identity_exhausted(ctx, fill_identity)
+                applied.append(
+                    {"action": "high_gap_vo_fill_skip", "reason": "limit_exhausted"}
+                )
+                demote_uncovered_high_gaps(ctx, gap_report=out, origin="limit_exhausted")
+                return added
             except Exception:
                 continue
             arts = env.get("artifacts") if isinstance(env, dict) else None
@@ -180,14 +199,21 @@ def fill_uncovered_high_gaps(
             if text:
                 break
         if not text:
+            consecutive_empty += 1
             applied.append({"action": "high_gap_vo_fill_empty", "segment_id": sid})
+            if consecutive_empty >= 2:
+                applied.append({"action": "high_gap_vo_fill_abort", "reason": "consecutive_empty"})
+                break
             continue
+        consecutive_empty = 0
         lines.append(
             {
                 "line_id": f"vo_fill_{sid}",
                 "text": text,
                 "delivery": "synthesize",
+                "placement": "before",
                 "targets_segment_id": sid,
+                "gap_type": row.get("gap_type") or "missing_setup",
                 "origin": origin,
                 "required": True,
                 "category": "story_bridge",

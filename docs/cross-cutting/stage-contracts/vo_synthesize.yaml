@@ -1,0 +1,26 @@
+stage_id: vo_synthesize
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: mastering/vo_synthesize.json
+  schema: null
+  staging: false
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages:
+  - edl
+consumers:
+- edl
+remediation:
+  strategies:
+  - full_stage_rerun

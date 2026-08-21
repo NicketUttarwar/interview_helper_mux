@@ -76,9 +76,15 @@ def dispatch_stage(
                 f"{stage} finished without required artifact ({', '.join(needed)})"
             )
         if stage in PROTECTED_CORE_STAGES and needed and not ctx.is_done(stage):
-            ctx.mark_done(stage, force=True)
-            if not ctx.is_done(stage):
-                raise RuntimeError(f"{stage} finished without a done marker")
+            defer_done = False
+            if stage == "vo_synthesize":
+                from interview_mux.transition_vo import current_transition_pairs_missing
+
+                defer_done = bool(current_transition_pairs_missing(ctx))
+            if not defer_done:
+                ctx.mark_done(stage, force=True)
+                if not ctx.is_done(stage):
+                    raise RuntimeError(f"{stage} finished without a done marker")
     except Exception as exc:
         inflight.discard(identity)
         issue = emit_issue(

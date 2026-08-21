@@ -720,7 +720,7 @@ def test_recompose_cannot_wipe_layups():
     )
 
 
-def test_duplicate_nugget_across_layups_fails_qc():
+def test_duplicate_nugget_across_layups_warns_and_passes_qc():
     ctx = RunContext("exec_nugget_layup_dupe", create=True)
     ordered = ["seg_011", "seg_028"]
     _seed_air_order(ctx, ordered, {})
@@ -741,9 +741,33 @@ def test_duplicate_nugget_across_layups_fails_qc():
         "discharged_nugget_ids": ["nug_esop"],
     }
     qc = evaluate_layup_qc(ctx, plan, {"nuggets": []})
-    assert qc["ok"] is False
+    assert qc["ok"] is True
     assert qc["duplicate_nugget_ids"] == ["nug_esop"]
-    assert any("duplicate_nugget" in err for err in qc["errors"])
+    assert not any("duplicate_nugget" in err for err in qc["errors"])
+    assert any("duplicate_nugget" in w for w in qc["warnings"])
+
+
+def test_duplicate_nugget_across_layups_fails_when_uniqueness_required():
+    from interview_mux.nugget_layup import evaluate_layup_craft, nugget_layup_cfg
+
+    ctx = RunContext("exec_nugget_layup_dupe_hard", create=True)
+    _seed_air_order(ctx, ["seg_011", "seg_028"], {})
+    layups = [
+        _layup_row(
+            "seg_011",
+            "Bootstrapped growth to thirty crore set the bar before outside capital.",
+            nugget_ids=["nug_esop"],
+        ),
+        _layup_row(
+            "seg_028",
+            "Inclusive ESOPs meant shop-floor partners shared the upside of the sale.",
+            selected_nugget_ids=["nug_esop"],
+        ),
+    ]
+    cfg = {**nugget_layup_cfg(), "unique_nuggets_across_layups": True}
+    craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
+    assert craft["duplicate_nugget_ids"] == ["nug_esop"]
+    assert any("duplicate_nugget" in err for err in craft["errors"])
 
 
 def test_compose_packet_carries_excluded_tape_and_air_ledger():

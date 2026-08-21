@@ -965,11 +965,38 @@ def _validate_post_episode_structure(ctx: RunContext) -> list[str]:
 
 def _validate_post_edl(ctx: RunContext) -> list[str]:
     from interview_mux.edl_qc import validate_flow1_edl
+    from interview_mux.edl_source_contract import (
+        EDL_REL,
+        edl_source_path_ghosts,
+        persist_sanitized_edl,
+    )
 
-    if not ctx.artifact_exists("master/edl.json"):
+    if not ctx.artifact_exists(EDL_REL):
         return ["master/edl.json missing"]
-    edl = ctx.read_json("master/edl.json")
-    return validate_flow1_edl(ctx, edl)
+    persist_sanitized_edl(ctx)
+    edl = ctx.read_json(EDL_REL)
+    errors: list[str] = []
+    leftover = edl_source_path_ghosts(ctx, edl if isinstance(edl, dict) else None)
+    if leftover:
+        errors.append(
+            "master/edl.json source_path names missing files: " + ", ".join(leftover[:4])
+        )
+    try:
+        from interview_mux.transition_vo import current_transition_pairs_missing
+
+        missing_pairs = current_transition_pairs_missing(ctx)
+    except Exception:
+        missing_pairs = []
+    if missing_pairs:
+        # Advisory only — HARD post_edl must not abort before mix last-chance.
+        ctx.log(
+            "post_edl: current transition pairs missing WAV (mix last-chance will retry): "
+            + ", ".join(missing_pairs[:8]),
+            level="warning",
+            stage="edl",
+        )
+    errors.extend(validate_flow1_edl(ctx, edl))
+    return errors
 
 
 def invalidate_stage_summaries(ctx: RunContext, stage_keys: tuple[str, ...]) -> None:

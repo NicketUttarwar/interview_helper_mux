@@ -443,11 +443,13 @@ def run_sfx_prompt_craft(ctx: RunContext) -> None:
         schema_errors = validate_stage_artifacts("sfx_prompt_craft", payload)
         if schema_errors:
             raise ValueError(f"Invalid SFX prompts artifact: {schema_errors[0]}")
+        # Replace, do not merge_from_disk: list-merge concatenates prompt rows and
+        # duplicates asset_ids on re-craft (doubles MusicGen work forever).
         write_validated_artifact(
             c,
             "sound_design/sfx_prompts.json",
             payload,
-            merge_from_disk=True,
+            merge_from_disk=False,
             stage_key="sfx_prompt_craft",
         )
         c.write_json(_SOUND_DESIGN_PLAN_REL, sdp, skip_handoff=True)
@@ -548,7 +550,7 @@ def run_sfx_prompt_refine(ctx: RunContext, asset_ids: list[str] | None = None) -
             c,
             path,
             payload,
-            merge_from_disk=True,
+            merge_from_disk=False,
             stage_key="sfx_prompt_refine",
         )
         _increment_refine_attempts(c, [str(r["asset_id"]) for r in updates if r.get("asset_id")])

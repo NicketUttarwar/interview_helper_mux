@@ -19,7 +19,7 @@ def test_delivery_brief_uses_ratio_defaults(tmp_path, monkeypatch):
             "analysis": {
                 "delivery_brief": {
                     "enabled": True,
-                    "ideal_fraction_of_source": 0.45,
+                    "ideal_fraction_of_source": 0.65,
                     "min_ratio_of_source": 0.10,
                     "max_ratio_of_source": 1.5,
                 }
@@ -32,11 +32,11 @@ def test_delivery_brief_uses_ratio_defaults(tmp_path, monkeypatch):
     )
     brief = build_delivery_brief(ctx)
     ideal = (brief.get("target_duration_sec") or {}).get("ideal")
-    assert ideal == 405  # 900s * 0.45
+    assert ideal == 585  # 900s * 0.65
     tmax = (brief.get("target_duration_sec") or {}).get("max")
     assert tmax is not None and tmax >= int(900 * 1.5)  # ceiling allows 1.5× source
     assert delivery_output_min_ratio() == 0.10
-    assert delivery_output_ideal_ratio() == 0.45
+    assert delivery_output_ideal_ratio() == 0.65
     assert delivery_output_max_ratio() == 1.5
     assert listenability_tier(0.35) == "strict"
 
@@ -51,13 +51,13 @@ def test_selection_duration_ship_ok_enforces_min_and_max(tmp_path, monkeypatch):
                 "delivery_brief": {
                     "enabled": True,
                     "enforce_duration": True,
-                    "ideal_fraction_of_source": 0.45,
+                    "ideal_fraction_of_source": 0.65,
                     "min_ratio_of_source": 0.10,
                     "max_ratio_of_source": 1.5,
                 },
                 "coverage_limits": {
                     "delivery_output_min_ratio_of_source": 0.10,
-                    "delivery_output_ideal_ratio_of_source": 0.45,
+                    "delivery_output_ideal_ratio_of_source": 0.65,
                     "delivery_output_max_ratio_of_source": 1.5,
                 },
             }

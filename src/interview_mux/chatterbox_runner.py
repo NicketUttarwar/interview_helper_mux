@@ -169,10 +169,33 @@ def synthesize_line(
     candidates = _iter_voice_ref_candidates(ctx, line)
     if not candidates:
         raise FileNotFoundError("No pickup-eligible voice reference for Chatterbox")
+    try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity, stamp_episode_vo_identity
+
+        line = stamp_episode_vo_identity(ctx, dict(line))
+        ident = episode_vo_identity(ctx)
+        locked_ref = ""
+        if ident.get("ref_wav"):
+            locked_path = ctx.read_path(*str(ident["ref_wav"]).split("/"))
+            if locked_path.is_file():
+                locked_ref = str(locked_path.resolve())
+        if locked_ref:
+            candidates = [
+                (ref_id, path)
+                for ref_id, path in candidates
+                if str(path.resolve()) == locked_ref
+            ] or [("speaker_sample", Path(locked_ref))]
+        else:
+            candidates = candidates[:1]
+    except FileNotFoundError:
+        raise
+    except Exception:
+        candidates = candidates[:1]
 
     last_entry: dict[str, Any] | None = None
     last_exc: Exception | None = None
-    for attempt, (ref_id, ref) in enumerate(candidates, start=1):
+    ref_id, ref = candidates[0]
+    for attempt in range(1, 3):
         try:
             entry = _synthesize_once(
                 ctx,
@@ -186,7 +209,7 @@ def synthesize_line(
             if entry.get("qc_pass") is False:
                 ctx.log(
                     f"Chatterbox QC fail for {line_id} ref={ref_id} "
-                    f"({entry.get('qc_notes')}); trying next voice-ref",
+                    f"({entry.get('qc_notes')}); retrying same voice-ref",
                     level="warning",
                     stage="vo_synthesize",
                 )
@@ -204,12 +227,12 @@ def synthesize_line(
             )
             continue
 
-    # All refs exhausted — hard-stop (or let s2s fail-open to mlx when configured).
+    # Locked ref exhausted — hard-stop (or let s2s fail-open to mlx when configured).
     if last_entry and last_entry.get("qc_pass") is False:
         notes = last_entry.get("qc_notes") or "speech_qa_failed"
         raise LocalRuntimeUnavailable(
-            f"Chatterbox QC failed all voice-ref candidates for {line_id}: {notes}"
+            f"Chatterbox QC failed locked voice-ref for {line_id}: {notes}"
         )
     if last_exc:
         raise LocalRuntimeUnavailable(str(last_exc)) from last_exc
-    raise LocalRuntimeUnavailable(f"Chatterbox failed all voice-ref candidates for {line_id}")
+    raise LocalRuntimeUnavailable(f"Chatterbox failed locked voice-ref for {line_id}")

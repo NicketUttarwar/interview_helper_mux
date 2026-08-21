@@ -2,9 +2,10 @@ perspectives:
   - id: direct_listener_monetization
     title: Direct listener monetization
     qualification: >
-      Hard-omit like/subscribe/buy-now/sell-to-this-audience. Keep high-level
-      business economics and clever commercial systems that do not ask this
-      listener to pay or act.
+      Hard-omit like/subscribe/buy-now/sell-to-this-audience and sponsor bumpers
+      (sponsored by / presented by / brought to you by / powered by / in partnership
+      with). Keep high-level business economics and clever commercial systems that
+      do not ask this listener to pay or act. Editorial excludes must leave air order.
     attach:
       - full_master_ranking
       - air_script_compose

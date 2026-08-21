@@ -26,3 +26,20 @@ def test_stratified_samples_from_words_returns_three_windows():
     assert set(out.keys()) == {"opening", "middle", "closing"}
     assert sum(len(v) for v in out.values()) <= 500 + 10
     assert len(text) > 500
+
+
+def test_stratified_samples_from_words_prefix_speaker_turns():
+    words = []
+    for i in range(40):
+        words.append(
+            {
+                "text": "hello" if i < 20 else "thanks",
+                "speaker_id": "spk_0" if i < 20 else "spk_1",
+                "start_ms": i * 10,
+                "end_ms": i * 10 + 5,
+            }
+        )
+    out = stratified_transcript_samples_from_words(words, total_chars=4000)
+    blob = " ".join(out.values())
+    assert "[spk_0]" in blob
+    assert "[spk_1]" in blob

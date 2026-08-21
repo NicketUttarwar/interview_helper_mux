@@ -346,7 +346,24 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
 
 def validate_pre_mix(ctx: RunContext, flow: str = "podcast") -> list[str]:
     _ = flow  # podcast-only delivery
+    from interview_mux.edl_source_contract import (
+        EDL_REL,
+        edl_source_path_ghosts,
+        persist_sanitized_edl,
+    )
+
+    persist_sanitized_edl(ctx)
     errors: list[str] = list(validate_post_mmaudio_qa(ctx))
+    if ctx.artifact_exists(EDL_REL):
+        try:
+            edl = ctx.read_json(EDL_REL)
+        except Exception:
+            edl = None
+        leftover = edl_source_path_ghosts(ctx, edl if isinstance(edl, dict) else None)
+        if leftover:
+            errors.append(
+                "master/edl.json source_path names missing files: " + ", ".join(leftover[:4])
+            )
     sdp = _sdp(ctx)
     for asset in sdp.get("assets") or []:
         if not isinstance(asset, dict):

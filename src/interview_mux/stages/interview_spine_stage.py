@@ -36,6 +36,19 @@ def run_interview_spine_build(ctx: RunContext) -> None:
                 level="warning",
                 stage="interview_spine_build",
             )
+            try:
+                from interview_mux.homunculus.issues import emit_issue
+
+                emit_issue(
+                    ctx,
+                    kind="diarization_verify_unavailable",
+                    source="interview_spine_build",
+                    stage_id="interview_spine_build",
+                    implicated=["interview_spine_build"],
+                    evidence={"reason": str(exc)[:300]},
+                )
+            except Exception:
+                pass
 
     if can_skip_rebuild(ctx):
         ctx.log("Interview spine unchanged; skipping rebuild.", level="info", stage="interview_spine_build")

@@ -237,9 +237,9 @@ def _missing_framing_payload(
             for k, v in payload["prior_native_contexts"].items()
             if str(k) in want
         }
-        highlights = payload.get("prior_native_context_highlights")
+        highlights = payload.get("prior_impact_highlights")
         if isinstance(highlights, list):
-            payload["prior_native_context_highlights"] = [
+            payload["prior_impact_highlights"] = [
                 h
                 for h in highlights
                 if isinstance(h, dict) and str(h.get("before_target") or "") in want
@@ -519,9 +519,9 @@ def _trim_prior_contexts_to_ids(payload: dict[str, Any], segment_ids: list[str] 
         raw = payload.get(key)
         if isinstance(raw, dict):
             payload[key] = {k: v for k, v in raw.items() if str(k) in want}
-    highlights = payload.get("prior_native_context_highlights")
+    highlights = payload.get("prior_impact_highlights")
     if isinstance(highlights, list):
-        payload["prior_native_context_highlights"] = [
+        payload["prior_impact_highlights"] = [
             h
             for h in highlights
             if isinstance(h, dict) and str(h.get("before_target") or "") in want
@@ -585,6 +585,21 @@ def _gap_framing_compose_payload(
         "content_brief": c.read_json("understanding/content_brief.json"),
         "gap_framing_policy": gap_framing_cfg(),
     }
+    ordered_ids: list[str] = []
+    if segment_ids:
+        ordered_ids = [str(s) for s in segment_ids if s]
+    elif c.artifact_exists("master/selection.json"):
+        sel = c.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            ordered_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    if not ordered_ids and c.artifact_exists("segments/manifest.json"):
+        man = c.read_json("segments/manifest.json")
+        ordered_ids = [
+            str(r.get("segment_id"))
+            for r in ((man or {}).get("segments") or [])
+            if isinstance(r, dict) and r.get("segment_id")
+        ]
+    payload["ordered_segment_ids"] = ordered_ids
     if c.artifact_exists("understanding/delivery_brief.json"):
         payload["delivery_brief"] = c.read_json("understanding/delivery_brief.json")
     if c.artifact_exists("understanding/episode_structure.json"):
@@ -682,6 +697,62 @@ def _gap_framing_compose_payload(
     payload = _trim_prior_contexts_to_ids(payload, segment_ids)
     if shard_meta:
         payload["_gap_compose_shard"] = shard_meta
+    return _compact_gap_compose_packet(payload)
+
+
+def _compact_gap_compose_packet(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep seam context, drop quote walls that push later keys past the model window."""
+    for key in ("prior_native_contexts", "target_native_contexts"):
+        raw = payload.get(key)
+        if not isinstance(raw, dict):
+            continue
+        compact: dict[str, Any] = {}
+        for sid, pkt in raw.items():
+            if not isinstance(pkt, dict):
+                continue
+            quote = str(pkt.get("quote_span") or pkt.get("text") or pkt.get("excerpt") or "")
+            compact[str(sid)] = {
+                "segment_id": pkt.get("segment_id") or sid,
+                "quote_span": quote[:280],
+                "prior_impact_beat": pkt.get("prior_impact_beat"),
+                "prior_complete_thought": pkt.get("prior_complete_thought"),
+                "chapter_title": pkt.get("chapter_title"),
+                "target_is_micro": pkt.get("target_is_micro"),
+            }
+        payload[key] = compact
+    missions = payload.get("vo_missions")
+    if isinstance(missions, dict):
+        payload["vo_missions"] = {
+            str(sid): {
+                "segment_id": (pkt.get("segment_id") if isinstance(pkt, dict) else sid) or sid,
+                "gap_type": pkt.get("gap_type") if isinstance(pkt, dict) else None,
+                "severity": pkt.get("severity") if isinstance(pkt, dict) else None,
+                "mission": str((pkt or {}).get("mission") or "")[:220] if isinstance(pkt, dict) else "",
+            }
+            for sid, pkt in missions.items()
+        }
+    segs = payload.get("segments")
+    rows = segs.get("segments") if isinstance(segs, dict) else segs
+    if isinstance(rows, list):
+        trimmed = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            trimmed.append(
+                {
+                    "segment_id": row.get("segment_id"),
+                    "speaker_id": row.get("speaker_id"),
+                    "speaker_role": row.get("speaker_role"),
+                    "type": row.get("type"),
+                    "start_ms": row.get("start_ms"),
+                    "end_ms": row.get("end_ms"),
+                    "text": str(row.get("text") or "")[:220],
+                }
+            )
+        if isinstance(segs, dict):
+            payload["segments"] = {**segs, "segments": trimmed}
+        else:
+            payload["segments"] = trimmed
     return payload
 
 
@@ -710,9 +781,17 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
         from interview_mux.high_gap_vo import demote_uncovered_high_gaps, fill_uncovered_high_gaps
 
         fill_applied: list[dict[str, Any]] = []
-        filled = fill_uncovered_high_gaps(
-            c, repaired, applied=fill_applied, origin="high_gap_vo_fill"
-        )
+        filled = 0
+        try:
+            filled = fill_uncovered_high_gaps(
+                c, repaired, applied=fill_applied, origin="high_gap_vo_fill"
+            )
+        except Exception as exc:
+            c.log(
+                f"gap_framing_compose: high-gap fill skipped: {exc}",
+                level="warning",
+                stage="gap_framing_compose",
+            )
         if filled:
             c.log(
                 f"gap_framing_compose: filled {filled} uncovered high gap(s)",
@@ -819,24 +898,45 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 stage="gap_framing_compose",
                 action_id="gap_framing_compose.shard",
             )
-            envelope = run_llm_stage_simple(
-                ctx,
-                "gap_framing_compose",
-                prompt_rel,
-                build_batch,
-                _noop_persist,
-                auto_complete=False,
-            )
+            try:
+                envelope = run_llm_stage_simple(
+                    ctx,
+                    "gap_framing_compose",
+                    prompt_rel,
+                    build_batch,
+                    _noop_persist,
+                    auto_complete=False,
+                )
+            except Exception as exc:
+                # Nested LLM may ask to rerun ranking / starve a shard. Keep
+                # sibling shards and host-fill instead of aborting the stage.
+                ctx.log(
+                    f"gap_framing_compose shard {bi + 1}/{len(batches)} failed — "
+                    f"continue with remaining shards: {exc}",
+                    level="warning",
+                    stage="gap_framing_compose",
+                )
+                envelope = {}
             arts = envelope.get("artifacts") if isinstance(envelope.get("artifacts"), dict) else {}
             if isinstance(arts, dict) and arts:
                 parts.append(arts)
 
         merged = _merge_gap_report_parts(parts)
         if not (merged.get("interviewer_lines") or []):
-            raise RuntimeError(
-                f"Batched gap_framing_compose produced no interviewer_lines "
-                f"across {len(batches)} shard(s)"
+            ctx.log(
+                "gap_framing_compose shards returned no lines — filling uncovered high gaps",
+                level="warning",
+                stage="gap_framing_compose",
             )
+            from interview_mux.high_gap_vo import fill_uncovered_high_gaps
+
+            seed: dict[str, Any] = {"interviewer_lines": []}
+            if isinstance(merged, dict):
+                seed.update({k: v for k, v in merged.items() if k != "interviewer_lines"})
+                seed["interviewer_lines"] = []
+            applied: list[dict[str, Any]] = []
+            fill_uncovered_high_gaps(ctx, seed, applied=applied, origin="high_gap_vo_fill")
+            merged = seed
         persist(ctx, merged)
         if not ctx.is_done("gap_framing_compose"):
             ctx.mark_done("gap_framing_compose")

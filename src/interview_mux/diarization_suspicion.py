@@ -371,7 +371,7 @@ def _verify_pair_mlx(clip_a: Path, clip_b: Path, *, ctx: RunContext | None, stag
             stage=stage,
         )
     except LocalRuntimeUnavailable:
-        return None
+        raise
     except Exception:
         return None
     verdict = str(result.get("verdict") or result.get("answer") or "").strip().upper()
@@ -565,6 +565,7 @@ def run_diarization_verify(
     clip_root = ctx.run_dir / "transcript" / "diarization_verify_clips"
     fn = verify_pair
     covered_micro_starts: set[int] = set()
+    verify_unavailable_reason: str | None = None
     for n, cand in enumerate(candidates):
         row = {
             "start_ms": cand["end_ms"],
@@ -606,6 +607,8 @@ def run_diarization_verify(
         row["clip_paths"] = {"a": str(clip_a), "b": str(clip_b)}
         verdict: str | None = None
         try:
+            if verify_unavailable_reason:
+                raise LocalRuntimeUnavailable(verify_unavailable_reason)
             if wav is None or not wav.is_file():
                 raise RuntimeError("source wav missing")
             extract_clip(wav, clip_a, a_start, a_end)
@@ -614,6 +617,10 @@ def run_diarization_verify(
                 verdict = fn(clip_a, clip_b)
             else:
                 verdict = _verify_pair_mlx(clip_a, clip_b, ctx=ctx, stage=stage)
+        except LocalRuntimeUnavailable as exc:
+            row["reason"] = str(exc)[:300]
+            verdict = None
+            verify_unavailable_reason = row["reason"]
         except Exception as exc:  # noqa: BLE001 — fail-open
             row["reason"] = str(exc)[:300]
             verdict = None
@@ -687,5 +694,26 @@ def run_diarization_verify(
         "candidates_truncated": truncated,
         "pairs": pairs,
     }
+    if verify_unavailable_reason:
+        doc["verify_unavailable"] = True
+        doc["verify_unavailable_reason"] = verify_unavailable_reason
+        ctx.log(
+            f"Diarization Sortformer verify unavailable: {verify_unavailable_reason}",
+            level="warning",
+            stage=stage,
+        )
+        try:
+            from interview_mux.homunculus.issues import emit_issue
+
+            emit_issue(
+                ctx,
+                kind="diarization_verify_unavailable",
+                source="diarization_suspicion",
+                stage_id=stage,
+                implicated=["interview_spine_build"],
+                evidence={"reason": verify_unavailable_reason},
+            )
+        except Exception:
+            pass
     ctx.write_json(REPAIRS_REL, doc)
     return doc

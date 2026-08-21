@@ -44,6 +44,16 @@ def log(msg: str) -> None:
         pass
 
 
+def _heal_restored_edl(run_dir: Path) -> None:
+    """Drop ghost EDL source_path values after archive restore / raw JSON write."""
+    try:
+        from interview_mux.edl_source_contract import heal_edl_file_if_present
+
+        heal_edl_file_if_present(Path(run_dir))
+    except Exception:
+        pass
+
+
 def log_decision(
     severity: str,
     *,
@@ -1889,6 +1899,95 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         detail=msg[:200],
     )
 
+    if "missing" in low and "edl.json" in low:
+        log("assembly/mix blocked on missing edl.json — resume edl (not ranking)")
+        execute({"mode": "delivery", "from_stage": "edl"})
+        return "continue"
+
+    # Partial / incomplete producer artifacts — never re-execute the blocked consumer.
+    # Example: sonic_context_build gated on content_brief.json is partial; old path
+    # returned stuck → outer loop re-ran sonic_context_build forever.
+    if "is partial" in low or (
+        "not complete" in low and (".json" in low or "artifact" in low)
+    ):
+        import re
+
+        fail_key = f"partial_artifact:{stage or 'unknown'}:{msg[:120]}"
+        _IDENTICAL_STAGE_FAILURES[fail_key] = _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+        path_m = re.search(r"([a-z0-9_./-]+\.json)", low)
+        rel = path_m.group(1) if path_m else ""
+        resume = None
+        if "content_brief" in low or rel == "understanding/content_brief.json":
+            resume = "content_brief_reanchor"
+            try:
+                from interview_mux.artifact_completeness import (
+                    artifact_status_for_stage,
+                    preferred_fill_stage,
+                )
+                from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
+                from interview_mux.run_context import RunContext
+                from interview_mux.topic_tag_bootstrap import bootstrap_manifest_topic_tags
+
+                ctx_p = RunContext(RUN_ID, create=False)
+                try:
+                    tagged = bootstrap_manifest_topic_tags(ctx_p)
+                    if tagged:
+                        log(f"partial content_brief: bootstrapped topic_tags on {tagged} segment(s)")
+                except Exception as boot_exc:
+                    log(f"partial content_brief tag bootstrap: {boot_exc}")
+                applied = sync_content_brief_topic_segment_ids(ctx_p)
+                st = artifact_status_for_stage(
+                    "understanding/content_brief.json",
+                    ctx_p,
+                    "content_brief_reanchor",
+                )
+                log(
+                    f"partial content_brief host repair actions={len(applied or [])} "
+                    f"status={st} x{_IDENTICAL_STAGE_FAILURES[fail_key]}"
+                )
+                if st == "complete":
+                    if not ctx_p.is_done("content_brief_reanchor"):
+                        ctx_p.mark_done("content_brief_reanchor")
+                    # Resume the gated consumer (or next analysis) — brief is whole again.
+                    nxt = stage if stage in ANALYSIS_ORDER else "sonic_context_build"
+                    log(f"content_brief complete after host repair — resume {nxt}")
+                    execute({"mode": "analysis", "from_stage": nxt})
+                    return "continue"
+                resume = preferred_fill_stage("understanding/content_brief.json", ctx_p) or resume
+                # Incomplete brief must not keep a done marker — force reanchor LLM.
+                marker = ctx_p.final_path(".stage_done", "content_brief_reanchor")
+                if marker.is_file():
+                    marker.unlink()
+                    log("unmarked content_brief_reanchor (brief still partial)")
+            except Exception as exc:
+                log(f"partial content_brief heal: {exc}")
+        elif rel:
+            try:
+                from interview_mux.artifact_completeness import preferred_fill_stage
+                from interview_mux.run_context import RunContext
+
+                resume = preferred_fill_stage(rel, RunContext(RUN_ID, create=False))
+            except Exception as exc:
+                log(f"partial artifact preferred_fill: {exc}")
+        if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3 and resume == (stage or ""):
+            log(f"STOP: partial-artifact heal ×3 without progress for {rel or stage}")
+            return "stuck"
+        if resume and resume != stage:
+            log(f"partial artifact gate → resume {resume} (not {stage or body.get('from_stage')})")
+            mode = "delivery" if resume in DELIVERY_ORDER else "analysis"
+            if resume in {
+                "content_brief_reanchor",
+                "content_context",
+                "segment_classification",
+                "boundary_topic_resplit",
+            }:
+                mode = "analysis"
+            execute({"mode": mode, "from_stage": resume})
+            return "continue"
+        if resume:
+            execute({"mode": "analysis", "from_stage": resume})
+            return "continue"
+
     # Homunculus delivery rewind archives gap artifacts, then this gate retries
     # topic_coverage_audit forever. Fill analysis producers instead.
     if (
@@ -2159,6 +2258,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     dest = _P(ctx.run_dir) / "master" / "edl.json"
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(arch_edls[-1], dest)
+                    _heal_restored_edl(_P(ctx.run_dir))
                     log(f"order/ledger heal: restored edl.json from {arch_edls[-1]}")
             if not isinstance(edl, dict):
                 log("order/ledger heal: missing edl — cannot sync")
@@ -2385,6 +2485,43 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         stage_m = re.search(r"(?:from stage|prerequisite stage)\s+([a-z0-9_]+)", low)
         if path_m:
             rel = path_m.group(1)
+            fail_key = f"prereq_incomplete:{rel}"
+            _IDENTICAL_STAGE_FAILURES[fail_key] = _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+            if rel == "understanding/content_brief.json":
+                try:
+                    from interview_mux.artifact_completeness import artifact_status_for_stage
+                    from interview_mux.artifact_repairs import sync_content_brief_topic_segment_ids
+                    from interview_mux.run_context import RunContext
+
+                    ctx_b = RunContext(RUN_ID, create=False)
+                    applied = sync_content_brief_topic_segment_ids(ctx_b)
+                    st = artifact_status_for_stage(
+                        "understanding/content_brief.json",
+                        ctx_b,
+                        "content_brief_reanchor",
+                    )
+                    log(
+                        f"content_brief host repair actions={len(applied or [])} "
+                        f"status={st} x{_IDENTICAL_STAGE_FAILURES[fail_key]}"
+                    )
+                    if st == "complete":
+                        if not ctx_b.is_done("content_brief_reanchor"):
+                            ctx_b.mark_done("content_brief_reanchor")
+                        log(
+                            "content_brief complete after host topic graph — "
+                            "resume boundary_topic_resplit (not content_context)"
+                        )
+                        execute({"mode": "analysis", "from_stage": "boundary_topic_resplit"})
+                        return "continue"
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: content_brief incomplete fill looping ≥3 — "
+                            "resume content_brief_reanchor, not content_context"
+                        )
+                        execute({"mode": "analysis", "from_stage": "content_brief_reanchor"})
+                        return "continue"
+                except Exception as exc:
+                    log(f"content_brief host repair: {exc}")
             log(f"fill gaps for {rel}")
             try:
                 api(
@@ -2711,42 +2848,76 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     and "invalidated segment_classification" in low
                 ):
                     if ctx_g.artifact_exists("understanding/content_brief.json"):
-                        ctx_g.mark_done("content_brief_reanchor", force=True)
+                        try:
+                            from interview_mux.artifact_completeness import (
+                                artifact_status_for_stage,
+                            )
+
+                            st_g = artifact_status_for_stage(
+                                "understanding/content_brief.json",
+                                ctx_g,
+                                "content_brief_reanchor",
+                            )
+                        except Exception:
+                            st_g = "partial"
+                        if st_g == "complete":
+                            ctx_g.mark_done("content_brief_reanchor", force=True)
+                        else:
+                            marker = ctx_g.final_path(
+                                ".stage_done", "content_brief_reanchor"
+                            )
+                            if marker.is_file():
+                                marker.unlink()
+                            resume = "content_brief_reanchor"
+                            log(
+                                "resplit gate: brief incomplete — resume "
+                                f"content_brief_reanchor (status={st_g})"
+                            )
                     ctx_g.mark_done("boundary_topic_resplit", force=True)
-                    resume = "vernacular_segment_sanitize"
+                    if resume != "content_brief_reanchor":
+                        resume = "vernacular_segment_sanitize"
             except Exception as exc:
                 log(f"resplit gate cycle probe: {exc}")
         elif "low_conf" in low or "connector_fuse" in low:
             resume = "low_conf_island_scan"
         elif "content_brief" in low or "content_brief_reanchor" in low:
             resume = "content_brief_reanchor"
-            try:
-                from interview_mux.artifact_lifecycle import read_stale_guard
-                from interview_mux.run_context import RunContext
+            # Partial / incomplete brief is NOT "spurious stale" — never bounce back
+            # to the blocked consumer (sonic_context_build). That loop was the prior fail.
+            if "partial" in low or "not complete" in low:
+                log("content_brief incomplete/partial — resume content_brief_reanchor")
+            else:
+                try:
+                    from interview_mux.artifact_lifecycle import read_stale_guard
+                    from interview_mux.run_context import RunContext
 
-                ctx_b = RunContext(RUN_ID, create=False)
-                if ctx_b.artifact_exists("understanding/content_brief.json"):
-                    # Clears spurious stale from boundary_detection on the shared brief.
-                    read_stale_guard(
-                        ctx_b,
-                        "understanding/content_brief.json",
-                        consumer_stage=stage or "sonic_context_build",
-                    )
-                    doc_b = ctx_b.read_json("understanding/content_brief.json")
-                    if not (doc_b.get("_meta") or {}).get("stale"):
-                        fail_key = "content_brief:spurious_stale_boundary"
-                        _IDENTICAL_STAGE_FAILURES[fail_key] = (
-                            _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    ctx_b = RunContext(RUN_ID, create=False)
+                    if ctx_b.artifact_exists("understanding/content_brief.json"):
+                        # Clears spurious stale from boundary_detection on the shared brief.
+                        read_stale_guard(
+                            ctx_b,
+                            "understanding/content_brief.json",
+                            consumer_stage=stage or "sonic_context_build",
                         )
-                        resume = stage if stage in ANALYSIS_ORDER else "sonic_context_build"
-                        log(
-                            "cleared spurious content_brief stale "
-                            f"(invalidated_by boundary_detection) — resume {resume}"
-                        )
-                        if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
-                            log("STOP: content_brief stale-brief heal ×3 after clear — resume analysis")
-            except Exception as exc:
-                log(f"content_brief stale clear: {exc}")
+                        doc_b = ctx_b.read_json("understanding/content_brief.json")
+                        meta_b = doc_b.get("_meta") or {}
+                        if not meta_b.get("stale") and "stale" in low:
+                            fail_key = "content_brief:spurious_stale_boundary"
+                            _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                                _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                            )
+                            resume = stage if stage in ANALYSIS_ORDER else "sonic_context_build"
+                            log(
+                                "cleared spurious content_brief stale "
+                                f"(invalidated_by boundary_detection) — resume {resume}"
+                            )
+                            if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                                log(
+                                    "STOP: content_brief stale-brief heal ×3 after clear — "
+                                    "resume analysis"
+                                )
+                except Exception as exc:
+                    log(f"content_brief stale clear: {exc}")
         elif "boundary_topic_resplit" in low:
             resume = "boundary_topic_resplit"
         else:
@@ -3038,6 +3209,40 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 log("remaining transition adjacency warnings ignored — resume edl")
                 execute({"mode": "delivery", "from_stage": "edl"})
                 return "continue"
+            # Missing transition *clips* means re-run edl so synthesize can land wavs.
+            # Never fall through to the generic narrative_qc healer — that path matches
+            # "narrative_qc strict" as a substring of "edl_narrative_qc strict" and
+            # discard_stage_writes(edl) deletes the wavs we just synthesized.
+            only_missing_clips = hard and all(
+                "missing transition clip" in str(e).lower() or "re-run edl" in str(e).lower()
+                for e in hard
+            )
+            if only_missing_clips:
+                if _trip_edl_narrative_heal_loop(hard):
+                    log_decision(
+                        "major",
+                        stage="edl",
+                        action="stop",
+                        reason="identical_edl_narrative_qc_x3",
+                        detail=_edl_qc_heal_signature(hard)[:240],
+                    )
+                    log(
+                        "STOP: edl_narrative_qc missing-transition-clip heal ×3 — "
+                        "not discarding edl staging; fix transition resolve/synth"
+                    )
+                    raise SystemExit(
+                        "HARD: edl_narrative_qc heal looping on missing transition clips"
+                    )
+                log(
+                    "edl_narrative_qc: missing transition clips only — "
+                    "resume edl without discarding pending synth wavs"
+                )
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
+            # Other hard EDL narrative errors — resume edl; do not fall through.
+            log(f"edl_narrative_qc hard issues remain ({len(hard)}) — resume edl")
+            execute({"mode": "delivery", "from_stage": "edl"})
+            return "continue"
         except Exception as exc:
             log(f"post-edl narrative heal: {exc}")
 
@@ -3133,6 +3338,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     edl_dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(arch[-1], edl_dest)
                     ctx.mark_done("edl", force=True)
+                    _heal_restored_edl(_P(ctx.run_dir))
                     log(f"mix gate heal: restored edl.json from {arch[-1]}")
                 else:
                     log("mix gate heal: edl.json missing and no archive — run edl first")
@@ -3174,6 +3380,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 cands = sorted(arch_root.glob(f"*/master/{name}"))
                 if cands:
                     shutil.copy2(cands[-1], target)
+                    if name == "edl.json":
+                        _heal_restored_edl(_P(ctx.run_dir))
                     log(f"restored master/{name} from {cands[-1]}")
             # sound_design prompts often archived with the same sweep
             sd = _P(ctx.run_dir) / "sound_design"
@@ -3874,7 +4082,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         except Exception as exc:
             log(f"edl narrative blank-seg heal: {exc}")
 
-    if "narrative_qc strict" in low:
+    # Pre-EDL Flow-1 narrative QC only — NOT edl_narrative_qc (substring trap:
+    # "edl_narrative_qc strict" contains "narrative_qc strict" and used to discard
+    # .pending_writes/edl mid-synth, looping forever on missing transition clips).
+    if "narrative_qc strict" in low and "edl_narrative_qc" not in low:
         try:
             from interview_mux.run_context import RunContext
             from interview_mux.artifact_repairs import repair_coverage_audit, repair_master_selection
@@ -4556,7 +4767,6 @@ def delivery_resume_stage() -> str | None:
             )
         # Selection + SDP + layup already present: never rewind to nugget_corpus_mine.
         if _edl_ready_artifacts(ctx) and not edl:
-            soft_pass_pre_edl_delivery(ctx)
             return "edl"
         if asm and edl:
             # Drop stale junction staging that can shadow remastered assembly.wav.
@@ -5075,14 +5285,42 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if ctx_r.artifact_exists("run_meta.json")
                         else {}
                     )
-                    if isinstance(meta_r, dict) and meta_r.get(
+                    if isinstance(meta_g, dict) and meta_g.get(
                         "boundary_topic_resplit_cycle_done"
                     ):
                         # Cycle already spent — rematerialize markers and continue.
                         if ctx_r.artifact_exists("segments/manifest.json"):
                             ctx_r.mark_done("segment_classification", force=True)
+                        # Never force-mark reanchor when the brief is still partial —
+                        # that left sonic_context_build gated forever on empty topics.
                         if ctx_r.artifact_exists("understanding/content_brief.json"):
-                            ctx_r.mark_done("content_brief_reanchor", force=True)
+                            try:
+                                from interview_mux.artifact_completeness import (
+                                    artifact_status_for_stage,
+                                )
+
+                                st_b = artifact_status_for_stage(
+                                    "understanding/content_brief.json",
+                                    ctx_r,
+                                    "content_brief_reanchor",
+                                )
+                            except Exception:
+                                st_b = "partial"
+                            if st_b == "complete":
+                                ctx_r.mark_done("content_brief_reanchor", force=True)
+                            else:
+                                marker = ctx_r.final_path(
+                                    ".stage_done", "content_brief_reanchor"
+                                )
+                                if marker.is_file():
+                                    marker.unlink()
+                                resume = "content_brief_reanchor"
+                                log(
+                                    "resplit invalidation after cycle_done — "
+                                    f"brief {st_b}; resume {resume}"
+                                )
+                                execute({"mode": "analysis", "from_stage": resume})
+                                continue
                         ctx_r.mark_done("boundary_topic_resplit", force=True)
                         resume = "vernacular_segment_sanitize"
                         log(
@@ -5588,7 +5826,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "canned_air",
                             "invented_island",
                             "generic_unlock",
-                            "duplicate_nugget",
                             "insufficient_analysis",
                         )
                     )
@@ -5607,16 +5844,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         raise RuntimeError(
                             "layup coverage unrecovered after one skip-stamp playbook"
                         )
-                    # Construction failures (canned air, thin analysis, reused
-                    # nuggets) can only be fixed by composing again — never by
-                    # republishing the same plan.
+                    # Construction failures (canned air, thin analysis) can only
+                    # be fixed by composing again — never by republishing the same plan.
                     needs_recompose = layup_plan_is_stale(ctx) or any(
                         marker in low_err
                         for marker in (
                             "canned_air",
                             "generic_unlock",
                             "insufficient_analysis",
-                            "duplicate_nugget",
                             "cross_layup_overlap",
                             "restates_target",
                         )
@@ -6275,6 +6510,19 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx = RunContext(RUN_ID, create=False)
                     root = _P(ctx.run_dir)
                     asm = root / "master" / "assembly.wav"
+                    # Recut EDL + remaster mix. Do not remint seams (MusicGen loop)
+                    # and do not fake-pass junction while hanging-clause recuts exist.
+                    n_junc = int(globals().get("_JUNCTION_MIX_REMASTER_N") or 0)
+                    if asm.is_file() and asm.stat().st_size > 1000 and n_junc < 2:
+                        globals()["_JUNCTION_MIX_REMASTER_N"] = n_junc + 1
+                        for sid in ("mix", "junction_snip_qa", "master_finalize"):
+                            (root / ".stage_done" / sid).unlink(missing_ok=True)
+                        log(
+                            "junction residuals → remaster mix from current EDL "
+                            f"(attempt {n_junc + 1}; skip seam remint/MusicGen)"
+                        )
+                        execute({"mode": "delivery", "from_stage": "mix"})
+                        continue
                     # Soft ship when assembly already exists: reminting glue→EDL
                     # forces MusicGen+mix again and can loop forever on
                     # claimed_repairs_missing_from_edl bookkeeping.
@@ -6444,6 +6692,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         arch = sorted((root / ".archived").glob("*/master/edl.json"))
                         if arch:
                             shutil.copy2(arch[-1], root / "master" / "edl.json")
+                            _heal_restored_edl(root)
                             log(f"assembly-fresh heal: restored edl from {arch[-1]}")
                     # Drop stale restored assembly so mix remasters from current EDL.
                     asm = root / "master" / "assembly.wav"
@@ -6486,6 +6735,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             dest = _P(ctx.run_dir) / "master" / "edl.json"
                             dest.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(arch_edls[-1], dest)
+                            _heal_restored_edl(_P(ctx.run_dir))
                             log(f"order-drift error heal: restored edl from {arch_edls[-1]}")
                     if not isinstance(edl, dict):
                         log("order-drift error heal: no edl available")
@@ -6747,6 +6997,49 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "batched missing_framing incomplete" in low_err
                 or "missing_framing incomplete" in low_err
             ):
+                if "rerun_stage" in low_err and "speaker_roles" in low_err:
+                    fail_key = "missing_framing:needs_speaker_roles"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    try:
+                        from interview_mux.artifact_lifecycle import restamp_committed_artifact
+                        from interview_mux.artifact_repairs import (
+                            realign_manifest_roles_from_speakers,
+                            repair_speakers,
+                        )
+                        from interview_mux.run_context import RunContext
+
+                        ctx_s = RunContext(RUN_ID, create=False)
+                        spk = (
+                            ctx_s.read_json("understanding/speakers.json")
+                            if ctx_s.artifact_exists("understanding/speakers.json")
+                            else {}
+                        )
+                        repaired, sp_applied = repair_speakers(ctx_s, spk if isinstance(spk, dict) else {})
+                        if sp_applied:
+                            restamp_committed_artifact(
+                                ctx_s,
+                                "understanding/speakers.json",
+                                producer_stage="speaker_roles",
+                                doc=repaired,
+                            )
+                        man_applied = realign_manifest_roles_from_speakers(ctx_s)
+                        log(
+                            f"missing_framing speaker-role host repair "
+                            f"speakers={len(sp_applied)} manifest={len(man_applied)} "
+                            f"x{_IDENTICAL_STAGE_FAILURES[fail_key]}"
+                        )
+                    except Exception as exc:
+                        log(f"missing_framing speaker-role host repair: {exc}")
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: missing_framing speaker_roles conflict ×3 after host "
+                            "role realign — not retrying the same LLM abort"
+                        )
+                        raise SystemExit(2)
+                    execute({"mode": "analysis", "from_stage": "missing_framing"})
+                    continue
                 wants_ids = (
                     "canonical segment" in low_err
                     or "no canonical segment" in low_err
@@ -6787,10 +7080,57 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                         execute({"mode": "analysis", "from_stage": "missing_framing"})
                         continue
+                starved_packet = (
+                    "prior native" in low_err
+                    or "prior-native" in low_err
+                    or "no stage input" in low_err
+                    or "not include the target segment" in low_err
+                    or "packet contains prior native" in low_err
+                )
+                if starved_packet:
+                    fail_key = "missing_framing:starved_host_packet"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: missing_framing starved host packet ×3 — "
+                            "packer must keep the stage JSON after prior-beat turns"
+                        )
+                        raise SystemExit(2)
+                    log(
+                        "missing_framing starved-packet heal — resume with host JSON packer"
+                    )
+                    execute({"mode": "analysis", "from_stage": "missing_framing"})
+                    continue
                 # Fixed in gaps.py (coverage pass + deterministic fill). Resume the
                 # stage only — do not rewind to mastering_research_waves.
                 log("missing_framing batch-coverage heal — resume missing_framing")
                 execute({"mode": "analysis", "from_stage": "missing_framing"})
+                continue
+            if (
+                "gap_framing_compose" in low_err
+                and (
+                    "segment_ranking" in low_err
+                    or "supports_ranking_exclude" in low_err
+                    or "rebuild the selected order" in low_err
+                )
+            ):
+                fail_key = "gap_framing_compose:wants_ranking"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log(
+                        "STOP: gap_framing_compose ranking-exclude loop ×3 — "
+                        "shards fail-open and host-fill instead of re-running compose"
+                    )
+                    raise SystemExit(2)
+                log(
+                    "gap_framing_compose ranking-exclude heal — "
+                    "resume once with shard fail-open"
+                )
+                execute({"mode": "analysis", "from_stage": "gap_framing_compose"})
                 continue
             if (
                 "context_length_exceeded" in low_err
@@ -7318,6 +7658,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             import shutil
 
                             shutil.copy2(arch[-1], root / "master" / "edl.json")
+                            _heal_restored_edl(root)
                             log(f"music-asset heal: restored edl from {arch[-1]}")
                     execute({"mode": "delivery", "from_stage": "mix"})
                     continue

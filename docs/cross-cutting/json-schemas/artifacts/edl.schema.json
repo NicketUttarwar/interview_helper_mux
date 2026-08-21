@@ -93,6 +93,7 @@
                 "pattern": "^[a-f0-9]{64}$"
               },
               "source_path": {
+                "description": "Relative audio path. Writers must omit this key when the file is missing — never persist a ghost path.",
                 "type": [
                   "string",
                   "null"
@@ -139,6 +140,13 @@
               },
               "timeline_start_ms": {
                 "type": "integer"
+              },
+              "source_path": {
+                "description": "Relative transition WAV. Omit when the file is missing — never persist a ghost path.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
@@ -162,6 +170,7 @@
                 "type": "string"
               },
               "source_path": {
+                "description": "Relative audio path. Omit when the file is missing — never persist a ghost path.",
                 "type": [
                   "string",
                   "null"

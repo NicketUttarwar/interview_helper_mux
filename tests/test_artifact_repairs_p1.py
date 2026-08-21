@@ -3,12 +3,52 @@ from __future__ import annotations
 import pytest
 
 from interview_mux.artifact_repairs import (
+    reconcile_ordered_vs_excluded,
     repair_coverage_audit,
     repair_edl_audit,
     repair_gap_report,
+    repair_master_selection,
     repair_narrative_plan,
 )
 from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment
+
+
+def test_reconcile_ordered_vs_excluded_keeps_air_order() -> None:
+    out = reconcile_ordered_vs_excluded(
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_001", "reason": "covered_by_framing_vo"},
+                "seg_099",
+            ],
+        }
+    )
+    assert out["ordered_segment_ids"] == ["seg_001", "seg_002"]
+    assert [x["segment_id"] if isinstance(x, dict) else x for x in out["excluded_segment_ids"]] == [
+        "seg_099"
+    ]
+
+
+def test_reconcile_ordered_vs_excluded_editorial_drops_from_air() -> None:
+    out = reconcile_ordered_vs_excluded(
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [
+                {
+                    "segment_id": "seg_001",
+                    "reason": "direct_listener_sponsor_promotion; sponsor message",
+                },
+            ],
+            "exclude_rationales": {
+                "seg_001": "direct_listener_sponsor_promotion; sponsor message",
+            },
+        }
+    )
+    assert out["ordered_segment_ids"] == ["seg_002"]
+    assert any(
+        (isinstance(x, dict) and x.get("segment_id") == "seg_001")
+        for x in out["excluded_segment_ids"]
+    )
 
 
 def test_repair_gap_report_drops_orphan_targets(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,4 +283,121 @@ def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytes
         str(row.get("topic") or "") == "Origin Story"
         for row in (patched.get("missing_coverage") or [])
         if isinstance(row, dict)
+    )
+
+
+def test_repair_master_selection_coerces_null_cut_ms(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_cta_cut")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+        skip_handoff=True,
+    )
+    patched, applied = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_001",
+                    "clearly_media_ip_pitch": True,
+                    "cut_ms": None,
+                },
+                {
+                    "segment_id": "seg_001",
+                    "clearly_media_ip_pitch": True,
+                    "cut_ms": 1200,
+                },
+            ],
+        },
+    )
+    assert "cut_ms" not in patched["media_ip_cta"][0]
+    assert patched["media_ip_cta"][1]["cut_ms"] == [1200]
+    assert any(row.get("path") == "media_ip_cta.cut_ms" for row in applied)
+
+
+def test_repair_gap_report_coerces_null_nugget_ids_and_gap_type(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_gap_nulls")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_001")),
+        skip_handoff=True,
+    )
+    patched, applied = repair_gap_report(
+        ctx,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "text": (
+                        "Bootstrapped growth to thirty crore set the bar before outside capital."
+                    ),
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "origin": "nugget_layup",
+                    "nugget_ids": None,
+                    "recovery_of_talking_point_ids": None,
+                }
+            ]
+        },
+    )
+    line = patched["interviewer_lines"][0]
+    assert line["nugget_ids"] == []
+    assert line["recovery_of_talking_point_ids"] == []
+    assert line["gap_type"] == "nugget_layup"
+    assert any(row.get("action") == "null_to_empty_array" for row in applied)
+    assert any(row.get("action") == "default_gap_type" for row in applied)
+
+
+def test_repair_edl_audit_defaults_evidence_and_recommended_action(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_edl_nulls")
+    patched, applied = repair_edl_audit(
+        ctx,
+        {
+            "verdict": "warn",
+            "blocking_issues": [{"issue": "something off", "evidence": None}],
+            "warnings": [{"issue": "soft note"}],
+        },
+    )
+    assert patched["blocking_issues"][0]["evidence"] == []
+    assert patched["blocking_issues"][0]["recommended_action"] == "review"
+    assert patched["warnings"][0]["evidence"] == []
+    assert patched["warnings"][0]["recommended_action"] == "review"
+    assert any(row.get("path") == "evidence" for row in applied)
+    assert any(row.get("path") == "recommended_action" for row in applied)
+
+
+def test_repair_master_selection_keeps_stringified_exclude_objects(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_exclude_str")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_001"),
+            minimal_manifest_segment("seg_cta"),
+        ),
+        skip_handoff=True,
+    )
+    patched, _applied = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_001"],
+            "excluded_segment_ids": [
+                "{'segment_id': 'seg_cta', 'reason': 'media_ip_cta'}",
+            ],
+        },
+    )
+    rows = patched.get("excluded_segment_ids") or []
+    assert any(
+        isinstance(r, dict) and r.get("segment_id") == "seg_cta" for r in rows
     )

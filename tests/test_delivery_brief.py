@@ -37,9 +37,9 @@ def test_build_delivery_brief_from_words_when_duration_ms_missing(
     ctx = RunContext(str(run))
     brief = build_delivery_brief(ctx)
     assert brief["source_duration_ms"] == 3347850
-    # ideal ≈ 45% of ~3347s → ~1506s, not the 600s min_duration_sec fallback
-    assert brief["target_duration_sec"]["ideal"] > 1000
-    assert brief["target_duration_sec"]["ideal"] < 2000
+    # ideal ≈ 65% of ~3347s → ~2176s, not the 600s min_duration_sec fallback
+    assert brief["target_duration_sec"]["ideal"] > 2000
+    assert brief["target_duration_sec"]["ideal"] < 2500
 
 
 def test_build_delivery_brief_clamps_and_schema(tmp_path: Path, monkeypatch) -> None:

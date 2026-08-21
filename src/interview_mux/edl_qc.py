@@ -9,11 +9,17 @@ from interview_mux.run_context import RunContext
 _AUDIO_CLIP_TYPES = frozenset({"speech", "vo_pickup"})
 
 
-def _gap_vo_line_ids(ctx: RunContext) -> dict[str, dict[str, Any]]:
+def _gap_vo_line_ids(
+    ctx: RunContext,
+    gap_report: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Index gap VO lines that produce vo_pickup clips (record or synthesize)."""
-    if not ctx.artifact_exists("understanding/gap_report.json"):
-        return {}
-    report = ctx.read_json("understanding/gap_report.json")
+    report = gap_report
+    if not isinstance(report, dict):
+        if not ctx.artifact_exists("understanding/gap_report.json"):
+            return {}
+        loaded = ctx.read_json("understanding/gap_report.json")
+        report = loaded if isinstance(loaded, dict) else {}
     out: dict[str, dict[str, Any]] = {}
     for line in (report.get("interviewer_lines") or []) if isinstance(report, dict) else []:
         if not isinstance(line, dict):
@@ -218,6 +224,7 @@ def _validate_speech_clips(
 def validate_flow1_edl(
     ctx: RunContext,
     edl: dict[str, Any] | None = None,
+    gap_report: dict[str, Any] | None = None,
 ) -> list[str]:
     """Return actionable Flow 1 EDL QC errors (empty list = pass)."""
     if edl is None:
@@ -233,7 +240,7 @@ def validate_flow1_edl(
     if not isinstance(clips, list):
         return ["clips must be an array"]
 
-    gap_lines = _gap_vo_line_ids(ctx)
+    gap_lines = _gap_vo_line_ids(ctx, gap_report)
     valid_segments = _segment_ids_from_manifest(ctx)
     errors.extend(_validate_vo_line_ids(clips, gap_lines))
     errors.extend(_validate_no_overlapping_speech(clips))

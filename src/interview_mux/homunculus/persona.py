@@ -21,11 +21,35 @@ PERSPECTIVES = {
     "direct_listener_monetization": {
         "title": "Direct listener monetization",
         "qualification": (
-            "Hard-omit like/subscribe/buy-now/sell-to-this-audience. "
+            "Hard-omit like/subscribe/buy-now/sell-to-this-audience and sponsor "
+            "bumpers (sponsored by / presented by / brought to you by / powered by / "
+            "in partnership with). "
             "Keep high-level business economics and clever commercial systems "
             "that do not ask this listener to pay or act."
         ),
-        "hard_omit": ["subscribe", "like and subscribe", "buy now", "use my code"],
+        "hard_omit": [
+            "like and subscribe",
+            "go subscribe",
+            "please subscribe",
+            "subscribe to my",
+            "subscribe to our",
+            "subscribe to this",
+            "subscribe to the show",
+            "hit the like button",
+            "comments section",
+            "our sponsor",
+            "thanks again to our sponsor",
+            "thanks to our sponsor",
+            "audio-only version of the show",
+            "audio only version of the show",
+            "buy now",
+            "use my code",
+            "sponsored by",
+            "presented by",
+            "brought to you by",
+            "powered by",
+            "in partnership with",
+        ],
         "thoughtful_include": ["customers", "revenue model", "two-sided market"],
     }
 }

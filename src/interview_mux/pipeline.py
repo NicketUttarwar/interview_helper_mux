@@ -44,6 +44,7 @@ from interview_mux.stages import transcribe_local
 from interview_mux.stages import audio_probes
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
+from interview_mux.stages import vo_synthesize
 from interview_mux.v2.config import (
     ALL_LLM_STAGES_V2,
     ANALYSIS_ORDER_V2,
@@ -172,6 +173,7 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
         "edl_narrative_refine": lambda: run_edl_narrative_refine(ctx),
+        "vo_synthesize": lambda: vo_synthesize.run_vo_synthesize(ctx),
         "edl": lambda: assembly.run_edl(ctx),
         "assembly_preview": lambda: assembly.run_preview(ctx),
         "listen_delight_audit": lambda: __import__(

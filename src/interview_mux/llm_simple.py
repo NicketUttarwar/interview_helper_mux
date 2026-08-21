@@ -80,12 +80,28 @@ def run_llm_stage_simple(
     ensure_analysis_workspace(ctx)
     base_input = build_stage_input(ctx)
     try:
+        from interview_mux.gap_packet_guard import (
+            GAP_PACKET_STAGES,
+            assert_gap_packet_richness,
+            merge_last_volley_input,
+            persist_last_volley_input,
+        )
         from interview_mux.volley_packet_lint import lint_llm_user_payload
 
         if isinstance(base_input, dict):
+            if stage_key in GAP_PACKET_STAGES:
+                base_input = merge_last_volley_input(ctx, stage_key, base_input)
             base_input = lint_llm_user_payload(base_input)
-    except Exception:
-        pass
+            if isinstance(base_input, dict) and stage_key in GAP_PACKET_STAGES:
+                assert_gap_packet_richness(stage_key, base_input)
+                persist_last_volley_input(ctx, stage_key, base_input)
+    except Exception as exc:
+        from interview_mux.gap_packet_guard import GAP_PACKET_STAGES
+
+        if stage_key in GAP_PACKET_STAGES and isinstance(exc, ValueError):
+            msg = str(exc)
+            ctx.log(msg, level="error", stage=stage_key)
+            raise StageError(stage_key, msg) from exc
     user_payload = json.dumps(base_input, indent=2, ensure_ascii=False)
     last_schema_errors: list[str] = []
     envelope: dict[str, Any] = {}

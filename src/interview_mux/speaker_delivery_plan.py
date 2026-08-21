@@ -129,3 +129,110 @@ def write_speaker_delivery_plan(ctx: RunContext) -> dict[str, Any]:
     plan = build_speaker_delivery_plan(ctx)
     ctx.write_json("understanding/speaker_delivery_plan.json", plan)
     return plan
+
+
+_MODE_TO_VO_SHAPE: dict[str, str] = {
+    "documentary_bridge": "third_person",
+    "guide_summary": "third_person",
+    "hook_montage": "third_person",
+    "conversational_host": "third_person",
+    "sparse_source": "third_person",
+    "hybrid_bespoke": "third_person",
+}
+
+
+def vo_shape_to_pov(shape: str) -> str:
+    """Map episode vo_shape onto bridge/compose POV labels."""
+    key = str(shape or "").strip().lower()
+    if key in {"first_person", "host_first_person"}:
+        return "host_first_person"
+    if key in {"second_person", "host_second_person"}:
+        return "host_second_person"
+    return "expository_third_person"
+
+
+def _narrative_mode_vo_shape(ctx: RunContext) -> str:
+    for rel in ("mastering/mastering_plan.json", "master/narrative_plan.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        mode = str(doc.get("narrative_mode") or doc.get("confirmed_mode") or "").strip()
+        if mode in _MODE_TO_VO_SHAPE:
+            return _MODE_TO_VO_SHAPE[mode]
+    return ""
+
+
+def _opener_vo_shape(ctx: RunContext) -> str:
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return ""
+    try:
+        from interview_mux.opening_orientation import is_episode_orientation
+
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return ""
+    if not isinstance(gap, dict):
+        return ""
+    for line in gap.get("interviewer_lines") or []:
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        if not is_episode_orientation(line):
+            continue
+        shape = str(line.get("vo_shape") or "").strip()
+        if shape:
+            return shape
+        return "third_person"
+    return ""
+
+
+def episode_vo_identity(ctx: RunContext | None = None) -> dict[str, Any]:
+    """One clone speaker, one approved ref WAV, one vo_shape for the episode."""
+    speaker_id = ""
+    vo_shape = "third_person"
+    ref_wav = ""
+    if ctx is None:
+        return {"speaker_id": speaker_id, "ref_wav": ref_wav, "vo_shape": vo_shape}
+    if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
+        try:
+            sdp = ctx.read_json("understanding/speaker_delivery_plan.json")
+            if isinstance(sdp, dict):
+                speaker_id = str(sdp.get("clone_speaker_id") or "").strip()
+                locked = str(sdp.get("vo_shape") or "").strip()
+                if locked:
+                    vo_shape = locked
+        except Exception:
+            speaker_id = ""
+    if not speaker_id:
+        from interview_mux.source_topology import pickup_eligible_speaker_id
+
+        speaker_id = str(pickup_eligible_speaker_id(ctx) or "").strip()
+    opener = _opener_vo_shape(ctx)
+    if opener:
+        vo_shape = opener
+    else:
+        mode_shape = _narrative_mode_vo_shape(ctx)
+        if mode_shape:
+            vo_shape = mode_shape
+    if speaker_id:
+        ref_wav = f"understanding/speaker_samples/{speaker_id}.wav"
+    return {
+        "speaker_id": speaker_id,
+        "ref_wav": ref_wav,
+        "vo_shape": vo_shape or "third_person",
+    }
+
+
+def stamp_episode_vo_identity(ctx: RunContext, line: dict[str, Any]) -> dict[str, Any]:
+    """Force clone speaker + vo_shape onto a gap/transition/layup line."""
+    ident = episode_vo_identity(ctx)
+    out = dict(line)
+    if ident.get("speaker_id"):
+        out["voice_speaker_id"] = ident["speaker_id"]
+    if ident.get("vo_shape"):
+        out["vo_shape"] = ident["vo_shape"]
+    return out

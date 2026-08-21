@@ -63,6 +63,7 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "sound_design_plan",
     "sound_design_vo_finalize",
     "edl_narrative_audit",
+    "vo_synthesize",
     "edl",
     "assembly_preview",
     "listen_delight_audit",

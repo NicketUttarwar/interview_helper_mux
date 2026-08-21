@@ -330,20 +330,10 @@ def _find_phrase_end_ms(
         pause = _pause_after_word(window, w, index=i)
         if pause is None:
             pause = _pause_after_word(words, w)
-        if ends_complete_thought(candidate, next_pause_ms=pause) and candidate[-1:] in ".!?…":
-            return int(w.get("end_ms") or 0)
-        # Soft: stop at pause after content word
-        if (
-            ends_complete_thought(candidate, next_pause_ms=pause)
-            and len(accumulated) >= 3
+        if ends_complete_thought(candidate, next_pause_ms=pause) and (
+            tok[-1:] in ".!?…" or candidate.rstrip()[-1:] in ".!?…"
         ):
             return int(w.get("end_ms") or 0)
-    # Last complete word boundary in window if we gained content
-    last_pause = _pause_after_word(words, window[-1])
-    if accumulated and ends_complete_thought(
-        " ".join(accumulated), next_pause_ms=last_pause
-    ):
-        return int(window[-1].get("end_ms") or 0)
     return None
 
 
@@ -1238,8 +1228,18 @@ def apply_junction_repairs(
         else:
             edge = "end"
 
-        for c in clips:
+        target_idx = f.get("clip_index")
+        try:
+            target_idx_i = int(target_idx) if target_idx is not None else None
+        except (TypeError, ValueError):
+            target_idx_i = None
+
+        for i, c in enumerate(clips):
             if str(c.get("type") or "") != "speech" or str(c.get("segment_id") or "") != sid:
+                continue
+            # Ideal-cut / multi-appearance segments share segment_id across clips —
+            # always honor clip_index when the detector stamped one.
+            if target_idx_i is not None and i != target_idx_i:
                 continue
             ss = int(c.get("source_start_ms") or 0)
             se = int(c.get("source_end_ms") or ss)
@@ -1264,20 +1264,7 @@ def apply_junction_repairs(
                     new_se = se + phrase_max
                 if new_se < se - phrase_max:
                     new_se = max(ss + 300, se - phrase_max)
-                clip_index = next(
-                    (
-                        idx
-                        for idx, row in enumerate(clips)
-                        if str(row.get("type") or "") == "speech"
-                        and str(row.get("segment_id") or "") == sid
-                    ),
-                    None,
-                )
-                next_start = (
-                    _next_speech_source_start(clips, clip_index)
-                    if clip_index is not None
-                    else None
-                )
+                next_start = _next_speech_source_start(clips, i)
                 new_se = _clamp_end_before_next_speech(new_se, next_start)
                 if new_se <= ss + 300:
                     applied.append({**f, "status": "skipped_next_clip_clamp"})
@@ -1296,14 +1283,25 @@ def apply_junction_repairs(
                 if edge == "start"
                 else int(c.get("source_end_ms") or 0)
             )
-            nudge_history[f"{sid}:{edge}"] = {
+            nudge_history[f"{sid}:{edge}:{i}"] = {
                 "applied_ms": written,
                 "kind": f.get("kind"),
                 "updated_at": _now(),
             }
-            applied.append({**f, "status": "applied", "applied_ms": written, "edge": edge})
+            applied.append(
+                {
+                    **f,
+                    "status": "applied",
+                    "applied_ms": written,
+                    "edge": edge,
+                    "clip_index": i,
+                }
+            )
             changed = True
             break
+        else:
+            if target_idx_i is not None:
+                applied.append({**f, "status": "skipped_clip_index_mismatch"})
 
     # Impact holds — insert after speech clip before next VO
     for f in findings:
@@ -1670,6 +1668,10 @@ def remaster_mix_only(ctx: RunContext) -> None:
     """Rebuild mix from current EDL (and placement adjustments) without wiping EDL."""
     from interview_mux.assembly_ledger import write_assembly_ledger
     from interview_mux.stages import assembly
+    from interview_mux.transition_vo import (
+        commit_current_transition_wavs,
+        restamp_edl_transition_source_paths,
+    )
     from interview_mux.write_staging import promote_staged_side_effects
 
     marker = ctx.final_path(".stage_done", "mix")
@@ -1678,16 +1680,44 @@ def remaster_mix_only(ctx: RunContext) -> None:
             marker.unlink()
         except OSError:
             pass
+    try:
+        commit_current_transition_wavs(ctx)
+        restamp_edl_transition_source_paths(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"junction remaster VO resync: {exc}",
+            level="warning",
+            stage=STAGE_ID,
+        )
     ledger = write_assembly_ledger(ctx)
     if not ledger.get("complete", True):
-        # Structural excludes can create new speech adjacencies. A mix-only
-        # rebuild would bypass seam_glue and ship a naked reorder seam.
-        assembly.run_edl(ctx)
-        ledger = write_assembly_ledger(ctx)
-        if not ledger.get("complete", True):
-            raise RuntimeError(
-                f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
-            )
+        clips = []
+        if ctx.artifact_exists("master/edl.json"):
+            edl_now = ctx.read_json("master/edl.json")
+            if isinstance(edl_now, dict):
+                clips = [c for c in (edl_now.get("clips") or []) if isinstance(c, dict)]
+        has_speech = any(str(c.get("type") or "") == "speech" for c in clips)
+        # Full EDL rebuild drops listenability-seated host VO. Bound nudges keep speech.
+        if not has_speech:
+            assembly.run_edl(ctx)
+            ledger = write_assembly_ledger(ctx)
+            if not ledger.get("complete", True):
+                raise RuntimeError(
+                    f"junction remaster left {ledger.get('naked_seam_count')} naked seam(s)"
+                )
+    if ctx.artifact_exists("master/edl.json"):
+        edl_now = ctx.read_json("master/edl.json")
+        if isinstance(edl_now, dict):
+            from interview_mux.listenability_guards import remediate_listenability_edl
+
+            edl_now, notes = remediate_listenability_edl(ctx, edl_now)
+            if notes:
+                from interview_mux.edl_narrative_qc import validate_flow1_edl_narrative
+
+                if validate_flow1_edl_narrative(ctx, edl_now):
+                    pass
+                else:
+                    ctx.write_json("master/edl.json", edl_now)
     assembly.run_mix(ctx)
     from interview_mux.seam_autopsy import write_render_ledger
 
@@ -1705,6 +1735,7 @@ def remaster_mix_only(ctx: RunContext) -> None:
             "master/bridge_completeness.json",
             "sound_design/placement_adjustments.json",
             "understanding/sound_design_plan.json",
+            "master/transitions/",
         ),
         stage_id=STAGE_ID,
     )
@@ -1863,6 +1894,7 @@ def run_junction_feel_audit(
             local_verdict = "unavailable"
         return local_verdict, local_directives, local_findings, local_error
 
+    from interview_mux.homunculus.budget import LimitExhausted, mark_identity_exhausted
     from interview_mux.stages.llm_runner import run_prompt_envelope
 
     user_content = json.dumps(packet, indent=2, ensure_ascii=False)
@@ -1891,6 +1923,12 @@ def run_junction_feel_audit(
                     stage=STAGE_ID,
                 )
                 continue
+        except LimitExhausted as exc:
+            mark_identity_exhausted(ctx, FEEL_STAGE_KEY)
+            error = str(exc)[:240]
+            verdict = "unavailable"
+            ctx.log(f"junction_feel_audit unavailable: {exc}", level="error", stage=STAGE_ID)
+            break
         except Exception as exc:
             error = str(exc)[:240]
             verdict = "unavailable"
@@ -2386,10 +2424,19 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 report["connector_fuse_junction_heal"] = True
             except Exception as fuse_exc:  # noqa: BLE001
                 report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
-    # unavailable after retry is a blocking quality signal.
+    # unavailable after retry is a blocking quality signal unless mechanical
+    # commitment already passed with no critical residuals (LLM outage must not
+    # discard a remastered assembly).
     if audit.get("verdict") == "unavailable":
         report["feel_audit_unavailable"] = True
-        blocking_reasons.append("junction_feel_audit_unavailable")
+        if not (commit_ok and not critical_left):
+            blocking_reasons.append("junction_feel_audit_unavailable")
+        else:
+            ctx.log(
+                "junction_feel_audit unavailable after committed remaster — not blocking",
+                level="warning",
+                stage=STAGE_ID,
+            )
     enforce_block = mode == "authoritative"
     report["commitment"] = commitment
     report["blocking_reasons"] = sorted(set(blocking_reasons))

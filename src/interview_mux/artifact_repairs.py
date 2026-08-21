@@ -17,6 +17,34 @@ from interview_mux.issue_severity_rules import ClassifiedIssue
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, validate_artifact_write
 from interview_mux.segment_timeline import sort_segments_by_start_ms, segment_timeline_cfg
 
+
+def _parse_stringified_exclude_row(raw: str) -> tuple[str, str] | None:
+    """Recover {segment_id, reason} when an exclude row was stringified."""
+    text = str(raw or "").strip()
+    if not text or text[0] not in "{[":
+        return None
+    payload: Any = None
+    try:
+        import json
+
+        payload = json.loads(text)
+    except Exception:
+        try:
+            import ast
+
+            payload = ast.literal_eval(text)
+        except Exception:
+            return None
+    if isinstance(payload, list) and payload:
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        return None
+    sid = str(payload.get("segment_id") or payload.get("id") or "").strip()
+    if not sid:
+        return None
+    reason = str(payload.get("reason") or "").strip()
+    return sid, reason
+
 VALID_FLAGS = frozenset(
     {"starts_mid_thought", "references_prior_missing", "heavy_crosstalk"}
 )
@@ -409,27 +437,100 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     return out, applied
 
 
+def _speaker_turns_from_transcript(ctx: Any) -> dict[str, list[str]]:
+    turns: dict[str, list[str]] = {}
+    if not ctx.artifact_exists("transcript/full.json"):
+        return turns
+    words = ctx.read_json("transcript/full.json").get("words") or []
+    cur = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if cur is None or not buf:
+            return
+        turns.setdefault(cur, []).append(" ".join(buf))
+
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        tok = str(w.get("text") or w.get("word") or "").strip()
+        if not tok:
+            continue
+        sid = str(w.get("speaker_id") or w.get("speaker") or "") or "unk"
+        if sid != cur:
+            flush()
+            buf = []
+            cur = sid
+        buf.append(tok)
+    flush()
+    return turns
+
+
+_INTERVIEWER_SCORE_CUES = (
+    "thanks for joining",
+    "thank you for joining",
+    "welcome to",
+    "we're going to talk",
+    "we are going to talk",
+    "tell me",
+    "can you",
+    "let's talk",
+    "i want to remind",
+    "stay up on the latest",
+)
+_FILLER_QUESTION_RE = re.compile(
+    r"^(okay|ok|right|yeah|yep|you know|so|yes)\s*[?.!,]*$",
+    re.I,
+)
+
+
+def _interviewer_score(ctx: Any, speaker_id: str) -> float:
+    turns = _speaker_turns_from_transcript(ctx).get(speaker_id) or []
+    if not turns:
+        return 0.0
+    score = 0.0
+    for text in turns:
+        lower = text.lower()
+        if any(cue in lower for cue in _INTERVIEWER_SCORE_CUES):
+            score += 3.0
+        if _FILLER_QUESTION_RE.match(text.strip()):
+            continue
+        if "?" in text and len(text) >= 48:
+            score += 1.5
+        elif "?" in text and len(text) >= 20:
+            score += 0.4
+    return score
+
+
 def _infer_speaker_role(ctx: Any, speaker_id: str) -> str:
-    """Heuristic role from transcript question density."""
-    if not ctx.artifact_exists("transcript/normalized.json"):
-        return "interviewee"
+    """Heuristic role from host cues / substantial questions, not filler 'okay?'."""
     try:
-        doc = ctx.read_json("transcript/normalized.json")
-        turns = doc.get("turns") or doc.get("segments") or []
-        q_count = 0
-        total = 0
-        for turn in turns:
-            if not isinstance(turn, dict):
-                continue
-            spk = str(turn.get("speaker_id") or turn.get("speaker") or "")
-            if spk and spk != speaker_id:
-                continue
-            text = str(turn.get("text") or "")
-            total += 1
-            if "?" in text[:120]:
-                q_count += 1
-        if total and q_count / total > 0.35:
-            return "interviewer"
+        turns_by = _speaker_turns_from_transcript(ctx)
+        if turns_by:
+            scores = {sid: _interviewer_score(ctx, sid) for sid in turns_by}
+            if speaker_id in scores and len(scores) >= 2:
+                winner = max(scores.items(), key=lambda kv: kv[1])[0]
+                return "interviewer" if speaker_id == winner else "interviewee"
+            if _interviewer_score(ctx, speaker_id) >= 3.0:
+                return "interviewer"
+            return "interviewee"
+        if ctx.artifact_exists("transcript/normalized.json"):
+            doc = ctx.read_json("transcript/normalized.json")
+            turns = doc.get("turns") or doc.get("segments") or []
+            q_count = 0
+            total = 0
+            for turn in turns:
+                if not isinstance(turn, dict):
+                    continue
+                spk = str(turn.get("speaker_id") or turn.get("speaker") or "")
+                if spk and spk != speaker_id:
+                    continue
+                text = str(turn.get("text") or "")
+                total += 1
+                if "?" in text[:120] and not _FILLER_QUESTION_RE.match(text.strip()):
+                    q_count += 1
+            if total and q_count / total > 0.35:
+                return "interviewer"
     except Exception:
         pass
     return "interviewee"
@@ -457,6 +558,10 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
         isinstance(r, dict) and str(r.get("role") or r.get("speaker_role") or "unknown") == "unknown"
         for r in rows
     ) or False
+    low_confidence = bool(rows) and all(
+        isinstance(r, dict) and float(r.get("confidence") or 0) <= 0.55
+        for r in rows
+    )
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
@@ -482,16 +587,49 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
             row["role"] = "interviewer"
             role = "interviewer"
             applied.append({"action": "normalize_moderator_to_interviewer", "speaker_id": sid})
-        if role == "unknown" or all_unknown:
+        if role == "unknown" or all_unknown or low_confidence:
             inferred = _infer_speaker_role(ctx, sid)
-            row["role"] = inferred
-            applied.append({"action": "infer_speaker_role", "speaker_id": sid, "value": inferred})
+            if inferred != role or role == "unknown" or all_unknown:
+                row["role"] = inferred
+                applied.append(
+                    {
+                        "action": "infer_speaker_role",
+                        "speaker_id": sid,
+                        "value": inferred,
+                        "reason": "low_confidence" if low_confidence and not all_unknown else "unknown",
+                    }
+                )
     # Tie-break: among dual unknowns resolved to same role, prefer question-dense as interviewer.
     roles_now = [
         str(r.get("role") or "unknown")
         for r in rows
         if isinstance(r, dict)
     ]
+    if roles_now.count("interviewer") >= 2 and len(rows) == 2:
+        scored = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("speaker_id") or row.get("id") or "")
+            scored.append((sid, _interviewer_score(ctx, sid)))
+        scored.sort(key=lambda kv: kv[1], reverse=True)
+        winner = scored[0][0] if scored else None
+        if winner:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                sid = str(row.get("speaker_id") or row.get("id") or "")
+                new_role = "interviewer" if sid == winner else "interviewee"
+                if str(row.get("role") or "") != new_role:
+                    row["role"] = new_role
+                    applied.append(
+                        {
+                            "action": "disambiguate_dual_interviewer",
+                            "speaker_id": sid,
+                            "value": new_role,
+                            "score": dict(scored).get(sid),
+                        }
+                    )
     if roles_now.count("interviewer") == 0 and len(rows) >= 2:
         best_id = None
         best_score = -1.0
@@ -577,6 +715,78 @@ def repair_speakers(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list
     return out, applied
 
 
+def realign_manifest_roles_from_speakers(ctx: Any) -> list[dict[str, Any]]:
+    """Rewrite segment speaker_role/type from understanding/speakers.json.
+
+    Classification copies LLM speaker_roles. When those roles were a 0.5-confidence
+    coin-flip, interviewer_question rows contain guest lectures and missing_framing
+    refuses coverage. Realign types to the repaired role map without a full re-LLM.
+    """
+    if not ctx.artifact_exists("understanding/speakers.json") or not ctx.artifact_exists(
+        "segments/manifest.json"
+    ):
+        return []
+    speakers = ctx.read_json("understanding/speakers.json")
+    role_by: dict[str, str] = {}
+    for row in speakers.get("speakers") or []:
+        if isinstance(row, dict) and row.get("speaker_id") and row.get("role"):
+            role_by[str(row["speaker_id"])] = str(row["role"])
+    if not role_by:
+        return []
+    man = ctx.read_json("segments/manifest.json")
+    applied: list[dict[str, Any]] = []
+    for seg in man.get("segments") or []:
+        if not isinstance(seg, dict):
+            continue
+        sid = str(seg.get("speaker_id") or "")
+        role = role_by.get(sid)
+        if not role:
+            continue
+        prev_role = str(seg.get("speaker_role") or "")
+        prev_type = str(seg.get("type") or "")
+        if prev_role != role:
+            seg["speaker_role"] = role
+            applied.append(
+                {
+                    "action": "realign_speaker_role",
+                    "segment_id": seg.get("segment_id"),
+                    "from": prev_role,
+                    "to": role,
+                }
+            )
+        if role == "interviewee" and prev_type in {"interviewer_question", "interviewer_reaction"}:
+            seg["type"] = "interviewee_answer"
+            applied.append(
+                {
+                    "action": "realign_segment_type",
+                    "segment_id": seg.get("segment_id"),
+                    "from": prev_type,
+                    "to": "interviewee_answer",
+                }
+            )
+        elif role == "interviewer" and prev_type == "interviewee_answer":
+            seg["type"] = "interviewer_question"
+            applied.append(
+                {
+                    "action": "realign_segment_type",
+                    "segment_id": seg.get("segment_id"),
+                    "from": prev_type,
+                    "to": "interviewer_question",
+                }
+            )
+    if not applied:
+        return []
+    from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+    restamp_committed_artifact(
+        ctx,
+        "segments/manifest.json",
+        producer_stage="segment_classification",
+        doc=man,
+    )
+    return applied
+
+
 def _manifest_ids_and_tags(ctx: Any) -> tuple[set[str], dict[str, list[str]]]:
     manifest_ids: set[str] = set()
     tag_to_segments: dict[str, list[str]] = {}
@@ -636,6 +846,7 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
 
     generic_names = frozenset({"theme", "topic", "general", "misc", "other"})
     kept_topics: list[dict[str, Any]] = []
+    pending_chrono: list[tuple[int, dict[str, Any]]] = []
     for i, topic in enumerate(out.get("topics") or []):
         if not isinstance(topic, dict):
             continue
@@ -657,18 +868,120 @@ def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any],
             if matched:
                 topic["segment_ids"] = sorted(set(matched))
                 applied.append({"action": "map_topic_segments", "path": f"topics[{i}].segment_ids"})
+        # Claim / evidence segment refs are a second host anchor when topic_tags are empty.
+        if not (topic.get("segment_ids") or []) and manifest_ids:
+            claim_hits: list[str] = []
+            for claim in out.get("key_claims") or []:
+                if not isinstance(claim, dict):
+                    continue
+                for field in ("segment_ids", "evidence_segment_ids"):
+                    vals = claim.get(field)
+                    if isinstance(vals, list):
+                        claim_hits.extend(_sanitize_topic_segment_ids(vals, manifest_ids))
+            if claim_hits:
+                topic["segment_ids"] = sorted(set(claim_hits))[:12]
+                applied.append(
+                    {"action": "map_topic_segments_from_claims", "path": f"topics[{i}].segment_ids"}
+                )
         # Reanchor completeness requires segment_ids once a segment manifest exists.
         # content_context runs before boundary/classification — keep unanchored topics then.
         if not (topic.get("segment_ids") or []):
             if manifest_ids:
-                applied.append({"action": "drop_row", "path": f"topics[{i}]", "reason": "empty_segment_ids"})
+                # Defer drop: chronological backfill below prefers keeping named topics.
+                pending_chrono.append((i, topic))
                 continue
         kept_topics.append(topic)
+    if pending_chrono and manifest_ids:
+        ordered = sorted(manifest_ids)
+        n = len(pending_chrono)
+        chunk = max(1, len(ordered) // n)
+        for j, (i, topic) in enumerate(pending_chrono):
+            start = j * chunk
+            end = len(ordered) if j == n - 1 else min(len(ordered), start + chunk)
+            if start >= len(ordered):
+                start = max(0, len(ordered) - chunk)
+                end = len(ordered)
+            topic["segment_ids"] = ordered[start:end] or ordered[:1]
+            applied.append(
+                {
+                    "action": "map_topic_segments_chrono",
+                    "path": f"topics[{i}].segment_ids",
+                    "count": len(topic["segment_ids"]),
+                }
+            )
+            kept_topics.append(topic)
+        pending_chrono = []
+    elif pending_chrono and not manifest_ids:
+        kept_topics.extend(t for _, t in pending_chrono)
+        pending_chrono = []
+    # Last resort: never leave topics=[] when a thesis + manifest exist — one covering topic.
+    if not kept_topics and manifest_ids and str(out.get("thesis") or "").strip():
+        covering = {
+            "name": "Episode themes",
+            "summary": str(out.get("thesis") or "").strip()[:400],
+            "segment_ids": sorted(manifest_ids)[:48],
+        }
+        kept_topics.append(covering)
+        applied.append(
+            {
+                "action": "synthesize_covering_topic",
+                "path": "topics[0]",
+                "count": len(covering["segment_ids"]),
+            }
+        )
     out["topics"] = kept_topics
+    rel_applied = _ensure_topic_relationships(out)
+    applied.extend(rel_applied)
 
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def _ensure_topic_relationships(brief: dict[str, Any]) -> list[dict[str, Any]]:
+    """Host-synthesize a sequential topic graph when the LLM omitted relationships.
+
+    Reanchor completeness requires a non-empty ``topic_relationships`` list. Null-ack
+    of that field otherwise marks the brief incomplete after the stage is already
+    ``.stage_done``, and fill-gaps then rewinds to ``content_context`` forever.
+    """
+    existing = brief.get("topic_relationships")
+    if isinstance(existing, list) and existing:
+        return []
+    topics = [t for t in (brief.get("topics") or []) if isinstance(t, dict)]
+    names = [str(t.get("name") or "").strip() for t in topics]
+    names = [n for n in names if n]
+    if not names:
+        return []
+    rows: list[dict[str, Any]] = []
+    if len(names) == 1:
+        segs = topics[0].get("segment_ids") if topics else []
+        evidence = [str(s) for s in segs[:4]] if isinstance(segs, list) else []
+        rows.append(
+            {
+                "from_topic": names[0],
+                "to_topic": names[0],
+                "relation": "returns_to",
+                "description": f"{names[0]} is the through-line of this interview.",
+                "evidence_segment_ids": evidence,
+            }
+        )
+    else:
+        for earlier, later, t_a, t_b in zip(names, names[1:], topics, topics[1:]):
+            segs_a = t_a.get("segment_ids") if isinstance(t_a.get("segment_ids"), list) else []
+            segs_b = t_b.get("segment_ids") if isinstance(t_b.get("segment_ids"), list) else []
+            evidence = list(dict.fromkeys([str(s) for s in [*segs_a[-2:], *segs_b[:2]] if s]))
+            rows.append(
+                {
+                    "from_topic": earlier,
+                    "to_topic": later,
+                    "relation": "prerequisite",
+                    "description": f"{earlier} sets up {later} in the interview arc.",
+                    "evidence_segment_ids": evidence,
+                }
+            )
+    brief["topic_relationships"] = rows
+    return [{"action": "synthesize_topic_relationships", "path": "topic_relationships", "count": len(rows)}]
 
 
 def sync_content_brief_topic_segment_ids(
@@ -814,6 +1127,11 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             if isinstance(row, str):
                 sid = row.strip()
                 reason = str(rationales.get(sid) or "excluded_from_master")
+                if sid[:1] in "{[":
+                    parsed = _parse_stringified_exclude_row(sid)
+                    if parsed:
+                        sid = parsed[0]
+                        reason = parsed[1] or reason
             elif isinstance(row, dict):
                 sid = str(row.get("segment_id") or row.get("id") or "").strip()
                 reason = str(row.get("reason") or rationales.get(sid) or "excluded_from_master")
@@ -922,6 +1240,27 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             applied.extend(align_notes)
         except Exception:
             pass
+    media_cta = out.get("media_ip_cta")
+    if isinstance(media_cta, list):
+        normalized_cta: list[dict[str, Any]] = []
+        for row in media_cta:
+            if not isinstance(row, dict):
+                continue
+            item = dict(row)
+            cuts = item.get("cut_ms")
+            if cuts is None:
+                item.pop("cut_ms", None)
+                applied.append({"action": "drop_null", "path": "media_ip_cta.cut_ms"})
+            elif isinstance(cuts, (int, float)):
+                item["cut_ms"] = [int(cuts)]
+                applied.append({"action": "coerce_cut_ms_array", "path": "media_ip_cta.cut_ms"})
+            elif isinstance(cuts, list):
+                item["cut_ms"] = [int(x) for x in cuts if isinstance(x, (int, float))]
+            else:
+                item.pop("cut_ms", None)
+                applied.append({"action": "drop_invalid", "path": "media_ip_cta.cut_ms"})
+            normalized_cta.append(item)
+        out["media_ip_cta"] = normalized_cta
     from interview_mux.order_hash import bump_order_lock
 
     stamped = bump_order_lock(out, source="artifact_repairs.repair_selection")
@@ -1396,7 +1735,7 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
         # Incomplete micro-fragments ("Within…", "But end of the day,") are high-gap
         # noise — do not require on-air VO; ranking/exclude handles them.
         words = [w for w in text.replace("…", " ").split() if w.strip(".,;:!?\"'")]
-        if len(words) <= 5 and dur < 5000:
+        if len(words) <= 8 and dur < 8000:
             return True
         return False
     return False
@@ -1711,13 +2050,22 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 fixed.pop("extracted_from", None)
                 applied.append({"action": "drop_null", "path": "extracted_from"})
             # Schema requires arrays; LLMs often emit null for unused lists.
-            for arr_key in ("replaces_source_segments", "supports_segment_ids"):
+            for arr_key in (
+                "replaces_source_segments",
+                "supports_segment_ids",
+                "nugget_ids",
+                "recovery_of_talking_point_ids",
+            ):
                 if arr_key in fixed and fixed.get(arr_key) is None:
                     fixed[arr_key] = []
                     applied.append({"action": "null_to_empty_array", "path": arr_key})
                 elif arr_key in fixed and not isinstance(fixed.get(arr_key), list):
                     fixed[arr_key] = []
                     applied.append({"action": "coerce_array", "path": arr_key})
+            if not str(fixed.get("gap_type") or "").strip():
+                origin = str(fixed.get("origin") or "")
+                fixed["gap_type"] = "nugget_layup" if origin == "nugget_layup" else "missing_setup"
+                applied.append({"action": "default_gap_type", "path": "gap_type"})
             cleaned.append(fixed)
         lines = cleaned
         out["interviewer_lines"] = cleaned
@@ -2690,6 +3038,18 @@ def propagate_nle_split_segment_refs(
     return updated
 
 
+def _normalize_audit_issue_row(row: dict[str, Any], applied: list[dict[str, Any]]) -> dict[str, Any]:
+    fixed = dict(row)
+    evidence = fixed.get("evidence")
+    if evidence is None or not isinstance(evidence, list):
+        fixed["evidence"] = []
+        applied.append({"action": "default_value", "path": "evidence"})
+    if not str(fixed.get("recommended_action") or "").strip():
+        fixed["recommended_action"] = "review"
+        applied.append({"action": "default_value", "path": "recommended_action"})
+    return fixed
+
+
 def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
@@ -2717,6 +3077,14 @@ def repair_edl_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], lis
                 continue
             kept.append(row)
         out["issues"] = kept
+    for key in ("blocking_issues", "warnings"):
+        rows = out.get(key)
+        if not isinstance(rows, list):
+            continue
+        out[key] = [
+            _normalize_audit_issue_row(row, applied) if isinstance(row, dict) else row
+            for row in rows
+        ]
     from interview_mux.gates import audit_issue_covers_optional_vo_gap
     from interview_mux.v2.config import v2_g1_optional
 
@@ -4356,6 +4724,71 @@ def repair_sfx_prompts(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
     return out, applied
 
 
+def reconcile_ordered_vs_excluded(selection: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolve dual membership: editorial excludes leave air order; else air wins."""
+    out = dict(selection) if isinstance(selection, dict) else {}
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    rationales = (
+        out.get("exclude_rationales") if isinstance(out.get("exclude_rationales"), dict) else {}
+    )
+
+    def _sid(raw: Any) -> str:
+        if isinstance(raw, dict):
+            return str(raw.get("segment_id") or "")
+        return str(raw or "")
+
+    def _reason_for(raw: Any, sid: str) -> str:
+        if isinstance(raw, dict) and raw.get("reason"):
+            return str(raw.get("reason") or "")
+        return str((rationales or {}).get(sid) or "")
+
+    try:
+        from interview_mux.media_ip_cta import is_editorial_exclude_reason
+    except Exception:
+
+        def is_editorial_exclude_reason(reason: str) -> bool:  # type: ignore[misc]
+            return bool(reason)
+
+    editorial_drop: set[str] = set()
+    excl_kept: list[Any] = []
+    for raw in out.get("excluded_segment_ids") or []:
+        sid = _sid(raw)
+        if not sid:
+            continue
+        reason = _reason_for(raw, sid)
+        if sid in ordered and is_editorial_exclude_reason(reason):
+            editorial_drop.add(sid)
+            excl_kept.append(
+                raw
+                if isinstance(raw, dict)
+                else {"segment_id": sid, "reason": reason or "editorial_omit"}
+            )
+            continue
+        if sid in ordered:
+            # Noise dual-membership without editorial reason — air order wins.
+            continue
+        excl_kept.append(raw)
+
+    # Rationales that mark editorial omit even when excluded list lagged.
+    for sid, reason in (rationales or {}).items():
+        key = str(sid or "").strip()
+        if key and key in ordered and is_editorial_exclude_reason(str(reason or "")):
+            editorial_drop.add(key)
+            if key not in {_sid(r) for r in excl_kept}:
+                excl_kept.append({"segment_id": key, "reason": str(reason)[:240]})
+
+    if editorial_drop:
+        ordered = [s for s in ordered if s not in editorial_drop]
+        rat_out = dict(rationales) if isinstance(rationales, dict) else {}
+        for sid in editorial_drop:
+            rat_out.setdefault(sid, "editorial_omit")
+        out["exclude_rationales"] = rat_out
+
+    out["ordered_segment_ids"] = ordered
+    out["excluded_segment_ids"] = excl_kept
+    return out
+
+
 def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
     """Productize post-EDL narrative recovery (exclude framing/blanks, unlock volleys, fix coverage).
 
@@ -4365,26 +4798,22 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
     if not ctx.artifact_exists("master/selection.json"):
         return notes
     from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
-    from interview_mux.gap_framing import ranking_exclude_segment_ids
 
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
         return notes
+    sel = reconcile_ordered_vs_excluded(sel)
     order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
     excl = list(sel.get("excluded_segment_ids") or [])
     have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
-    drop_ids = set(ranking_exclude_segment_ids(ctx))
+    drop_ids: set[str] = set()
     for sid in list(order):
         if _segment_is_blank_or_unusable(ctx, sid):
             drop_ids.add(sid)
     for sid in drop_ids:
         if sid in order:
             order = [x for x in order if x != sid]
-            reason = (
-                "covered_by_framing_vo"
-                if sid in set(ranking_exclude_segment_ids(ctx))
-                else "blank_or_unusable_answer_audio"
-            )
+            reason = "blank_or_unusable_answer_audio"
             if sid not in have:
                 excl.append({"segment_id": sid, "reason": reason})
                 have.add(sid)

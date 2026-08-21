@@ -33,13 +33,87 @@ def _transition_wav_usable(path: Path) -> bool:
         return path.stat().st_size > 1000
 
 
+def current_pair_wav_usable(
+    ctx: RunContext, after_id: str, before_id: str
+) -> Path | None:
+    """On-disk WAV for this pair that can play. Ignores synthesis-report paperwork."""
+    if not after_id or not before_id:
+        return None
+    path = transition_wav_path(ctx, after_id, before_id)
+    if _transition_wav_usable(path):
+        return path
+    return None
+
+
+def spoken_transition_pairs(ctx: RunContext) -> list[tuple[str, str]]:
+    """Current ``transitions.json`` pairs that have spoken text."""
+    if not ctx.artifact_exists("master/transitions.json"):
+        return []
+    try:
+        doc = ctx.read_json("master/transitions.json")
+    except Exception:
+        return []
+    if not isinstance(doc, dict):
+        return []
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in doc.get("transitions") or []:
+        if not isinstance(item, dict) or not str(item.get("text") or "").strip():
+            continue
+        after_id = str(item.get("after_segment_id") or "")
+        before_id = str(item.get("before_segment_id") or "")
+        if not after_id or not before_id:
+            continue
+        key = (after_id, before_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def persist_vo_pair_gap(
+    ctx: RunContext,
+    missing: list[str],
+    *,
+    source: str,
+    extra: dict[str, Any] | None = None,
+    skip_handoff: bool = True,
+    stage_key: str | None = None,
+) -> None:
+    """Durable still_missing_pairs so remap/junction/mix gaps are visible without logs."""
+    from datetime import datetime, timezone
+
+    rel = "mastering/vo_synthesize.json"
+    prev: dict[str, Any] = {}
+    if ctx.artifact_exists(rel):
+        try:
+            raw = ctx.read_json(rel)
+            if isinstance(raw, dict):
+                prev = raw
+        except Exception:
+            prev = {}
+    doc = dict(prev)
+    try:
+        doc["version"] = int(doc.get("version") or 1)
+    except (TypeError, ValueError):
+        doc["version"] = 1
+    doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    doc["still_missing_pairs"] = [str(m) for m in missing]
+    doc["last_source"] = source
+    if extra:
+        doc.update(extra)
+    try:
+        ctx.write_json(rel, doc, skip_handoff=skip_handoff, stage_key=stage_key)
+    except Exception:
+        pass
+
+
 def resolve_transition_wav(
     ctx: RunContext, after_id: str, before_id: str
 ) -> Path | None:
-    path = transition_wav_path(ctx, after_id, before_id)
-    if not path.is_file() or not ctx.artifact_exists("master/transitions.json"):
-        return None
-    if not _transition_wav_usable(path):
+    path = current_pair_wav_usable(ctx, after_id, before_id)
+    if path is None or not ctx.artifact_exists("master/transitions.json"):
         return None
     doc = ctx.read_json("master/transitions.json")
     item = next(
@@ -106,8 +180,12 @@ def resolve_transition_wav(
     return None
 
 
-def resync_spoken_transitions(ctx: RunContext) -> list[str]:
-    """Re-synth spoken transitions that resolve as missing/stale. Once per call."""
+def resync_spoken_transitions(ctx: RunContext, *, fail_closed: bool = False) -> list[str]:
+    """Re-synth spoken transitions that resolve as missing/stale. Once per call.
+
+    Missing files after the one try are returned in the note list. Raise only when
+    ``fail_closed`` is True — mix last-chance is the net, not an EDL crash.
+    """
     if not ctx.artifact_exists("master/transitions.json"):
         return []
     doc = ctx.read_json("master/transitions.json")
@@ -121,27 +199,35 @@ def resync_spoken_transitions(ctx: RunContext) -> list[str]:
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:
             continue
-        if resolve_transition_wav(ctx, after_id, before_id) is None:
+        if current_pair_wav_usable(ctx, after_id, before_id) is None:
             needed.append((after_id, before_id))
     if not needed:
         return []
-    synthesize_spoken_transitions(ctx)
+    synthesize_spoken_transitions(ctx, pairs=set(needed))
     still_bad: list[str] = []
     notes: list[str] = []
     for after_id, before_id in needed:
         key = f"{after_id}->{before_id}"
         notes.append(key)
-        if resolve_transition_wav(ctx, after_id, before_id) is None:
+        if current_pair_wav_usable(ctx, after_id, before_id) is None:
             still_bad.append(key)
     if still_bad:
-        raise RuntimeError(
+        msg = (
             "edl: spoken transitions still unresolved after resync: "
             + ", ".join(still_bad[:8])
         )
+        ctx.log(msg, level="warning", stage="edl")
+        if fail_closed:
+            raise RuntimeError(msg)
+        notes.extend(f"missing:{k}" for k in still_bad)
     return notes
 
 
-def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
+def synthesize_spoken_transitions(
+    ctx: RunContext,
+    *,
+    pairs: set[tuple[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     """Generate WAVs for transitions that have spoken text. Returns result rows."""
     if not ctx.artifact_exists("master/transitions.json"):
         return []
@@ -157,9 +243,15 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
     from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
     from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
 
-    # Prefer speaker_delivery_plan clone when present
+    # Prefer episode VO lock, then speaker_delivery_plan clone, then pickup.
     speaker_id = ""
-    if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
+    try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+        speaker_id = str((episode_vo_identity(ctx) or {}).get("speaker_id") or "")
+    except Exception:
+        speaker_id = ""
+    if not speaker_id and ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
         try:
             sdp = ctx.read_json("understanding/speaker_delivery_plan.json")
             if isinstance(sdp, dict):
@@ -188,6 +280,8 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:
             continue
+        if pairs is not None and (after_id, before_id) not in pairs:
+            continue
         from interview_mux.spoken_copy_guard import enrich_evidence_from_run
 
         evidence = enrich_evidence_from_run(
@@ -208,20 +302,42 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
                 purpose=f"transition[{after_id}->{before_id}]",
                 ctx=ctx,
             )
-            text = str(guarded["text"])
-            if text != str(item.get("text") or "").strip():
-                item["text"] = text
-                item["spoken_copy_guard"] = {
-                    "action": guarded.get("action"),
-                    "script_hash": guarded.get("script_hash"),
-                    "context_hash": guarded.get("context_hash"),
-                }
-                writeback = True
-        except ValueError as exc:
-            raise ValueError(
-                f"transition text blocked before synthesis "
-                f"({after_id}->{before_id}): {exc}"
-            ) from exc
+        except ValueError:
+            from interview_mux.seam_glue import (
+                bridge_guard_evidence,
+                default_bridge_text,
+                enrich_bridge_pair_excerpts,
+            )
+
+            pair = enrich_bridge_pair_excerpts(
+                {
+                    "after_segment_id": after_id,
+                    "before_segment_id": before_id,
+                    "source_gap_ms": item.get("source_gap_ms"),
+                },
+                by_id,
+            )
+            alt = str(default_bridge_text(pair) or "").strip()
+            if not alt:
+                raise ValueError(
+                    f"transition text blocked before synthesis "
+                    f"({after_id}->{before_id}): ungrounded seam"
+                )
+            guarded = assert_guarded_spoken_copy(
+                alt,
+                evidence=bridge_guard_evidence(pair),
+                purpose=f"transition[{after_id}->{before_id}]",
+                ctx=ctx,
+            )
+        text = str(guarded["text"])
+        if text != str(item.get("text") or "").strip():
+            item["text"] = text
+            item["spoken_copy_guard"] = {
+                "action": guarded.get("action"),
+                "script_hash": guarded.get("script_hash"),
+                "context_hash": guarded.get("context_hash"),
+            }
+            writeback = True
         out = transition_wav_path(ctx, after_id, before_id)
         line = {
             "line_id": _transition_line_id(after_id, before_id),
@@ -235,6 +351,16 @@ def synthesize_spoken_transitions(ctx: RunContext) -> list[dict[str, Any]]:
             "suggested_tone": item.get("tone") or "bridge",
             **evidence,
         }
+        try:
+            from interview_mux.speaker_delivery_plan import stamp_episode_vo_identity
+
+            line = stamp_episode_vo_identity(ctx, line)
+            item["voice_speaker_id"] = line.get("voice_speaker_id") or speaker_id
+            if line.get("vo_shape"):
+                item["vo_shape"] = line.get("vo_shape")
+                writeback = True
+        except Exception:
+            pass
         audit_match, audit_reason = synthesis_entry_matches_line(ctx, line)
         if out.is_file() and _transition_wav_usable(out) and audit_match:
             results.append(
@@ -380,7 +506,10 @@ def assert_spoken_transitions_audible(ctx: RunContext, edl: dict[str, Any]) -> N
             continue
         dur = int(clip.get("duration_ms") or 0)
         src = clip.get("source_path")
-        if dur <= 0 or not src:
+        if not src:
+            # Explicit empty seat — mix last-chance or silence, not an EDL crash.
+            continue
+        if dur <= 0:
             after = clip.get("after_segment_id")
             before = clip.get("before_segment_id")
             bad.append(f"{after}->{before}")
@@ -389,3 +518,237 @@ def assert_spoken_transitions_audible(ctx: RunContext, edl: dict[str, Any]) -> N
             "edl: spoken transitions missing audio (duration_ms==0 or no source_path): "
             + ", ".join(bad[:8])
         )
+
+
+def lint_edl_vo_source_paths(ctx: RunContext, edl: dict[str, Any] | None) -> dict[str, Any]:
+    """Unset source_path on clips whose file is not on disk. Write-path contract."""
+    from interview_mux.edl_source_contract import lint_edl_vo_source_paths as _lint
+
+    return _lint(ctx, edl)
+
+
+def seated_vo_paths_missing(ctx: RunContext) -> list[str]:
+    """Relative source_paths seated on the current EDL whose files are missing."""
+    from interview_mux.edl_source_contract import EDL_REL, edl_source_path_ghosts
+
+    if not ctx.artifact_exists(EDL_REL):
+        return []
+    try:
+        edl = ctx.read_json(EDL_REL)
+    except Exception:
+        return []
+    return [
+        g
+        for g in edl_source_path_ghosts(ctx, edl if isinstance(edl, dict) else None)
+        if not g.endswith(":empty")
+    ]
+
+
+def _seated_script_hashes(edl: dict[str, Any] | None, *, skip: dict[str, Any] | None = None) -> set[str]:
+    from interview_mux.spoken_copy_guard import script_hash
+
+    out: set[str] = set()
+    skip_id = id(skip) if skip is not None else None
+    for clip in (edl or {}).get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        if skip_id is not None and id(clip) == skip_id:
+            continue
+        if str(clip.get("type") or "") not in {"vo_pickup", "transition"}:
+            continue
+        text = str(clip.get("text") or "").strip()
+        if text:
+            out.add(script_hash(text))
+    return out
+
+
+def last_chance_synth_missing_clip(
+    ctx: RunContext,
+    clip: dict[str, Any],
+    *,
+    edl: dict[str, Any] | None = None,
+    attempted: set[str] | None = None,
+) -> Path | None:
+    """Generate once for a seated clip whose WAV is missing. Never reuse another pair's file."""
+    from interview_mux.config import merged_config
+    from interview_mux.spoken_copy_guard import script_hash
+    from interview_mux.vo_speech_qa import vo_passes_speech_qa
+
+    mix_cfg = merged_config().get("mix") or {}
+    if mix_cfg.get("missing_vo_retry_once", True) is False:
+        return None
+    ctype = str(clip.get("type") or "")
+    if ctype == "transition":
+        after_id = str(clip.get("after_segment_id") or "")
+        before_id = str(clip.get("before_segment_id") or "")
+        key = f"tr:{after_id}->{before_id}"
+        if not after_id or not before_id:
+            return None
+        if attempted is not None:
+            if key in attempted:
+                return None
+            attempted.add(key)
+        existing = current_pair_wav_usable(ctx, after_id, before_id)
+        if existing is None:
+            synthesize_spoken_transitions(ctx, pairs={(after_id, before_id)})
+            path = current_pair_wav_usable(ctx, after_id, before_id)
+        else:
+            path = existing
+        if path is None:
+            return None
+        text = str(clip.get("text") or "").strip()
+        if not vo_passes_speech_qa(path, cfg=None) and text:
+            # Speech QA may be disabled; still require a usable file.
+            if not _transition_wav_usable(path):
+                return None
+        others = _seated_script_hashes(edl, skip=clip)
+        if text and script_hash(text) in others:
+            ctx.log(
+                f"mix: last-chance VO rejected as duplicate seated line ({after_id}->{before_id})",
+                level="warning",
+                stage="mix",
+            )
+            return None
+        return path
+    if ctype == "vo_pickup":
+        line_id = str(clip.get("line_id") or "").strip()
+        text = str(clip.get("text") or "").strip()
+        if not line_id or not text:
+            return None
+        key = f"vo:{line_id}"
+        if attempted is not None:
+            if key in attempted:
+                return None
+            attempted.add(key)
+        dest_dir = ctx.path("vo_pickup", "synthesized")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        line = dict(clip)
+        line["line_id"] = line_id
+        line["text"] = text
+        line["delivery"] = "synthesize"
+        try:
+            from interview_mux.s2s_runner import synthesize_line
+
+            wav = synthesize_line(ctx, line, mode="synthesize", dest_dir=dest_dir)
+        except Exception as exc:
+            ctx.log(
+                f"mix: last-chance vo_pickup synth failed ({line_id}): {exc}",
+                level="warning",
+                stage="mix",
+            )
+            return None
+        if wav is None or not wav.is_file():
+            return None
+        others = _seated_script_hashes(edl, skip=clip)
+        if script_hash(text) in others:
+            return None
+        if not vo_passes_speech_qa(wav):
+            if wav.stat().st_size <= 1000:
+                return None
+        return wav
+    return None
+
+
+def commit_current_transition_wavs(ctx: RunContext) -> list[str]:
+    """Resync current pairs, promote staged WAVs, return still-missing keys.
+
+    Persist runs in ``finally`` so remap/junction log-and-continue cannot hide a
+    raised synth. On exception, measure holes from disk — do not persist ``[]``.
+    """
+    still: list[str] = []
+    try:
+        notes = resync_spoken_transitions(ctx, fail_closed=False)
+        try:
+            from interview_mux.write_staging import promote_staged_side_effects
+
+            promote_staged_side_effects(ctx, ("master/transitions/",))
+        except Exception:
+            pass
+        still = [n[len("missing:") :] for n in notes if str(n).startswith("missing:")]
+        return still
+    finally:
+        persist_vo_pair_gap(
+            ctx,
+            still or current_transition_pairs_missing(ctx),
+            source="commit",
+        )
+
+
+def current_transition_pairs_missing(ctx: RunContext) -> list[str]:
+    """Spoken current pairs in ``master/transitions.json`` with no usable WAV.
+
+    Completeness is the playable file, not synthesis-report audit match.
+    Leftover neighbor names (``…061…`` vs current ``055→058``) do not count.
+    """
+    missing: list[str] = []
+    for after_id, before_id in spoken_transition_pairs(ctx):
+        if current_pair_wav_usable(ctx, after_id, before_id) is None:
+            missing.append(f"{after_id}->{before_id}")
+    return missing
+
+
+def _transition_source_rel(ctx: RunContext, path: Path) -> str:
+    try:
+        rel = path.relative_to(ctx.run_dir).as_posix()
+    except ValueError:
+        return f"master/transitions/{path.name}"
+    prefix = ".pending_writes/"
+    if rel.startswith(prefix):
+        rest = rel[len(prefix) :]
+        if "/" in rest:
+            rel = rest.split("/", 1)[1]
+    return rel
+
+
+def restamp_edl_transition_source_paths(ctx: RunContext) -> bool:
+    """Set EDL transition ``source_path`` from current-pair WAVs; unset if missing."""
+    if not ctx.artifact_exists("master/edl.json"):
+        return False
+    try:
+        edl = ctx.read_json("master/edl.json")
+    except Exception:
+        return False
+    if not isinstance(edl, dict):
+        return False
+    clips: list[Any] = []
+    changed = False
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
+            clips.append(clip)
+            continue
+        after_id = str(clip.get("after_segment_id") or "")
+        before_id = str(clip.get("before_segment_id") or "")
+        wav = (
+            current_pair_wav_usable(ctx, after_id, before_id)
+            if after_id and before_id
+            else None
+        )
+        row = dict(clip)
+        if wav is not None and wav.is_file():
+            rel = _transition_source_rel(ctx, wav)
+            if row.get("source_path") != rel:
+                row["source_path"] = rel
+                changed = True
+            try:
+                import wave
+
+                with wave.open(str(wav), "rb") as handle:
+                    rate = handle.getframerate() or 1
+                    frames = handle.getnframes()
+                    dur = int(1000 * frames / rate)
+                if int(row.get("duration_ms") or 0) != dur and dur > 0:
+                    row["duration_ms"] = dur
+                    changed = True
+            except Exception:
+                pass
+        elif row.get("source_path"):
+            row.pop("source_path", None)
+            row["duration_ms"] = 0
+            changed = True
+        clips.append(row)
+    if not changed:
+        return False
+    out = dict(edl)
+    out["clips"] = clips
+    ctx.write_json("master/edl.json", out, skip_handoff=True)
+    return True

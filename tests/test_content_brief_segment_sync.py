@@ -43,6 +43,39 @@ def test_repair_content_brief_strips_placeholder_topic_segment_ids(
     assert "t_early_life" not in seg_ids
     assert set(seg_ids) == {"seg_001", "seg_002"}
     assert applied
+    # Single remaining topic still needs a relationship row for reanchor completeness.
+    rels = repaired.get("topic_relationships") or []
+    assert rels and rels[0]["relation"] == "returns_to"
+
+
+def test_repair_content_brief_synthesizes_sequential_topic_relationships(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "brief_rels")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            {**minimal_manifest_segment("seg_001"), "topic_tags": ["alpha"]},
+            {**minimal_manifest_segment("seg_002"), "topic_tags": ["bravo"]},
+        ),
+        skip_handoff=True,
+    )
+    brief = {
+        "thesis": "Two-topic interview.",
+        "topics": [
+            {"name": "Alpha", "summary": "First.", "segment_ids": ["seg_001"]},
+            {"name": "Bravo", "summary": "Second.", "segment_ids": ["seg_002"]},
+        ],
+        "topic_relationships": [],
+    }
+    repaired, applied = repair_content_brief(ctx, brief)
+    rels = repaired.get("topic_relationships") or []
+    assert len(rels) == 1
+    assert rels[0]["from_topic"] == "Alpha"
+    assert rels[0]["to_topic"] == "Bravo"
+    assert rels[0]["relation"] == "prerequisite"
+    assert any(a.get("action") == "synthesize_topic_relationships" for a in applied)
 
 
 def test_repair_content_brief_keeps_claims_with_approx_time_range_only(
@@ -66,6 +99,59 @@ def test_repair_content_brief_keeps_claims_with_approx_time_range_only(
     assert len(repaired["key_claims"]) == 1
     assert repaired["key_claims"][0]["approx_time_range"] == "03:20-04:10"
     assert not any(a.get("reason") == "no_evidence" for a in applied)
+
+
+def test_repair_content_brief_chrono_backfill_when_tags_empty(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Untagged manifests must not wipe every topic (sonic_context partial loop)."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "brief_chrono")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            {**minimal_manifest_segment("seg_001"), "topic_tags": []},
+            {**minimal_manifest_segment("seg_002"), "topic_tags": []},
+            {**minimal_manifest_segment("seg_003"), "topic_tags": []},
+            {**minimal_manifest_segment("seg_004"), "topic_tags": []},
+        ),
+        skip_handoff=True,
+    )
+    brief = {
+        "thesis": "Cancer diagnostics beyond DNA.",
+        "topics": [
+            {"name": "Liquid biopsy", "summary": "cfDNA vs tissue.", "segment_ids": []},
+            {"name": "Cell biopsy", "summary": "CTC platform.", "segment_ids": ["t_orphan"]},
+        ],
+    }
+    repaired, applied = repair_content_brief(ctx, brief)
+    assert len(repaired["topics"]) == 2
+    assert all(t.get("segment_ids") for t in repaired["topics"])
+    assert any(a.get("action") == "map_topic_segments_chrono" for a in applied)
+
+
+def test_repair_content_brief_synthesizes_covering_topic_when_empty(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "brief_cover")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            {**minimal_manifest_segment("seg_001"), "topic_tags": []},
+            {**minimal_manifest_segment("seg_002"), "topic_tags": []},
+        ),
+        skip_handoff=True,
+    )
+    brief = {
+        "thesis": "Reading cancer beyond DNA.",
+        "topics": [],
+        "key_claims": [],
+    }
+    repaired, applied = repair_content_brief(ctx, brief)
+    assert len(repaired["topics"]) == 1
+    assert repaired["topics"][0]["segment_ids"]
+    assert any(a.get("action") == "synthesize_covering_topic" for a in applied)
 
 
 def test_sync_content_brief_uses_staged_manifest_during_write_approval(

@@ -189,6 +189,7 @@
       "hard_fail_empty_speech": true,
       "soft_fail_sfx_placeholder": false
     },
+    "missing_vo_retry_once": true,
     "intelligibility_qc": {
       "enabled": true,
       "silent_speech_mix_ceiling_dbfs": -32,
@@ -1070,7 +1071,7 @@
     },
     "delivery_brief": {
       "enabled": true,
-      "ideal_fraction_of_source": 0.45,
+      "ideal_fraction_of_source": 0.65,
       "min_ratio_of_source": 0.1,
       "max_ratio_of_source": 1.5,
       "min_duration_sec": 600,
@@ -1083,7 +1084,7 @@
       "reanchor_min_coverage_ratio": 0.55,
       "reanchor_min_coverage_ratio_max": 0.85,
       "delivery_output_min_ratio_of_source": 0.1,
-      "delivery_output_ideal_ratio_of_source": 0.45,
+      "delivery_output_ideal_ratio_of_source": 0.65,
       "delivery_output_max_ratio_of_source": 1.5,
       "volley_spread_quartile_min_ratio": 0.25,
       "volley_hydrate_max_ratio_of_budget": 0.2,
@@ -1237,7 +1238,7 @@
       "compose_batch_max_natives": 32,
       "require_analysis_fields": true,
       "ban_canned_air": true,
-      "unique_nuggets_across_layups": true,
+      "unique_nuggets_across_layups": false,
       "max_cross_layup_overlap": 0.6,
       "max_target_restate_overlap": 0.75,
       "suppress_placeholder_seams_when_layup": true,
@@ -1505,6 +1506,12 @@
       "bed_coverage_aim_lo": 0.55,
       "bed_coverage_aim_hi": 0.88,
       "_comment": "Shape realization on mastering_plan — docs/cross-cutting/air-script.md. Fail-open only if plan absent."
+    },
+    "media_ip_cta": {
+      "prune_max_depth": 2,
+      "prune_max_children": 12,
+      "min_child_ms": 1500,
+      "prune_max_seed_passes": 3
     },
     "timeline_optimizer": {
       "enabled": true,

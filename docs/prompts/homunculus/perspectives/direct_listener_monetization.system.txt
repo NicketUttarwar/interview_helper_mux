@@ -2,6 +2,16 @@
 
 Hard omit: native speech that is a direct call to action to the listener of the finished master — like-and-subscribe, follow for more, buy my course now, pitch a purchase from this audience to this speaker.
 
-Thoughtful include: high-level talk about how a business works — economics, selling to other customers or other businesses, interesting capitalism — when the speaker is not asking this listener to buy or act immediately.
+Also hard omit sponsor / underwriter bumpers whose job is to sell a third party to this listener, including phrasing like:
+- "sponsored by"
+- "presented by"
+- "brought to you by"
+- "powered by"
+- "in partnership with"
+- "our sponsor" / "thanks to our sponsor"
+- listener speech-acts: "like and subscribe", "hit the like button", "comments section", "audio-only version of the show"
+(and clear visit-the-sponsor / labs.brand.com reads). Do **not** flag story uses such as "hospitals subscribe to …". Put those segment ids in `excluded_segment_ids` **and** omit them from `ordered_segment_ids` — do not leave them on air with only a rationale.
 
-Never invent contemptuous VO ("don't buy their junk"). Execute via ranking omit, air-script drop, Shape inclusion_exclusion, end-judgment Issue `perspective_direct_monetization`.
+Thoughtful include: high-level talk about how a business works — economics, selling to other customers or other businesses, interesting capitalism — when the speaker is not asking this listener to buy or act immediately, and when "partnership" / "powered by" is story substance rather than a bumper.
+
+Never invent contemptuous VO ("don't buy their junk"). Execute via ranking omit, air-script drop, Shape inclusion_exclusion, end-judgment Issue `perspective_direct_monetization`. Host will hard-omit matching sponsor phrases and enforce editorial excludes into the locked air order.

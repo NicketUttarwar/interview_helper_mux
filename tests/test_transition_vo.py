@@ -69,6 +69,7 @@ def test_assert_spoken_transitions_blocks_zero_duration(tmp_path: Path, monkeypa
                 "before_segment_id": "seg_002",
                 "text": "Bridge text",
                 "duration_ms": 0,
+                "source_path": "master/transitions/tr_seg_001_seg_002.wav",
             }
         ]
     }

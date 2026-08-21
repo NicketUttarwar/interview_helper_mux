@@ -1,9 +1,12 @@
-"""Host execution of 0.1.0 flagship media-IP CTA judgments.
+"""Host execution of 0.1.0 flagship media-IP CTA judgments + editorial omits.
 
 Flagship ranking decides which natives are clear this-listener media pitches.
 This module drops those ids, optionally recuts mixed story+pitch clips, and
 exposes never-touch / coverage-exempt / clone-cover flags to layup. 0.0.0 is
-a no-op. No keyword engine.
+a no-op.
+
+Sponsor-bumper phrases are host hard-omit; media-IP CTA speech-acts stay
+LLM-first. Editorial exclude rationales must leave the locked air order.
 """
 
 from __future__ import annotations
@@ -105,6 +108,719 @@ def air_overlaps_never_touch(ctx: RunContext, text: str, *, min_overlap: float =
     return False
 
 
+def _prune_cfg() -> dict[str, int]:
+    try:
+        from interview_mux.config import merged_config
+
+        row = (merged_config().get("mastering") or {}).get("media_ip_cta") or {}
+    except Exception:
+        row = {}
+    if not isinstance(row, dict):
+        row = {}
+    return {
+        "prune_max_depth": int(row.get("prune_max_depth") or 2),
+        "prune_max_children": int(row.get("prune_max_children") or 12),
+        "min_child_ms": int(row.get("min_child_ms") or MIN_CHILD_MS),
+        "prune_max_seed_passes": int(row.get("prune_max_seed_passes") or 3),
+    }
+
+
+def _g0_words(ctx: RunContext) -> list[dict[str, Any]]:
+    for rel in ("transcript/full.json", "ingest/transcript.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            tr = ctx.read_json(rel)
+        except Exception:
+            continue
+        words = tr.get("words") if isinstance(tr, dict) else None
+        if isinstance(words, list):
+            return [w for w in words if isinstance(w, dict)]
+    return []
+
+
+def _word_token(w: dict[str, Any]) -> str:
+    return str(w.get("text") or w.get("word") or "").strip()
+
+
+def _span_text(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str:
+    parts: list[str] = []
+    for w in words:
+        try:
+            ws = int(w.get("start_ms") or 0)
+            we = int(w.get("end_ms") or ws)
+        except (TypeError, ValueError):
+            continue
+        if we <= start_ms or ws >= end_ms:
+            continue
+        tok = _word_token(w)
+        if tok:
+            parts.append(tok)
+    return " ".join(parts).strip()
+
+
+def _partition_complete_thoughts(
+    words: list[dict[str, Any]],
+    start_ms: int,
+    end_ms: int,
+    *,
+    min_child_ms: int,
+    extra_cuts: list[int] | None = None,
+    max_children: int = 12,
+) -> list[tuple[int, int]]:
+    """Left-to-right complete-thought spans; ranking cut_ms are extra hinges."""
+    window = []
+    for w in words:
+        try:
+            ws = int(w.get("start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if start_ms <= ws < end_ms and _word_token(w):
+            window.append(w)
+    window.sort(key=lambda w: int(w.get("start_ms") or 0))
+    hinges: list[int] = []
+    if window:
+        from interview_mux.audio_timeline import snap_cut_to_word_boundary
+        from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+        span_start = max(start_ms, int(window[0].get("start_ms") or start_ms))
+        acc: list[dict[str, Any]] = []
+        for i, w in enumerate(window):
+            acc.append(w)
+            text = " ".join(_word_token(x) for x in acc)
+            try:
+                w_end = int(w.get("end_ms") or w.get("start_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            nxt = window[i + 1] if i + 1 < len(window) else None
+            pause = None
+            if nxt is not None:
+                try:
+                    pause = int(nxt.get("start_ms") or 0) - w_end
+                except (TypeError, ValueError):
+                    pause = None
+            if not is_legal_conceptual_hinge(
+                text, words=words, end_ms=w_end, next_pause_ms=pause
+            ):
+                continue
+            if w_end - span_start < min_child_ms:
+                continue
+            snapped = snap_cut_to_word_boundary(w_end, words)
+            snapped = min(max(snapped, span_start + min_child_ms), end_ms - min_child_ms)
+            if start_ms + min_child_ms <= snapped <= end_ms - min_child_ms:
+                hinges.append(snapped)
+                span_start = snapped
+                acc = []
+            if len(hinges) >= max_children - 1:
+                break
+    for cut in extra_cuts or []:
+        try:
+            c = int(cut)
+        except (TypeError, ValueError):
+            continue
+        if start_ms + min_child_ms <= c <= end_ms - min_child_ms:
+            hinges.append(c)
+    cuts = sorted(set(hinges))
+    bounds = [start_ms, *cuts, end_ms]
+    spans: list[tuple[int, int]] = []
+    for a, b in zip(bounds, bounds[1:]):
+        if b <= a:
+            continue
+        if b - a < min_child_ms and spans:
+            la, _lb = spans[-1]
+            spans[-1] = (la, b)
+            continue
+        spans.append((a, b))
+    if not spans:
+        return [(start_ms, end_ms)]
+    if len(spans) > max_children:
+        head = spans[: max_children - 1]
+        rest_end = spans[-1][1]
+        head.append((head[-1][1], rest_end) if head else (start_ms, rest_end))
+        return head
+    return spans
+
+
+def _speech_act_cut_ms(
+    words: list[dict[str, Any]], start_ms: int, end_ms: int
+) -> int | None:
+    """Hinge at the first listener-CTA phrase in the window (depth-2 recovery)."""
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    parts: list[tuple[int, str]] = []
+    for w in words:
+        try:
+            ws = int(w.get("start_ms") or 0)
+            we = int(w.get("end_ms") or ws)
+        except (TypeError, ValueError):
+            continue
+        if we <= start_ms or ws >= end_ms:
+            continue
+        tok = _word_token(w)
+        if tok:
+            parts.append((ws, tok))
+    for i, (ws, _tok) in enumerate(parts):
+        for j in range(i, len(parts)):
+            text = " ".join(t for _s, t in parts[i : j + 1])
+            if not should_hard_omit_cta(text):
+                continue
+            if start_ms + MIN_CHILD_MS <= ws <= end_ms - MIN_CHILD_MS:
+                return ws
+            return None
+    return None
+
+
+def _classify_span(
+    text: str,
+    *,
+    start_ms: int,
+    end_ms: int,
+    parent_start: int,
+    parent_end: int,
+    mixed: bool,
+    region: str,
+    ranking_cuts: list[int],
+    ranking_whole: bool,
+) -> str:
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    if should_hard_omit_cta(text):
+        return "dirty"
+    if ranking_whole and not mixed:
+        return "dirty"
+    if mixed:
+        if region == "end":
+            cut = ranking_cuts[-1] if ranking_cuts else parent_start + (parent_end - parent_start) // 3 * 2
+            return "dirty" if start_ms >= cut - 1 else "clean"
+        if region == "start":
+            cut = ranking_cuts[0] if ranking_cuts else parent_start + (parent_end - parent_start) // 3
+            return "dirty" if end_ms <= cut + 1 else "clean"
+        if region == "middle":
+            if len(ranking_cuts) >= 2:
+                lo, hi = ranking_cuts[0], ranking_cuts[-1]
+            else:
+                lo = parent_start + (parent_end - parent_start) // 3
+                hi = parent_end - (parent_end - parent_start) // 3
+            return "dirty" if start_ms >= lo - 1 and end_ms <= hi + 1 else "clean"
+    return "clean"
+
+
+def _already_pruned_parent(ctx: RunContext, sid: str) -> bool:
+    if sid in never_touch_segment_ids(ctx):
+        return True
+    try:
+        from interview_mux.nle_state import load_nle
+
+        ov = ((load_nle(ctx).get("segment_overrides") or {}).get(sid) or {})
+        if ov.get("split_into"):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _collect_cta_seeds(
+    ctx: RunContext,
+    artifacts: dict[str, Any],
+    *,
+    judgments: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Union of ranking hits, host speech-acts, and editorial/sponsor issues."""
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    out = dict(artifacts) if isinstance(artifacts, dict) else {}
+    hits = judgments if judgments is not None else extract_judgments(out)
+    seeds: list[str] = []
+    for row in hits:
+        sid = str(row.get("segment_id") or "").strip()
+        if sid:
+            seeds.append(sid)
+    seeds.extend(_cta_like_excluded_ids(out))
+    rationales = out.get("exclude_rationales") if isinstance(out.get("exclude_rationales"), dict) else {}
+    for sid, reason in (rationales or {}).items():
+        key = str(sid or "").strip()
+        if key and is_editorial_exclude_reason(str(reason or "")):
+            seeds.append(key)
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    must_keep: list[str] = []
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        must_keep = [str(s) for s in (hard_keep_segment_ids(ctx) or []) if s]
+    except Exception:
+        must_keep = []
+    by_id = _segments_by_id(ctx)
+    for sid in list(dict.fromkeys([*ordered, *must_keep, *seeds])):
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        if should_hard_omit_cta(text):
+            seeds.append(sid)
+    try:
+        from interview_mux.homunculus.issues import read_issues
+
+        for issue in read_issues(ctx):
+            if not isinstance(issue, dict):
+                continue
+            kind = str(issue.get("kind") or "")
+            if kind not in {
+                "perspective_direct_monetization",
+                "direct_listener_sponsor_promotion",
+                "sponsor_bumper",
+            } and "sponsor" not in kind and "monetization" not in kind:
+                continue
+            for sid in issue.get("implicated") or []:
+                key = str(sid or "").strip()
+                if key:
+                    seeds.append(key)
+    except Exception:
+        pass
+    # Source-time order so later splits do not invalidate earlier windows.
+    def _start(sid: str) -> int:
+        try:
+            return int((by_id.get(sid) or {}).get("start_ms") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(dict.fromkeys(s for s in seeds if s), key=_start)
+
+
+def _split_parent(ctx: RunContext, segment_id: str, cuts: list[int]) -> list[str]:
+    from interview_mux.nle_state import load_nle, split_segment_at_cuts
+    from interview_mux.split_plan import clear_split_rerank_cascade
+
+    split_segment_at_cuts(ctx, segment_id, cuts)
+    try:
+        clear_split_rerank_cascade(ctx)
+    except Exception:
+        pass
+    nle = load_nle(ctx)
+    children = [
+        str(x)
+        for x in ((nle.get("segment_overrides") or {}).get(segment_id) or {}).get("split_into") or []
+        if x
+    ]
+    return children
+
+
+def _prune_parent(
+    ctx: RunContext,
+    segment_id: str,
+    *,
+    judgment: dict[str, Any] | None = None,
+    depth: int = 0,
+    visited: set[str] | None = None,
+) -> dict[str, Any]:
+    """Partition one seed into complete thoughts; never-touch dirty; admit clean."""
+    cfg = _prune_cfg()
+    visited = visited if visited is not None else set()
+    bounds = _parent_bounds(ctx, segment_id)
+    if not bounds:
+        return {"parent_id": segment_id, "ok": False, "reason": "missing_parent", "depth": depth}
+    start, end = bounds
+    min_child = cfg["min_child_ms"]
+    if end - start < min_child * 2:
+        return {"parent_id": segment_id, "ok": False, "reason": "too_short", "depth": depth}
+    key = f"{segment_id}:{start}:{end}"
+    if key in visited:
+        return {"parent_id": segment_id, "ok": False, "reason": "visited", "depth": depth}
+    visited.add(key)
+
+    row = judgment if isinstance(judgment, dict) else {}
+    mixed = _truthy(row.get("mixed_with_story")) or _truthy(row.get("must_keep_in_clip"))
+    region = str(row.get("cta_region") or ("end" if mixed else "whole")).strip().lower()
+    ranking_whole = (not mixed) and region == "whole"
+    ranking_cuts = [int(c) for c in (row.get("cut_ms") or []) if str(c).strip() != ""]
+    ranking_cuts = [c for c in ranking_cuts if start + min_child <= c <= end - min_child]
+    words = _g0_words(ctx)
+    extra = list(ranking_cuts)
+    if depth > 0:
+        act_cut = _speech_act_cut_ms(words, start, end)
+        if act_cut is not None:
+            extra.append(act_cut)
+    spans = _partition_complete_thoughts(
+        words,
+        start,
+        end,
+        min_child_ms=min_child,
+        extra_cuts=extra,
+        max_children=cfg["prune_max_children"],
+    )
+    by_id = _segments_by_id(ctx)
+    parent_text = str((by_id.get(segment_id) or {}).get("text") or "")
+    classified: list[dict[str, Any]] = []
+    for a, b in spans:
+        text = _span_text(words, a, b)
+        if not text and len(spans) == 1:
+            text = parent_text
+        kind = _classify_span(
+            text,
+            start_ms=a,
+            end_ms=b,
+            parent_start=start,
+            parent_end=end,
+            mixed=mixed,
+            region=region,
+            ranking_cuts=ranking_cuts,
+            ranking_whole=ranking_whole and len(spans) == 1,
+        )
+        classified.append({"start_ms": a, "end_ms": b, "class": kind, "text": text})
+
+    dirty_n = sum(1 for s in classified if s["class"] == "dirty")
+    clean_n = sum(1 for s in classified if s["class"] == "clean")
+    tree = {
+        "parent_id": segment_id,
+        "depth": depth,
+        "spans": [
+            {"start_ms": s["start_ms"], "end_ms": s["end_ms"], "class": s["class"]}
+            for s in classified
+        ],
+    }
+    if dirty_n == 0:
+        return {
+            "parent_id": segment_id,
+            "ok": True,
+            "reason": "clean_only",
+            "children": [],
+            "cta_children": [],
+            "story_children": [],
+            "tree": tree,
+        }
+    if clean_n == 0:
+        return {
+            "parent_id": segment_id,
+            "ok": False,
+            "reason": "all_dirty",
+            "children": [],
+            "cta_children": [],
+            "story_children": [],
+            "tree": tree,
+        }
+
+    cuts = [s["start_ms"] for s in classified[1:]]
+    cuts = [c for c in cuts if start < c < end]
+    if not cuts:
+        if depth + 1 < cfg["prune_max_depth"]:
+            return _prune_parent(
+                ctx,
+                segment_id,
+                judgment={**row, "mixed_with_story": True, "cta_region": region or "end"},
+                depth=depth + 1,
+                visited=visited,
+            )
+        return {
+            "parent_id": segment_id,
+            "ok": False,
+            "reason": "still_mixed",
+            "children": [],
+            "cta_children": [],
+            "story_children": [],
+            "tree": tree,
+        }
+    try:
+        children = _split_parent(ctx, segment_id, cuts)
+    except Exception as exc:
+        return {
+            "parent_id": segment_id,
+            "ok": False,
+            "reason": "error",
+            "detail": str(exc)[:240],
+            "tree": tree,
+        }
+    if not children:
+        return {
+            "parent_id": segment_id,
+            "ok": False,
+            "reason": "no_cta_child",
+            "tree": tree,
+        }
+    # Align children to spans by index; leftover hanging dirty → drop.
+    n = min(len(children), len(classified))
+    cta_kids: list[str] = []
+    story_kids: list[str] = []
+    nested: list[dict[str, Any]] = []
+    for i in range(n):
+        kid = children[i]
+        kind = classified[i]["class"]
+        if kind == "dirty":
+            cta_kids.append(kid)
+            continue
+        if depth + 1 < cfg["prune_max_depth"]:
+            child_row = _segments_by_id(ctx).get(kid) or {}
+            child_text = str(child_row.get("text") or classified[i].get("text") or "")
+            from interview_mux.homunculus.values import should_hard_omit_cta
+
+            still = should_hard_omit_cta(child_text) and len(child_text.split()) > 12
+            if still:
+                nested_recut = _prune_parent(
+                    ctx,
+                    kid,
+                    judgment={**row, "mixed_with_story": True},
+                    depth=depth + 1,
+                    visited=visited,
+                )
+                nested.append(nested_recut)
+                if nested_recut.get("ok") and nested_recut.get("story_children"):
+                    story_kids.extend(str(x) for x in nested_recut.get("story_children") or [] if x)
+                    cta_kids.extend(str(x) for x in nested_recut.get("cta_children") or [] if x)
+                    continue
+                if not nested_recut.get("ok"):
+                    cta_kids.append(kid)
+                    continue
+        story_kids.append(kid)
+    tree["children"] = nested
+    if not cta_kids and not story_kids:
+        return {
+            "parent_id": segment_id,
+            "ok": False,
+            "reason": "no_cta_child",
+            "children": children,
+            "tree": tree,
+        }
+    return {
+        "parent_id": segment_id,
+        "ok": True,
+        "children": children,
+        "cta_children": list(dict.fromkeys(cta_kids)),
+        "story_children": list(dict.fromkeys(story_kids)),
+        "tree": tree,
+        "cut_ms": cuts,
+        "depth": depth,
+    }
+
+
+def run_cta_prune(
+    ctx: RunContext,
+    artifacts: dict[str, Any] | None,
+    *,
+    judgments: list[dict[str, Any]] | None = None,
+    notes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Scan 0–N seeds, prune each, rescan. Writes mastering/media_ip_cta.json."""
+    out = dict(artifacts) if isinstance(artifacts, dict) else {}
+    cfg = _prune_cfg()
+    notes = list(notes or [])
+    hits = judgments if judgments is not None else extract_judgments(out)
+    by_judgment = {
+        str(r.get("segment_id") or ""): r
+        for r in hits
+        if isinstance(r, dict) and r.get("segment_id")
+    }
+    dropped: list[str] = []
+    recuts: list[dict[str, Any]] = []
+    trees: list[dict[str, Any]] = []
+    id_map: dict[str, list[str]] = {}
+    recut_texts: list[str] = []
+    processed: set[str] = set()
+    seed_ids: list[str] = []
+    cta_open_parent: str | None = None
+    open_choice = ""
+
+    for _pass in range(max(1, cfg["prune_max_seed_passes"])):
+        seeds = _collect_cta_seeds(ctx, out, judgments=hits)
+        new_seeds = [
+            s for s in seeds if s not in processed and not _already_pruned_parent(ctx, s)
+        ]
+        if not new_seeds:
+            break
+        if not seed_ids:
+            seed_ids = list(seeds)
+        else:
+            seed_ids = list(dict.fromkeys([*seed_ids, *new_seeds]))
+        for sid in new_seeds:
+            processed.add(sid)
+            row = by_judgment.get(sid) or {}
+            if _truthy(row.get("cta_open")) and cta_open_parent is None:
+                cta_open_parent = sid
+                open_choice = str(row.get("open_choice") or "").strip()
+            recut = _prune_parent(ctx, sid, judgment=row, depth=0)
+            trees.append(recut.get("tree") or {"parent_id": sid, "ok": recut.get("ok")})
+            if recut.get("reason") == "clean_only":
+                notes.append(f"seed_clean_only:{sid}")
+                recuts.append(recut)
+                continue
+            if not recut.get("ok"):
+                notes.append(f"recut_unclean:{sid}" if recut.get("reason") != "error" else f"recut_failed:{sid}:{recut.get('reason')}")
+                dropped.append(sid)
+                recuts.append(
+                    {
+                        "parent_id": sid,
+                        "ok": False,
+                        "reason": recut.get("reason") or "unclean",
+                        "detail": recut.get("detail"),
+                    }
+                )
+                continue
+            children = [str(c) for c in (recut.get("children") or []) if c]
+            cta_kids = [str(c) for c in (recut.get("cta_children") or []) if c]
+            story_kids = [str(c) for c in (recut.get("story_children") or []) if c]
+            if not cta_kids and children:
+                notes.append(f"recut_unclean:{sid}")
+                dropped.append(sid)
+                recuts.append({"parent_id": sid, "ok": False, "reason": "no_cta_child"})
+                continue
+            if children:
+                id_map[sid] = children
+            dropped.extend(cta_kids)
+            dropped.append(sid)
+            recut_texts.extend(_texts_for(ctx, cta_kids))
+            _exclude_nle_ids(ctx, cta_kids)
+            recuts.append(
+                {
+                    "parent_id": sid,
+                    "ok": True,
+                    "children": children,
+                    "cta_children": cta_kids,
+                    "story_children": story_kids,
+                    "cut_ms": recut.get("cut_ms"),
+                    "depth": recut.get("depth") or 0,
+                }
+            )
+
+    dropped = list(dict.fromkeys(dropped))
+    recut_parents = _recut_parent_ids(recuts)
+    story_ids = _story_ids_from_recuts(recuts)
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    if id_map:
+        ordered = _rewrite_order(ordered, id_map)
+
+    drop_set = set(dropped)
+    story_first = ""
+    if cta_open_parent:
+        recut = next((r for r in recuts if r.get("parent_id") == cta_open_parent and r.get("ok")), None)
+        story_kids = list((recut or {}).get("story_children") or [])
+        if open_choice == "story_child_first" and story_kids:
+            story_first = story_kids[0]
+        elif not open_choice and story_kids:
+            story_first = story_kids[0]
+            open_choice = "story_child_first"
+        elif not open_choice:
+            open_choice = "third_person_opener"
+        notes.append(f"cta_open:{cta_open_parent}:{open_choice or 'third_person_opener'}")
+
+    cover_targets = _cover_targets(ordered, dropped, id_map)
+    ordered = [s for s in ordered if s not in drop_set]
+    ordered = _admit_story_ids(ctx, ordered, story_ids, drop_set)
+    if story_first and story_first in ordered:
+        ordered = [story_first] + [s for s in ordered if s != story_first]
+    elif story_first and story_first not in drop_set:
+        ordered = [story_first] + ordered
+
+    leftover_ranking_cta = [
+        sid for sid in _cta_like_excluded_ids(out) if sid not in drop_set and sid not in set(story_ids)
+    ]
+    dropped = list(dict.fromkeys([*dropped, *leftover_ranking_cta]))
+    drop_set = set(dropped)
+    ordered = [s for s in ordered if s not in drop_set]
+    never_touch = list(dict.fromkeys([*dropped, *recut_parents]))
+
+    excl = _without_excluded_ids(list(out.get("excluded_segment_ids") or []), set(story_ids))
+    excl = _stamp_excludes(excl, dropped + recut_parents)
+
+    if not ordered:
+        notes.append("drop_emptied_selection")
+        fallback = [str(s) for s in (out.get("ordered_segment_ids") or []) if s and s not in drop_set]
+        ordered = fallback or [str(s) for s in (out.get("ordered_segment_ids") or []) if s][:1]
+        ordered = _admit_story_ids(ctx, ordered, story_ids, drop_set)
+
+    out["ordered_segment_ids"] = ordered
+    out["excluded_segment_ids"] = excl
+    out["media_ip_cta"] = hits
+    _rewrite_chapter_ids(out, id_map, drop_set, story_ids)
+    _sync_cold_open(out, drop_set, id_map, ordered)
+
+    texts = list(dict.fromkeys([*recut_texts, *_texts_for(ctx, never_touch)]))
+    if not seed_ids and not dropped:
+        notes = list(dict.fromkeys([*notes, "no_clear_media_ip_cta"]))
+    state = {
+        "version": 1,
+        "locked": bool(dropped or recuts),
+        "judgments": hits,
+        "dropped_segment_ids": dropped,
+        "never_touch_segment_ids": never_touch,
+        "never_touch_texts": texts,
+        "cover_target_ids": cover_targets,
+        "recuts": recuts,
+        "cta_open_parent": cta_open_parent,
+        "open_choice": open_choice or None,
+        "notes": notes[-48:],
+        "prune_tree": trees,
+        "seed_ids": seed_ids,
+        "seed_count": len(seed_ids),
+    }
+    prev = load_state(ctx)
+    if isinstance(prev, dict) and prev.get("locked"):
+        state["locked"] = True
+        state["dropped_segment_ids"] = list(
+            dict.fromkeys([*(prev.get("dropped_segment_ids") or []), *dropped])
+        )
+        state["never_touch_segment_ids"] = list(
+            dict.fromkeys([*(prev.get("never_touch_segment_ids") or []), *never_touch])
+        )
+        state["never_touch_texts"] = list(
+            dict.fromkeys([*(prev.get("never_touch_texts") or []), *texts])
+        )
+        if prev.get("cover_target_ids") and not cover_targets:
+            state["cover_target_ids"] = list(prev.get("cover_target_ids") or [])
+        if prev.get("cta_open_parent") and not cta_open_parent:
+            state["cta_open_parent"] = prev.get("cta_open_parent")
+            state["open_choice"] = prev.get("open_choice")
+        if prev.get("judgments") and not hits:
+            state["judgments"] = list(prev.get("judgments") or [])
+        merged_recuts = list(prev.get("recuts") or [])
+        have_p = {str(r.get("parent_id") or "") for r in merged_recuts if isinstance(r, dict)}
+        for recut in recuts:
+            pid = str((recut or {}).get("parent_id") or "")
+            if pid and pid not in have_p:
+                merged_recuts.append(recut)
+                have_p.add(pid)
+        state["recuts"] = merged_recuts
+        state["prune_tree"] = list(prev.get("prune_tree") or []) + trees
+        state["seed_ids"] = list(dict.fromkeys([*(prev.get("seed_ids") or []), *seed_ids]))
+        state["seed_count"] = len(state["seed_ids"])
+        state["notes"] = list(dict.fromkeys([*(prev.get("notes") or []), *notes]))[-48:]
+    _write_state(ctx, state)
+    return out
+
+
+def heal_on_air_cta_residue(
+    ctx: RunContext, artifacts: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Blocking late gate: prune every remaining ordered clip that still has a listener CTA."""
+    out = dict(artifacts) if isinstance(artifacts, dict) else {}
+    if not out and ctx.artifact_exists("master/selection.json"):
+        loaded = ctx.read_json("master/selection.json")
+        out = dict(loaded) if isinstance(loaded, dict) else {}
+    if not enabled(ctx):
+        return out
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    by_id = _segments_by_id(ctx)
+    residue = [
+        sid
+        for sid in ordered
+        if should_hard_omit_cta(str((by_id.get(sid) or {}).get("text") or ""))
+    ]
+    if not residue:
+        return out
+    before = list(ordered)
+    out = run_cta_prune(ctx, out, notes=["layup_residue_scan"])
+    after = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    if before != after and artifacts is None and ctx.artifact_exists("master/selection.json"):
+        try:
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            write_validated_artifact(
+                ctx,
+                "master/selection.json",
+                out,
+                merge_from_disk=False,
+                stage_key="nugget_layup_compose",
+            )
+        except Exception:
+            ctx.write_json("master/selection.json", out)
+    return out
+
+
 def _reapply_locked(
     ctx: RunContext, artifacts: dict[str, Any], prev: dict[str, Any]
 ) -> dict[str, Any]:
@@ -128,7 +844,9 @@ def _reapply_locked(
     excl = _without_excluded_ids(list(artifacts.get("excluded_segment_ids") or []), set(story_ids))
     artifacts["ordered_segment_ids"] = ordered
     artifacts["excluded_segment_ids"] = _stamp_excludes(excl, dropped + recut_parents)
-    artifacts["media_ip_cta"] = list(prev.get("judgments") or [])
+    artifacts["media_ip_cta"] = extract_judgments(
+        {"media_ip_cta": list(prev.get("judgments") or [])}
+    )
     _rewrite_chapter_ids(artifacts, id_map, drop_set, story_ids)
     _sync_cold_open(artifacts, drop_set, id_map, ordered)
     return artifacts
@@ -152,7 +870,17 @@ def extract_judgments(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
             continue
         if not _truthy(row.get("clearly_media_ip_pitch")):
             continue
-        out.append(dict(row))
+        item = dict(row)
+        cuts = item.get("cut_ms")
+        if cuts is None:
+            item.pop("cut_ms", None)
+        elif isinstance(cuts, (int, float)):
+            item["cut_ms"] = [int(cuts)]
+        elif isinstance(cuts, list):
+            item["cut_ms"] = [int(x) for x in cuts if isinstance(x, (int, float))]
+        else:
+            item.pop("cut_ms", None)
+        out.append(item)
     return out
 
 
@@ -165,162 +893,139 @@ def apply_cta_judgments(ctx: RunContext, artifacts: dict[str, Any] | None) -> di
     if prev.get("locked") and prev.get("dropped_segment_ids"):
         return _reapply_locked(ctx, out, prev)
     judgments = extract_judgments(out)
-    ranking_cta_excludes = _cta_like_excluded_ids(out)
-    if (
-        not judgments
-        and not ranking_cta_excludes
-        and not (prev.get("locked") and prev.get("dropped_segment_ids"))
-    ):
-        _write_state(
-            ctx,
-            {
-                "version": 1,
-                "locked": False,
-                "judgments": [],
-                "dropped_segment_ids": [],
-                "never_touch_segment_ids": [],
-                "never_touch_texts": [],
-                "cover_target_ids": [],
-                "recuts": [],
-                "notes": ["no_clear_media_ip_cta"],
-            },
-        )
-        return out
-
-    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-    dropped: list[str] = []
-    recuts: list[dict[str, Any]] = []
-    notes: list[str] = []
-    id_map: dict[str, list[str]] = {}
-    cta_open_parent: str | None = None
-    open_choice = ""
-    recut_texts: list[str] = []
-
-    for row in judgments:
-        sid = str(row.get("segment_id") or "").strip()
-        if not sid:
-            continue
-        mixed = _truthy(row.get("mixed_with_story")) or _truthy(row.get("must_keep_in_clip"))
-        region = str(row.get("cta_region") or ("end" if mixed else "whole")).strip().lower()
-        if _truthy(row.get("cta_open")) and cta_open_parent is None:
-            cta_open_parent = sid
-            open_choice = str(row.get("open_choice") or "").strip()
-        if mixed and region != "whole":
-            try:
-                children, recut_note = _recut_parent(ctx, sid, row, region)
-            except Exception as exc:
-                notes.append(f"recut_failed:{sid}:{type(exc).__name__}")
-                dropped.append(sid)
-                recuts.append(
-                    {
-                        "parent_id": sid,
-                        "ok": False,
-                        "reason": "error",
-                        "detail": str(exc)[:240],
-                    }
-                )
-                continue
-            if not children:
-                notes.append(f"recut_unclean:{sid}")
-                dropped.append(sid)
-                recuts.append({"parent_id": sid, "ok": False, "reason": recut_note})
-                continue
-            cta_kids = _cta_children(children, region)
-            story_kids = [c for c in children if c not in set(cta_kids)]
-            if not cta_kids:
-                dropped.append(sid)
-                recuts.append({"parent_id": sid, "ok": False, "reason": "no_cta_child"})
-                continue
-            id_map[sid] = children
-            dropped.extend(cta_kids)
-            recut_texts.extend(_texts_for(ctx, cta_kids))
-            _exclude_nle_ids(ctx, cta_kids)
-            recuts.append(
-                {
-                    "parent_id": sid,
-                    "ok": True,
-                    "children": children,
-                    "cta_children": cta_kids,
-                    "story_children": story_kids,
-                }
-            )
-        else:
-            dropped.append(sid)
-
-    dropped = list(dict.fromkeys(dropped))
-    recut_parents = _recut_parent_ids(recuts)
-    story_ids = _story_ids_from_recuts(recuts)
-    if id_map:
-        ordered = _rewrite_order(ordered, id_map)
-
-    drop_set = set(dropped)
-    story_first = ""
-    if cta_open_parent:
-        recut = next((r for r in recuts if r.get("parent_id") == cta_open_parent and r.get("ok")), None)
-        story_kids = list((recut or {}).get("story_children") or [])
-        if open_choice == "story_child_first" and story_kids:
-            story_first = story_kids[0]
-        elif not open_choice and story_kids:
-            # Flagship omitted the pick — prefer leftover story when it exists.
-            story_first = story_kids[0]
-            open_choice = "story_child_first"
-        elif not open_choice:
-            open_choice = "third_person_opener"
-        notes.append(f"cta_open:{cta_open_parent}:{open_choice or 'third_person_opener'}")
-
-    cover_targets = _cover_targets(ordered, dropped, id_map)
-    ordered = [s for s in ordered if s not in drop_set]
-    # Sanitized remainder is back on the master — mine must not treat it as dropped tape.
-    ordered = _admit_story_ids(ctx, ordered, story_ids, drop_set)
-    if story_first and story_first in ordered:
-        ordered = [story_first] + [s for s in ordered if s != story_first]
-    elif story_first and story_first not in drop_set:
-        ordered = [story_first] + ordered
-
-    leftover_ranking_cta = [
-        sid for sid in ranking_cta_excludes if sid not in drop_set and sid not in set(story_ids)
-    ]
-    dropped = list(dict.fromkeys([*dropped, *leftover_ranking_cta]))
-    drop_set = set(dropped)
-    never_touch = list(dict.fromkeys([*dropped, *recut_parents]))
-
-    excl = _without_excluded_ids(list(out.get("excluded_segment_ids") or []), set(story_ids))
-    excl = _stamp_excludes(excl, dropped + recut_parents)
-
-    if not ordered:
-        # Never leave selection empty — restore last non-CTA if we emptied the tape.
-        notes.append("drop_emptied_selection")
-        fallback = [str(s) for s in (out.get("ordered_segment_ids") or []) if s and s not in drop_set]
-        ordered = fallback or [str(s) for s in (out.get("ordered_segment_ids") or []) if s][:1]
-        ordered = _admit_story_ids(ctx, ordered, story_ids, drop_set)
-
-    out["ordered_segment_ids"] = ordered
-    out["excluded_segment_ids"] = excl
-    out["media_ip_cta"] = judgments
-    _rewrite_chapter_ids(out, id_map, drop_set, story_ids)
-    _sync_cold_open(out, drop_set, id_map, ordered)
-
-    texts = list(dict.fromkeys([*recut_texts, *_texts_for(ctx, never_touch)]))
-    state = {
-        "version": 1,
-        "locked": True,
-        "judgments": judgments,
-        "dropped_segment_ids": dropped,
-        "never_touch_segment_ids": never_touch,
-        "never_touch_texts": texts,
-        "cover_target_ids": cover_targets,
-        "recuts": recuts,
-        "cta_open_parent": cta_open_parent,
-        "open_choice": open_choice or None,
-        "notes": notes,
-    }
-    _write_state(ctx, state)
+    out = run_cta_prune(ctx, out, judgments=judgments)
+    state = load_state(ctx)
+    dropped = list(state.get("dropped_segment_ids") or [])
+    recuts = list(state.get("recuts") or [])
+    cover_targets = list(state.get("cover_target_ids") or [])
     ctx.log(
         "media_ip_cta: dropped "
         f"{len(dropped)} native(s); recuts={sum(1 for r in recuts if r.get('ok'))}",
         level="info",
         stage="full_master_ranking",
         detail={"dropped_segment_ids": dropped[:12], "cover_target_ids": cover_targets[:12]},
+    )
+    return out
+
+
+def is_editorial_exclude_reason(reason: str) -> bool:
+    """True for CTA / sponsor / monetization / editorial-omit reasons."""
+    return _cta_like_reason(reason)
+
+
+def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> dict[str, Any]:
+    """Execute stage omit suggestions + sponsor hard-omit into locked air order.
+
+    Homunculus 0.1.0 only. Consumes exclude_rationales, editorial excluded_segment_ids,
+    hard-omit phrase hits, and perspective issues. Parent hard-keep never skips prune;
+    hard-keep applies only to admitted clean children.
+    """
+    out = dict(artifacts) if isinstance(artifacts, dict) else {}
+    if not enabled(ctx):
+        return out
+
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    if not ordered:
+        return out
+
+    drop_reasons: dict[str, str] = {}
+
+    rationales = out.get("exclude_rationales") if isinstance(out.get("exclude_rationales"), dict) else {}
+    for sid, reason in (rationales or {}).items():
+        key = str(sid or "").strip()
+        if key and is_editorial_exclude_reason(str(reason or "")):
+            drop_reasons.setdefault(key, str(reason)[:240] or "editorial_omit")
+
+    for row in out.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "").strip()
+            reason = str(row.get("reason") or "")
+        else:
+            sid = str(row or "").strip()
+            reason = str((rationales or {}).get(sid) or "")
+        if not sid:
+            continue
+        if reason and is_editorial_exclude_reason(reason):
+            drop_reasons.setdefault(sid, reason[:240])
+        elif not reason and sid in (rationales or {}) and is_editorial_exclude_reason(
+            str(rationales.get(sid) or "")
+        ):
+            drop_reasons.setdefault(sid, str(rationales.get(sid))[:240])
+
+    by_id = _segments_by_id(ctx)
+    for sid in ordered:
+        if sid in drop_reasons:
+            continue
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        if should_hard_omit_cta(text):
+            drop_reasons[sid] = "hard_omit_sponsor_or_cta"
+
+    try:
+        from interview_mux.homunculus.issues import read_issues
+
+        for issue in read_issues(ctx):
+            if not isinstance(issue, dict):
+                continue
+            kind = str(issue.get("kind") or "")
+            if kind not in {
+                "perspective_direct_monetization",
+                "direct_listener_sponsor_promotion",
+                "sponsor_bumper",
+            } and "sponsor" not in kind and "monetization" not in kind:
+                continue
+            for sid in issue.get("implicated") or []:
+                key = str(sid or "").strip()
+                if key:
+                    drop_reasons.setdefault(key, kind or "perspective_direct_monetization")
+    except Exception:
+        pass
+
+    drop_ids = list(dict.fromkeys(drop_reasons))
+    before_drop = set(never_touch_segment_ids(ctx))
+    out = run_cta_prune(ctx, out, notes=["editorial_omits"])
+    after_drop = never_touch_segment_ids(ctx)
+    new_drops = [sid for sid in drop_ids if sid in after_drop and sid not in before_drop]
+    drop_set = (after_drop - before_drop) | {s for s in drop_ids if s in after_drop}
+    if not drop_ids and after_drop == before_drop:
+        return out
+
+    rationales_out = dict(rationales) if isinstance(rationales, dict) else {}
+    for sid in drop_ids:
+        rationales_out[sid] = drop_reasons.get(sid) or rationales_out.get(sid) or "editorial_omit"
+    out["exclude_rationales"] = rationales_out
+
+    state = load_state(ctx)
+    if not isinstance(state, dict):
+        state = {"version": 1}
+    notes = list(state.get("notes") or [])
+    if drop_ids:
+        notes.append(f"editorial_omits:{','.join(drop_ids[:12])}")
+        state["notes"] = notes[-48:]
+        _write_state(ctx, state)
+
+    try:
+        from interview_mux.homunculus.issues import emit_issue
+
+        implicated = new_drops or drop_ids[:12]
+        if implicated:
+            emit_issue(
+                ctx,
+                kind="perspective_direct_monetization",
+                source="apply_editorial_omits",
+                stage_id="full_master_ranking",
+                implicated=implicated[:12],
+                evidence={"reasons": {sid: drop_reasons[sid] for sid in drop_ids[:12] if sid in drop_reasons}},
+            )
+    except Exception:
+        pass
+
+    ctx.log(
+        f"editorial_omits: dropped {len(drop_set)} native(s) from air order",
+        level="info",
+        stage="full_master_ranking",
+        detail={"dropped_segment_ids": list(drop_set)[:12]},
     )
     return out
 
@@ -581,6 +1286,11 @@ def _cta_like_reason(reason: str) -> bool:
             "direct_listener_monetization",
             "perspective_direct_monetization",
             "direct_monetization",
+            "direct_listener_sponsor",
+            "sponsor",
+            "promo",
+            "hard_omit",
+            "editorial_omit",
         )
     )
 

@@ -82,9 +82,126 @@ def build_speaker_role_evidence(stage_input: dict[str, Any]) -> dict[str, Any]:
                 f"Speaker {ranked[0][0]} has the highest talk time in samples ({ranked[0][1]} turns)."
             )
 
+    pair_verdicts = _pair_verdicts(stage_input.get("diarization_repairs"))
+    if pair_verdicts:
+        same = [p for p in pair_verdicts if p.get("same_speaker") is True]
+        different = [p for p in pair_verdicts if p.get("same_speaker") is False]
+        if same:
+            hints.append(
+                f"{len(same)} Sortformer pair(s) judged the same speaker across a flip seam."
+            )
+        if different:
+            hints.append(
+                f"{len(different)} Sortformer pair(s) judged different speakers across a flip seam."
+            )
+
     return {
         "role_evidence_hints": hints,
         "question_turns": question_turns[:12],
         "sample_turn_counts": turn_counts,
         "diarized_speaker_ids": speaker_ids,
+        "diarization_pair_verdicts": pair_verdicts,
     }
+
+
+def _pair_verdicts(repairs: Any) -> list[dict[str, Any]]:
+    if not isinstance(repairs, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in repairs.get("pairs") or []:
+        if not isinstance(row, dict):
+            continue
+        verdict = str(row.get("verdict") or "").strip().lower()
+        same: bool | None
+        if verdict in {"yes_same", "yes"}:
+            same = True
+        elif verdict in {"no_different", "no"}:
+            same = False
+        else:
+            same = None
+        out.append(
+            {
+                "from_speaker_id": str(row.get("from_speaker_id") or ""),
+                "to_speaker_id": str(row.get("to_speaker_id") or ""),
+                "verdict": verdict,
+                "same_speaker": same,
+            }
+        )
+    return out[:40]
+
+
+def _word_count(text: str) -> int:
+    return len([w for w in str(text or "").split() if w])
+
+
+def _is_guest_explanation(text: str) -> bool:
+    if _word_count(text) < 40:
+        return False
+    if "?" in text:
+        return False
+    lower = text.lower()
+    return not any(cue in lower for cue in _INTERVIEWER_CUES)
+
+
+def _is_host_question(text: str) -> bool:
+    if _word_count(text) > 25:
+        return False
+    lower = text.lower()
+    return bool(_QUESTION_RE.search(text.strip())) or any(cue in lower for cue in _INTERVIEWER_CUES)
+
+
+def lint_role_tape_conflicts(manifest: dict[str, Any] | None) -> dict[str, Any]:
+    """Detect interviewer_question / interviewee_answer labels that contradict tape."""
+    segs = (manifest or {}).get("segments") if isinstance(manifest, dict) else None
+    if not isinstance(segs, list):
+        return {"blocking": False, "conflict_count": 0, "typed_qa_count": 0, "examples": []}
+    typed = 0
+    conflicts: list[dict[str, Any]] = []
+    for row in segs:
+        if not isinstance(row, dict):
+            continue
+        stype = str(row.get("type") or "").strip()
+        text = str(row.get("text") or "")
+        if stype not in {"interviewer_question", "interviewee_answer"}:
+            continue
+        typed += 1
+        sid = str(row.get("segment_id") or "")
+        if stype == "interviewer_question" and _is_guest_explanation(text):
+            conflicts.append(
+                {
+                    "segment_id": sid,
+                    "type": stype,
+                    "reason": "long_explanation_labeled_question",
+                }
+            )
+        elif stype == "interviewee_answer" and _is_host_question(text):
+            conflicts.append(
+                {
+                    "segment_id": sid,
+                    "type": stype,
+                    "reason": "short_question_labeled_answer",
+                }
+            )
+    conflict_count = len(conflicts)
+    ratio = (conflict_count / typed) if typed else 0.0
+    blocking = conflict_count >= 4 and ratio >= 0.15
+    return {
+        "blocking": blocking,
+        "conflict_count": conflict_count,
+        "typed_qa_count": typed,
+        "conflict_ratio": round(ratio, 4),
+        "examples": conflicts[:8],
+    }
+
+
+def stamp_role_tape_conflict(ctx: Any, lint: dict[str, Any]) -> None:
+    if not ctx.artifact_exists("understanding/speakers.json"):
+        return
+    try:
+        doc = ctx.read_json("understanding/speakers.json")
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    doc["role_tape_conflict"] = lint
+    ctx.write_json("understanding/speakers.json", doc, skip_handoff=True)

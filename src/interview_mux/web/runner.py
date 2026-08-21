@@ -389,7 +389,7 @@ class JobRunner:
             ):
                 if sid not in stages:
                     stages.append(sid)
-        stages.extend(["edl", "assembly_preview"])
+        stages.extend(["vo_synthesize", "edl", "assembly_preview"])
         return stages
 
     def _stages_for_execute(

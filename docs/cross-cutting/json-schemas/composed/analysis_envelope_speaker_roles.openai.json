@@ -18,6 +18,7 @@
         "conversation_profile",
         "conversation_hypotheses",
         "confirmed_conversation_hypothesis_id",
+        "role_tape_conflict",
         "gap_sensitivity"
       ],
       "properties": {
@@ -289,6 +290,55 @@
             "string",
             "null"
           ]
+        },
+        "role_tape_conflict": {
+          "type": "object",
+          "properties": {
+            "blocking": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "conflict_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "typed_qa_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "conflict_ratio": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "examples": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "blocking",
+            "conflict_count",
+            "typed_qa_count",
+            "conflict_ratio",
+            "examples"
+          ],
+          "additionalProperties": false
         },
         "gap_sensitivity": {
           "type": "object",

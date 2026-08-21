@@ -189,6 +189,18 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
         segs = manifest.get("segments") or [] if isinstance(manifest, dict) else []
         if not segs:
             errors.append("segments/manifest.json has no segments")
+        else:
+            from interview_mux.speaker_role_evidence import (
+                lint_role_tape_conflicts,
+                stamp_role_tape_conflict,
+            )
+
+            lint = lint_role_tape_conflicts(manifest if isinstance(manifest, dict) else {})
+            if lint.get("blocking"):
+                stamp_role_tape_conflict(ctx, lint)
+                errors.append(
+                    "speakers.json role_tape_conflict: interviewer/guest labels contradict tape"
+                )
     return errors
 
 

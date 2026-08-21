@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -17,6 +18,8 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
         "reseat_required_recovery_layup",
         "promoted_pending_layup_plan",
         "layup_repair",
+        "seed_missing_seated_layup",
+        "ensure_adjacency_transition",
     }
 )
 
@@ -80,6 +83,141 @@ _ACTION_STAGES: dict[str, list[str]] = {
     "drop_blank": ["full_master_ranking", "edl_narrative_audit"],
     "operator": [],
 }
+
+_SEATED_LAYUP_RE = re.compile(
+    r"layup for (seg_\d+)\s+is seated but missing",
+    re.IGNORECASE,
+)
+_ADJACENCY_RE = re.compile(
+    r"adjacency from (seg_\d+) to (seg_\d+)",
+    re.IGNORECASE,
+)
+
+
+def _audit_issue_blobs(audit: dict[str, Any] | None) -> list[str]:
+    blobs: list[str] = []
+    if not isinstance(audit, dict):
+        return blobs
+    for issue in audit.get("blocking_issues") or []:
+        if isinstance(issue, dict):
+            blobs.append(
+                " ".join(
+                    str(issue.get(k) or "")
+                    for k in ("issue", "summary", "reason", "recommended_action")
+                )
+            )
+        else:
+            blobs.append(str(issue or ""))
+    for raw in audit.get("recommended_actions") or []:
+        blobs.append(str(raw or ""))
+    return [b for b in blobs if b.strip()]
+
+
+def seed_missing_seated_layups(ctx: RunContext) -> tuple[list[str], list[tuple[str, str]]]:
+    """Insert VO + adjacency transition when audit says a seated layup is missing.
+
+    Orientation retarget / mid-episode VO dedupe cannot cover a high-severity
+    native that the audit already seated but never received a targeting line.
+    """
+    notes: list[str] = []
+    audit = (
+        ctx.read_json("master/edl_narrative_audit.json")
+        if ctx.artifact_exists("master/edl_narrative_audit.json")
+        else {}
+    )
+    blobs = _audit_issue_blobs(audit if isinstance(audit, dict) else {})
+    if not blobs:
+        job = (
+            ctx.read_json("gui_job.json") if ctx.artifact_exists("gui_job.json") else {}
+        )
+        if isinstance(job, dict):
+            blobs.append(str(job.get("error") or job.get("message") or ""))
+    targets: list[str] = []
+    adjacencies: list[tuple[str, str]] = []
+    for blob in blobs:
+        seated = _SEATED_LAYUP_RE.search(blob)
+        if seated:
+            sid = seated.group(1)
+            if sid not in targets:
+                targets.append(sid)
+        adj = _ADJACENCY_RE.search(blob)
+        if adj:
+            pair = (adj.group(1), adj.group(2))
+            if pair not in adjacencies:
+                adjacencies.append(pair)
+            if pair[1] not in targets:
+                targets.append(pair[1])
+    if not targets and not adjacencies:
+        return notes, adjacencies
+
+    gap = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else {"interviewer_lines": []}
+    )
+    if not isinstance(gap, dict):
+        gap = {"interviewer_lines": []}
+    lines = gap.get("interviewer_lines")
+    if not isinstance(lines, list):
+        lines = []
+        gap["interviewer_lines"] = lines
+    covered = {
+        str(ln.get("targets_segment_id") or "")
+        for ln in lines
+        if isinstance(ln, dict)
+    }
+    evals: dict[str, Any] = {}
+    if ctx.artifact_exists("understanding/gap_evaluations.json"):
+        loaded = ctx.read_json("understanding/gap_evaluations.json")
+        if isinstance(loaded, dict):
+            evals = loaded
+    by_seg = {
+        str(row.get("segment_id") or ""): row
+        for row in (evals.get("evaluations") or [])
+        if isinstance(row, dict)
+    }
+    for sid in targets:
+        if not sid or sid in covered:
+            continue
+        row = by_seg.get(sid) or {}
+        rec = str(row.get("recommended_framing") or "").strip()
+        conf = str(row.get("listener_confusion") or "").strip()
+        text = rec or (
+            f"Before we go further: {conf[:180]}"
+            if conf
+            else "Before we go further, what made that next step actually usable?"
+        )
+        lines.append(
+            {
+                "line_id": f"vo_edl_seat_{sid}",
+                "text": text,
+                "delivery": "synthesize",
+                "placement": "before",
+                "targets_segment_id": sid,
+                "gap_type": row.get("gap_type") or "missing_setup",
+                "required": True,
+                "category": "story_bridge",
+                "origin": "edl_narrative_seated_layup",
+            }
+        )
+        covered.add(sid)
+        notes.append("seed_missing_seated_layup")
+    if notes:
+        try:
+            from interview_mux.artifact_repairs import repair_gap_report
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            repaired, _ = repair_gap_report(ctx, gap)
+            write_validated_artifact(
+                ctx,
+                "understanding/gap_report.json",
+                repaired,
+                merge_from_disk=True,
+                stage_key="gap_framing_compose",
+            )
+        except Exception:
+            ctx.write_json("understanding/gap_report.json", gap)
+    return notes, adjacencies
 
 
 def classify_edl_narrative_issue(text: str) -> str:
@@ -168,6 +306,12 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     Does not rewind ranking or recompose layup. Does not soft-pass the audit.
     """
     notes: list[str] = []
+    pending_adj: list[tuple[str, str]] = []
+    try:
+        seeded, pending_adj = seed_missing_seated_layups(ctx)
+        notes.extend(seeded)
+    except Exception as exc:
+        notes.append(f"seated_layup:{exc}")
     before_orientation = ""
     try:
         from interview_mux.opening_orientation import (
@@ -286,6 +430,72 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     notes.append("dedupe_transitions_by_adjacency")
         except Exception as exc:
             notes.append(f"transitions:{exc}")
+    if pending_adj:
+        try:
+            tr = (
+                ctx.read_json("master/transitions.json")
+                if ctx.artifact_exists("master/transitions.json")
+                else {"transitions": []}
+            )
+            if not isinstance(tr, dict):
+                tr = {"transitions": []}
+            rows = tr.get("transitions")
+            if not isinstance(rows, list):
+                rows = []
+                tr["transitions"] = rows
+            have = {
+                (
+                    str(r.get("after_segment_id") or ""),
+                    str(r.get("before_segment_id") or ""),
+                )
+                for r in rows
+                if isinstance(r, dict)
+            }
+            added = False
+            by_id: dict[str, dict[str, Any]] = {}
+            try:
+                if ctx.artifact_exists("segments/manifest.json"):
+                    man = ctx.read_json("segments/manifest.json")
+                    by_id = {
+                        str(s.get("segment_id")): s
+                        for s in ((man or {}).get("segments") or [])
+                        if isinstance(s, dict) and s.get("segment_id")
+                    }
+            except Exception:
+                by_id = {}
+            from interview_mux.seam_glue import (
+                default_bridge_text,
+                enrich_bridge_pair_excerpts,
+            )
+
+            for after_id, before_id in pending_adj:
+                if (after_id, before_id) in have:
+                    continue
+                pair = enrich_bridge_pair_excerpts(
+                    {
+                        "after_segment_id": after_id,
+                        "before_segment_id": before_id,
+                    },
+                    by_id,
+                )
+                text = str(default_bridge_text(pair) or "").strip()
+                if not text:
+                    text = "With that established, what changed?"
+                rows.append(
+                    {
+                        "after_segment_id": after_id,
+                        "before_segment_id": before_id,
+                        "type": "spoken_bridge",
+                        "text": text,
+                    }
+                )
+                have.add((after_id, before_id))
+                added = True
+            if added:
+                ctx.write_json("master/transitions.json", tr)
+                notes.append("ensure_adjacency_transition")
+        except Exception as exc:
+            notes.append(f"ensure_adj:{exc}")
     try:
         prior = (
             ctx.read_json(REMUTATE_REL) if ctx.artifact_exists(REMUTATE_REL) else {}
@@ -298,6 +508,15 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
         ctx.write_json(REMUTATE_REL, prior)
     except Exception:
         pass
+    try:
+        from interview_mux.transition_vo import commit_current_transition_wavs
+
+        still = commit_current_transition_wavs(ctx)
+        notes.append("resync_current_transition_wavs")
+        if still:
+            notes.append("transition_wavs_missing:" + ",".join(still[:6]))
+    except Exception as exc:
+        notes.append(f"resync_vo:{exc}")
     cleared: list[str] = []
     for sid in ("g1_vo_pickup", "edl", "edl_narrative_audit"):
         marker = ctx.run_dir / ".stage_done" / str(sid)
@@ -330,9 +549,14 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 notes.append("drop_stale_fail_audit")
     except Exception:
         pass
+    from_stage = "edl_narrative_audit"
+    if "seed_missing_seated_layup" in notes:
+        from_stage = "sound_design_vo_finalize"
+    elif "ensure_adjacency_transition" in notes:
+        from_stage = "transitions"
     return {
         "ok": True,
-        "from_stage": "edl_narrative_audit",
+        "from_stage": from_stage,
         "notes": notes,
         "cleared": cleared,
         "host_fixed": bool(HOST_REPAIR_PROGRESS_NOTES.intersection(notes)),

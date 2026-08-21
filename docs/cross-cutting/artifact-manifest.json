@@ -267,6 +267,16 @@
       ],
       "has_write_validator": true
     },
+    "mastering/vo_synthesize.json": {
+      "schemas_by_producer": {
+        "vo_synthesize": null
+      },
+      "producers": [
+        "vo_synthesize"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
     "master/edl.json": {
       "schemas_by_producer": {
         "edl": null
@@ -277,7 +287,8 @@
       "consumers": [
         "air_script_compose",
         "air_script_seams",
-        "nugget_layup_compose"
+        "nugget_layup_compose",
+        "vo_synthesize"
       ],
       "has_write_validator": true
     },

@@ -13,6 +13,7 @@ from interview_mux.artifact_repairs import (
 )
 from interview_mux.bridge_completeness import missing_reorder_bridges
 from interview_mux.gap_framing import (
+    choose_seam_synthetic,
     drop_contiguous_light_bridge_lines,
     transition_redundant_with_framing,
 )
@@ -350,6 +351,36 @@ def test_default_bridge_uses_listener_facing_topics_not_ids() -> None:
     assert "167" not in text
 
 
+def test_default_bridge_derives_topics_from_transcript() -> None:
+    from interview_mux.seam_glue import enrich_bridge_pair_excerpts
+
+    pair = enrich_bridge_pair_excerpts(
+        {"after_segment_id": "seg_077", "before_segment_id": "seg_079"},
+        {
+            "seg_077": {
+                "segment_id": "seg_077",
+                "text": (
+                    "Our ultimate goal is a simple blood draw to detect way early "
+                    "and reduce waiting on a CT scan."
+                ),
+            },
+            "seg_079": {
+                "segment_id": "seg_079",
+                "text": (
+                    "We've been living through tissue biopsies and then liquid "
+                    "biopsies, and now single cell precision."
+                ),
+            },
+        },
+    )
+    text = default_bridge_text(pair)
+    assert text
+    assert "next beat" not in text.lower()
+    assert "seg_" not in text.lower()
+    low = text.lower()
+    assert "blood draw" in low or "liquid" in low or "moving from" in low
+
+
 def test_cold_open_last_sentence_cues_first_native() -> None:
     line = {
         "line_id": "vo_q_seg_001",
@@ -391,3 +422,68 @@ def test_spoken_layup_required() -> None:
         ordered_ids=["seg_009", "seg_010"],
     )
     assert any("forward cue" in e for e in errs)
+
+
+def test_choose_seam_synthetic_layup_wins_over_transition() -> None:
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_036",
+                "targets_segment_id": "seg_036",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "Here is how a live cell becomes actionable.",
+            }
+        ]
+    }
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_035",
+                "before_segment_id": "seg_036",
+                "text": "That capture model is the setup — next, what a live cell actually lets you do.",
+            }
+        ]
+    }
+    choice = choose_seam_synthetic(
+        "seg_035",
+        "seg_036",
+        gap_report=gap,
+        transitions_doc=transitions,
+    )
+    assert choice["kind"] == "layup"
+    assert choice["line_id"] == "vo_layup_seg_036"
+    assert transition_redundant_with_framing(gap, "seg_035", "seg_036") is True
+
+
+def test_choose_seam_synthetic_skipped_layup_yields_transition() -> None:
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_036",
+                "targets_segment_id": "seg_036",
+                "placement": "before",
+                "delivery": "synthesize",
+                "skipped_optional": True,
+                "text": "The native describes the claimed data?",
+            }
+        ]
+    }
+    transitions = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_035",
+                "before_segment_id": "seg_036",
+                "text": "That capture model is the setup — next, what a live cell actually lets you do.",
+            }
+        ]
+    }
+    choice = choose_seam_synthetic(
+        "seg_035",
+        "seg_036",
+        gap_report=gap,
+        transitions_doc=transitions,
+    )
+    assert choice["kind"] == "transition"
+    assert "live cell" in (choice.get("text") or "")
+    assert transition_redundant_with_framing(gap, "seg_035", "seg_036") is False

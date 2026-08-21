@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -362,9 +363,21 @@ def compose_arbiter_schema(*, strict: bool = True) -> dict[str, Any]:
     return schema
 
 
+_OPENAI_SCHEMA_NAME_MAX = 64
+
+
 def _schema_name(stage_key: str, task_kind: str) -> str:
-    safe = stage_key.replace("__", "_").replace("-", "_")[:48]
-    return f"{safe}_{task_kind}_response"
+    """OpenAI json_schema.name must be ≤64 characters."""
+    suffix = f"_{task_kind}_response"
+    max_base = max(1, _OPENAI_SCHEMA_NAME_MAX - len(suffix))
+    safe = stage_key.replace("__", "_").replace("-", "_")
+    if len(safe) > max_base:
+        digest = hashlib.sha256(safe.encode("utf-8")).hexdigest()[:6]
+        keep = max(1, max_base - 7)
+        safe = f"{safe[:keep]}_{digest}"
+    else:
+        safe = safe[:max_base]
+    return f"{safe}{suffix}"[:_OPENAI_SCHEMA_NAME_MAX]
 
 
 def resolve_parent_stage_key(stage_key: str) -> str:

@@ -81,6 +81,10 @@ def _score_order(
             # Up to 80 points — catastrophic shorts must lose to long packs.
             deficit = (floor - dur_sec) / floor
             score -= min(80.0, 40.0 + 60.0 * deficit)
+        elif ideal_sec > 0 and dur_sec > ideal_sec:
+            # Prefer concise: 1.5× source is a ceiling, not a target to grow into.
+            over = (dur_sec - ideal_sec) / ideal_sec
+            score -= min(15.0, 8.0 * over)
 
     return score, health
 

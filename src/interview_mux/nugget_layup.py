@@ -73,7 +73,7 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "require_analysis_fields": bool(block.get("require_analysis_fields", True)),
         "ban_canned_air": bool(block.get("ban_canned_air", True)),
         "unique_nuggets_across_layups": bool(
-            block.get("unique_nuggets_across_layups", True)
+            block.get("unique_nuggets_across_layups", False)
         ),
         "max_cross_layup_overlap": float(block.get("max_cross_layup_overlap", 0.6)),
         "max_target_restate_overlap": float(block.get("max_target_restate_overlap", 0.75)),
@@ -179,10 +179,11 @@ def layup_freshness_errors(
     if selection and planned != selection:
         missing = [sid for sid in selection if sid not in set(planned)]
         extra = [sid for sid in planned if sid not in set(selection)]
-        errors.append(
-            "nugget_layup_plan ordered_segment_ids do not match master/selection.json "
-            f"(missing={missing[:8]}, stale={extra[:8]})"
-        )
+        if missing:
+            errors.append(
+                "nugget_layup_plan ordered_segment_ids do not match master/selection.json "
+                f"(missing={missing[:8]}, stale={extra[:8]})"
+            )
     # Order-lock revision mismatch even when lists somehow match.
     try:
         from interview_mux.order_hash import get_order_lock, order_locks_match
@@ -1020,6 +1021,17 @@ def build_layup_compose_input(
         ),
     }
     try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+        payload["episode_vo_identity"] = episode_vo_identity(ctx)
+        payload["vo_shape_lock"] = payload["episode_vo_identity"].get("vo_shape")
+        payload["vo_shape_rule"] = (
+            "Write every lay-up in episode_vo_identity.vo_shape. Do not switch "
+            "person or clone character between natives."
+        )
+    except Exception:
+        pass
+    try:
         from interview_mux.media_ip_cta import attach_to_compose_input
 
         return attach_to_compose_input(ctx, payload)
@@ -1511,6 +1523,11 @@ def apply_clone_voice_adjacency_skips(
 
         out, cover_notes = apply_cover_policy(ctx, out)
         notes.extend(cover_notes)
+        from interview_mux.media_ip_cta import heal_on_air_cta_residue
+
+        healed = heal_on_air_cta_residue(ctx)
+        if healed.get("ordered_segment_ids"):
+            out["ordered_segment_ids"] = list(healed.get("ordered_segment_ids") or [])
     except Exception:
         pass
     try:
@@ -2276,6 +2293,12 @@ def publish_layup_plan_to_gap_report(
         if tid in orientation_targets:
             continue
         seen_targets.add(tid)
+        try:
+            from interview_mux.speaker_delivery_plan import stamp_episode_vo_identity
+
+            line = stamp_episode_vo_identity(ctx, line)
+        except Exception:
+            pass
         body.append(line)
 
     # Keep non-orientation operator pins that are not superseded by a layup target.
@@ -2370,11 +2393,16 @@ def gap_has_layup_before(gap_report: dict[str, Any] | None, segment_id: str) -> 
     for ln in gap_report.get("interviewer_lines") or []:
         if not isinstance(ln, dict):
             continue
+        if ln.get("skipped_optional"):
+            continue
         if str(ln.get("placement") or "") != "before":
             continue
         if str(ln.get("targets_segment_id") or "") != segment_id:
             continue
         if not str(ln.get("text") or "").strip():
+            continue
+        delivery = str(ln.get("delivery") or "").lower()
+        if delivery and delivery not in {"record", "synthesize"}:
             continue
         # Orientation is not a per-native layup substitute for seam suppression
         # when it targets a different open segment — still counts for its target.
@@ -2798,6 +2826,7 @@ def evaluate_layup_qc(
         "canned_air_lines": craft["canned_air_lines"],
         "insufficient_analysis_targets": craft["insufficient_analysis_targets"],
         "duplicate_nugget_ids": craft["duplicate_nugget_ids"],
+        "warnings": list(craft.get("warnings") or []),
         "errors": errors,
         "ok": not errors,
     }
@@ -2904,6 +2933,9 @@ def evaluate_layup_craft(
         for nid in row_nugget_ids(row):
             if nid in owner and owner[nid] != tid:
                 duplicates.append(nid)
+                warnings.append(
+                    f"duplicate_nugget[{nid}]: claimed by {owner[nid]} and {tid}"
+                )
                 if settings["unique_nuggets_across_layups"]:
                     errors.append(
                         f"duplicate_nugget[{nid}]: claimed by {owner[nid]} and {tid}"

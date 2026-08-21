@@ -37,6 +37,8 @@
           "island_end_ms": { "type": "integer" }
         }
       }
-    }
+    },
+    "verify_unavailable": { "type": "boolean" },
+    "verify_unavailable_reason": { "type": "string" }
   }
 }

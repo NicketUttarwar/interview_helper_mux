@@ -102,6 +102,61 @@ def test_empty_layup_is_not_clone_adjacency_exempt() -> None:
     )
 
 
+def test_edl_keeps_episode_orientation_despite_clone_adjacency(tmp_path: Path) -> None:
+    path = tmp_path / "vo.wav"
+    path.write_bytes(b"x")
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ORDER},
+        segments_by_id=SEGMENTS,
+        gap_report={
+            "interviewer_lines": [
+                _line(
+                    line_id="vo_preface_opening",
+                    episode_orientation=True,
+                    line_category="episode_preface",
+                    gap_type="missing_orientation",
+                    orientation_missions=[
+                        "guest_identity",
+                        "conversation_topic",
+                        "listener_stakes",
+                    ],
+                    text=(
+                        "Mohan of OneCell.ai joins us to examine whether blood-based "
+                        "cancer testing can become more adaptive."
+                    ),
+                )
+            ]
+        },
+        resolve_vo_path=lambda _line: path,
+        vo_duration_ms=lambda _path: 1000,
+    )
+    vo = [clip for clip in edl["clips"] if clip.get("type") == "vo_pickup"]
+    assert [clip.get("line_id") for clip in vo] == ["vo_preface_opening"]
+    assert "vo_preface_opening" not in edl["warnings"]["suppressed_clone_adjacency"]
+
+
+def test_orientation_clone_adjacency_is_exempt() -> None:
+    report, notes = avoid_clone_voice_adjacency(
+        {
+            "interviewer_lines": [
+                _line(
+                    line_id="vo_preface_opening",
+                    episode_orientation=True,
+                    line_category="episode_preface",
+                )
+            ]
+        },
+        SEGMENTS,
+        ordered_segment_ids=ORDER,
+        clone_speaker_id="spk_host",
+        nugget_corpus=CORPUS,
+    )
+    kept = report["interviewer_lines"][0]
+    assert kept["targets_segment_id"] == "host_a"
+    assert kept["clone_adjacency_exempt"] is True
+    assert notes == []
+
+
 def test_edl_suppresses_unmarked_clone_adjacent_vo(tmp_path: Path) -> None:
     path = tmp_path / "vo.wav"
     path.write_bytes(b"x")

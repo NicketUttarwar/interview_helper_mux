@@ -14,7 +14,10 @@
     "recuts": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "cta_open_parent": { "type": ["string", "null"] },
     "open_choice": { "type": ["string", "null"] },
-    "notes": { "type": "array", "items": { "type": "string" } }
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "prune_tree": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "seed_ids": { "type": "array", "items": { "type": "string" } },
+    "seed_count": { "type": "integer", "minimum": 0 }
   },
   "additionalProperties": true
 }

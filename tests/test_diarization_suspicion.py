@@ -147,6 +147,37 @@ def test_verify_no_and_miss_keep_labels(tmp_path: Path, monkeypatch) -> None:
     assert ctx2.read_json("transcript/diarization_repairs.json")["pairs"][0]["verdict"] == "skipped"
 
 
+def test_sortformer_unavailable_logs_and_stamps_repairs(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux.local_runtime import LocalRuntimeUnavailable
+
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("sortformer_missing", create=True)
+    t = 1_785_000
+    words = [
+        _w("a", t, spk="spk_1"),
+        _w("very", t + 200, spk="spk_1"),
+        _w("novel", t + 400, spk="spk_1"),
+        _w("1080", t + 400 + 180 + 1120, spk="spk_0"),
+        _w("gene", t + 400 + 180 + 1120 + 200, spk="spk_0"),
+        _w("panel", t + 400 + 180 + 1120 + 400, spk="spk_0"),
+    ]
+    ctx.write_json("transcript/full.json", {"words": words})
+    (ctx.run_dir / "ingest").mkdir(exist_ok=True)
+    (ctx.run_dir / "ingest" / "normalized.wav").write_bytes(b"RIFF" + b"\x00" * 40)
+    monkeypatch.setattr(
+        "interview_mux.diarization_suspicion.extract_clip",
+        lambda *a, **k: None,
+    )
+
+    def boom(_a, _b):
+        raise LocalRuntimeUnavailable("speech runtime missing")
+
+    doc = run_diarization_verify(ctx, verify_pair=boom)
+    assert doc.get("verify_unavailable") is True
+    assert "speech runtime missing" in str(doc.get("verify_unavailable_reason") or "")
+    assert not validate_diarization_repairs(doc)
+
+
 def test_um_in_monologue_is_absorbable() -> None:
     assert is_filled_pause_only_text("um")
     words = [

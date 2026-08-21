@@ -154,6 +154,14 @@ def test_bridge_voice_policy_chapter_jump():
     assert row["suggested_line_category"] == "story_bridge"
 
 
+def test_bridge_voice_policy_episode_lock_does_not_flip_pov():
+    row = choose_bridge_voice(
+        {"kind": "split_sibling", "after_id": "a", "before_id": "b"},
+        episode_vo_shape="third_person",
+    )
+    assert row["suggested_pov"] == "expository_third_person"
+
+
 def test_story_health_nle_softens_to_warn():
     plan = {
         "chapters": [

@@ -115,6 +115,7 @@ def build_delivery_brief(ctx: RunContext, *, overrides: dict[str, Any] | None = 
     sound = cfg.get("sound_design") or {}
     max_chapters = int(thresholds.get("max_chapters", 8))
     question_max = int(db_cfg.get("question_budget_max", 6))
+    # Soft ideal ~65% of source; prefer concise. max_ratio (1.5) is a ceiling, not a goal.
     ideal_frac = float(db_cfg.get("ideal_fraction_of_source", delivery_output_ideal_ratio()))
     min_ratio = float(db_cfg.get("min_ratio_of_source", delivery_output_min_ratio()))
     max_ratio = float(db_cfg.get("max_ratio_of_source", delivery_output_max_ratio()))

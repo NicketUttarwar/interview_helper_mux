@@ -125,6 +125,19 @@
       }
     },
     "confirmed_conversation_hypothesis_id": { "type": ["string", "null"] },
+    "role_tape_conflict": {
+      "type": ["object", "null"],
+      "properties": {
+        "blocking": { "type": "boolean" },
+        "conflict_count": { "type": "integer" },
+        "typed_qa_count": { "type": "integer" },
+        "conflict_ratio": { "type": "number" },
+        "examples": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    },
     "gap_sensitivity": {
       "type": ["object", "null"],
       "properties": {

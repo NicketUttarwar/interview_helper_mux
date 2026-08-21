@@ -121,8 +121,10 @@ def write_committed_json(
     """Persist to the committed run tree without opening a new staging root."""
     if isinstance(data, dict):
         from interview_mux.artifact_writes import _prepare_for_disk_validation
+        from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
         from interview_mux.prompt_validation import validate_artifact_write
 
+        data = prepare_edl_payload_for_disk(ctx, rel, data)
         payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
         errors = validate_artifact_write(rel, payload)
         if errors:
@@ -135,6 +137,9 @@ def write_committed_json(
 
 def write_mirrored_json(ctx: RunContext, rel: str, data: Any) -> Path:
     """Write JSON to the committed final path and update every pending staging copy."""
+    from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
+
+    data = prepare_edl_payload_for_disk(ctx, rel, data)
     final = ctx.final_path(*rel.split("/"))
     final.parent.mkdir(parents=True, exist_ok=True)
     fs_write_json(final, data)
@@ -199,7 +204,20 @@ def promote_staged_side_effects(
 
     flushed: list[str] = []
     for rel in rels:
-        if not rel or rel.endswith("/"):
+        if not rel:
+            continue
+        if rel.endswith("/"):
+            src_dir = root.joinpath(*rel.rstrip("/").split("/"))
+            if not src_dir.is_dir():
+                continue
+            for src in sorted(src_dir.rglob("*")):
+                if not src.is_file():
+                    continue
+                child = str(src.relative_to(root)).replace("\\", "/")
+                dest = ctx.final_path(*child.split("/"))
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                atomic_copy(src, dest)
+                flushed.append(child)
             continue
         src = root.joinpath(*rel.split("/"))
         if not src.is_file():
@@ -208,6 +226,9 @@ def promote_staged_side_effects(
         dest.parent.mkdir(parents=True, exist_ok=True)
         atomic_copy(src, dest)
         flushed.append(rel)
+    from interview_mux.edl_source_contract import heal_committed_edl_source_paths
+
+    heal_committed_edl_source_paths(ctx)
     return flushed
 
 
@@ -299,6 +320,10 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
             # committed heal (G1 spoken-copy rewrites, fingerprint stamps, etc.).
             done_marker = ctx.run_dir / ".stage_done" / pending
             if primary.is_file() and done_marker.is_file():
+                return primary
+            # Incomplete later-stage staging must not clobber committed inputs
+            # when a different stage is running (mix vs leftover junction writes).
+            if primary.is_file() and sid and pending != sid:
                 return primary
             return staged
     if primary.is_file():
@@ -538,6 +563,9 @@ def flush_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
             flushed.append(rel)
         shutil.rmtree(root, ignore_errors=True)
     clear_pending_approval(ctx, stage_id)
+    from interview_mux.edl_source_contract import heal_committed_edl_source_paths
+
+    heal_committed_edl_source_paths(ctx)
     return flushed
 
 
@@ -567,11 +595,34 @@ def write_pending_content(
 ) -> Path:
     p = staged_path(ctx, rel, stage_id=stage_id)
     p.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+
+    from interview_mux.edl_source_contract import is_edl_rel, prepare_edl_payload_for_disk
+
     if data is not None:
+        data = prepare_edl_payload_for_disk(ctx, rel, data)
         fs_write_json(p, data)
     elif text is not None:
+        if is_edl_rel(rel):
+            try:
+                parsed = _json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                fs_write_json(p, prepare_edl_payload_for_disk(ctx, rel, parsed))
+                record_pending_approval(ctx, stage_id)
+                return p
         fs_write_text(p, text)
     elif raw is not None:
+        if is_edl_rel(rel):
+            try:
+                parsed = _json.loads(raw.decode("utf-8"))
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                fs_write_json(p, prepare_edl_payload_for_disk(ctx, rel, parsed))
+                record_pending_approval(ctx, stage_id)
+                return p
         p.write_bytes(raw)
     else:
         raise ValueError("Provide data, text, or raw")
@@ -904,8 +955,38 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
 
                 repaired, _notes = repair_manifest_segments(ctx, hydrated)
                 ctx.write_json("segments/manifest.json", repaired, stage_key=stage_id)
-        from interview_mux.stage_completion import assert_stage_artifacts_complete
+        from interview_mux.stage_completion import (
+            assert_stage_artifacts_complete,
+            vo_synthesize_should_defer_done,
+        )
 
+        deferred = vo_synthesize_should_defer_done(ctx, stage_id)
+        if deferred:
+            ctx.log(
+                f"vo_synthesize fail-open: {deferred} — continuing to edl/mix last-chance",
+                level="warning",
+                stage=stage_id,
+            )
+            post = after_flush_resilience(ctx, stage_id, flushed)
+            if post.action == "halt" and post.acceptance_ok is False:
+                raise ValueError(
+                    "Post-flush resilience failed: " + "; ".join(post.reasons[:4] or ["unacceptable"])
+                )
+            record_resilience_event(
+                ctx,
+                stage_id,
+                event="stage_committed_incomplete",
+                action="pass",
+                reasons=[deferred],
+                detail={"flushed": flushed[:40], "fail_open": True},
+            )
+            end_action(
+                trace_id,
+                run_dir=ctx.run_dir,
+                status="ok",
+                detail={"flushed": flushed, "stage_id": stage_id, "deferred_done": deferred},
+            )
+            return flushed
         assert_stage_artifacts_complete(ctx, stage_id)
         post = after_flush_resilience(ctx, stage_id, flushed)
         if post.action == "halt" and post.acceptance_ok is False:

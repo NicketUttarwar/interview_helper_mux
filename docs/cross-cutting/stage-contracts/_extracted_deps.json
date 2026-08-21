@@ -254,6 +254,7 @@
     "reads": [
       "segments/boundaries.json",
       "segments/manifest.json",
+      "transcript/diarization_repairs.json",
       "transcript/full.json",
       "transcript/speakers.json",
       "understanding/content_brief.json",
@@ -266,5 +267,12 @@
       "understanding/source_acoustic_profile.json",
       "understanding/talking_points.json"
     ]
+  },
+  "vo_synthesize": {
+    "reads": [
+      "master/transitions.json",
+      "understanding/gap_report.json"
+    ],
+    "writes": []
   }
 }

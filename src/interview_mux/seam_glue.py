@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from interview_mux.run_context import RunContext
+
+_TRANSCRIPT_FILLER = re.compile(
+    r"^(?:okay\.?|well\.?|you know,?|so,?|right\??|um+|uh+)\s+",
+    re.IGNORECASE,
+)
+_TOPIC_STOP = frozenset(
+    """
+    a an and as at be but by for from had has have how i if in is it its
+    just like of on or our so that the this to was we well were what when
+    where which with you your okay right yeah
+    """.split()
+)
+_SIGNOFF = re.compile(
+    r"\b(?:that was a great conversation|what did you think|best wishes|"
+    r"thank(?:s| you)|co-?founder|that is fantastic)\b",
+    re.IGNORECASE,
+)
+_TOPIC_PREFER = re.compile(
+    r"cell|blood|biops|tumor|assay|scan|captur|diagnos|cancer|liquid|"
+    r"tissue|market|company|found|product|patient",
+    re.IGNORECASE,
+)
 
 # Chapter-scale source jump — spoken hinge required (and stinger when music on).
 CHAPTER_SCALE_GAP_MS = 60_000
@@ -94,6 +117,13 @@ def rebuild_reorder_bridges(
         if isinstance(sel, dict):
             chapter_ends |= _chapter_ends_from_plan(sel)
 
+    vo_shape = None
+    try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+        vo_shape = str((episode_vo_identity(ctx) or {}).get("vo_shape") or "") or None
+    except Exception:
+        vo_shape = None
     bridges = annotate_reorder_bridges(
         build_reorder_bridges(
             [str(s) for s in ordered if s],
@@ -101,6 +131,7 @@ def rebuild_reorder_bridges(
             chapter_ends=chapter_ends,
         ),
         narrative_mode=_narrative_mode(ctx),
+        episode_vo_shape=vo_shape,
     )
     ctx.write_json("understanding/reorder_bridges.json", bridges)
     return bridges
@@ -115,6 +146,46 @@ def _clip_excerpt(raw: Any, *, max_chars: int = 72) -> str:
         cut = text[:max_chars].rsplit(" ", 1)[0]
         text = cut or text[:max_chars]
     return text.rstrip(".,;:!—–- ").strip()
+
+
+def _topic_from_transcript(raw: Any) -> str:
+    """Short content phrase from native text when topic tags are empty."""
+    blob = " ".join(str(raw or "").split())
+    if not blob:
+        return ""
+    blob = re.split(
+        r"\b(?:thanks\.|thank you|that is fantastic|mohan, thank)\b",
+        blob,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    sentences = [s.strip() for s in re.split(r"[.!?]+", blob) if len(s.strip()) >= 18]
+    grams: list[tuple[int, str]] = []
+    for sent in sentences:
+        if _SIGNOFF.search(sent):
+            continue
+        while True:
+            nxt = _TRANSCRIPT_FILLER.sub("", sent).strip()
+            if nxt == sent:
+                break
+            sent = nxt
+        words = [
+            token.rstrip("'")
+            for token in re.findall(r"[A-Za-z][A-Za-z'-]*", sent)
+            if token.rstrip("'").casefold() not in _TOPIC_STOP
+        ]
+        for i in range(len(words) - 1):
+            a, b = words[i], words[i + 1]
+            if len(a) < 4 or len(b) < 4:
+                continue
+            phrase = f"{a} {b}"
+            score = sum(1 for token in (a, b) if _TOPIC_PREFER.search(token))
+            grams.append((score, phrase))
+    if not grams:
+        return ""
+    best_score = max(item[0] for item in grams)
+    phrase = next(item[1] for item in reversed(grams) if item[0] == best_score)
+    return _clip_excerpt(phrase, max_chars=48)
 
 
 def _listener_topic(segment: dict[str, Any]) -> str:
@@ -135,7 +206,7 @@ def _listener_topic(segment: dict[str, Any]) -> str:
         if low.startswith(("seg_", "segment_", "segment ")):
             continue
         return text
-    return ""
+    return _topic_from_transcript(segment.get("text") or segment.get("text_excerpt") or "")
 
 
 def _hinge_with_excerpt(lead_in: str, excerpt: str) -> str:
@@ -369,22 +440,44 @@ def mint_missing_transitions(
             existing.add((a, b))
             continue
         planned = planned_transition_for_pair(synthetic_plan, a, b)
+        if not planned and ctx.artifact_exists("master/transitions.json"):
+            try:
+                tr_doc = ctx.read_json("master/transitions.json")
+                for row in (tr_doc or {}).get("transitions") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    if (
+                        str(row.get("after_segment_id") or "") == a
+                        and str(row.get("before_segment_id") or "") == b
+                    ):
+                        planned = row
+                        break
+            except Exception:
+                planned = None
         if not planned:
             if ban_canned_air and b in layup_targets:
-                from interview_mux.loud_fail import raise_loud_failure
+                # Pair-aware hinge from excerpts — do not abort EDL to recompose
+                # layup forever when the seam is already known.
+                text = default_bridge_text(pair, used_texts=used_bridge_texts)
+                canned = False
+                unplanned.append(f"{a}->{b}")
+                if not str(text or "").strip():
+                    from interview_mux.loud_fail import raise_loud_failure
 
-                raise_loud_failure(
-                    ctx,
-                    "Canned seam air blocked under nugget layup authority: "
-                    f"{a}->{b} has no composed lay-up or planned transition",
-                    stage="edl",
-                    reason="canned_air_under_layup_authority",
-                    detail={"after_segment_id": a, "before_segment_id": b},
-                )
+                    raise_loud_failure(
+                        ctx,
+                        "Reorder seam missing grounded contextual bridge text: "
+                        f"{a}->{b}",
+                        stage="edl",
+                        reason="canned_air_under_layup_authority",
+                        detail={"after_segment_id": a, "before_segment_id": b},
+                    )
+                # fall through to append using text below — skip canned raise
+                planned = {"text": text, "_minted_seam": True}
             # Prefer pair-aware default glue over aborting remaster. The canned
             # phrase is only used when explicitly allowed; otherwise mint a
             # deterministic hinge from default_bridge_text so mix can proceed.
-            if allow_canned:
+            elif allow_canned:
                 text = CANNED_BRIDGE_TEXT
                 canned = True
             else:

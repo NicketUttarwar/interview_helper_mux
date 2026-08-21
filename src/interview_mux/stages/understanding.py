@@ -60,13 +60,19 @@ def run_speaker_roles(ctx: RunContext) -> None:
 
         speakers_input = {"speakers": speakers.get("speakers") or speakers}
         talk_stats = _speaker_talk_stats(transcript, speakers_input)
+        evidence_in: dict[str, Any] = {"transcript_samples": samples, "speakers": speakers}
+        if c.artifact_exists("transcript/diarization_repairs.json"):
+            try:
+                evidence_in["diarization_repairs"] = c.read_json(
+                    "transcript/diarization_repairs.json"
+                )
+            except Exception:
+                pass
         return {
             "transcript_samples": samples,
             "speakers": speakers,
             "speaker_talk_stats": talk_stats,
-            **build_speaker_role_evidence(
-                {"transcript_samples": samples, "speakers": speakers}
-            ),
+            **build_speaker_role_evidence(evidence_in),
         }
 
     base_persist = make_stage_persist("understanding/speakers.json", "speaker_roles")
@@ -520,9 +526,11 @@ def run_content_brief_reanchor(ctx: RunContext) -> None:
 
     def persist(c: RunContext, artifacts: dict) -> None:
         inner_persist(c, artifacts)
-        from interview_mux.artifact_completeness import artifact_status
+        from interview_mux.artifact_completeness import artifact_status_for_stage
 
-        st = artifact_status("understanding/content_brief.json", c)
+        st = artifact_status_for_stage(
+            "understanding/content_brief.json", c, "content_brief_reanchor"
+        )
         if st != "complete":
             raise RuntimeError(
                 f"content_brief_reanchor must persist a complete brief (status={st})"

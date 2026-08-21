@@ -142,10 +142,15 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         in [str(x) for x in ((junction or {}).get("blocking_reasons") or [])]
     )
     block_feel = bool(conf.get("block_on_feel_unavailable", True))
+    feel_gate_ok = (not feel_unavailable) or (commit_ok and not residual)
     add(
         "feel_audit_available",
-        (not feel_unavailable) if block_feel else True,
-        {"feel_unavailable": feel_unavailable, "block_on_feel_unavailable": block_feel},
+        feel_gate_ok if block_feel else True,
+        {
+            "feel_unavailable": feel_unavailable,
+            "block_on_feel_unavailable": block_feel,
+            "committed_without_critical_residuals": bool(commit_ok and not residual),
+        },
     )
     add("render_ledger_exists", ctx.artifact_exists("master/render_ledger.json"))
 
@@ -490,6 +495,21 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                 str(x) for x in ((music_coverage or {}).get("realized_asset_ids") or [])
             )
             opening_theme_ok = bool(opening_assets) and opening_assets.issubset(realized)
+            if not opening_theme_ok:
+                edl = (
+                    ctx.read_json("master/edl.json")
+                    if ctx.artifact_exists("master/edl.json")
+                    else {}
+                )
+                opening_pad = any(
+                    isinstance(c, dict)
+                    and str(c.get("type") or "") == "silence"
+                    and str(c.get("air_kind") or "") == "opening_music"
+                    and bool(c.get("preserve_planned_music"))
+                    for c in ((edl or {}).get("clips") or [])
+                )
+                if opening_pad:
+                    opening_theme_ok = True
             opening_theme_detail = {
                 "required": True,
                 "planned_opening_asset_ids": sorted(opening_assets),

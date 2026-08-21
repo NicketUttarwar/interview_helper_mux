@@ -58,7 +58,11 @@ def listen_delight_cfg() -> dict[str, Any]:
 
 
 def _nugget_retention(ctx: RunContext) -> float:
-    """Selected duration vs delivery_brief ideal — a soft pack target, not a hard % floor."""
+    """Selected duration vs delivery_brief ideal (~65% of source).
+
+    Prefer concise: at or under ideal scores linearly; over-ideal tapers
+    because 1.5× source is a ceiling, not a goal.
+    """
     try:
         from interview_mux.delivery_brief import (
             estimated_selection_duration_sec,
@@ -73,11 +77,12 @@ def _nugget_retention(ctx: RunContext) -> float:
         if ideal_sec <= 0 or selected_sec <= 0:
             return 0.85
         ratio = selected_sec / max(ideal_sec, 1.0)
-        if ratio >= 1.0:
-            # Landed at/above the ideal pack — full credit, mild taper if wildly over.
-            score = 1.0 - min(0.15, (ratio - 1.0) * 0.1)
-        else:
+        if ratio <= 1.0:
+            # Concise: at or under the ~65% ideal is the preferred landing.
             score = ratio
+        else:
+            # Over the concise target — 1.5× source is a ceiling, not a goal.
+            score = 1.0 - min(0.25, (ratio - 1.0) * 0.2)
         return round(_clamp(score, 0.0, 1.0), 4)
     except Exception:
         return 0.85

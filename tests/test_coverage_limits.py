@@ -27,7 +27,7 @@ def test_output_ratio_and_listenability():
     assert output_ratio_of_source(450_000, 900_000) == 0.5
     assert listenability_tier(0.35) == "strict"
     assert listenability_tier(0.42) == "normal"
-    assert listenability_tier(0.50) == "relaxed"
+    assert listenability_tier(0.70) == "relaxed"
 
 
 def test_reanchor_min_coverage_short_interview():

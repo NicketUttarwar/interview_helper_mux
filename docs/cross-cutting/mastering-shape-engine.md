@@ -31,7 +31,7 @@ A candidate is a point in a bounded search space, combining moves across four ax
 | Native keep/order | Which source segments survive; sequence; reprise | Soft: nugget density, pacing. **Hard floor ~10% of source runtime** — below that a candidate is infeasible no matter how compelling |
 | Synthetic inserts | Cold open / outro kind, VO bridge lines, clone vs pickup voice, montage grammar moves | Hard invariants only (pickup-preferred, no invented dialogue, consent for clone) — otherwise open |
 | Music / SFX / air | Bed coverage, stingers, hinge punctuation, silence/air budget | Soft bands: **bed coverage 0.40–0.88**, **hinge stinger 0.3–1.0** — Shape-owned, not fixed defaults |
-| Duration | Overall length vs delivery-brief target | **Soft ideal** (`delivery_brief.target_duration_sec.ideal`); the only hard constraint is the native-floor rule above |
+| Duration | Overall length vs delivery-brief target | **Soft ideal ~65% of source** (`delivery_brief.target_duration_sec.ideal`); prefer concise / at-or-under ideal. Hard floor ~10% of source; hard ceiling **1.5×** (150%) of source |
 
 These bands are **soft — the space the search operates inside**, not literal defaults every plan must hit. A dense-dialogue candidate that never approaches 0.88 bed coverage is still valid; a candidate is only killed for violating a genuinely **hard** rule (native floor, invariants, infeasibility, critical semantic-integrity finding, or a hard listen-delight failure — below).
 

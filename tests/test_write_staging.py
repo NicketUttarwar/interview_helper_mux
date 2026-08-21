@@ -99,6 +99,29 @@ def test_read_path_falls_back_to_final_during_later_stage_staging(
         exit_stage_staging()
 
 
+def test_read_path_ignores_other_stage_incomplete_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failed junction staging must not feed mix a stale EDL."""
+    from interview_mux.write_staging import resolve_read_path, staging_root
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    committed = ctx.final_path("master", "edl.json")
+    committed.parent.mkdir(parents=True, exist_ok=True)
+    committed.write_text('{"clips":[{"segment_id":"seg_004","source_end_ms":97920}]}\n')
+    jroot = staging_root(ctx, "junction_snip_qa")
+    stale = jroot / "master" / "edl.json"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text('{"clips":[{"segment_id":"seg_004","source_end_ms":105840}]}\n')
+    enter_stage_staging("mix")
+    try:
+        resolved = resolve_read_path(ctx, "master/edl.json")
+        assert resolved == committed
+        assert "97920" in resolved.read_text()
+    finally:
+        exit_stage_staging()
+
+
 def test_transcribe_staging_hides_internal_aws_raw(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

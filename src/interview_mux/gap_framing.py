@@ -552,6 +552,9 @@ def avoid_clone_voice_adjacency(
         # Episode orientation must stay before the cold-open native — never
         # retarget it as clone-adjacent VO.
         if is_episode_orientation(line):
+            if line.get("clone_adjacency_exempt") is not True:
+                line["clone_adjacency_exempt"] = True
+                changed = True
             kept.append(line)
             continue
         exempt = is_cut_recovery_vo(
@@ -813,32 +816,165 @@ def transition_redundant_with_framing(
     before_segment_id: str,
 ) -> bool:
     """True when any spoken before/after gap VO already covers this segment pair."""
-    if not gap_report or not isinstance(gap_report, dict):
+    choice = choose_seam_synthetic(
+        after_segment_id,
+        before_segment_id,
+        gap_report=gap_report,
+    )
+    return str(choice.get("kind") or "") == "layup"
+
+
+def _air_script_seat_sets(
+    *,
+    ctx: Any | None = None,
+    plan: dict[str, Any] | None = None,
+) -> tuple[set[str] | None, set[str]]:
+    """Return (seated_ids or None if unpublished, omitted_ids)."""
+    omitted: set[str] = set()
+    seated: set[str] | None = None
+    try:
+        from interview_mux.air_script import (
+            load_air_script,
+            omitted_vo_line_ids,
+            seated_vo_line_ids,
+        )
+
+        resolved = plan
+        if resolved is None and ctx is not None:
+            from interview_mux.mastering_plan_loader import load_plan_raw
+
+            resolved = load_plan_raw(ctx)
+        script = load_air_script(resolved)
+        if not script:
+            return None, set()
+        omitted = omitted_vo_line_ids(resolved)
+        seats = script.get("vo_seats")
+        if isinstance(seats, dict) and "seated_line_ids" in seats:
+            seated = seated_vo_line_ids(resolved)
+    except Exception:
+        return None, set()
+    return seated, omitted
+
+
+def _gap_line_covers_seam(
+    line: dict[str, Any],
+    after_segment_id: str,
+    before_segment_id: str,
+    *,
+    seated_ids: set[str] | None,
+    omitted_ids: set[str],
+) -> bool:
+    if not isinstance(line, dict) or line.get("skipped_optional"):
         return False
+    delivery = str(line.get("delivery") or "").lower()
+    if delivery and delivery not in {"record", "synthesize"}:
+        return False
+    lid = str(line.get("line_id") or "").strip()
+    if lid and lid in omitted_ids:
+        return False
+    if seated_ids is not None and lid and lid not in seated_ids:
+        return False
+    target = str(line.get("targets_segment_id") or "").strip()
+    placement = str(line.get("placement") or "before").strip()
+    after = str(after_segment_id or "").strip()
+    before = str(before_segment_id or "").strip()
+    if placement == "before" and target == before:
+        return True
+    if placement == "after" and target == after:
+        return True
+    return False
+
+
+def _transition_item_for_pair(
+    transitions_doc: dict[str, Any] | None,
+    after_segment_id: str,
+    before_segment_id: str,
+) -> dict[str, Any] | None:
+    if not isinstance(transitions_doc, dict):
+        return None
     after = str(after_segment_id or "").strip()
     before = str(before_segment_id or "").strip()
     if not after or not before:
-        return False
-    for line in gap_report.get("interviewer_lines") or []:
-        if not isinstance(line, dict) or line.get("skipped_optional"):
+        return None
+    for item in transitions_doc.get("transitions") or []:
+        if not isinstance(item, dict):
             continue
-        delivery = str(line.get("delivery") or "").lower()
-        if delivery and delivery not in {"record", "synthesize"}:
+        if str(item.get("after_segment_id") or "").strip() != after:
             continue
-        target = str(line.get("targets_segment_id") or "").strip()
-        placement = str(line.get("placement") or "before").strip()
-        if placement == "before" and target == before:
-            return True
-        if placement == "after" and target == after:
-            return True
-    return False
+        if str(item.get("before_segment_id") or "").strip() != before:
+            continue
+        if str(item.get("text") or "").strip():
+            return item
+    return None
+
+
+def choose_seam_synthetic(
+    after_segment_id: str,
+    before_segment_id: str,
+    *,
+    gap_report: dict[str, Any] | None = None,
+    transitions_doc: dict[str, Any] | None = None,
+    ctx: Any | None = None,
+    plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Pick at most one spoken synthetic for the A→B seam.
+
+    Returns ``{kind: layup|transition|none, line_id, text}``. Layup/before-VO
+    wins when an active gap line covers the incoming native. WAV-on-disk is
+    not occupancy.
+    """
+    after = str(after_segment_id or "").strip()
+    before = str(before_segment_id or "").strip()
+    seated_ids, omitted_ids = _air_script_seat_sets(ctx=ctx, plan=plan)
+    covering: dict[str, Any] | None = None
+    if isinstance(gap_report, dict) and after and before:
+        for line in gap_report.get("interviewer_lines") or []:
+            if _gap_line_covers_seam(
+                line,
+                after,
+                before,
+                seated_ids=seated_ids,
+                omitted_ids=omitted_ids,
+            ):
+                covering = line
+                break
+    if covering is not None:
+        return {
+            "kind": "layup",
+            "line_id": str(covering.get("line_id") or "") or None,
+            "text": str(covering.get("text") or ""),
+        }
+    item = _transition_item_for_pair(transitions_doc, after, before)
+    if item is not None:
+        allowed = True
+        if ctx is not None or plan is not None:
+            try:
+                from interview_mux.air_script import transition_allowed_for_pair
+                from interview_mux.mastering_plan_loader import load_plan_raw
+
+                resolved = plan
+                if resolved is None and ctx is not None:
+                    resolved = load_plan_raw(ctx)
+                allowed = transition_allowed_for_pair(resolved, after, before)
+            except Exception:
+                allowed = True
+        if allowed:
+            return {
+                "kind": "transition",
+                "line_id": f"tr_{after}_{before}",
+                "text": str(item.get("text") or ""),
+            }
+    return {"kind": "none", "line_id": None, "text": None}
 
 
 def dedupe_transitions_for_framing(
     gap_report: dict[str, Any] | None,
     transitions_doc: dict[str, Any],
+    *,
+    ctx: Any | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Drop spoken transitions redundant with segment_summary / story_bridge VO."""
+    """Drop spoken transitions redundant with an active before/after gap VO."""
     items = list(transitions_doc.get("transitions") or [])
     if not items:
         return transitions_doc
@@ -850,7 +986,15 @@ def dedupe_transitions_for_framing(
             continue
         after = str(item.get("after_segment_id") or "")
         before = str(item.get("before_segment_id") or "")
-        if transition_redundant_with_framing(gap_report, after, before):
+        choice = choose_seam_synthetic(
+            after,
+            before,
+            gap_report=gap_report,
+            transitions_doc=transitions_doc,
+            ctx=ctx,
+            plan=plan,
+        )
+        if str(choice.get("kind") or "") == "layup":
             dropped += 1
             continue
         kept.append(item)

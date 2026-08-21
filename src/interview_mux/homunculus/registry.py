@@ -19,6 +19,7 @@ AUDIO_MUTATING = frozenset(
         "run_mmaudio",
         "run_chatterbox",
         "run_s2s",
+        "vo_synthesize",
         "run_deepfilter",
         "ears_stt_window",
         "ears_s2s_window",

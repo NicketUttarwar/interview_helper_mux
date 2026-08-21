@@ -54,7 +54,17 @@ def load_speaker_ref(ctx: RunContext, speaker_id: str) -> dict[str, Any] | None:
 def resolve_reference_audio(ctx: RunContext, line: dict[str, Any]) -> Path:
     from interview_mux.source_topology import ensure_speaker_sample_clips, pickup_eligible_speaker_id
 
-    speaker_id = str(line.get("voice_speaker_id") or pickup_eligible_speaker_id(ctx) or "").strip()
+    speaker_id = str(line.get("voice_speaker_id") or "").strip()
+    try:
+        from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+        locked = str((episode_vo_identity(ctx) or {}).get("speaker_id") or "").strip()
+        if locked:
+            speaker_id = locked
+    except Exception:
+        pass
+    if not speaker_id:
+        speaker_id = str(pickup_eligible_speaker_id(ctx) or "").strip()
     if not speaker_id:
         raise FileNotFoundError("No pickup-eligible speaker for S2S reference")
     clips = ensure_speaker_sample_clips(ctx)

@@ -180,6 +180,7 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "content_brief_reanchor": ("understanding/content_brief.json",),
     "episode_structure_compose": (),
     "chapter_close_hitch": ("mastering/chapter_close_hitch.json",),
+    "vo_synthesize": ("mastering/vo_synthesize.json",),
 }
 
 
@@ -244,6 +245,34 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
             raise RuntimeError(
                 "cannot skip chapter_close_hitch until the one-shot latch is committed"
             )
+    if stage == "vo_synthesize":
+        from interview_mux.transition_vo import (
+            current_transition_pairs_missing,
+            spoken_transition_pairs,
+        )
+
+        missing = current_transition_pairs_missing(ctx)
+        if missing:
+            raise RuntimeError(
+                "cannot skip vo_synthesize: current transition pairs missing WAV: "
+                + ", ".join(missing[:6])
+            )
+        if not spoken_transition_pairs(ctx):
+            if not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
+            # Fall through to skip list — no spoken pairs, nothing to protect.
+        elif stage in PROTECTED_CORE_STAGES:
+            needed = PROTECTED_CORE_STAGES[stage]
+            has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
+            if compensating_fact:
+                has_art = has_art or ctx.artifact_exists(compensating_fact)
+            if not has_art:
+                raise RuntimeError(
+                    "cannot skip vo_synthesize: mastering/vo_synthesize.json missing "
+                    "while spoken transition pairs exist"
+                )
+            if not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
     if stage in PROTECTED_ISLAND_STAGES:
         has_art = any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
         if not has_art:
@@ -251,7 +280,7 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
                 f"cannot skip {stage}: language-island artifacts missing "
                 "(low_conf_island_scan / connector_fuse_pass required)"
             )
-    if stage in PROTECTED_CORE_STAGES:
+    if stage in PROTECTED_CORE_STAGES and stage != "vo_synthesize":
         needed = PROTECTED_CORE_STAGES[stage]
         has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
         if compensating_fact:

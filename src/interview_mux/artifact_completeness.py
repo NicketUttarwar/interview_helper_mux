@@ -138,6 +138,9 @@ def _gaps_speakers(data: dict[str, Any] | None) -> list[str]:
         for sp in speakers
     ):
         gaps.append("speakers.all_unknown_roles")
+    conflict = data.get("role_tape_conflict") if isinstance(data, dict) else None
+    if isinstance(conflict, dict) and conflict.get("blocking"):
+        gaps.append("role_tape_conflict")
     return gaps
 
 def _gaps_sound_design_plan(data: dict[str, Any] | None) -> list[str]:
@@ -193,6 +196,10 @@ def _gaps_mmaudio_qa(data: dict[str, Any] | None) -> list[str]:
         return ["assets"]
     assets = data.get("assets")
     if not isinstance(assets, list):
+        return ["assets"]
+    # Empty list used to count as complete and left music-only runs with a
+    # committed mmaudio_qa.json that never described the theme wavs on disk.
+    if not assets:
         return ["assets"]
     return []
 
@@ -739,6 +746,23 @@ def should_run_stage_for_artifact(ctx: RunContext, stage_key: str) -> bool:
 
 def stage_keys_for_artifact_path(rel_path: str) -> list[str]:
     return [k for k, p in STAGE_ARTIFACT_DISK_PATHS.items() if p == rel_path]
+
+
+def preferred_fill_stage(rel_path: str, ctx: RunContext) -> str | None:
+    """LLM stage to re-run when filling gaps on ``rel_path``.
+
+    Shared artifacts (content_brief, boundaries) have an early writer and a later
+    re-writer. After the later contract is in force, fill-gaps must not rewind to
+    the early producer.
+    """
+    keys = stage_keys_for_artifact_path(rel_path)
+    if not keys:
+        return None
+    if rel_path == "understanding/content_brief.json":
+        if ctx.artifact_exists("segments/manifest.json"):
+            return "content_brief_reanchor"
+        return "content_context"
+    return keys[-1] if ctx.is_done(keys[-1]) else keys[0]
 
 def make_stage_persist(
     rel_path: str,

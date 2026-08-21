@@ -22,8 +22,8 @@ from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 
 def test_registry_covers_all_pipeline_stages():
     ids = all_pipeline_stage_ids()
-    assert len(ids) == 66
-    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 66
+    assert len(ids) == 67
+    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 67
     cov = registry_coverage()
     assert cov["ok"] is True
     assert cov["missing_family"] == []

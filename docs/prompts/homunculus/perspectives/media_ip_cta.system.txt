@@ -22,7 +22,7 @@ Emit `artifacts.media_ip_cta` as an array (empty or null if none). Each hit:
 - `cta_open`: true when this pitch is the first thing on tape / first ordered native
 - `open_choice`: `story_child_first` or `third_person_opener` when `cta_open`
 
-If two (or more) clips are **clearly** pitches, list **all** of them. Host drops every clear hit. If mixed, host recuts and drops only the pitch child; if the cut cannot be done, host drops the whole clip.
+If two (or more) clips are **clearly** pitches, list **all** of them (0–N per tape — do not stop after one; kill any “usually one per tape” habit). Mixed is the **default** when a long turn contains a bumper *and* story. Host will partition complete-thought spans and find hinges; `cut_ms` is a hint. Host drops every clear hit. If mixed, host recuts and drops only the pitch child; if the cut cannot be done, host drops the whole clip.
 
 Also exclude those natives in `excluded_segment_ids` with `reason: media_ip_cta`. Never leave a clear pitch in `ordered_segment_ids`.
 

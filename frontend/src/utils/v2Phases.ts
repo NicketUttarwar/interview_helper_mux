@@ -110,9 +110,10 @@ export const V2_PHASES: V2Phase[] = [
   {
     id: "build",
     label: "Build",
-    description: "EDL, preview, listen delight, MMAudio, mix, junction QA.",
+    description: "Spoken VO synth, EDL, preview, listen delight, MMAudio, mix, junction QA.",
     stages: [
       "edl_narrative_audit",
+      "vo_synthesize",
       "edl",
       "assembly_preview",
       "listen_delight_audit",

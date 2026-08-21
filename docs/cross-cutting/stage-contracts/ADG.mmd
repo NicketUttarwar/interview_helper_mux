@@ -92,20 +92,29 @@ flowchart LR
   full_master_ranking -->|I| nugget_layup_compose
   full_master_ranking -->|I| transitions
   full_master_ranking -->|I| sound_design_plan
+  full_master_ranking -->|I| vo_synthesize
   full_master_ranking -->|I| edl
   nugget_corpus_mine -->|I| nugget_layup_compose
   nugget_corpus_mine -->|I| gap_framing_recompose
   nugget_corpus_mine -->|I| transitions
+  nugget_corpus_mine -->|I| vo_synthesize
   nugget_corpus_mine -->|I| edl
   nugget_layup_compose -->|I| gap_framing_recompose
   nugget_layup_compose -->|I| selection_framing_apply
   nugget_layup_compose -->|I| transitions
+  nugget_layup_compose -->|I| vo_synthesize
   nugget_layup_compose -->|I| edl
   transitions -->|I| sound_design_plan
+  transitions -->|I| vo_synthesize
   transitions -->|I| edl
   sound_design_plan -->|I| sfx_prompt_craft
+  sound_design_plan -->|I| vo_synthesize
   sound_design_plan -->|I| edl
+  edl_narrative_audit -->|I| vo_synthesize
+  edl_narrative_audit -->|I| edl
+  vo_synthesize -->|I| edl
   g1_vo_pickup -->|I| sound_design_vo_finalize
+  g1_vo_pickup -->|I| vo_synthesize
   g1_vo_pickup -->|I| edl
   g1_vo_pickup -->|I| assembly_preview
   g1_vo_pickup -->|I| mix
@@ -135,6 +144,8 @@ flowchart LR
   island_cluster_structure_adjudicate -->|R| transcribe
   junction_feel_audit -->|R| junction_snip_qa
   junction_feel_audit -->|R| edl
+  junction_thought_complete -->|R| edl
+  junction_thought_complete -->|R| transcription
   master_transcript_build -->|R| master_finalize
   master_transcript_build -->|R| edl
   missing_framing -->|R| boundary_topic_resplit

@@ -119,8 +119,10 @@ class RunContext:
     ) -> Path:
         if isinstance(data, dict):
             from interview_mux.artifact_writes import _prepare_for_disk_validation
+            from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
             from interview_mux.prompt_validation import validate_artifact_write
 
+            data = prepare_edl_payload_for_disk(self, rel, data)
             payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
             errors = validate_artifact_write(rel, payload)
             if errors:

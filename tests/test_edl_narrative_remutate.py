@@ -156,6 +156,78 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path) -> N
     assert not str(tr["transitions"][0]["text"]).endswith("?")
 
 
+def test_host_repair_seeds_seated_but_missing_layup(tmp_path) -> None:
+    import json
+
+    from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
+
+    ctx = isolated_run_ctx(tmp_path, "exec_narr_seated_layup")
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_035", "seg_036"]})
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {
+                    "segment_id": "seg_036",
+                    "self_explanatory": False,
+                    "severity": "high",
+                    "gap_type": "missing_setup",
+                    "listener_confusion": "how a live cell is actually used",
+                    "recommended_framing": "question",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("master/transitions.json", {"transitions": []}, skip_handoff=True)
+    audit_path = ctx.path("master", "edl_narrative_audit.json")
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "verdict": "fail",
+                "blocking_issues": [
+                    {
+                        "issue": (
+                            "The high-severity actionable-single-cell layup for seg_036 "
+                            "is seated but missing, and no transition covers the actual "
+                            "selected adjacency from seg_035 to seg_036."
+                        )
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    applied = apply_edl_narrative_host_repair(ctx)
+    assert "seed_missing_seated_layup" in applied["notes"]
+    assert "ensure_adjacency_transition" in applied["notes"]
+    assert applied["from_stage"] == "sound_design_vo_finalize"
+    gap = ctx.read_json("understanding/gap_report.json")
+    targets = [
+        str(ln.get("targets_segment_id"))
+        for ln in (gap.get("interviewer_lines") or [])
+        if isinstance(ln, dict)
+    ]
+    assert "seg_036" in targets
+    tr = ctx.read_json("master/transitions.json")
+    pairs = {
+        (r.get("after_segment_id"), r.get("before_segment_id"))
+        for r in (tr.get("transitions") or [])
+        if isinstance(r, dict)
+    }
+    assert ("seg_035", "seg_036") in pairs
+    hinge = next(
+        str(r.get("text") or "")
+        for r in (tr.get("transitions") or [])
+        if isinstance(r, dict)
+        and r.get("after_segment_id") == "seg_035"
+        and r.get("before_segment_id") == "seg_036"
+    )
+    assert "next beat" not in hinge.lower()
+
+
 def test_compact_vo_coverage_marks_omitted_and_rendered(tmp_path) -> None:
     import json
 

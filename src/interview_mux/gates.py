@@ -546,9 +546,10 @@ def check_edl_qc(
     stage: str,
     edl: dict | None = None,
     strict: bool | None = None,
+    gap_report: dict | None = None,
 ) -> None:
     """Warn or block on EDL timeline QC before mix or after EDL build."""
-    errors = validate_flow1_edl(ctx, edl)
+    errors = validate_flow1_edl(ctx, edl, gap_report=gap_report)
     use_strict = edl_qc_strict_enabled() if strict is None else strict
     if not errors:
         ctx.log(

@@ -397,6 +397,33 @@ def test_validate_vo_pickup_satisfies_planned_transition() -> None:
     assert not any("missing transition clip" in e for e in errors)
 
 
+def test_validate_clone_suppressed_transition_not_required() -> None:
+    """build_flow1_edl may omit clone-adjacent transitions; QC must not demand them."""
+    ctx = RunContext("run_edl_clone_suppressed_transition", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": "Clone-adjacent bridge omitted on purpose.",
+                    "type": "bridge",
+                    "voice_speaker_id": "spk_1",
+                }
+            ]
+        },
+    )
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "transition"]
+    edl.setdefault("warnings", {})["suppressed_clone_adjacency"] = [
+        "transition:seg_a->seg_b"
+    ]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("missing transition clip" in e for e in errors)
+
+
 def test_validate_transition_after_incomplete_thought_fails() -> None:
     ctx = RunContext("run_edl_illegal_hinge_vo", create=True)
     _write_story_artifacts(ctx)
@@ -418,4 +445,72 @@ def test_validate_transition_after_incomplete_thought_fails() -> None:
     edl = _good_edl()
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("incomplete thought" in e for e in errors)
+
+
+def test_unaired_ordering_constraint_is_skipped(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext("run_edl_unaired_constraint", create=True)
+    _write_story_artifacts(ctx)
+    plan = ctx.read_json("master/narrative_plan.json")
+    plan["ordering_constraints"].append(
+        {
+            "before_segment_id": "seg_a",
+            "after_segment_id": "seg_dropped",
+            "reason": "stale_mastering_plan",
+        }
+    )
+    ctx.write_json("master/narrative_plan.json", plan)
+    errors = validate_flow1_edl_narrative(ctx, _good_edl())
+    assert not any("seg_dropped" in e for e in errors)
+
+
+def test_validate_rejects_transition_then_layup_before_native() -> None:
+    ctx = RunContext("run_edl_double_synth", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a"),
+            minimal_manifest_segment("seg_b"),
+            minimal_manifest_segment("seg_c"),
+        ),
+    )
+    edl = _good_edl()
+    # Insert a layup immediately after the existing transition, before seg_c.
+    clips = list(edl["clips"])
+    trans_idx = next(i for i, c in enumerate(clips) if c.get("type") == "transition")
+    clips.insert(
+        trans_idx + 1,
+        {
+            "type": "vo_pickup",
+            "line_id": "vo_layup_seg_c",
+            "targets_segment_id": "seg_c",
+            "placement": "before",
+            "timeline_start_ms": 2100,
+            "duration_ms": 1000,
+        },
+    )
+    edl["clips"] = clips
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("synthetic inserts adjacent" in e for e in errors)
+
+
+def test_validate_rejects_mixed_voice_speaker_id() -> None:
+    ctx = RunContext("run_edl_mixed_voice", create=True)
+    _write_story_artifacts(ctx)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_a"),
+            minimal_manifest_segment("seg_b"),
+            minimal_manifest_segment("seg_c"),
+        ),
+    )
+    edl = _good_edl()
+    edl["clips"][1]["voice_speaker_id"] = "spk_0"
+    for clip in edl["clips"]:
+        if clip.get("type") == "transition":
+            clip["voice_speaker_id"] = "spk_1"
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert any("mixed voice_speaker_id" in e for e in errors)
 

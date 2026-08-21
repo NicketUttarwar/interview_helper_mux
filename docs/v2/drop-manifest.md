@@ -2,7 +2,7 @@
 
 Modules, surfaces, and behaviors **not ported** to the greenfield simplified app.
 
-For what the v2 pipeline actually runs, see [`src/interview_mux/v2/config.py`](../../src/interview_mux/v2/config.py) (**34 analysis + 32 delivery = 66 stages**) and [port-manifest.csv](./port-manifest.csv).
+For what the v2 pipeline actually runs, see [`src/interview_mux/v2/config.py`](../../src/interview_mux/v2/config.py) (**34 analysis + 33 delivery = 67 stages**) and [port-manifest.csv](./port-manifest.csv).
 
 ## Kept (explicitly *not* dropped)
 
@@ -38,7 +38,6 @@ Listed here because earlier revisions of this manifest wrongly marked them dropp
 | `mastering_polish_loop.py`, `mastering_prompt_promotion.py`, `mastering_research_router.py` | Mastering research/polish loop |
 | `stages/disfluency.py` | G0.5 cut |
 | `stages/transcribe_aws.py` | Local MLX STT only (`stages/transcribe_local.py`) |
-| `stages/vo_synthesize.py` | Chatterbox VO via `chatterbox_runner.py` |
 | `stages/sfx_elevenlabs.py` | Local MMAudio only |
 | `stages/assembly_flow2.py`, `stages/selection_flow2.py`, `stages/publishing_flow3.py` | Flow 2 / Flow 3 removed |
 | Profile gate checks in `gates.py` | Cut |

@@ -517,8 +517,15 @@ def _llm_adjudicate_batch(
         return []
     conf = connector_fuse_cfg(cfg)
     try:
+        from interview_mux.homunculus.budget import (
+            LimitExhausted,
+            identity_exhausted,
+            mark_identity_exhausted,
+        )
         from interview_mux.stages.llm_runner import load_system_prompt, run_prompt_envelope
     except Exception:
+        return None
+    if identity_exhausted(ctx, SEAM_STAGE_KEY):
         return None
 
     system: str
@@ -548,6 +555,7 @@ def _llm_adjudicate_batch(
     seen: set[str] = set()
     ladder = [t for t in tiers if not (t in seen or seen.add(t))]
     last_exc: Exception | None = None
+    envelope: dict[str, Any] | None = None
     work = list(batch)
     for bump, tier in enumerate(ladder):
         try:
@@ -564,6 +572,11 @@ def _llm_adjudicate_batch(
                 system_override=system,
             )
             last_exc = None
+            break
+        except LimitExhausted as exc:
+            mark_identity_exhausted(ctx, SEAM_STAGE_KEY)
+            last_exc = exc
+            envelope = None
             break
         except Exception as exc:  # noqa: BLE001
             last_exc = exc

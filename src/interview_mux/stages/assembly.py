@@ -343,14 +343,13 @@ def build_flow1_edl(
                 for ln in before_lines
                 if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
             ]
-        # One host turn per seam: if prior clip already left a VO/transition, skip
-        # generic hinges — keep layup/orientation recovery copy.
+        # One host turn per seam: never stack a second synthetic after VO/transition.
+        # Orientation may still air on the opening native only.
         if _last_non_silence_type() in {"vo_pickup", "transition"}:
-            before_lines = [
-                ln
-                for ln in before_lines
-                if str(ln.get("origin") or "") == "nugget_layup" or _is_orientation(ln)
-            ]
+            if idx == 0:
+                before_lines = [ln for ln in before_lines if _is_orientation(ln)]
+            else:
+                before_lines = []
 
         # Opening grammar pin: orientation must stay within the early audible window.
         # Straight: orientation first among before-VO. Cold open: defer hook before-VO
@@ -383,6 +382,7 @@ def build_flow1_edl(
                 voice_speaker_id
                 and voice_speaker_id == target_speaker_id
                 and not bool(line.get("clone_adjacency_exempt"))
+                and not _is_orientation(line)
             ):
                 suppressed_clone_adjacency.append(str(line.get("line_id") or sid))
                 return
@@ -410,7 +410,9 @@ def build_flow1_edl(
                 "targets_segment_id": sid,
                 "placement": placement,
                 "voice_speaker_id": voice_speaker_id,
-                "clone_adjacency_exempt": bool(line.get("clone_adjacency_exempt")),
+                "clone_adjacency_exempt": bool(
+                    line.get("clone_adjacency_exempt") or _is_orientation(line)
+                ),
                 "gap_type": line.get("gap_type"),
                 "line_category": line.get("line_category"),
                 "episode_orientation": bool(line.get("episode_orientation")),
@@ -481,7 +483,45 @@ def build_flow1_edl(
                 meta_out=air_meta,
                 wav_path=normalized_wav,
             )
+        if words:
+            from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+            from interview_mux.ideal_cuts import last_complete_thought_end_ms
+
+            span = " ".join(
+                str(w.get("text") or "")
+                for w in words
+                if isinstance(w, dict)
+                and speech_start <= int(w.get("start_ms") or 0) < speech_end
+            ).strip()
+            if span and not is_legal_conceptual_hinge(
+                span, words=words, end_ms=speech_end
+            ):
+                fixed = last_complete_thought_end_ms(
+                    words, start_ms=speech_start, end_ms=speech_end
+                )
+                if fixed is not None and fixed - speech_start >= 400:
+                    speech_end = int(fixed)
         speech_dur = max(0, speech_end - speech_start)
+        if words and speech_dur < 5000:
+            from interview_mux.gap_vo_prior_context import is_legal_conceptual_hinge
+
+            span = " ".join(
+                str(w.get("text") or "")
+                for w in words
+                if isinstance(w, dict)
+                and speech_start <= int(w.get("start_ms") or 0) < speech_end
+            ).strip()
+            b0 = air_meta.get("before_start_ms")
+            b1 = air_meta.get("before_end_ms")
+            if span and not is_legal_conceptual_hinge(
+                span, words=words, end_ms=speech_end
+            ):
+                if b0 is not None and b1 is not None and int(b1) - int(b0) >= 2000:
+                    speech_start, speech_end = int(b0), int(b1)
+                    speech_dur = max(0, speech_end - speech_start)
+                    air_meta["air_bound_reason"] = (
+                        str(air_meta.get("air_bound_reason") or "") + "+before_window_hanging_rescue"
+                    )
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
@@ -536,12 +576,27 @@ def build_flow1_edl(
             nxt = ordered[idx + 1]
             tr = _transition_after_segment(transitions, sid, nxt)
             if tr:
-                from interview_mux.gap_framing import transition_redundant_with_framing
+                from interview_mux.gap_framing import choose_seam_synthetic
 
-                if transition_redundant_with_framing(gap_report, sid, nxt):
+                choice = choose_seam_synthetic(
+                    sid,
+                    nxt,
+                    gap_report=gap_report,
+                    transitions_doc=transitions,
+                )
+                if str(choice.get("kind") or "") == "layup":
                     tr = None
                 elif _last_non_silence_type() == "vo_pickup":
                     tr = None
+                else:
+                    already_vo = any(
+                        isinstance(c, dict)
+                        and c.get("type") == "vo_pickup"
+                        and str(c.get("targets_segment_id") or "") == str(nxt)
+                        for c in clips
+                    )
+                    if already_vo:
+                        tr = None
             if tr:
                 transition_voice = str(tr.get("voice_speaker_id") or "").strip()
                 if transition_voice and transition_voice in {
@@ -572,10 +627,10 @@ def build_flow1_edl(
                         "text": text,
                         "transition_type": tr.get("type", "bridge"),
                         "voice_speaker_id": tr.get("voice_speaker_id"),
-                        "source_path": tr_rel,
                         "duration_ms": tr_dur,
                         "timeline_start_ms": timeline_ms,
                         "script_hash": script_hash(text),
+                        **({"source_path": tr_rel} if tr_rel else {}),
                     }
                 )
                 timeline_ms += tr_dur
@@ -662,6 +717,40 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
     return notes
 
 
+def _prepare_locked_selection(ctx: RunContext, selection: dict) -> dict:
+    from interview_mux.artifact_repairs import (
+        _segment_is_blank_or_unusable,
+        reconcile_ordered_vs_excluded,
+    )
+
+    selection = reconcile_ordered_vs_excluded(
+        selection if isinstance(selection, dict) else {}
+    )
+    order = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    cleaned = [s for s in order if not _segment_is_blank_or_unusable(ctx, s)]
+    if cleaned != order:
+        have = {
+            str(r.get("segment_id") if isinstance(r, dict) else r)
+            for r in (selection.get("excluded_segment_ids") or [])
+        }
+        excl = list(selection.get("excluded_segment_ids") or [])
+        for sid in order:
+            if sid in cleaned or sid in have:
+                continue
+            excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
+            have.add(sid)
+        selection["ordered_segment_ids"] = cleaned
+        selection["excluded_segment_ids"] = excl
+        keep = set(cleaned)
+        for ch in selection.get("chapters") or []:
+            if isinstance(ch, dict):
+                ch["segment_ids"] = [
+                    str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep
+                ]
+        selection = reconcile_ordered_vs_excluded(selection)
+    return selection
+
+
 def run_edl(ctx: RunContext) -> None:
     if ctx.artifact_exists("master/edl_narrative_audit.json"):
         audit = ctx.read_json("master/edl_narrative_audit.json")
@@ -675,6 +764,12 @@ def run_edl(ctx: RunContext) -> None:
     soft = False
     with logged_step("edl/load_inputs", ctx=ctx, stage="edl"):
         selection = ctx.read_json("master/selection.json")
+        from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+
+        selection = reconcile_ordered_vs_excluded(
+            selection if isinstance(selection, dict) else {}
+        )
+        ctx.write_json("master/selection.json", selection)
         nle = load_nle(ctx)
         by_id = _segment_by_id(ctx)
         if nle_has_operator_edits(nle):
@@ -769,10 +864,32 @@ def run_edl(ctx: RunContext) -> None:
         from interview_mux.nugget_layup import (
             assert_gap_report_layup_authority,
             assert_layup_fresh_vs_selection,
+            dedupe_gap_report_nugget_claims,
         )
 
         # Air copy is about to be cut — refuse a lay-up plan built for a
         # different order, or a body another writer rewrote.
+        if isinstance(gap_report, dict):
+            gap_report, dedupe_notes = dedupe_gap_report_nugget_claims(gap_report)
+            if dedupe_notes:
+                ctx.write_json("understanding/gap_report.json", gap_report)
+                ctx.log(
+                    f"edl: deduped {len(dedupe_notes)} overlapping nugget claim(s)",
+                    level="warning",
+                    stage="edl",
+                )
+        selection = _prepare_locked_selection(ctx, selection)
+        ctx.write_json("master/selection.json", selection)
+        try:
+            from interview_mux.nugget_layup import PLAN_REL
+            from interview_mux.order_hash import copy_order_lock
+
+            if ctx.artifact_exists(PLAN_REL):
+                plan = ctx.read_json(PLAN_REL)
+                if isinstance(plan, dict):
+                    ctx.write_json(PLAN_REL, copy_order_lock(selection, plan))
+        except Exception:
+            pass
         assert_layup_fresh_vs_selection(ctx, stage="edl")
         assert_gap_report_layup_authority(
             ctx, gap_report if isinstance(gap_report, dict) else None, stage="edl"
@@ -846,7 +963,7 @@ def run_edl(ctx: RunContext) -> None:
         )
 
         try:
-            tr_notes = resync_spoken_transitions(ctx)
+            tr_notes = resync_spoken_transitions(ctx, fail_closed=False)
             if tr_notes:
                 ctx.log(
                     f"edl: re-synthesized stale transitions {tr_notes[:6]}",
@@ -854,7 +971,7 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                 )
         except RuntimeError:
-            raise
+            ctx.log("edl: resync raised; continuing with dangling-path lint", level="warning", stage="edl")
         synth_rows = synthesize_spoken_transitions(ctx)
         if synth_rows:
             failed = [r for r in synth_rows if r.get("ok") is False]
@@ -870,6 +987,9 @@ def run_edl(ctx: RunContext) -> None:
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         from interview_mux.order_hash import copy_order_lock, stamp_order_hash
         from interview_mux.ideal_cuts import load_air_bound_inputs
+
+        selection = _prepare_locked_selection(ctx, selection)
+        ctx.write_json("master/selection.json", selection)
 
         ideal_cuts_doc, transcript_words = load_air_bound_inputs(ctx)
         wav_path = None
@@ -969,8 +1089,11 @@ def run_edl(ctx: RunContext) -> None:
         level="success",
         stage="edl",
     )
+    from interview_mux.transition_vo import lint_edl_vo_source_paths
+
+    edl = lint_edl_vo_source_paths(ctx, edl)
     assert_spoken_transitions_audible(ctx, edl)
-    check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
+    check_edl_qc(ctx, stage="edl", edl=edl, strict=True, gap_report=gap_report)
     check_edl_narrative_qc(ctx, stage="edl", edl=edl)
 
     with logged_step("edl/validate_write", ctx=ctx, stage="edl"):
@@ -1060,8 +1183,43 @@ def run_mix(ctx: RunContext) -> Path:
             assert_ledger_no_naked_seams(ledger)
 
     check_edl_qc(ctx, stage="mix", strict=False)
+
+    try:
+        from interview_mux.transition_vo import (
+            commit_current_transition_wavs,
+            current_transition_pairs_missing,
+            restamp_edl_transition_source_paths,
+        )
+
+        pre_missing = current_transition_pairs_missing(ctx)
+        if pre_missing:
+            ctx.log(
+                "mix: current transition pairs missing WAV — resync before render: "
+                + ", ".join(pre_missing[:8]),
+                level="warning",
+                stage="mix",
+            )
+            commit_current_transition_wavs(ctx)
+            restamp_edl_transition_source_paths(ctx)
+    except Exception as exc:
+        ctx.log(f"mix: VO pair resync skipped: {exc}", level="warning", stage="mix")
+
     with logged_step("mix/render", ctx=ctx, stage="mix"):
         out = mix(ctx)
+    try:
+        from interview_mux.transition_vo import current_transition_pairs_missing, persist_vo_pair_gap
+
+        still = current_transition_pairs_missing(ctx)
+        persist_vo_pair_gap(ctx, still, source="mix")
+        if still:
+            ctx.log(
+                "mix: current transition pairs still missing WAV after last-chance: "
+                + ", ".join(still[:8]),
+                level="error",
+                stage="mix",
+            )
+    except Exception:
+        pass
     try:
         from interview_mux.listen_delight import rerun_listen_delight_after_mix
 

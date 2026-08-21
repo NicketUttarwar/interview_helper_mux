@@ -356,11 +356,11 @@ G1_STAGE = StageInfo(
 
 VO_SYNTHESIZE_STAGE = StageInfo(
     "vo_synthesize",
-    "Synthesize gap VO",
-    "On-demand at G1: local mlx-audio S2S for delivery:synthesize lines (fail-open).",
-    "gate",
-    ("vo_pickup/synthesized/", "understanding/gap_report.json"),
-    ("vo_pickup/synthesized/",),
+    "Synthesize spoken VO",
+    "Generate current-pair transition WAVs and remaining delivery:synthesize gap lines (fail-open). G1 API still synthesizes one line.",
+    "delivery",
+    ("mastering/vo_synthesize.json", "master/transitions/", "vo_pickup/synthesized/"),
+    ("mastering/vo_synthesize.json",),
 )
 
 VO_INGEST_STAGE = StageInfo(
@@ -533,6 +533,7 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         ),
         ("master/edl_narrative_audit.json",),
     ),
+    VO_SYNTHESIZE_STAGE,
     StageInfo(
         "edl",
         "Edit decision list",
@@ -943,6 +944,7 @@ _STAGE_REUSE_POLICY: dict[str, str] = {
         "sound_design_plan",
         "sound_design_vo_finalize",
         "edl_narrative_audit",
+        "vo_synthesize",
         "edl",
         "assembly_preview",
         "listen_delight_audit",

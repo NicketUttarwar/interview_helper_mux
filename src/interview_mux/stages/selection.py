@@ -349,9 +349,17 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             narrative_mode = str(mp.get("narrative_mode"))
         elif isinstance(plan, dict) and plan.get("narrative_mode"):
             narrative_mode = str(plan.get("narrative_mode"))
+        vo_shape = None
+        try:
+            from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+            vo_shape = str((episode_vo_identity(c) or {}).get("vo_shape") or "") or None
+        except Exception:
+            vo_shape = None
         bridges = annotate_reorder_bridges(
             build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
             narrative_mode=narrative_mode,
+            episode_vo_shape=vo_shape,
         )
         c.write_json("understanding/reorder_bridges.json", bridges)
 
@@ -384,6 +392,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                 bridges = annotate_reorder_bridges(
                     build_reorder_bridges(ordered, by_id, chapter_ends=chapter_ends),
                     narrative_mode=narrative_mode,
+                    episode_vo_shape=vo_shape,
                 )
                 c.write_json("understanding/reorder_bridges.json", bridges)
                 health = evaluate_story_health(
@@ -474,9 +483,11 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
         artifacts = bump_order_lock(artifacts, source="full_master_ranking")
         try:
-            from interview_mux.media_ip_cta import apply_cta_judgments
+            from interview_mux.media_ip_cta import apply_cta_judgments, apply_editorial_omits
 
             artifacts = apply_cta_judgments(c, artifacts)
+            artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+            artifacts = apply_editorial_omits(c, artifacts)
             artifacts = bump_order_lock(artifacts, source="full_master_ranking")
         except Exception as exc:
             c.log(
@@ -593,6 +604,13 @@ def run_transitions(ctx: RunContext) -> None:
                 }
             except Exception:
                 pass
+        try:
+            from interview_mux.speaker_delivery_plan import episode_vo_identity
+
+            payload["episode_vo_identity"] = episode_vo_identity(c)
+            payload["vo_shape_lock"] = payload["episode_vo_identity"].get("vo_shape")
+        except Exception:
+            pass
         from interview_mux.source_topology import attach_adaptation_to_payload
         from interview_mux.delivery_brief import attach_delivery_brief_to_payload
 
@@ -615,7 +633,7 @@ def run_transitions(ctx: RunContext) -> None:
             if c.artifact_exists("understanding/gap_report.json")
             else None
         )
-        artifacts = dedupe_transitions_for_framing(gap_report, artifacts)
+        artifacts = dedupe_transitions_for_framing(gap_report, artifacts, ctx=c)
         artifacts = dedupe_transitions_by_adjacency(artifacts)
         manifest = (
             c.read_json("segments/manifest.json")
@@ -667,6 +685,18 @@ def run_transitions(ctx: RunContext) -> None:
             }
             if decision["text"]:
                 seen_texts.append(str(decision["text"]))
+        try:
+            from interview_mux.speaker_delivery_plan import stamp_episode_vo_identity
+
+            for row in artifacts.get("transitions") or []:
+                if not isinstance(row, dict):
+                    continue
+                stamped = stamp_episode_vo_identity(c, row)
+                row["voice_speaker_id"] = stamped.get("voice_speaker_id")
+                if stamped.get("vo_shape"):
+                    row["vo_shape"] = stamped.get("vo_shape")
+        except Exception:
+            pass
         persist(c, artifacts)
 
     with logged_step("transitions/llm_stage", ctx=ctx, stage="transitions"):

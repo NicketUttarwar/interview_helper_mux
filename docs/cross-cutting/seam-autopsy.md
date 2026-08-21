@@ -105,7 +105,7 @@ artifact is missing (never to mask a real signal that *is* present):
 
 | Dimension | Floor | Source signal |
 |-----------|-------|----------------|
-| `nugget_retention` | `0.80` | Selected duration vs `delivery_brief` ideal pack target |
+| `nugget_retention` | `0.80` | Selected duration vs `delivery_brief` ideal pack target (~65% of source; prefer concise / at-or-under ideal) |
 | `cut_integrity` | `0.85` | `junction_snip_qa.json` critical residual findings |
 | `conversation_fit` | `0.85` | `bridge_completeness.json` missing/stub bridge counts, else mode-consistency soft score |
 | `sonic_weave` | `0.85` | `seam_autopsy.json` `scores.music_completeness`, else a live count of `music_hard_edge` risk codes across seams |

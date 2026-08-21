@@ -14,7 +14,7 @@ _DEFAULTS: dict[str, float | int] = {
     "reanchor_min_coverage_ratio": 0.55,
     "reanchor_min_coverage_ratio_max": 0.85,
     "delivery_output_min_ratio_of_source": 0.10,
-    "delivery_output_ideal_ratio_of_source": 0.45,
+    "delivery_output_ideal_ratio_of_source": 0.65,
     "delivery_output_max_ratio_of_source": 1.5,
     "volley_spread_quartile_min_ratio": 0.25,
     "volley_hydrate_max_ratio_of_budget": 0.20,
@@ -206,7 +206,7 @@ def listenability_tier(output_ratio: float, cfg: dict[str, Any] | None = None) -
     strict_below = _float(limits, "listenability_strict_below_output_ratio", 0.40)
     if output_ratio < strict_below:
         return "strict"
-    if output_ratio < _float(limits, "delivery_output_ideal_ratio_of_source", 0.45):
+    if output_ratio < _float(limits, "delivery_output_ideal_ratio_of_source", 0.65):
         return "normal"
     return "relaxed"
 
@@ -317,7 +317,7 @@ def delivery_output_min_ratio(cfg: dict[str, Any] | None = None) -> float:
 
 
 def delivery_output_ideal_ratio(cfg: dict[str, Any] | None = None) -> float:
-    return _float(coverage_limits_cfg(cfg), "delivery_output_ideal_ratio_of_source", 0.45)
+    return _float(coverage_limits_cfg(cfg), "delivery_output_ideal_ratio_of_source", 0.65)
 
 
 def delivery_output_max_ratio(cfg: dict[str, Any] | None = None) -> float:

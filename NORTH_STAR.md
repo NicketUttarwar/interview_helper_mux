@@ -28,7 +28,7 @@ The product is not “glue leftover clips.” **Shape / Mastering Process** choo
 
 **Combinations and mutations** (order, keeps, bridges, beds, duration toward soft ideal) exist to convey the **most information in the best manner**.
 
-**Retention policy:** **aim band** for final `master/master.wav` (and selection proxy) = **0.45×–1.5×** of source duration. Soft pack toward delivery-brief **ideal** (~45% of source). **Hard floor ~10%** catastrophe net only; **hard ceiling 1.5×** (VO/music may expand past source, not unboundedly). Never a high retention lock (e.g. 35%) that blocks reshaping the episode.
+**Retention policy:** Soft pack toward delivery-brief **ideal** (~65% of source). Prefer **shorter / more concise** than padding — do not fill toward the ceiling. **Hard floor ~10%** catastrophe net only; **hard ceiling 1.5×** (150% of source; VO/music may expand past source, not unboundedly). The 0.10×–1.5× range is the legal band, not a target to grow into. Never a high retention lock (e.g. 35%) that blocks reshaping the episode.
 
 **Sonic coverage bands** (Shape-owned soft targets, not remux theater):
 

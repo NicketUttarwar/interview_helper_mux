@@ -57,6 +57,7 @@ sdp_intent_refine,sound,non_llm,refinement_passes.py,legacy,removed from DELIVER
 sound_design_vo_finalize,sound,non_llm,stages/sound_design_vo_finalize.py,yes,
 edl_narrative_audit,build,llm,stages/edl_narrative_audit.py,yes,
 edl_narrative_refine,build,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
+vo_synthesize,build,non_llm,stages/vo_synthesize.py,yes,current-pair transition WAVs + remaining synthesize gap lines
 edl,build,non_llm,stages/assembly.py,yes,
 assembly_preview,build,non_llm,stages/assembly.py,yes,speech+VO preview
 listen_delight_audit,build,non_llm,listen_delight.py,yes,authoritative ship gate
