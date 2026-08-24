@@ -32,6 +32,7 @@ propagation:
   - nugget_layup_compose
   - gap_framing_recompose
   - transitions
+  - vo_synthesize
   - edl
 consumers:
 - nugget_layup_compose

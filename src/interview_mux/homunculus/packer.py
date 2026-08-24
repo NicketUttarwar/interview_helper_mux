@@ -517,6 +517,19 @@ def _compact_content_brief(ctx: RunContext) -> dict[str, Any] | None:
     return out or None
 
 
+def _compact_row(s: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "segment_id": s.get("segment_id"),
+        "start_ms": s.get("start_ms"),
+        "end_ms": s.get("end_ms"),
+        "speaker_id": s.get("speaker_id"),
+        "speaker_role": s.get("speaker_role"),
+        "type": s.get("type"),
+        "topic_tags": s.get("topic_tags"),
+        "text": str(s.get("text") or "")[:240],
+    }
+
+
 def _compact_segment_manifest(ctx: RunContext) -> dict[str, Any] | None:
     if not ctx.artifact_exists("segments/manifest.json"):
         return None
@@ -526,22 +539,27 @@ def _compact_segment_manifest(ctx: RunContext) -> dict[str, Any] | None:
         return None
     if not isinstance(doc, dict):
         return None
+    story_ids: set[str] = set()
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+        story_ids = admitted_story_segment_ids(ctx)
+    except Exception:
+        story_ids = set()
     rows: list[dict[str, Any]] = []
-    for s in (doc.get("segments") or [])[:80]:
-        if not isinstance(s, dict):
-            continue
-        rows.append(
-            {
-                "segment_id": s.get("segment_id"),
-                "start_ms": s.get("start_ms"),
-                "end_ms": s.get("end_ms"),
-                "speaker_id": s.get("speaker_id"),
-                "speaker_role": s.get("speaker_role"),
-                "type": s.get("type"),
-                "topic_tags": s.get("topic_tags"),
-                "text": str(s.get("text") or "")[:240],
-            }
-        )
+    seen: set[str] = set()
+    segs = [s for s in (doc.get("segments") or []) if isinstance(s, dict)]
+    for s in segs[:80]:
+        sid = str(s.get("segment_id") or "")
+        rows.append(_compact_row(s))
+        if sid:
+            seen.add(sid)
+    # Recut remainders often land after the 80-row cap — pin them so ranking sees text.
+    for s in segs:
+        sid = str(s.get("segment_id") or "")
+        if sid and sid in story_ids and sid not in seen:
+            rows.append(_compact_row(s))
+            seen.add(sid)
     return {"segments": rows} if rows else None
 
 
@@ -554,12 +572,33 @@ def _compact_selection(ctx: RunContext) -> dict[str, Any] | None:
         return None
     if not isinstance(doc, dict):
         return None
-    return {
-        "ordered_segment_ids": list(doc.get("ordered_segment_ids") or []),
-        "excluded_segment_ids": list(doc.get("excluded_segment_ids") or [])[:40],
-        "exclude_rationales": dict(doc.get("exclude_rationales") or {})
+    ordered = [str(s) for s in (doc.get("ordered_segment_ids") or []) if s]
+    excluded = list(doc.get("excluded_segment_ids") or [])[:40]
+    excl_ids: set[str] = set()
+    for row in excluded:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or row.get("id") or "").strip()
+        else:
+            sid = str(row or "").strip()
+        if sid:
+            excl_ids.add(sid)
+    ordered_set = set(ordered)
+    rationales = (
+        dict(doc.get("exclude_rationales") or {})
         if isinstance(doc.get("exclude_rationales"), dict)
-        else {},
+        else {}
+    )
+    rationales = {
+        str(k): str(v)
+        for k, v in rationales.items()
+        if str(k) in excl_ids and str(k) not in ordered_set
+    }
+    return {
+        "ordered_segment_ids": ordered,
+        "admitted_story_segment_ids": list(doc.get("admitted_story_segment_ids") or [])[:24],
+        "considerable_segment_ids": list(doc.get("considerable_segment_ids") or [])[:24],
+        "excluded_segment_ids": excluded,
+        "exclude_rationales": rationales,
         "media_ip_cta": list(doc.get("media_ip_cta") or [])[:12],
         "notes": str(doc.get("notes") or "")[:400] or None,
     }
@@ -603,6 +642,8 @@ def _compact_media_ip_cta(ctx: RunContext) -> dict[str, Any] | None:
         "dropped_segment_ids": list(doc.get("dropped_segment_ids") or [])[:24],
         "never_touch_segment_ids": list(doc.get("never_touch_segment_ids") or [])[:24],
         "cover_target_ids": list(doc.get("cover_target_ids") or [])[:24],
+        "admitted_story_segment_ids": list(doc.get("admitted_story_segment_ids") or [])[:24],
+        "considerable_segment_ids": list(doc.get("considerable_segment_ids") or [])[:24],
         "open_choice": doc.get("open_choice"),
         "notes": list(doc.get("notes") or [])[:12],
         "seed_count": doc.get("seed_count"),

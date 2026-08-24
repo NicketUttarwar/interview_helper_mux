@@ -228,6 +228,78 @@ def topo_satisfy_order(
     return new_order, applied
 
 
+def fill_chapter_list_membership_gaps(
+    chapters: list[dict[str, Any]],
+    ordered: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Assign leftover air-order ids into the nearest existing chapter.
+
+    Does not change air order. Each leftover is inserted into the chapter that
+    currently owns the nearest already-assigned neighbor (prefer previous
+    neighbor so leftovers stay in the earlier span, never dumped onto finale).
+    Returns ``(chapters, filled_ids)``. Empty ``filled_ids`` means no assignment.
+    """
+    if not isinstance(chapters, list) or not ordered:
+        return [dict(ch) for ch in (chapters or []) if isinstance(ch, dict)], []
+    pos = {_as_id(sid): idx for idx, sid in enumerate(ordered) if _as_id(sid)}
+    if not pos:
+        return [dict(ch) for ch in chapters if isinstance(ch, dict)], []
+
+    out: list[dict[str, Any]] = []
+    owned: dict[str, int] = {}
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        row = dict(ch)
+        ids = [_as_id(s) for s in (row.get("segment_ids") or []) if _as_id(s) in pos]
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for sid in ids:
+            if sid in seen:
+                continue
+            seen.add(sid)
+            deduped.append(sid)
+        deduped.sort(key=lambda sid: pos[sid])
+        row["segment_ids"] = deduped
+        ch_idx = len(out)
+        out.append(row)
+        for sid in deduped:
+            owned[sid] = ch_idx
+    if not out:
+        return [], []
+
+    leftovers = [sid for sid in (_as_id(s) for s in ordered) if sid and sid not in owned]
+    if not leftovers:
+        return out, []
+    if not owned:
+        out[0]["segment_ids"] = [sid for sid in (_as_id(s) for s in ordered) if sid]
+        return out, list(out[0]["segment_ids"])
+
+    filled: list[str] = []
+    ordered_ids = [sid for sid in (_as_id(s) for s in ordered) if sid]
+    for sid in leftovers:
+        i = pos[sid]
+        prev = next((ordered_ids[j] for j in range(i - 1, -1, -1) if ordered_ids[j] in owned), "")
+        nxt = next(
+            (ordered_ids[j] for j in range(i + 1, len(ordered_ids)) if ordered_ids[j] in owned),
+            "",
+        )
+        if prev:
+            ch_idx = owned[prev]
+        elif nxt:
+            ch_idx = owned[nxt]
+        else:
+            ch_idx = 0 if len(out) == 1 else max(0, len(out) - 2)
+        ids = list(out[ch_idx].get("segment_ids") or [])
+        if sid not in ids:
+            ids.append(sid)
+            ids.sort(key=lambda item: pos.get(item, 10**9))
+            out[ch_idx]["segment_ids"] = ids
+        owned[sid] = ch_idx
+        filled.append(sid)
+    return out, filled
+
+
 def repair_selection_order(
     selection: dict[str, Any],
     narrative_plan: dict[str, Any] | None,

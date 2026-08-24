@@ -61,6 +61,10 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         return "naked_seam"
     if stage in {"mix", "mmaudio_sfx"} and "mmaudio_qa" in msg:
         return "mmaudio_qa_missing"
+    if stage in {"mix", "mmaudio_sfx", "sfx_prompt_craft"} and (
+        "missing wav for asset_id" in msg or "missing wav for asset" in msg
+    ):
+        return "sdp_theme_wavs_missing"
     if stage in {"master_finalize", "mix"} and (
         "episode_close_outro" in msg or "missing_episode_close_outro" in msg
     ):
@@ -69,8 +73,17 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         "g1 vo pickup missing" in msg or "stale_or_missing_pickup" in msg
     ):
         return "missing_g1_pickup"
+    if stage == "listen_delight_audit" and (
+        "listen delight floors" in msg or "listen_delight_floors" in msg
+    ):
+        return "listen_delight_floors"
     if "fingerprint mismatch" in msg:
         return "fingerprint_mismatch"
+    if stage == "speaker_roles" and (
+        "rerun_stage" in msg
+        and ("diarization" in msg or "speaker_diarization" in msg)
+    ):
+        return "mixed_diarization"
     return None
 
 
@@ -209,12 +222,40 @@ def playbook_ensure_mmaudio_qa(ctx: RunContext) -> list[str]:
     return []
 
 
+def playbook_generate_sdp_theme_wavs(ctx: RunContext) -> list[str]:
+    from interview_mux.delivery_recovery import resume_theme_generation
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    missing = missing_sdp_asset_wavs(ctx)
+    resume_theme_generation(ctx)
+    return [f"missing:{aid}" for aid in missing[:12]]
+
+
 def playbook_ensure_g1(ctx: RunContext) -> list[str]:
     from interview_mux.delivery_recovery import ensure_g1_pickups
 
     result = ensure_g1_pickups(ctx)
     if isinstance(result, dict) and result.get("ok"):
         return list(result.get("synthesized") or []) or ["vo_pickup"]
+    return []
+
+
+def playbook_listen_delight_remutate(ctx: RunContext) -> list[str]:
+    from interview_mux.listen_delight import evaluate_listen_delight
+    from interview_mux.listen_delight_remutate import (
+        apply_listen_delight_remutate,
+        plan_listen_delight_remutate,
+    )
+
+    result = evaluate_listen_delight(ctx)
+    plan = plan_listen_delight_remutate(
+        ctx, failed_dimensions=list(result.get("failed_dimensions") or [])
+    )
+    if plan.get("exhausted"):
+        return []
+    applied = apply_listen_delight_remutate(ctx, plan)
+    if applied.get("ok"):
+        return [str(plan.get("from_stage") or "mix")]
     return []
 
 
@@ -311,11 +352,18 @@ def handle_stage_failure(
             implicated=[stage_id],
             evidence={"error_class": type(exc).__name__, "message": str(exc)[:400]},
         )
-        if is_homunculus_run(ctx) and not recovery_allowed(ctx, stage_id):
+        early_class = classify_error_class(stage_id, exc)
+        # Mixed diarization is a deterministic G0-locked repair — do not wait
+        # for a conductor analysis packet.
+        if (
+            is_homunculus_run(ctx)
+            and early_class != "mixed_diarization"
+            and not recovery_allowed(ctx, stage_id)
+        ):
             return _result(
                 status="escalate",
                 playbook_id="awaiting_homunculus_analysis",
-                signature=signature_key(stage_id, classify_error_class(stage_id, exc) or "unknown"),
+                signature=signature_key(stage_id, early_class or "unknown"),
                 resume_stage=stage_id,
                 detail="homunculus_analysis_required",
             )
@@ -356,11 +404,14 @@ def handle_stage_failure(
             )
             return result
     elif already_attempted(ctx, sig):
+        resume_on_budget = (
+            "music_palette_compose" if error_class == "sdp_theme_wavs_missing" else stage_id
+        )
         result = _result(
             status="escalate",
             playbook_id="budget_exhausted",
             signature=sig,
-            resume_stage=stage_id,
+            resume_stage=resume_on_budget,
             detail="already_attempted",
         )
         _append_action(
@@ -413,6 +464,11 @@ def handle_stage_failure(
             artifacts = playbook_ensure_mmaudio_qa(ctx)
             recovered = bool(artifacts)
             resume_stage = "mmaudio_sfx"
+        elif error_class == "sdp_theme_wavs_missing":
+            playbook_id = "generate_sdp_theme_wavs"
+            artifacts = playbook_generate_sdp_theme_wavs(ctx)
+            recovered = True
+            resume_stage = "music_palette_compose"
         elif error_class == "episode_close_outro":
             playbook_id = "place_episode_close_cue"
             artifacts = playbook_place_episode_close(ctx)
@@ -423,6 +479,18 @@ def handle_stage_failure(
             playbook_id = "ensure_g1_pickups"
             artifacts = playbook_ensure_g1(ctx)
             recovered = bool(artifacts)
+        elif error_class == "listen_delight_floors":
+            playbook_id = "listen_delight_remutate"
+            artifacts = playbook_listen_delight_remutate(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "mix"
+            try:
+                if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                    plan = ctx.read_json("mastering/listen_delight_remutate.json")
+                    if isinstance(plan, dict) and plan.get("from_stage"):
+                        resume_stage = str(plan.get("from_stage") or "mix")
+            except Exception:
+                pass
         elif error_class == "fingerprint_mismatch":
             playbook_id = "fingerprint_restamp_or_rerun"
             producer = FINGERPRINT_PRODUCER_BY_CONSUMER.get(stage_id)
@@ -430,6 +498,14 @@ def handle_stage_failure(
             detail = producer or "no_mapped_producer"
             if producer:
                 resume_stage = producer
+        elif error_class == "mixed_diarization":
+            playbook_id = "speaker_roles_dominant_fallback"
+            from interview_mux.speaker_role_evidence import persist_mixed_diarization_fallback
+
+            artifacts = persist_mixed_diarization_fallback(ctx)
+            recovered = bool(artifacts)
+            if recovered:
+                resume_stage = "source_topology_build"
         else:
             recovered = False
             detail = "unhandled_class"

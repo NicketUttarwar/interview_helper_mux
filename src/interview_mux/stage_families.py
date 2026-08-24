@@ -257,3 +257,12 @@ def select_source_profile(
     if speaker_count is not None and speaker_count >= 4:
         return "town_hall_multi"
     return "clean_interview"
+
+
+def source_profile_recipe(profile_id: str) -> dict[str, Any]:
+    """Documented knobs from config/app.defaults.json resilience.source_profiles."""
+    from interview_mux.config import merged_config
+
+    raw = ((merged_config().get("resilience") or {}).get("source_profiles") or {})
+    row = raw.get(str(profile_id or "")) if isinstance(raw, dict) else None
+    return dict(row) if isinstance(row, dict) else {}

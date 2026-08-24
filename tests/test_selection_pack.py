@@ -132,6 +132,45 @@ def test_enforce_creative_selection_edit_single_pack_no_forced_extra_drop(tmp_pa
     assert "creative_trim" not in (out.get("_meta") or {})
 
 
+def test_pack_does_not_prefer_drop_admitted_story_micro(tmp_path, monkeypatch):
+    """CTA recut remainders inherit parent rank and are not first-to-drop as micros."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "pack_story_micro")
+    segments = [
+        _seg("seg_003a", start_ms=0, end_ms=1900, speaker="spk_a"),
+        _seg("seg_004", start_ms=1900, end_ms=11900, speaker="spk_a"),
+        _seg("seg_005", start_ms=11900, end_ms=21900, speaker="spk_b"),
+        _seg("seg_006", start_ms=21900, end_ms=31900, speaker="spk_b"),
+        _seg("seg_099", start_ms=31900, end_ms=34900, speaker="spk_c"),
+    ]
+    ctx.write_json("segments/manifest.json", {"segments": segments}, skip_handoff=True)
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "admitted_story_segment_ids": ["seg_003a"],
+            "considerable_segment_ids": ["seg_003a"],
+        },
+        skip_handoff=True,
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_003a", "seg_004", "seg_005", "seg_006", "seg_099"],
+        "excluded_segment_ids": [],
+        "segment_ranks": {"seg_003": 1, "seg_004": 2, "seg_005": 3, "seg_006": 4, "seg_099": 9},
+    }
+    out = pack_selection_to_duration(
+        ctx,
+        selection,
+        target_sec=32.0,
+        stage="test",
+        meta_key="test_pack",
+        action_id="pipeline.selection.test_pack",
+        log_label="Test pack",
+    )
+    assert "seg_003a" in out["ordered_segment_ids"]
+    assert "seg_099" in (out.get("_meta") or {}).get("test_pack", {}).get("dropped", [])
+
+
 def test_enforce_creative_selection_edit_packs_toward_ideal_when_over(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "creative_pack_ideal")

@@ -1076,19 +1076,9 @@ def _detect_music_transition_findings(
 
 
 def _recompute_timeline(clips: list[dict[str, Any]]) -> int:
-    t = 0
-    for clip in clips:
-        if not isinstance(clip, dict):
-            continue
-        clip["timeline_start_ms"] = t
-        dur = max(0, int(clip.get("duration_ms") or 0))
-        if str(clip.get("type") or "") == "speech":
-            ss = int(clip.get("source_start_ms") or 0)
-            se = int(clip.get("source_end_ms") or ss)
-            dur = max(0, se - ss)
-            clip["duration_ms"] = dur
-        t += dur
-    return t
+    from interview_mux.listenability_guards import reindex_clip_timeline
+
+    return reindex_clip_timeline(clips)
 
 
 def apply_junction_repairs(
@@ -2019,6 +2009,59 @@ def apply_feel_directives(
     return changed
 
 
+def _persist_terminal_autopsy(
+    ctx: RunContext,
+    *,
+    report: dict[str, Any] | None = None,
+    edl: dict[str, Any] | None = None,
+) -> None:
+    """Always leave seam_autopsy.json so master_finalize is not blocked on a hole."""
+    if ctx.artifact_exists("master/seam_autopsy.json"):
+        return
+    doc = edl
+    if not isinstance(doc, dict) and ctx.artifact_exists("master/edl.json"):
+        loaded = ctx.read_json("master/edl.json")
+        doc = loaded if isinstance(loaded, dict) else {}
+    if not isinstance(doc, dict):
+        doc = {}
+    try:
+        from interview_mux.seam_autopsy import build_autopsy, write_autopsy
+
+        write_autopsy(
+            ctx,
+            build_autopsy(ctx, phase="post_junction", snip_report=report or {}, edl=doc),
+        )
+    except Exception as exc:
+        ctx.log(
+            f"junction_snip_qa: terminal autopsy fallback ({exc})",
+            level="warning",
+            stage=STAGE_ID,
+        )
+        ctx.write_json(
+            "master/seam_autopsy.json",
+            {
+                "version": 1,
+                "generated_at": _now(),
+                "phase": "post_junction",
+                "commitment": {
+                    "status": "pending",
+                    "reasons": ["terminal_autopsy_fallback"],
+                },
+                "scores": {
+                    "continuity": 0.0,
+                    "finishability": 0.0,
+                    "sonic_density_fit": 0.0,
+                    "information_clarity": 0.0,
+                    "music_completeness": 0.0,
+                },
+                "seams": [],
+                "blocking_reasons": ["terminal_autopsy_fallback"],
+            },
+            skip_handoff=True,
+            stage_key=STAGE_ID,
+        )
+
+
 def run_junction_snip_qa(ctx: RunContext) -> None:
     """Delivery stage: deterministic junction QA → remaster → one feel audit → optional remaster."""
     conf = junction_snip_cfg()
@@ -2053,6 +2096,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 "generated_at": _now(),
             },
         )
+        _persist_terminal_autopsy(ctx, report={"skipped": True, "reason": "missing_edl"})
         return
 
     edl = ctx.read_json("master/edl.json")
@@ -2132,6 +2176,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             except Exception as exc:
                 from interview_mux.loud_fail import raise_loud_failure
 
+                _persist_terminal_autopsy(ctx)
                 raise_loud_failure(
                     ctx,
                     f"Junction remediation run {run_index} could not remaster: {exc}",
@@ -2258,6 +2303,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 )
             except Exception:
                 pass
+            _persist_terminal_autopsy(ctx)
             raise_loud_failure(
                 ctx,
                 f"Junction feel remediation could not remaster: {exc}",
@@ -2295,6 +2341,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 except ValueError as exc:
                     from interview_mux.loud_fail import raise_loud_failure
 
+                    _persist_terminal_autopsy(ctx, edl=current_edl)
                     raise_loud_failure(
                         ctx,
                         str(exc),
@@ -2343,6 +2390,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         except Exception as exc:
             from interview_mux.loud_fail import raise_loud_failure
 
+            _persist_terminal_autopsy(ctx, edl=current_edl)
             raise_loud_failure(
                 ctx,
                 f"Junction could not remaster assembly for commitment: {exc}",

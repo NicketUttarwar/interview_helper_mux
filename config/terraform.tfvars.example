@@ -9,9 +9,10 @@
 # Migrating the bucket name updates the CloudFront origin but keeps the same
 # distribution domain (feed URL stays stable).
 #
-# To archive the current feed URL and create a NEW CloudFront URL for a fresh
-# Apple Podcast show (later, one-off — preview then yes/no):
-#   ./scripts/tf-rotate-rss-url.sh
+# Same-bucket CloudFront URL rotate (deletes the old public RSS URL):
+#   ./scripts/tf-rotate-cloudfront-url.sh
+# New bucket + new CloudFront (archives the old pair, leaves it live):
+#   ./scripts/tf-podcast-rss-origin.sh
 
 project_name   = "the_war_room_001"
 show_title     = "The War Room"

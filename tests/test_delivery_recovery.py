@@ -166,3 +166,62 @@ def test_ensure_g1_pickups_synthesizes_missing(tmp_path: Path, monkeypatch):
     assert "vo_1" in out["synthesized"]
     synth.assert_called_once()
     assert out.get("job")
+
+
+def test_suggest_resume_unmarks_hollow_music_when_theme_wavs_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from run_fixtures import isolated_run_ctx, sound_design_plan_with
+
+    ctx = isolated_run_ctx(tmp_path, "exec_theme_gap")
+    master = ctx.run_dir / "master"
+    master.mkdir(parents=True, exist_ok=True)
+    (master / "edl.json").write_text("{}", encoding="utf-8")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "show_theme_v1_motif",
+                    "role": "theme_cold_open",
+                    "description": "motif",
+                    "duration_seconds": 12,
+                }
+            ]
+        ),
+        skip_handoff=True,
+    )
+    done = ctx.run_dir / ".stage_done"
+    done.mkdir(exist_ok=True)
+    for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
+        (done / sid).write_text("1", encoding="utf-8")
+    assert suggest_delivery_resume(ctx) == "music_palette_compose"
+    assert not ctx.is_done("mmaudio_sfx")
+    assert not ctx.is_done("sfx_prompt_craft")
+    assert not ctx.is_done("music_palette_compose")
+
+
+def test_resume_theme_generation_keeps_mix_when_wavs_exist(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.delivery_recovery import resume_theme_generation
+    from run_fixtures import isolated_run_ctx, sound_design_plan_with
+
+    ctx = isolated_run_ctx(tmp_path, "exec_theme_keep")
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "show_theme_v1_motif",
+                    "role": "theme_cold_open",
+                    "description": "motif",
+                    "duration_seconds": 12,
+                }
+            ]
+        ),
+        skip_handoff=True,
+    )
+    wav = ctx.run_dir / "sound_design" / "assets" / "show_theme_v1_motif.wav"
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    assert resume_theme_generation(ctx) == "mix"
+    assert ctx.is_done("mmaudio_sfx")

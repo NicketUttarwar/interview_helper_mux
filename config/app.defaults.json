@@ -1,7 +1,7 @@
 {
   "_comment_paths": "ASSETS root, executions, sample_rate, flow LUFS targets",
   "assets_root": "ASSETS",
-  "input_audio_path": "ASSETS/input/interview.wav",
+  "input_audio_path": "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
   "data_root": "data",
   "executions_root": "ASSETS/executions",
   "sample_rate": 48000,
@@ -1507,6 +1507,11 @@
       "bed_coverage_aim_hi": 0.88,
       "_comment": "Shape realization on mastering_plan — docs/cross-cutting/air-script.md. Fail-open only if plan absent."
     },
+    "edl": {
+      "clone_adjacency_verify": true,
+      "clone_adjacency_verify_clip_ms": 4000,
+      "_comment": "ID match is the candidate filter; Sortformer speaker_pair must confirm same-person before suppress. Unavailable listen still suppresses."
+    },
     "media_ip_cta": {
       "prune_max_depth": 2,
       "prune_max_children": 12,
@@ -1706,6 +1711,7 @@
   "resilience": {
     "quality_first": true,
     "commit_barrier": true,
+    "identical_failure_halt_after": 3,
     "unattended_defaults": {
       "enabled": false,
       "note": "When enabled, documented defaults write the same escalation decision artifacts as a human; never force_publish."

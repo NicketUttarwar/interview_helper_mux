@@ -149,6 +149,54 @@ def test_recut_last_in_chapter_extends_toward_close() -> None:
     assert windows[0]["end_ms"] > 4_000
 
 
+def test_recut_extends_hanging_list_into_next_keeper_not_cta() -> None:
+    keepers = [
+        {
+            "segment_id": "seg_004",
+            "start_ms": 83_740,
+            "end_ms": 95_460,
+            "talking_point_id": "tp_a",
+        },
+        {
+            "segment_id": "seg_005",
+            "start_ms": 96_160,
+            "end_ms": 121_660,
+            "talking_point_id": "tp_b",
+        },
+    ]
+    words = [
+        {"text": "today?", "start_ms": 86_900, "end_ms": 87_160, "speaker_id": "spk_1"},
+        {"text": "reshape", "start_ms": 94_040, "end_ms": 94_480, "speaker_id": "spk_1"},
+        {"text": "clinical", "start_ms": 94_480, "end_ms": 94_820, "speaker_id": "spk_1"},
+        {"text": "trials,", "start_ms": 94_820, "end_ms": 95_460, "speaker_id": "spk_1"},
+        {"text": "drug", "start_ms": 96_160, "end_ms": 96_300, "speaker_id": "spk_0"},
+        {"text": "development,", "start_ms": 96_300, "end_ms": 96_780, "speaker_id": "spk_0"},
+        {"text": "and", "start_ms": 96_780, "end_ms": 97_120, "speaker_id": "spk_0"},
+        {"text": "diagnostics.", "start_ms": 97_120, "end_ms": 97_920, "speaker_id": "spk_0"},
+        {"text": "Well,", "start_ms": 97_920, "end_ms": 98_320, "speaker_id": "spk_0"},
+        {"text": "before", "start_ms": 98_580, "end_ms": 98_780, "speaker_id": "spk_0"},
+        {"text": "we", "start_ms": 98_780, "end_ms": 99_000, "speaker_id": "spk_0"},
+        {"text": "begin,", "start_ms": 99_000, "end_ms": 99_220, "speaker_id": "spk_0"},
+        {"text": "subscribe", "start_ms": 110_000, "end_ms": 110_400, "speaker_id": "spk_0"},
+    ]
+    plan = _plan(
+        _chapter("ch1", "Open", ["seg_004"]),
+        _chapter("ch2", "CTA", ["seg_005"]),
+    )
+    windows = compute_recut_windows(
+        keepers=keepers,
+        plan=plan,
+        words=words,
+        max_cut_ms=180_000,
+        next_keeper_eps_ms=80,
+        min_keep_ms=2500,
+    )
+    assert windows[0]["end_ms"] == 97_920
+    assert windows[0]["hanging_extended"] is True
+    assert windows[1]["start_ms"] == 97_920
+    assert windows[1]["end_ms"] == 121_660
+
+
 def test_remap_rewrites_brief_talking_points_and_must_keeps(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

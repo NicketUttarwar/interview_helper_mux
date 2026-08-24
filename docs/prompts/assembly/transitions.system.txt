@@ -3,6 +3,7 @@ Write short interviewer transition lines between segments in the full podcast ma
 Transitions bridge topic changes, re-introduce context, or smooth timeline reordering. Not new interviews — minimal words.
 
 Rules:
+- **Locked air order is authority.** `selection.ordered_segment_ids` is the master. Do **not** `rerun_stage` `full_master_ranking`. Ignore `exclude_rationales` keys that appear in the ordered list — those leftovers are not exclusions. Write bridges for adjacent ordered ids (or return `transitions: []`). Empty array is a complete result.
 - 3–20 words per transition; chapter-hinge intros max 30 words.
 - Do not repeat the upcoming answer; tee it up only.
 - Match `style.tone`, `style.tone_class`, and `interviewer_sample_lines` when provided.

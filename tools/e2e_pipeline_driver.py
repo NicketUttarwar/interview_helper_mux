@@ -552,6 +552,9 @@ def main() -> int:
                 f"enclosure={hits[0].get('enclosure_url')}",
                 flush=True,
             )
+            from interview_mux.podcast_rss.settings import print_apple_passthrough_notice
+
+            print_apple_passthrough_notice(sync.feed_url, include_feed=False)
         elif run_id in (sync.skipped_already_uploaded or []):
             print(f"S3 sync: {run_id} already uploaded", flush=True)
         elif sync.errors:
@@ -561,6 +564,9 @@ def main() -> int:
                 f"S3 sync finished uploaded_count={sync.uploaded_count} feed={sync.feed_url}",
                 flush=True,
             )
+            from interview_mux.podcast_rss.settings import print_apple_passthrough_notice
+
+            print_apple_passthrough_notice(sync.feed_url, include_feed=False)
     except Exception as exc:
         print(f"S3 sync after DONE failed: {exc}", flush=True)
     print(f"\nDONE — run {run_id} ({master})", flush=True)

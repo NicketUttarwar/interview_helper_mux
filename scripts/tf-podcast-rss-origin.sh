@@ -29,7 +29,11 @@
 #   ./scripts/tf-podcast-rss-origin.sh --delete --feed-url https://dxxxx.cloudfront.net/feed.xml
 #
 # Formerly: scripts/tf-rotate-rss-url.sh
+# Same-bucket CloudFront URL only (delete old CF, keep S3):
+#   ./scripts/tf-rotate-cloudfront-url.sh
 # See terraform/archives/README.md and terraform/README.md.
+# Whenever a new feed URL is printed, also print the Apple Podcasts Connect
+# pass-through (print_apple_passthrough_notice). Apple still requires ≥1 episode.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -225,28 +229,43 @@ if [[ "$MODE" == "list" ]]; then
       echo "  s3_bucket:     $(_tf_raw s3_bucket_id)"
       echo "  cloudfront_id: $(_tf_raw cloudfront_distribution_id)"
       echo "  feed_url:      $(_tf_raw feed_url)"
+      print_apple_passthrough_notice "$(_tf_raw feed_url)"
     fi
     exit 0
   fi
   "$(_python)" - <<PY
 import json
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path("${REPO_ROOT}") / "src"))
+from interview_mux.podcast_rss.settings import (
+    apple_podcasts_passthrough_url,
+    format_apple_passthrough_notice,
+)
 doc = json.loads(Path("${ORIGINS_REGISTRY}").read_text(encoding="utf-8"))
 origins = doc.get("origins") or []
 print(f"podcast-origins registry ({len(origins)} entries)")
 print(f"  file: ${ORIGINS_REGISTRY}")
 print()
+last_feed = ""
 for o in origins:
     status = o.get("status") or "?"
+    feed = o.get("feed_url") or ""
+    if feed:
+        last_feed = feed
     print(f"[{status}] {o.get('project_name') or '?'}")
     print(f"  distribution_id: {o.get('cloudfront_distribution_id') or '—'}")
-    print(f"  feed_url:        {o.get('feed_url') or '—'}")
+    print(f"  feed_url:        {feed or '—'}")
+    print(f"  apple_passthrough: {apple_podcasts_passthrough_url(feed) or '—'}")
     print(f"  s3_bucket:       {o.get('s3_bucket') or '—'}")
     print(f"  podcast_guid:    {o.get('podcast_guid') or '—'}")
     print(f"  local_binding:   {o.get('local_binding') or '—'}")
     print()
 print("Delete example (copy a distribution_id):")
 print("  ./scripts/tf-podcast-rss-origin.sh --delete --distribution-id <ID>")
+if last_feed:
+    print()
+    print(format_apple_passthrough_notice(last_feed, include_feed=False))
 PY
   exit 0
 fi
@@ -676,7 +695,8 @@ cat <<EOF
   After success:
     - Old Apple/subscribers keep ${CUR_FEED_URL} (archive) until you --delete it.
     - App publish targets the NEW bucket / CF via app.defaults + secrets.env.
-    - Submit the NEW feed URL from ./scripts/tf-output.sh feed_url to Apple.
+    - Submit the NEW feed URL from ./scripts/tf-output.sh feed_url to Apple
+      (the script prints the Podcasts Connect pass-through after apply).
     - Each show is distinguished by project_name + local_binding + registry.
 EOF
 
@@ -989,7 +1009,9 @@ Next:
   1) Commit terraform/state/terraform.tfstate, ${ORIGINS_REGISTRY}, ${ARCHIVE_JSON}, config/app.defaults.json
   2) Keep config/terraform.tfvars gitignored but backed up locally
   3) Submit ${NEW_FEED_URL} as a new show in Apple Podcasts Connect
+     (use the pass-through URL printed below; Apple needs ≥1 episode)
   4) Later, retire an old URL only:
        ./scripts/tf-podcast-rss-origin.sh --list
        ./scripts/tf-podcast-rss-origin.sh --delete --distribution-id <ID>
 EOF
+print_apple_passthrough_notice "${NEW_FEED_URL}" 0

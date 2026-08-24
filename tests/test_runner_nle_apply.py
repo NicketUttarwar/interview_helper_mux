@@ -86,3 +86,25 @@ def test_delivery_runs_master_qa_when_master_wav_exists(ctx: RunContext) -> None
     master.parent.mkdir(parents=True, exist_ok=True)
     master.write_bytes(b"RIFF" + b"\0" * 40)
     assert runner._should_verify_master_after_delivery(ctx) is True
+
+
+def test_delivery_incomplete_raises_when_ship_remaining(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.pipeline import run_delivery
+
+    ctx.mutate_run_meta(
+        lambda m: m.update({"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"})
+    )
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    ctx.mark_done("master_finalize", force=True)
+
+    def _phase(_ctx, phase, remaining, **_kwargs):
+        return {"conductor": {"ok": True}, "remaining_after": remaining}
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.run_homunculus_phase", _phase)
+    monkeypatch.setattr("interview_mux.pipeline.require_g1_clear", lambda _c: None)
+    monkeypatch.setattr("interview_mux.pipeline.require_analysis_artifacts_complete", lambda _c: None)
+    monkeypatch.setattr("interview_mux.pipeline.require_delivery_gates", lambda _c, **_k: None)
+    with pytest.raises(RuntimeError, match="remaining ship stages"):
+        run_delivery(ctx, from_stage="episode_meta_build")

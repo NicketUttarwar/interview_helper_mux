@@ -30,6 +30,9 @@ def test_validate_pre_mix_missing_assets(tmp_path, monkeypatch):
     )
     errors = validate_pre_mix(ctx, "flow2")
     assert errors
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    assert "bed_001" in missing_sdp_asset_wavs(ctx)
 
 
 def test_validate_post_sound_plan_flow2_over_cap(tmp_path, monkeypatch):

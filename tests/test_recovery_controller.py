@@ -47,11 +47,70 @@ def test_classify_exec_1822_signatures():
     assert classify_error_class("mix", RuntimeError("mmaudio_qa.json missing")) == "mmaudio_qa_missing"
     assert (
         classify_error_class(
+            "mix",
+            RuntimeError(
+                "Mix gate: missing WAV for asset_id show_theme_v1_motif; "
+                "missing WAV for asset_id show_theme_v1_underscore_loop"
+            ),
+        )
+        == "sdp_theme_wavs_missing"
+    )
+    assert (
+        classify_error_class(
             "master_finalize",
             RuntimeError("episode_close_outro_present"),
         )
         == "episode_close_outro"
     )
+    assert (
+        classify_error_class(
+            "speaker_roles",
+            RuntimeError(
+                "LLM stage speaker_roles incomplete: status=partial "
+                "needs=[{'type': 'rerun_stage', 'stage': 'diarization', "
+                "'blocking': True}]"
+            ),
+        )
+        == "mixed_diarization"
+    )
+
+
+def test_mixed_diarization_playbook_writes_speakers(tmp_path: Path) -> None:
+    import json
+
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "rec_mixed_diar")
+    words = []
+    t = 0
+    for _ in range(40):
+        words.append({"speaker": "spk_0", "word": "story", "start_ms": t, "end_ms": t + 400})
+        t += 450
+    for _ in range(8):
+        words.append({"speaker": "spk_1", "word": "why?", "start_ms": t, "end_ms": t + 200})
+        t += 250
+    (ctx.run_dir / "transcript").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "transcript" / "full.json").write_text(
+        json.dumps({"text": "dialogue", "words": words}),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "transcript" / "speakers.json").write_text(
+        json.dumps({"speakers": [{"speaker_id": "spk_0"}, {"speaker_id": "spk_1"}]}),
+        encoding="utf-8",
+    )
+    result = handle_stage_failure(
+        ctx,
+        "speaker_roles",
+        RuntimeError(
+            "LLM stage speaker_roles incomplete: status=partial "
+            "needs=[{'type': 'rerun_stage', 'stage': 'speaker_diarization'}]"
+        ),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "speaker_roles_dominant_fallback"
+    assert result.resume_stage == "source_topology_build"
+    assert ctx.is_done("speaker_roles")
+    assert ctx.artifact_exists("understanding/speakers.json")
 
 
 def test_second_identical_signature_escalates(tmp_path: Path, monkeypatch):
@@ -282,3 +341,26 @@ def test_mmaudio_qa_missing_resumes_producer(tmp_path: Path, monkeypatch):
     result = handle_stage_failure(ctx, "mix", RuntimeError("sound_design/mmaudio_qa.json missing"))
     assert result.status == "recovered"
     assert result.resume_stage == "mmaudio_sfx"
+
+
+def test_mix_missing_theme_wav_resumes_palette(tmp_path: Path, monkeypatch):
+    ctx = RunContext(str(tmp_path / "rec_theme_wav"), create=True)
+    monkeypatch.setattr(
+        "interview_mux.recovery_controller.playbook_generate_sdp_theme_wavs",
+        lambda _ctx: ["missing:show_theme_v1_motif"],
+    )
+    result = handle_stage_failure(
+        ctx,
+        "mix",
+        RuntimeError("Mix gate: missing WAV for asset_id show_theme_v1_motif"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "generate_sdp_theme_wavs"
+    assert result.resume_stage == "music_palette_compose"
+    second = handle_stage_failure(
+        ctx,
+        "mix",
+        RuntimeError("Mix gate: missing WAV for asset_id show_theme_v1_motif"),
+    )
+    assert second.status == "escalate"
+    assert second.resume_stage == "music_palette_compose"

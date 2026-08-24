@@ -7,6 +7,9 @@ in catalog/by_execution_id.json. Skips PutObject when remote size matches.
 App paths (GUI / Full-auto) always sync one ``execution_id``. This CLI matches
 that default; use ``--all`` only for an explicit bulk of every ready package.
 
+Prints the Apple Podcasts Connect pass-through after the JSON result whenever
+a public feed URL is known (see print_apple_passthrough_notice).
+
 Usage:
   python scripts/sync_podcast_episodes.py --execution-id exec_...
   python scripts/sync_podcast_episodes.py --execution-id exec_... --dry-run
@@ -24,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from interview_mux.podcast_rss.settings import print_apple_passthrough_notice  # noqa: E402
 from interview_mux.podcast_rss.sync_assets import sync_ready_packages  # noqa: E402
 
 
@@ -70,6 +74,8 @@ def main() -> int:
             execution_id=args.execution_id,
         )
     print(json.dumps(result.to_dict(), indent=2))
+    # Always show Apple's pass-through next to the live feed URL.
+    print_apple_passthrough_notice(result.feed_url, include_feed=False)
     if result.errors:
         return 1
     return 0

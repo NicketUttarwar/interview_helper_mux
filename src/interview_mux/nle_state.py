@@ -204,6 +204,27 @@ def snap_boundary_for_segment(
     return snapped
 
 
+def _insert_index_by_start(
+    ordered: list[str],
+    sid: str,
+    segments_by_id: dict[str, dict[str, Any]] | None,
+) -> int:
+    if not segments_by_id:
+        return len(ordered)
+    try:
+        start = int((segments_by_id.get(sid) or {}).get("start_ms") or 0)
+    except (TypeError, ValueError):
+        return len(ordered)
+    for i, other in enumerate(ordered):
+        try:
+            other_start = int((segments_by_id.get(other) or {}).get("start_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if start < other_start:
+            return i
+    return len(ordered)
+
+
 def _excluded_entries(selection: dict[str, Any]) -> list[dict[str, str]]:
     raw = selection.get("excluded_segment_ids") or []
     out: list[dict[str, str]] = []
@@ -308,19 +329,30 @@ def apply_nle_to_selection(
     else:
         ordered = [s for s in base_order if s not in excluded_ids]
 
-    # Drop stale parent ids replaced by splits (children already in order).
+    # Parent splits: drop the parent and offer keepable children even when the
+    # parent never made the air order (ranking saw only the mixed parent).
     for seg_id, ov in overrides.items():
         children = [str(c) for c in (ov.get("split_into") or []) if c]
         if not children:
             continue
-        if seg_id in ordered and any(c in ordered for c in children):
+        keep_kids = [c for c in children if c not in excluded_ids]
+        if not keep_kids:
+            if seg_id in ordered and any(c in ordered for c in children):
+                while seg_id in ordered:
+                    ordered.remove(seg_id)
+            continue
+        if seg_id in ordered:
+            insert_at = ordered.index(seg_id)
             while seg_id in ordered:
                 ordered.remove(seg_id)
-            # Ensure children appear (replace parent slot with children order)
-            # If children missing from ordered, insert at parent former neighbors
-            for child in children:
-                if child not in ordered and child not in excluded_ids:
-                    ordered.append(child)
+        else:
+            insert_at = _insert_index_by_start(ordered, keep_kids[0], segments_by_id)
+        offset = 0
+        for child in keep_kids:
+            if child in ordered:
+                continue
+            ordered.insert(min(insert_at + offset, len(ordered)), child)
+            offset += 1
 
     seen_order: set[str] = set()
     deduped: list[str] = []
@@ -412,6 +444,123 @@ def _child_suffix(index: int) -> str:
     return "".join(reversed(chars))
 
 
+def _child_span_text(ctx: RunContext, start_ms: int, end_ms: int) -> str:
+    for rel in (
+        "transcript/full.json",
+        "operator/transcript_corrected.json",
+        "ingest/transcript.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            tr = ctx.read_json(rel)
+        except Exception:
+            continue
+        words = tr.get("words") if isinstance(tr, dict) else None
+        if not isinstance(words, list):
+            continue
+        parts = [
+            str(w.get("text") or w.get("word") or "").strip()
+            for w in words
+            if isinstance(w, dict)
+            and int(w.get("end_ms") or 0) > start_ms
+            and int(w.get("start_ms") or 0) < end_ms
+        ]
+        text = " ".join(p for p in parts if p).strip()
+        if text:
+            return text
+    return ""
+
+
+def materialize_split_children_into_manifest(
+    ctx: RunContext,
+    parent_id: str,
+    child_ids: list[str],
+) -> list[str]:
+    """Persist NLE/CTA split children as first-class ``segments/manifest.json`` rows.
+
+    Ranking, shape, repair, and duration all treat the manifest as the candidate
+    universe. Children that exist only as NLE overrides get orphan-dropped.
+    """
+    if not parent_id or not child_ids or not ctx.artifact_exists("segments/manifest.json"):
+        return []
+    man = ctx.read_json("segments/manifest.json")
+    if not isinstance(man, dict):
+        return []
+    segs = [s for s in (man.get("segments") or []) if isinstance(s, dict)]
+    by_id = {str(s.get("segment_id") or ""): s for s in segs if s.get("segment_id")}
+    parent = by_id.get(parent_id)
+    if not isinstance(parent, dict):
+        return []
+    nle = load_nle(ctx)
+    overrides = nle.get("segment_overrides") or {}
+    inserted: list[str] = []
+    for cid in child_ids:
+        sid = str(cid or "").strip()
+        if not sid:
+            continue
+        ov = overrides.get(sid) if isinstance(overrides.get(sid), dict) else {}
+        try:
+            start = int((ov or {}).get("start_ms") if ov else parent.get("start_ms") or 0)
+            end = int((ov or {}).get("end_ms") if ov else parent.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        label = str((ov or {}).get("label") or "").strip()
+        if not label or label.startswith(parent_id):
+            label = _child_span_text(ctx, start, end) or str(parent.get("text") or "").strip()
+        row = dict(by_id.get(sid) or {})
+        role = str(row.get("speaker_role") or parent.get("speaker_role") or "unknown")
+        if role not in {"interviewer", "interviewee", "unknown"}:
+            role = "unknown"
+        seg_type = str(row.get("type") or parent.get("type") or "interviewee_answer")
+        if seg_type not in {
+            "interviewer_question",
+            "interviewee_answer",
+            "interviewer_reaction",
+            "setup",
+            "aside",
+            "coda",
+        }:
+            seg_type = "interviewee_answer"
+        row.update(
+            {
+                "segment_id": sid,
+                "start_ms": start,
+                "end_ms": end,
+                "speaker_id": str(row.get("speaker_id") or parent.get("speaker_id") or "spk_unknown"),
+                "speaker_role": role,
+                "type": seg_type,
+                "topic_tags": list(row.get("topic_tags") or parent.get("topic_tags") or []),
+                "text": label,
+                "parent_id": parent_id,
+            }
+        )
+        if sid in by_id:
+            for i, existing in enumerate(segs):
+                if str(existing.get("segment_id") or "") == sid:
+                    segs[i] = row
+                    break
+        else:
+            parent_idx = next(
+                (i for i, existing in enumerate(segs) if str(existing.get("segment_id") or "") == parent_id),
+                len(segs) - 1,
+            )
+            segs.insert(parent_idx + 1 + len(inserted), row)
+        by_id[sid] = row
+        inserted.append(sid)
+    parent_row = dict(parent)
+    parent_row["split_into"] = [str(x) for x in child_ids if x]
+    for i, existing in enumerate(segs):
+        if str(existing.get("segment_id") or "") == parent_id:
+            segs[i] = parent_row
+            break
+    man["segments"] = segs
+    ctx.write_json("segments/manifest.json", man, skip_handoff=True)
+    return inserted
+
+
 def split_segment_at(ctx: RunContext, segment_id: str, at_ms: int) -> dict[str, Any]:
     return split_segment_at_cuts(ctx, segment_id, [at_ms])
 
@@ -448,6 +597,7 @@ def split_segment_at_cuts(ctx: RunContext, segment_id: str, cut_ms: list[int]) -
         order[idx : idx + 1] = child_ids
     nle["sequence_order"] = order
     save_nle(ctx, nle)
+    materialize_split_children_into_manifest(ctx, segment_id, child_ids)
     from interview_mux.artifact_repairs import propagate_nle_split_segment_refs
 
     propagate_nle_split_segment_refs(ctx, segment_id, child_ids)

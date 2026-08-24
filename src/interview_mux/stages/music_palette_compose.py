@@ -596,7 +596,7 @@ def run_music_palette_compose(ctx: RunContext) -> None:
             )
 
         write_validated_artifact(
-            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan"
+            c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="music_palette_compose"
         )
         compose_out = {
             "version": 1,

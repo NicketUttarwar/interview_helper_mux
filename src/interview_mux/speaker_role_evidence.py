@@ -5,6 +5,18 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# After G0, diarization is locked inside transcribe — there is no standalone
+# speaker_diarization stage to re-run. Blocking rerun_stage needs for these
+# names are unfulfillable and must not dead-end speaker_roles.
+UNFULFILLABLE_DIARIZATION_STAGES = frozenset(
+    {
+        "diarization",
+        "speaker_diarization",
+        "transcribe",
+        "audio_preclean",
+    }
+)
+
 _QUESTION_RE = re.compile(r"\?\s*$")
 _INTERVIEWER_CUES = (
     "tell me",
@@ -102,6 +114,175 @@ def build_speaker_role_evidence(stage_input: dict[str, Any]) -> dict[str, Any]:
         "diarized_speaker_ids": speaker_ids,
         "diarization_pair_verdicts": pair_verdicts,
     }
+
+
+def is_unfulfillable_diarization_need(need: Any) -> bool:
+    """True when an LLM need asks to re-run locked / non-existent diarization."""
+    if not isinstance(need, dict):
+        return False
+    ntype = str(need.get("type") or "").strip().lower()
+    if ntype != "rerun_stage":
+        return False
+    stage = str(need.get("stage") or "").strip().lower()
+    if not stage:
+        return False
+    if stage in UNFULFILLABLE_DIARIZATION_STAGES:
+        return True
+    return "diarization" in stage
+
+
+def _question_score(row: dict[str, Any]) -> float:
+    talk_ms = max(1.0, float(row.get("talk_ms") or 1.0))
+    questions = float(row.get("question_count") or 0)
+    return questions + (questions / talk_ms) * 1000.0
+
+
+def dominant_roles_from_talk_stats(talk_stats: Any) -> list[dict[str, Any]]:
+    """Assign interviewer/interviewee from talk time + questions.
+
+    Longest talker is the guest unless they are the only question-asker.
+    Never assign interviewer to the longest speaker when another ID asked
+    interview-style questions (matches speaker-roles prompt).
+    """
+    rows = [
+        r
+        for r in (talk_stats or [])
+        if isinstance(r, dict) and str(r.get("speaker_id") or "").strip()
+    ]
+    if not rows:
+        return []
+    ranked = sorted(rows, key=lambda r: float(r.get("talk_ms") or 0.0), reverse=True)
+    guest = ranked[0]
+    others = ranked[1:]
+    host: dict[str, Any] | None = None
+    if others:
+        host = max(others, key=_question_score)
+        guest_qs = float(guest.get("question_count") or 0)
+        host_qs = float(host.get("question_count") or 0)
+        # If the long speaker asked everything and others asked none, keep
+        # the shorter speaker as interviewer (frame) anyway — typical bleed.
+        if host_qs == 0 and guest_qs == 0:
+            host = others[0]
+    guest_id = str(guest.get("speaker_id"))
+    host_id = str(host.get("speaker_id")) if host else ""
+    out: list[dict[str, Any]] = []
+    for row in ranked:
+        sid = str(row.get("speaker_id"))
+        qs = int(row.get("question_count") or 0)
+        if sid == host_id:
+            role, narrative, density = "interviewer", "frame", "high" if qs >= 3 else "medium"
+        elif sid == guest_id:
+            role, narrative, density = "interviewee", "storyteller", "low"
+        else:
+            role, narrative, density = "panelist", "analytical_lens", "low"
+        out.append(
+            {
+                "speaker_id": sid,
+                "role": role,
+                "narrative_function": narrative,
+                "confidence": 0.62,
+                "label": None,
+                "evidence": [
+                    (
+                        f"dominant-role fallback: talk_ms={int(row.get('talk_ms') or 0)} "
+                        f"questions={qs} turns={int(row.get('turn_count') or 0)}"
+                    )
+                ],
+                "question_density": density,
+                "avg_turn_length_ms": float(row.get("avg_turn_ms") or 0.0) or None,
+            }
+        )
+    return out
+
+
+def fallback_speakers_artifact(talk_stats: Any, *, notes: str = "") -> dict[str, Any] | None:
+    """Legal speakers artifact when LLM refuses mixed-diarization IDs."""
+    speakers = dominant_roles_from_talk_stats(talk_stats)
+    if not speakers:
+        return None
+    n = len(speakers)
+    format_class = "one_on_one" if n <= 2 else "panel"
+    return {
+        "speakers": speakers,
+        "notes": notes
+        or (
+            "Diarization IDs are mixed after G0; assigned dominant roles from "
+            "talk time and question counts. Diarization is locked — not re-run."
+        ),
+        "conversation_profile": {
+            "format_class_candidate": format_class,
+            "format_confidence": 0.58,
+            "tone_class_candidate": "conversational",
+            "dynamics": {
+                "question_density": "medium",
+                "turn_asymmetry": "high" if n <= 2 else "medium",
+                "overlap_risk": "medium",
+            },
+        },
+        "conversation_hypotheses": [
+            {
+                "id": "hyp_mixed_diarization_dominant",
+                "format_class": format_class,
+                "confidence": 0.58,
+                "reason": "Speaker IDs contain bleed; roles are majority-signal, not clean labels.",
+                "speaker_role_map": {s["speaker_id"]: s["role"] for s in speakers},
+                "blocking": False,
+            }
+        ],
+        "confirmed_conversation_hypothesis_id": None,
+        "gap_sensitivity": {
+            "format_class": format_class,
+            "tone_class": "conversational",
+            "severity_hints": {
+                "missing_question": "strict" if format_class == "one_on_one" else "normal",
+                "missing_setup": "strict",
+                "missing_callback": "normal",
+                "missing_definition": "strict" if format_class == "one_on_one" else "normal",
+                "missing_followup": "normal",
+                "ok_with_light_bridge": "strict",
+            },
+            "priority_gap_types": ["missing_question", "missing_setup"],
+            "deemphasize_gap_types": [],
+            "segment_focus": "interviewee_answer",
+            "notes": "Dominant-role fallback after mixed diarization.",
+        },
+    }
+
+
+def persist_mixed_diarization_fallback(ctx: Any, *, notes: str = "") -> list[str]:
+    """Write understanding/speakers.json from talk stats and mark speaker_roles done."""
+    from interview_mux.conversation_context import enrich_speakers_artifact
+    from interview_mux.source_topology import _speaker_talk_stats
+
+    if not ctx.artifact_exists("transcript/full.json"):
+        return []
+    transcript = ctx.read_json("transcript/full.json")
+    speakers_doc = (
+        ctx.read_json("transcript/speakers.json")
+        if ctx.artifact_exists("transcript/speakers.json")
+        else {"speakers": []}
+    )
+    if isinstance(speakers_doc, dict):
+        speakers_input = {"speakers": speakers_doc.get("speakers") or speakers_doc}
+    elif isinstance(speakers_doc, list):
+        speakers_input = {"speakers": speakers_doc}
+    else:
+        speakers_input = {"speakers": []}
+    stats = _speaker_talk_stats(transcript, speakers_input)
+    artifact = fallback_speakers_artifact(stats, notes=notes)
+    if not artifact:
+        return []
+    enriched = enrich_speakers_artifact(ctx, artifact)
+    ctx.write_json("understanding/speakers.json", enriched, stage_key="speaker_roles")
+    try:
+        from interview_mux.analysis_memory import sync_speakers_to_state
+
+        sync_speakers_to_state(ctx, enriched)
+    except Exception:
+        pass
+    if not ctx.is_done("speaker_roles"):
+        ctx.mark_done("speaker_roles")
+    return ["understanding/speakers.json"]
 
 
 def _pair_verdicts(repairs: Any) -> list[dict[str, Any]]:

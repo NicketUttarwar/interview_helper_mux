@@ -29,7 +29,16 @@ from interview_mux.podcast_rss.cover_vision import pick_cover_winner
 from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config
 from interview_mux.podcast_rss.openai_cover import generate_cover_candidates, resolve_cover_image_settings
 from interview_mux.podcast_rss.s3_publish import cache_control_for_key, content_type_for_key
-from interview_mux.podcast_rss.settings import episode_prefix, s3_layout
+from interview_mux.podcast_rss.settings import (
+    APPLE_PODCASTS_CONNECT_NEW_FEED,
+    APPLE_PODCASTS_PASSTHROUGH_NOTICE,
+    apple_podcasts_passthrough_url,
+    attach_apple_passthrough,
+    episode_prefix,
+    format_apple_passthrough_notice,
+    normalize_public_feed_url,
+    s3_layout,
+)
 
 
 def test_apply_version_suffix_v2():
@@ -63,6 +72,28 @@ def test_allocate_and_record():
         s3_prefix="episodes/0001",
     )
     assert by_exec["exec_1"]["s3_prefix"] == "episodes/0001"
+
+
+def test_apple_podcasts_passthrough_url_encodes_https_feed():
+    feed = "https://d111.cloudfront.net/feed.xml"
+    out = apple_podcasts_passthrough_url(feed)
+    assert out.startswith(APPLE_PODCASTS_CONNECT_NEW_FEED + "?submitfeed=")
+    assert "submitfeed=https%3A%2F%2Fd111.cloudfront.net%2Ffeed.xml" in out
+    assert " " not in out
+    notice = format_apple_passthrough_notice(feed)
+    assert feed in notice
+    assert out in notice
+    assert APPLE_PODCASTS_PASSTHROUGH_NOTICE in notice
+    assert attach_apple_passthrough({"feed_url": feed})["apple_podcasts_passthrough_url"] == out
+
+
+def test_apple_podcasts_passthrough_url_rejects_unsafe():
+    assert normalize_public_feed_url("") == ""
+    assert apple_podcasts_passthrough_url("") == ""
+    assert apple_podcasts_passthrough_url("javascript:alert(1)") == ""
+    assert apple_podcasts_passthrough_url("https://user:pass@evil.example/feed.xml") == ""
+    assert apple_podcasts_passthrough_url("https://d111.cloudfront.net/feed.xml\nhttps://evil") == ""
+    assert format_apple_passthrough_notice(None) == ""
 
 
 def test_episode_layout_prefix():
@@ -598,3 +629,59 @@ def test_sync_ready_packages_requires_scope():
     result = sync_assets.sync_ready_packages(dry_run=True)
     assert result.errors
     assert "execution_id" in result.errors[0]["error"]
+
+
+def test_rewrite_public_url_swaps_host_keeps_path():
+    from interview_mux.podcast_rss.s3_publish import retarget_episode_public_urls, rewrite_public_url
+
+    assert (
+        rewrite_public_url("https://dold.cloudfront.net/episodes/0001/audio.mp3", "https://dnew.cloudfront.net")
+        == "https://dnew.cloudfront.net/episodes/0001/audio.mp3"
+    )
+    assert rewrite_public_url("/feed.xml", "https://dnew.cloudfront.net") == "https://dnew.cloudfront.net/feed.xml"
+    rewritten = retarget_episode_public_urls(
+        {
+            "enclosure_url": "https://dold.cloudfront.net/episodes/0001/audio.mp3",
+            "cover_url": "https://dold.cloudfront.net/episodes/0001/cover.jpg",
+            "title": "Keep me",
+        },
+        "https://dnew.cloudfront.net",
+    )
+    assert rewritten["enclosure_url"] == "https://dnew.cloudfront.net/episodes/0001/audio.mp3"
+    assert rewritten["cover_url"] == "https://dnew.cloudfront.net/episodes/0001/cover.jpg"
+    assert rewritten["title"] == "Keep me"
+
+
+def test_invalidate_current_feed_uses_live_secrets():
+    from interview_mux.podcast_rss import s3_publish
+
+    cf = MagicMock()
+    cf.create_invalidation.return_value = {"Invalidation": {"Id": "IABC"}}
+
+    with (
+        patch.object(
+            s3_publish,
+            "resolve_publish_targets",
+            return_value={
+                "bucket": "the-war-room-rss-001",
+                "region": "us-east-1",
+                "distribution_id": "ENEWDIST",
+                "feed_base_url": "https://dnew.cloudfront.net",
+                "project_name": "the_war_room_001",
+            },
+        ),
+        patch.object(s3_publish, "_client", return_value=cf),
+    ):
+        result = s3_publish.invalidate_current_feed()
+
+    assert result["invalidation_id"] == "IABC"
+    assert result["distribution_id"] == "ENEWDIST"
+    assert result["feed_url"] == "https://dnew.cloudfront.net/feed.xml"
+    assert (
+        result["apple_podcasts_passthrough_url"]
+        == apple_podcasts_passthrough_url("https://dnew.cloudfront.net/feed.xml")
+    )
+    cf.create_invalidation.assert_called_once()
+    kwargs = cf.create_invalidation.call_args.kwargs
+    assert kwargs["DistributionId"] == "ENEWDIST"
+    assert "/feed.xml" in kwargs["InvalidationBatch"]["Paths"]["Items"]

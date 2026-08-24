@@ -55,6 +55,22 @@ def test_candidates_stop_before_second_complete_idea():
     assert cuts == [1800]
 
 
+def test_candidates_cross_speaker_list_closes_at_diagnostics():
+    words = [
+        {"text": "clinical", "start_ms": 0, "end_ms": 400, "speaker_id": "spk_1"},
+        {"text": "trials,", "start_ms": 400, "end_ms": 900, "speaker_id": "spk_1"},
+        {"text": "drug", "start_ms": 1600, "end_ms": 1900, "speaker_id": "spk_0"},
+        {"text": "development,", "start_ms": 1900, "end_ms": 2400, "speaker_id": "spk_0"},
+        {"text": "and", "start_ms": 2400, "end_ms": 2600, "speaker_id": "spk_0"},
+        {"text": "diagnostics.", "start_ms": 2600, "end_ms": 3200, "speaker_id": "spk_0"},
+        {"text": "Well,", "start_ms": 3200, "end_ms": 3600, "speaker_id": "spk_0"},
+        {"text": "subscribe", "start_ms": 4000, "end_ms": 4500, "speaker_id": "spk_0"},
+    ]
+    cuts = complete_thought_candidates(words, 400, horizon_ms=8000, speaker="")
+    assert cuts
+    assert cuts[0] == 3200
+
+
 def test_apply_extends_hanging_and_leaves_leftover_independent():
     clips = [
         {

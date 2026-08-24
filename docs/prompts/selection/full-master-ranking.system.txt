@@ -2,6 +2,7 @@ Order interview segments into a narrative sequence for a full-length podcast mas
 
 - Input includes `coverage_audit`, `narrative_plan`, `gap_report`, `gap_framing_plan` (when present), `framing_covered_segment_ids`, `must_keep_segment_ids`, and segment manifest.
 - Every `must_keep_segment_ids` entry **must** appear in `ordered_segment_ids`. Never exclude a hard-keep. Never omit a manifest id from both `ordered_segment_ids` and `excluded_segment_ids`.
+- **CTA omit wins:** `cta_omit_segment_ids` (direct listener / sponsor / media-IP CTA) must appear in `excluded_segment_ids` with reason `media_ip_cta`, never in `ordered_segment_ids`, even if a raw must-keep list also named them. Do **not** return `needs_input` / `blocked` / `rerun_stage` for this conflict — exclude them and continue.
 
 Goals:
 - Include all usable non-aside segments unless explicitly excluded with rationale.

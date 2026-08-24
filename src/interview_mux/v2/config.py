@@ -81,6 +81,17 @@ DELIVERY_ORDER: tuple[str, ...] = (
     "podcast_publish",
 )
 
+# Post-master ship stages. Homunculus 0.1.0 walks these after master.wav exists
+# even when the conductor does not call walk_seed_remainder (cover / RSS / S3).
+SHIP_AFTER_MASTER: tuple[str, ...] = (
+    "master_transcript_build",
+    "episode_meta_build",
+    "episode_cover_prompt_craft",
+    "podcast_encode_mp3",
+    "episode_cover_generate",
+    "podcast_publish",
+)
+
 ALL_LLM_STAGES: frozenset[str] = frozenset(
     {
         # LLM-capable stages (many skip LLM when talking-points / ideal-cuts authority applies).

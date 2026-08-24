@@ -26,6 +26,13 @@ MASTER_RESTORE_NAMES = (
 
 SOUND_DESIGN_RESTORE_NAMES = ("sfx_prompts.json", "mmaudio_qa.json")
 
+# Mix cannot run until MusicGen/MMAudio has written SDP asset WAVs.
+MUSIC_BEFORE_MIX: tuple[str, ...] = (
+    "music_palette_compose",
+    "sfx_prompt_craft",
+    "mmaudio_sfx",
+)
+
 
 def newest_archived(ctx: RunContext, rel: str) -> Path | None:
     """Newest ``.archived/*/rel`` by sorted path (timestamp dirs sort lexicographically)."""
@@ -322,6 +329,37 @@ def first_pending_delivery(
     return None
 
 
+def resume_theme_generation(ctx: RunContext) -> str:
+    """Resume palette/prompt/MusicGen only when SDP theme WAVs are actually missing.
+
+    If committed theme WAVs exist, keep music stages done and resume mix — do not
+    unmark MusicGen and regenerate (junction remaster loop).
+    """
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    missing = missing_sdp_asset_wavs(ctx)
+    if not missing:
+        for sid in MUSIC_BEFORE_MIX:
+            marker = Path(ctx.run_dir) / ".stage_done" / sid
+            if not marker.is_file():
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("", encoding="utf-8")
+        return "mix"
+    for sid in MUSIC_BEFORE_MIX:
+        marker = Path(ctx.run_dir) / ".stage_done" / sid
+        if marker.is_file():
+            marker.unlink()
+            try:
+                ctx.log(
+                    f"unmarked {sid} — SDP theme WAVs missing; generate before mix",
+                    level="warning",
+                    stage=sid,
+                )
+            except Exception:
+                pass
+    return "music_palette_compose"
+
+
 def suggest_delivery_resume(ctx: RunContext) -> str | None:
     """Furthest sensible delivery from_stage from on-disk artifacts.
 
@@ -354,9 +392,18 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
 
     theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
     qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
+    if edl:
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            missing_theme = missing_sdp_asset_wavs(ctx)
+        except Exception:
+            missing_theme = []
+        if missing_theme:
+            return resume_theme_generation(ctx)
     if edl and qa_ok and len(theme_wavs) >= 3 and not asm:
         return "mix"
-    if edl and ctx.is_done("mmaudio_sfx"):
+    if edl and ctx.is_done("mmaudio_sfx") and theme_wavs:
         return "mix"
     if edl:
         return first_pending_delivery(

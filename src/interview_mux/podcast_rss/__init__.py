@@ -11,30 +11,42 @@ from interview_mux.podcast_rss.chapters import build_timed_chapters
 from interview_mux.podcast_rss.encode import encode_master_to_mp3
 from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config
 from interview_mux.podcast_rss.s3_publish import (
+    invalidate_current_feed,
     invalidate_feed,
     put_bytes,
     put_file,
     put_file_if_changed,
     publish_episode_package,
+    retarget_public_feed,
     upload_episode_files,
 )
 from interview_mux.podcast_rss.settings import (
+    apple_podcasts_passthrough_url,
+    attach_apple_passthrough,
     episode_prefix,
     feed_url_from_base,
+    format_apple_passthrough_notice,
+    print_apple_passthrough_notice,
     resolve_publish_targets,
     s3_layout,
 )
 
 __all__ = [
     "allocate_episode_number",
+    "apple_podcasts_passthrough_url",
     "apply_version_suffix",
+    "attach_apple_passthrough",
     "build_feed_xml",
     "build_timed_chapters",
     "channel_meta_from_config",
     "encode_master_to_mp3",
     "episode_prefix",
     "feed_url_from_base",
+    "format_apple_passthrough_notice",
+    "invalidate_current_feed",
+    "print_apple_passthrough_notice",
     "invalidate_feed",
+    "retarget_public_feed",
     "load_by_source_hash",
     "publish_episode_package",
     "put_bytes",

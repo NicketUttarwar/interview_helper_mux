@@ -13,6 +13,7 @@ cd "$ROOT"
 "$PY" tools/verify_dependency_graph.py
 "$PY" tools/verify_stage_contracts.py
 "$PY" tools/codegen_artifact_manifest.py
+"$PY" tools/catalog_unattended_breakpoints.py
 "$PY" tools/progression_chain_sanity.py --scope full
 "$PY" tools/audit_segment_lineage.py --fixture
 "$PY" -m pytest tests/test_openai_schema_semantic_lint.py \

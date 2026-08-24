@@ -30,17 +30,20 @@ from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_con
 from interview_mux.podcast_rss.s3_publish import (
     ensure_s3_prefixes,
     get_json,
-    invalidate_feed,
+    invalidate_current_feed,
     list_episode_metas,
     put_bytes,
     put_file_if_changed,
+    retarget_episode_public_urls,
     upload_episode_files,
 )
 from interview_mux.podcast_rss.settings import (
+    apple_podcasts_passthrough_url,
     episode_prefix,
     feed_url_from_base,
     podcast_cfg,
     require_publish_ready,
+    resolve_publish_targets,
     s3_layout,
     show_artwork_s3_key,
 )
@@ -82,6 +85,7 @@ class SyncResult:
             "errors": list(self.errors),
             "invalidation_id": self.invalidation_id,
             "feed_url": self.feed_url,
+            "apple_podcasts_passthrough_url": apple_podcasts_passthrough_url(self.feed_url),
             "uploaded_count": len(self.uploaded),
             "skipped_already_uploaded_count": len(self.skipped_already_uploaded),
         }
@@ -318,8 +322,6 @@ def sync_ready_packages(
     bucket = targets["bucket"]
     region = targets["region"]
     base = targets["feed_base_url"]
-    dist_id = targets["distribution_id"]
-    project_name = targets["project_name"]
     result.feed_url = feed_url_from_base(base)
 
     by_exec_raw = get_json(bucket, f"{catalog_prefix}/by_execution_id.json", region=region) or {}
@@ -508,11 +510,16 @@ def sync_ready_packages(
         else:
             put_file_if_changed(bucket=bucket, key=art_key, path=show_art, region=region)
 
+    # Re-read secrets so a CloudFront URL rotate mid-run still hits the live feed.
+    fresh = resolve_publish_targets()
+    base = str(fresh.get("feed_base_url") or base).rstrip("/")
     channel = channel_meta_from_config(cfg)
     existing = list_episode_metas(bucket, region=region)
     new_guids = {str(e.get("guid") or e.get("execution_id") or "") for e in new_episode_docs}
     existing = [e for e in existing if str(e.get("guid") or e.get("execution_id") or "") not in new_guids]
-    feed_episodes = list(new_episode_docs) + existing
+    feed_episodes = [
+        retarget_episode_public_urls(doc, base) for doc in (list(new_episode_docs) + existing)
+    ]
     art_key = show_artwork_s3_key(cfg)
     feed_xml = build_feed_xml(
         channel=channel,
@@ -529,12 +536,9 @@ def sync_ready_packages(
         content_type="application/rss+xml",
         cache_control="max-age=0, must-revalidate",
     )
-    result.invalidation_id = invalidate_feed(
-        distribution_id=dist_id,
-        region=region,
-        project_name=project_name,
-    )
-    result.feed_url = feed_url_from_base(base)
+    inv = invalidate_current_feed()
+    result.invalidation_id = inv["invalidation_id"]
+    result.feed_url = inv.get("feed_url") or feed_url_from_base(base)
     write_last_sync_result(result)
     return result
 

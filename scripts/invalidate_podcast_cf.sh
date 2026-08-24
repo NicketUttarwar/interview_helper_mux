@@ -1,27 +1,36 @@
 #!/usr/bin/env bash
 # Invalidate The War Room CloudFront paths (default: /feed.xml).
-# Uses secrets.env + boto3 via a small Python helper (no AWS CLI required).
+# Always uses the *live* feed URL from secrets.env (synced by tf-apply /
+# tf-rotate-cloudfront-url.sh). Same helper the app calls on G-Publish sync.
+# boto3 only — no AWS CLI required.
+#
+# After invalidation, prints the Apple Podcasts Connect pass-through next to
+# the live feed URL (print_apple_passthrough_notice).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/lib/secrets_env.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/lib/apple_podcasts_passthrough.sh"
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-  Invalidate CloudFront for the podcast distribution.
+  Invalidate CloudFront for the current podcast RSS URL.
+
+  Reads PODCAST_CLOUDFRONT_DISTRIBUTION_ID and PODCAST_FEED_BASE_URL from
+  config/secrets/secrets.env (rewritten by ./scripts/tf-apply.sh and
+  ./scripts/tf-rotate-cloudfront-url.sh). The app publish path uses the
+  same Python helper (invalidate_current_feed).
 
   Options:
     --paths 'a,b'     Comma-separated paths (default: /feed.xml)
     --all-media       Also invalidate /episodes/* and /show/*
     --wait            Poll until the invalidation completes
     -h, --help        Show help
-
-  Requires PODCAST_CLOUDFRONT_DISTRIBUTION_ID in config/secrets/secrets.env
-  (synced by ./scripts/tf-apply.sh / sync_podcast_tf_secrets.sh).
 EOF
 }
 
@@ -59,6 +68,13 @@ load_secrets_env "${REPO_ROOT}" || true
 
 if [[ -z "${PODCAST_CLOUDFRONT_DISTRIBUTION_ID:-}" ]]; then
   echo "PODCAST_CLOUDFRONT_DISTRIBUTION_ID missing in secrets.env" >&2
+  echo "Run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh" >&2
+  exit 1
+fi
+
+if [[ -z "${PODCAST_FEED_BASE_URL:-}" ]]; then
+  echo "PODCAST_FEED_BASE_URL missing in secrets.env — cannot target the live RSS URL" >&2
+  echo "Run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh" >&2
   exit 1
 fi
 
@@ -85,27 +101,21 @@ from pathlib import Path
 ROOT = Path.cwd()
 sys.path.insert(0, str(ROOT / "src"))
 
-from interview_mux.podcast_rss.s3_publish import invalidate_paths, wait_invalidation
-from interview_mux.podcast_rss.settings import resolve_publish_targets
+from interview_mux.podcast_rss.s3_publish import invalidate_current_feed
+from interview_mux.podcast_rss.settings import print_apple_passthrough_notice
 
-targets = resolve_publish_targets()
-dist = targets["distribution_id"]
-region = targets["region"]
-project = targets["project_name"]
 raw = os.environ.get("INVALIDATE_PATHS") or "/feed.xml"
 paths = [p.strip() for p in raw.split(",") if p.strip()]
-inv_id = invalidate_paths(
-    distribution_id=dist,
+result = invalidate_current_feed(
     paths=paths,
-    region=region,
-    project_name=project,
+    wait=os.environ.get("INVALIDATE_WAIT") == "1",
 )
-print(f"Invalidation {inv_id} for {dist}: {', '.join(paths)}")
-if os.environ.get("INVALIDATE_WAIT") == "1":
-    status = wait_invalidation(
-        distribution_id=dist,
-        invalidation_id=inv_id,
-        region=region,
-    )
-    print(f"Status: {status}")
+feed = result.get("feed_url") or result.get("feed_base_url") or "—"
+print(
+    f"Invalidation {result.get('invalidation_id') or '—'} "
+    f"for {feed} ({result.get('distribution_id') or '—'}): {result.get('paths') or raw}"
+)
+if result.get("status"):
+    print(f"Status: {result['status']}")
+print_apple_passthrough_notice(result.get("feed_url") or "", include_feed=False)
 PY

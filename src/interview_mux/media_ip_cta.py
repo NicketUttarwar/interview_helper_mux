@@ -65,6 +65,44 @@ def never_touch_segment_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
+def ranking_cta_omit_ids(ctx: RunContext) -> set[str]:
+    """IDs ranking must exclude: stored never-touch plus tape-scan hard-omit CTAs.
+
+    ``media_ip_cta.json`` is written during ranking persist, so the packet-time
+    keep list cannot wait on that file. Scan native text now so must-keep and
+    CTA omit are consistent before the LLM runs.
+    """
+    ids = set(never_touch_segment_ids(ctx))
+    if not enabled(ctx):
+        return {s for s in ids if s}
+    try:
+        from interview_mux.homunculus.values import should_hard_omit_cta
+    except Exception:
+        return {s for s in ids if s}
+    for sid, row in _segments_by_id(ctx).items():
+        text = str((row or {}).get("text") or "")
+        if text and should_hard_omit_cta(text):
+            ids.add(str(sid))
+    try:
+        from interview_mux.homunculus.issues import read_issues
+
+        for issue in read_issues(ctx):
+            if not isinstance(issue, dict):
+                continue
+            kind = str(issue.get("kind") or "")
+            if kind not in {
+                "perspective_direct_monetization",
+                "direct_listener_sponsor_promotion",
+            }:
+                continue
+            for sid in issue.get("implicated") or []:
+                if sid:
+                    ids.add(str(sid))
+    except Exception:
+        pass
+    return {s for s in ids if s}
+
+
 def never_touch_texts(ctx: RunContext) -> list[str]:
     state = load_state(ctx)
     texts = [str(t).strip() for t in (state.get("never_touch_texts") or []) if str(t).strip()]
@@ -85,6 +123,15 @@ def never_touch_texts(ctx: RunContext) -> list[str]:
 def cover_target_ids(ctx: RunContext) -> set[str]:
     state = load_state(ctx)
     return {str(x) for x in (state.get("cover_target_ids") or []) if x}
+
+
+def admitted_story_segment_ids(ctx: RunContext) -> set[str]:
+    """Keepable recut remainders — first-class candidates for ranking/shape/master."""
+    state = load_state(ctx)
+    ids = {str(x) for x in (state.get("admitted_story_segment_ids") or []) if x}
+    if ids:
+        return ids
+    return set(_story_ids_from_recuts(list(state.get("recuts") or [])))
 
 
 def is_lets_hear_hinge(text: str) -> bool:
@@ -126,7 +173,11 @@ def _prune_cfg() -> dict[str, int]:
 
 
 def _g0_words(ctx: RunContext) -> list[dict[str, Any]]:
-    for rel in ("transcript/full.json", "ingest/transcript.json"):
+    for rel in (
+        "transcript/full.json",
+        "operator/transcript_corrected.json",
+        "ingest/transcript.json",
+    ):
         if not ctx.artifact_exists(rel):
             continue
         try:
@@ -159,6 +210,44 @@ def _span_text(words: list[dict[str, Any]], start_ms: int, end_ms: int) -> str:
     return " ".join(parts).strip()
 
 
+def _mixed_story_cta_cut_ms(
+    words: list[dict[str, Any]], start_ms: int, end_ms: int
+) -> int | None:
+    """First listen-complete hinge whose leftover is CTA / a new beat.
+
+    Keeps a short story prefix (list close) even when it is under min_child_ms.
+    """
+    if not words or end_ms <= start_ms:
+        return None
+    from interview_mux.homunculus.values import should_hard_omit_cta
+    from interview_mux.thought_complete_recut import (
+        _next_opens_new_beat,
+        complete_thought_candidates,
+    )
+
+    cands = complete_thought_candidates(
+        words, start_ms, horizon_ms=end_ms, speaker=""
+    )
+    for cut in cands:
+        try:
+            hinge = int(cut)
+        except (TypeError, ValueError):
+            continue
+        if not (start_ms < hinge < end_ms):
+            continue
+        prefix = _span_text(words, start_ms, hinge)
+        rest = _span_text(words, hinge, end_ms)
+        if not rest:
+            continue
+        if prefix and should_hard_omit_cta(prefix):
+            continue
+        if should_hard_omit_cta(rest) or _next_opens_new_beat(rest):
+            return hinge
+        if prefix and not should_hard_omit_cta(prefix):
+            return hinge
+    return None
+
+
 def _partition_complete_thoughts(
     words: list[dict[str, Any]],
     start_ms: int,
@@ -167,6 +256,7 @@ def _partition_complete_thoughts(
     min_child_ms: int,
     extra_cuts: list[int] | None = None,
     max_children: int = 12,
+    allow_short_extra: bool = False,
 ) -> list[tuple[int, int]]:
     """Left-to-right complete-thought spans; ranking cut_ms are extra hinges."""
     window = []
@@ -218,8 +308,25 @@ def _partition_complete_thoughts(
             c = int(cut)
         except (TypeError, ValueError):
             continue
-        if start_ms + min_child_ms <= c <= end_ms - min_child_ms:
+        if allow_short_extra and start_ms < c < end_ms:
             hinges.append(c)
+        elif start_ms + min_child_ms <= c <= end_ms - min_child_ms:
+            hinges.append(c)
+    extra_pref = []
+    for cut in extra_cuts or []:
+        try:
+            extra_pref.append(int(cut))
+        except (TypeError, ValueError):
+            continue
+    if extra_pref:
+        prefer = set(extra_pref)
+        collapsed: list[int] = []
+        for h in sorted(set(hinges)):
+            near_pref = next((p for p in prefer if abs(h - p) <= 80), None)
+            if near_pref is not None and h != near_pref:
+                continue
+            collapsed.append(h)
+        hinges = collapsed
     cuts = sorted(set(hinges))
     bounds = [start_ms, *cuts, end_ms]
     spans: list[tuple[int, int]] = []
@@ -432,6 +539,9 @@ def _prune_parent(
     ranking_cuts = [c for c in ranking_cuts if start + min_child <= c <= end - min_child]
     words = _g0_words(ctx)
     extra = list(ranking_cuts)
+    mixed_hinge = _mixed_story_cta_cut_ms(words, start, end) if mixed else None
+    if mixed_hinge is not None:
+        extra.append(int(mixed_hinge))
     if depth > 0:
         act_cut = _speech_act_cut_ms(words, start, end)
         if act_cut is not None:
@@ -443,6 +553,7 @@ def _prune_parent(
         min_child_ms=min_child,
         extra_cuts=extra,
         max_children=cfg["prune_max_children"],
+        allow_short_extra=bool(mixed and mixed_hinge is not None),
     )
     by_id = _segments_by_id(ctx)
     parent_text = str((by_id.get(segment_id) or {}).get("text") or "")
@@ -678,6 +789,13 @@ def run_cta_prune(
     dropped = list(dict.fromkeys(dropped))
     recut_parents = _recut_parent_ids(recuts)
     story_ids = _story_ids_from_recuts(recuts)
+    for recut in recuts:
+        if not isinstance(recut, dict) or not recut.get("ok"):
+            continue
+        parent = str(recut.get("parent_id") or "")
+        kids = [str(c) for c in (recut.get("children") or []) if c]
+        if parent and kids:
+            _persist_recut_children(ctx, parent, kids, story_ids)
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     if id_map:
         ordered = _rewrite_order(ordered, id_map)
@@ -724,6 +842,9 @@ def run_cta_prune(
     out["ordered_segment_ids"] = ordered
     out["excluded_segment_ids"] = excl
     out["media_ip_cta"] = hits
+    if story_ids:
+        out["admitted_story_segment_ids"] = list(story_ids)
+        out["considerable_segment_ids"] = list(story_ids)
     _rewrite_chapter_ids(out, id_map, drop_set, story_ids)
     _sync_cold_open(out, drop_set, id_map, ordered)
 
@@ -738,6 +859,8 @@ def run_cta_prune(
         "never_touch_segment_ids": never_touch,
         "never_touch_texts": texts,
         "cover_target_ids": cover_targets,
+        "admitted_story_segment_ids": story_ids,
+        "considerable_segment_ids": list(story_ids),
         "recuts": recuts,
         "cta_open_parent": cta_open_parent,
         "open_choice": open_choice or None,
@@ -777,6 +900,16 @@ def run_cta_prune(
         state["seed_ids"] = list(dict.fromkeys([*(prev.get("seed_ids") or []), *seed_ids]))
         state["seed_count"] = len(state["seed_ids"])
         state["notes"] = list(dict.fromkeys([*(prev.get("notes") or []), *notes]))[-48:]
+        state["admitted_story_segment_ids"] = list(
+            dict.fromkeys(
+                [
+                    *(prev.get("admitted_story_segment_ids") or []),
+                    *story_ids,
+                    *_story_ids_from_recuts(merged_recuts),
+                ]
+            )
+        )
+        state["considerable_segment_ids"] = list(state["admitted_story_segment_ids"])
     _write_state(ctx, state)
     return out
 
@@ -847,8 +980,18 @@ def _reapply_locked(
     artifacts["media_ip_cta"] = extract_judgments(
         {"media_ip_cta": list(prev.get("judgments") or [])}
     )
+    if story_ids:
+        artifacts["admitted_story_segment_ids"] = list(story_ids)
+        artifacts["considerable_segment_ids"] = list(story_ids)
     _rewrite_chapter_ids(artifacts, id_map, drop_set, story_ids)
     _sync_cold_open(artifacts, drop_set, id_map, ordered)
+    for recut in recuts:
+        if not isinstance(recut, dict) or not recut.get("ok"):
+            continue
+        parent = str(recut.get("parent_id") or "")
+        kids = [str(c) for c in (recut.get("children") or []) if c]
+        if parent and kids:
+            _persist_recut_children(ctx, parent, kids, story_ids)
     return artifacts
 
 
@@ -1355,6 +1498,128 @@ def _stamp_excludes(excl: list[Any], ids: list[str]) -> list[Any]:
             elif row == sid:
                 out[i] = {"segment_id": sid, "reason": REASON}
     return out
+
+
+def _persist_recut_children(
+    ctx: RunContext,
+    parent_id: str,
+    child_ids: list[str],
+    story_ids: list[str],
+) -> None:
+    """Write recut children into the candidate-source artifacts ranking/shape read."""
+    try:
+        from interview_mux.nle_state import materialize_split_children_into_manifest
+
+        materialize_split_children_into_manifest(ctx, parent_id, child_ids)
+    except Exception:
+        pass
+    try:
+        from interview_mux.artifact_repairs import propagate_nle_split_segment_refs
+
+        keep = [str(s) for s in story_ids if s] or list(child_ids)
+        propagate_nle_split_segment_refs(ctx, parent_id, keep)
+        _publish_story_children_sources(ctx, parent_id, keep)
+    except Exception:
+        pass
+
+
+def _publish_story_children_sources(
+    ctx: RunContext, parent_id: str, story_ids: list[str]
+) -> None:
+    """Rewrite shape/structure sources so admitted children stay in the candidate pool."""
+    if not parent_id or not story_ids:
+        return
+    from interview_mux.artifact_repairs import _rewrite_segment_id_list
+
+    def _rewrite_doc(rel: str, rewriter: Any) -> None:
+        if not ctx.artifact_exists(rel):
+            return
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            return
+        if not isinstance(doc, dict):
+            return
+        if rewriter(doc):
+            try:
+                ctx.write_json(rel, doc, skip_handoff=True)
+            except Exception:
+                from interview_mux.write_staging import write_mirrored_json
+
+                write_mirrored_json(ctx, rel, doc)
+
+    def _episode(doc: dict[str, Any]) -> bool:
+        changed = False
+        order = doc.get("segment_order")
+        if isinstance(order, list) and parent_id in [str(x) for x in order]:
+            doc["segment_order"] = _rewrite_segment_id_list(order, parent_id, story_ids)
+            changed = True
+        hook = doc.get("hook_reel")
+        if isinstance(hook, dict) and str(hook.get("segment_id") or "") == parent_id:
+            hook["segment_id"] = story_ids[0]
+            changed = True
+        for slot in doc.get("slot_plan") or []:
+            if not isinstance(slot, dict):
+                continue
+            bound = slot.get("bound_segment_ids")
+            if isinstance(bound, list) and parent_id in [str(x) for x in bound]:
+                slot["bound_segment_ids"] = _rewrite_segment_id_list(bound, parent_id, story_ids)
+                changed = True
+        return changed
+
+    def _plan(doc: dict[str, Any]) -> bool:
+        order = doc.get("ordered_segment_ids")
+        if isinstance(order, list) and parent_id in [str(x) for x in order]:
+            doc["ordered_segment_ids"] = _rewrite_segment_id_list(order, parent_id, story_ids)
+            return True
+        return False
+
+    def _talking(doc: dict[str, Any]) -> bool:
+        changed = False
+        rows = doc.get("talking_points") if isinstance(doc.get("talking_points"), list) else []
+        if not rows and isinstance(doc, dict) and isinstance(doc.get("points"), list):
+            rows = doc["points"]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in ("segment_id", "cut_id", "source_segment_id"):
+                if str(row.get(key) or "") == parent_id:
+                    row[key] = story_ids[0]
+                    changed = True
+            segs = row.get("segment_ids")
+            if isinstance(segs, list) and parent_id in [str(x) for x in segs]:
+                row["segment_ids"] = _rewrite_segment_id_list(segs, parent_id, story_ids)
+                changed = True
+        return changed
+
+    def _cuts(doc: dict[str, Any]) -> bool:
+        changed = False
+        keeps = doc.get("must_keep_segment_ids")
+        if isinstance(keeps, list) and parent_id in [str(x) for x in keeps]:
+            doc["must_keep_segment_ids"] = _rewrite_segment_id_list(keeps, parent_id, story_ids)
+            changed = True
+        for row in doc.get("cuts") or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("segment_id") or "") == parent_id:
+                row["segment_id"] = story_ids[0]
+                changed = True
+        return changed
+
+    def _spine(doc: dict[str, Any]) -> bool:
+        changed = False
+        for key in ("segment_ids", "ordered_segment_ids"):
+            val = doc.get(key)
+            if isinstance(val, list) and parent_id in [str(x) for x in val]:
+                doc[key] = _rewrite_segment_id_list(val, parent_id, story_ids)
+                changed = True
+        return changed
+
+    _rewrite_doc("understanding/episode_structure.json", _episode)
+    _rewrite_doc("mastering/mastering_plan.json", _plan)
+    _rewrite_doc("understanding/talking_points.json", _talking)
+    _rewrite_doc("understanding/ideal_cuts.json", _cuts)
+    _rewrite_doc("understanding/interview_spine.json", _spine)
 
 
 def _admit_story_ids(

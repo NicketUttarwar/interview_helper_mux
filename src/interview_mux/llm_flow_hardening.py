@@ -367,11 +367,27 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
 
 
 def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | None:
-    """First not-done seed-order stage before `stage_key`."""
+    """First not-done seed-order stage before `stage_key`.
+
+    After a complete master, ship stages must not rewind into unmarked holes
+    (e.g. vo_synthesize inserted after edl/mix already finished).
+    """
+    from interview_mux.v2.config import SHIP_AFTER_MASTER
+
+    post_master_ship = (
+        stage_key in SHIP_AFTER_MASTER
+        and ctx.artifact_exists("master/master.wav")
+        and ctx.is_done("master_finalize")
+    )
     for order in (ANALYSIS_ORDER, DELIVERY_ORDER):
         if stage_key not in order:
             continue
-        for earlier in order[: order.index(stage_key)]:
+        earlier_list = list(order[: order.index(stage_key)])
+        if post_master_ship:
+            earlier_list = [
+                s for s in earlier_list if s in SHIP_AFTER_MASTER or s == "master_finalize"
+            ]
+        for earlier in earlier_list:
             if not ctx.is_done(earlier):
                 return earlier
         return None

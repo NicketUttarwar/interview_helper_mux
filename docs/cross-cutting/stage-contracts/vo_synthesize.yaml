@@ -19,8 +19,8 @@ sufficiency: []
 propagation:
   invalidates_stages:
   - edl
-consumers:
-- edl
+consumers: []
 remediation:
   strategies:
+  - volley_retry
   - full_stage_rerun

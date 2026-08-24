@@ -43,7 +43,7 @@ python scripts/sync_podcast_episodes.py --execution-id exec_… --dry-run
 python scripts/sync_podcast_episodes.py --all                   # explicit bulk
 ```
 
-Additive only — never deletes remote objects; skips known `execution_id`s. App/GUI/e2e always scope to the current run. Same `source_audio_hash` re-publish appends ` V2`, ` V3`, ….
+Additive only — never deletes remote objects; skips known `execution_id`s. App/GUI/e2e always scope to the current run. Same `source_audio_hash` re-publish appends ` V2`, ` V3`, …. The CLI prints the Apple Podcasts Connect pass-through next to the live feed URL. Apple still requires ≥1 episode before Connect will accept the show.
 
 ## Heritage (removed)
 

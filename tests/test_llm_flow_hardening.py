@@ -182,6 +182,17 @@ def test_maybe_require_names_earliest_incomplete_seed(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="Prerequisite stage boundary_detection"):
         maybe_require_upstream_llm_progress(ctx, "content_brief_reanchor")
 
+
+def test_ship_does_not_rewind_vo_synthesize_after_master(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_merged_config(monkeypatch, _cfg())
+    ctx = isolated_run_ctx(tmp_path, "fh_ship_vo")
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    ctx.mark_done("master_finalize", force=True)
+    maybe_require_upstream_llm_progress(ctx, "master_transcript_build")
+
 def test_llm_upstream_stage_maps_content_context(tmp_path):
     assert LLM_UPSTREAM_STAGE["content_context"] == "speaker_roles"
     assert LLM_UPSTREAM_STAGE["topic_coverage_audit"] == "delivery_brief_build"

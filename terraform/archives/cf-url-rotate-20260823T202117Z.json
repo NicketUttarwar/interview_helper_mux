@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "action": "rotate_cloudfront_url",
+  "created_at": "20260823T202117Z",
+  "purpose": "Delete old CloudFront RSS URL; create a new distribution on the same S3 bucket",
+  "s3_bucket": "the-war-room-rss-001",
+  "project_name": "the_war_room_001",
+  "deleted": {
+    "cloudfront_distribution_id": "E1R2MZVZAUM6OL",
+    "feed_base_url": "https://d382gfigwh3t0g.cloudfront.net",
+    "feed_url": "https://d382gfigwh3t0g.cloudfront.net/feed.xml"
+  },
+  "replacement": {
+    "cloudfront_distribution_id": "E1BYJ7ZL57UFZ6",
+    "feed_base_url": "https://d1rh36b4bayxks.cloudfront.net",
+    "feed_url": "https://d1rh36b4bayxks.cloudfront.net/feed.xml"
+  }
+}

@@ -474,6 +474,72 @@ def merge_artifact(
 
     return _deep_merge(existing, patch)
 
+def _kept_split_child_ids(
+    ctx: RunContext,
+    manifest_by_id: dict[str, dict[str, Any]],
+    contract_ids: set[str],
+) -> set[str]:
+    """NLE/CTA recut children that must stay in the manifest candidate pool."""
+    kept: set[str] = set()
+    for sid, row in manifest_by_id.items():
+        parent = str((row or {}).get("parent_id") or "")
+        if parent and (not contract_ids or parent in contract_ids):
+            kept.add(str(sid))
+    try:
+        from interview_mux.nle_state import load_nle
+
+        overrides = (load_nle(ctx).get("segment_overrides") or {})
+        for sid, ov in overrides.items():
+            if not isinstance(ov, dict):
+                continue
+            parent = str(ov.get("parent_id") or "")
+            if parent and (not contract_ids or parent in contract_ids) and ov.get("start_ms") is not None:
+                kept.add(str(sid))
+    except Exception:
+        pass
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+        kept |= admitted_story_segment_ids(ctx)
+    except Exception:
+        pass
+    return {s for s in kept if s}
+
+
+def _split_child_row_from_parent(
+    ctx: RunContext,
+    child_id: str,
+    manifest_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    try:
+        from interview_mux.nle_state import load_nle
+
+        ov = (load_nle(ctx).get("segment_overrides") or {}).get(child_id) or {}
+    except Exception:
+        ov = {}
+    if not isinstance(ov, dict) or ov.get("start_ms") is None:
+        return None
+    parent = manifest_by_id.get(str(ov.get("parent_id") or "")) or {}
+    try:
+        start = int(ov.get("start_ms") or 0)
+        end = int(ov.get("end_ms") or 0)
+    except (TypeError, ValueError):
+        return None
+    if end <= start:
+        return None
+    return {
+        "segment_id": child_id,
+        "start_ms": start,
+        "end_ms": end,
+        "speaker_id": str(parent.get("speaker_id") or "spk_unknown"),
+        "speaker_role": str(parent.get("speaker_role") or "unknown"),
+        "type": str(parent.get("type") or "interviewee_answer"),
+        "topic_tags": list(parent.get("topic_tags") or []),
+        "text": str(ov.get("label") or parent.get("text") or ""),
+        "parent_id": str(ov.get("parent_id") or ""),
+    }
+
+
 def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) -> dict[str, Any]:
     """Fill timeline fields on manifest segments from segments/boundaries.json."""
     if not isinstance(manifest, dict):
@@ -573,8 +639,20 @@ def hydrate_manifest_from_boundaries(ctx: RunContext, manifest: dict[str, Any]) 
 
     from interview_mux.segment_timeline import sort_segments_by_start_ms
 
+    kept_children = _kept_split_child_ids(ctx, manifest_by_id, set(contract_ids or []))
+    seen = {str(row.get("segment_id") or "") for row in hydrated}
+    for sid in kept_children:
+        if sid in seen:
+            continue
+        extra = manifest_by_id.get(sid)
+        if not isinstance(extra, dict):
+            extra = _split_child_row_from_parent(ctx, sid, manifest_by_id)
+        if isinstance(extra, dict):
+            hydrated.append(dict(extra))
+            seen.add(sid)
+
     if seg_cfg.get("drop_orphan_manifest_rows", True) and contract_ids:
-        allowed = set(contract_ids)
+        allowed = set(contract_ids) | kept_children
         hydrated = [row for row in hydrated if str(row.get("segment_id")) in allowed]
 
     return {**manifest, "segments": sort_segments_by_start_ms(hydrated)}

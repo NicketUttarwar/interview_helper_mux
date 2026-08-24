@@ -27,6 +27,7 @@ propagation:
   - nugget_layup_compose
   - transitions
   - sound_design_plan
+  - vo_synthesize
   - edl
 consumers:
 - full_master_ranking

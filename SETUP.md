@@ -17,6 +17,7 @@ cp config/terraform.tfvars.example config/terraform.tfvars   # keep s3_bucket_na
 ./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
 python scripts/seed_podcast_origin.py
 ./scripts/run.sh
+# Seed prints the Apple Podcasts Connect pass-through next to the feed URL.
 # Optional recovery: ./scripts/invalidate_podcast_cf.sh
 # Session restore: ./scripts/tf-plan.sh --use-session
 ```

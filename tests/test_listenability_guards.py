@@ -134,6 +134,35 @@ def test_top_up_air_inserts_between_speech_joins():
     assert edl["clips"][1]["type"] == "silence"
 
 
+def test_reindex_honors_mix_overlap_ms():
+    from interview_mux.listenability_guards import reindex_edl_timeline
+
+    edl = {
+        "clips": [
+            {"type": "silence", "air_kind": "opening_music", "duration_ms": 14_400, "mix_overlap_ms": 0},
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "duration_ms": 10_000,
+                "source_start_ms": 0,
+                "source_end_ms": 10_000,
+                "mix_overlap_ms": 100,
+            },
+            {
+                "type": "transition",
+                "duration_ms": 5_000,
+                "text": "From there, the conversation turns.",
+                "mix_overlap_ms": 80,
+            },
+        ]
+    }
+    reindex_edl_timeline(edl)
+    assert edl["clips"][0]["timeline_start_ms"] == 0
+    assert edl["clips"][1]["timeline_start_ms"] == 14_300
+    assert edl["clips"][2]["timeline_start_ms"] == 24_220
+    assert edl["timeline_duration_ms"] == 29_220
+
+
 def test_seat_unused_host_vo_skips_clone_adjacent(tmp_path, monkeypatch):
     import array
     import json

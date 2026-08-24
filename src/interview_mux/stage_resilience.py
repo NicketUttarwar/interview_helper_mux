@@ -43,6 +43,32 @@ def stage_resilience_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def unattended_defaults_enabled(ctx: RunContext | None = None) -> bool:
+    """True for Full-auto / explicit config — never force_publish."""
+    import os
+
+    cfg = stage_resilience_cfg().get("unattended_defaults") or {}
+    if isinstance(cfg, dict) and cfg.get("enabled"):
+        return True
+    for key in ("MUX_FULL_AUTO", "MUX_BABA_E2E", "INTERVIEW_MUX_AUTO_ACCEPT_GATES"):
+        raw = str(os.environ.get(key) or "").strip().lower()
+        if raw in {"1", "true", "yes"}:
+            return True
+    mode = str(os.environ.get("MUX_RUN_MODE") or "").strip().lower().replace("_", "-")
+    if mode in {"full-auto", "fullauto", "auto", "e2e"}:
+        return True
+    if ctx is not None and ctx.artifact_exists("run_meta.json"):
+        try:
+            meta = ctx.read_json("run_meta.json") or {}
+        except Exception:
+            meta = {}
+        if isinstance(meta, dict) and (
+            meta.get("full_auto") or str(meta.get("run_mode") or "") == "full-auto"
+        ):
+            return True
+    return False
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -518,7 +544,19 @@ def escalate_stage_failure(
     ):
         if ctx.artifact_exists(rel):
             preserved.append(rel)
-    return write_escalation(
+    try:
+        from interview_mux.identical_failures import record_identical_failure
+
+        record_identical_failure(
+            ctx,
+            failed_stage=stage_id,
+            producer=str((evidence or {}).get("path") or ""),
+            reason=failed_invariant,
+            resume_attempted=stage_id,
+        )
+    except Exception:
+        pass
+    doc = write_escalation(
         ctx,
         stage_id,
         failed_invariant=failed_invariant,
@@ -529,3 +567,18 @@ def escalate_stage_failure(
         resume_stage=stage_id,
         family=family,
     )
+    if unattended_defaults_enabled(ctx) and recommended not in {
+        "force_publish",
+        "soft_ship",
+        "waive_quality",
+    }:
+        try:
+            doc = resolve_escalation(
+                ctx,
+                stage_id,
+                chosen_option=recommended,
+                unattended=True,
+            )
+        except Exception:
+            pass
+    return doc

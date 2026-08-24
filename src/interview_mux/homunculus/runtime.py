@@ -43,6 +43,32 @@ def dispatch_stage(
 
     unmark_hollow_prepare_stages(ctx)
     try:
+        from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
+        from interview_mux.homunculus.agenda import (
+            delivery_sdp_present,
+            stage_outputs_present,
+        )
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+        if (
+            stage in MUSIC_BEFORE_MIX
+            and delivery_sdp_present(ctx)
+            and not missing_sdp_asset_wavs(ctx)
+            and stage_outputs_present(ctx, stage)
+        ):
+            if not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
+            ctx.log(
+                f"homunculus skip-run {stage} — SDP theme WAVs already on disk",
+                level="info",
+                stage=stage,
+            )
+            admit(ctx, identity=stage, action="keep", payload={"stage": stage, "source": source, "skipped_existing_wavs": True})
+            append_ledger(ctx, {"kind": "stage", "identity": stage, "status": "done", "source": source, "skipped_existing_wavs": True})
+            return
+    except Exception:
+        pass
+    try:
         _refuse_g0_locked_rerun(ctx, stage, action="run")
         _refuse_delivery_timeline_rewind(ctx, stage, action="run")
     except RuntimeError:
@@ -68,14 +94,28 @@ def dispatch_stage(
     inflight.add(identity)
     try:
         impl()
-        from interview_mux.homunculus.agenda import PROTECTED_CORE_STAGES
+        from interview_mux.homunculus.agenda import (
+            PROTECTED_CORE_STAGES,
+            PROTECTED_DELIVERY_OUTPUTS,
+            stage_outputs_present,
+            unmark_hollow_delivery_producers,
+        )
 
-        needed = PROTECTED_CORE_STAGES.get(stage) or ()
-        if needed and not all(ctx.artifact_exists(rel) for rel in needed):
-            raise RuntimeError(
-                f"{stage} finished without required artifact ({', '.join(needed)})"
-            )
-        if stage in PROTECTED_CORE_STAGES and needed and not ctx.is_done(stage):
+        unmark_hollow_delivery_producers(ctx, {stage})
+        needed = ()
+        if stage in PROTECTED_CORE_STAGES:
+            needed = PROTECTED_CORE_STAGES.get(stage) or ()
+        elif stage in PROTECTED_DELIVERY_OUTPUTS:
+            needed = PROTECTED_DELIVERY_OUTPUTS.get(stage) or ()
+        if needed and not stage_outputs_present(ctx, stage):
+            if stage == "vo_synthesize" and ctx.artifact_exists("mastering/vo_synthesize.json"):
+                pass
+            else:
+                raise RuntimeError(
+                    f"{stage} finished without required artifact ({', '.join(needed)})"
+                )
+        protected = stage in PROTECTED_CORE_STAGES or stage in PROTECTED_DELIVERY_OUTPUTS
+        if protected and needed and not ctx.is_done(stage):
             defer_done = False
             if stage == "vo_synthesize":
                 from interview_mux.transition_vo import current_transition_pairs_missing
@@ -87,6 +127,42 @@ def dispatch_stage(
                     raise RuntimeError(f"{stage} finished without a done marker")
     except Exception as exc:
         inflight.discard(identity)
+        if stage == "speaker_roles":
+            try:
+                from interview_mux.recovery_controller import classify_error_class
+                from interview_mux.speaker_role_evidence import persist_mixed_diarization_fallback
+
+                if classify_error_class(stage, exc) == "mixed_diarization":
+                    artifacts = persist_mixed_diarization_fallback(ctx)
+                    if artifacts:
+                        ctx.log(
+                            "speaker_roles mixed-diarization fallback — dominant roles from talk stats",
+                            level="warning",
+                            stage=stage,
+                        )
+                        admit(
+                            ctx,
+                            identity=identity,
+                            action="keep",
+                            payload={
+                                "stage": stage,
+                                "source": source,
+                                "mixed_diarization_fallback": True,
+                            },
+                        )
+                        append_ledger(
+                            ctx,
+                            {
+                                "kind": "stage",
+                                "identity": identity,
+                                "status": "done",
+                                "source": source,
+                                "mixed_diarization_fallback": True,
+                            },
+                        )
+                        return
+            except Exception:
+                pass
         issue = emit_issue(
             ctx,
             kind="stage_failure",
@@ -120,6 +196,9 @@ def dispatch_stage(
 def recovery_allowed(ctx: RunContext, stage: str) -> bool:
     """0.1.0: recovery playbook only after an analysis exists for this stage failure."""
     if not is_homunculus_run(ctx):
+        return True
+    # G0-locked mixed diarization: deterministic dominant-role write, no conductor packet.
+    if stage == "speaker_roles":
         return True
     from interview_mux.homunculus.issues import read_issues
 

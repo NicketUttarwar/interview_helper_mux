@@ -166,7 +166,7 @@ When validating Ship + feed hosting on a fresh machine:
 ```bash
 # AWS_* in config/secrets/secrets.env; podcast.s3_bucket aligned with terraform.tfvars
 ./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh
-python scripts/seed_podcast_origin.py
+python scripts/seed_podcast_origin.py   # prints feed URL + Apple Podcasts Connect pass-through
 # After a master: G-Publish prepare, then
 python scripts/sync_podcast_episodes.py --execution-id "$RUN_ID" --dry-run
 ```

@@ -85,11 +85,15 @@ python scripts/seed_podcast_origin.py
 
 Finish a pipeline → **G-Publish → Prepare package for this run** (local meta/cover/mp3 only). When ready, **Upload this run to S3** (or `python scripts/sync_podcast_episodes.py --execution-id …`). Sync uploads only that execution, is additive, and never deletes remote objects.
 
-Manual CloudFront recovery (boto3, no AWS CLI): `./scripts/invalidate_podcast_cf.sh`
+Manual CloudFront recovery (boto3, no AWS CLI): `./scripts/invalidate_podcast_cf.sh` (uses the live `PODCAST_FEED_BASE_URL` after apply or `./scripts/tf-rotate-cloudfront-url.sh`).
 
 ### D — Submit the feed
 
-Open `PODCAST_FEED_BASE_URL/feed.xml` and submit that URL to Apple Podcasts Connect (“Add a show with an RSS feed”) and Spotify for Podcasters.
+Open `PODCAST_FEED_BASE_URL/feed.xml` and submit via Apple’s pass-through:
+
+`https://podcastsconnect.apple.com/my-podcasts/new-feed?submitfeed=<that feed URL>`
+
+Seed / rotate / apply scripts print the encoded pass-through whenever they display a new RSS URL. **Notice:** Apple rejects an empty seed feed — publish ≥1 episode or a trailer first. Also add the same feed URL in Spotify for Podcasters.
 
 Full ops: [docs/cross-cutting/podcast-rss-hosting.md](docs/cross-cutting/podcast-rss-hosting.md)
 
@@ -105,7 +109,8 @@ scripts/tf-*.sh                    # Terraform wrappers (podcast stack; updates 
 scripts/sync_podcast_tf_secrets.sh # outputs → PODCAST_* in secrets.env
 scripts/seed_podcast_origin.py     # seed feed.xml + show art (boto3)
 scripts/sync_podcast_episodes.py   # upload one execution (or --all for explicit bulk)
-scripts/invalidate_podcast_cf.sh   # CloudFront invalidation (boto3; no AWS CLI)
+scripts/tf-rotate-cloudfront-url.sh # same S3 bucket, new CloudFront RSS URL
+scripts/invalidate_podcast_cf.sh   # CloudFront invalidation of the live feed URL
 scripts/run.sh                     # launch (MUX_FULL_AUTO=1 for detached Full-auto)
 terraform/                         # S3 + CloudFront OAC (README + committed state/)
 src/interview_mux/                 # pipeline + API

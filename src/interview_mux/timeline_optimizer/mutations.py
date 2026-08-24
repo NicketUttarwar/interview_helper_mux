@@ -11,6 +11,28 @@ def _clone(cand: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(cand)
 
 
+def _considerable_ids(cand: dict[str, Any]) -> set[str]:
+    """Recut remainders the optimizer may add; not limited to the prior air order."""
+    out: set[str] = set()
+    for key in ("considerable_segment_ids", "admitted_story_segment_ids"):
+        raw = cand.get(key) or []
+        if isinstance(raw, list):
+            out.update(str(s) for s in raw if s)
+    return out
+
+
+def _excluded_id_set(excluded: list[Any]) -> set[str]:
+    ids: set[str] = set()
+    for item in excluded:
+        if isinstance(item, str) and item:
+            ids.add(item)
+        elif isinstance(item, dict):
+            sid = str(item.get("segment_id") or "")
+            if sid:
+                ids.add(sid)
+    return ids
+
+
 def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[str, Any]:
     """Return a new candidate with mutation applied."""
     op = str(mutation.get("op") or "")
@@ -74,9 +96,12 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
             notes.append({"op": op, "segment_id": sid})
 
     elif op == "drop_redundant_sibling":
-        # Drop later of identical split siblings
+        # Drop later of identical split siblings — not distinct recut remainders.
+        skip = _considerable_ids(out)
         for i in range(len(ordered) - 1):
             a, b = ordered[i], ordered[i + 1]
+            if a in skip or b in skip:
+                continue
             m1 = re.match(r"^(seg_\d+)([a-z]+)?$", a)
             m2 = re.match(r"^(seg_\d+)([a-z]+)?$", b)
             if m1 and m2 and m1.group(1) == m2.group(1) and m1.group(2) and m2.group(2):
@@ -89,8 +114,8 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
     elif op == "set_order":
         new_order = [str(s) for s in (mutation.get("ordered_segment_ids") or []) if s]
         if new_order:
-            # Keep only known ids; append missing from prior order
-            kept = set(ordered) | set(excluded)
+            # Keep known air-order ids plus recut remainders ranking never saw.
+            kept = set(ordered) | _excluded_id_set(excluded) | _considerable_ids(out)
             filtered = [s for s in new_order if s in kept or not kept]
             if not filtered:
                 filtered = new_order

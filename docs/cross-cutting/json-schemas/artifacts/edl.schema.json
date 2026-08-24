@@ -51,6 +51,11 @@
               },
               "duration_ms": {
                 "type": "integer"
+              },
+              "mix_overlap_ms": {
+                "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
+                "type": "integer",
+                "minimum": 0
               }
             }
           },
@@ -104,6 +109,11 @@
               },
               "duration_ms": {
                 "type": "integer"
+              },
+              "mix_overlap_ms": {
+                "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
+                "type": "integer",
+                "minimum": 0
               }
             }
           },
@@ -147,6 +157,11 @@
                   "string",
                   "null"
                 ]
+              },
+              "mix_overlap_ms": {
+                "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
+                "type": "integer",
+                "minimum": 0
               }
             }
           },
@@ -212,6 +227,14 @@
               },
               "duration_ms": {
                 "type": "integer"
+              },
+              "mix_overlap_ms": {
+                "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "preserve_planned_music": {
+                "type": "boolean"
               }
             }
           }

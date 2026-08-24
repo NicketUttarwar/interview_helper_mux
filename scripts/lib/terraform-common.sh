@@ -320,3 +320,8 @@ terraform_common_exec_local() {
   terraform_common_maybe_save_session_backup "$ec"
   return "$ec"
 }
+
+# Apple Podcasts Connect pass-through: print next to every public RSS URL.
+# Canonical URL builder is Python (interview_mux.podcast_rss.settings).
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/lib/apple_podcasts_passthrough.sh"

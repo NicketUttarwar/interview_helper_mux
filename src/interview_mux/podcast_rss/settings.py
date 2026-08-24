@@ -6,14 +6,32 @@ Split:
   - Credentials + AWS-derived IDs → config/secrets/secrets.env
     (AWS_*, PODCAST_CLOUDFRONT_DISTRIBUTION_ID, PODCAST_FEED_BASE_URL)
   - Optional secrets override: PODCAST_S3_BUCKET (prefer app.defaults)
+
+Whenever a public RSS ``feed_url`` is printed or shown, also emit Apple's
+Podcasts Connect pass-through (``apple_podcasts_passthrough_url``) plus the
+empty-feed notice. Scripts source ``scripts/lib/apple_podcasts_passthrough.sh``.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
+from urllib.parse import quote, urlparse
 
 from interview_mux.config import load_secrets, merged_config
+
+# Apple's documented add-show pass-through. ``submitfeed`` is the public RSS
+# URL (https://podcasters.apple.com/support/829-validate-your-podcast).
+# Encode the query value so a copy-paste / href cannot inject extra params.
+APPLE_PODCASTS_CONNECT_NEW_FEED = "https://podcastsconnect.apple.com/my-podcasts/new-feed"
+
+# Extra notice printed after every pass-through URL. Apple validates the live
+# feed; an empty seed (no <item>) is rejected even when this URL is used.
+APPLE_PODCASTS_PASSTHROUGH_NOTICE = (
+    "Notice: Apple Podcasts Connect rejects an empty seed feed (no episodes). "
+    "Publish at least one episode or a trailer, then open the pass-through URL. "
+    "It only pre-fills the RSS field; it does not skip validation."
+)
 
 
 def podcast_cfg() -> dict[str, Any]:
@@ -80,6 +98,70 @@ def feed_url_from_base(feed_base: str | None = None, *, cfg: dict[str, Any] | No
     if base.endswith(key):
         return base
     return f"{base}/{key}"
+
+
+def normalize_public_feed_url(feed_url: str | None) -> str:
+    """Return a public http(s) RSS URL safe to print / put in an href, else ``""``.
+
+    Rejects credentials, non-http schemes, and characters that would break a
+    shell or HTML attribute. Does not fetch the URL.
+    """
+    text = str(feed_url or "").strip()
+    if not text or any(ch in text for ch in "\r\n\t \"'<>\\"):
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme not in ("https", "http"):
+        return ""
+    if parsed.username or parsed.password or not parsed.netloc:
+        return ""
+    return text
+
+
+def apple_podcasts_passthrough_url(feed_url: str | None) -> str:
+    """Apple Podcasts Connect pass-through that pre-fills ``submitfeed``.
+
+    Safe to display: only http(s) public feeds; ``submitfeed`` is percent-encoded.
+    Returns ``""`` when ``feed_url`` is missing or not a public RSS URL.
+    """
+    feed = normalize_public_feed_url(feed_url)
+    if not feed:
+        return ""
+    return f"{APPLE_PODCASTS_CONNECT_NEW_FEED}?submitfeed={quote(feed, safe='')}"
+
+
+def format_apple_passthrough_notice(feed_url: str | None, *, include_feed: bool = True) -> str:
+    """Operator-facing block: feed URL, pass-through, then the empty-feed notice."""
+    feed = normalize_public_feed_url(feed_url)
+    passthrough = apple_podcasts_passthrough_url(feed)
+    if not passthrough:
+        return ""
+    lines: list[str] = []
+    if include_feed:
+        lines.append(f"RSS feed URL: {feed}")
+    lines.append("Apple Podcasts Connect pass-through (copy this; pre-fills the RSS field):")
+    lines.append(f"  {passthrough}")
+    lines.append("")
+    lines.append(APPLE_PODCASTS_PASSTHROUGH_NOTICE)
+    return "\n".join(lines)
+
+
+def print_apple_passthrough_notice(
+    feed_url: str | None,
+    *,
+    include_feed: bool = True,
+    file: TextIO | None = None,
+) -> None:
+    """Print the pass-through + notice whenever a new/public RSS URL is shown."""
+    block = format_apple_passthrough_notice(feed_url, include_feed=include_feed)
+    if block:
+        print(block, file=file)
+
+
+def attach_apple_passthrough(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add ``apple_podcasts_passthrough_url`` next to ``feed_url`` on a payload."""
+    feed = str(payload.get("feed_url") or "")
+    payload["apple_podcasts_passthrough_url"] = apple_podcasts_passthrough_url(feed)
+    return payload
 
 
 def require_publish_ready(*, local_dir: Path | None = None) -> dict[str, str]:

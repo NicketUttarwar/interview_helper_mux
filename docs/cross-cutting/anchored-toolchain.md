@@ -39,7 +39,7 @@ source .venv/bin/activate
 # Credentials in config/secrets/secrets.env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or AWS_PROFILE)
 # — no aws login / AWS CLI required
 ./scripts/tf-init.sh && ./scripts/tf-plan.sh && ./scripts/tf-apply.sh   # updates terraform/state/
-python scripts/seed_podcast_origin.py                                  # boto3 PutObject + invalidate
+python scripts/seed_podcast_origin.py                                  # boto3 PutObject + invalidate + Apple pass-through notice
 ./scripts/invalidate_podcast_cf.sh                                     # boto3 CreateInvalidation
 ```
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Upsert AWS-derived podcast IDs into secrets.env (CloudFront + feed base).
 # Bucket name lives in config/app.defaults.json podcast.s3_bucket (committed).
+#
+# After writing PODCAST_FEED_BASE_URL, always print the Apple Podcasts Connect
+# pass-through (print_apple_passthrough_notice) so a new RSS URL is never shown
+# without a copy-ready submit link.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,3 +123,5 @@ tf_log "  PODCAST_CLOUDFRONT_DISTRIBUTION_ID=$PODCAST_CLOUDFRONT_DISTRIBUTION_ID
 tf_log "  PODCAST_FEED_BASE_URL=$PODCAST_FEED_BASE_URL"
 echo "Feed URL: ${PODCAST_FEED_BASE_URL}/feed.xml"
 echo "Bucket (app.defaults): check podcast.s3_bucket == $TF_BUCKET"
+# Always print Apple's pass-through next to a new/synced public RSS URL.
+print_apple_passthrough_notice "${PODCAST_FEED_BASE_URL}/feed.xml" 0

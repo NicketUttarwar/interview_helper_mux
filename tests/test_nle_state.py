@@ -98,6 +98,66 @@ def test_apply_nle_to_selection_merges_order_and_excludes() -> None:
     assert merged.get("nle_applied") is True
 
 
+def test_apply_nle_inserts_keepable_children_when_parent_unranked() -> None:
+    selection = {
+        "ordered_segment_ids": ["seg_005"],
+        "excluded_segment_ids": [],
+    }
+    nle = {
+        "sequence_order": [],
+        "segment_overrides": {
+            "seg_003": {"excluded": True, "split_into": ["seg_003a", "seg_003b"]},
+            "seg_003a": {"start_ms": 0, "end_ms": 20000, "parent_id": "seg_003"},
+            "seg_003b": {
+                "start_ms": 20000,
+                "end_ms": 40000,
+                "parent_id": "seg_003",
+                "excluded": True,
+            },
+        },
+    }
+    by_id = {
+        "seg_003a": {"segment_id": "seg_003a", "start_ms": 0},
+        "seg_003b": {"segment_id": "seg_003b", "start_ms": 20000},
+        "seg_005": {"segment_id": "seg_005", "start_ms": 40000},
+    }
+    merged = apply_nle_to_selection(selection, nle, segments_by_id=by_id)
+    assert merged["ordered_segment_ids"][0] == "seg_003a"
+    assert "seg_003b" not in merged["ordered_segment_ids"]
+    assert "seg_003" not in merged["ordered_segment_ids"]
+    assert "seg_005" in merged["ordered_segment_ids"]
+
+
+def test_apply_nle_drops_never_touch_cta(nle_ctx: RunContext) -> None:
+    nle_ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "dropped_segment_ids": ["seg_071c", "seg_071f"],
+            "never_touch_segment_ids": ["seg_071c", "seg_071f"],
+        },
+    )
+    selection = {
+        "ordered_segment_ids": ["seg_a", "seg_b", "seg_c"],
+        "excluded_segment_ids": [],
+    }
+    nle = {
+        "sequence_order": ["seg_a", "seg_071c", "seg_b", "seg_071f", "seg_c"],
+        "segment_overrides": {},
+    }
+    by_id = {
+        "seg_a": {"segment_id": "seg_a"},
+        "seg_b": {"segment_id": "seg_b"},
+        "seg_c": {"segment_id": "seg_c"},
+        "seg_071c": {"segment_id": "seg_071c"},
+        "seg_071f": {"segment_id": "seg_071f"},
+    }
+    merged = apply_nle_to_selection(selection, nle, segments_by_id=by_id, ctx=nle_ctx)
+    assert merged["ordered_segment_ids"] == ["seg_a", "seg_b", "seg_c"]
+    assert "seg_071c" not in merged["ordered_segment_ids"]
+    assert "seg_071f" not in merged["ordered_segment_ids"]
+
+
 def test_apply_segments_trim_override() -> None:
     nle = {"segment_overrides": {"seg_a": {"start_ms": 500, "end_ms": 8000}}}
     out = apply_segments_with_nle(_segments(), nle)

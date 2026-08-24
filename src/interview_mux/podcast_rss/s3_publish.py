@@ -15,10 +15,22 @@ from pathlib import Path
 from typing import Any
 
 from interview_mux.podcast_rss.settings import (
+    attach_apple_passthrough,
     episode_prefix,
+    feed_url_from_base,
     podcast_cfg,
+    resolve_publish_targets,
     s3_layout,
     show_artwork_s3_key,
+)
+
+_PUBLIC_URL_KEYS = (
+    "enclosure_url",
+    "cover_url",
+    "description_url",
+    "chapters_url",
+    "transcript_url",
+    "link",
 )
 
 logger = logging.getLogger(__name__)
@@ -262,6 +274,31 @@ def list_episode_metas(bucket: str, *, region: str | None = None) -> list[dict[s
     return episodes
 
 
+def rewrite_public_url(url: str, new_base: str) -> str:
+    """Keep the URL path; swap the host to the live CloudFront base."""
+    from urllib.parse import urlparse
+
+    raw = str(url or "").strip()
+    base = str(new_base or "").rstrip("/")
+    if not raw or not base:
+        return raw
+    if raw.startswith("/"):
+        return f"{base}{raw}"
+    parsed = urlparse(raw)
+    if parsed.scheme in {"http", "https"} and parsed.path:
+        return f"{base}{parsed.path}"
+    return raw
+
+
+def retarget_episode_public_urls(meta: dict[str, Any], new_base: str) -> dict[str, Any]:
+    """Copy episode.json fields so enclosure/cover/etc. use ``new_base``."""
+    updated = dict(meta)
+    for key in _PUBLIC_URL_KEYS:
+        if key in updated:
+            updated[key] = rewrite_public_url(str(updated.get(key) or ""), new_base)
+    return updated
+
+
 def invalidate_paths(
     *,
     distribution_id: str,
@@ -302,17 +339,138 @@ def invalidate_paths(
 
 def invalidate_feed(
     *,
-    distribution_id: str,
+    distribution_id: str | None = None,
     region: str | None = None,
     project_name: str | None = None,
 ) -> str:
+    """Invalidate ``/feed.xml`` on the live CloudFront distribution.
+
+    When ``distribution_id`` is omitted, reads ``PODCAST_CLOUDFRONT_DISTRIBUTION_ID``
+    from secrets (same source as ``scripts/invalidate_podcast_cf.sh``).
+    """
+    dist = (distribution_id or "").strip() or resolve_publish_targets()["distribution_id"]
     layout = s3_layout(podcast_cfg())
     feed_path = "/" + layout["feed_key"].lstrip("/")
     return invalidate_paths(
-        distribution_id=distribution_id,
+        distribution_id=dist,
         paths=[feed_path],
         region=region,
         project_name=project_name,
+    )
+
+
+def invalidate_current_feed(
+    *,
+    paths: list[str] | None = None,
+    wait: bool = False,
+) -> dict[str, str]:
+    """Invalidate the live RSS URL from current secrets. Used by CLI + app publish.
+
+    Always re-reads ``secrets.env`` so a CloudFront URL rotate is picked up without
+    restarting the app. Return dict includes ``apple_podcasts_passthrough_url``.
+    """
+    targets = resolve_publish_targets()
+    dist = str(targets.get("distribution_id") or "").strip()
+    if not dist:
+        raise RuntimeError(
+            "PODCAST_CLOUDFRONT_DISTRIBUTION_ID missing in secrets.env — "
+            "run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh"
+        )
+    region = str(targets.get("region") or "") or None
+    project = str(targets.get("project_name") or "") or None
+    layout = s3_layout()
+    feed_path = "/" + layout["feed_key"].lstrip("/")
+    items = [p.strip() for p in (paths or [feed_path]) if str(p).strip()]
+    if feed_path not in items and not paths:
+        items = [feed_path]
+    inv_id = invalidate_paths(
+        distribution_id=dist,
+        paths=items,
+        region=region,
+        project_name=project,
+    )
+    status = ""
+    if wait:
+        status = wait_invalidation(
+            distribution_id=dist,
+            invalidation_id=inv_id,
+            region=region,
+        )
+    feed_url = feed_url_from_base(targets.get("feed_base_url") or "")
+    return attach_apple_passthrough(
+        {
+            "invalidation_id": inv_id,
+            "distribution_id": dist,
+            "feed_base_url": str(targets.get("feed_base_url") or "").rstrip("/"),
+            "feed_url": feed_url,
+            "status": status,
+            "paths": ",".join(items),
+        }
+    )
+
+
+def retarget_public_feed(*, invalidate: bool = True) -> dict[str, Any]:
+    """Rebuild ``feed.xml`` (and episode public URLs) for the live CloudFront base.
+
+    Same S3 objects; only the public ``dxxxx.cloudfront.net`` host changes. Call
+    after ``tf-rotate-cloudfront-url.sh`` so Apple/self links match the new URL.
+    """
+    from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config
+
+    targets = resolve_publish_targets()
+    bucket = str(targets.get("bucket") or "").strip()
+    region = str(targets.get("region") or "") or None
+    base = str(targets.get("feed_base_url") or "").rstrip("/")
+    if not bucket or not base:
+        raise RuntimeError("Publish targets incomplete — bucket and PODCAST_FEED_BASE_URL required")
+    cfg = podcast_cfg()
+    layout = s3_layout(cfg)
+    files = layout["episode_files"]
+    episodes = list_episode_metas(bucket, region=region)
+    rewritten: list[dict[str, Any]] = []
+    updated_keys: list[str] = []
+    for meta in episodes:
+        fresh = retarget_episode_public_urls(meta, base)
+        number = int(fresh.get("episode_number") or 0)
+        if number > 0 and fresh != meta:
+            key = f"{episode_prefix(number, cfg=cfg)}/{files['meta']}"
+            put_bytes(
+                bucket=bucket,
+                key=key,
+                body=json.dumps(fresh, indent=2).encode("utf-8"),
+                region=region,
+            )
+            updated_keys.append(key)
+        rewritten.append(fresh)
+    art_key = show_artwork_s3_key(cfg)
+    feed_xml = build_feed_xml(
+        channel=channel_meta_from_config(cfg),
+        feed_url=feed_url_from_base(base, cfg=cfg),
+        show_artwork_url=f"{base}/{art_key}",
+        episodes=rewritten,
+    )
+    feed_key = layout["feed_key"]
+    put_bytes(
+        bucket=bucket,
+        key=feed_key,
+        body=feed_xml.encode("utf-8"),
+        region=region,
+        content_type="application/rss+xml",
+        cache_control="max-age=0, must-revalidate",
+    )
+    inv: dict[str, str] = {}
+    if invalidate:
+        inv = invalidate_current_feed()
+    return attach_apple_passthrough(
+        {
+            "bucket": bucket,
+            "feed_url": feed_url_from_base(base, cfg=cfg),
+            "feed_base_url": base,
+            "episodes_retargeted": len(rewritten),
+            "episode_meta_keys_rewritten": updated_keys,
+            "invalidation_id": inv.get("invalidation_id") or "",
+            "distribution_id": inv.get("distribution_id") or targets.get("distribution_id") or "",
+        }
     )
 
 
@@ -570,23 +728,24 @@ def publish_episode_package(
             content_type="application/rss+xml",
             cache_control="max-age=0, must-revalidate",
         )
+    live_base = ""
     if invalidate:
-        inv_id = invalidate_feed(
-            distribution_id=distribution_id,
-            region=region,
-            project_name=project_name,
-        )
-    base = feed_base_url.rstrip("/")
-    return {
-        "uploaded": uploaded,
-        "skipped_unchanged": skipped,
-        "s3_prefix": prefix,
-        "feed_url": f"{base}/{feed_key}" if not base.endswith(feed_key) else base,
-        "enclosure_url": f"{base}/{prefix}/{files['audio']}",
-        "cover_url": f"{base}/{prefix}/{files['cover']}",
-        "description_url": f"{base}/{prefix}/{files['description']}",
-        "chapters_url": f"{base}/{prefix}/{files['chapters']}",
-        "transcript_url": f"{base}/{prefix}/{files['transcript']}" if files.get("transcript") else "",
-        "invalidation_id": inv_id,
-        "episode_number": episode_number,
-    }
+        current = invalidate_current_feed()
+        inv_id = current["invalidation_id"]
+        live_base = str(current.get("feed_base_url") or "").rstrip("/")
+    base = live_base or feed_base_url.rstrip("/")
+    return attach_apple_passthrough(
+        {
+            "uploaded": uploaded,
+            "skipped_unchanged": skipped,
+            "s3_prefix": prefix,
+            "feed_url": f"{base}/{feed_key}" if not base.endswith(feed_key) else base,
+            "enclosure_url": f"{base}/{prefix}/{files['audio']}",
+            "cover_url": f"{base}/{prefix}/{files['cover']}",
+            "description_url": f"{base}/{prefix}/{files['description']}",
+            "chapters_url": f"{base}/{prefix}/{files['chapters']}",
+            "transcript_url": f"{base}/{prefix}/{files['transcript']}" if files.get("transcript") else "",
+            "invalidation_id": inv_id,
+            "episode_number": episode_number,
+        }
+    )

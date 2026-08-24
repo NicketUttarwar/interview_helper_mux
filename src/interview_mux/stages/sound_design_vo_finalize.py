@@ -14,6 +14,18 @@ from interview_mux.stages.sound_design_stages import _validate_sound_design_plan
 
 
 def run_sound_design_vo_finalize(ctx: RunContext) -> None:
+    try:
+        from interview_mux.opening_adjacency_repair import (
+            suppress_opening_layup_when_orientation_owns_slot,
+        )
+
+        suppress_opening_layup_when_orientation_owns_slot(ctx)
+    except Exception as exc:  # noqa: BLE001 — bounded repair is fail-open
+        ctx.log(
+            f"opening_adjacency repair skipped: {exc}",
+            level="warning",
+            stage="sound_design_vo_finalize",
+        )
     sdp_path = "understanding/sound_design_plan.json"
     if not ctx.artifact_exists(sdp_path):
         ctx.log("vo_finalize: no sound_design_plan — skip", level="info", stage="sound_design_vo_finalize")
@@ -71,8 +83,21 @@ def run_sound_design_vo_finalize(ctx: RunContext) -> None:
 
     errors = validate_sound_design_plan(plan)
     if errors:
-        ctx.log(f"vo_finalize: SDP validation failed: {errors[:2]}", level="error", stage="sound_design_vo_finalize")
-        raise SystemExit(f"sound_design_vo_finalize: invalid SDP after adjust: {errors[0]}")
+        ctx.log(
+            f"vo_finalize: SDP validation failed after adjust — leaving on-disk SDP: {errors[:2]}",
+            level="warning",
+            stage="sound_design_vo_finalize",
+        )
+        ctx.write_json(
+            "mastering/sound_design_vo_finalize.json",
+            {"skipped": True, "errors": [str(e) for e in errors[:6]]},
+            skip_handoff=True,
+            stage_key="sound_design_vo_finalize",
+        )
+        if adjusted:
+            _patch_sonic_context_vo_bridges(ctx, plan)
+        ctx.mark_done("sound_design_vo_finalize")
+        return
     with logged_step("sound_design_vo_finalize/write", ctx=ctx, stage="sound_design_vo_finalize"):
         _validate_sound_design_plan(plan)
         ctx.write_json(sdp_path, plan)

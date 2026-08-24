@@ -29,6 +29,119 @@ class StageError(RuntimeError):
         super().__init__(message)
 
 
+def _is_locked_order_rerun_need(need: Any) -> bool:
+    """Transitions cannot rerun ranking; locked ordered_segment_ids is air authority."""
+    if not isinstance(need, dict):
+        return False
+    if str(need.get("type") or "").strip() != "rerun_stage":
+        return False
+    if str(need.get("stage") or "").strip() != "full_master_ranking":
+        return False
+    reason = str(need.get("reason") or "").lower()
+    return any(
+        token in reason
+        for token in ("exclu", "order", "hard-keep", "must_keep", "locked", "hard keep")
+    )
+
+
+_FAIL_OPEN_PARTIAL_STAGES = frozenset(
+    {
+        "edl_narrative_audit",
+        "sound_design_plan",
+        "music_palette_compose",
+        "episode_meta_build",
+        "episode_cover_prompt_craft",
+    }
+)
+
+
+def _fail_open_artifacts(stage_key: str, artifacts: dict[str, Any] | None) -> dict[str, Any]:
+    arts = artifacts if isinstance(artifacts, dict) else {}
+    if stage_key == "edl_narrative_audit":
+        return {
+            "verdict": "warn",
+            "blocking_issues": list(arts.get("blocking_issues") or []),
+            "warnings": list(arts.get("warnings") or []),
+            "recommended_actions": list(
+                arts.get("recommended_actions")
+                or ["fail-open persist after incomplete LLM"]
+            ),
+            "reasoning_summary": str(
+                arts.get("reasoning_summary")
+                or "Fail-open persist so EDL is not blocked on an audit loop."
+            ),
+            "findings": list(arts.get("findings") or []),
+        }
+    if stage_key == "sound_design_plan":
+        if arts.get("assets") or arts.get("flow_plans"):
+            return arts
+        return {"assets": [], "flow_plans": {"podcast": {"cues": []}}}
+    if stage_key == "music_palette_compose":
+        if isinstance(arts.get("cues"), list):
+            return arts
+        return {"cues": []}
+    if stage_key == "episode_meta_build":
+        return arts
+    if stage_key == "episode_cover_prompt_craft":
+        return arts
+    return arts
+
+
+def _try_fail_open_partial(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    persist_artifacts: PersistFn,
+    sync_fn: SyncFn | None,
+    auto_complete: bool,
+    msg: str,
+) -> dict[str, Any] | None:
+    if stage_key not in _FAIL_OPEN_PARTIAL_STAGES:
+        return None
+    payload = _fail_open_artifacts(stage_key, envelope.get("artifacts") if isinstance(envelope, dict) else None)
+    try:
+        return _commit_partial_artifacts(
+            ctx,
+            stage_key,
+            {**envelope, "artifacts": payload, "status": envelope.get("status") or "partial"},
+            payload,
+            persist_artifacts,
+            sync_fn,
+            auto_complete,
+            msg,
+            note="fail-open persist so downstream delivery is not blocked",
+        )
+    except Exception as exc:
+        ctx.log(
+            f"{stage_key} fail-open persist failed: {exc}",
+            level="warning",
+            stage=stage_key,
+        )
+        return None
+
+
+def _commit_partial_artifacts(
+    ctx: RunContext,
+    stage_key: str,
+    envelope: dict[str, Any],
+    artifacts: dict[str, Any],
+    persist_artifacts: PersistFn,
+    sync_fn: SyncFn | None,
+    auto_complete: bool,
+    msg: str,
+    *,
+    note: str,
+) -> dict[str, Any]:
+    ctx.log(f"{msg} — {note}", level="warning", stage=stage_key)
+    _warn_only_lint(ctx, stage_key, envelope)
+    persist_artifacts(ctx, artifacts)
+    if sync_fn is not None:
+        sync_fn(ctx, envelope)
+    if auto_complete:
+        ctx.mark_done(stage_key)
+    return envelope
+
+
 def _warn_only_lint(ctx: RunContext, stage_key: str, envelope: dict[str, Any]) -> None:
     try:
         from interview_mux.deterministic_lint import deterministic_lint
@@ -174,7 +287,100 @@ def run_llm_stage_simple(
 
         if str(envelope.get("status") or "").lower() != "complete":
             needs = envelope.get("needs") or []
+            if stage_key == "speaker_roles":
+                from interview_mux.speaker_role_evidence import is_unfulfillable_diarization_need
+
+                needs = [
+                    ({**n, "blocking": False} if is_unfulfillable_diarization_need(n) else n)
+                    if isinstance(n, dict)
+                    else n
+                    for n in needs
+                ]
+                envelope = {**envelope, "needs": needs}
+            if stage_key == "transitions":
+                needs = [
+                    ({**n, "blocking": False} if _is_locked_order_rerun_need(n) else n)
+                    if isinstance(n, dict)
+                    else n
+                    for n in needs
+                ]
+                envelope = {**envelope, "needs": needs}
             msg = f"LLM stage {stage_key} incomplete: status={envelope.get('status')} needs={needs[:3]}"
+            artifacts = envelope.get("artifacts")
+            # Ranking persist is deterministic (CTA omit + hard-keep). A usable
+            # ordered_segment_ids list must commit even when the model returns
+            # partial/needs_input/blocked over must-keep vs CTA. Do not spend a
+            # second 50-shard pass or leave selection.json unwritten.
+            if stage_key == "full_master_ranking" and isinstance(artifacts, dict):
+                ordered = [
+                    str(s) for s in (artifacts.get("ordered_segment_ids") or []) if str(s).strip()
+                ]
+                if ordered:
+                    try:
+                        return _commit_partial_artifacts(
+                            ctx,
+                            stage_key,
+                            envelope,
+                            artifacts,
+                            persist_artifacts,
+                            sync_fn,
+                            auto_complete,
+                            msg,
+                            note="persisting usable ranking order; needs demoted to warnings (CTA omit applied in persist)",
+                        )
+                    except Exception as exc:
+                        ctx.log(
+                            f"ranking persist of partial failed: {exc}",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                        if attempt == 2:
+                            raise StageError(stage_key, f"{msg}; persist failed: {exc}") from exc
+                        last_schema_errors = [str(exc)]
+                        continue
+            # Transitions: locked air order is authority. Persist a valid transitions
+            # array (empty is allowed) instead of looping on ranking-rerun needs.
+            if stage_key == "transitions":
+                rows = artifacts.get("transitions") if isinstance(artifacts, dict) else None
+                if isinstance(rows, list):
+                    try:
+                        return _commit_partial_artifacts(
+                            ctx,
+                            stage_key,
+                            envelope,
+                            artifacts if isinstance(artifacts, dict) else {"transitions": rows},
+                            persist_artifacts,
+                            sync_fn,
+                            auto_complete,
+                            msg,
+                            note="persisting transitions; ranking-rerun needs are not blocking",
+                        )
+                    except Exception as exc:
+                        ctx.log(
+                            f"transitions persist of partial failed: {exc}",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                        if attempt == 2:
+                            raise StageError(stage_key, f"{msg}; persist failed: {exc}") from exc
+                        last_schema_errors = [str(exc)]
+                        continue
+                if attempt == 2:
+                    empty = {"transitions": []}
+                    try:
+                        return _commit_partial_artifacts(
+                            ctx,
+                            stage_key,
+                            {**envelope, "artifacts": empty},
+                            empty,
+                            persist_artifacts,
+                            sync_fn,
+                            auto_complete,
+                            msg,
+                            note="persisting empty transitions so sound_design_plan is not blocked",
+                        )
+                    except Exception as exc:
+                        raise StageError(stage_key, f"{msg}; empty persist failed: {exc}") from exc
             # Final attempt: accept when artifacts validate and every need is non-blocking.
             # Long-tape boundary/detection often returns status=partial with a soft
             # "rerun_stage" need even after producing usable segments.
@@ -200,7 +406,37 @@ def run_llm_stage_simple(
                         if auto_complete:
                             ctx.mark_done(stage_key)
                         return envelope
+                if stage_key == "speaker_roles":
+                    from interview_mux.speaker_role_evidence import (
+                        fallback_speakers_artifact,
+                    )
+
+                    stage_in = build_stage_input(ctx)
+                    fallback = fallback_speakers_artifact(
+                        stage_in.get("speaker_talk_stats"),
+                        notes=(
+                            "LLM requested locked diarization re-run; assigned "
+                            "dominant roles from talk stats after G0."
+                        ),
+                    )
+                    if fallback:
+                        ctx.log(
+                            f"{msg} — mixed-diarization fallback from talk stats",
+                            level="warning",
+                            stage=stage_key,
+                        )
+                        persist_artifacts(ctx, fallback)
+                        if sync_fn is not None:
+                            sync_fn(ctx, fallback)
+                        if auto_complete:
+                            ctx.mark_done(stage_key)
+                        return {**envelope, "status": "complete", "artifacts": fallback}
                 ctx.log(msg, level="error", stage=stage_key)
+                committed = _try_fail_open_partial(
+                    ctx, stage_key, envelope, persist_artifacts, sync_fn, auto_complete, msg
+                )
+                if committed is not None:
+                    return committed
                 raise StageError(stage_key, msg)
             last_schema_errors = [msg]
             continue
@@ -209,6 +445,11 @@ def run_llm_stage_simple(
         if not isinstance(artifacts, dict):
             msg = f"LLM stage {stage_key} missing artifacts object"
             if attempt == 2:
+                committed = _try_fail_open_partial(
+                    ctx, stage_key, envelope, persist_artifacts, sync_fn, auto_complete, msg
+                )
+                if committed is not None:
+                    return committed
                 raise StageError(stage_key, msg)
             last_schema_errors = [msg]
             continue
@@ -218,6 +459,11 @@ def run_llm_stage_simple(
             if attempt == 2:
                 msg = f"Schema validation failed for {stage_key}: {'; '.join(last_schema_errors[:6])}"
                 ctx.log(msg, level="error", stage=stage_key, detail={"schema_errors": last_schema_errors[:8]})
+                committed = _try_fail_open_partial(
+                    ctx, stage_key, envelope, persist_artifacts, sync_fn, auto_complete, msg
+                )
+                if committed is not None:
+                    return committed
                 raise StageError(stage_key, msg, schema_errors=last_schema_errors)
             continue
 

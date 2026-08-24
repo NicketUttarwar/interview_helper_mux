@@ -248,3 +248,20 @@ def test_producer_artifact_complete_passes_envelope_before_disk(tmp_path, monkey
         e for e in deterministic_lint("content_context", envelope, ctx) if "producer_artifact_complete" in e
     ]
     assert not errors
+
+
+def test_lint_ranking_rejects_stale_exclude_rationales_on_air_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "lint_rank_rat")
+    envelope = {
+        "artifacts": {
+            "ordered_segment_ids": ["seg_005", "seg_006"],
+            "excluded_segment_ids": [{"segment_id": "seg_001", "reason": "media_ip_cta"}],
+            "exclude_rationales": {
+                "seg_001": "media_ip_cta",
+                "seg_005": "excluded_from_master",
+            },
+        }
+    }
+    errors = deterministic_lint("full_master_ranking", envelope, ctx)
+    assert any("exclude_rationales[seg_005]" in e for e in errors)

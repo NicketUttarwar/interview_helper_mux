@@ -372,23 +372,24 @@ class RunContext:
             return
 
         from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
-
-        rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
+        from interview_mux.artifact_completeness import artifact_status
         from interview_mux.v2.config import ALL_LLM_STAGES
 
-        if not force and stage in ALL_LLM_STAGES and rel:
-            from interview_mux.artifact_completeness import artifact_status
-
-            if not self.artifact_exists(rel):
+        rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
+        if rel:
+            if self.artifact_exists(rel):
+                st = artifact_status(rel, self)
+                if st != "complete":
+                    self.log(
+                        f"Refusing mark_done({stage}{', force' if force else ''}): "
+                        f"{rel} is {st}",
+                        level="warning",
+                        stage=stage,
+                    )
+                    return
+            elif not force and stage in ALL_LLM_STAGES:
                 self.log(
                     f"Refusing mark_done({stage}): required artifact {rel} missing",
-                    level="warning",
-                    stage=stage,
-                )
-                return
-            if artifact_status(rel, self) != "complete":
-                self.log(
-                    f"Refusing mark_done({stage}): artifact {rel} not complete",
                     level="warning",
                     stage=stage,
                 )

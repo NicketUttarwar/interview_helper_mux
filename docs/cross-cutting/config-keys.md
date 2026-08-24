@@ -13,8 +13,8 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_PRESERVE_SESSION` | `0` | `./scripts/run.sh` | `1` keeps `ASSETS/.gui/application_state.json` (and legacy session files) across this launch; default clears session for a fresh Start tab |
 | `MUX_SKIP_ASSETS_CLEANUP` | `0` | `./scripts/run.sh` | `1` skips `assets_ephemeral_cleanup` (session files, `.gui/sessions/*`, stale locks inside exec_*; never deletes execution dirs) |
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
-| `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI (pick Manual/Full-auto on Start); `full-auto` detaches soft automation (heal/remutate/re-execute + soft waivers + S3). TTY prompts when unset |
-| `MUX_INPUT_AUDIO` | picker | Full-auto / `full_auto_driver` | Relative path directly under `ASSETS/input/` (e.g. `ASSETS/input/interview.mp3`); required for non-TTY Full-auto. Non-WAV files are converted to sibling PCM WAV before stages run. |
+| `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI (pick Manual/Full-auto on Start); `full-auto` detaches bounded automation (heal/remutate/re-execute, no silent quality waivers, publish + S3, `operator/EXECUTION_REPORT.md`). TTY prompts when unset. `--full-auto` is the same. |
+| `MUX_INPUT_AUDIO` | picker | Full-auto / `full_auto_driver` | Relative path directly under `ASSETS/input/` (e.g. `ASSETS/input/interview.mp3`); required for non-TTY Full-auto. `--input` is the same. Non-WAV files are converted to sibling PCM WAV before stages run. |
 | `MUX_FULL_AUTO` | `0` | `./scripts/run.sh` / GUI Start | `1` enables Full-auto soft stack (heal/remutate/re-execute, soft waivers, publish + S3) |
 | `MUX_BABA_E2E` | `0` | legacy | Alias for `MUX_FULL_AUTO` (accepted once during rename transition) |
 | `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
@@ -957,6 +957,8 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
 | `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
 | `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
+| `mastering.edl.clone_adjacency_verify` | `true` | EDL clone-adjacency suppress | `false` restores ID-only suppress (no same-person listen) |
+| `mastering.edl.clone_adjacency_verify_clip_ms` | `4000` | Tape window paired with the clone sample | Too short starves Sortformer; too long mixes in the other speaker |
 | `mastering.media_ip_cta.prune_max_depth` | `2` | `media_ip_cta` still-mixed re-split only | Higher than 2 re-peels leftover mixed children |
 | `mastering.media_ip_cta.prune_max_children` | `12` | Max N-way children per original CTA parent | — |
 | `mastering.media_ip_cta.min_child_ms` | `1500` | Floor for a peelable complete-thought child | Too low keeps dirty fragments |
@@ -1077,8 +1079,8 @@ Loaded by `load_secrets()` / `merged_config()`. **Never commit** real values.
 | `OPENAI_SPEECH_MODEL` | Reserved for future OpenAI audio adapters |
 | `AWS_DEFAULT_REGION` / `AWS_REGION` | Fallback region if `podcast.aws_region` unset; also used by `scripts/tf-*.sh` |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` / `AWS_PROFILE` | Auth for **Terraform** wrappers and **boto3** publish/seed/invalidate — not AWS CLI |
-| `PODCAST_CLOUDFRONT_DISTRIBUTION_ID` | Invalidation target after `feed.xml` upload (synced by `sync_podcast_tf_secrets.sh` from Terraform state) |
-| `PODCAST_FEED_BASE_URL` | Public CloudFront base (synced by apply/sync from Terraform outputs) |
+| `PODCAST_CLOUDFRONT_DISTRIBUTION_ID` | Invalidation target after `feed.xml` upload (synced by `sync_podcast_tf_secrets.sh` / `tf-rotate-cloudfront-url.sh`) |
+| `PODCAST_FEED_BASE_URL` | Public CloudFront base (synced by apply / CloudFront rotate). App + `invalidate_podcast_cf.sh` always re-read this. Whenever this URL (or `{base}/feed.xml`) is printed, scripts also print the Apple Podcasts Connect pass-through (`new-feed?submitfeed=`). |
 | `PODCAST_S3_BUCKET` | Optional override only — prefer `podcast.s3_bucket` in `app.defaults.json` |
 | `CURSOR_API_KEY` | Cursor SDK agent runs (`config.cursor_api_key()`) — set in `config/secrets/secrets.env` or env |
 | `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` | Hugging Face Hub auth for public model downloads (CLAP / local stacks). Free account token is enough. Injected into local runtime subprocesses via `local_runtime` / `huggingface_hub_token()` |
@@ -1425,7 +1427,8 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/dr
 |-----|---------|---------|-------|
 | `resilience.quality_first` | `true` | `stage_resilience`, escalation resolve | Never auto-publish a waived master |
 | `resilience.commit_barrier` | `true` | `write_staging.approve_stage_writes` | Validate staged overlay before flush |
-| `resilience.unattended_defaults.enabled` | `false` | operator escalation resolve | Documented defaults write the same decision artifacts as humans |
+| `resilience.identical_failure_halt_after` | `3` | `identical_failures`, Full-auto driver | Stop the same heal signature after N repeats; write execution report |
+| `resilience.unattended_defaults.enabled` | `false` | operator escalation resolve | Documented defaults write the same decision artifacts as humans. Full-auto (`MUX_FULL_AUTO=1` / `run_meta.full_auto`) treats this as on without `force_publish`. |
 | `resilience.source_profiles` | (object) | `stage_families.select_source_profile`, ingest | Recipes for clean / town-hall / noisy / video / short / long |
 
 ---

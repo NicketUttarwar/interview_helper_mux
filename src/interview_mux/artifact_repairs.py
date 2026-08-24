@@ -801,7 +801,34 @@ def _manifest_ids_and_tags(ctx: Any) -> tuple[set[str], dict[str, list[str]]]:
             manifest_ids.add(sid)
         for tag in row.get("topic_tags") or []:
             tag_to_segments.setdefault(str(tag), []).append(sid)
+    manifest_ids |= _live_split_child_ids(ctx)
     return manifest_ids, tag_to_segments
+
+
+def _live_split_child_ids(ctx: Any) -> set[str]:
+    """NLE/CTA recut children that ranking/shape must treat as real candidates."""
+    ids: set[str] = set()
+    try:
+        from interview_mux.nle_state import load_nle
+
+        overrides = (load_nle(ctx).get("segment_overrides") or {})
+        for sid, ov in overrides.items():
+            if not isinstance(ov, dict):
+                continue
+            if ov.get("parent_id") and ov.get("start_ms") is not None:
+                ids.add(str(sid))
+            for child in ov.get("split_into") or []:
+                if child:
+                    ids.add(str(child))
+    except Exception:
+        pass
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+        ids |= admitted_story_segment_ids(ctx)
+    except Exception:
+        pass
+    return {s for s in ids if s}
 
 
 def repair_content_brief(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -1084,6 +1111,52 @@ def repair_gap_evaluations(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any
     return out, applied
 
 
+def _readmit_cta_story_children(
+    ctx: Any,
+    ordered: list[str],
+    applied: list[dict[str, Any]],
+) -> list[str]:
+    """Put CTA-sanitized story remainders back on the air-order candidate list."""
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
+
+        story = [s for s in admitted_story_segment_ids(ctx) if s not in never_touch_segment_ids(ctx)]
+    except Exception:
+        return ordered
+    if not story:
+        return ordered
+    have = set(ordered)
+    missing = [s for s in story if s not in have]
+    if not missing:
+        return ordered
+    by_start: dict[str, int] = {}
+    try:
+        from interview_mux.nle_state import segments_by_id_with_nle
+
+        by_id = segments_by_id_with_nle(ctx)
+    except Exception:
+        by_id = {}
+    out = list(ordered)
+    for sid in missing:
+        try:
+            start = int((by_id.get(sid) or {}).get("start_ms") or 0)
+        except (TypeError, ValueError):
+            start = 0
+        idx = len(out)
+        for i, other in enumerate(out):
+            try:
+                other_start = int((by_id.get(other) or {}).get("start_ms") or by_start.get(other) or 0)
+            except (TypeError, ValueError):
+                other_start = 0
+            if start < other_start:
+                idx = i
+                break
+        out.insert(idx, sid)
+        have.add(sid)
+    applied.append({"action": "readmit_cta_story_children", "segment_ids": missing[:24]})
+    return out
+
+
 def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
@@ -1102,11 +1175,24 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 continue
             seen.add(s)
             deduped.append(s)
-        out["ordered_segment_ids"] = deduped
+        ordered_now = _readmit_cta_story_children(ctx, deduped, applied)
+        try:
+            from interview_mux.media_ip_cta import never_touch_segment_ids
+
+            banned = never_touch_segment_ids(ctx)
+        except Exception:
+            banned = set()
+        if banned:
+            cta_drop = [s for s in ordered_now if s in banned]
+            if cta_drop:
+                ordered_now = [s for s in ordered_now if s not in banned]
+                applied.append({"action": "drop_never_touch_cta", "ids": cta_drop[:24]})
+        out["ordered_segment_ids"] = ordered_now
         # Drop blank / unusable answer segments (blank-safe for later chapter repairs).
-        blank_drop = [s for s in deduped if _segment_is_blank_or_unusable(ctx, s)]
+        # Use the post-readmit list so CTA story children are not wiped here.
+        blank_drop = [s for s in ordered_now if _segment_is_blank_or_unusable(ctx, s)]
         if blank_drop:
-            kept = [s for s in deduped if s not in set(blank_drop)]
+            kept = [s for s in ordered_now if s not in set(blank_drop)]
             out["ordered_segment_ids"] = kept
             excl = list(out.get("excluded_segment_ids") or [])
             have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
@@ -1147,6 +1233,19 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             rationales.setdefault(sid, reason)
         if normalized != excluded:
             applied.append({"action": "normalize_excluded_segment_ids", "count": len(normalized)})
+        try:
+            from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+            story = admitted_story_segment_ids(ctx)
+        except Exception:
+            story = set()
+        if story:
+            before_n = len(normalized)
+            normalized = [row for row in normalized if str(row.get("segment_id") or "") not in story]
+            if len(normalized) != before_n:
+                applied.append({"action": "keep_cta_story_children", "count": before_n - len(normalized)})
+            for sid in story:
+                rationales.pop(sid, None)
         out["excluded_segment_ids"] = normalized
         if normalized:
             out["exclude_rationales"] = rationales
@@ -1154,6 +1253,22 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
     elif out.get("excluded_segment_ids") and out.get("exclude_rationales") is None:
         out["exclude_rationales"] = {}
         applied.append({"action": "default_value", "path": "exclude_rationales"})
+    if manifest_ids:
+        ordered_set = {str(s) for s in (out.get("ordered_segment_ids") or []) if s}
+        excl = list(out.get("excluded_segment_ids") or [])
+        have = {
+            str(r.get("segment_id") if isinstance(r, dict) else r)
+            for r in excl
+            if r is not None
+        }
+        missing = [s for s in manifest_ids if s not in ordered_set and s not in have]
+        if missing:
+            for sid in missing:
+                excl.append({"segment_id": sid, "reason": "not_selected"})
+            out["excluded_segment_ids"] = excl
+            applied.append(
+                {"action": "fill_unlisted_manifest_exclusions", "count": len(missing)}
+            )
     # Selection is the air-order authority.  Narrative chapters may describe a
     # wider candidate pool, but they must never force excluded material back
     # into the episode (exec_1131 expanded a tight pack by 161 segments here).
@@ -1206,14 +1321,28 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             new_chapters.append(row)
         leftovers = [sid for sid in ordered if sid not in assigned]
         if leftovers:
-            applied.append(
-                {
-                    "action": "preserve_unassigned_selected_segments",
-                    "count": len(leftovers),
-                    "ids": leftovers[:12],
-                    "reason": "do_not_mutate_selection_order_or_chapter_membership",
-                }
-            )
+            from interview_mux.selection_order_repair import fill_chapter_list_membership_gaps
+
+            filled_chapters, filled_ids = fill_chapter_list_membership_gaps(new_chapters, ordered)
+            if filled_ids:
+                new_chapters = filled_chapters
+                changed = True
+                applied.append(
+                    {
+                        "action": "fill_chapter_membership_gaps",
+                        "count": len(filled_ids),
+                        "ids": filled_ids[:12],
+                    }
+                )
+            else:
+                applied.append(
+                    {
+                        "action": "preserve_unassigned_selected_segments",
+                        "count": len(leftovers),
+                        "ids": leftovers[:12],
+                        "reason": "do_not_mutate_selection_order_or_chapter_membership",
+                    }
+                )
         # Drop empty chapter shells — narrative_qc treats them as hard errors and
         # edl_narrative_audit LLMs then demand re-including excluded early acts.
         nonempty = [ch for ch in new_chapters if ch.get("segment_ids")]
@@ -1261,6 +1390,16 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 applied.append({"action": "drop_invalid", "path": "media_ip_cta.cut_ms"})
             normalized_cta.append(item)
         out["media_ip_cta"] = normalized_cta
+    reconciled = reconcile_ordered_vs_excluded(out)
+    if (
+        reconciled.get("ordered_segment_ids") != out.get("ordered_segment_ids")
+        or reconciled.get("excluded_segment_ids") != out.get("excluded_segment_ids")
+        or reconciled.get("exclude_rationales") != out.get("exclude_rationales")
+    ):
+        applied.append({"action": "reconcile_ordered_vs_excluded"})
+        if reconciled.get("exclude_rationales") != out.get("exclude_rationales"):
+            applied.append({"action": "prune_stale_exclude_rationales"})
+    out = reconciled
     from interview_mux.order_hash import bump_order_lock
 
     stamped = bump_order_lock(out, source="artifact_repairs.repair_selection")
@@ -1322,7 +1461,20 @@ def align_narrative_plan_to_selection(
             if open_id and open_id not in order_set:
                 row["suggested_open_segment_id"] = ids[0]
             kept.append(row)
-        if dropped or kept != chapters:
+        from interview_mux.selection_order_repair import fill_chapter_list_membership_gaps
+
+        filled_chapters, filled_ids = fill_chapter_list_membership_gaps(
+            kept, [str(s) for s in (ordered_ids or []) if s]
+        )
+        if filled_ids:
+            kept = filled_chapters
+            applied.append(
+                {
+                    "action": "fill_narrative_chapter_membership_gaps",
+                    "ids": filled_ids[:12],
+                }
+            )
+        if dropped or kept != chapters or filled_ids:
             out["chapters"] = kept
             applied.append(
                 {
@@ -1722,6 +1874,18 @@ def _seed_missing_high_gap_interviewer_lines(
 def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
     if not ctx.artifact_exists("segments/manifest.json"):
         return False
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
+
+        if str(seg_id) in admitted_story_segment_ids(ctx) and str(seg_id) not in never_touch_segment_ids(
+            ctx
+        ):
+            # Recut remainders are content candidates — do not discard for being short.
+            story_exempt = True
+        else:
+            story_exempt = False
+    except Exception:
+        story_exempt = False
     man = ctx.read_json("segments/manifest.json")
     for row in (man.get("segments") or []) if isinstance(man, dict) else []:
         if not isinstance(row, dict):
@@ -1732,6 +1896,8 @@ def _segment_is_blank_or_unusable(ctx: Any, seg_id: str) -> bool:
         dur = max(0, int(row.get("end_ms") or 0) - int(row.get("start_ms") or 0))
         if not text or dur < 400:
             return True
+        if story_exempt:
+            return False
         # Incomplete micro-fragments ("Within…", "But end of the day,") are high-gap
         # noise — do not require on-air VO; ranking/exclude handles them.
         words = [w for w in text.replace("…", " ").split() if w.strip(".,;:!?\"'")]
@@ -3404,6 +3570,38 @@ def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:
             pass
 
 
+def repair_transitions(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Keep one spoken bridge per selected-order adjacency."""
+    from interview_mux.gap_framing import (
+        dedupe_transitions_by_adjacency,
+        prune_transitions_outside_selection,
+    )
+
+    out = copy.deepcopy(doc) if isinstance(doc, dict) else {"transitions": []}
+    applied: list[dict[str, Any]] = []
+    before = len(out.get("transitions") or [])
+    sel_ids: list[str] = []
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                sel_ids = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+    except Exception:
+        sel_ids = []
+    out = prune_transitions_outside_selection(out, sel_ids)
+    pruned = int(out.get("outside_selection_pruned_count") or 0)
+    if pruned:
+        applied.append({"action": "prune_transitions_outside_selection", "count": pruned})
+    out = dedupe_transitions_by_adjacency(out)
+    extras = int(out.get("adjacency_deduped_count") or 0)
+    if extras:
+        applied.append({"action": "dedupe_transitions_by_adjacency", "count": extras})
+    after = len(out.get("transitions") or [])
+    if after != before and not applied:
+        applied.append({"action": "normalize_transitions", "before": before, "after": after})
+    return out, applied
+
+
 def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Normalize cue placements and seed minimum creative-delivery density."""
     out = copy.deepcopy(doc)
@@ -4508,6 +4706,8 @@ def apply_repairs_for_stage(
         return repair_sound_design_plan(ctx, artifacts)
     if rel.endswith("sfx_prompts.json") or stage_key in ("sfx_prompt_craft", "sfx_prompt_refine"):
         return repair_sfx_prompts(ctx, artifacts)
+    if rel.endswith("transitions.json") or stage_key == "transitions":
+        return repair_transitions(ctx, artifacts)
     return artifacts, []
 
 
@@ -4724,6 +4924,62 @@ def repair_sfx_prompts(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
     return out, applied
 
 
+def _excluded_segment_id(raw: Any) -> str:
+    if isinstance(raw, dict):
+        return str(raw.get("segment_id") or raw.get("id") or "").strip()
+    return str(raw or "").strip()
+
+
+def prune_stale_exclude_rationales(
+    selection: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """`exclude_rationales` may only describe `excluded_segment_ids`, never air-order ids.
+
+    Ranking persist/repair can readmit segments into `ordered_segment_ids` while leaving
+    leftover rationale keys. Transitions then sees a fake order/exclude conflict and
+    refuses to write `master/transitions.json`.
+    """
+    out = dict(selection) if isinstance(selection, dict) else {}
+    applied: list[dict[str, Any]] = []
+    ordered = {str(s) for s in (out.get("ordered_segment_ids") or []) if s}
+    excl_rows = list(out.get("excluded_segment_ids") or [])
+    excl_ids = {_excluded_segment_id(row) for row in excl_rows}
+    excl_ids.discard("")
+    reasons_from_rows: dict[str, str] = {}
+    for row in excl_rows:
+        sid = _excluded_segment_id(row)
+        if not sid:
+            continue
+        if isinstance(row, dict):
+            reason = str(row.get("reason") or "").strip()
+        else:
+            reason = ""
+        if reason:
+            reasons_from_rows[sid] = reason
+    raw = out.get("exclude_rationales") if isinstance(out.get("exclude_rationales"), dict) else {}
+    keep: dict[str, str] = {}
+    for sid in sorted(excl_ids):
+        reason = str(raw.get(sid) or reasons_from_rows.get(sid) or "excluded_from_master").strip()
+        keep[sid] = reason or "excluded_from_master"
+    dropped_air = sorted(str(k) for k in raw if str(k) in ordered)
+    dropped_orphan = sorted(
+        str(k) for k in raw if str(k) not in excl_ids and str(k) not in ordered
+    )
+    if keep != dict(raw) or dropped_air or dropped_orphan:
+        out["exclude_rationales"] = keep
+        applied.append(
+            {
+                "action": "prune_stale_exclude_rationales",
+                "kept": len(keep),
+                "dropped_air": dropped_air[:24],
+                "dropped_orphan": dropped_orphan[:24],
+            }
+        )
+    elif "exclude_rationales" not in out:
+        out["exclude_rationales"] = keep
+    return out, applied
+
+
 def reconcile_ordered_vs_excluded(selection: dict[str, Any] | None) -> dict[str, Any]:
     """Resolve dual membership: editorial excludes leave air order; else air wins."""
     out = dict(selection) if isinstance(selection, dict) else {}
@@ -4786,6 +5042,7 @@ def reconcile_ordered_vs_excluded(selection: dict[str, Any] | None) -> dict[str,
 
     out["ordered_segment_ids"] = ordered
     out["excluded_segment_ids"] = excl_kept
+    out, _pruned = prune_stale_exclude_rationales(out)
     return out
 
 

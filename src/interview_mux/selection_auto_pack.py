@@ -9,9 +9,12 @@ sync. Both now share the same volley-intact drop preference.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from interview_mux.run_context import RunContext
+
+_CHILD_ID_RE = re.compile(r"^(seg_\d+)[a-z]+$")
 
 
 def _segment_duration_ms(seg: dict[str, Any]) -> int:
@@ -144,15 +147,33 @@ def pack_selection_to_duration(
 
     def rank_of(sid: str) -> float:
         try:
-            return float(ranks.get(sid, 9999))
+            if sid in ranks:
+                return float(ranks[sid])
         except (TypeError, ValueError):
-            return 9999.0
+            pass
+        parent = _CHILD_ID_RE.match(str(sid))
+        if parent:
+            try:
+                return float(ranks.get(parent.group(1), 9999))
+            except (TypeError, ValueError):
+                return 9999.0
+        return 9999.0
 
     speaker_of = _speaker_of_map(ctx) if prefer_volley_intact else {}
     by_id = _segments_by_id(ctx)
+    story_ids: set[str] = set()
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+        story_ids = admitted_story_segment_ids(ctx)
+    except Exception:
+        story_ids = set()
 
     def drop_score(sid: str) -> tuple[float, float, float]:
         if not prefer_volley_intact:
+            return (0.0, 0.0, rank_of(sid))
+        # Recut story remainders are content candidates — do not prefer-drop as micros.
+        if sid in story_ids:
             return (0.0, 0.0, rank_of(sid))
         idx = ordered.index(sid)
         spk = speaker_of.get(sid, "")

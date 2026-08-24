@@ -1689,7 +1689,7 @@ def create_app() -> FastAPI:
         ctx = _ctx(run_id)
         from interview_mux.config import load_secrets, merged_config
         from interview_mux.gates import check_g_publish_pending
-        from interview_mux.podcast_rss.settings import feed_url_from_base
+        from interview_mux.podcast_rss.settings import apple_podcasts_passthrough_url, feed_url_from_base
         from interview_mux.podcast_rss.sync_assets import read_last_sync_result, sync_status_summary
 
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
@@ -1706,6 +1706,7 @@ def create_app() -> FastAPI:
             else {}
         )
         base = str(secrets.get("PODCAST_FEED_BASE_URL") or "").rstrip("/")
+        feed_url = feed_url_from_base(base) or None
         # Counts + sync are scoped to this run only — never sibling executions.
         sync_summary = sync_status_summary(execution_id=run_id)
         return {
@@ -1713,7 +1714,8 @@ def create_app() -> FastAPI:
             "enabled": bool(podcast.get("enabled", True)),
             "show_title": podcast.get("show_title") or "The War Room",
             "feed_base_url": base or None,
-            "feed_url": feed_url_from_base(base) or None,
+            "feed_url": feed_url,
+            "apple_podcasts_passthrough_url": apple_podcasts_passthrough_url(feed_url) or None,
             "skipped": bool(isinstance(meta, dict) and meta.get("g_publish_skipped")),
             "cleared": bool(isinstance(meta, dict) and meta.get("g_publish_cleared")),
             "package_ready": bool(isinstance(package_ready, dict) and package_ready.get("ready")),

@@ -22,6 +22,8 @@
         "order_authority",
         "optimizer_candidate_id",
         "optimizer_score",
+        "admitted_story_segment_ids",
+        "considerable_segment_ids",
         "media_ip_cta"
       ],
       "properties": {
@@ -168,6 +170,24 @@
           "properties": {},
           "required": [],
           "additionalProperties": false
+        },
+        "admitted_story_segment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "considerable_segment_ids": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "media_ip_cta": {
           "type": [

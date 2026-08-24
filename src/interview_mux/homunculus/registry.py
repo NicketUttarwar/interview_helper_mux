@@ -341,10 +341,14 @@ def stage_tool_specs() -> list[ToolSpec]:
             ToolSpec(
                 name="skip_stage",
                 description=(
-                    "Skip a remaining stage with a reason. Island fuse stages and "
+                    "Skip a remaining stage with a reason. Island fuse stages, "
                     "required analysis stages (content_context, talking_points, "
-                    "ideal_cuts, boundary_detection, episode_structure, chapter_close_hitch) cannot skip "
-                    "without their artifacts. After a span/coverage failure, rerun "
+                    "ideal_cuts, boundary_detection, episode_structure, chapter_close_hitch), "
+                    "and delivery producers (transitions, sound_design_plan, full_master_ranking, "
+                    "edl, assembly_preview, listen_delight_audit, mix, junction_snip_qa, "
+                    "master_finalize, episode_meta, encode, publish) "
+                    "cannot skip without their artifacts. compensating_fact must be an on-disk "
+                    "artifact path, not a fact id. After a span/coverage failure, rerun "
                     "that stage instead of skipping."
                 ),
                 parameters={

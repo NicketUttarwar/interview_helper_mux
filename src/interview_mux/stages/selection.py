@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from interview_mux.stage_input_helpers import attach_disfluency_context
 from interview_mux.stage_input_helpers import interviewer_sample_lines
 from interview_mux.acoustic_profile import compact_for_volley, load_profile, pacing_one_liner
@@ -25,6 +28,119 @@ from interview_mux.stt_lexicon_islands import (
     scan_stt_lexicon_groups,
     specialist_input_from_ctx,
 )
+
+
+def ranking_artifacts_persistable(artifacts: dict | None) -> bool:
+    """True when ranking output has a usable air order (persist can finish the rest)."""
+    if not isinstance(artifacts, dict):
+        return False
+    ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if str(s).strip()]
+    return len(ordered) >= 1
+
+
+def last_persistable_ranking_artifacts(ctx: RunContext) -> dict | None:
+    """Newest ranking envelope artifacts with a non-empty ordered_segment_ids."""
+    roots: list[Any] = []
+    try:
+        committed = ctx.path("understanding", "llm_calls", "full_master_ranking")
+        if committed.is_dir():
+            roots.append(committed)
+    except Exception:
+        pass
+    pending = ctx.run_dir / ".pending_writes" / "full_master_ranking" / "understanding" / "llm_calls" / "full_master_ranking"
+    if pending.is_dir():
+        roots.append(pending)
+    best: dict | None = None
+    best_mtime = -1.0
+    for root in roots:
+        for path in root.glob("attempt_*/*_primary.json"):
+            try:
+                mtime = path.stat().st_mtime
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            env = ((doc.get("response") or {}).get("parsed_envelope") or {})
+            arts = env.get("artifacts") if isinstance(env, dict) else None
+            if not ranking_artifacts_persistable(arts if isinstance(arts, dict) else None):
+                continue
+            if mtime >= best_mtime:
+                best_mtime = mtime
+                best = arts if isinstance(arts, dict) else None
+        for path in root.glob("attempt_*/*_collate.json"):
+            try:
+                mtime = path.stat().st_mtime
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            env = ((doc.get("response") or {}).get("parsed_envelope") or {})
+            arts = env.get("artifacts") if isinstance(env, dict) else None
+            if not ranking_artifacts_persistable(arts if isinstance(arts, dict) else None):
+                continue
+            if mtime >= best_mtime:
+                best_mtime = mtime
+                best = arts if isinstance(arts, dict) else None
+    return best
+
+
+def commit_persistable_ranking_from_last_envelope(ctx: RunContext) -> bool:
+    """Write selection.json from the last persistable ranking envelope and mark done."""
+    arts = last_persistable_ranking_artifacts(ctx)
+    if not arts:
+        return False
+    persist_full_master_ranking(ctx, arts)
+    ctx.mark_done("full_master_ranking", force=True)
+    ctx.log(
+        "Committed ranking from last persistable envelope "
+        f"({len(arts.get('ordered_segment_ids') or [])} ordered)",
+        level="warning",
+        stage="full_master_ranking",
+    )
+    return True
+
+
+def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
+    """Commit ranking artifacts without re-running the LLM.
+
+    Applies topo repair, CTA omit, then hard-keep (banned IDs already stripped)
+    so air-script and later stages get a schema-valid selection.json.
+    """
+    if not ranking_artifacts_persistable(artifacts):
+        raise ValueError("ranking artifacts missing ordered_segment_ids")
+    plan = (
+        ctx.read_json("master/narrative_plan.json")
+        if ctx.artifact_exists("master/narrative_plan.json")
+        else None
+    )
+    from interview_mux.selection_order_repair import repair_selection_order
+    from interview_mux.hard_keep import enforce_hard_keeps
+    from interview_mux.order_hash import bump_order_lock
+
+    artifacts, _ = repair_selection_order(
+        artifacts, plan if isinstance(plan, dict) else None
+    )
+    artifacts = enforce_hard_keeps(ctx, artifacts)
+    try:
+        from interview_mux.media_ip_cta import apply_cta_judgments, apply_editorial_omits
+
+        artifacts = apply_cta_judgments(ctx, artifacts)
+        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        artifacts = apply_editorial_omits(ctx, artifacts)
+        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        artifacts = enforce_hard_keeps(ctx, artifacts)
+    except Exception as exc:
+        ctx.log(
+            f"media_ip_cta apply failed (fail-open): {exc}",
+            level="warning",
+            stage="full_master_ranking",
+        )
+    artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+    write_validated_artifact(
+        ctx,
+        "master/selection.json",
+        artifacts,
+        merge_from_disk=True,
+        stage_key="full_master_ranking",
+    )
 
 
 def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
@@ -113,7 +229,22 @@ def run_full_master_ranking(ctx: RunContext) -> None:
                     }
             except Exception:
                 pass
-        return attach_disfluency_context(payload, c)
+        payload = attach_disfluency_context(payload, c)
+        try:
+            from interview_mux.media_ip_cta import ranking_cta_omit_ids
+
+            cta_omit = ranking_cta_omit_ids(c)
+        except Exception:
+            cta_omit = set()
+        if cta_omit:
+            payload["cta_omit_segment_ids"] = sorted(cta_omit)
+            keeps = [
+                str(s)
+                for s in (payload.get("must_keep_segment_ids") or [])
+                if str(s) and str(s) not in cta_omit
+            ]
+            payload["must_keep_segment_ids"] = keeps
+        return payload
 
     def persist(c: RunContext, artifacts: dict) -> None:
         # App-base topo repair BEFORE NLE overlay (NLE is overlay-only).
@@ -489,6 +620,9 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             artifacts = bump_order_lock(artifacts, source="full_master_ranking")
             artifacts = apply_editorial_omits(c, artifacts)
             artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+            from interview_mux.hard_keep import enforce_hard_keeps
+
+            artifacts = enforce_hard_keeps(c, artifacts)
         except Exception as exc:
             c.log(
                 f"media_ip_cta apply failed (fail-open): {exc}",
@@ -563,6 +697,29 @@ def run_transitions(ctx: RunContext) -> None:
     # Synthetic framing is authoritative only after the native air order is
     # stable.  This nested LLM stage builds the complete context packet first.
     from interview_mux.synthetic_framing import run_synthetic_framing_plan
+
+    if ctx.artifact_exists("master/selection.json"):
+        from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            repaired = reconcile_ordered_vs_excluded(sel)
+            if (
+                repaired.get("exclude_rationales") != sel.get("exclude_rationales")
+                or repaired.get("ordered_segment_ids") != sel.get("ordered_segment_ids")
+                or repaired.get("excluded_segment_ids") != sel.get("excluded_segment_ids")
+            ):
+                ctx.write_json(
+                    "master/selection.json",
+                    repaired,
+                    skip_handoff=True,
+                    stage_key="full_master_ranking",
+                )
+                ctx.log(
+                    "transitions: reconciled selection so exclude_rationales match air order",
+                    level="warning",
+                    stage="transitions",
+                )
 
     synthetic_plan = run_synthetic_framing_plan(ctx)
 

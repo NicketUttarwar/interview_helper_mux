@@ -1,0 +1,1293 @@
+{
+  "version": 1,
+  "pipeline_stages": 67,
+  "breakpoint_count": 184,
+  "breakpoints": [
+    {
+      "id": "contract:air_script_compose",
+      "kind": "stage_contract",
+      "stage": "air_script_compose",
+      "tier": "llm_full",
+      "outputs": [
+        "mastering/mastering_plan.json"
+      ]
+    },
+    {
+      "id": "contract:air_script_seams",
+      "kind": "stage_contract",
+      "stage": "air_script_seams",
+      "tier": "llm_full",
+      "outputs": [
+        "mastering/mastering_plan.json"
+      ]
+    },
+    {
+      "id": "contract:assembly_preview",
+      "kind": "stage_contract",
+      "stage": "assembly_preview",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:audio_preclean",
+      "kind": "stage_contract",
+      "stage": "audio_preclean",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:audio_probe_build",
+      "kind": "stage_contract",
+      "stage": "audio_probe_build",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:boundary_detection",
+      "kind": "stage_contract",
+      "stage": "boundary_detection",
+      "tier": "llm_full",
+      "outputs": [
+        "segments/boundaries.json"
+      ]
+    },
+    {
+      "id": "contract:boundary_topic_resplit",
+      "kind": "stage_contract",
+      "stage": "boundary_topic_resplit",
+      "tier": "llm_full",
+      "outputs": [
+        "segments/boundaries.json"
+      ]
+    },
+    {
+      "id": "contract:chapter_close_hitch",
+      "kind": "stage_contract",
+      "stage": "chapter_close_hitch",
+      "tier": "process",
+      "outputs": [
+        "mastering/chapter_close_hitch.json",
+        "mastering/chapter_close_hitch/intent_plan.json",
+        "mastering/chapter_close_hitch/remap.json"
+      ]
+    },
+    {
+      "id": "contract:connector_fuse_pass",
+      "kind": "stage_contract",
+      "stage": "connector_fuse_pass",
+      "tier": "process",
+      "outputs": [
+        "analysis/connector_fuse_audit.json"
+      ]
+    },
+    {
+      "id": "contract:connector_fuse_pass_pre_ranking",
+      "kind": "stage_contract",
+      "stage": "connector_fuse_pass_pre_ranking",
+      "tier": "process",
+      "outputs": [
+        "analysis/connector_fuse_rounds.json"
+      ]
+    },
+    {
+      "id": "contract:connector_seam_adjudicate",
+      "kind": "stage_contract",
+      "stage": "connector_seam_adjudicate",
+      "tier": "llm_full",
+      "outputs": [
+        "analysis/connector_seam_verdicts.json"
+      ]
+    },
+    {
+      "id": "contract:content_brief_reanchor",
+      "kind": "stage_contract",
+      "stage": "content_brief_reanchor",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/content_brief.json"
+      ]
+    },
+    {
+      "id": "contract:content_context",
+      "kind": "stage_contract",
+      "stage": "content_context",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/content_brief.json"
+      ]
+    },
+    {
+      "id": "contract:delivery_brief_build",
+      "kind": "stage_contract",
+      "stage": "delivery_brief_build",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:edl",
+      "kind": "stage_contract",
+      "stage": "edl",
+      "tier": "process",
+      "outputs": [
+        "master/edl.json"
+      ]
+    },
+    {
+      "id": "contract:edl_narrative_audit",
+      "kind": "stage_contract",
+      "stage": "edl_narrative_audit",
+      "tier": "llm_full",
+      "outputs": [
+        "master/edl_narrative_audit.json"
+      ]
+    },
+    {
+      "id": "contract:edl_narrative_refine",
+      "kind": "stage_contract",
+      "stage": "edl_narrative_refine",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:episode_cover_generate",
+      "kind": "stage_contract",
+      "stage": "episode_cover_generate",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:episode_cover_prompt_craft",
+      "kind": "stage_contract",
+      "stage": "episode_cover_prompt_craft",
+      "tier": "llm_full",
+      "outputs": [
+        "publish/cover_prompt.json"
+      ]
+    },
+    {
+      "id": "contract:episode_meta_build",
+      "kind": "stage_contract",
+      "stage": "episode_meta_build",
+      "tier": "llm_full",
+      "outputs": [
+        "publish/episode_meta.json"
+      ]
+    },
+    {
+      "id": "contract:episode_structure_compose",
+      "kind": "stage_contract",
+      "stage": "episode_structure_compose",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:full_master_ranking",
+      "kind": "stage_contract",
+      "stage": "full_master_ranking",
+      "tier": "llm_full",
+      "outputs": [
+        "master/selection.json"
+      ]
+    },
+    {
+      "id": "contract:g1_vo_pickup",
+      "kind": "stage_contract",
+      "stage": "g1_vo_pickup",
+      "tier": "gate",
+      "outputs": []
+    },
+    {
+      "id": "contract:gap_framing_compose",
+      "kind": "stage_contract",
+      "stage": "gap_framing_compose",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/gap_report.json"
+      ]
+    },
+    {
+      "id": "contract:gap_framing_recompose",
+      "kind": "stage_contract",
+      "stage": "gap_framing_recompose",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:ideal_cuts_materialize",
+      "kind": "stage_contract",
+      "stage": "ideal_cuts_materialize",
+      "tier": "process",
+      "outputs": [
+        "understanding/ideal_cuts_materialized.json"
+      ]
+    },
+    {
+      "id": "contract:ideal_cuts_propose",
+      "kind": "stage_contract",
+      "stage": "ideal_cuts_propose",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/ideal_cuts.json"
+      ]
+    },
+    {
+      "id": "contract:information_package_plan",
+      "kind": "stage_contract",
+      "stage": "information_package_plan",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:ingest",
+      "kind": "stage_contract",
+      "stage": "ingest",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:interview_spine_build",
+      "kind": "stage_contract",
+      "stage": "interview_spine_build",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:island_cluster_structure_adjudicate",
+      "kind": "stage_contract",
+      "stage": "island_cluster_structure_adjudicate",
+      "tier": "llm_advisory",
+      "outputs": [
+        "analysis/island_cluster_structure_verdicts.json",
+        "analysis/island_cluster_structure_packets.json"
+      ]
+    },
+    {
+      "id": "contract:junction_feel_audit",
+      "kind": "stage_contract",
+      "stage": "junction_feel_audit",
+      "tier": "llm_full",
+      "outputs": [
+        "master/junction_feel_audit.json"
+      ]
+    },
+    {
+      "id": "contract:junction_snip_qa",
+      "kind": "stage_contract",
+      "stage": "junction_snip_qa",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:junction_thought_complete",
+      "kind": "stage_contract",
+      "stage": "junction_thought_complete",
+      "tier": "llm_full",
+      "outputs": [
+        "master/junction_thought_complete.json"
+      ]
+    },
+    {
+      "id": "contract:listen_delight_audit",
+      "kind": "stage_contract",
+      "stage": "listen_delight_audit",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:low_conf_island_scan",
+      "kind": "stage_contract",
+      "stage": "low_conf_island_scan",
+      "tier": "process",
+      "outputs": [
+        "analysis/low_conf_islands.json"
+      ]
+    },
+    {
+      "id": "contract:master_finalize",
+      "kind": "stage_contract",
+      "stage": "master_finalize",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:master_transcript_build",
+      "kind": "stage_contract",
+      "stage": "master_transcript_build",
+      "tier": "process",
+      "outputs": [
+        "master/transcript.json",
+        "master/transcript.vtt",
+        "master/transcript.txt"
+      ]
+    },
+    {
+      "id": "contract:mastering_plan_confirm",
+      "kind": "stage_contract",
+      "stage": "mastering_plan_confirm",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:mastering_plan_synthesize",
+      "kind": "stage_contract",
+      "stage": "mastering_plan_synthesize",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:mastering_research_rollup",
+      "kind": "stage_contract",
+      "stage": "mastering_research_rollup",
+      "tier": "process",
+      "outputs": [
+        "mastering/research/rollup.json"
+      ]
+    },
+    {
+      "id": "contract:mastering_research_routing",
+      "kind": "stage_contract",
+      "stage": "mastering_research_routing",
+      "tier": "process",
+      "outputs": [
+        "mastering/research/routing.json"
+      ]
+    },
+    {
+      "id": "contract:mastering_research_waves",
+      "kind": "stage_contract",
+      "stage": "mastering_research_waves",
+      "tier": "process",
+      "outputs": [
+        "mastering/research/waves.json"
+      ]
+    },
+    {
+      "id": "contract:mastering_shape_agenda",
+      "kind": "stage_contract",
+      "stage": "mastering_shape_agenda",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:mastering_shape_candidates",
+      "kind": "stage_contract",
+      "stage": "mastering_shape_candidates",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:missing_framing",
+      "kind": "stage_contract",
+      "stage": "missing_framing",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/gap_evaluations.json"
+      ]
+    },
+    {
+      "id": "contract:mix",
+      "kind": "stage_contract",
+      "stage": "mix",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:mmaudio_sfx",
+      "kind": "stage_contract",
+      "stage": "mmaudio_sfx",
+      "tier": "process",
+      "outputs": [
+        "sound_design/mmaudio_qa.json"
+      ]
+    },
+    {
+      "id": "contract:music_palette_compose",
+      "kind": "stage_contract",
+      "stage": "music_palette_compose",
+      "tier": "llm_full",
+      "outputs": [
+        "sound_design/music_palette_compose.json"
+      ]
+    },
+    {
+      "id": "contract:narrative_arc_plan",
+      "kind": "stage_contract",
+      "stage": "narrative_arc_plan",
+      "tier": "llm_full",
+      "outputs": [
+        "master/narrative_plan.json"
+      ]
+    },
+    {
+      "id": "contract:narrative_arc_refine",
+      "kind": "stage_contract",
+      "stage": "narrative_arc_refine",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:nugget_corpus_mine",
+      "kind": "stage_contract",
+      "stage": "nugget_corpus_mine",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/nugget_corpus.json"
+      ]
+    },
+    {
+      "id": "contract:nugget_layup_compose",
+      "kind": "stage_contract",
+      "stage": "nugget_layup_compose",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/nugget_layup_plan.json",
+        "understanding/gap_report.json"
+      ]
+    },
+    {
+      "id": "contract:optimal_questions",
+      "kind": "stage_contract",
+      "stage": "optimal_questions",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/gap_report.json"
+      ]
+    },
+    {
+      "id": "contract:podcast_encode_mp3",
+      "kind": "stage_contract",
+      "stage": "podcast_encode_mp3",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:podcast_publish",
+      "kind": "stage_contract",
+      "stage": "podcast_publish",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:podcast_sfx_brief",
+      "kind": "stage_contract",
+      "stage": "podcast_sfx_brief",
+      "tier": "llm_full",
+      "outputs": [
+        "master/podcast_sfx_brief.json"
+      ]
+    },
+    {
+      "id": "contract:ranking_refine",
+      "kind": "stage_contract",
+      "stage": "ranking_refine",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:refinement_agenda",
+      "kind": "stage_contract",
+      "stage": "refinement_agenda",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:sdp_intent_refine",
+      "kind": "stage_contract",
+      "stage": "sdp_intent_refine",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:segment_classification",
+      "kind": "stage_contract",
+      "stage": "segment_classification",
+      "tier": "llm_full",
+      "outputs": [
+        "segments/manifest.json"
+      ]
+    },
+    {
+      "id": "contract:selection_framing_apply",
+      "kind": "stage_contract",
+      "stage": "selection_framing_apply",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:sfx_brief",
+      "kind": "stage_contract",
+      "stage": "sfx_brief",
+      "tier": "llm_full",
+      "outputs": [
+        "REMOVED_flow2/sfx_brief.json"
+      ]
+    },
+    {
+      "id": "contract:sfx_prompt_craft",
+      "kind": "stage_contract",
+      "stage": "sfx_prompt_craft",
+      "tier": "llm_full",
+      "outputs": [
+        "sound_design/sfx_prompts.json"
+      ]
+    },
+    {
+      "id": "contract:sfx_prompt_refine",
+      "kind": "stage_contract",
+      "stage": "sfx_prompt_refine",
+      "tier": "llm_full",
+      "outputs": [
+        "sound_design/sfx_prompts.json"
+      ]
+    },
+    {
+      "id": "contract:sonic_context_build",
+      "kind": "stage_contract",
+      "stage": "sonic_context_build",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:sound_design_palettes",
+      "kind": "stage_contract",
+      "stage": "sound_design_palettes",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/sound_design_plan.json"
+      ]
+    },
+    {
+      "id": "contract:sound_design_plan",
+      "kind": "stage_contract",
+      "stage": "sound_design_plan",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/sound_design_plan.json"
+      ]
+    },
+    {
+      "id": "contract:sound_design_plan_init",
+      "kind": "stage_contract",
+      "stage": "sound_design_plan_init",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:sound_design_vo_finalize",
+      "kind": "stage_contract",
+      "stage": "sound_design_vo_finalize",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:soundscape_policy_build",
+      "kind": "stage_contract",
+      "stage": "soundscape_policy_build",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:source_acoustic_profile",
+      "kind": "stage_contract",
+      "stage": "source_acoustic_profile",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:source_topology_build",
+      "kind": "stage_contract",
+      "stage": "source_topology_build",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:speaker_roles",
+      "kind": "stage_contract",
+      "stage": "speaker_roles",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/speakers.json"
+      ]
+    },
+    {
+      "id": "contract:synthetic_framing_plan",
+      "kind": "stage_contract",
+      "stage": "synthetic_framing_plan",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/synthetic_framing_plan.json"
+      ]
+    },
+    {
+      "id": "contract:talking_points_compose",
+      "kind": "stage_contract",
+      "stage": "talking_points_compose",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/talking_points.json"
+      ]
+    },
+    {
+      "id": "contract:topic_coverage_audit",
+      "kind": "stage_contract",
+      "stage": "topic_coverage_audit",
+      "tier": "llm_full",
+      "outputs": [
+        "master/coverage_audit.json"
+      ]
+    },
+    {
+      "id": "contract:transcribe",
+      "kind": "stage_contract",
+      "stage": "transcribe",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:transcript_review",
+      "kind": "stage_contract",
+      "stage": "transcript_review",
+      "tier": "gate",
+      "outputs": []
+    },
+    {
+      "id": "contract:transcript_review_build",
+      "kind": "stage_contract",
+      "stage": "transcript_review_build",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:transitions",
+      "kind": "stage_contract",
+      "stage": "transitions",
+      "tier": "llm_full",
+      "outputs": [
+        "master/transitions.json"
+      ]
+    },
+    {
+      "id": "contract:transitions_refine",
+      "kind": "stage_contract",
+      "stage": "transitions_refine",
+      "tier": "deterministic",
+      "outputs": []
+    },
+    {
+      "id": "contract:vernacular_segment_sanitize",
+      "kind": "stage_contract",
+      "stage": "vernacular_segment_sanitize",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:vo_ingest",
+      "kind": "stage_contract",
+      "stage": "vo_ingest",
+      "tier": "process",
+      "outputs": []
+    },
+    {
+      "id": "contract:vo_synthesize",
+      "kind": "stage_contract",
+      "stage": "vo_synthesize",
+      "tier": "process",
+      "outputs": [
+        "mastering/vo_synthesize.json"
+      ]
+    },
+    {
+      "id": "completeness:understanding/analysis_state.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/analysis_state.json",
+      "rule": "_gaps_analysis_state"
+    },
+    {
+      "id": "completeness:understanding/content_brief.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/content_brief.json",
+      "rule": "_gaps_content_brief"
+    },
+    {
+      "id": "completeness:understanding/speakers.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/speakers.json",
+      "rule": "_gaps_speakers"
+    },
+    {
+      "id": "completeness:understanding/sound_design_plan.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/sound_design_plan.json",
+      "rule": "_gaps_sound_design_plan"
+    },
+    {
+      "id": "completeness:understanding/investigation_queue.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/investigation_queue.json",
+      "rule": "_gaps_investigation_queue"
+    },
+    {
+      "id": "completeness:understanding/gap_evaluations.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/gap_evaluations.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:understanding/gap_report.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/gap_report.json",
+      "rule": "_gaps_gap_report"
+    },
+    {
+      "id": "completeness:understanding/delivery_brief.json",
+      "kind": "completeness_gap_rule",
+      "path": "understanding/delivery_brief.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:segments/boundaries.json",
+      "kind": "completeness_gap_rule",
+      "path": "segments/boundaries.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:segments/manifest.json",
+      "kind": "completeness_gap_rule",
+      "path": "segments/manifest.json",
+      "rule": "_gaps_manifest"
+    },
+    {
+      "id": "completeness:master/coverage_audit.json",
+      "kind": "completeness_gap_rule",
+      "path": "master/coverage_audit.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:master/narrative_plan.json",
+      "kind": "completeness_gap_rule",
+      "path": "master/narrative_plan.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:master/selection.json",
+      "kind": "completeness_gap_rule",
+      "path": "master/selection.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:master/transitions.json",
+      "kind": "completeness_gap_rule",
+      "path": "master/transitions.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:master/podcast_sfx_brief.json",
+      "kind": "completeness_gap_rule",
+      "path": "master/podcast_sfx_brief.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:show_notes/show_description.json",
+      "kind": "completeness_gap_rule",
+      "path": "show_notes/show_description.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:sound_design/sfx_prompts.json",
+      "kind": "completeness_gap_rule",
+      "path": "sound_design/sfx_prompts.json",
+      "rule": "_gaps_generic_nonempty"
+    },
+    {
+      "id": "completeness:sound_design/mmaudio_qa.json",
+      "kind": "completeness_gap_rule",
+      "path": "sound_design/mmaudio_qa.json",
+      "rule": "_gaps_mmaudio_qa"
+    },
+    {
+      "id": "disk_path:talking_points_compose",
+      "kind": "stage_artifact_path",
+      "stage": "talking_points_compose",
+      "path": "understanding/talking_points.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:ideal_cuts_propose",
+      "kind": "stage_artifact_path",
+      "stage": "ideal_cuts_propose",
+      "path": "understanding/ideal_cuts.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:ideal_cuts_materialize",
+      "kind": "stage_artifact_path",
+      "stage": "ideal_cuts_materialize",
+      "path": "understanding/ideal_cuts_materialized.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:chapter_close_hitch",
+      "kind": "stage_artifact_path",
+      "stage": "chapter_close_hitch",
+      "path": "mastering/chapter_close_hitch.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:connector_seam_adjudicate",
+      "kind": "stage_artifact_path",
+      "stage": "connector_seam_adjudicate",
+      "path": "analysis/connector_seam_verdicts.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:island_cluster_structure_adjudicate",
+      "kind": "stage_artifact_path",
+      "stage": "island_cluster_structure_adjudicate",
+      "path": "analysis/island_cluster_structure_verdicts.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:low_conf_island_scan",
+      "kind": "stage_artifact_path",
+      "stage": "low_conf_island_scan",
+      "path": "analysis/low_conf_islands.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:connector_fuse_pass",
+      "kind": "stage_artifact_path",
+      "stage": "connector_fuse_pass",
+      "path": "analysis/connector_fuse_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:connector_fuse_pass_pre_ranking",
+      "kind": "stage_artifact_path",
+      "stage": "connector_fuse_pass_pre_ranking",
+      "path": "analysis/connector_fuse_rounds.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:nugget_corpus_mine",
+      "kind": "stage_artifact_path",
+      "stage": "nugget_corpus_mine",
+      "path": "understanding/nugget_corpus.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:nugget_layup_compose",
+      "kind": "stage_artifact_path",
+      "stage": "nugget_layup_compose",
+      "path": "understanding/nugget_layup_plan.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:edl_narrative_audit",
+      "kind": "stage_artifact_path",
+      "stage": "edl_narrative_audit",
+      "path": "master/edl_narrative_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:vo_synthesize",
+      "kind": "stage_artifact_path",
+      "stage": "vo_synthesize",
+      "path": "mastering/vo_synthesize.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:edl",
+      "kind": "stage_artifact_path",
+      "stage": "edl",
+      "path": "master/edl.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:air_script_compose",
+      "kind": "stage_artifact_path",
+      "stage": "air_script_compose",
+      "path": "mastering/mastering_plan.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:air_script_seams",
+      "kind": "stage_artifact_path",
+      "stage": "air_script_seams",
+      "path": "mastering/mastering_plan.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:synthetic_framing_plan",
+      "kind": "stage_artifact_path",
+      "stage": "synthetic_framing_plan",
+      "path": "understanding/synthetic_framing_plan.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:music_palette_compose",
+      "kind": "stage_artifact_path",
+      "stage": "music_palette_compose",
+      "path": "sound_design/music_palette_compose.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:junction_feel_audit",
+      "kind": "stage_artifact_path",
+      "stage": "junction_feel_audit",
+      "path": "master/junction_feel_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:junction_thought_complete",
+      "kind": "stage_artifact_path",
+      "stage": "junction_thought_complete",
+      "path": "master/junction_thought_complete.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:master_transcript_build",
+      "kind": "stage_artifact_path",
+      "stage": "master_transcript_build",
+      "path": "master/transcript.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:mastering_research_routing",
+      "kind": "stage_artifact_path",
+      "stage": "mastering_research_routing",
+      "path": "mastering/research/routing.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:mastering_research_waves",
+      "kind": "stage_artifact_path",
+      "stage": "mastering_research_waves",
+      "path": "mastering/research/waves.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:mastering_research_rollup",
+      "kind": "stage_artifact_path",
+      "stage": "mastering_research_rollup",
+      "path": "mastering/research/rollup.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "no_unattended_check:audio_preclean",
+      "kind": "no_unattended_check",
+      "stage": "audio_preclean",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:ingest",
+      "kind": "no_unattended_check",
+      "stage": "ingest",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:transcribe",
+      "kind": "no_unattended_check",
+      "stage": "transcribe",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:audio_probe_build",
+      "kind": "no_unattended_check",
+      "stage": "audio_probe_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:transcript_review_build",
+      "kind": "no_unattended_check",
+      "stage": "transcript_review_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:source_acoustic_profile",
+      "kind": "no_unattended_check",
+      "stage": "source_acoustic_profile",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:interview_spine_build",
+      "kind": "no_unattended_check",
+      "stage": "interview_spine_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:source_topology_build",
+      "kind": "no_unattended_check",
+      "stage": "source_topology_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:vernacular_segment_sanitize",
+      "kind": "no_unattended_check",
+      "stage": "vernacular_segment_sanitize",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:sonic_context_build",
+      "kind": "no_unattended_check",
+      "stage": "sonic_context_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:mastering_shape_agenda",
+      "kind": "no_unattended_check",
+      "stage": "mastering_shape_agenda",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:mastering_shape_candidates",
+      "kind": "no_unattended_check",
+      "stage": "mastering_shape_candidates",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:mastering_plan_synthesize",
+      "kind": "no_unattended_check",
+      "stage": "mastering_plan_synthesize",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:mastering_plan_confirm",
+      "kind": "no_unattended_check",
+      "stage": "mastering_plan_confirm",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:delivery_brief_build",
+      "kind": "no_unattended_check",
+      "stage": "delivery_brief_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:soundscape_policy_build",
+      "kind": "no_unattended_check",
+      "stage": "soundscape_policy_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:episode_structure_compose",
+      "kind": "no_unattended_check",
+      "stage": "episode_structure_compose",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:information_package_plan",
+      "kind": "no_unattended_check",
+      "stage": "information_package_plan",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:refinement_agenda",
+      "kind": "no_unattended_check",
+      "stage": "refinement_agenda",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:gap_framing_recompose",
+      "kind": "no_unattended_check",
+      "stage": "gap_framing_recompose",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:selection_framing_apply",
+      "kind": "no_unattended_check",
+      "stage": "selection_framing_apply",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:sound_design_vo_finalize",
+      "kind": "no_unattended_check",
+      "stage": "sound_design_vo_finalize",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:assembly_preview",
+      "kind": "no_unattended_check",
+      "stage": "assembly_preview",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:listen_delight_audit",
+      "kind": "no_unattended_check",
+      "stage": "listen_delight_audit",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:mix",
+      "kind": "no_unattended_check",
+      "stage": "mix",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:junction_snip_qa",
+      "kind": "no_unattended_check",
+      "stage": "junction_snip_qa",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:master_finalize",
+      "kind": "no_unattended_check",
+      "stage": "master_finalize",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:episode_meta_build",
+      "kind": "no_unattended_check",
+      "stage": "episode_meta_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:episode_cover_prompt_craft",
+      "kind": "no_unattended_check",
+      "stage": "episode_cover_prompt_craft",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:podcast_encode_mp3",
+      "kind": "no_unattended_check",
+      "stage": "podcast_encode_mp3",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:episode_cover_generate",
+      "kind": "no_unattended_check",
+      "stage": "episode_cover_generate",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:podcast_publish",
+      "kind": "no_unattended_check",
+      "stage": "podcast_publish",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "progression_layer:gate",
+      "kind": "progression_layer",
+      "layer": "gate"
+    },
+    {
+      "id": "progression_layer:cross",
+      "kind": "progression_layer",
+      "layer": "cross"
+    },
+    {
+      "id": "progression_layer:completeness",
+      "kind": "progression_layer",
+      "layer": "completeness"
+    },
+    {
+      "id": "progression_layer:preflight",
+      "kind": "progression_layer",
+      "layer": "preflight"
+    },
+    {
+      "id": "progression_layer:itr",
+      "kind": "progression_layer",
+      "layer": "itr"
+    },
+    {
+      "id": "progression_layer:io",
+      "kind": "progression_layer",
+      "layer": "io"
+    },
+    {
+      "id": "progression_layer:schema",
+      "kind": "progression_layer",
+      "layer": "schema"
+    },
+    {
+      "id": "progression_layer:sufficiency",
+      "kind": "progression_layer",
+      "layer": "sufficiency"
+    },
+    {
+      "id": "progression_layer:audio",
+      "kind": "progression_layer",
+      "layer": "audio"
+    },
+    {
+      "id": "driver_fail_key:partial_artifact:{stage or",
+      "kind": "driver_fail_key",
+      "fail_key": "partial_artifact:{stage or"
+    },
+    {
+      "id": "driver_fail_key:topic_coverage_audit:analysis_prereq_pending",
+      "kind": "driver_fail_key",
+      "fail_key": "topic_coverage_audit:analysis_prereq_pending"
+    },
+    {
+      "id": "driver_fail_key:prereq_incomplete:{rel}",
+      "kind": "driver_fail_key",
+      "fail_key": "prereq_incomplete:{rel}"
+    },
+    {
+      "id": "driver_fail_key:speaker_roles:mixed_diarization",
+      "kind": "driver_fail_key",
+      "fail_key": "speaker_roles:mixed_diarization"
+    },
+    {
+      "id": "driver_fail_key:content_brief:spurious_stale_boundary",
+      "kind": "driver_fail_key",
+      "fail_key": "content_brief:spurious_stale_boundary"
+    },
+    {
+      "id": "driver_fail_key:{label}:premature_complete:{resume}",
+      "kind": "driver_fail_key",
+      "fail_key": "{label}:premature_complete:{resume}"
+    },
+    {
+      "id": "driver_fail_key:full_master_ranking:incomplete_no_persistable",
+      "kind": "driver_fail_key",
+      "fail_key": "full_master_ranking:incomplete_no_persistable"
+    },
+    {
+      "id": "driver_fail_key:{stage or",
+      "kind": "driver_fail_key",
+      "fail_key": "{stage or"
+    },
+    {
+      "id": "driver_fail_key:{stage}:premature_master_qa",
+      "kind": "driver_fail_key",
+      "fail_key": "{stage}:premature_master_qa"
+    },
+    {
+      "id": "driver_fail_key:boundary_detection:stale_content_brief",
+      "kind": "driver_fail_key",
+      "fail_key": "boundary_detection:stale_content_brief"
+    },
+    {
+      "id": "driver_fail_key:ideal_cuts_materialize:no_valid_cuts_after_snap",
+      "kind": "driver_fail_key",
+      "fail_key": "ideal_cuts_materialize:no_valid_cuts_after_snap"
+    },
+    {
+      "id": "driver_fail_key:nugget_layup_compose:{err[:160]}",
+      "kind": "driver_fail_key",
+      "fail_key": "nugget_layup_compose:{err[:160]}"
+    },
+    {
+      "id": "driver_fail_key:missing_framing:needs_speaker_roles",
+      "kind": "driver_fail_key",
+      "fail_key": "missing_framing:needs_speaker_roles"
+    },
+    {
+      "id": "driver_fail_key:missing_framing:needs_input_segment_ids",
+      "kind": "driver_fail_key",
+      "fail_key": "missing_framing:needs_input_segment_ids"
+    },
+    {
+      "id": "driver_fail_key:missing_framing:starved_host_packet",
+      "kind": "driver_fail_key",
+      "fail_key": "missing_framing:starved_host_packet"
+    },
+    {
+      "id": "driver_fail_key:gap_framing_compose:wants_ranking",
+      "kind": "driver_fail_key",
+      "fail_key": "gap_framing_compose:wants_ranking"
+    }
+  ]
+}

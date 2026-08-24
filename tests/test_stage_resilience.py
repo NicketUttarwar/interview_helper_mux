@@ -32,6 +32,45 @@ def test_registry_covers_all_pipeline_stages():
         assert family_for_stage(sid)
 
 
+def test_unattended_escalation_auto_resolves_retry_not_publish(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MUX_FULL_AUTO", "1")
+    from interview_mux.run_context import RunContext
+    from interview_mux.stage_resilience import escalate_stage_failure, list_open_escalations
+
+    run_dir = tmp_path / "exec_unattended"
+    run_dir.mkdir()
+    (run_dir / "run_meta.json").write_text(
+        json.dumps({"full_auto": True}), encoding="utf-8"
+    )
+    ctx = RunContext.__new__(RunContext)
+    ctx.run_dir = run_dir
+    ctx.run_id = "exec_unattended"
+
+    def artifact_exists(rel: str) -> bool:
+        return (run_dir / rel).is_file()
+
+    def read_json(rel: str):
+        return json.loads((run_dir / rel).read_text(encoding="utf-8"))
+
+    def log(*_a, **_k):
+        return None
+
+    ctx.artifact_exists = artifact_exists  # type: ignore[method-assign]
+    ctx.read_json = read_json  # type: ignore[method-assign]
+    ctx.log = log  # type: ignore[method-assign]
+
+    doc = escalate_stage_failure(
+        ctx,
+        "mix",
+        failed_invariant="mmaudio_qa_missing",
+        evidence={"path": "sound_design/mmaudio_qa.json"},
+    )
+    assert doc["chosen_option"] == "retry_stage"
+    assert doc["status"] == "waived_unattended"
+    assert "force_publish" not in {o["id"] for o in (doc.get("options") or [])}
+    assert list_open_escalations(ctx) == []
+
+
 def test_source_profile_recipes():
     assert select_source_profile() == "clean_interview"
     assert select_source_profile(is_video=True) == "video_container"
@@ -42,6 +81,9 @@ def test_source_profile_recipes():
 
 
 def test_escalation_quality_first_forbids_waive_publish(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("MUX_FULL_AUTO", raising=False)
+    monkeypatch.delenv("MUX_RUN_MODE", raising=False)
+    monkeypatch.delenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", raising=False)
     from interview_mux.run_context import RunContext
 
     run_dir = tmp_path / "exec_test"

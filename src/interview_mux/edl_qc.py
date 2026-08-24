@@ -110,7 +110,12 @@ def _validate_no_overlapping_speech(clips: list[Any]) -> list[str]:
         end_a = _clip_end_ms(clip_a)
         start_b = int(clip_b.get("timeline_start_ms", 0))
         end_b = _clip_end_ms(clip_b)
-        if start_a < end_b and start_b < end_a:
+        overlap_ms = min(end_a, end_b) - max(start_a, start_b)
+        allowed = max(
+            int(clip_a.get("mix_overlap_ms") or 0),
+            int(clip_b.get("mix_overlap_ms") or 0),
+        )
+        if start_a < end_b and start_b < end_a and overlap_ms > allowed:
             label_a = clip_a.get("line_id") or clip_a.get("segment_id") or f"clips[{idx_a}]"
             label_b = clip_b.get("line_id") or clip_b.get("segment_id") or f"clips[{idx_b}]"
             errors.append(
@@ -163,6 +168,8 @@ def _validate_timeline_monotonic(edl: dict[str, Any], clips: list[Any]) -> list[
     prev_start: int | None = None
     for index, clip in enumerate(clips):
         if not isinstance(clip, dict):
+            continue
+        if int(clip.get("duration_ms") or 0) <= 0:
             continue
         start = int(clip.get("timeline_start_ms", 0))
         if prev_start is not None and start < prev_start:

@@ -207,6 +207,8 @@ def build_flow1_edl(
     transcript_words: list | None = None,
     max_keeper_ms: int | None = None,
     normalized_wav: Path | str | None = None,
+    ctx: RunContext | None = None,
+    verify_pair: Callable[[Path, Path], str | None] | None = None,
 ) -> dict:
     """Build Flow 1 EDL: speech order from selection, gap VO placements, transition anchors.
 
@@ -227,6 +229,9 @@ def build_flow1_edl(
     missing_segments: list[str] = []
     missing_transitions: list[str] = []
     suppressed_clone_adjacency: list[str] = []
+    from interview_mux.clone_adjacency_verify import CloneAdjacencySession
+
+    clone_adj = CloneAdjacencySession(ctx=ctx, verify_pair=verify_pair)
     air_cfg = listenability_guards_cfg()
     words = [w for w in (transcript_words or []) if isinstance(w, dict)]
     if max_keeper_ms is None:
@@ -384,8 +389,17 @@ def build_flow1_edl(
                 and not bool(line.get("clone_adjacency_exempt"))
                 and not _is_orientation(line)
             ):
-                suppressed_clone_adjacency.append(str(line.get("line_id") or sid))
-                return
+                target = dict(seg)
+                target.setdefault("segment_id", sid)
+                vo_key = str(line.get("line_id") or sid)
+                if clone_adj.decide(
+                    kind="vo_pickup",
+                    key=vo_key,
+                    clone_voice_id=voice_speaker_id,
+                    target=target,
+                ):
+                    suppressed_clone_adjacency.append(vo_key)
+                    return
             vo_path = resolve_vo_path(line) if resolve_vo_path else None
             rel: str | None = None
             dur = 0
@@ -599,10 +613,17 @@ def build_flow1_edl(
                         tr = None
             if tr:
                 transition_voice = str(tr.get("voice_speaker_id") or "").strip()
-                if transition_voice and transition_voice in {
-                    str((segments_by_id.get(sid) or {}).get("speaker_id") or "").strip(),
-                    str((segments_by_id.get(nxt) or {}).get("speaker_id") or "").strip(),
-                }:
+                after_seg = dict(segments_by_id.get(sid) or {})
+                after_seg.setdefault("segment_id", sid)
+                before_seg = dict(segments_by_id.get(nxt) or {})
+                before_seg.setdefault("segment_id", nxt)
+                if transition_voice and clone_adj.decide(
+                    kind="transition",
+                    key=f"transition:{sid}->{nxt}",
+                    clone_voice_id=transition_voice,
+                    after=after_seg,
+                    before=before_seg,
+                ):
                     suppressed_clone_adjacency.append(f"transition:{sid}->{nxt}")
                     tr = None
             if tr:
@@ -655,8 +676,12 @@ def build_flow1_edl(
             "missing_segment_lookups": sorted(set(missing_segments)),
             "missing_transition_audio": sorted(set(missing_transitions)),
             "suppressed_clone_adjacency": sorted(set(suppressed_clone_adjacency)),
+            "clone_adjacency_id_mismatch_kept": sorted(
+                set(k for k in clone_adj.kept_despite_id() if k)
+            ),
         },
         "mux_scope": "full_mix",
+        "_clone_adjacency_verify": clone_adj.report(),
     }
 
 
@@ -1008,7 +1033,13 @@ def run_edl(ctx: RunContext) -> None:
             ideal_cuts=ideal_cuts_doc,
             transcript_words=transcript_words,
             normalized_wav=wav_path,
+            ctx=ctx,
         )
+        verify_report = edl.pop("_clone_adjacency_verify", None)
+        if isinstance(verify_report, dict):
+            from interview_mux.clone_adjacency_verify import persist_clone_adjacency_verify
+
+            persist_clone_adjacency_verify(ctx, verify_report)
         edl = copy_order_lock(selection, stamp_order_hash(edl))
         try:
             from interview_mux.gap_vo_gates import gap_framing_enabled

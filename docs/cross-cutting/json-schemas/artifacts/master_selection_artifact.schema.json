@@ -49,6 +49,8 @@
     "order_authority": { "type": "string" },
     "optimizer_candidate_id": { "type": "string" },
     "optimizer_score": {},
+    "admitted_story_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "considerable_segment_ids": { "type": "array", "items": { "type": "string" } },
     "media_ip_cta": {
       "type": "array",
       "items": {

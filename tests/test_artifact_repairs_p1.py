@@ -51,6 +51,50 @@ def test_reconcile_ordered_vs_excluded_editorial_drops_from_air() -> None:
     )
 
 
+def test_reconcile_prunes_stale_rationales_on_air_order_ids() -> None:
+    from interview_mux.artifact_repairs import prune_stale_exclude_rationales
+
+    out = reconcile_ordered_vs_excluded(
+        {
+            "ordered_segment_ids": ["seg_005", "seg_006", "seg_008"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_001", "reason": "media_ip_cta"},
+            ],
+            "exclude_rationales": {
+                "seg_001": "media_ip_cta",
+                "seg_005": "excluded_from_master",
+                "seg_006": "excluded_from_master",
+                "seg_007": "duplicate: leftover",
+            },
+        }
+    )
+    assert out["ordered_segment_ids"] == ["seg_005", "seg_006", "seg_008"]
+    assert set(out["exclude_rationales"]) == {"seg_001"}
+    assert "seg_005" not in out["exclude_rationales"]
+    pruned, notes = prune_stale_exclude_rationales(out)
+    assert pruned["exclude_rationales"] == out["exclude_rationales"]
+    assert not notes
+    out = reconcile_ordered_vs_excluded(
+        {
+            "ordered_segment_ids": ["seg_001", "seg_002"],
+            "excluded_segment_ids": [
+                {
+                    "segment_id": "seg_001",
+                    "reason": "direct_listener_sponsor_promotion; sponsor message",
+                },
+            ],
+            "exclude_rationales": {
+                "seg_001": "direct_listener_sponsor_promotion; sponsor message",
+            },
+        }
+    )
+    assert out["ordered_segment_ids"] == ["seg_002"]
+    assert any(
+        (isinstance(x, dict) and x.get("segment_id") == "seg_001")
+        for x in out["excluded_segment_ids"]
+    )
+
+
 def test_repair_gap_report_drops_orphan_targets(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_gap")
@@ -400,4 +444,49 @@ def test_repair_master_selection_keeps_stringified_exclude_objects(
     rows = patched.get("excluded_segment_ids") or []
     assert any(
         isinstance(r, dict) and r.get("segment_id") == "seg_cta" for r in rows
+    )
+
+
+def test_repair_master_selection_prunes_stale_air_order_rationales(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_prune_rat")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_005",
+                text="We spent years on the trial design and the endpoints that actually mattered.",
+            ),
+            minimal_manifest_segment(
+                "seg_006",
+                text="The later readout changed how we think about treating late-stage disease.",
+            ),
+            minimal_manifest_segment(
+                "seg_cta",
+                text="Please subscribe to the show and buy the course this week.",
+            ),
+        ),
+        skip_handoff=True,
+    )
+    patched, applied = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_005", "seg_006"],
+            "excluded_segment_ids": [{"segment_id": "seg_cta", "reason": "media_ip_cta"}],
+            "exclude_rationales": {
+                "seg_cta": "media_ip_cta",
+                "seg_005": "excluded_from_master",
+                "seg_006": "excluded_from_master",
+            },
+        },
+    )
+    assert "seg_005" in patched["ordered_segment_ids"]
+    assert "seg_005" not in patched["exclude_rationales"]
+    assert "seg_006" not in patched["exclude_rationales"]
+    assert patched["exclude_rationales"].get("seg_cta") == "media_ip_cta"
+    assert any(
+        row.get("action") in {"prune_stale_exclude_rationales", "reconcile_ordered_vs_excluded"}
+        for row in applied
     )

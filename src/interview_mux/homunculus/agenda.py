@@ -7,7 +7,7 @@ from typing import Any
 
 from interview_mux.homunculus.ledger import append_ledger, remainder_requested
 from interview_mux.run_context import RunContext
-from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER, SHIP_AFTER_MASTER
 
 AGENDA_REL = "mastering/homunculus/agenda.json"
 PROTECTED_ISLAND_STAGES = frozenset(
@@ -180,8 +180,37 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "content_brief_reanchor": ("understanding/content_brief.json",),
     "episode_structure_compose": (),
     "chapter_close_hitch": ("mastering/chapter_close_hitch.json",),
+    "full_master_ranking": ("master/selection.json",),
+    "transitions": ("master/transitions.json",),
+    "sound_design_plan": ("understanding/sound_design_plan.json",),
     "vo_synthesize": ("mastering/vo_synthesize.json",),
 }
+
+# Delivery producers — skip only when THIS stage wrote its output. Skip never marks done.
+PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
+    "edl_narrative_audit": ("master/edl_narrative_audit.json",),
+    "edl": ("master/edl.json",),
+    "assembly_preview": ("master/assembly_preview.wav",),
+    "listen_delight_audit": ("mastering/listen_delight_audit.json",),
+    "music_palette_compose": ("sound_design/music_palette_compose.json",),
+    "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
+    "mmaudio_sfx": ("sound_design/mmaudio_qa.json",),
+    "mix": ("master/assembly.wav",),
+    "junction_snip_qa": ("master/seam_autopsy.json",),
+    "master_finalize": ("master/master.wav",),
+    "master_transcript_build": ("master/transcript.json",),
+    "episode_meta_build": ("publish/episode_meta.json",),
+    "episode_cover_prompt_craft": ("publish/cover_prompt.json",),
+    "podcast_encode_mp3": ("publish/audio.mp3",),
+    "podcast_publish": ("publish/chapters.json",),
+}
+
+MUSIC_SKIP_GUARD = frozenset(
+    {"sfx_prompt_craft", "mmaudio_sfx", "music_palette_compose", "mix"}
+)
+
+IDENTICAL_ERROR_REL = "mastering/homunculus/identical_stage_errors.json"
+IDENTICAL_ERROR_CAP = 3
 
 
 def _order_for(phase: str) -> list[str]:
@@ -205,11 +234,212 @@ def skipped_stages(ctx: RunContext) -> set[str]:
     return {str(s) for s in (_read_agenda(ctx).get("skipped") or [])}
 
 
+def stage_required_outputs(stage: str) -> tuple[str, ...]:
+    if stage in PROTECTED_DELIVERY_OUTPUTS:
+        return PROTECTED_DELIVERY_OUTPUTS[stage]
+    if stage in PROTECTED_CORE_STAGES:
+        return PROTECTED_CORE_STAGES[stage]
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    rel = STAGE_ARTIFACT_DISK_PATHS.get(stage)
+    return (rel,) if rel else ()
+
+
+def _sdp_producer_stage(ctx: RunContext) -> str:
+    if not ctx.artifact_exists("understanding/sound_design_plan.json"):
+        return ""
+    try:
+        doc = ctx.read_json("understanding/sound_design_plan.json")
+    except Exception:
+        return ""
+    if not isinstance(doc, dict):
+        return ""
+    meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+    return str(meta.get("producer_stage") or "")
+
+
+def delivery_sdp_present(ctx: RunContext) -> bool:
+    """True only after sound_design_plan itself wrote SDP and transitions exist."""
+    if not ctx.artifact_exists("master/transitions.json"):
+        return False
+    return _sdp_producer_stage(ctx) == "sound_design_plan"
+
+
+def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
+    if stage in PROTECTED_ISLAND_STAGES:
+        return any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
+    if stage == "sound_design_plan":
+        return delivery_sdp_present(ctx)
+    if stage == "vo_synthesize":
+        if not ctx.artifact_exists("mastering/vo_synthesize.json"):
+            return False
+        if not ctx.artifact_exists("master/transitions.json"):
+            return False
+        try:
+            from interview_mux.transition_vo import current_transition_pairs_missing
+
+            return not current_transition_pairs_missing(ctx)
+        except Exception:
+            return False
+    needed = stage_required_outputs(stage)
+    if not needed:
+        return ctx.is_done(stage)
+    return all(ctx.artifact_exists(rel) for rel in needed)
+
+
+def unmark_hollow_delivery_producers(
+    ctx: RunContext, stages: list[str] | set[str] | None = None
+) -> list[str]:
+    """Clear .stage_done when the producer output is missing or from another stage."""
+    if stages is None:
+        want = set(PROTECTED_CORE_STAGES) | set(PROTECTED_DELIVERY_OUTPUTS) | set(
+            PROTECTED_ISLAND_STAGES
+        )
+    else:
+        want = {str(s) for s in stages}
+    cleared: list[str] = []
+    for stage in sorted(want):
+        if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
+            unmark_stage_only(ctx, stage)
+            cleared.append(stage)
+    if cleared:
+        ctx.log(
+            "homunculus unmarked hollow delivery producers: " + ", ".join(cleared),
+            level="warning",
+            stage=cleared[0],
+        )
+    return cleared
+
+
+def unskip_hollow_stages(ctx: RunContext, stages: list[str] | set[str]) -> list[str]:
+    """Drop skip entries that never produced their output — skip without artifact is a hole."""
+    want = {str(s) for s in stages}
+    unmark_hollow_delivery_producers(ctx, want)
+    doc = _read_agenda(ctx)
+    skipped = [str(s) for s in (doc.get("skipped") or [])]
+    keep: list[str] = []
+    dropped: list[str] = []
+    for sid in skipped:
+        hollow = sid in want and not stage_outputs_present(ctx, sid)
+        if hollow:
+            dropped.append(sid)
+        else:
+            keep.append(sid)
+    if not dropped:
+        return []
+    doc["skipped"] = keep
+    ctx.write_json(AGENDA_REL, doc)
+    ctx.log(
+        "homunculus unskipped hollow stages (missing outputs): " + ", ".join(dropped),
+        level="warning",
+        stage=dropped[0],
+    )
+    append_ledger(
+        ctx,
+        {
+            "kind": "unskip_hollow",
+            "identity": "unskip_hollow",
+            "stages": dropped[:40],
+        },
+    )
+    return dropped
+
+
+def prepare_delivery_guardrails(ctx: RunContext, stages: list[str] | set[str] | None = None) -> list[str]:
+    """Unmark/unskip hollow producers so resume cannot fake progress. Returns hole ids."""
+    want = set(stages) if stages is not None else set(_order_for("delivery"))
+    holes = unmark_hollow_prepare_stages(ctx)
+    holes.extend(unmark_hollow_delivery_producers(ctx, want))
+    holes.extend(unskip_hollow_stages(ctx, want))
+    return list(dict.fromkeys(holes))
+
+
+def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) -> dict[str, Any]:
+    """Cap identical prestage/input errors so a missing file cannot spin forever."""
+    doc: dict[str, Any] = {}
+    if ctx.artifact_exists(IDENTICAL_ERROR_REL):
+        raw = ctx.read_json(IDENTICAL_ERROR_REL)
+        if isinstance(raw, dict):
+            doc = raw
+    key = f"{stage}:{fingerprint[:160]}"
+    row = doc.get(key) if isinstance(doc.get(key), dict) else {}
+    count = int(row.get("count") or 0) + 1
+    doc[key] = {"stage": stage, "fingerprint": fingerprint[:160], "count": count}
+    ctx.write_json(IDENTICAL_ERROR_REL, doc, skip_handoff=True)
+    exhausted = count >= IDENTICAL_ERROR_CAP
+    if exhausted:
+        def _mark(meta: dict[str, Any]) -> None:
+            meta["needs_operator"] = True
+            meta["needs_operator_stage"] = stage
+            meta["needs_operator_reason"] = fingerprint[:240]
+
+        try:
+            ctx.mutate_run_meta(_mark)
+        except Exception:
+            pass
+    return {"count": count, "exhausted": exhausted, "stage": stage}
+
+
 def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
-    # Seed order is the remainder walk. Conductor `skipped` / `scheduled` may
-    # reorder tools, but leftover walk must still run incomplete stages
-    # (a skip without .stage_done is a hole, not progress).
-    return [s for s in _order_for(phase) if not ctx.is_done(s)]
+    # Analysis remainder is .stage_done (shared brief/manifest paths are not
+    # unique producers). Delivery remainder is on-disk producer output so a
+    # palettes SDP or skip marker cannot hide sound_design_plan / mix / ship.
+    if phase != "delivery":
+        return [s for s in _order_for(phase) if not ctx.is_done(s)]
+    return [s for s in _order_for(phase) if not stage_outputs_present(ctx, s)]
+
+
+def ship_after_master_remaining(ctx: RunContext) -> list[str]:
+    """Cover / encode / publish stages still missing after master.wav exists."""
+    return [s for s in SHIP_AFTER_MASTER if not stage_outputs_present(ctx, s)]
+
+
+def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
+    """Mark unmarked pre-master delivery holes once master_finalize has already shipped.
+
+    vo_synthesize was inserted between edl_narrative_audit and edl. Runs that
+    already mixed/finalized must not rewind; persist a pair-gap report from
+    on-disk transition WAVs and close the marker.
+    """
+    if not ctx.artifact_exists("master/master.wav") or not ctx.is_done("master_finalize"):
+        return []
+    filled: list[str] = []
+    for stage in DELIVERY_ORDER:
+        if stage in SHIP_AFTER_MASTER:
+            break
+        if ctx.is_done(stage):
+            continue
+        if stage == "vo_synthesize":
+            try:
+                from interview_mux.transition_vo import (
+                    current_transition_pairs_missing,
+                    persist_vo_pair_gap,
+                )
+
+                missing = current_transition_pairs_missing(ctx)
+                persist_vo_pair_gap(
+                    ctx,
+                    missing,
+                    source="post_master_hole_backfill",
+                    extra={"backfilled": True},
+                    skip_handoff=True,
+                    stage_key="vo_synthesize",
+                )
+            except Exception:
+                ctx.write_json(
+                    "mastering/vo_synthesize.json",
+                    {"still_missing_pairs": [], "last_source": "post_master_hole_backfill"},
+                    skip_handoff=True,
+                    stage_key="vo_synthesize",
+                )
+        ctx.mark_done(stage, force=True)
+        filled.append(stage)
+        ctx.log(
+            f"homunculus backfilled pre-master hole {stage} (master already exists)",
+            level="warning",
+            stage=stage,
+        )
+    return filled
 
 
 def write_agenda(ctx: RunContext, phase: str, remaining: list[str], *, source: str) -> dict[str, Any]:
@@ -238,6 +468,10 @@ def write_agenda(ctx: RunContext, phase: str, remaining: list[str], *, source: s
 
 
 def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: str | None = None) -> dict[str, Any]:
+    if compensating_fact and not ctx.artifact_exists(compensating_fact):
+        # Fact IDs are not compensating artifacts. A skip without the on-disk
+        # output is a hole (exec_087 skipped transitions with fact 67b9d444).
+        compensating_fact = None
     if stage == "chapter_close_hitch":
         from interview_mux.chapter_close_hitch import hitch_latch_committed
 
@@ -245,34 +479,33 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
             raise RuntimeError(
                 "cannot skip chapter_close_hitch until the one-shot latch is committed"
             )
-    if stage == "vo_synthesize":
-        from interview_mux.transition_vo import (
-            current_transition_pairs_missing,
-            spoken_transition_pairs,
-        )
+    if stage in MUSIC_SKIP_GUARD:
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
+        if not delivery_sdp_present(ctx):
+            raise RuntimeError(
+                f"cannot skip {stage}: sound_design_plan has not written the delivery SDP"
+            )
+        missing_theme = missing_sdp_asset_wavs(ctx)
+        if missing_theme:
+            raise RuntimeError(
+                f"cannot skip {stage}: missing WAV for asset_id "
+                + ", ".join(missing_theme[:6])
+                + " — run music_palette_compose → sfx_prompt_craft → mmaudio_sfx"
+            )
+    if stage == "vo_synthesize":
+        from interview_mux.transition_vo import current_transition_pairs_missing
+
+        if not ctx.artifact_exists("master/transitions.json"):
+            raise RuntimeError(
+                "cannot skip vo_synthesize: master/transitions.json missing"
+            )
         missing = current_transition_pairs_missing(ctx)
         if missing:
             raise RuntimeError(
                 "cannot skip vo_synthesize: current transition pairs missing WAV: "
                 + ", ".join(missing[:6])
             )
-        if not spoken_transition_pairs(ctx):
-            if not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
-            # Fall through to skip list — no spoken pairs, nothing to protect.
-        elif stage in PROTECTED_CORE_STAGES:
-            needed = PROTECTED_CORE_STAGES[stage]
-            has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
-            if compensating_fact:
-                has_art = has_art or ctx.artifact_exists(compensating_fact)
-            if not has_art:
-                raise RuntimeError(
-                    "cannot skip vo_synthesize: mastering/vo_synthesize.json missing "
-                    "while spoken transition pairs exist"
-                )
-            if not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
     if stage in PROTECTED_ISLAND_STAGES:
         has_art = any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
         if not has_art:
@@ -280,21 +513,20 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
                 f"cannot skip {stage}: language-island artifacts missing "
                 "(low_conf_island_scan / connector_fuse_pass required)"
             )
-    if stage in PROTECTED_CORE_STAGES and stage != "vo_synthesize":
-        needed = PROTECTED_CORE_STAGES[stage]
-        has_art = bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
-        if compensating_fact:
-            has_art = has_art or ctx.artifact_exists(compensating_fact)
-        if not has_art:
-            raise RuntimeError(
-                f"cannot skip {stage}: required analysis artifact missing "
-                f"({', '.join(needed) if needed else 'episode_structure_compose'})"
-            )
-        if not ctx.is_done(stage):
-            ctx.mark_done(stage, force=True)
-    if stage in PROTECTED_ISLAND_STAGES and not ctx.is_done(stage):
-        if any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS):
-            ctx.mark_done(stage, force=True)
+    protected = (
+        stage in PROTECTED_CORE_STAGES
+        or stage in PROTECTED_DELIVERY_OUTPUTS
+        or stage in PROTECTED_ISLAND_STAGES
+        or bool(stage_required_outputs(stage))
+    )
+    if protected and not stage_outputs_present(ctx, stage):
+        needed = stage_required_outputs(stage)
+        raise RuntimeError(
+            f"cannot skip {stage}: required artifact missing "
+            f"({', '.join(needed) if needed else stage})"
+        )
+    # Skip is an agenda note only — never mark_done. Walk still runs unless
+    # stage_outputs_present is true for this producer.
     doc = _read_agenda(ctx)
     skipped = [str(s) for s in (doc.get("skipped") or [])]
     if stage not in skipped:
@@ -436,9 +668,13 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
 
     setattr(ctx, "_homunculus_seed_walk", True)
     try:
-        unmark_hollow_prepare_stages(ctx)
+        prepare_delivery_guardrails(ctx, stages)
         for stage in stages:
-            if ctx.is_done(stage) or stage in skipped_stages(ctx):
+            if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
+                continue
+            if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
+                unmark_stage_only(ctx, stage)
+            if stage in skipped_stages(ctx) and stage_outputs_present(ctx, stage):
                 continue
             try:
                 _refuse_g0_locked_rerun(ctx, stage, action="walk")
@@ -447,7 +683,19 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
                     ctx.mark_done(stage, force=True)
                 continue
-            run_single_stage(ctx, stage)
+            try:
+                run_single_stage(ctx, stage)
+            except Exception as exc:
+                fp = f"{type(exc).__name__}:{str(exc)[:160]}"
+                hit = note_identical_stage_error(ctx, stage, fp)
+                if hit.get("exhausted"):
+                    ctx.log(
+                        f"homunculus identical error cap on {stage} — needs_operator ({fp})",
+                        level="error",
+                        stage=stage,
+                    )
+                    break
+                raise
             if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
                 break
     finally:
@@ -464,11 +712,39 @@ def run_homunculus_phase(
 ) -> dict[str, Any]:
     """Conductor selects tools. Leftover stages walk seed order only if requested."""
     prior = list(remaining)
-    cleared = unmark_hollow_prepare_stages(ctx)
-    want = set(prior) | set(cleared)
-    remaining = [s for s in _order_for(phase) if s in want and not ctx.is_done(s)]
+    holes = prepare_delivery_guardrails(ctx, set(prior) | set(_order_for(phase)))
+    allow = set(prior) | set(holes)
+    remaining = [s for s in remaining_stages(ctx, phase) if s in allow]
     write_agenda(ctx, phase, remaining, source="conductor")
     if phase == "delivery":
+        if ctx.artifact_exists("master/master.wav") and ctx.is_done("master_finalize"):
+            filled = backfill_delivery_holes_after_master(ctx)
+            if filled:
+                remaining = [s for s in remaining if s not in filled and not ctx.is_done(s)]
+                write_agenda(ctx, phase, remaining, source="conductor")
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            if delivery_sdp_present(ctx) and not missing_sdp_asset_wavs(ctx):
+                from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
+
+                kept: list[str] = []
+                for sid in remaining:
+                    if sid in MUSIC_BEFORE_MIX and stage_outputs_present(ctx, sid):
+                        if not ctx.is_done(sid):
+                            ctx.mark_done(sid, force=True)
+                        ctx.log(
+                            f"homunculus keeping {sid} — SDP theme WAVs already on disk",
+                            level="info",
+                            stage=sid,
+                        )
+                        continue
+                    kept.append(sid)
+                if kept != remaining:
+                    remaining = kept
+                    write_agenda(ctx, phase, remaining, source="conductor")
+        except Exception:
+            pass
         pending_analysis = pending_analysis_for_delivery(ctx)
         if pending_analysis:
             ctx.log(
@@ -493,7 +769,7 @@ def run_homunculus_phase(
                     },
                     "remaining_after": remaining_stages(ctx, phase),
                 }
-            remaining = [s for s in _order_for(phase) if s in want and not ctx.is_done(s)]
+            remaining = [s for s in remaining_stages(ctx, phase) if s in allow]
             write_agenda(ctx, phase, remaining, source="conductor")
     from interview_mux.homunculus.persona import write_persona
     from interview_mux.homunculus.source_card import build_source_card
@@ -522,7 +798,12 @@ def run_homunculus_phase(
                 f"Do not skip low_conf_island_scan or connector_fuse_pass unless artifacts exist. "
                 f"Do not skip content_context, talking_points_compose, ideal_cuts_propose, "
                 f"ideal_cuts_materialize, boundary_detection, episode_structure_compose, "
-                f"or chapter_close_hitch unless artifacts exist (hitch only after latch). Prefer MusicGen large for beds. Hard limits apply. "
+                f"or chapter_close_hitch unless artifacts exist (hitch only after latch). "
+                f"Do not skip transitions, sound_design_plan, edl, assembly_preview, "
+                f"listen_delight_audit, mix, junction_snip_qa, master_finalize, or ship "
+                f"stages without their on-disk outputs. Prefer MusicGen large for beds. "
+                f"Do not run mix until sound_design/assets WAVs exist for every SDP asset_id "
+                f"(music_palette_compose → sfx_prompt_craft → mmaudio_sfx). Hard limits apply. "
                 f"walk_seed_remainder is optional catch-up only."
             )
             conductor_out = run_conductor(ctx, user_message=msg, client=client)
@@ -537,7 +818,7 @@ def run_homunculus_phase(
                     "error": conductor_out["message"],
                 },
             )
-    still = [s for s in remaining if not ctx.is_done(s)]
+    still = [s for s in remaining_stages(ctx, phase) if s in allow]
     if still:
         ctx.log(
             f"homunculus {phase} incomplete after conductor "
@@ -559,6 +840,16 @@ def run_homunculus_phase(
             stage=still[0],
         )
         walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
+    elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
+        ship = ship_after_master_remaining(ctx)
+        if ship:
+            ctx.log(
+                "homunculus delivery walking remaining ship stages "
+                f"({len(ship)} stage(s))",
+                level="warning",
+                stage=ship[0],
+            )
+            walk_seed_agenda(ctx, ship, reason="delivery_walk_to_publish")
     elif phase == "analysis":
         pending = pending_analysis_for_delivery(ctx)
         prereq_ids = {s for s, _ in DELIVERY_ANALYSIS_PREREQS}
@@ -570,4 +861,4 @@ def run_homunculus_phase(
                 stage=still[0],
             )
             walk_seed_agenda(ctx, still, reason="analysis_fill_delivery_prereqs")
-    return {"conductor": conductor_out, "remaining_after": remaining_stages(ctx, phase)}
+    return {"conductor": conductor_out, "remaining_after": [s for s in remaining_stages(ctx, phase) if s in allow]}

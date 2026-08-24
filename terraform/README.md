@@ -65,15 +65,17 @@ Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront 
 
 Destroy (careful): `./scripts/tf-destroy.sh` — does not empty S3 objects for you.
 
-## One-off: new RSS URL (archive old Apple feed)
+## One-off: new CloudFront RSS URL (same S3 bucket)
 
-Bucket renames alone **do not** change the CloudFront domain. To retire the live show URL for Apple and stand up a **new** `…/feed.xml` while keeping the old URL reachable as an archive:
+Bucket renames alone **do not** change the CloudFront domain. To **delete** the current `dxxxx.cloudfront.net/feed.xml` and create a new distribution in front of the **same** bucket:
 
 ```bash
-./scripts/tf-rotate-rss-url.sh                 # preview, then yes/no
+./scripts/tf-rotate-cloudfront-url.sh          # preview, then type the current CF id
 ```
 
-Details: [`terraform/archives/README.md`](archives/README.md). **Do not run until cutover.**
+This rewrites `PODCAST_CLOUDFRONT_DISTRIBUTION_ID` + `PODCAST_FEED_BASE_URL` in `secrets.env`. The app and `./scripts/invalidate_podcast_cf.sh` then invalidate the new URL. **Do not run until you intend to kill the old public feed.** The wrapper prints the Apple Podcasts Connect pass-through (`new-feed?submitfeed=…`) next to the new RSS URL. Apple still requires ≥1 episode.
+
+To stand up a **new bucket + new CloudFront** (archive the old pair, leave it live): `./scripts/tf-podcast-rss-origin.sh`. Details: [`terraform/archives/README.md`](archives/README.md). That script also prints the pass-through for the new feed.
 
 ## Wrapper scripts (`scripts/tf-*.sh`)
 
@@ -86,7 +88,8 @@ All wrappers source `scripts/lib/terraform-common.sh` (load `secrets.env`, optio
 | `tf-apply.sh` | Apply + `sync_podcast_tf_secrets.sh` |
 | `tf-destroy.sh` | Destroy |
 | `tf-empty-bucket.sh` | Delete all objects/versions from the managed S3 bucket; preserve infrastructure |
-| `tf-rotate-rss-url.sh` | **One-off:** archive current CF feed URL (orphan from state, leave live), create a **new** S3+CloudFront feed URL — preview then yes/no |
+| `tf-rotate-cloudfront-url.sh` | **One-off:** delete current CF feed URL, create a new distribution on the **same** S3 bucket; syncs secrets + invalidates `/feed.xml` |
+| `tf-podcast-rss-origin.sh` | New **S3 + CloudFront** origin (archives the old pair, leaves it live) |
 | `tf-refresh.sh` | Refresh state from AWS |
 | `tf-output.sh` | Show outputs |
 | `tf-show.sh` | Show state / saved plan |

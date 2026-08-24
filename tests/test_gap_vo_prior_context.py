@@ -419,3 +419,57 @@ def test_novel_1080_continues_at_1120_and_3900_not_4100() -> None:
     words.append({"text": "Next", "speaker_id": "spk_1", "start_ms": t, "end_ms": t + 180})
     assert not clause_continues_after(words, cut)
     assert is_legal_conceptual_hinge(done, words=words, end_ms=cut, next_pause_ms=4100)
+
+
+def _reshape_clinical_words() -> tuple[list[dict], dict[str, int]]:
+    """exec_1649-class span: abutting clinical|trials, then list close, then CTA."""
+    specs = [
+        ("reshape", 94040, 94480, "spk_1"),
+        ("clinical", 94480, 94820, "spk_1"),
+        ("trials,", 94820, 95460, "spk_1"),
+        ("drug", 96160, 96300, "spk_0"),
+        ("development,", 96300, 96780, "spk_0"),
+        ("and", 96780, 97120, "spk_0"),
+        ("diagnostics.", 97120, 97920, "spk_0"),
+        ("Well,", 97920, 98320, "spk_0"),
+        ("before", 98580, 98780, "spk_0"),
+        ("we", 98780, 99000, "spk_0"),
+        ("begin,", 99000, 99220, "spk_0"),
+    ]
+    words = [
+        {"text": t, "start_ms": s, "end_ms": e, "speaker_id": spk}
+        for t, s, e, spk in specs
+    ]
+    marks = {row[0].rstrip(",."): row[2] for row in specs}
+    marks["clinical"] = 94820
+    marks["trials"] = 95460
+    marks["diagnostics"] = 97920
+    return words, marks
+
+
+def test_abutting_clinical_trials_is_not_a_hinge() -> None:
+    from interview_mux.gap_vo_prior_context import (
+        clause_continues_after,
+        end_is_hanging_clause,
+        is_legal_conceptual_hinge,
+    )
+
+    words, marks = _reshape_clinical_words()
+    clinical = marks["clinical"]
+    assert clause_continues_after(words, clinical)
+    assert end_is_hanging_clause(words, clinical)
+    assert not is_legal_conceptual_hinge(
+        "reshape clinical",
+        words=words,
+        end_ms=clinical,
+        next_pause_ms=0,
+    )
+    assert clause_continues_after(words, marks["trials"])
+    assert end_is_hanging_clause(words, marks["trials"])
+    assert is_legal_conceptual_hinge(
+        "reshape clinical trials, drug development, and diagnostics.",
+        words=words,
+        end_ms=marks["diagnostics"],
+        next_pause_ms=0,
+    )
+    assert not clause_continues_after(words, marks["diagnostics"])

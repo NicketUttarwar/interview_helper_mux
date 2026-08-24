@@ -220,6 +220,10 @@ _SUBORDINATE_CLAUSE_OPEN_RE = re.compile(
 # Same-clause continuation / flip-detection ceiling. Do not retarget spine PAUSE_SPLIT_MS.
 CLAUSE_CONTINUE_MAX_GAP_MS = 4000
 CROSS_SPEAKER_COMPLETION_GAP_MS = CLAUSE_CONTINUE_MAX_GAP_MS
+# STT often abuts the next word at exactly end_ms (clinical|trials). Inclusive
+# lookahead must still see that token; a few ms of overlap is the same event.
+WORD_ABUT_TOL_MS = 20
+ZERO_GAP_HINGE_MS = 150
 
 _DETERMINERS = frozenset({"a", "an", "the"})
 _INTENSIFIERS = frozenset({"very", "really", "quite", "highly", "so", "too", "extremely"})
@@ -420,6 +424,60 @@ def _word_token(w: dict[str, Any]) -> str:
     return str(w.get("text") or w.get("word") or "").strip()
 
 
+def words_after_end(
+    words: list[dict[str, Any]],
+    end_ms: int,
+    *,
+    max_lookahead_ms: int = CLAUSE_CONTINUE_MAX_GAP_MS,
+    abut_tol_ms: int = WORD_ABUT_TOL_MS,
+) -> list[dict[str, Any]]:
+    """Words that begin at or after ``end_ms``, including zero-gap abutting tokens.
+
+    A following word that *starts* at exactly ``end_ms`` (or a few ms earlier due
+    to STT overlap) is the next token, not the word that just closed.
+    """
+    if not words or end_ms < 0:
+        return []
+    ahead: list[dict[str, Any]] = []
+    for w in words:
+        if not isinstance(w, dict) or not _word_token(w):
+            continue
+        try:
+            start = int(w.get("start_ms") or 0)
+            close = int(w.get("end_ms") or start)
+        except (TypeError, ValueError):
+            continue
+        if close <= end_ms:
+            continue
+        if start < end_ms - int(abut_tol_ms):
+            continue
+        if start > end_ms + int(max_lookahead_ms):
+            continue
+        ahead.append(w)
+    ahead.sort(key=lambda w: int(w.get("start_ms") or 0))
+    return ahead
+
+
+def _text_ending_at(words: list[dict[str, Any]], end_ms: int) -> str:
+    before = [
+        w
+        for w in words
+        if isinstance(w, dict)
+        and int(w.get("end_ms") or 0) <= end_ms + WORD_ABUT_TOL_MS
+        and int(w.get("end_ms") or 0) >= end_ms - 12_000
+        and _word_token(w)
+    ]
+    return " ".join(_word_token(w) for w in before[-24:]) if before else ""
+
+
+def end_is_hanging_clause(words: list[dict[str, Any]], end_ms: int) -> bool:
+    """True when the tape at ``end_ms`` is not a listen-complete hinge."""
+    if clause_continues_after(words, end_ms):
+        return True
+    text = _text_ending_at(words, end_ms)
+    return bool(text) and ends_hanging_setup(text)
+
+
 def clause_continues_after(
     words: list[dict[str, Any]],
     end_ms: int,
@@ -434,50 +492,46 @@ def clause_continues_after(
     """
     if not words or end_ms < 0:
         return False
-    ahead = [
-        w
-        for w in words
-        if isinstance(w, dict)
-        and end_ms < int(w.get("start_ms") or 0) <= end_ms + max_lookahead_ms
-        and _word_token(w)
-    ]
+    ahead = words_after_end(
+        words, end_ms, max_lookahead_ms=max_lookahead_ms, abut_tol_ms=WORD_ABUT_TOL_MS
+    )
     if not ahead:
         return False
-    ahead.sort(key=lambda w: int(w.get("start_ms") or 0))
     first = ahead[0]
-    gap = int(first.get("start_ms") or 0) - int(end_ms)
+    gap = max(0, int(first.get("start_ms") or 0) - int(end_ms))
     first_tok = _word_token(first).lower().strip(".,!?;:\"'")
-    before = [
-        w
-        for w in words
-        if isinstance(w, dict)
-        and int(w.get("end_ms") or 0) <= end_ms + 20
-        and int(w.get("end_ms") or 0) >= end_ms - 12_000
-        and _word_token(w)
-    ]
-    end_text = " ".join(_word_token(w) for w in before[-24:]) if before else ""
+    end_text = _text_ending_at(words, end_ms)
     hanging_close = bool(end_text) and ends_hanging_setup(end_text)
     unfinished_np = bool(end_text) and ends_unfinished_nominal(end_text)
     later_head = " ".join(_word_token(w) for w in ahead[:12])
+    last = _last_token(end_text)
+    adjective_tail = bool(last) and bool(_NOMINAL_ADJECTIVE_RE.match(last))
     if hanging_close and gap <= CLAUSE_CONTINUE_MAX_GAP_MS:
         if opens_with_backchannel_completion(later_head) or first_tok in _CONTINUER_OPEN_TOKENS:
             return True
         if unfinished_np and later_opens_nominal_complement(later_head):
             return True
+    if (
+        adjective_tail
+        and later_opens_nominal_complement(later_head)
+        and gap <= CLAUSE_CONTINUE_MAX_GAP_MS
+        and (not end_text or end_text[-1:] not in ".!?")
+    ):
+        return True
     if gap >= pause_split_ms and not hanging_close:
         # Real pause then new unit — not same-clause continuation.
         return False
     if hanging_close and gap < pause_split_ms:
         return True
-    if before:
-        last_tok = _word_token(before[-1])
+    if end_text:
+        last_tok = end_text.split()[-1] if end_text.split() else ""
         if last_tok[-1:] in ".!?…" and not hanging_close:
             return False
         if unfinished_np:
             return False
         if ends_hanging_setup(end_text):
             return True
-        if _last_token(end_text) in _INCOMPLETE_TAIL_TOKENS:
+        if last in _INCOMPLETE_TAIL_TOKENS:
             return True
     # Tight gap + content continuation of the same clause.
     if first_tok in _NEW_UNIT_OPENERS and gap >= 350 and not hanging_close:
@@ -508,9 +562,10 @@ def is_legal_conceptual_hinge(
     When ``words`` + ``end_ms`` are provided, also rejects cuts where the next
     transcript words continue the same unfinished setup.
     """
-    if not ends_complete_thought(
+    complete = ends_complete_thought(
         text, next_pause_ms=next_pause_ms, pause_split_ms=pause_split_ms
-    ):
+    )
+    if not complete:
         # Conceptual hinge without terminal punct / measured pause: allow when
         # lookahead shows a *new* unit (not same-clause continue) and text is
         # not a hanging setup.
@@ -522,6 +577,16 @@ def is_legal_conceptual_hinge(
                 words, end_ms, pause_split_ms=pause_split_ms
             ):
                 return False
+            ahead = words_after_end(words, end_ms)
+            if ahead:
+                pause = next_pause_ms
+                if pause is None:
+                    pause = max(
+                        0, int(ahead[0].get("start_ms") or 0) - int(end_ms)
+                    )
+                # Abutting / mid-breath next token without a new unit is not a hinge.
+                if pause < ZERO_GAP_HINGE_MS:
+                    return False
             # Non-hanging content word with no same-clause continue = legal hinge.
             return True
         return False

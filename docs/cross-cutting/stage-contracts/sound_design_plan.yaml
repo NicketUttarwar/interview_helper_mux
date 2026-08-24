@@ -24,6 +24,7 @@ sufficiency:
 propagation:
   invalidates_stages:
   - sfx_prompt_craft
+  - vo_synthesize
   - edl
 consumers:
 - sound_design_palettes

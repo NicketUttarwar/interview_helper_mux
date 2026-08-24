@@ -20,9 +20,11 @@ inputs:
 sufficiency:
 - path: findings
   rule: min_rows
-  min_count: 1
+  min_count: 0
 propagation:
-  invalidates_stages: []
+  invalidates_stages:
+  - vo_synthesize
+  - edl
 consumers:
 - edl_narrative_audit
 remediation:

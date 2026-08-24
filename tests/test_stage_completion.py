@@ -36,6 +36,10 @@ def test_reconcile_clears_stage_done_for_partial_resilience(tmp_path, monkeypatc
         stage_key="speaker_roles",
     )
     ctx.mark_done("speaker_roles", force=True)
+    assert not ctx.is_done("speaker_roles")
+    marker = ctx.final_path(".stage_done", "speaker_roles")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
     assert ctx.is_done("speaker_roles")
     reconcile_stage_done_marker(ctx, "speaker_roles")
     assert not ctx.is_done("speaker_roles")

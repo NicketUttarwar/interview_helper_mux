@@ -184,6 +184,7 @@
     ],
     "writes": [
       "master/rank_candidates.json",
+      "master/selection.json",
       "master/story_health.json",
       "understanding/reorder_bridges.json"
     ]
@@ -228,7 +229,9 @@
     "reads": [
       "understanding/gap_report.json"
     ],
-    "writes": []
+    "writes": [
+      "mastering/sound_design_vo_finalize.json"
+    ]
   },
   "transcribe_local": {
     "reads": [],

@@ -287,8 +287,7 @@
       "consumers": [
         "air_script_compose",
         "air_script_seams",
-        "nugget_layup_compose",
-        "vo_synthesize"
+        "nugget_layup_compose"
       ],
       "has_write_validator": true
     },

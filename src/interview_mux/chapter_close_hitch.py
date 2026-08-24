@@ -51,6 +51,7 @@ def hitch_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "enabled": True,
         "max_cut_ms": 180_000,
         "next_keeper_eps_ms": 80,
+        "extend_hanging_horizon_ms": 8_000,
     }
     return {**defaults, **(raw if isinstance(raw, dict) else {})}
 
@@ -300,6 +301,48 @@ def _next_chapter_start_ms(
     return min(starts) if starts else None
 
 
+def _extend_hanging_end_ms(
+    words: list[dict[str, Any]],
+    *,
+    from_ms: int,
+    horizon_ms: int,
+) -> int | None:
+    """First listen-complete close after a hanging keeper end, cross-speaker OK."""
+    from interview_mux.thought_complete_recut import complete_thought_candidates
+
+    if horizon_ms <= from_ms:
+        return None
+    cands = complete_thought_candidates(
+        words, from_ms, horizon_ms=horizon_ms, speaker=""
+    )
+    if not cands:
+        return None
+    cut = int(cands[0])
+    return cut if cut > from_ms else None
+
+
+def _shrink_next_keeper_start(
+    words: list[dict[str, Any]],
+    *,
+    keep_end_ms: int,
+    next_row: dict[str, Any],
+) -> None:
+    """Push the next keeper open to leftover speech after an extended close."""
+    from interview_mux.thought_complete_recut import remainder_open_ms
+
+    next_end = int(next_row.get("end_ms") or 0)
+    horizon = max(next_end, keep_end_ms + 1)
+    rem = remainder_open_ms(
+        words, keep_end_ms, horizon_ms=horizon, speaker=""
+    )
+    new_start = int(rem) if rem is not None else keep_end_ms
+    new_start = max(new_start, keep_end_ms)
+    if next_end and new_start >= next_end:
+        next_row["start_ms"] = next_end
+        return
+    next_row["start_ms"] = new_start
+
+
 def compute_recut_windows(
     *,
     keepers: list[dict[str, Any]],
@@ -310,8 +353,11 @@ def compute_recut_windows(
     max_cut_ms: int = 180_000,
     min_keep_ms: int = 2500,
     next_keeper_eps_ms: int = 80,
+    extend_hanging_horizon_ms: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return keeper rows with updated ``end_ms`` aimed at chapter/TP close."""
+    from interview_mux.gap_vo_prior_context import end_is_hanging_clause
+
     membership = _chapter_membership(plan, keepers)
     last_ids = _chapter_last_ids(plan, keepers)
     tp_titles: dict[str, str] = {}
@@ -319,46 +365,87 @@ def compute_recut_windows(
         if isinstance(tp, dict) and tp.get("talking_point_id"):
             tp_titles[str(tp["talking_point_id"])] = str(tp.get("title") or "")
 
+    horizon = (
+        int(extend_hanging_horizon_ms)
+        if extend_hanging_horizon_ms is not None
+        else int(hitch_cfg().get("extend_hanging_horizon_ms") or 8_000)
+    )
+    rows = [dict(r) for r in keepers if isinstance(r, dict)]
     out: list[dict[str, Any]] = []
-    for i, row in enumerate(keepers):
+    for i, row in enumerate(rows):
         start = int(row.get("start_ms") or 0)
         end = int(row.get("end_ms") or start)
+        orig_start = int(keepers[i].get("start_ms") or start)
         sid = str(row.get("segment_id") or "")
         next_start: int | None = None
-        if i + 1 < len(keepers):
-            next_start = int(keepers[i + 1].get("start_ms") or 0)
+        if i + 1 < len(rows):
+            next_start = int(rows[i + 1].get("start_ms") or 0)
         cid = membership.get(sid, "")
         is_last = sid in last_ids
         tp_id = str(row.get("talking_point_id") or "")
         topic_end = _topic_end_ms_for_talking_point(
             brief, tp_id, tp_titles.get(tp_id, "")
         )
+        hanging = bool(words) and end_is_hanging_clause(words, end)
+        leftover_after_extend = start > orig_start
+        extended = False
         bound = start + int(max_cut_ms)
-        if is_last and cid:
-            nxt_ch = _next_chapter_start_ms(plan, keepers, cid)
-            if nxt_ch is not None:
-                bound = min(bound, nxt_ch - int(next_keeper_eps_ms))
+        if leftover_after_extend:
+            # Prior keeper already claimed the hanging close; leave the CTA/leftover slab.
+            new_end = end
+            bound = end
+        elif hanging:
+            ext_horizon = min(end + horizon, start + int(max_cut_ms))
+            if i + 1 < len(rows):
+                ext_horizon = min(
+                    ext_horizon, int(rows[i + 1].get("end_ms") or ext_horizon)
+                )
+            if topic_end is not None and topic_end > start:
+                ext_horizon = min(ext_horizon, topic_end)
+            ext_horizon = max(ext_horizon, end)
+            bound = ext_horizon
+            snapped = _extend_hanging_end_ms(
+                words, from_ms=end, horizon_ms=ext_horizon
+            )
+            new_end = int(snapped) if snapped is not None else end
+            extended = snapped is not None
+        else:
+            if is_last and cid:
+                nxt_ch = _next_chapter_start_ms(plan, rows, cid)
+                if nxt_ch is not None:
+                    bound = min(bound, nxt_ch - int(next_keeper_eps_ms))
+                elif next_start is not None:
+                    bound = min(bound, next_start - int(next_keeper_eps_ms))
             elif next_start is not None:
                 bound = min(bound, next_start - int(next_keeper_eps_ms))
-        elif next_start is not None:
-            bound = min(bound, next_start - int(next_keeper_eps_ms))
-        if topic_end is not None and topic_end > start:
-            bound = min(bound, topic_end)
-        bound = max(bound, start + min_keep_ms)
-        snapped = last_listen_complete_end_ms(
-            words, start_ms=start, bound_end_ms=bound, min_keep_ms=min_keep_ms
-        )
-        new_end = int(snapped) if snapped is not None else end
+            if topic_end is not None and topic_end > start:
+                bound = min(bound, topic_end)
+            bound = max(bound, start + min_keep_ms)
+            snapped = last_listen_complete_end_ms(
+                words, start_ms=start, bound_end_ms=bound, min_keep_ms=min_keep_ms
+            )
+            new_end = int(snapped) if snapped is not None else end
+            if next_start is not None:
+                new_end = min(new_end, next_start - int(next_keeper_eps_ms))
         if new_end < start + min_keep_ms:
             new_end = end
-        if next_start is not None:
-            new_end = min(new_end, next_start - int(next_keeper_eps_ms))
+            extended = False
+        if (
+            extended
+            and next_start is not None
+            and new_end > next_start - int(next_keeper_eps_ms)
+            and i + 1 < len(rows)
+        ):
+            _shrink_next_keeper_start(
+                words, keep_end_ms=new_end, next_row=rows[i + 1]
+            )
         updated = dict(row)
         updated["end_ms"] = new_end
-        updated["end_changed"] = new_end != end
+        updated["end_changed"] = new_end != int(keepers[i].get("end_ms") or end)
         updated["bound_end_ms"] = bound
         updated["last_in_chapter"] = is_last
         updated["chapter_id"] = cid
+        updated["hanging_extended"] = extended
         out.append(updated)
     return out
 
@@ -1225,6 +1312,9 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             talking_points=tps if isinstance(tps, dict) else None,
             max_cut_ms=int(conf.get("max_cut_ms") or 180_000),
             next_keeper_eps_ms=int(conf.get("next_keeper_eps_ms") or 80),
+            extend_hanging_horizon_ms=int(
+                conf.get("extend_hanging_horizon_ms") or 8_000
+            ),
         )
         wav = None
         try:

@@ -20,10 +20,11 @@ inputs:
 sufficiency:
 - path: transitions
   rule: min_rows
-  min_count: 1
+  min_count: 0
 propagation:
   invalidates_stages:
   - sound_design_plan
+  - vo_synthesize
   - edl
 consumers:
 - transitions

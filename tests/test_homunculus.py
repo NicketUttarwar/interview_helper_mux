@@ -70,6 +70,9 @@ def test_fourth_invoke_refused() -> None:
     ctx = _ctx_010()
 
     def _ok() -> None:
+        dest = ctx.path("master/assembly.wav")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"RIFF")
         ctx.mark_done("mix", force=True)
 
     for _ in range(3):
@@ -82,7 +85,21 @@ def test_fourth_invoke_refused() -> None:
 def _write_boundaries(ctx: RunContext) -> None:
     path = ctx.path("segments/boundaries.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"boundaries": []}', encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "boundaries": [
+                    {
+                        "segment_id": "seg_001",
+                        "start_ms": 0,
+                        "end_ms": 4000,
+                        "proposed_split_reason": "test",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_failed_stage_invokes_do_not_burn_cap() -> None:
@@ -499,6 +516,48 @@ def test_recovery_blocked_until_analysis() -> None:
     assert recovery_allowed(ctx, "edl") is False
     analyze_issue(ctx, issue["issue_id"], quality_hypothesis="seam", action="retry")
     assert recovery_allowed(ctx, "edl") is True
+    assert recovery_allowed(ctx, "speaker_roles") is True
+
+
+def test_dispatch_speaker_roles_mixed_diarization_persists(tmp_path) -> None:
+    import json
+
+    from interview_mux.homunculus.runtime import dispatch_stage
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "hom_mixed_diar")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+        skip_handoff=True,
+    )
+    words = []
+    t = 0
+    for _ in range(40):
+        words.append({"speaker": "spk_0", "word": "story", "start_ms": t, "end_ms": t + 400})
+        t += 450
+    for _ in range(8):
+        words.append({"speaker": "spk_1", "word": "why?", "start_ms": t, "end_ms": t + 200})
+        t += 250
+    (ctx.run_dir / "transcript").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "transcript" / "full.json").write_text(
+        json.dumps({"text": "dialogue", "words": words}),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "transcript" / "speakers.json").write_text(
+        json.dumps({"speakers": [{"speaker_id": "spk_0"}, {"speaker_id": "spk_1"}]}),
+        encoding="utf-8",
+    )
+
+    def _boom() -> None:
+        raise RuntimeError(
+            "LLM stage speaker_roles incomplete: status=partial "
+            "needs=[{'type': 'rerun_stage', 'stage': 'diarization', 'blocking': True}]"
+        )
+
+    dispatch_stage(ctx, "speaker_roles", _boom, source="test")
+    assert ctx.is_done("speaker_roles")
+    assert ctx.artifact_exists("understanding/speakers.json")
 
 
 def test_end_judgment_reads_listen_delight_audit_not_legacy_path() -> None:
@@ -738,6 +797,132 @@ def test_walk_seed_remainder_is_consumed_after_fallback() -> None:
     assert remainder_requested(ctx) is False
 
 
+def _stop_client():
+    class Msg:
+        content = "stop"
+        tool_calls = []
+
+    class _C:
+        def create(self, **kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=Msg())])
+
+    return SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+
+
+def test_delivery_walks_ship_remainder_when_master_exists(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import run_homunculus_phase
+
+    ctx = _ctx_010()
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    walked: list[tuple[str, tuple[str, ...]]] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.append((reason, tuple(stages)))
+        for sid in stages:
+            _ctx.mark_done(sid, force=True)
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
+        lambda _c: [],
+    )
+    out = run_homunculus_phase(
+        ctx,
+        "delivery",
+        ["episode_meta_build", "podcast_publish"],
+        client=_stop_client(),
+    )
+    assert walked
+    assert walked[0][0] == "delivery_walk_to_publish"
+    assert walked[0][1][0] == "master_transcript_build"
+    assert "episode_meta_build" in walked[0][1]
+    assert "podcast_publish" in walked[0][1]
+    assert "mix" not in walked[0][1]
+    assert "master_transcript_build" not in (out.get("remaining_after") or [])
+
+
+def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import run_homunculus_phase
+
+    ctx = _ctx_010()
+    walked: list[str] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.append(reason)
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
+        lambda _c: [],
+    )
+    run_homunculus_phase(
+        ctx,
+        "delivery",
+        ["mix", "master_finalize"],
+        client=_stop_client(),
+    )
+    assert walked == ["delivery_walk_to_master"]
+
+
+def test_delivery_does_not_walk_pre_master_when_master_exists(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import run_homunculus_phase
+
+    ctx = _ctx_010()
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    for rel in (
+        "master/transcript.json",
+        "publish/episode_meta.json",
+        "publish/cover_prompt.json",
+        "publish/chapters.json",
+    ):
+        dest = ctx.path(rel)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("{}", encoding="utf-8")
+    mp3 = ctx.path("publish/audio.mp3")
+    mp3.parent.mkdir(parents=True, exist_ok=True)
+    mp3.write_bytes(b"ID3")
+    for sid in (
+        "master_transcript_build",
+        "episode_meta_build",
+        "episode_cover_prompt_craft",
+        "podcast_encode_mp3",
+        "episode_cover_generate",
+        "podcast_publish",
+    ):
+        ctx.mark_done(sid, force=True)
+    walked: list[str] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.append(reason)
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
+        lambda _c: [],
+    )
+    run_homunculus_phase(ctx, "delivery", ["mix"], client=_stop_client())
+    assert walked == []
+
+
+def test_backfill_delivery_holes_after_master_closes_vo_synthesize() -> None:
+    from interview_mux.homunculus.agenda import backfill_delivery_holes_after_master
+
+    ctx = _ctx_010()
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    ctx.mark_done("master_finalize", force=True)
+    ctx.mark_done("edl", force=True)
+    filled = backfill_delivery_holes_after_master(ctx)
+    assert "vo_synthesize" in filled
+    assert ctx.is_done("vo_synthesize")
+    assert ctx.artifact_exists("mastering/vo_synthesize.json")
+
+
 def test_delivery_refuses_boundary_rewind_when_classified(monkeypatch) -> None:
     from interview_mux.homunculus.agenda import write_agenda
     from interview_mux.homunculus.runtime import dispatch_stage
@@ -918,7 +1103,7 @@ def test_skip_island_stage_without_artifacts_refused() -> None:
     ctx.write_json("analysis/low_conf_must_keep.json", {"segment_ids": ["seg_1"]})
     doc = skip_stage(ctx, "low_conf_island_scan", reason="already have islands")
     assert "low_conf_island_scan" in doc["skipped"]
-    assert ctx.is_done("low_conf_island_scan")
+    assert not ctx.is_done("low_conf_island_scan")
 
 
 def test_skip_core_analysis_stage_without_artifact_refused() -> None:
@@ -931,7 +1116,52 @@ def test_skip_core_analysis_stage_without_artifact_refused() -> None:
     ctx.path("understanding/ideal_cuts.json").write_text('{"cuts": [{"cut_id": "c1"}]}', encoding="utf-8")
     doc = skip_stage(ctx, "ideal_cuts_propose", reason="already proposed")
     assert "ideal_cuts_propose" in doc["skipped"]
-    assert ctx.is_done("ideal_cuts_propose")
+    assert not ctx.is_done("ideal_cuts_propose")
+
+
+def test_skip_transitions_without_artifact_refused() -> None:
+    from interview_mux.homunculus.agenda import skip_stage
+
+    ctx = _ctx_010()
+    with pytest.raises(RuntimeError, match="cannot skip transitions"):
+        skip_stage(
+            ctx,
+            "transitions",
+            reason="exclusion conflicts",
+            compensating_fact="67b9d444",
+        )
+    ctx.write_json("master/transitions.json", {"transitions": []}, skip_handoff=True)
+    doc = skip_stage(ctx, "transitions", reason="empty bridges ok")
+    assert "transitions" in doc["skipped"]
+    assert not ctx.is_done("transitions")
+
+
+def test_walk_seed_agenda_runs_hollow_skipped_transitions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.homunculus.agenda import walk_seed_agenda, write_agenda
+
+    ctx = _ctx_010()
+    write_agenda(ctx, "delivery", ["transitions", "sound_design_plan"], source="test")
+    ctx.write_json(
+        "mastering/homunculus/agenda.json",
+        {
+            "phase": "delivery",
+            "remaining": ["transitions", "sound_design_plan"],
+            "source": "conductor",
+            "seed_order": [],
+            "skipped": ["transitions"],
+            "scheduled": [],
+            "reruns": [],
+        },
+    )
+    ran: list[str] = []
+    monkeypatch.setattr(
+        "interview_mux.pipeline.run_single_stage",
+        lambda _ctx, stage: ran.append(stage),
+    )
+    walk_seed_agenda(ctx, ["transitions", "sound_design_plan"], reason="test")
+    assert ran[0] == "transitions"
+    agenda = ctx.read_json("mastering/homunculus/agenda.json")
+    assert "transitions" not in (agenda.get("skipped") or [])
 
 
 def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
@@ -971,7 +1201,36 @@ def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
         handle.writeframes(b"\x00\x00" * 4800)
     doc = skip_stage(ctx, "vo_synthesize", reason="pairs on disk")
     assert "vo_synthesize" in doc["skipped"]
-    assert ctx.is_done("vo_synthesize")
+    assert not ctx.is_done("vo_synthesize")
+
+
+def test_skip_mmaudio_refused_when_theme_wavs_missing() -> None:
+    from interview_mux.homunculus.agenda import skip_stage
+
+    ctx = _ctx_010()
+    dest = ctx.path("understanding/sound_design_plan.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {
+                        "asset_id": "show_theme_v1_motif",
+                        "role": "theme_cold_open",
+                        "duration_seconds": 12,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="cannot skip mmaudio_sfx"):
+        skip_stage(ctx, "mmaudio_sfx", reason="conductor whim")
+    wav = ctx.path("sound_design", "assets", "show_theme_v1_motif.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    with pytest.raises(RuntimeError, match="cannot skip mmaudio_sfx"):
+        skip_stage(ctx, "mmaudio_sfx", reason="theme wav on disk")
 
 
 def test_persist_analysis_complete_before_episode_structure_refused() -> None:

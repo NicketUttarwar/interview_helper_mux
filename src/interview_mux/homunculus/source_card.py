@@ -57,7 +57,7 @@ def refresh_source_profile(
     noisy: bool | None = None,
 ) -> str:
     from interview_mux.file_store import write_json as fs_write_json
-    from interview_mux.stage_families import select_source_profile
+    from interview_mux.stage_families import select_source_profile, source_profile_recipe
 
     video = is_video
     if video is None:
@@ -75,6 +75,7 @@ def refresh_source_profile(
         duration_s=duration_s,
         speaker_count=speaker_count,
     )
+    recipe = source_profile_recipe(profile)
     dest = ctx.run_dir / "operator" / "source_profile.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     fs_write_json(
@@ -87,11 +88,13 @@ def refresh_source_profile(
             "speaker_count": speaker_count,
             "noisy": bool(noisy),
             "selected_at_stage": stage,
+            "recipe": recipe,
         },
     )
 
     def _patch_profile(meta: dict[str, Any]) -> None:
         meta["source_profile"] = profile
+        meta["source_profile_recipe"] = recipe
 
     try:
         ctx.mutate_run_meta(_patch_profile)

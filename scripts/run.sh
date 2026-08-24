@@ -42,20 +42,39 @@ while [[ $# -gt 0 ]]; do
       shift
       break
       ;;
+    --full-auto)
+      export MUX_RUN_MODE=full-auto
+      export MUX_FULL_AUTO=1
+      shift
+      ;;
+    --input)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --input requires a path under ASSETS/input/" >&2
+        exit 1
+      fi
+      export MUX_INPUT_AUDIO="$2"
+      shift 2
+      ;;
     -h | --help)
       cat <<'EOF'
-Usage: ./scripts/run.sh [--cli] [serve args…]
+Usage: ./scripts/run.sh [--cli] [--full-auto] [--input ASSETS/input/file.mp3] [serve args…]
 
 Setup once:  ./scripts/bootstrap_venv.sh
 Launch:      ./scripts/run.sh
 
 Interactive (TTY): choose Manual (default) or Full-auto, then pick source audio
-for Full-auto. Full-auto heal/remutates/re-executes with soft waivers,
-cover art, local publish, and S3 upload. Prefer the GUI Start-page control
-for Full-auto when launching Manual (opens the browser).
+for Full-auto. Flags skip the prompts:
+
+  ./scripts/run.sh --full-auto --input ASSETS/input/interview.mp3
+
+Full-auto heal/remutates/re-executes with bounded product repairs (no silent
+quality waivers). On halt or complete it writes operator/EXECUTION_REPORT.md.
+Prefer the GUI Start-page control for Full-auto when launching Manual.
 
 Environment:
   MUX_RUN_MODE=manual|full-auto  Skip mode prompt
+  --full-auto                    Same as MUX_RUN_MODE=full-auto
+  --input ASSETS/input/file.mp3  Same as MUX_INPUT_AUDIO (Full-auto)
   MUX_INPUT_AUDIO=ASSETS/input/… Skip audio picker (Full-auto; mp3 is converted to WAV)
   MUX_PRESERVE_SESSION=1         Keep GUI session across launches
   MUX_REBUILD_GUI=1              npm build before serve
@@ -264,6 +283,7 @@ if [[ "$RUN_MODE" == "full-auto" ]]; then
   echo "Full-auto selected — soft automation"
   echo "  input:  ${MUX_INPUT_AUDIO}"
   echo "  logs:   ASSETS/full_auto_console.log"
+  echo "  report: ASSETS/executions/<run_id>/operator/EXECUTION_REPORT.md"
   echo "  stop:   python tools/full_auto_daemon_launch.py stop"
   echo "  gui:    http://127.0.0.1:${WEB_PORT} (detached, no browser)"
   echo ""

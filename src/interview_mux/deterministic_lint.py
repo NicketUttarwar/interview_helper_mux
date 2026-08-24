@@ -711,12 +711,6 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
         )
         if not has_inline:
             errors.append("excluded segments without exclude_rationales")
-    from interview_mux.framing_coverage_guard import validate_framing_ranking
-    from interview_mux.hard_keep import hard_keep_segment_ids
-
-    errors.extend(validate_framing_ranking(ctx, artifacts))
-    keep_ids = hard_keep_segment_ids(ctx)
-    ordered_set = set(ordered)
     excl_ids: set[str] = set()
     for row in excluded:
         if isinstance(row, dict):
@@ -725,6 +719,26 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
             sid = str(row or "")
         if sid:
             excl_ids.add(sid)
+    if isinstance(rationales, dict):
+        ordered_set_early = {str(s) for s in ordered}
+        for sid in rationales:
+            key = str(sid)
+            if key in ordered_set_early:
+                errors.append(
+                    f"exclude_rationales[{key}] contradicts ordered_segment_ids"
+                )
+            elif key not in excl_ids:
+                errors.append(
+                    f"exclude_rationales[{key}] is not in excluded_segment_ids"
+                )
+            if len(errors) > 12:
+                break
+    from interview_mux.framing_coverage_guard import validate_framing_ranking
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    errors.extend(validate_framing_ranking(ctx, artifacts))
+    keep_ids = hard_keep_segment_ids(ctx)
+    ordered_set = set(ordered)
     if manifest_ids:
         for sid in manifest_ids:
             if sid not in ordered_set and sid not in excl_ids:

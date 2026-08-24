@@ -19,7 +19,7 @@ _DIM_STAGES: dict[str, list[str]] = {
     ],
     "cut_integrity": ["edl", "junction_snip_qa", "mix", "listen_delight_audit"],
     "conversation_fit": ["edl", "mix", "listen_delight_audit"],
-    "sonic_weave": ["sound_design_plan", "mix", "listen_delight_audit"],
+    "sonic_weave": ["mix", "listen_delight_audit"],
     "mode_coherence": ["gap_framing_compose", "edl", "mix", "listen_delight_audit"],
     "finishability": ["full_master_ranking", "edl", "mix", "listen_delight_audit"],
     # recommendability is a composite of other dims. Ranking/EDL/mix remutate

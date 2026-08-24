@@ -431,6 +431,21 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         total=1,
         stages_planned=[stage],
     )
+    try:
+        from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+        if stage in MUSIC_BEFORE_MIX and not missing_sdp_asset_wavs(ctx):
+            if not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
+            ctx.log(
+                f"{stage}: SDP theme WAVs already on disk — skip regenerate",
+                level="info",
+                stage=stage,
+            )
+            return
+    except Exception:
+        pass
     ctx.log(
         f"Stage start: {stage}",
         level="action",
@@ -513,6 +528,18 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
                 except Exception:
                     result = None
             if result is not None and result.status == "recovered":
+                if (
+                    result.playbook_id == "speaker_roles_dominant_fallback"
+                    and ctx.is_done(stage)
+                    and ctx.artifact_exists("understanding/speakers.json")
+                ):
+                    ctx.log(
+                        f"recovery_controller recovered {result.signature} "
+                        f"via {result.playbook_id} — skip LLM re-run",
+                        level="warning",
+                        stage=stage,
+                    )
+                    return
                 setattr(ctx, "_recovery_retrying", True)
                 try:
                     ctx.log(
@@ -754,6 +781,12 @@ def _run_steps(
         start = names.index(from_stage)
 
     slice_steps = steps[start:]
+    try:
+        from interview_mux.homunculus.agenda import prepare_delivery_guardrails
+
+        prepare_delivery_guardrails(ctx, [name for name, _fn in slice_steps])
+    except Exception:
+        pass
     planned: list[str] = []
     for name, _fn in slice_steps:
         if ctx.is_done(name) and from_stage != name:
@@ -784,8 +817,15 @@ def _run_steps(
                 "Delivery blocked — analysis incomplete: " + ", ".join(str(s) for s in blocked)
             )
         if ctx.artifact_exists("master/master.wav"):
+            from interview_mux.homunculus.agenda import ship_after_master_remaining
             from interview_mux.homunculus.judge import after_complete_master
 
+            left = ship_after_master_remaining(ctx)
+            if left:
+                raise RuntimeError(
+                    "Delivery incomplete after conductor — remaining ship stages: "
+                    + ", ".join(left)
+                )
             after_complete_master(ctx)
         return
     plan_idx = 0

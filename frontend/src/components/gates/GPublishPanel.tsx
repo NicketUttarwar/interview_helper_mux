@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import { GatePanelShell } from "../pipeline/GatePanelShell";
+import {
+  APPLE_PODCASTS_PASSTHROUGH_NOTICE,
+  applePodcastsPassthroughUrl,
+  normalizePublicFeedUrl,
+} from "../../utils/applePodcastsPassthrough";
 
 interface GPublishPayload {
   pending: boolean;
@@ -9,6 +14,7 @@ interface GPublishPayload {
   show_title?: string;
   feed_url?: string | null;
   feed_base_url?: string | null;
+  apple_podcasts_passthrough_url?: string | null;
   skipped?: boolean;
   cleared?: boolean;
   package_ready?: boolean;
@@ -52,7 +58,9 @@ export function GPublishPanel() {
     return null;
   }
 
-  const feedUrl = payload.feed_url || null;
+  const feedUrl = normalizePublicFeedUrl(payload.feed_url);
+  // Build the href locally so a stale/unexpected API string cannot become a link.
+  const passthroughUrl = applePodcastsPassthroughUrl(feedUrl);
   const result = payload.publish_result || {};
   const syncJob = payload.sync_job || {};
   const syncRunning = syncJob.status === "running";
@@ -145,12 +153,35 @@ export function GPublishPanel() {
               : "not ready"}
       </p>
       {feedUrl ? (
-        <p className="hint">
-          Feed URL:{" "}
-          <a href={feedUrl} target="_blank" rel="noreferrer">
-            {feedUrl}
-          </a>
-        </p>
+        <>
+          <p className="hint">
+            Feed URL:{" "}
+            <a href={feedUrl} target="_blank" rel="noreferrer">
+              {feedUrl}
+            </a>
+          </p>
+          {passthroughUrl ? (
+            <p className="hint">
+              Apple Podcasts Connect pass-through (copy this; pre-fills the RSS field):{" "}
+              <a href={passthroughUrl} target="_blank" rel="noreferrer">
+                {passthroughUrl}
+              </a>{" "}
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => {
+                  void navigator.clipboard.writeText(passthroughUrl).then(
+                    () => showToast("Copied Apple pass-through URL", "success"),
+                    () => showToast("Could not copy URL", "error"),
+                  );
+                }}
+              >
+                Copy
+              </button>
+            </p>
+          ) : null}
+          <p className="hint">{APPLE_PODCASTS_PASSTHROUGH_NOTICE}</p>
+        </>
       ) : null}
       {payload.package_ready ? (
         <p className="hint">This run has a local package ready.</p>

@@ -587,9 +587,15 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                         missing_vo.append(f"transition:{src_rel}")
                         clip.pop("source_path", None)
                     else:
+                        clip["timeline_start_ms"] = int(t_before)
+                        clip["duration_ms"] = 0
+                        clip["mix_overlap_ms"] = 0
                         continue
                 elif audio is None:
                     # Text-less or silent transition marker — skip (zero duration).
+                    clip["timeline_start_ms"] = int(t_before)
+                    clip["duration_ms"] = 0
+                    clip["mix_overlap_ms"] = 0
                     continue
                 vo_count += 1
                 clip_crossfade = crossfade_ms
@@ -616,10 +622,16 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                     if nxt_kind == "question":
                         pad = max(pad, cold_bridge_ms)
                 if pad <= 0:
+                    clip["timeline_start_ms"] = int(t_before)
+                    clip["duration_ms"] = 0
+                    clip["mix_overlap_ms"] = 0
                     continue
                 audio = _AS.silent(duration=pad, frame_rate=getattr(base, "frame_rate", None) or 48000)
                 clip_crossfade = 0
             else:
+                clip["timeline_start_ms"] = int(t_before)
+                clip["duration_ms"] = 0
+                clip["mix_overlap_ms"] = 0
                 continue
             if ctype in {"vo_pickup", "transition"}:
                 audio = _level_match_vo(
@@ -642,11 +654,19 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 clip_crossfade = typed_crossfade
             if len(base) == 0:
                 base = audio
+                overlap_ms = 0
             else:
                 base = _append_mix_clip(base, audio, clip_crossfade)
+                overlap_ms = max(0, t_before + len(audio) - len(base))
             previous_clip_kind = ctype
-            t_start = t_before if t_before == 0 else max(0, t_before - int(clip_crossfade or 0))
+            t_start = t_before if t_before == 0 else max(0, t_before - int(overlap_ms or 0))
             t_end = len(base)
+            clip["timeline_start_ms"] = int(t_start)
+            clip["duration_ms"] = max(0, int(t_end) - int(t_start))
+            clip["mix_overlap_ms"] = int(overlap_ms)
+            if ctype == "speech":
+                clip["source_start_ms"] = int(start)
+                clip["source_end_ms"] = int(end)
             if ctype == "speech":
                 seg_id = str(clip.get("segment_id") or "")
                 if seg_id:
@@ -683,10 +703,17 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                 level="info",
                 stage="mix",
             )
+        if isinstance(edl, dict):
+            edl["clips"] = clips
+            edl["timeline_duration_ms"] = int(len(base))
             try:
                 ctx.write_json("master/edl.json", edl)
-            except Exception:
-                pass
+            except Exception as exc:
+                ctx.log(
+                    f"mix: failed to persist realized EDL times: {exc}",
+                    level="warning",
+                    stage="mix",
+                )
 
         ctx.log(
             (

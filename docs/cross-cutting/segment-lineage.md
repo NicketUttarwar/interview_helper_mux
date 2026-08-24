@@ -51,7 +51,7 @@ The GUI Phase Workbench shows **segment lineage warnings** when orphan refs are 
 
 ## NLE splits
 
-Timeline splits create synthetic IDs (`seg_001a`, `seg_001b`, … N-way via `cut_ms[]`). `propagate_nle_split_segment_refs()` rewrites upstream brief/coverage/narrative **and** selection / transitions / gap artifacts when a segment is split in the NLE editor.
+Timeline splits create synthetic IDs (`seg_001a`, `seg_001b`, … N-way via `cut_ms[]`). `materialize_split_children_into_manifest()` writes those children into `segments/manifest.json` so ranking / shape / repair treat them as first-class candidates. `propagate_nle_split_segment_refs()` rewrites upstream brief/coverage/narrative **and** selection / transitions / gap artifacts when a segment is split in the NLE editor. Media-IP CTA recuts keep the story remainder (`admitted_story_segment_ids`) and drop only the pitch child — repair must not orphan-drop those keepable children.
 
 Operator merge into selection uses **app auto order as base** with **operator-touched moves as overlays** (`apply_nle_to_selection`) — never dump untouched ids after a partial NLE sequence.
 

@@ -11,6 +11,8 @@
     "never_touch_segment_ids": { "type": "array", "items": { "type": "string" } },
     "never_touch_texts": { "type": "array", "items": { "type": "string" } },
     "cover_target_ids": { "type": "array", "items": { "type": "string" } },
+    "admitted_story_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "considerable_segment_ids": { "type": "array", "items": { "type": "string" } },
     "recuts": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "cta_open_parent": { "type": ["string", "null"] },
     "open_choice": { "type": ["string", "null"] },

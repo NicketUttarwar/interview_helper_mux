@@ -4,6 +4,9 @@
 Bucket + region come from config/app.defaults.json ``podcast`` (non-secret).
 AWS credentials come from config/secrets/secrets.env (boto3 — no AWS CLI).
 Infra must already exist via Terraform (scripts/tf-*.sh updates terraform/state/).
+
+Always prints the Apple Podcasts Connect pass-through next to the seeded feed
+URL (see print_apple_passthrough_notice). Apple still requires ≥1 episode.
 """
 
 from __future__ import annotations
@@ -20,13 +23,14 @@ from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_con
 from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings  # noqa: E402
 from interview_mux.podcast_rss.s3_publish import (  # noqa: E402
     ensure_s3_prefixes,
-    invalidate_feed,
+    invalidate_current_feed,
     put_bytes,
     put_file,
 )
 from interview_mux.podcast_rss.settings import (  # noqa: E402
     feed_url_from_base,
     podcast_cfg,
+    print_apple_passthrough_notice,
     require_publish_ready,
     s3_layout,
     show_artwork_s3_key,
@@ -45,7 +49,6 @@ def main() -> int:
     bucket = targets["bucket"]
     base = targets["feed_base_url"]
     region = targets["region"]
-    dist_id = targets["distribution_id"]
 
     art_rel = str(cfg.get("show_artwork_path") or "config/podcast/the-war-room-cover.png")
     art_src = repo_root() / art_rel
@@ -120,15 +123,14 @@ def main() -> int:
     )
     inv_id = ""
     try:
-        inv_id = invalidate_feed(
-            distribution_id=dist_id,
-            region=region,
-            project_name=targets["project_name"],
-        )
+        inv = invalidate_current_feed()
+        inv_id = inv["invalidation_id"]
+        feed_url = inv.get("feed_url") or feed_url
     except Exception as exc:
         print(f"Seeded but invalidation failed: {exc}", file=sys.stderr)
         return 1
     print(f"Seeded s3://{bucket} — feed {feed_url} — invalidation {inv_id}")
+    print_apple_passthrough_notice(feed_url, include_feed=False)
     return 0
 
 

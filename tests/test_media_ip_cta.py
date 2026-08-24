@@ -315,6 +315,90 @@ def test_mixed_recut_drops_only_cta_child(monkeypatch) -> None:
     assert "seg_mixa" not in excl
 
 
+def test_mixed_keeps_diagnostics_close_drops_subscribe_cta(monkeypatch) -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_005",
+                "drug development, and diagnostics. Well, before we begin, "
+                "hit the subscribe button and leave a comment.",
+                start=96160,
+                end=121660,
+            ),
+            _seg("seg_006", "after", start=124840, end=150540),
+        ),
+    )
+    words = [
+        {"text": "drug", "start_ms": 96160, "end_ms": 96300, "speaker_id": "spk_0"},
+        {"text": "development,", "start_ms": 96300, "end_ms": 96780, "speaker_id": "spk_0"},
+        {"text": "and", "start_ms": 96780, "end_ms": 97120, "speaker_id": "spk_0"},
+        {"text": "diagnostics.", "start_ms": 97120, "end_ms": 97920, "speaker_id": "spk_0"},
+        {"text": "Well,", "start_ms": 97920, "end_ms": 98320, "speaker_id": "spk_0"},
+        {"text": "before", "start_ms": 98580, "end_ms": 98780, "speaker_id": "spk_0"},
+        {"text": "we", "start_ms": 98780, "end_ms": 99000, "speaker_id": "spk_0"},
+        {"text": "begin,", "start_ms": 99000, "end_ms": 99220, "speaker_id": "spk_0"},
+        {"text": "hit", "start_ms": 100000, "end_ms": 100200, "speaker_id": "spk_0"},
+        {"text": "the", "start_ms": 100200, "end_ms": 100360, "speaker_id": "spk_0"},
+        {"text": "subscribe", "start_ms": 100360, "end_ms": 100800, "speaker_id": "spk_0"},
+        {"text": "button", "start_ms": 100800, "end_ms": 101200, "speaker_id": "spk_0"},
+    ]
+    ctx.write_json("transcript/full.json", {"words": words})
+
+    def _split(ctx_inner, segment_id, cut_ms):
+        cut = int(cut_ms[0])
+        ctx_inner.write_json(
+            "segments/nle_edits.json",
+            {
+                "sequence_order": ["seg_005a", "seg_005b", "seg_006"],
+                "segment_overrides": {
+                    "seg_005a": {
+                        "start_ms": 96160,
+                        "end_ms": cut,
+                        "parent_id": "seg_005",
+                        "label": "story",
+                    },
+                    "seg_005b": {
+                        "start_ms": cut,
+                        "end_ms": 121660,
+                        "parent_id": "seg_005",
+                        "label": "cta",
+                    },
+                    "seg_005": {"excluded": True, "split_into": ["seg_005a", "seg_005b"]},
+                },
+            },
+        )
+        return ctx_inner.read_json("segments/nle_edits.json")
+
+    monkeypatch.setattr("interview_mux.nle_state.split_segment_at_cuts", _split)
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_005", "seg_006"],
+            "excluded_segment_ids": [],
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_005",
+                    "clearly_media_ip_pitch": True,
+                    "mixed_with_story": True,
+                    "must_keep_in_clip": False,
+                    "cta_region": "middle",
+                }
+            ],
+        },
+    )
+    assert "seg_005a" in out["ordered_segment_ids"]
+    assert "seg_005b" not in out["ordered_segment_ids"]
+    assert "seg_005" not in out["ordered_segment_ids"]
+    assert "seg_006" in out["ordered_segment_ids"]
+    recuts = ctx.read_json("mastering/media_ip_cta.json").get("recuts") or []
+    ok = next(r for r in recuts if r.get("parent_id") == "seg_005")
+    assert ok.get("ok") is True
+    cuts = [int(c) for c in (ok.get("cut_ms") or [])]
+    assert cuts and cuts[0] == 97920
+
+
 def test_recut_too_short_drops_whole() -> None:
     ctx = _ctx_010()
     ctx.write_json(
@@ -952,6 +1036,172 @@ def test_seg_003_shaped_mixed_parent_hard_keep(monkeypatch) -> None:
     assert "seg_003b" not in out["ordered_segment_ids"]
     assert "seg_003" not in out["ordered_segment_ids"]
     assert "seg_003b" in never_touch_segment_ids(ctx)
+    state = ctx.read_json("mastering/media_ip_cta.json")
+    assert "seg_003a" in (state.get("admitted_story_segment_ids") or [])
+    assert "seg_003c" in (state.get("admitted_story_segment_ids") or [])
+    man_ids = {
+        str(s.get("segment_id"))
+        for s in (ctx.read_json("segments/manifest.json").get("segments") or [])
+        if isinstance(s, dict)
+    }
+    assert "seg_003a" in man_ids
+    assert "seg_003c" in man_ids
+
+
+def test_cta_story_children_survive_repair_and_hydrate(monkeypatch) -> None:
+    ctx = _ctx_010()
+    intro = "OneCell.ai is a precision oncology company using live single-cell analytics."
+    bumper = "Hit the subscribe button and leave a comment in the comments section."
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_003", f"{intro} {bumper}", start=0, end=40000),
+            _seg("seg_005", "Thank you for having me.", start=40000, end=50000),
+        ),
+    )
+    ctx.write_json(
+        "segments/boundaries.json",
+        {
+            "boundaries": [
+                {
+                    "segment_id": "seg_003",
+                    "start_ms": 0,
+                    "end_ms": 40000,
+                    "speaker_id": "spk_0",
+                    "proposed_split_reason": "topic_shift",
+                },
+                {
+                    "segment_id": "seg_005",
+                    "start_ms": 40000,
+                    "end_ms": 50000,
+                    "speaker_id": "spk_0",
+                    "proposed_split_reason": "topic_shift",
+                },
+            ]
+        },
+    )
+    cuts_path = ctx.path("understanding/ideal_cuts.json")
+    cuts_path.parent.mkdir(parents=True, exist_ok=True)
+    cuts_path.write_text(
+        '{"cuts":[{"segment_id":"seg_003","must_keep":true}],'
+        '"must_keep_segment_ids":["seg_003"]}',
+        encoding="utf-8",
+    )
+
+    def _split(ctx_inner, segment_id, cut_ms):
+        cut = int(cut_ms[0])
+        ctx_inner.write_json(
+            "segments/nle_edits.json",
+            {
+                "sequence_order": ["seg_003a", "seg_003b", "seg_005"],
+                "segment_overrides": {
+                    "seg_003a": {
+                        "start_ms": 0,
+                        "end_ms": cut,
+                        "parent_id": "seg_003",
+                        "label": intro,
+                    },
+                    "seg_003b": {
+                        "start_ms": cut,
+                        "end_ms": 40000,
+                        "parent_id": "seg_003",
+                        "label": bumper,
+                    },
+                    "seg_003": {"excluded": True, "split_into": ["seg_003a", "seg_003b"]},
+                },
+            },
+        )
+        return ctx_inner.read_json("segments/nle_edits.json")
+
+    monkeypatch.setattr("interview_mux.nle_state.split_segment_at_cuts", _split)
+    out = apply_cta_judgments(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_003", "seg_005"],
+            "excluded_segment_ids": [],
+            "media_ip_cta": [
+                {
+                    "segment_id": "seg_003",
+                    "clearly_media_ip_pitch": True,
+                    "mixed_with_story": True,
+                    "cta_region": "end",
+                    "cut_ms": [22000],
+                }
+            ],
+        },
+    )
+    assert "seg_003a" in out["ordered_segment_ids"]
+    assert "seg_003b" not in out["ordered_segment_ids"]
+
+    from interview_mux.artifact_completeness import hydrate_manifest_from_boundaries
+    from interview_mux.artifact_repairs import repair_master_selection
+    from interview_mux.hard_keep import hard_keep_segment_ids
+
+    man = ctx.read_json("segments/manifest.json")
+    man_ids = {str(s.get("segment_id")) for s in man["segments"] if isinstance(s, dict)}
+    assert "seg_003a" in man_ids
+    hydrated = hydrate_manifest_from_boundaries(ctx, man)
+    hyd_ids = {str(s.get("segment_id")) for s in hydrated["segments"] if isinstance(s, dict)}
+    assert "seg_003a" in hyd_ids
+
+    repaired, actions = repair_master_selection(ctx, dict(out))
+    assert "seg_003a" in repaired["ordered_segment_ids"]
+    excl = {
+        str(r.get("segment_id"))
+        for r in (repaired.get("excluded_segment_ids") or [])
+        if isinstance(r, dict)
+    }
+    assert "seg_003a" not in excl
+    assert not any(a.get("action") == "drop_orphan_ref" and a.get("segment_id") == "seg_003a" for a in actions)
+
+    assert "seg_003a" in hard_keep_segment_ids(ctx)
+    assert "seg_003" not in hard_keep_segment_ids(ctx)
+    cuts = ctx.read_json("understanding/ideal_cuts.json")
+    assert "seg_003a" in (cuts.get("must_keep_segment_ids") or [])
+    assert "seg_003a" in (out.get("considerable_segment_ids") or [])
+
+
+def test_short_story_child_survives_blank_repair() -> None:
+    """Recut remainders under 8s / 8 words stay content-candidates, not blank-drops."""
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_003a", "And what is OneCell.ai? OneCell", start=0, end=1900),
+            _seg("seg_003j", "let's welcome Mohan", start=20000, end=21500),
+            _seg("seg_005", "Thank you for having me on the show today.", start=40000, end=50000),
+        ),
+    )
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "admitted_story_segment_ids": ["seg_003a", "seg_003j"],
+            "considerable_segment_ids": ["seg_003a", "seg_003j"],
+            "never_touch_segment_ids": ["seg_003"],
+        },
+    )
+    from interview_mux.artifact_repairs import repair_master_selection
+
+    repaired, actions = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_005"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_003a", "reason": "blank_or_unusable_answer_audio"},
+            ],
+        },
+    )
+    assert "seg_003a" in repaired["ordered_segment_ids"]
+    assert "seg_003j" in repaired["ordered_segment_ids"]
+    excl = {
+        str(r.get("segment_id"))
+        for r in (repaired.get("excluded_segment_ids") or [])
+        if isinstance(r, dict)
+    }
+    assert "seg_003a" not in excl
+    assert "seg_003j" not in excl
+    assert not any(a.get("action") == "drop_blank_segments" for a in actions)
 
 
 def test_multi_parent_cta_in_one_apply() -> None:

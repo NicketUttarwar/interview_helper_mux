@@ -58,9 +58,14 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
         except Exception:
             pass
     try:
-        from interview_mux.media_ip_cta import never_touch_segment_ids
+        from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
 
-        ids -= never_touch_segment_ids(ctx)
+        banned = never_touch_segment_ids(ctx)
+        story = admitted_story_segment_ids(ctx)
+        # Parent hard-keep transfers onto the keepable recut remainder.
+        if story and (ids & banned):
+            ids |= story
+        ids -= banned
     except Exception:
         pass
     return {s for s in ids if s}

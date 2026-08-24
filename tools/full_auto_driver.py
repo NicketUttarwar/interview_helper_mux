@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Fresh Baba E2E driver — mirrors current v2 ANALYSIS/DELIVERY orders.
+"""Full-auto driver — mirrors current v2 ANALYSIS/DELIVERY orders.
 
-Creates a new run from
-ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-(MUX_FRESH=1, default when MUX_RUN_ID unset) or resumes MUX_RUN_ID through operator
-gates until master/master.wav. Override with MUX_INPUT_AUDIO.
+Creates a new run from MUX_INPUT_AUDIO (must be under ASSETS/input/) when
+MUX_FRESH=1 (default if MUX_RUN_ID unset), or resumes MUX_RUN_ID through operator
+gates until master/master.wav, cover, publish package, and S3.
 """
 
 from __future__ import annotations
@@ -90,6 +89,74 @@ def log_decision(
     log(" ".join(parts))
 
 
+def _write_terminal_report(
+    *,
+    outcome: str,
+    halt_stage: str = "",
+    root_cause: str = "",
+    s3: dict[str, Any] | None = None,
+) -> None:
+    if not RUN_ID:
+        return
+    try:
+        from interview_mux.execution_report import REPORT_MD_REL, write_execution_report
+        from interview_mux.run_context import RunContext
+
+        report = write_execution_report(
+            RunContext(RUN_ID, create=False),
+            outcome=outcome,
+            halt_stage=halt_stage,
+            root_cause=root_cause,
+            decisions=_DECISIONS,
+            s3=s3,
+        )
+        md = Path(report.get("run_dir") or "") / REPORT_MD_REL
+        log(f"execution_report {outcome} → {md}")
+        print(f"EXECUTION_REPORT={md}", flush=True)
+        master = ((report.get("ship") or {}).get("master") or {})
+        if master.get("present"):
+            print(f"MASTER={master.get('path')}", flush=True)
+    except Exception as exc:
+        log(f"execution_report write failed: {exc}")
+
+
+def pause_needs_operator(stage: str, reason: str) -> str:
+    """Cap-reached delivery HARD → stamp needs_operator; do not SystemExit or re-exec body."""
+    producer = ""
+    try:
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+
+        def _mark(meta: dict[str, Any]) -> None:
+            meta["needs_operator"] = True
+            meta["needs_operator_stage"] = stage
+            meta["needs_operator_reason"] = reason[:400]
+
+        ctx.mutate_run_meta(_mark)
+        try:
+            from interview_mux.unattended_resume import resume_producer_for_block
+
+            producer = resume_producer_for_block(ctx, consumer_stage=stage, message=reason) or ""
+        except Exception:
+            producer = ""
+    except Exception as exc:
+        log(f"needs_operator stamp failed: {exc}")
+    log_decision(
+        "major",
+        stage=stage,
+        action="pause",
+        reason="needs_operator",
+        detail=reason[:240],
+    )
+    log(f"PAUSE needs_operator {stage}: {reason}")
+    outcome = "halted_identical_failure" if "×3" in reason or "x3" in reason.lower() or "identical" in reason.lower() else "halted_needs_operator"
+    if "listen" in reason.lower() or "quality" in reason.lower() or "delight" in reason.lower():
+        outcome = "halted_quality"
+    _write_terminal_report(outcome=outcome, halt_stage=stage, root_cause=reason)
+    return "pause"
+
+
 def summarize_decisions(*, label: str = "ship") -> None:
     majors = [d for d in _DECISIONS if d.get("severity") == "major"]
     minors = [d for d in _DECISIONS if d.get("severity") == "minor"]
@@ -105,21 +172,27 @@ def summarize_decisions(*, label: str = "ship") -> None:
 
 
 def _install_mark_done_gate() -> None:
-    """Refuse force-complete unless INTERVIEW_MUX_E2E_SOFT=1; log force as major."""
+    """Refuse force-complete of incomplete artifacts; log the attempt."""
     from interview_mux.run_context import RunContext
 
     orig = RunContext.mark_done
 
     def _gated(self, stage: str, *, force: bool = False) -> None:
-        if force and not _e2e_soft():
-            return orig(self, stage, force=False)
         if force:
-            log_decision(
-                "major",
-                stage=str(stage),
-                action="force_mark_done",
-                reason="e2e_soft_force_complete",
-            )
+            try:
+                from interview_mux.stage_completion import stage_artifact_incompleteness
+
+                reason = stage_artifact_incompleteness(self, stage)
+            except Exception:
+                reason = None
+            if reason:
+                log_decision(
+                    "major",
+                    stage=str(stage),
+                    action="refuse_force_mark_done",
+                    reason=str(reason)[:240],
+                )
+                return orig(self, stage, force=False)
         return orig(self, stage, force=force)
 
     RunContext.mark_done = _gated  # type: ignore[method-assign]
@@ -183,6 +256,7 @@ DELIVERY_ORDER = (
     "sound_design_plan",
     "sound_design_vo_finalize",
     "edl_narrative_audit",
+    "vo_synthesize",
     "edl",
     "assembly_preview",
     "listen_delight_audit",
@@ -212,10 +286,7 @@ BASE = os.environ.get(
     "MUX_BASE",
     f"http://127.0.0.1:{os.environ.get('MUX_WEB_PORT', '8765')}",
 )
-INPUT_AUDIO = os.environ.get(
-    "MUX_INPUT_AUDIO",
-    "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
-)
+INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "")
 # Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
 FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
 RUN_ID = os.environ.get("MUX_RUN_ID", "")
@@ -251,13 +322,34 @@ def _mode_for_stage(sid: str) -> str:
 
 
 # Product EDL re-synths stale orientation once. Do not thicken/re-synth forever.
+class _PersistentFailCounts(dict):
+    """In-memory fail counts that also persist so keepalive restarts do not reset."""
+
+    def __setitem__(self, key, value):  # type: ignore[no-untyped-def]
+        super().__setitem__(key, value)
+        if not RUN_ID:
+            return
+        try:
+            from interview_mux.identical_failures import upsert_fail_key
+            from interview_mux.run_context import RunContext
+
+            upsert_fail_key(
+                RunContext(RUN_ID, create=False),
+                str(key),
+                int(value or 0),
+            )
+        except Exception:
+            pass
+
+
 _ORIENTATION_EDL_RESUMES = 0
 _NARRATIVE_REMUTATE_DRIVES = 0
 _LISTEN_DELIGHT_REMUTATE_DRIVES = 0
 _G1_SYNTH_RETRIES = 0
 _VO_REPAIR_FAILURES: dict[str, int] = {}
-_IDENTICAL_STAGE_FAILURES: dict[str, int] = {}
+_IDENTICAL_STAGE_FAILURES: dict[str, int] = _PersistentFailCounts()
 _EDL_NARRATIVE_HEAL_SIGS: dict[str, int] = {}
+_MIX_MISSING_WAV_N = 0
 POLL_SEC = int(os.environ.get("MUX_POLL_SEC", "20"))
 MAX_WAIT_SEC = int(os.environ.get("MUX_MAX_WAIT_SEC", str(60 * 60 * 12)))
 
@@ -321,7 +413,10 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
             reason=f"remutate_budget_exhausted:{label}",
         )
         log(f"STOP: edl_narrative remutate drive budget ({label})")
-        raise SystemExit(f"HARD: edl_narrative_audit remutate exhausted ({label})")
+        return pause_needs_operator(
+            "edl_narrative_audit",
+            f"HARD: edl_narrative_audit remutate exhausted ({label})",
+        )
     plan = plan_edl_narrative_remutate(
         ctx, audit if isinstance(audit, dict) else {"verdict": "fail"}
     )
@@ -333,7 +428,10 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
             reason=f"remutate_exhausted:{label}",
         )
         log(f"STOP: edl_narrative remutate exhausted ({label})")
-        raise SystemExit(f"HARD: edl_narrative_audit still fail after remutate ({label})")
+        return pause_needs_operator(
+            "edl_narrative_audit",
+            f"HARD: edl_narrative_audit still fail after remutate ({label})",
+        )
     applied = apply_edl_narrative_remutate(ctx, plan)
     log_decision(
         "minor",
@@ -531,6 +629,16 @@ def assert_fresh_layer_contract() -> None:
     log(f"layer check OK speech={speech_n} vo={vo_n}")
 
 
+def _print_apple_passthrough(feed_url: str | None) -> None:
+    """Always show Apple's pass-through next to a public RSS URL."""
+    try:
+        from interview_mux.podcast_rss.settings import print_apple_passthrough_notice
+
+        print_apple_passthrough_notice(feed_url or "", include_feed=False)
+    except Exception as exc:
+        log(f"Apple pass-through notice skipped: {exc}")
+
+
 def sync_publish_to_s3() -> dict[str, Any]:
     """Push this run's publish/ package to S3/RSS only (additive). Never raises past logging."""
     info: dict[str, Any] = {"uploaded": False}
@@ -548,11 +656,13 @@ def sync_publish_to_s3() -> dict[str, Any]:
                 "uploaded": True,
                 "s3_prefix": hits[0].get("s3_prefix"),
                 "enclosure_url": hits[0].get("enclosure_url"),
+                "feed_url": sync.feed_url,
             }
             log(
                 f"S3 sync uploaded {hits[0].get('s3_prefix')} "
                 f"enclosure={hits[0].get('enclosure_url')}"
             )
+            _print_apple_passthrough(sync.feed_url)
         elif RUN_ID in (sync.skipped_already_uploaded or []):
             info = {"uploaded": True, "skipped_already_uploaded": True}
             log(f"S3 sync: {RUN_ID} already uploaded")
@@ -569,6 +679,7 @@ def sync_publish_to_s3() -> dict[str, Any]:
                 f"S3 sync finished uploaded_count={sync.uploaded_count} "
                 f"feed={sync.feed_url}"
             )
+            _print_apple_passthrough(sync.feed_url)
     except Exception as exc:
         info = {"uploaded": False, "error": str(exc)[:240]}
         log(f"S3 sync after DONE failed: {exc}")
@@ -627,6 +738,12 @@ def finish_complete_run() -> int:
     )
     log(f"DONE master={MASTER} size={MASTER.stat().st_size} publish=yes")
     summarize_decisions(label="ship")
+    _write_terminal_report(
+        outcome="complete",
+        halt_stage="podcast_publish",
+        root_cause="ship_bar_complete",
+        s3=s3_info,
+    )
     keep_server = _keep_gui_server()
     # End Full-auto workers: keepalive must die first so it cannot relaunch the driver.
     # Optionally leave interview_mux serve up for browser-launched Full-auto.
@@ -1102,13 +1219,60 @@ def _edl_qc_heal_signature(errs: list[str]) -> str:
     )
 
 
+def bump_identical(
+    fail_key: str,
+    *,
+    stage: str = "",
+    producer: str = "",
+    reason: str = "",
+    resume: str = "",
+) -> int:
+    """Persist identical-failure count (keepalive-safe) and return the new count."""
+    count = int(_IDENTICAL_STAGE_FAILURES.get(fail_key, 0) or 0) + 1
+    dict.__setitem__(_IDENTICAL_STAGE_FAILURES, fail_key, count)
+    if RUN_ID:
+        try:
+            from interview_mux.identical_failures import upsert_fail_key
+            from interview_mux.run_context import RunContext
+
+            upsert_fail_key(
+                RunContext(RUN_ID, create=False),
+                fail_key,
+                count,
+                failed_stage=stage or fail_key.split(":")[0],
+                producer=producer,
+                reason=reason or fail_key,
+                resume_attempted=resume,
+            )
+        except Exception as exc:
+            log(f"identical_failure persist: {exc}")
+    return count
+
+
 def _trip_edl_narrative_heal_loop(errs: list[str]) -> bool:
     """Stop rebuild+synth when the same EDL QC issues repeat without progress."""
     sig = _edl_qc_heal_signature(errs)
     if not sig:
         return False
-    _EDL_NARRATIVE_HEAL_SIGS[sig] = _EDL_NARRATIVE_HEAL_SIGS.get(sig, 0) + 1
-    return _EDL_NARRATIVE_HEAL_SIGS[sig] >= 3
+    n = bump_identical(
+        f"edl_narrative:{sig[:80]}",
+        stage="edl_narrative_audit",
+        producer="understanding/gap_report.json",
+        reason=sig,
+        resume="sound_design_vo_finalize",
+    )
+    _EDL_NARRATIVE_HEAL_SIGS[sig] = n
+    if n >= 3:
+        try:
+            from interview_mux.opening_adjacency_repair import (
+                suppress_opening_layup_when_orientation_owns_slot,
+            )
+            from interview_mux.run_context import RunContext
+
+            suppress_opening_layup_when_orientation_owns_slot(RunContext(RUN_ID, create=False))
+        except Exception as exc:
+            log(f"opening_adjacency repair: {exc}")
+    return n >= 3
 
 
 def write_vo_repair_decision_brief(error: str) -> dict[str, Any] | None:
@@ -1164,9 +1328,10 @@ def synthesize_g1() -> bool:
                 result = api("POST", f"/api/runs/{RUN_ID}/g1/synthesize-all", {}, timeout=43200)
                 break
             except RuntimeError as exc:
-                if "run_busy" not in str(exc).lower() or attempt >= 80:
+                busy = "run_busy" in str(exc).lower() or "gpu_exclusive" in str(exc).lower()
+                if not busy or attempt >= 80:
                     raise
-                log(f"G1 synth: run_busy (attempt {attempt}) — waiting for in-flight TTS")
+                log(f"G1 synth: {exc} (attempt {attempt}) — waiting (not a synth retry)")
                 time.sleep(min(15 * attempt, 120))
         if result is None:
             return False
@@ -1519,13 +1684,12 @@ def heal_stage_done_markers() -> None:
         if is_homunculus_run(_hctx):
             ingest_catch(
                 _hctx,
-                kind="full_auto_heal_blocked",
+                kind="full_auto_heal_noted",
                 source="full_auto_driver",
                 implicated=["heal_stage_done_markers"],
-                evidence={"reason": "0.1.0 unsupervised heal skipped"},
+                evidence={"reason": "0.1.0 completeness-gated marker restore only"},
             )
-            log("homunculus 0.1.0: skip unsupervised heal_stage_done_markers")
-            return
+            log("homunculus 0.1.0: completeness-gated heal_stage_done_markers")
     except Exception:
         pass
     try:
@@ -1912,11 +2076,16 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     ):
         import re
 
-        fail_key = f"partial_artifact:{stage or 'unknown'}:{msg[:120]}"
-        _IDENTICAL_STAGE_FAILURES[fail_key] = _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
         path_m = re.search(r"([a-z0-9_./-]+\.json)", low)
         rel = path_m.group(1) if path_m else ""
         resume = None
+        fail_key = f"partial_artifact:{stage or 'unknown'}:{msg[:120]}"
+        bump_identical(
+            fail_key,
+            stage=stage or "unknown",
+            producer=rel,
+            reason=msg[:200],
+        )
         if "content_brief" in low or rel == "understanding/content_brief.json":
             resume = "content_brief_reanchor"
             try:
@@ -1971,7 +2140,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 log(f"partial artifact preferred_fill: {exc}")
         if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3 and resume == (stage or ""):
             log(f"STOP: partial-artifact heal ×3 without progress for {rel or stage}")
-            return "stuck"
+            return pause_needs_operator(stage or rel, f"partial_artifact ×3 {rel or stage}")
         if resume and resume != stage:
             log(f"partial artifact gate → resume {resume} (not {stage or body.get('from_stage')})")
             mode = "delivery" if resume in DELIVERY_ORDER else "analysis"
@@ -2000,24 +2169,29 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         or "segments/manifest.json is pending" in low
     ):
         fail_key = "topic_coverage_audit:analysis_prereq_pending"
-        _IDENTICAL_STAGE_FAILURES[fail_key] = _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
         resume = "missing_framing"
         try:
             from interview_mux.run_context import RunContext
+            from interview_mux.unattended_resume import resume_producer_for_block
 
             ctx_g = RunContext(RUN_ID, create=False)
-            for cand, rel in (
-                ("segment_classification", "segments/manifest.json"),
-                ("content_brief_reanchor", "understanding/content_brief.json"),
-                ("missing_framing", "understanding/gap_evaluations.json"),
-                ("gap_framing_compose", "understanding/gap_report.json"),
-                ("delivery_brief_build", "understanding/delivery_brief.json"),
-            ):
-                if not ctx_g.artifact_exists(rel):
-                    resume = cand
-                    break
+            resume = (
+                resume_producer_for_block(
+                    ctx_g,
+                    consumer_stage="topic_coverage_audit",
+                    message=msg,
+                )
+                or resume
+            )
         except Exception as exc:
             log(f"topic_coverage analysis-prereq probe: {exc}")
+        bump_identical(
+            fail_key,
+            stage="topic_coverage_audit",
+            producer=resume,
+            reason=msg[:200],
+            resume=resume,
+        )
         log(
             f"topic_coverage blocked on analysis artifacts — "
             f"resume analysis from {resume} (x{_IDENTICAL_STAGE_FAILURES[fail_key]})"
@@ -2025,7 +2199,11 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
             log(
                 "STOP: topic_coverage analysis-prereq re-delivery heal looping ≥3 — "
-                "forcing analysis resume, not delivery"
+                "not forcing delivery"
+            )
+            return pause_needs_operator(
+                "topic_coverage_audit",
+                f"analysis prereq still incomplete after ×3 (resume={resume})",
             )
         execute({"mode": "analysis", "from_stage": resume})
         return "continue"
@@ -2563,6 +2741,75 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         return "continue"
                 except Exception as exc:
                     log(f"layup prerequisite waive: {exc}")
+            if need == "speaker_roles":
+                fail_key = "speaker_roles:mixed_diarization"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.speaker_role_evidence import (
+                        persist_mixed_diarization_fallback,
+                    )
+
+                    ctx_sr = RunContext(RUN_ID, create=False)
+                    if ctx_sr.artifact_exists("understanding/speakers.json"):
+                        if not ctx_sr.is_done("speaker_roles"):
+                            ctx_sr.mark_done("speaker_roles")
+                        log(
+                            "prerequisite speaker_roles waived — speakers.json on disk; "
+                            "resume source_topology_build"
+                        )
+                        execute({"mode": "analysis", "from_stage": "source_topology_build"})
+                        return "continue"
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 2:
+                        arts = persist_mixed_diarization_fallback(ctx_sr)
+                        if arts:
+                            log(
+                                "speaker_roles mixed-diarization fallback after repeated "
+                                f"incomplete (x{_IDENTICAL_STAGE_FAILURES[fail_key]}) — "
+                                "resume source_topology_build"
+                            )
+                            execute(
+                                {"mode": "analysis", "from_stage": "source_topology_build"}
+                            )
+                            return "continue"
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: speaker_roles prerequisite re-exec ×3 — "
+                            "not re-running speaker_roles"
+                        )
+                        return "stuck"
+                except Exception as exc:
+                    log(f"speaker_roles mixed-diarization gate: {exc}")
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log("STOP: speaker_roles mixed_diarization heal ×3")
+                        return "stuck"
+            if need == "vo_synthesize":
+                try:
+                    from interview_mux.homunculus.agenda import (
+                        backfill_delivery_holes_after_master,
+                    )
+                    from interview_mux.run_context import RunContext
+
+                    ctx_v = RunContext(RUN_ID, create=False)
+                    if ctx_v.artifact_exists("master/master.wav") and ctx_v.is_done(
+                        "master_finalize"
+                    ):
+                        filled = backfill_delivery_holes_after_master(ctx_v)
+                        log(
+                            "prerequisite vo_synthesize waived — master already exists "
+                            f"filled={filled}; resume master_transcript_build (not rewind)"
+                        )
+                        execute(
+                            {
+                                "mode": "delivery",
+                                "from_stage": "master_transcript_build",
+                            }
+                        )
+                        return "continue"
+                except Exception as exc:
+                    log(f"vo_synthesize prerequisite waive: {exc}")
             earliest = first_pending(ANALYSIS_ORDER)
             if (
                 earliest
@@ -2743,7 +2990,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     "HARD: G1 synthesize-all failed while framing/chatterbox active — "
                     "not auto-skipping (fix TTS / leave needs_operator)"
                 )
-                return "stuck"
+                return pause_needs_operator(
+                    "g1_vo_pickup",
+                    "HARD: G1 synthesize-all failed while framing/chatterbox active",
+                )
             skip_g1()
         globals()["_G1_SYNTH_RETRIES"] = 0
         execute({"mode": "delivery", "from_stage": "edl"} if "edl" in low else body)
@@ -2782,9 +3032,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     log(f"gate: transition resync {notes[:6]}")
             except RuntimeError as resync_exc:
                 log(f"STOP: transition resync failed: {resync_exc}")
-                raise SystemExit(
-                    "HARD: spoken transitions still unresolved after product resync"
-                ) from resync_exc
+                return pause_needs_operator(
+                    "vo_synthesize",
+                    "HARD: spoken transitions still unresolved after product resync",
+                )
             if not synthesize_g1():
                 log("gate: G1 synth after transition heal returned false (continuing)")
             # Prefer continuing from mix when assembly already exists — avoid
@@ -2986,8 +3237,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     "STOP: edl_narrative_qc heal repeated ≥3 times without progress "
                     f"({(stage_errs or [err])[:1]})"
                 )
-                raise SystemExit(
-                    "HARD: edl_narrative_qc heal looping on identical errors"
+                return pause_needs_operator(
+                    "edl_narrative_audit",
+                    "HARD: edl_narrative_qc heal looping on identical errors",
                 )
             from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
 
@@ -3149,8 +3401,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         "without progress — not a missing-wav problem; fix air-script "
                         "seats vs QC, do not rebuild+synth"
                     )
-                    raise SystemExit(
-                        "HARD: edl_narrative_qc heal looping on identical framing VO errors"
+                    return pause_needs_operator(
+                        "edl_narrative_audit",
+                        "HARD: edl_narrative_qc heal looping on identical framing VO errors",
                     )
                 # Remaining missing VO is actually seated by air-script — synth
                 # only seated_line_ids that lack wavs. Never rebuild from omitted layups.
@@ -3230,8 +3483,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         "STOP: edl_narrative_qc missing-transition-clip heal ×3 — "
                         "not discarding edl staging; fix transition resolve/synth"
                     )
-                    raise SystemExit(
-                        "HARD: edl_narrative_qc heal looping on missing transition clips"
+                    return pause_needs_operator(
+                        "edl",
+                        "HARD: edl_narrative_qc heal looping on missing transition clips",
                     )
                 log(
                     "edl_narrative_qc: missing transition clips only — "
@@ -3247,6 +3501,41 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             log(f"post-edl narrative heal: {exc}")
 
     if "mix gate" in low or "mmaudio_qa.json missing" in low or "mmaudio_qa failed" in low:
+        if "missing wav for asset_id" in low:
+            global _MIX_MISSING_WAV_N
+            _MIX_MISSING_WAV_N += 1
+            if _MIX_MISSING_WAV_N >= 3:
+                log_decision(
+                    "major",
+                    stage=stage or "mix",
+                    action="stop",
+                    reason="identical_mix_missing_wav_x3",
+                    detail=msg[:240],
+                )
+                log(
+                    "STOP: mix missing-WAV heal ×3 — generate MusicGen/MMAudio theme "
+                    "WAVs; not force-marking music stages or re-entering mix"
+                )
+                return pause_needs_operator(
+                    "mix",
+                    "HARD: mix missing SDP theme WAVs after 3 identical heals",
+                )
+            resume = try_product_recovery(stage or "mix", msg)
+            try:
+                from interview_mux.delivery_recovery import resume_theme_generation
+                from interview_mux.run_context import RunContext as _RC
+
+                dest = resume_theme_generation(_RC(RUN_ID, create=False))
+            except Exception as exc:
+                dest = "music_palette_compose"
+                log(f"mix missing WAV unmark: {exc}")
+            target = resume or dest
+            log(
+                f"mix missing WAV: resume {target} (heal {_MIX_MISSING_WAV_N}/3) "
+                "— not force-marking music_palette/sfx_prompt/mmaudio"
+            )
+            execute({"mode": "delivery", "from_stage": target})
+            return "continue"
         resume = try_product_recovery(stage or "mix", msg)
         if resume:
             execute({"mode": _mode_for_stage(resume), "from_stage": resume})
@@ -3637,7 +3926,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     soft=False,
                 )
             except SystemExit as assert_exc:
-                if not _e2e_soft():
+                from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                if not e2e_quality_waivers_enabled():
                     write_e2e_failure_brief(
                         ctx,
                         stage_id="edl",
@@ -3645,7 +3936,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         suggested_fix_class="bridge_incomplete",
                         raise_exc=False,
                     )
-                    return "stuck"
+                    return pause_needs_operator(
+                        "edl",
+                        f"HARD: bridge incomplete: {assert_exc}",
+                    )
                 n = int(globals().get("_BRIDGE_SOFT_N") or 0) + 1
                 globals()["_BRIDGE_SOFT_N"] = n
                 log(f"bridge heal soft-pass after assert fail (n={n}): {assert_exc}")
@@ -3830,7 +4124,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 )
                 if plan.get("exhausted"):
                     log("STOP: edl_narrative remutate exhausted after orphan heal")
-                    raise SystemExit("HARD: edl_narrative_audit still fail after remutate")
+                    return pause_needs_operator(
+                        "edl_narrative_audit",
+                        "HARD: edl_narrative_audit still fail after remutate",
+                    )
                 applied = apply_edl_narrative_remutate(ctx, plan)
                 execute(
                     {
@@ -3891,7 +4188,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if not HOST_REPAIR_PROGRESS_NOTES.intersection(applied.get("notes") or []):
                     if _trip_edl_narrative_heal_loop(sig or [msg]):
                         log("STOP: edl_narrative_audit host-repair repeated ≥3")
-                        raise SystemExit("HARD: edl_narrative_audit host-repair loop x3")
+                        return pause_needs_operator(
+                            "edl_narrative_audit",
+                            "HARD: edl_narrative_audit host-repair loop x3",
+                        )
                 try:
                     heal_layup_spoken_copy()
                 except Exception as exc:
@@ -4070,7 +4370,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             )
             if plan.get("exhausted"):
                 log("STOP: edl_narrative remutate exhausted")
-                raise SystemExit("HARD: edl_narrative_audit still fail after remutate")
+                return pause_needs_operator(
+                    "edl_narrative_audit",
+                    "HARD: edl_narrative_audit still fail after remutate",
+                )
             applied = apply_edl_narrative_remutate(ctx, plan)
             execute(
                 {
@@ -4431,7 +4734,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     "HARD: G1 synthesize-all failed while framing/chatterbox active — "
                     "not auto-skipping (fix TTS / leave needs_operator)"
                 )
-                return "stuck"
+                return pause_needs_operator(
+                    "g1_vo_pickup",
+                    "HARD: G1 synthesize-all failed while framing/chatterbox active",
+                )
             skip_g1()
         execute(body)
         return "continue"
@@ -4758,6 +5064,7 @@ def delivery_resume_stage() -> str | None:
             return first_pending(
                 [
                     "master_finalize",
+                    "master_transcript_build",
                     "episode_meta_build",
                     "episode_cover_prompt_craft",
                     "podcast_encode_mp3",
@@ -4801,6 +5108,7 @@ def delivery_resume_stage() -> str | None:
                 return first_pending(
                     [
                         "master_finalize",
+                        "master_transcript_build",
                         "episode_meta_build",
                         "episode_cover_prompt_craft",
                         "podcast_encode_mp3",
@@ -4814,6 +5122,7 @@ def delivery_resume_stage() -> str | None:
                 [
                     "junction_snip_qa",
                     "master_finalize",
+                    "master_transcript_build",
                     "episode_meta_build",
                     "episode_cover_prompt_craft",
                     "podcast_encode_mp3",
@@ -5043,6 +5352,22 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
     while True:
         if pipeline_complete():
             return {"status": "complete", "message": "pipeline complete"}
+        try:
+            from interview_mux.run_context import RunContext as _RCpause
+
+            _meta_p = _RCpause(RUN_ID, create=False).read_json("run_meta.json") or {}
+            if isinstance(_meta_p, dict) and _meta_p.get("needs_operator"):
+                log(
+                    f"{label}: needs_operator "
+                    f"{_meta_p.get('needs_operator_stage')} — halt heal loop"
+                )
+                return {
+                    "status": "needs_operator",
+                    "stage": str(_meta_p.get("needs_operator_stage") or ""),
+                    "message": str(_meta_p.get("needs_operator_reason") or "needs_operator"),
+                }
+        except Exception:
+            pass
         job = wait_job(label)
         status = job.get("status")
         if status == "complete":
@@ -5164,14 +5489,37 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 "boundary_detection": "segments/boundaries.json",
                                 "segment_classification": "segments/manifest.json",
                                 "content_brief_reanchor": "understanding/content_brief.json",
+                                "master_transcript_build": "master/transcript.json",
+                                "episode_meta_build": "publish/episode_meta.json",
+                                "episode_cover_prompt_craft": "publish/cover_prompt.json",
+                                "podcast_encode_mp3": "publish/audio.mp3",
+                                "episode_cover_generate": "publish/cover.jpg",
                             }.get(resume, "")
                         ):
                             ctx_p.mark_done(resume, force=True)
                         nxt = _first_pending_for_label(label)
                         if not nxt or nxt == resume:
-                            log(f"{label}: premature-complete loop exhausted — advance phase")
-                            return job
-                        resume = nxt
+                            ship_left: list[str] = []
+                            if label == "delivery" and ctx_p is not None:
+                                try:
+                                    from interview_mux.homunculus.agenda import (
+                                        ship_after_master_remaining,
+                                    )
+
+                                    ship_left = ship_after_master_remaining(ctx_p)
+                                except Exception:
+                                    ship_left = []
+                            if ship_left:
+                                resume = ship_left[0]
+                                log(
+                                    f"{label}: ship still pending {ship_left} — "
+                                    f"re-execute {resume} (not advance phase)"
+                                )
+                            else:
+                                log(f"{label}: premature-complete loop exhausted — advance phase")
+                                return job
+                        else:
+                            resume = nxt
                     try:
                         if label == "analysis":
                             predecline_pending_reuse(
@@ -5259,12 +5607,59 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 return {"status": "complete", "message": gate_msg}
             if action == "continue":
                 continue
+            if action == "pause":
+                log("paused needs_operator — stopping Full-auto heal loop")
+                return {
+                    "status": "needs_operator",
+                    "stage": str(job.get("stage") or job.get("current_stage") or ""),
+                    "message": "needs_operator",
+                }
             execute(body)
             continue
         if status == "error":
             stage = parse_failed_stage(job)
             err = str(job.get("error") or job.get("message") or "")
             low_err = err.lower()
+            if (
+                "missing input master/selection.json" in low_err
+                or (
+                    (stage == "full_master_ranking" or "full_master_ranking" in low_err)
+                    and (
+                        "incomplete" in low_err
+                        or "needs_input" in low_err
+                        or "status=partial" in low_err
+                        or "status=blocked" in low_err
+                    )
+                )
+            ):
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.stages.selection import (
+                        commit_persistable_ranking_from_last_envelope,
+                    )
+
+                    ctx_rank = RunContext(RUN_ID, create=False)
+                    if commit_persistable_ranking_from_last_envelope(ctx_rank):
+                        log(
+                            "ranking persist-from-last-envelope heal — "
+                            "resume air_script_compose"
+                        )
+                        execute({"mode": "delivery", "from_stage": "air_script_compose"})
+                        continue
+                    fail_key = "full_master_ranking:incomplete_no_persistable"
+                    _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                        _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                    )
+                    if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                        log(
+                            "STOP: ranking incomplete ×3 with no persistable envelope "
+                            "— refusing another MusicGen/ranking loop"
+                        )
+                        raise SystemExit(2)
+                except SystemExit:
+                    raise
+                except Exception as exc:
+                    log(f"ranking last-envelope heal: {exc}")
             if "lock busy" in low_err or "run_busy" in low_err or "already in progress" in low_err:
                 log(f"lock busy — joining existing worker ({label})")
                 time.sleep(20)
@@ -5335,6 +5730,46 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
             low_err = err.lower()
+            if stage == "speaker_roles" and (
+                "rerun_stage" in low_err
+                and ("diarization" in low_err or "speaker_diarization" in low_err)
+            ):
+                fail_key = "speaker_roles:mixed_diarization"
+                _IDENTICAL_STAGE_FAILURES[fail_key] = (
+                    _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
+                )
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    log(
+                        "STOP: speaker_roles mixed_diarization re-exec ×3 — "
+                        "applying product fallback, not another LLM pass"
+                    )
+                try:
+                    resume = try_product_recovery("speaker_roles", err)
+                    if resume:
+                        execute({"mode": "analysis", "from_stage": resume})
+                        continue
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.speaker_role_evidence import (
+                        persist_mixed_diarization_fallback,
+                    )
+
+                    ctx_sr = RunContext(RUN_ID, create=False)
+                    arts = persist_mixed_diarization_fallback(ctx_sr)
+                    if arts:
+                        log(
+                            "speaker_roles mixed-diarization fallback written — "
+                            "resume source_topology_build"
+                        )
+                        execute(
+                            {"mode": "analysis", "from_stage": "source_topology_build"}
+                        )
+                        continue
+                except SystemExit:
+                    raise
+                except Exception as exc:
+                    log(f"speaker_roles mixed-diarization heal: {exc}")
+                if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
+                    raise SystemExit("HARD: speaker_roles mixed_diarization loop x3")
             if "fingerprint mismatch" in low_err:
                 fail_key = f"{stage or 'unknown'}:fingerprint_mismatch"
                 _IDENTICAL_STAGE_FAILURES[fail_key] = (
@@ -5424,7 +5859,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     if not HOST_REPAIR_PROGRESS_NOTES.intersection(applied.get("notes") or []):
                         if _trip_edl_narrative_heal_loop([err[:160]]):
                             log("STOP: edl_narrative_audit host-repair repeated ≥3")
-                            raise SystemExit("HARD: edl_narrative_audit host-repair loop x3")
+                            pause_needs_operator(
+                                "edl_narrative_audit",
+                                "HARD: edl_narrative_audit host-repair loop x3",
+                            )
+                            continue
                     try:
                         heal_layup_spoken_copy()
                     except Exception as exc:
@@ -5759,13 +6198,28 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 "opening orientation contract failed" in low_err
             ):
                 _ORIENTATION_EDL_RESUMES += 1
+                try:
+                    from interview_mux.opening_adjacency_repair import (
+                        suppress_opening_layup_when_orientation_owns_slot,
+                    )
+                    from interview_mux.run_context import RunContext as _RCopen
+
+                    suppressed = suppress_opening_layup_when_orientation_owns_slot(
+                        _RCopen(RUN_ID, create=False)
+                    )
+                    if suppressed:
+                        log(f"opening_adjacency repair suppressed {suppressed}")
+                except Exception as open_exc:
+                    log(f"opening_adjacency repair: {open_exc}")
                 if _ORIENTATION_EDL_RESUMES > 1:
                     log(
                         "STOP: duplicate opening orientation contract after one EDL resume"
                     )
-                    raise SystemExit(
-                        "HARD: opening orientation contract still failing after one EDL resume"
+                    pause_needs_operator(
+                        "edl",
+                        "HARD: opening orientation contract still failing after one EDL resume",
                     )
+                    continue
                 log("opening orientation: resume edl once for in-stage re-synth")
                 execute({"mode": "delivery", "from_stage": "edl"})
                 continue
@@ -6459,20 +6913,24 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         hard_failed and plan.get("attempt", 0) > plan.get("max_attempts", 2)
                     ):
                         log("STOP: listen_delight remutate exhausted")
-                        raise SystemExit(
-                            "HARD: listen_delight floors still failing after remutate"
+                        pause_needs_operator(
+                            "listen_delight_audit",
+                            "HARD: listen_delight floors still failing after remutate",
                         )
+                        continue
                     applied = apply_listen_delight_remutate(ctx, plan)
                     if not applied.get("ok"):
                         log(
                             "STOP: listen_delight remutate not applied "
                             f"reason={applied.get('reason')}"
                         )
-                        raise SystemExit(
+                        pause_needs_operator(
+                            "listen_delight_audit",
                             "HARD: listen_delight remutate refused "
-                            f"({applied.get('reason')})"
+                            f"({applied.get('reason')})",
                         )
-                    from_stage = applied.get("from_stage") or "full_master_ranking"
+                        continue
+                    from_stage = applied.get("from_stage") or "mix"
                     log_decision(
                         "minor",
                         stage="listen_delight_audit",
@@ -6491,9 +6949,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     raise
                 except Exception as exc:
                     log(f"listen_delight remutate: {exc}")
-                    raise SystemExit(
-                        f"HARD: listen_delight remutate failed: {exc}"
-                    ) from exc
+                    pause_needs_operator(
+                        "listen_delight_audit",
+                        f"HARD: listen_delight remutate failed: {exc}",
+                    )
+                    continue
             if (
                 "critical_junction_residuals_after_two_runs" in low_err
                 or (
@@ -6512,11 +6972,31 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     asm = root / "master" / "assembly.wav"
                     # Recut EDL + remaster mix. Do not remint seams (MusicGen loop)
                     # and do not fake-pass junction while hanging-clause recuts exist.
-                    n_junc = int(globals().get("_JUNCTION_MIX_REMASTER_N") or 0)
+                    count_path = root / "operator" / "junction_mix_remaster_n.txt"
+                    try:
+                        n_junc = int((count_path.read_text(encoding="utf-8") or "0").strip() or "0")
+                    except (OSError, ValueError):
+                        n_junc = int(globals().get("_JUNCTION_MIX_REMASTER_N") or 0)
+                    globals()["_JUNCTION_MIX_REMASTER_N"] = n_junc
                     if asm.is_file() and asm.stat().st_size > 1000 and n_junc < 2:
-                        globals()["_JUNCTION_MIX_REMASTER_N"] = n_junc + 1
+                        n_junc += 1
+                        globals()["_JUNCTION_MIX_REMASTER_N"] = n_junc
+                        count_path.parent.mkdir(parents=True, exist_ok=True)
+                        count_path.write_text(str(n_junc), encoding="utf-8")
                         for sid in ("mix", "junction_snip_qa", "master_finalize"):
                             (root / ".stage_done" / sid).unlink(missing_ok=True)
+                        try:
+                            from interview_mux.delivery_recovery import resume_theme_generation
+
+                            keep = resume_theme_generation(ctx)
+                            if keep != "mix":
+                                log(
+                                    f"junction remaster: theme WAVs missing — resume {keep} first"
+                                )
+                                execute({"mode": "delivery", "from_stage": keep})
+                                continue
+                        except Exception as exc:
+                            log(f"junction remaster keep-themes: {exc}")
                         log(
                             "junction residuals → remaster mix from current EDL "
                             f"(attempt {n_junc + 1}; skip seam remint/MusicGen)"
@@ -6591,6 +7071,18 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     )
                             except Exception as snip_exc:
                                 log(f"junction soft-ship snip patch: {snip_exc}")
+
+                        from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                        if not e2e_quality_waivers_enabled():
+                            log(
+                                "junction residuals still blocking — halt (no soft-ship)"
+                            )
+                            pause_needs_operator(
+                                "junction_snip_qa",
+                                "HARD: junction residuals remain after remint budget",
+                            )
+                            continue
 
                         def _soft(m: dict) -> None:
                             m["e2e_soft_junction_residuals"] = True
@@ -6678,7 +7170,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     continue
                 except Exception as exc:
                     log(f"junction remint heal: {exc}")
-                    raise SystemExit(f"HARD: junction remint failed: {exc}") from exc
+                    pause_needs_operator(
+                        "junction_snip_qa",
+                        f"HARD: junction remint failed: {exc}",
+                    )
+                    continue
             if "assembly_not_rendered_from_current_edl" in low_err:
                 try:
                     import shutil
@@ -7683,7 +8179,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "HARD: G1 synthesize-all failed while framing/chatterbox active — "
                         "not auto-skipping G1; re-run synthesize-all after TTS fix"
                     )
-                    return {**job, "status": "error", "message": "missing_vo_framing_active_no_skip"}
+                    pause_needs_operator(
+                        "g1_vo_pickup",
+                        "HARD: G1 synthesize-all failed while framing/chatterbox active",
+                    )
+                    continue
                 log("healing G1 skipped VO markers after missing WAV")
                 skip_g1()
                 try:
@@ -7831,7 +8331,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 execute({"mode": "delivery", "from_stage": "mix"})
                 continue
             if "listenability_contract" in low_err:
-                log("listenability_contract fail — soft-ship + retry mix (do not rebuild SDP)")
+                from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                if not e2e_quality_waivers_enabled():
+                    log("listenability_contract fail — halt (no quality waiver)")
+                    pause_needs_operator(
+                        "mix",
+                        "HARD: listenability_contract failed after bounded mix retry",
+                    )
+                    continue
+                log("listenability_contract fail — quality waiver retry mix")
                 try:
                     from interview_mux.run_context import RunContext
 
@@ -7884,13 +8393,28 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 )
             ):
                 _ORIENTATION_EDL_RESUMES += 1
+                try:
+                    from interview_mux.opening_adjacency_repair import (
+                        suppress_opening_layup_when_orientation_owns_slot,
+                    )
+                    from interview_mux.run_context import RunContext as _RCopen
+
+                    suppressed = suppress_opening_layup_when_orientation_owns_slot(
+                        _RCopen(RUN_ID, create=False)
+                    )
+                    if suppressed:
+                        log(f"opening_adjacency repair suppressed {suppressed}")
+                except Exception as open_exc:
+                    log(f"opening_adjacency repair: {open_exc}")
                 if _ORIENTATION_EDL_RESUMES > 1:
                     log(
                         "STOP: duplicate opening orientation contract after one EDL resume"
                     )
-                    raise SystemExit(
-                        "HARD: opening orientation contract still failing after one EDL resume"
+                    pause_needs_operator(
+                        "edl",
+                        "HARD: opening orientation contract still failing after one EDL resume",
                     )
+                    continue
                 log("opening orientation: resume edl once for in-stage re-synth")
                 execute({"mode": "delivery", "from_stage": "edl"})
                 continue
@@ -8368,10 +8892,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 _sh.copy2(hits[-1], dest / name)
 
                         def _soft(m: dict) -> None:
+                            from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                            if not e2e_quality_waivers_enabled():
+                                return
                             m["e2e_soft_post_master_quality"] = True
-                            from interview_mux.e2e_soft import e2e_soft_enabled as _e2e_soft_on
-                            if _e2e_soft_on():
-                                m["e2e_soft_junction_residuals"] = True
+                            m["e2e_soft_junction_residuals"] = True
                             m["e2e_soft_listenability"] = True
 
                         ctx.mutate_run_meta(_soft)
@@ -8402,8 +8928,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx = RunContext(RUN_ID, create=False)
 
                     def _soft(m: dict) -> None:
-                        from interview_mux.e2e_soft import e2e_soft_enabled as _e2e_soft_on
-                        if _e2e_soft_on():
+                        from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                        if e2e_quality_waivers_enabled():
                             m["e2e_soft_junction_residuals"] = True
 
                     ctx.mutate_run_meta(_soft)
@@ -8446,9 +8973,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 if resume:
                     execute({"mode": _mode_for_stage(resume), "from_stage": resume})
                     continue
-                raise SystemExit(
-                    "HARD: episode close cue missing after place_episode_close playbook"
+                pause_needs_operator(
+                    "master_finalize",
+                    "HARD: episode close cue missing after place_episode_close playbook",
                 )
+                continue
             if (
                 "publishing is blocked" in low_err
                 or "publish_blocked_bad_master" in low_err
@@ -8496,15 +9025,19 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             ctx, failed_dimensions=failed_dims
                         )
                         if plan.get("exhausted"):
-                            raise SystemExit(
-                                "HARD: listen_delight floors still failing after remutate (pmq)"
+                            pause_needs_operator(
+                                "listen_delight_audit",
+                                "HARD: listen_delight floors still failing after remutate (pmq)",
                             )
+                            continue
                         applied = apply_listen_delight_remutate(ctx, plan)
                         if not applied.get("ok"):
-                            raise SystemExit(
+                            pause_needs_operator(
+                                "listen_delight_audit",
                                 "HARD: listen_delight remutate refused "
-                                f"({applied.get('reason')})"
+                                f"({applied.get('reason')})",
                             )
+                            continue
                         log_decision(
                             "minor",
                             stage="listen_delight_audit",
@@ -8519,7 +9052,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             {
                                 "mode": "delivery",
                                 "from_stage": applied.get("from_stage")
-                                or "full_master_ranking",
+                                or "mix",
                             }
                         )
                         continue
@@ -8587,13 +9120,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx.mark_done("master_finalize", force=True)
                     resume = first_pending(
                         [
+                            "master_transcript_build",
                             "episode_meta_build",
                             "episode_cover_prompt_craft",
                             "podcast_encode_mp3",
                             "episode_cover_generate",
                             "podcast_publish",
                         ]
-                    ) or "episode_meta_build"
+                    ) or "master_transcript_build"
                     log(
                         f"pmq soft-heal publish_allowed={quality.get('publish_allowed')} "
                         f"→ {resume}"
@@ -9057,6 +9591,8 @@ def ensure_run() -> bool:
         bind_run(RUN_ID)
         log(f"resuming existing run={RUN_ID}")
         return False
+    if not INPUT_AUDIO:
+        raise RuntimeError("MUX_INPUT_AUDIO is required (path under ASSETS/input/)")
     # Clear active session so POST /api/runs is allowed.
     try:
         api("DELETE", "/api/session/active")
@@ -9130,6 +9666,7 @@ def main() -> int:
                 "mmaudio_sfx",
                 "sfx_prompt_craft",
                 "listen_delight_audit",
+                "master_transcript_build",
                 "episode_meta_build",
                 "episode_cover_prompt_craft",
                 "podcast_encode_mp3",
@@ -9152,12 +9689,20 @@ def main() -> int:
                     log("G0 confirmed — leaving prepare")
             if pipeline_complete():
                 return finish_complete_run()
+            if job.get("status") == "needs_operator":
+                log("needs_operator — Full-auto halted (see operator/EXECUTION_REPORT.md)")
+                return 1
             if job.get("status") == "error":
                 msg = str(job.get("message") or job.get("error") or "")
                 log(f"error (will heal+retry): {msg[:400]}")
                 hard_fail_rounds += 1
                 if hard_fail_rounds >= 40:
                     log(f"STOP after {hard_fail_rounds} error rounds")
+                    _write_terminal_report(
+                        outcome="halted_needs_operator",
+                        halt_stage=str(job.get("stage") or ""),
+                        root_cause=f"error rounds exhausted: {msg[:240]}",
+                    )
                     return 1
                 time.sleep(5)
                 break
@@ -9170,4 +9715,12 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception:
         log(traceback.format_exc())
+        try:
+            _write_terminal_report(
+                outcome="halted_needs_operator",
+                halt_stage="",
+                root_cause="uncaught exception — see full_auto_console.log",
+            )
+        except Exception:
+            pass
         raise

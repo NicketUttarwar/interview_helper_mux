@@ -171,3 +171,84 @@ def test_run_mux_marks_mux_flow1_alias(tmp_path: Path, monkeypatch) -> None:
     assembly.run_mux(ctx)
     assert ctx.is_done("mix")
     assert ctx.is_done("mux_flow1")
+
+
+def test_mix_writes_realized_edl_times_after_cold_open_pad(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    patch_mix_test_config(monkeypatch)
+    ctx = RunContext("run_mix_edl_times", create=True)
+
+    speech = _tone(440, 4000, gain_db=-6.0)
+    vo = _tone(660, 1200, gain_db=-3.0)
+    _write_wav(ctx.path("ingest", "normalized.wav"), speech)
+    _write_wav(ctx.path("master", "transitions", "tr_a_b.wav"), vo)
+
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(minimal_manifest_segment("seg_a", start_ms=0, end_ms=4000)),
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_a"]})
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_a"],
+            "clips": [
+                {
+                    "type": "silence",
+                    "air_kind": "opening_music",
+                    "preserve_planned_music": True,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 2000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_a",
+                    "source_start_ms": 0,
+                    "source_end_ms": 4000,
+                    "timeline_start_ms": 2000,
+                    "duration_ms": 4000,
+                },
+                {
+                    "type": "transition",
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": "From there, the conversation turns.",
+                    "source_path": "master/transitions/tr_a_b.wav",
+                    "timeline_start_ms": 6000,
+                    "duration_ms": 1200,
+                },
+            ],
+            "timeline_duration_ms": 7200,
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/sound_design_plan.json",
+        sound_design_plan_with(
+            assets=[
+                {
+                    "asset_id": "show_theme_v1_motif",
+                    "role": "theme_cold_open",
+                    "description": "cold open motif",
+                    "duration_seconds": 14,
+                }
+            ],
+            flow_plans={"podcast": {"cues": []}},
+        ),
+    )
+
+    from interview_mux.sound_design import mix
+
+    assembly = mix(ctx)
+    assert assembly.is_file()
+    mixed = AudioSegment.from_file(assembly)
+    edl = ctx.read_json("master/edl.json")
+    clips = edl["clips"]
+    opening = clips[0]
+    vo_clip = clips[2]
+    assert opening["duration_ms"] >= 14_000
+    assert vo_clip["timeline_start_ms"] > 16_000
+    assert vo_clip["timeline_start_ms"] != 6000
+    assert abs(int(vo_clip["timeline_start_ms"]) + int(vo_clip["duration_ms"]) - len(mixed)) <= 50
+    assert edl["timeline_duration_ms"] == len(mixed)

@@ -524,13 +524,36 @@ def evaluate_listenability(
     }
 
 
-def reindex_edl_timeline(edl: dict[str, Any]) -> None:
-    cursor = 0
-    for clip in edl.get("clips") or []:
+def reindex_clip_timeline(clips: list[Any]) -> int:
+    """Assign ``timeline_start_ms`` from durations, honoring mix crossfade overlap.
+
+    Pre-mix EDLs have no ``mix_overlap_ms`` and stay abutting. After mix stamps
+    realized overlap, later reindex (junction snip, listenability) must not
+    flatten those starts back to a naive cursor.
+    """
+    t = 0
+    started = False
+    for clip in clips:
         if not isinstance(clip, dict):
             continue
-        clip["timeline_start_ms"] = cursor
-        cursor += max(0, int(clip.get("duration_ms") or 0))
+        dur = max(0, int(clip.get("duration_ms") or 0))
+        if str(clip.get("type") or "") == "speech":
+            ss = int(clip.get("source_start_ms") or 0)
+            se = int(clip.get("source_end_ms") or ss)
+            if se > ss:
+                dur = se - ss
+                clip["duration_ms"] = dur
+        overlap = int(clip.get("mix_overlap_ms") or 0) if started else 0
+        start = 0 if not started else max(0, t - max(0, overlap))
+        clip["timeline_start_ms"] = start
+        t = start + dur
+        started = True
+    return t
+
+
+def reindex_edl_timeline(edl: dict[str, Any]) -> None:
+    clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+    edl["timeline_duration_ms"] = reindex_clip_timeline(clips)
 
 
 SYNTHETIC_SPEECH_TYPES = frozenset({"vo_pickup", "transition"})

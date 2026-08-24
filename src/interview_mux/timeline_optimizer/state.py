@@ -95,6 +95,19 @@ def seed_candidate_from_run(ctx: RunContext) -> dict[str, Any]:
     )
     ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
     excluded = [str(s) for s in (sel.get("excluded_segment_ids") or []) if s]
+    considerable = [
+        str(s)
+        for s in (
+            sel.get("considerable_segment_ids") or sel.get("admitted_story_segment_ids") or []
+        )
+        if s
+    ]
+    try:
+        from interview_mux.media_ip_cta import admitted_story_segment_ids
+
+        considerable = list(dict.fromkeys([*considerable, *sorted(admitted_story_segment_ids(ctx))]))
+    except Exception:
+        pass
     gap = (
         ctx.read_json("understanding/gap_report.json")
         if ctx.artifact_exists("understanding/gap_report.json")
@@ -127,6 +140,8 @@ def seed_candidate_from_run(ctx: RunContext) -> dict[str, Any]:
         "mutations": [],
         "ordered_segment_ids": ordered,
         "excluded_segment_ids": excluded,
+        "admitted_story_segment_ids": list(considerable),
+        "considerable_segment_ids": list(considerable),
         "gap_report": copy.deepcopy(gap) if isinstance(gap, dict) else None,
         "transitions": copy.deepcopy(tr) if isinstance(tr, dict) else None,
         "sound_design_plan": copy.deepcopy(sdp) if isinstance(sdp, dict) else None,

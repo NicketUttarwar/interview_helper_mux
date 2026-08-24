@@ -66,6 +66,31 @@ def test_mint_bridge_uses_grounded_fallback():
     )
 
 
+def test_set_order_can_include_admitted_story_children():
+    cand = {
+        "ordered_segment_ids": ["seg_005"],
+        "excluded_segment_ids": [],
+        "considerable_segment_ids": ["seg_003a", "seg_003f"],
+        "mutations": [],
+    }
+    out = apply_mutation(
+        cand,
+        {"op": "set_order", "ordered_segment_ids": ["seg_003a", "seg_003f", "seg_005"]},
+    )
+    assert out["ordered_segment_ids"] == ["seg_003a", "seg_003f", "seg_005"]
+
+
+def test_drop_redundant_sibling_skips_admitted_story_children():
+    cand = {
+        "ordered_segment_ids": ["seg_003a", "seg_003b", "seg_005"],
+        "excluded_segment_ids": [],
+        "admitted_story_segment_ids": ["seg_003a", "seg_003b"],
+        "mutations": [],
+    }
+    out = apply_mutation(cand, {"op": "drop_redundant_sibling"})
+    assert out["ordered_segment_ids"] == ["seg_003a", "seg_003b", "seg_005"]
+
+
 def test_archive_keeps_best_first():
     archive = {"version": 1, "candidates": []}
     archive = archive_add(

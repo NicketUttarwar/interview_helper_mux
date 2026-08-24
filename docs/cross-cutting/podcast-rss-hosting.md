@@ -96,7 +96,9 @@ cp config/terraform.tfvars.example config/terraform.tfvars   # keep s3_bucket_na
 
 Migrating `s3_bucket_name` recreates the origin bucket and retargets CloudFront **without** changing the distribution domain. Full wrapper table: [terraform/README.md](../../terraform/README.md).
 
-**New Apple feed URL later (one-off, do not run until cutover):** `./scripts/tf-rotate-rss-url.sh` archives the current CloudFront URL (left live in AWS) and creates a **new** distribution/feed for a fresh show — see [terraform/archives/README.md](../../terraform/archives/README.md).
+**New CloudFront feed URL, same S3 bucket (one-off, deletes the old public URL):** `./scripts/tf-rotate-cloudfront-url.sh` — see [terraform/README.md](../../terraform/README.md). App publish and `./scripts/invalidate_podcast_cf.sh` then target the new URL via synced `secrets.env`. The script prints the Apple Podcasts Connect pass-through next to the new `feed.xml` URL.
+
+**New Apple show (new bucket + new CloudFront, old URL left live):** `./scripts/tf-podcast-rss-origin.sh` — see [terraform/archives/README.md](../../terraform/archives/README.md). Same pass-through is printed after the new origin is ready.
 
 ### 3 — Seed empty feed + show art
 
@@ -127,15 +129,25 @@ python scripts/sync_podcast_episodes.py --all                   # explicit bulk 
 
 Open `{PODCAST_FEED_BASE_URL}/feed.xml` (full URL, not the base alone).
 
-1. **Apple Podcasts Connect** — Add show → paste feed URL → verify owner email → submit for review  
+Apple Podcasts Connect pass-through (copy this; pre-fills the RSS field):
+
+`https://podcastsconnect.apple.com/my-podcasts/new-feed?submitfeed={PODCAST_FEED_BASE_URL}/feed.xml`
+
+Scripts and G-Publish print the **encoded** pass-through (`submitfeed=` percent-encoded) whenever they display a new feed URL. Use that printed URL.
+
+**Notice:** Apple rejects an empty seed feed (no `<item>`). Publish at least one episode or a trailer before submitting. The pass-through only pre-fills the RSS field; it does not skip validation.
+
+1. **Apple Podcasts Connect** — open the pass-through URL (or Add show → paste feed URL) → verify owner email → submit for review  
 2. **Spotify for Podcasters** — Add podcast → paste the same feed URL  
 
-Later episodes: directories poll the feed; no re-submit unless the feed URL changes.
+Later episodes: directories poll the feed; no re-submit unless the feed URL changes. After `./scripts/tf-rotate-cloudfront-url.sh` or `./scripts/tf-podcast-rss-origin.sh`, submit the **new** feed via the printed pass-through.
 
 ### Recovery — CloudFront invalidation
 
+Uses the live `PODCAST_FEED_BASE_URL` / distribution id from `secrets.env` (same helper as G-Publish sync). After `./scripts/tf-rotate-cloudfront-url.sh`, this targets the **new** RSS URL.
+
 ```bash
-./scripts/invalidate_podcast_cf.sh              # /feed.xml
+./scripts/invalidate_podcast_cf.sh              # /feed.xml on the live URL
 ./scripts/invalidate_podcast_cf.sh --wait
 ./scripts/invalidate_podcast_cf.sh --all-media  # feed + episodes/* + show/*
 ```
@@ -186,5 +198,5 @@ See **[podcast-cover-theme.md](./podcast-cover-theme.md)** (authoritative). Summ
 |------|-------------|
 | `terraform/` + committed tfstate + `terraform/README.md` | Imperative setup scripts / `infra/` |
 | `podcast.*` in app.defaults for bucket + layout | Bucket name only in secrets |
-| `scripts/tf-*.sh` (incl. `tf-empty-bucket.sh`), `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
+| `scripts/tf-*.sh` (incl. `tf-empty-bucket.sh`, `tf-rotate-cloudfront-url.sh`), `sync_podcast_tf_secrets.sh`, seed, `sync_podcast_episodes.py`, `invalidate_podcast_cf.sh` | Publisher IAM keys from Terraform |
 | Same CloudFront distribution URL across bucket renames | Custom domain (out of scope) |

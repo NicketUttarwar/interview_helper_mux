@@ -117,6 +117,98 @@ def test_validate_flow1_edl_overlapping_speech() -> None:
     assert any("Overlapping speech" in e for e in errors)
 
 
+def test_validate_flow1_edl_allows_mix_overlap() -> None:
+    ctx = RunContext("run_edl_qc_mix_overlap", create=True)
+    _write_manifest(ctx)
+    _write_gap_report(
+        ctx,
+        lines=[
+            minimal_gap_line(
+                line_id="line_001",
+                targets_segment_id="seg_a",
+                placement="after",
+                delivery="record",
+            )
+        ],
+    )
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_a"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 0,
+                "source_end_ms": 5000,
+                "timeline_start_ms": 0,
+                "duration_ms": 5000,
+                "mix_overlap_ms": 0,
+            },
+            {
+                "type": "vo_pickup",
+                "line_id": "line_001",
+                "targets_segment_id": "seg_a",
+                "placement": "after",
+                "timeline_start_ms": 4900,
+                "duration_ms": 2000,
+                "mix_overlap_ms": 100,
+            },
+        ],
+        "timeline_duration_ms": 6900,
+    }
+    assert validate_flow1_edl(ctx, edl) == []
+
+
+def test_validate_flow1_edl_skips_zero_duration_for_monotonic() -> None:
+    ctx = RunContext("run_edl_qc_zero_skip", create=True)
+    _write_manifest(ctx)
+    _write_gap_report(ctx)
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_a"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 0,
+                "source_end_ms": 5000,
+                "timeline_start_ms": 0,
+                "duration_ms": 5000,
+            },
+            {
+                "type": "transition",
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "timeline_start_ms": 5000,
+                "duration_ms": 0,
+                "mix_overlap_ms": 0,
+            },
+            {
+                "type": "vo_pickup",
+                "line_id": "line_001",
+                "targets_segment_id": "seg_a",
+                "placement": "after",
+                "timeline_start_ms": 4900,
+                "duration_ms": 2000,
+                "mix_overlap_ms": 100,
+            },
+        ],
+        "timeline_duration_ms": 6900,
+    }
+    _write_gap_report(
+        ctx,
+        lines=[
+            minimal_gap_line(
+                line_id="line_001",
+                targets_segment_id="seg_a",
+                placement="after",
+                delivery="record",
+            )
+        ],
+    )
+    assert validate_flow1_edl(ctx, edl) == []
+
+
 def test_validate_flow1_edl_non_monotonic_timeline() -> None:
     ctx = RunContext("run_edl_qc_mono", create=True)
     _write_manifest(ctx)

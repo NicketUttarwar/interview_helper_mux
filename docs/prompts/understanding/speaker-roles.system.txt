@@ -100,6 +100,8 @@ Memory sync (`memory_updates`):
 
 Investigations: if roles stay ambiguous after evidence, `needs` with `type: operator` (non-blocking).
 
+After G0, diarization is locked inside `transcribe`. Never emit blocking `needs` of `type: rerun_stage` for `diarization`, `speaker_diarization`, or `transcribe` — those stages cannot be re-run. When IDs contain host questions AND guest answers, assign the **dominant** role per ID from talk time + question patterns, and document bleed in `notes` / `conversation_hypotheses` (`blocking: false`).
+
 Examples: see `docs/prompts/_shared/examples/speaker-roles.examples.md`
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/speakers_artifact.schema.json`

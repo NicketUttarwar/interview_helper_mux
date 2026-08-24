@@ -344,6 +344,32 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
     return errors
 
 
+def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
+    """SDP asset_ids that do not yet have sound_design/assets/<id>.wav.
+
+    Checks the committed run dir as well as the active read path so mix
+    staging cannot hide already-generated theme WAVs.
+    """
+    missing: list[str] = []
+    for asset in _sdp(ctx).get("assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        aid = str(asset.get("asset_id") or "")
+        if not aid:
+            continue
+        wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
+        if wav.is_file():
+            continue
+        try:
+            committed = ctx.final_path("sound_design", "assets", f"{aid}.wav")
+        except Exception:
+            committed = ctx.run_dir / "sound_design" / "assets" / f"{aid}.wav"
+        if committed.is_file():
+            continue
+        missing.append(aid)
+    return missing
+
+
 def validate_pre_mix(ctx: RunContext, flow: str = "podcast") -> list[str]:
     _ = flow  # podcast-only delivery
     from interview_mux.edl_source_contract import (
@@ -364,16 +390,8 @@ def validate_pre_mix(ctx: RunContext, flow: str = "podcast") -> list[str]:
             errors.append(
                 "master/edl.json source_path names missing files: " + ", ".join(leftover[:4])
             )
-    sdp = _sdp(ctx)
-    for asset in sdp.get("assets") or []:
-        if not isinstance(asset, dict):
-            continue
-        aid = str(asset.get("asset_id", ""))
-        if not aid:
-            continue
-        wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
-        if not wav.is_file():
-            errors.append(f"missing WAV for asset_id {aid}")
+    for aid in missing_sdp_asset_wavs(ctx):
+        errors.append(f"missing WAV for asset_id {aid}")
     return errors
 
 
