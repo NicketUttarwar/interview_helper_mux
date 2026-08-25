@@ -54,6 +54,26 @@ def _segment_ids_from_manifest(ctx: RunContext) -> set[str]:
             sid = seg.get("segment_id") or seg.get("id")
             if sid:
                 ids.add(str(sid))
+    try:
+        from interview_mux.artifact_repairs import _live_split_child_ids
+
+        ids |= _live_split_child_ids(ctx)
+    except Exception:
+        pass
+    try:
+        from interview_mux.nle_state import load_nle
+
+        nle = load_nle(ctx)
+        for sid, ov in (nle.get("segment_overrides") or {}).items():
+            if not isinstance(ov, dict):
+                continue
+            if ov.get("parent_id") or ov.get("start_ms") is not None:
+                ids.add(str(sid))
+            for child in ov.get("split_into") or []:
+                if child:
+                    ids.add(str(child))
+    except Exception:
+        pass
     return ids
 
 

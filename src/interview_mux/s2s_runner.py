@@ -173,7 +173,18 @@ def synthesize_line(
 
         existing = resolve_vo_pickup_path(ctx, line)
         if existing is not None and Path(existing).is_file() and Path(existing).stat().st_size > 1000:
-            return Path(existing)
+            from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
+
+            matches, _reason = synthesis_entry_matches_line(ctx, line)
+            # clean/normalized operator takes may lack an audit; generated
+            # pickups only skip when the script hash still matches.
+            if matches or _reason == "missing_synthesis_entry":
+                if matches or existing.parent.name in {"clean", "normalized"}:
+                    return Path(existing)
+            # EDL rebuilds must not Chatterbox-loop every pickup when the take
+            # already passed speech QA. Hash drift is vo_synthesize's job.
+            if existing.parent.name in {"vo_pickup", "synthesized", "matched", "clean", "normalized"}:
+                return Path(existing)
     except Exception:
         pass
 
@@ -267,6 +278,21 @@ def synthesize_line(
                     maybe_fallback_after_synthesis_failure(ctx, line, exc, stage="vo_synthesize")
                 else:
                     raise
+
+            if chatterbox_fallback:
+                try:
+                    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+                    keep = resolve_vo_pickup_path(ctx, line)
+                    if keep is not None and Path(keep).is_file() and Path(keep).stat().st_size > 1000:
+                        ctx.log(
+                            f"Keep existing Chatterbox pickup for {lid}; skip mlx overwrite",
+                            level="warning",
+                            stage="vo_synthesize",
+                        )
+                        return Path(keep)
+                except Exception:
+                    pass
 
     if not s2s_enabled():
         if mode == "synthesize":

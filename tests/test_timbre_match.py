@@ -127,22 +127,53 @@ def test_resolve_vo_pickup_precedence_clean_before_normalized(tmp_path: Path, mo
             }
         },
     )
-    ctx = RunContext("exec_vo_prec_clean", create=True)
+    ctx = RunContext(f"exec_vo_prec_{tmp_path.name[-12:]}", create=True)
     init_run_meta_for_test(ctx)
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
     line = minimal_gap_line(line_id="line_001", targets_segment_id="seg_001")
     pickup = ctx.final_path("vo_pickup")
-    for sub in ("matched", "synthesized", "clean", "normalized"):
+    for sub in ("clean", "normalized"):
         (pickup / sub).mkdir(parents=True, exist_ok=True)
-    (pickup / "normalized" / "line_001.wav").write_bytes(b"RIFF-norm")
-    (pickup / "clean" / "line_001.wav").write_bytes(b"RIFF-clean")
-    (pickup / "line_001.wav").write_bytes(b"RIFF-raw")
+    _write_tone(pickup / "normalized" / "line_001.wav")
+    _write_tone(pickup / "clean" / "line_001.wav")
+    _write_tone(pickup / "line_001.wav")
     assert resolve_vo_pickup_path(ctx, line).name == "line_001.wav"
     assert resolve_vo_pickup_path(ctx, line).parent.name == "clean"
 
-    (pickup / "synthesized" / "line_001.wav").write_bytes(b"RIFF-synth")
+    from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
+
+    (pickup / "synthesized").mkdir(parents=True, exist_ok=True)
+    _write_tone(pickup / "synthesized" / "line_001.wav")
+    # Generated audio without a script audit must not win over a clean take.
+    assert resolve_vo_pickup_path(ctx, line).parent.name == "clean"
+
+    ctx.write_json(
+        "vo_pickup/synthesis_report.json",
+        {
+            "entries": [
+                {
+                    "line_id": "line_001",
+                    "backend": "mlx_audio",
+                    "out_wav": "vo_pickup/synthesized/line_001.wav",
+                    "script_hash": script_hash(str(line.get("text") or "")),
+                    "context_hash": context_hash(evidence_for_line(line)),
+                    "qc_pass": True,
+                    "normalized_script": str(line.get("text") or ""),
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
     assert resolve_vo_pickup_path(ctx, line).parent.name == "synthesized"
 
-    (pickup / "matched" / "line_001.wav").write_bytes(b"RIFF-match")
+    (pickup / "matched").mkdir(parents=True, exist_ok=True)
+    _write_tone(pickup / "matched" / "line_001.wav")
+    report = ctx.read_json("vo_pickup/synthesis_report.json")
+    report["entries"][0]["out_wav"] = "vo_pickup/matched/line_001.wav"
+    ctx.write_json("vo_pickup/synthesis_report.json", report, skip_handoff=True)
     assert resolve_vo_pickup_path(ctx, line).parent.name == "matched"
 
 

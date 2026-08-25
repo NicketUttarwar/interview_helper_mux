@@ -16,10 +16,16 @@ from interview_mux.stages.sound_design_stages import _validate_sound_design_plan
 def run_sound_design_vo_finalize(ctx: RunContext) -> None:
     try:
         from interview_mux.opening_adjacency_repair import (
+            drop_late_intro_reset_from_selection,
+            drop_orphan_opening_vo_when_native_orients,
+            drop_post_coda_reverse_jump_from_selection,
             suppress_opening_layup_when_orientation_owns_slot,
         )
 
         suppress_opening_layup_when_orientation_owns_slot(ctx)
+        drop_orphan_opening_vo_when_native_orients(ctx)
+        drop_late_intro_reset_from_selection(ctx)
+        drop_post_coda_reverse_jump_from_selection(ctx)
     except Exception as exc:  # noqa: BLE001 — bounded repair is fail-open
         ctx.log(
             f"opening_adjacency repair skipped: {exc}",

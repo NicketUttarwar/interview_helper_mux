@@ -750,5 +750,7 @@ def restamp_edl_transition_source_paths(ctx: RunContext) -> bool:
         return False
     out = dict(edl)
     out["clips"] = clips
-    ctx.write_json("master/edl.json", out, skip_handoff=True)
+    from interview_mux.air_order import write_live_edl
+
+    write_live_edl(ctx, out, source="transition_vo")
     return True

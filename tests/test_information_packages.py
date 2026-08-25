@@ -407,3 +407,62 @@ def test_default_episode_close_shape():
     close = default_episode_close()
     assert close["music"]["fade_out"] == "gentle_long"
     assert close["music"]["fade_out_ms"] >= 1800
+
+
+def test_repair_drops_overlap_high_bed_cues():
+    """Beds on overlap_high segments are dropped, not remapped back onto them."""
+    import json
+    from pathlib import Path
+
+    ctx = RunContext("exec_sdp_overlap_high_repair", create=True)
+    ordered = ["seg_021", "seg_030", "seg_040"]
+    _seed_run(ctx, ordered=ordered)
+    sonic_path = Path(__file__).parent / "fixtures" / "sonic_context" / "fireside.json"
+    sonic = json.loads(sonic_path.read_text(encoding="utf-8"))
+    flags = sonic.setdefault("segment_flags", {})
+    flags["overlap_high"] = ["seg_021"]
+    ctx.write_json("understanding/sonic_context.json", sonic, skip_handoff=True)
+    sdp = {
+        "version": 1,
+        "assets": [{"asset_id": "m_bed", "role": "theme_underscore"}],
+        "palettes": [{"palette_id": "p1", "segment_ids": ["seg_021", "seg_030", "seg_040"]}],
+        "flow_plans": {
+            "podcast": {
+                "cues": [
+                    {
+                        "cue_id": "bed_bad",
+                        "placement": "under_segment",
+                        "segment_id": "seg_021",
+                        "asset_id": "m_bed",
+                    },
+                    {
+                        "cue_id": "bed_ok",
+                        "placement": "under_segment",
+                        "segment_id": "seg_030",
+                        "asset_id": "m_bed",
+                    },
+                ]
+            }
+        },
+    }
+    repaired, applied = repair_sound_design_plan(ctx, sdp)
+    podcast = (repaired.get("flow_plans") or {}).get("podcast") or {}
+    cues = [c for c in (podcast.get("cues") or []) if isinstance(c, dict) and not c.get("skip")]
+    bed_segs = {
+        str(c.get("segment_id") or "")
+        for c in cues
+        if str(c.get("placement") or "") == "under_segment"
+    }
+    assert "seg_021" not in bed_segs
+    assert "seg_030" in bed_segs
+    assert any(
+        isinstance(a, dict) and a.get("action") == "drop_overlap_high_bed"
+        for a in applied
+    )
+    from interview_mux.sdp_cross_validate import validate_post_sound_plan
+
+    sdp_path = ctx.path("understanding", "sound_design_plan.json")
+    sdp_path.parent.mkdir(parents=True, exist_ok=True)
+    sdp_path.write_text(json.dumps(repaired), encoding="utf-8")
+    errors = validate_post_sound_plan(ctx)
+    assert not any("overlap_high" in e for e in errors)

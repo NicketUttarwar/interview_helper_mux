@@ -249,6 +249,7 @@ def apply_nle_to_selection(
     nle: dict[str, Any],
     *,
     segments_by_id: dict[str, dict[str, Any]] | None = None,
+    ctx: RunContext | None = None,
 ) -> dict[str, Any]:
     """Merge operator NLE exclude/split/reorder into a selection artifact."""
     if not nle_has_operator_edits(nle):
@@ -259,6 +260,17 @@ def apply_nle_to_selection(
     result = dict(selection)
     excluded = _excluded_entries(result)
     excluded_ids = {e["segment_id"] for e in excluded}
+
+    if ctx is not None:
+        try:
+            from interview_mux.media_ip_cta import never_touch_segment_ids
+
+            for sid in never_touch_segment_ids(ctx):
+                if sid not in excluded_ids:
+                    excluded.append({"segment_id": sid, "reason": "never_touch_cta"})
+                    excluded_ids.add(sid)
+        except Exception:
+            pass
 
     for seg_id, ov in overrides.items():
         if not ov.get("excluded"):
@@ -558,6 +570,33 @@ def materialize_split_children_into_manifest(
             break
     man["segments"] = segs
     ctx.write_json("segments/manifest.json", man, skip_handoff=True)
+    return inserted
+
+
+def materialize_all_nle_split_children(ctx: RunContext) -> int:
+    """Write every NLE/CTA split child into the manifest before EDL extract."""
+    nle = load_nle(ctx)
+    overrides = nle.get("segment_overrides") or {}
+    if not isinstance(overrides, dict):
+        return 0
+    by_parent: dict[str, list[str]] = {}
+    for sid, ov in overrides.items():
+        if not isinstance(ov, dict):
+            continue
+        parent = str(sid)
+        kids = [str(c) for c in (ov.get("split_into") or []) if c]
+        if not kids:
+            parent = str(ov.get("parent_id") or "").strip()
+            if not parent:
+                continue
+            kids = [str(sid)]
+        by_parent.setdefault(parent, [])
+        for kid in kids:
+            if kid not in by_parent[parent]:
+                by_parent[parent].append(kid)
+    inserted = 0
+    for parent, kids in by_parent.items():
+        inserted += len(materialize_split_children_into_manifest(ctx, parent, kids))
     return inserted
 
 

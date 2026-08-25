@@ -273,3 +273,45 @@ def test_synthesize_transitions_writeback_guarded_text(tmp_path, monkeypatch) ->
     doc = _json.loads(tr_path.read_text(encoding="utf-8"))
     assert doc["transitions"][0]["text"] == "Guarded rewrite about the buyer deal."
     assert doc["transitions"][0].get("spoken_copy_guard", {}).get("action") == "rewrite"
+
+
+def test_committed_transition_wav_skips_synth_during_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """vo_synthesize staging must not re-Chatterbox a committed usable pair WAV."""
+    from interview_mux.transition_vo import current_pair_wav_usable
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "tr_staging_skip")
+    committed = ctx.final_path("master", "transitions")
+    committed.mkdir(parents=True, exist_ok=True)
+    wav = committed / "tr_seg_003k_seg_067.wav"
+    with wave.open(str(wav), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48_000)
+        handle.writeframes(b"\x00\x00" * 4800)
+    assert current_pair_wav_usable(ctx, "seg_003k", "seg_067") == wav
+    enter_stage_staging("vo_synthesize")
+    try:
+        pending = transition_wav_path(ctx, "seg_003k", "seg_067")
+        assert pending != wav
+        assert not pending.is_file()
+        found = current_pair_wav_usable(ctx, "seg_003k", "seg_067")
+        assert found is not None
+        assert found.resolve() == wav.resolve()
+    finally:
+        exit_stage_staging()

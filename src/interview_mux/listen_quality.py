@@ -385,27 +385,21 @@ def place_episode_close_cue(ctx: Any) -> list[str]:
             pass
 
     last_id = ""
-    if ctx.artifact_exists("master/selection.json"):
+    if ctx.artifact_exists("master/edl.json"):
+        edl = ctx.read_json("master/edl.json")
+        if isinstance(edl, dict):
+            from interview_mux.order_hash import last_speech_clip_id
+
+            last_id = last_speech_clip_id(edl)
+    if not last_id and ctx.artifact_exists("master/selection.json"):
         sel = ctx.read_json("master/selection.json")
         if isinstance(sel, dict):
             ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
             last_id = ordered[-1] if ordered else ""
-    if not last_id and ctx.artifact_exists("master/edl.json"):
-        edl = ctx.read_json("master/edl.json")
-        if isinstance(edl, dict):
-            for clip in reversed(edl.get("clips") or []):
-                if isinstance(clip, dict) and clip.get("type") == "speech" and clip.get("segment_id"):
-                    last_id = str(clip["segment_id"])
-                    break
+    from interview_mux.music_lane import pick_theme_outro_asset
+
     assets = [a for a in (sdp.get("assets") or []) if isinstance(a, dict)]
-    outro_asset = None
-    for asset in assets:
-        role = str(asset.get("role") or "")
-        aid = str(asset.get("asset_id") or "")
-        if role == "theme_outro" or "full_bed_close" in aid:
-            outro_asset = asset
-            if role == "theme_outro":
-                break
+    outro_asset = pick_theme_outro_asset(assets)
     if outro_asset is None:
         return written
 
@@ -436,8 +430,49 @@ def place_episode_close_cue(ctx: Any) -> list[str]:
     podcast = flow.get("podcast") if isinstance(flow.get("podcast"), dict) else {}
     flow_cues = list(podcast.get("cues") or [])
     top_cues = list(sdp.get("cues") or [])
+    outro_aid = str(outro_asset.get("asset_id") or "")
+    rebound = False
+
+    def _rebind_cue(cue: dict[str, Any]) -> bool:
+        if not _is_outro_cue(cue):
+            return False
+        changed = False
+        if last_id and str(cue.get("after_segment_id") or "") != last_id:
+            cue["after_segment_id"] = last_id
+            changed = True
+        if last_id and str(cue.get("segment_id") or "") != last_id:
+            cue["segment_id"] = last_id
+            changed = True
+        if str(cue.get("placement") or "") != "after_segment":
+            cue["placement"] = "after_segment"
+            changed = True
+        if outro_aid and str(cue.get("asset_id") or "") != outro_aid:
+            cue["asset_id"] = outro_aid
+            changed = True
+        cue["role"] = "theme_outro"
+        cue["skip"] = False
+        cue["preserve_full_duration"] = True
+        cue["fade_out_ms"] = max(fade_ms, int(cue.get("fade_out_ms") or 0) or fade_ms)
+        return changed
+
+    for cue in flow_cues:
+        if isinstance(cue, dict) and _rebind_cue(cue):
+            rebound = True
+    for cue in top_cues:
+        if isinstance(cue, dict) and _rebind_cue(cue):
+            rebound = True
     has_outro = any(_is_outro_cue(c) for c in flow_cues + top_cues)
     if has_outro:
+        if rebound:
+            podcast = dict(podcast)
+            podcast["cues"] = flow_cues
+            flow = dict(flow)
+            flow["podcast"] = podcast
+            sdp["flow_plans"] = flow
+            if top_cues:
+                sdp["cues"] = top_cues
+            ctx.write_json(sdp_rel, sdp)
+            written.append(sdp_rel)
         return written or [sdp_rel]
 
     cue = {

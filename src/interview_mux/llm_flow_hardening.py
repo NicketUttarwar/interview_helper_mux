@@ -62,7 +62,7 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "topic_coverage_audit": "delivery_brief_build",
     "narrative_arc_plan": "topic_coverage_audit",
     "chapter_close_hitch": "narrative_arc_plan",
-    "full_master_ranking": "narrative_arc_plan",
+    "full_master_ranking": "connector_fuse_pass_pre_ranking",
     "nugget_corpus_mine": "full_master_ranking",
     "nugget_layup_compose": "information_package_plan",
     "information_package_plan": "nugget_corpus_mine",
@@ -399,7 +399,7 @@ def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None
     if not flow_hardening_enabled():
         return
     earliest = _earliest_incomplete_seed_stage(ctx, stage_key)
-    if earliest:
+    if earliest and earliest != stage_key:
         require_llm_stage_progress(ctx, earliest)
         return
     upstream = resolve_llm_upstream_stage(ctx, stage_key)

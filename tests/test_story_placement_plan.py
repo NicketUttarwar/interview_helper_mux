@@ -44,6 +44,138 @@ def test_topo_does_not_append_early_after_finale():
     assert applied
 
 
+def test_repair_pulls_earlier_hard_keeps_before_letter_split_signoff():
+    """Live mohan: last-chapter 045/047/049/050 must not sit after sign-off 051i."""
+    from interview_mux.selection_order_repair import (
+        pull_earlier_ids_before_letter_split_signoff,
+        pull_earlier_source_ids_before_finale,
+        repair_selection_order,
+    )
+
+    live = [
+        "seg_044",
+        "seg_051a",
+        "seg_051b",
+        "seg_051c",
+        "seg_051d",
+        "seg_051f",
+        "seg_051g",
+        "seg_051h",
+        "seg_051i",
+        "seg_045",
+        "seg_047",
+        "seg_049",
+        "seg_050",
+    ]
+    pulled, moved = pull_earlier_ids_before_letter_split_signoff(live)
+    assert moved == ["seg_045", "seg_047", "seg_049", "seg_050"]
+    assert pulled[-1] == "seg_051i"
+    assert pulled.index("seg_045") < pulled.index("seg_051a")
+    for sid in moved:
+        assert pulled.index(sid) < pulled.index("seg_051i")
+
+    starts = {"seg_045": 2_792_660, "seg_047": 3_000_000, "seg_049": 3_100_000, "seg_050": 3_200_000, "seg_051": 3_374_470}
+    sourced, src_moved = pull_earlier_source_ids_before_finale(live, source_start_ms=starts)
+    assert sourced[-1] == "seg_051i"
+    assert "seg_045" in src_moved
+
+    plan = {
+        "chapters": [
+            {
+                "chapter_id": "ch_trials",
+                "segment_ids": [
+                    "seg_051a",
+                    "seg_051b",
+                    "seg_051c",
+                    "seg_051d",
+                    "seg_051f",
+                    "seg_051g",
+                    "seg_051h",
+                    "seg_051i",
+                ],
+            },
+            {"chapter_id": "ch_validation", "segment_ids": ["seg_045", "seg_047", "seg_049", "seg_050"]},
+        ]
+    }
+    selection = {
+        "ordered_segment_ids": list(live),
+        "chapters": [
+            {
+                "title": "trials",
+                "segment_ids": [
+                    "seg_044",
+                    "seg_051a",
+                    "seg_051b",
+                    "seg_051c",
+                    "seg_051d",
+                    "seg_051f",
+                    "seg_051g",
+                    "seg_051h",
+                    "seg_051i",
+                ],
+            },
+            {"title": "validation", "segment_ids": ["seg_045", "seg_047", "seg_049", "seg_050"]},
+        ],
+    }
+    fixed, applied = repair_selection_order(selection, plan, source_start_ms=starts)
+    order = fixed["ordered_segment_ids"]
+    for sid in ("seg_045", "seg_047", "seg_049", "seg_050"):
+        assert order.index(sid) < order.index("seg_051i")
+    assert order[-1] == "seg_051i"
+    assert order.index("seg_045") < order.index("seg_051a")
+    titles = [str(ch.get("title") or "") for ch in (fixed.get("chapters") or []) if isinstance(ch, dict)]
+    trials_ids = next(
+        (ch.get("segment_ids") for ch in (fixed.get("chapters") or []) if isinstance(ch, dict) and "Trials" in str(ch.get("title") or ch.get("chapter_id") or "")),
+        [],
+    )
+    assert "seg_045" not in (trials_ids or [])
+
+
+def test_letter_split_signoff_keeps_later_coda():
+    from interview_mux.selection_order_repair import pull_earlier_ids_before_letter_split_signoff
+
+    order = ["seg_051a", "seg_051i", "seg_060"]
+    fixed, moved = pull_earlier_ids_before_letter_split_signoff(order)
+    assert fixed == order
+    assert moved == []
+
+
+def test_repair_moves_selection_chapter_members_off_finale_tail():
+    """Live mohan failure: opening/mid members parked after coda while still listed in earlier chapters."""
+    plan = {
+        "chapters": [
+            {"chapter_id": "ch_open", "segment_ids": ["seg_002", "seg_008"]},
+            {"chapter_id": "ch_mid", "segment_ids": ["seg_033", "seg_034"]},
+            {"chapter_id": "ch_coda", "segment_ids": ["seg_045", "seg_050"]},
+        ]
+    }
+    selection = {
+        "ordered_segment_ids": [
+            "seg_002",
+            "seg_033",
+            "seg_045",
+            "seg_050",
+            "seg_008",
+            "seg_034",
+        ],
+        "chapters": [
+            {"title": "open", "segment_ids": ["seg_002", "seg_008"]},
+            {"title": "mid", "segment_ids": ["seg_033", "seg_034"]},
+            {"title": "coda", "segment_ids": ["seg_045", "seg_050"]},
+        ],
+    }
+    from interview_mux.selection_order_repair import repair_selection_order
+
+    bad = list(selection["ordered_segment_ids"])
+    assert finale_tail_errors(bad, plan)
+    fixed, applied = repair_selection_order(selection, plan)
+    order = fixed["ordered_segment_ids"]
+    assert order.index("seg_008") < order.index("seg_050")
+    assert order.index("seg_034") < order.index("seg_050")
+    assert not finale_tail_errors(order, plan)
+    assert applied
+
+
 def test_topo_latest_chapter_wins_on_overlap():
     """Overlapping chapter membership must not park early ids after finale anchors."""
     plan = {

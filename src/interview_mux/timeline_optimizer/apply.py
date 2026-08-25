@@ -148,6 +148,10 @@ def take_best_candidate(
     sync_remaster: bool = False,
 ) -> dict[str, Any]:
     """Write best candidate into selection/transitions/gap/SDP; optionally remaster."""
+    from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
+
+    if optimizer_live_mutate_blocked(ctx):
+        return {"ok": False, "error": "optimizer_skipped"}
     best = load_best(ctx)
     if not best:
         return {"ok": False, "error": "no_best_candidate"}
@@ -180,207 +184,192 @@ def take_best_candidate(
     sel["order_authority"] = "timeline_optimizer"
     sel["optimizer_candidate_id"] = best.get("candidate_id")
     sel["optimizer_score"] = best.get("score")
+    from interview_mux.air_order import commit as air_commit
+    from interview_mux.air_order import rollback as air_rollback
+    from interview_mux.air_order import snapshot as air_snapshot
     from interview_mux.artifact_writes import write_validated_artifact
     from interview_mux.order_hash import bump_order_lock
 
-    prev_sel = (
-        ctx.read_json("master/selection.json")
-        if ctx.artifact_exists("master/selection.json")
-        else None
-    )
-    sel = bump_order_lock(sel, source="timeline_optimizer")
-    ctx.write_json("master/optimizer_pending_selection.json", sel)
-    write_validated_artifact(
-        ctx,
-        "master/selection.json",
-        sel,
-        merge_from_disk=False,
-        stage_key="timeline_optimizer",
-    )
-
-    if isinstance(best.get("transitions"), dict):
-        ctx.write_json("master/transitions.json", best["transitions"])
-    if isinstance(best.get("gap_report"), dict):
-        ctx.write_json("understanding/gap_report.json", best["gap_report"])
-    if isinstance(best.get("sound_design_plan"), dict):
-        ctx.write_json(
-            "understanding/sound_design_plan.json", best["sound_design_plan"]
-        )
-    if order_changed:
-        from interview_mux.synthetic_framing import run_synthetic_framing_plan
-
-        run_synthetic_framing_plan(ctx, force=True)
-
-    # Refresh bridges + health for promoted order
-    try:
-        from interview_mux.bridge_voice_policy import annotate_reorder_bridges
-        from interview_mux.reorder_bridges import build_reorder_bridges
-        from interview_mux.story_health import evaluate_story_health
-
-        by_id = {}
-        if ctx.artifact_exists("segments/manifest.json"):
-            man = ctx.read_json("segments/manifest.json")
-            by_id = {
-                str(s["segment_id"]): s
-                for s in ((man or {}).get("segments") or [])
-                if isinstance(s, dict) and s.get("segment_id")
-            }
-        bridges = annotate_reorder_bridges(build_reorder_bridges(ordered, by_id))
-        ctx.write_json("understanding/reorder_bridges.json", bridges)
-        plan = (
-            ctx.read_json("master/narrative_plan.json")
-            if ctx.artifact_exists("master/narrative_plan.json")
-            else None
-        )
-        health = evaluate_story_health(
-            ordered=ordered,
-            narrative_plan=plan if isinstance(plan, dict) else None,
-            reorder_bridges=bridges,
-            gap_report=best.get("gap_report")
-            if isinstance(best.get("gap_report"), dict)
-            else None,
-            transitions=best.get("transitions")
-            if isinstance(best.get("transitions"), dict)
-            else None,
-        )
-        ctx.write_json("master/story_health.json", health)
-    except Exception as exc:
-        ctx.log(f"optimizer promote health refresh: {exc}", level="warning", stage="timeline_optimizer")
-
-    state = load_optimizer_state(ctx)
-    promotions = list(state.get("promotions") or [])
-    promotions.append(
-        {
-            "at": _now(),
-            "candidate_id": best.get("candidate_id"),
-            "score": best.get("score"),
-            "remaster": bool(remaster or sync_remaster),
-        }
-    )
-    state["promotions"] = promotions[-20:]
-    state["operator_took_best"] = True
-    if order_changed:
-        state["promoted_needs_remaster"] = True
-    save_optimizer_state(ctx, state)
-
-    def _meta(m: dict) -> None:
-        m["timeline_optimizer_promoted"] = {
-            "candidate_id": best.get("candidate_id"),
-            "score": best.get("score"),
-            "at": _now(),
-            "needs_remaster": order_changed,
-        }
-
-    ctx.mutate_run_meta(_meta)
-
+    air_snapshot(ctx)
+    setattr(ctx, "_air_order_hold_snapshot", True)
     remaster_started = False
-    if (remaster or sync_remaster) and order_changed:
-        if runner is not None and not sync_remaster:
-            try:
-                runner.invalidate_from(ctx.run_id, "edl")
-                runner.start(
-                    ctx.run_id,
-                    mode="delivery",
-                    from_stage="edl",
-                    until_stage="mix",
-                    invalidate=True,
-                )
-                remaster_started = True
-                state = load_optimizer_state(ctx)
-                state["promoted_needs_remaster"] = False
-                save_optimizer_state(ctx, state)
-            except Exception as exc:
-                if isinstance(prev_sel, dict):
-                    write_validated_artifact(
-                        ctx,
-                        "master/selection.json",
-                        prev_sel,
-                        merge_from_disk=False,
-                        stage_key="timeline_optimizer",
-                    )
-                ctx.log(
-                    f"optimizer remaster start failed: {exc}",
-                    level="warning",
-                    stage="timeline_optimizer",
-                )
-                raise RuntimeError("optimizer promoted order but could not start remaster") from exc
-        else:
-            try:
-                def _flag(m: dict) -> None:
-                    m["timeline_optimizer_remastering"] = True
+    try:
+        sel = bump_order_lock(sel, source="timeline_optimizer")
+        ctx.write_json("master/optimizer_pending_selection.json", sel)
+        write_validated_artifact(
+            ctx,
+            "master/selection.json",
+            sel,
+            merge_from_disk=False,
+            stage_key="timeline_optimizer",
+        )
 
-                ctx.mutate_run_meta(_flag)
-                remaster_sync(ctx, until_mix=True)
-                remaster_started = True
+        if isinstance(best.get("transitions"), dict):
+            ctx.write_json("master/transitions.json", best["transitions"])
+        if isinstance(best.get("gap_report"), dict):
+            ctx.write_json("understanding/gap_report.json", best["gap_report"])
+        if isinstance(best.get("sound_design_plan"), dict):
+            ctx.write_json(
+                "understanding/sound_design_plan.json", best["sound_design_plan"]
+            )
+        if order_changed:
+            from interview_mux.synthetic_framing import run_synthetic_framing_plan
+
+            run_synthetic_framing_plan(ctx, force=True)
+
+        # Refresh bridges + health for promoted order
+        try:
+            from interview_mux.bridge_voice_policy import annotate_reorder_bridges
+            from interview_mux.reorder_bridges import build_reorder_bridges
+            from interview_mux.story_health import evaluate_story_health
+
+            by_id = {}
+            if ctx.artifact_exists("segments/manifest.json"):
+                man = ctx.read_json("segments/manifest.json")
+                by_id = {
+                    str(s["segment_id"]): s
+                    for s in ((man or {}).get("segments") or [])
+                    if isinstance(s, dict) and s.get("segment_id")
+                }
+            bridges = annotate_reorder_bridges(build_reorder_bridges(ordered, by_id))
+            ctx.write_json("understanding/reorder_bridges.json", bridges)
+            plan = (
+                ctx.read_json("master/narrative_plan.json")
+                if ctx.artifact_exists("master/narrative_plan.json")
+                else None
+            )
+            health = evaluate_story_health(
+                ordered=ordered,
+                narrative_plan=plan if isinstance(plan, dict) else None,
+                reorder_bridges=bridges,
+                gap_report=best.get("gap_report")
+                if isinstance(best.get("gap_report"), dict)
+                else None,
+                transitions=best.get("transitions")
+                if isinstance(best.get("transitions"), dict)
+                else None,
+            )
+            ctx.write_json("master/story_health.json", health)
+        except Exception as exc:
+            ctx.log(
+                f"optimizer promote health refresh: {exc}",
+                level="warning",
+                stage="timeline_optimizer",
+            )
+
+        state = load_optimizer_state(ctx)
+        promotions = list(state.get("promotions") or [])
+        promotions.append(
+            {
+                "at": _now(),
+                "candidate_id": best.get("candidate_id"),
+                "score": best.get("score"),
+                "remaster": bool(remaster or sync_remaster),
+            }
+        )
+        state["promotions"] = promotions[-20:]
+        state["operator_took_best"] = True
+        if order_changed:
+            state["promoted_needs_remaster"] = True
+        save_optimizer_state(ctx, state)
+
+        def _meta(m: dict) -> None:
+            m["timeline_optimizer_promoted"] = {
+                "candidate_id": best.get("candidate_id"),
+                "score": best.get("score"),
+                "at": _now(),
+                "needs_remaster": order_changed,
+            }
+
+        ctx.mutate_run_meta(_meta)
+
+        if (remaster or sync_remaster) and order_changed:
+            if runner is not None and not sync_remaster:
                 try:
-                    from interview_mux.order_hash import assert_selection_leads_edl, copy_order_lock, stamp_order_hash
-
-                    if ctx.artifact_exists("master/edl.json") and ctx.artifact_exists(
-                        "master/selection.json"
-                    ):
-                        edl = ctx.read_json("master/edl.json")
-                        cur = ctx.read_json("master/selection.json")
-                        if isinstance(edl, dict) and isinstance(cur, dict):
-                            # Selection leads: copy lock onto EDL; never sync selection←EDL.
-                            aligned = copy_order_lock(cur, stamp_order_hash(dict(edl)))
-                            if list(aligned.get("ordered_segment_ids") or []) != list(
-                                cur.get("ordered_segment_ids") or []
-                            ):
-                                aligned["ordered_segment_ids"] = list(
-                                    cur.get("ordered_segment_ids") or []
-                                )
-                                aligned = copy_order_lock(cur, stamp_order_hash(aligned))
-                            write_validated_artifact(
-                                ctx,
-                                "master/edl.json",
-                                aligned,
-                                merge_from_disk=False,
-                                stage_key="timeline_optimizer",
-                            )
-                            assert_selection_leads_edl(cur, aligned)
-                except Exception:
-                    pass
-                try:
-                    from interview_mux.junction_snip_qa import (
-                        _set_g_listen_pending_after_remaster,
-                        run_junction_snip_qa,
+                    runner.invalidate_from(ctx.run_id, "edl")
+                    runner.start(
+                        ctx.run_id,
+                        mode="delivery",
+                        from_stage="edl",
+                        until_stage="mix",
+                        invalidate=True,
                     )
+                    remaster_started = True
+                except Exception as exc:
+                    air_rollback(ctx)
+                    setattr(ctx, "_air_order_rolled_back", True)
+                    ctx.log(
+                        f"optimizer remaster start failed: {exc}",
+                        level="warning",
+                        stage="timeline_optimizer",
+                    )
+                    raise RuntimeError(
+                        "optimizer promoted order but could not start remaster"
+                    ) from exc
+            else:
+                try:
 
-                    run_junction_snip_qa(ctx)
-                    _set_g_listen_pending_after_remaster(ctx)
-                except Exception:
+                    def _flag(m: dict) -> None:
+                        m["timeline_optimizer_remastering"] = True
+
+                    ctx.mutate_run_meta(_flag)
+                    remaster_sync(ctx, until_mix=True)
+                    remaster_started = True
                     try:
-                        from interview_mux.junction_snip_qa import _set_g_listen_pending_after_remaster
+                        from interview_mux.junction_snip_qa import (
+                            _set_g_listen_pending_after_remaster,
+                            run_junction_snip_qa,
+                        )
 
+                        run_junction_snip_qa(ctx)
                         _set_g_listen_pending_after_remaster(ctx)
                     except Exception:
-                        pass
-                state = load_optimizer_state(ctx)
-                state["promoted_needs_remaster"] = False
-                save_optimizer_state(ctx, state)
-            except Exception as exc:
-                if isinstance(prev_sel, dict):
-                    write_validated_artifact(
-                        ctx,
-                        "master/selection.json",
-                        prev_sel,
-                        merge_from_disk=False,
-                        stage_key="timeline_optimizer",
-                    )
-                ctx.log(
-                    f"optimizer sync remaster failed: {exc}",
-                    level="warning",
-                    stage="timeline_optimizer",
-                )
-                raise RuntimeError("optimizer promoted order but synchronous remaster failed") from exc
-            finally:
-                def _clear(m: dict) -> None:
-                    m["timeline_optimizer_remastering"] = False
+                        try:
+                            from interview_mux.junction_snip_qa import (
+                                _set_g_listen_pending_after_remaster,
+                            )
 
-                try:
-                    ctx.mutate_run_meta(_clear)
-                except Exception:
-                    pass
+                            _set_g_listen_pending_after_remaster(ctx)
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    air_rollback(ctx)
+                    setattr(ctx, "_air_order_rolled_back", True)
+                    ctx.log(
+                        f"optimizer sync remaster failed: {exc}",
+                        level="warning",
+                        stage="timeline_optimizer",
+                    )
+                    raise RuntimeError(
+                        "optimizer promoted order but synchronous remaster failed"
+                    ) from exc
+                finally:
+
+                    def _clear(m: dict) -> None:
+                        m["timeline_optimizer_remastering"] = False
+
+                    try:
+                        ctx.mutate_run_meta(_clear)
+                    except Exception:
+                        pass
+        sealed = air_commit(ctx, source="timeline_optimizer", snapshot_first=False)
+        state = load_optimizer_state(ctx)
+        if remaster_started or not order_changed:
+            state["promoted_needs_remaster"] = False
+        save_optimizer_state(ctx, state)
+        live_ids = [str(s) for s in (sealed.get("ordered_segment_ids") or []) if s]
+        if live_ids:
+            ordered = live_ids
+    except Exception:
+        if not getattr(ctx, "_air_order_rolled_back", False):
+            try:
+                air_rollback(ctx)
+            except Exception:
+                pass
+        raise
+    finally:
+        setattr(ctx, "_air_order_hold_snapshot", False)
+        setattr(ctx, "_air_order_rolled_back", False)
 
     ctx.log(
         f"timeline_optimizer take-best: {best.get('candidate_id')} "

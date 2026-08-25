@@ -525,6 +525,11 @@ def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
         ]
         dropped = extra_qa
         qa = {"version": int(qa.get("version") or 1), "assets": keep}
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, OUTPUT_PATH, qa, stage_key="mmaudio_sfx")
+    except Exception:
         try:
             ctx.write_json(OUTPUT_PATH, qa, stage_key="mmaudio_sfx", skip_handoff=True)
         except Exception:

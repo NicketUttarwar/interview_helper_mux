@@ -96,6 +96,17 @@ def _speaker_talk_stats(transcript: dict[str, Any], speakers_doc: dict[str, Any]
     return rows
 
 
+def _least_spoken_host_id(stats: list[dict[str, Any]]) -> str:
+    """Clone-voice default: least-spoken frame/host, not the quietest guest."""
+    if not stats:
+        return "spk_0"
+    least = min(stats, key=lambda s: s["talk_ms"])["speaker_id"]
+    frame = [s for s in stats if _role_is_frame(str(s.get("role_hint")))]
+    if frame:
+        return min(frame, key=lambda s: s["talk_ms"])["speaker_id"]
+    return least
+
+
 def _role_is_content(role: str) -> bool:
     return role_is_content(role)
 
@@ -307,19 +318,20 @@ def build_topology_artifacts(
     speakers_doc = ctx.read_json("understanding/speakers.json")
     stats = _speaker_talk_stats(transcript, speakers_doc)
     least = min(stats, key=lambda s: s["talk_ms"])["speaker_id"] if stats else "spk_0"
+    pickup_id = _least_spoken_host_id(stats)
     topology_class = classify_topology(stats, speakers_doc)
     seg_policy = _segmentation_policy(topology_class)
     if overrides:
         seg_policy.update({k: v for k, v in overrides.items() if v is not None})
 
     style = get_production_style(ctx)
-    role_map = _tbiy_role_map(stats, least)
+    role_map = _tbiy_role_map(stats, pickup_id)
     topic_count = len(speakers_doc.get("topics") or []) if isinstance(speakers_doc, dict) else 0
     topology = {
         "topology_class": topology_class,
         "speaker_stats": stats,
         "least_spoken_speaker_id": least,
-        "pickup_eligible_speaker_id": least,
+        "pickup_eligible_speaker_id": pickup_id,
         "tbiy_role_map": role_map,
         "segmentation_policy": seg_policy,
         "classified_at": datetime.now(timezone.utc).isoformat(),
@@ -337,11 +349,11 @@ def build_topology_artifacts(
             "topology_confirmed": False,
             "pickup_speaker_confirmed": False,
         },
-        "pickup_eligible_speaker_id": least,
+        "pickup_eligible_speaker_id": pickup_id,
         "recovery_policy": recovery_policy_for_class(topology_class),
         "summary_plain": (
             f"Classified as {topology_class.replace('_', ' ')}. "
-            f"Gap pickup voice defaults to least-spoken speaker ({least})."
+            f"Gap pickup voice defaults to least-spoken host ({pickup_id})."
         ),
     }
     if style == TBIY_STYLE or is_tbiy(ctx):
@@ -527,9 +539,27 @@ def _find_speaker_sample_ms(transcript: dict[str, Any], speaker_id: str) -> tupl
     return start, end
 
 
+def ensure_source_topology(ctx: RunContext) -> dict[str, Any]:
+    """Build topology when the conductor skipped it; clone VO needs speaker stats."""
+    topo = load_topology(ctx)
+    if isinstance(topo, dict) and topo.get("speaker_stats"):
+        if not ctx.is_done("source_topology_build"):
+            try:
+                ctx.mark_done("source_topology_build", force=True)
+            except Exception:
+                pass
+        return topo
+    if not ctx.artifact_exists("transcript/full.json"):
+        return topo if isinstance(topo, dict) else {}
+    if not ctx.artifact_exists("understanding/speakers.json"):
+        return topo if isinstance(topo, dict) else {}
+    run_source_topology_build(ctx)
+    return load_topology(ctx) or {}
+
+
 def ensure_speaker_sample_clips(ctx: RunContext) -> dict[str, str]:
     """Return speaker_id → relative clip path; extract WAV samples on demand."""
-    topo = load_topology(ctx) or {}
+    topo = ensure_source_topology(ctx)
     stats = topo.get("speaker_stats") or []
     if not stats:
         return {}
@@ -744,7 +774,11 @@ def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) ->
     topo = load_topology(ctx) or {}
     stats = topo.get("speaker_stats") or []
     valid = _speaker_ids_from_stats(stats if isinstance(stats, list) else [])
-    selected = str(speaker_id or adapt.get("pickup_eligible_speaker_id") or topo.get("pickup_eligible_speaker_id") or "")
+    selected = str(speaker_id or "")
+    if not selected:
+        host = _least_spoken_host_id(stats if isinstance(stats, list) else [])
+        current = str(adapt.get("pickup_eligible_speaker_id") or topo.get("pickup_eligible_speaker_id") or "")
+        selected = host or current
     if not selected or selected not in valid:
         raise ValueError("pickup_eligible_speaker_id is required and must match a known speaker")
     if not isinstance(topo, dict):

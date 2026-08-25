@@ -93,16 +93,24 @@ def missing_reorder_bridges(
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
     justified_skip_before_ids: set[str] | frozenset[str] | None = None,
+    edl: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return unresolved reorder pairs that still need VO/transition glue.
 
     Destinations with a typed justified layup skip (credits, clone adjacency,
     unhealable spoken copy, etc.) are exempt: minting a canned hinge there would
     fight layup authority, and the skip already records the coverage decision.
+    Hitch air already seated between the natives (clone-safe musical glue) also
+    covers the pair — do not mint a spoken clone hinge on top.
     """
     if not isinstance(reorder_bridges, dict):
         return []
     bridged = _bridged_pairs(gap_report, transitions)
+    if isinstance(edl, dict):
+        from interview_mux.assembly_ledger import hitch_covered_pairs
+
+        clips = [c for c in (edl.get("clips") or []) if isinstance(c, dict)]
+        bridged |= hitch_covered_pairs(clips)
     skip_before = {str(x) for x in (justified_skip_before_ids or set()) if str(x).strip()}
     vo_before_targets: set[str] = set()
     if isinstance(gap_report, dict):
@@ -203,6 +211,7 @@ def assert_bridges_complete(
     gap_report: dict[str, Any] | None = None,
     transitions: dict[str, Any] | None = None,
     justified_skip_before_ids: set[str] | frozenset[str] | None = None,
+    edl: dict[str, Any] | None = None,
     soft: bool = False,
 ) -> dict[str, Any]:
     """Return completeness doc; raise SystemExit when incomplete and not soft.
@@ -216,6 +225,7 @@ def assert_bridges_complete(
         gap_report=gap_report,
         transitions=transitions,
         justified_skip_before_ids=justified_skip_before_ids,
+        edl=edl,
     )
     stubs = stub_reorder_bridges(gap_report, transitions)
     doc = {

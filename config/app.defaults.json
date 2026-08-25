@@ -1245,6 +1245,7 @@
       "demote_synthetic_framing_content": true,
       "authoritative_gap_report": true,
       "block_on_open_must_keep": true,
+      "block_on_open_high_salience": true,
       "honor_information_package_dense_budget": true,
       "degraded_layup": {
         "enabled": true,

@@ -49,7 +49,28 @@ def stage_artifact_incompleteness(
         st = artifact_status_for_stage(path, ctx, stage_id)
         if st != "complete":
             return f"{path} is {st}"
+    if stage_id == "nugget_layup_compose":
+        try:
+            from interview_mux.nugget_layup import layup_freshness_errors
+
+            fresh_errs = layup_freshness_errors(ctx)
+        except Exception:
+            fresh_errs = []
+        if fresh_errs:
+            return fresh_errs[0]
+    if stage_id == "sound_design_plan":
+        if not ctx.artifact_exists("master/transitions.json"):
+            return "master/transitions.json is pending"
+        try:
+            from interview_mux.homunculus.agenda import delivery_sdp_present
+
+            if not delivery_sdp_present(ctx):
+                return "sound_design_plan has not written the delivery SDP"
+        except Exception:
+            return "sound_design_plan delivery SDP not confirmed"
     if stage_id == "vo_synthesize":
+        if not ctx.artifact_exists("master/transitions.json"):
+            return "master/transitions.json is pending"
         try:
             from interview_mux.transition_vo import current_transition_pairs_missing
 
@@ -58,6 +79,15 @@ def stage_artifact_incompleteness(
             missing_pairs = []
         if missing_pairs:
             return f"current transition pairs missing WAV: {', '.join(missing_pairs[:4])}"
+    if stage_id in {
+        "music_palette_compose",
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+    }:
+        if not ctx.artifact_exists("master/assembly.wav") and not ctx.artifact_exists(
+            "master/assembly_preview.wav"
+        ):
+            return "assembly audio missing — theme/SFX wait for assembly_preview"
     if stage_id == "edl":
         try:
             from interview_mux.transition_vo import seated_vo_paths_missing

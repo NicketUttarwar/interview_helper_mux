@@ -105,6 +105,7 @@ def last_listen_complete_end_ms(
     from interview_mux.gap_vo_prior_context import (
         clause_continues_after,
         is_legal_conceptual_hinge,
+        same_answer_continues,
     )
 
     cap = int(bound_end_ms)
@@ -155,6 +156,9 @@ def last_listen_complete_end_ms(
         ):
             continue
         if clause_continues_after(words, cand_end):
+            continue
+        # Soft hang: period on a setup whose payoff is the next speech.
+        if same_answer_continues(words, cand_end):
             continue
         best = cand_end
     return best
@@ -430,6 +434,75 @@ def compute_recut_windows(
         if new_end < start + min_keep_ms:
             new_end = end
             extended = False
+        if next_start is not None and words:
+            from interview_mux.cut_edge_refine import lift_end_for_outgoing_last_word
+            from interview_mux.gap_vo_prior_context import (
+                end_is_hard_hang,
+                same_answer_continues,
+            )
+
+            soft = next_start - int(next_keeper_eps_ms)
+            lifted, used = lift_end_for_outgoing_last_word(
+                new_end,
+                words,
+                clip_start_ms=start,
+                next_keeper_start_ms=next_start,
+                proposed_end_ms=soft,
+            )
+            if used and lifted > new_end:
+                new_end = lifted
+                if new_end > next_start and i + 1 < len(rows):
+                    _shrink_next_keeper_start(
+                        words, keep_end_ms=new_end, next_row=rows[i + 1]
+                    )
+            # Phase 2: same-answer continuity — prefer one keeper through payoff.
+            if same_answer_continues(words, new_end, next_start) and i + 1 < len(rows):
+                next_end = int(rows[i + 1].get("end_ms") or next_start)
+                ext_bound = min(int(bound), next_end, start + int(max_cut_ms))
+                snapped = last_listen_complete_end_ms(
+                    words,
+                    start_ms=start,
+                    bound_end_ms=ext_bound,
+                    min_keep_ms=min_keep_ms,
+                )
+                if snapped is not None and snapped > new_end:
+                    new_end = int(snapped)
+                    extended = True
+                    if new_end > next_start:
+                        _shrink_next_keeper_start(
+                            words, keep_end_ms=new_end, next_row=rows[i + 1]
+                        )
+            # Phase 1: never ship a hard hang after lift / extend.
+            if end_is_hard_hang(words, new_end):
+                snapped = last_listen_complete_end_ms(
+                    words,
+                    start_ms=start,
+                    bound_end_ms=min(int(bound), start + int(max_cut_ms)),
+                    min_keep_ms=min_keep_ms,
+                )
+                if snapped is not None and not end_is_hard_hang(words, int(snapped)):
+                    new_end = int(snapped)
+                else:
+                    from interview_mux.thought_complete_recut import (
+                        complete_thought_candidates,
+                    )
+
+                    cands = complete_thought_candidates(
+                        words,
+                        max(start, new_end - 500),
+                        horizon_ms=min(
+                            int(bound),
+                            (next_start or new_end) + horizon,
+                            start + int(max_cut_ms),
+                        ),
+                        speaker="",
+                    )
+                    for cut in cands:
+                        if int(cut) > start + min_keep_ms and not end_is_hard_hang(
+                            words, int(cut)
+                        ):
+                            new_end = int(cut)
+                            break
         if (
             extended
             and next_start is not None
@@ -465,7 +538,7 @@ def apply_acoustic_refine(
     search = int(conf.get("acoustic_search_ms") or 120)
     path = Path(wav_path) if wav_path else None
     out: list[dict[str, Any]] = []
-    for row in windows:
+    for i, row in enumerate(windows):
         start = int(row.get("start_ms") or 0)
         end = int(row.get("end_ms") or start)
         s2, e2, meta = refine_cut_edges(
@@ -477,6 +550,24 @@ def apply_acoustic_refine(
             apply_exact_words=bool(words),
             apply_acoustic=acoustic_on,
         )
+        next_start = None
+        if i + 1 < len(windows):
+            try:
+                next_start = int(windows[i + 1].get("start_ms") or 0)
+            except (TypeError, ValueError):
+                next_start = None
+        if words:
+            from interview_mux.cut_edge_refine import lift_end_for_outgoing_last_word
+
+            lifted, used = lift_end_for_outgoing_last_word(
+                e2,
+                words,
+                clip_start_ms=s2,
+                next_keeper_start_ms=next_start,
+                proposed_end_ms=e2,
+            )
+            if used:
+                e2 = lifted
         updated = dict(row)
         updated["start_ms"] = int(s2)
         updated["end_ms"] = int(e2)

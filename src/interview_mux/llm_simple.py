@@ -305,6 +305,41 @@ def run_llm_stage_simple(
                     for n in needs
                 ]
                 envelope = {**envelope, "needs": needs}
+            if stage_key == "nugget_layup_compose":
+                from interview_mux.media_ip_cta import (
+                    execute_cta_omit_from_needs,
+                    is_selection_cta_omit_need,
+                )
+
+                dropped = execute_cta_omit_from_needs(ctx, needs)
+                if dropped:
+                    needs = [
+                        ({**n, "blocking": False} if is_selection_cta_omit_need(n) else n)
+                        if isinstance(n, dict)
+                        else n
+                        for n in needs
+                    ]
+                    envelope = {**envelope, "needs": needs}
+                    ctx.log(
+                        "nugget_layup_compose: host-executed media-IP CTA omit "
+                        + ",".join(dropped[:12]),
+                        level="warning",
+                        stage=stage_key,
+                        detail={"dropped_segment_ids": dropped[:12]},
+                    )
+                    still_blocking = [
+                        n
+                        for n in needs
+                        if isinstance(n, dict)
+                        and n.get("blocking")
+                        and n.get("type") != "operator"
+                    ]
+                    if not still_blocking:
+                        raise StageError(
+                            stage_key,
+                            "LLM stage nugget_layup_compose incomplete: "
+                            f"cta_omit_applied dropped {','.join(dropped[:8])}",
+                        )
             msg = f"LLM stage {stage_key} incomplete: status={envelope.get('status')} needs={needs[:3]}"
             artifacts = envelope.get("artifacts")
             # Ranking persist is deterministic (CTA omit + hard-keep). A usable

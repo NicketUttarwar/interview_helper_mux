@@ -242,20 +242,51 @@ def build_flow1_edl(
         except Exception:
             max_keeper_ms = 180_000
 
-    def _append_air(kind: str, ref_dur: int) -> None:
+    def _append_air(
+        kind: str,
+        ref_dur: int,
+        *,
+        required_seam_hitch: bool = False,
+        clone_adjacency_hitch: bool = False,
+        preserve_planned_music: bool = False,
+    ) -> None:
         nonlocal timeline_ms
         pad = air_pad_ms(ref_dur, kind=kind, cfg=air_cfg)
         if pad <= 0:
             return
-        clips.append(
-            {
-                "type": "silence",
-                "air_kind": kind,
-                "duration_ms": pad,
-                "timeline_start_ms": timeline_ms,
-            }
-        )
+        clip: dict = {
+            "type": "silence",
+            "air_kind": kind,
+            "duration_ms": pad,
+            "timeline_start_ms": timeline_ms,
+        }
+        if required_seam_hitch:
+            clip["required_seam_hitch"] = True
+            clip["preserve_planned_music"] = True
+        if clone_adjacency_hitch:
+            clip["clone_adjacency_hitch"] = True
+            clip["preserve_planned_music"] = True
+        if preserve_planned_music:
+            clip["preserve_planned_music"] = True
+        clips.append(clip)
         timeline_ms += pad
+
+    def _same_answer_seam(after_sid: str, before_sid: str) -> bool:
+        """True when adjacent keeps continue one answer — no chapter hitch air."""
+        if not words:
+            return False
+        after = segments_by_id.get(after_sid) or {}
+        before = segments_by_id.get(before_sid) or {}
+        try:
+            left_end = int(after.get("end_ms") or after.get("source_end_ms") or 0)
+            right_start = int(before.get("start_ms") or before.get("source_start_ms") or 0)
+        except (TypeError, ValueError):
+            return False
+        if left_end <= 0 or right_start <= 0:
+            return False
+        from interview_mux.gap_vo_prior_context import same_answer_continues
+
+        return same_answer_continues(words, left_end, right_start)
 
     def _is_orientation(line: dict) -> bool:
         from interview_mux.opening_orientation import is_episode_orientation
@@ -383,20 +414,33 @@ def build_flow1_edl(
             nonlocal timeline_ms
             voice_speaker_id = str(line.get("voice_speaker_id") or "").strip()
             target_speaker_id = str(seg.get("speaker_id") or "").strip()
-            if (
+            prev_speaker_id = (
+                str((prev_seg or {}).get("speaker_id") or "").strip() if prev_seg else ""
+            )
+            id_adjacent = bool(
                 voice_speaker_id
-                and voice_speaker_id == target_speaker_id
+                and (
+                    voice_speaker_id == target_speaker_id
+                    or (placement == "before" and voice_speaker_id == prev_speaker_id)
+                )
+            )
+            if (
+                id_adjacent
                 and not bool(line.get("clone_adjacency_exempt"))
                 and not _is_orientation(line)
             ):
                 target = dict(seg)
                 target.setdefault("segment_id", sid)
+                after = dict(prev_seg) if isinstance(prev_seg, dict) else None
+                if after is not None:
+                    after.setdefault("segment_id", prev_sid)
                 vo_key = str(line.get("line_id") or sid)
                 if clone_adj.decide(
                     kind="vo_pickup",
                     key=vo_key,
                     clone_voice_id=voice_speaker_id,
                     target=target,
+                    after=after if placement == "before" else None,
                 ):
                     suppressed_clone_adjacency.append(vo_key)
                     return
@@ -589,6 +633,7 @@ def build_flow1_edl(
         if idx + 1 < len(ordered):
             nxt = ordered[idx + 1]
             tr = _transition_after_segment(transitions, sid, nxt)
+            suppressed_transition = False
             if tr:
                 from interview_mux.gap_framing import choose_seam_synthetic
 
@@ -617,15 +662,30 @@ def build_flow1_edl(
                 after_seg.setdefault("segment_id", sid)
                 before_seg = dict(segments_by_id.get(nxt) or {})
                 before_seg.setdefault("segment_id", nxt)
-                if transition_voice and clone_adj.decide(
+                # Empty voice still runs decide when a clone plan is locked so
+                # unvoiced transitions next to the clone source are hitch-replaced.
+                clone_voice = transition_voice
+                if not clone_voice and ctx is not None:
+                    try:
+                        if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
+                            plan = ctx.read_json(
+                                "understanding/speaker_delivery_plan.json"
+                            )
+                            clone_voice = str(
+                                (plan or {}).get("clone_speaker_id") or ""
+                            ).strip()
+                    except Exception:
+                        clone_voice = ""
+                if clone_voice and clone_adj.decide(
                     kind="transition",
                     key=f"transition:{sid}->{nxt}",
-                    clone_voice_id=transition_voice,
+                    clone_voice_id=clone_voice,
                     after=after_seg,
                     before=before_seg,
                 ):
                     suppressed_clone_adjacency.append(f"transition:{sid}->{nxt}")
                     tr = None
+                    suppressed_transition = True
             if tr:
                 text = str(tr.get("text") or "")
                 from interview_mux.spoken_copy_guard import script_hash
@@ -655,10 +715,27 @@ def build_flow1_edl(
                     }
                 )
                 timeline_ms += tr_dur
-                if tr_dur > 0:
-                    _append_air("chapter_hinge", tr_dur)
-                else:
-                    _append_air("chapter_hinge", speech_dur)
+                if not _same_answer_seam(sid, nxt):
+                    if tr_dur > 0:
+                        _append_air("chapter_hinge", tr_dur)
+                    else:
+                        _append_air("chapter_hinge", speech_dur)
+            else:
+                # No spoken transition: still need audible chapter/reorder hitch
+                # unless this is the same answer continuing on tape.
+                needs_hitch = suppressed_transition
+                if not needs_hitch:
+                    from interview_mux.reorder_bridges import build_reorder_bridges
+
+                    bridges = build_reorder_bridges([sid, nxt], segments_by_id)
+                    needs_hitch = bool(bridges.get("pairs"))
+                if needs_hitch and not _same_answer_seam(sid, nxt):
+                    _append_air(
+                        "chapter_hinge",
+                        max(int(speech_dur), 1000),
+                        required_seam_hitch=True,
+                        clone_adjacency_hitch=bool(suppressed_transition),
+                    )
 
     return {
         "version": 1,
@@ -1139,7 +1216,9 @@ def run_edl(ctx: RunContext) -> None:
             raise SystemExit(
                 f"edl: edl.json failed schema validation ({len(edl_errors)} error(s))"
             )
-        ctx.write_json("master/edl.json", edl)
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, edl, source="edl")
 
     with logged_step("edl/assembly_ledger", ctx=ctx, stage="edl"):
         from interview_mux.assembly_ledger import (
@@ -1162,11 +1241,12 @@ def run_edl(ctx: RunContext) -> None:
 
 def run_mix(ctx: RunContext) -> Path:
     """Flow 1 assembly mix — speech + VO + SDP overlays (canonical stage id)."""
+    from interview_mux.air_order import assert_consumer
     from interview_mux.llm_flow_hardening import require_spend_artifacts_complete
-    from interview_mux.order_hash import order_hashes_match
     from interview_mux.sound_design import mix
 
     require_spend_artifacts_complete(ctx, "mix")
+    assert_consumer(ctx, "mix")
 
     try:
         from interview_mux.listen_quality import place_episode_close_cue
@@ -1198,14 +1278,6 @@ def run_mix(ctx: RunContext) -> Path:
     except Exception:
         pass
 
-    if ctx.artifact_exists("master/selection.json") and ctx.artifact_exists("master/edl.json"):
-        sel = ctx.read_json("master/selection.json")
-        edl = ctx.read_json("master/edl.json")
-        if isinstance(sel, dict) and isinstance(edl, dict) and not order_hashes_match(sel, edl):
-            raise SystemExit(
-                "mix: selection ordered_segment_ids drifted from edl — "
-                "re-run edl (and remaster) before mix"
-            )
     if ctx.artifact_exists("master/assembly_ledger.json"):
         from interview_mux.assembly_ledger import assert_ledger_no_naked_seams
 

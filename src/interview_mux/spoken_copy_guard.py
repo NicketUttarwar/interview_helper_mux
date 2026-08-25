@@ -50,7 +50,8 @@ _GENERIC_FILLER = re.compile(
     r"where does this stretch lead|"
     r"broader story changing|"
     r"there is more to that story|"
-    r"stepping back,? what set this part of the story in motion"
+    r"stepping back,? what set this part of the story in motion|"
+    r"what set this part of the story in motion"
     r")\b",
     re.IGNORECASE,
 )
@@ -66,6 +67,7 @@ _STOCK = {
     "what happened next",
     "what shifted from there",
     "stepping back what set this part of the story in motion",
+    "what set this part of the story in motion",
 }
 _ENTITY_IGNORE = {
     "And",

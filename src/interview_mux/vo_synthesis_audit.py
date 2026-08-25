@@ -411,7 +411,9 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
             changed.append(lid)
     if changed:
         edl["clips"] = clips
-        ctx.write_json("master/edl.json", edl)
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, edl, source="vo_synthesis_audit")
         ctx.log(
             f"synced EDL VO metadata for {len(changed)} clip(s)",
             stage="vo_synthesis_audit",

@@ -44,6 +44,22 @@ def plan_listen_delight_remutate(
         for sid in mapped:
             if sid not in stages:
                 stages.append(sid)
+    assembly_ready = ctx.artifact_exists("master/assembly_preview.wav") or ctx.is_done("edl")
+    if assembly_ready:
+        # Ranking/layup rewind cannot raise retention without destroying seated air.
+        # Finish MusicGen/SFX + mix, then re-audit.
+        skip = {
+            "full_master_ranking",
+            "nugget_layup_compose",
+            "gap_framing_compose",
+            "edl",
+        }
+        stages = [s for s in stages if s not in skip]
+        if not ctx.is_done("mmaudio_sfx"):
+            lead = ["mmaudio_sfx", "mix", "listen_delight_audit"]
+        else:
+            lead = ["mix", "listen_delight_audit"]
+        stages = lead + [s for s in stages if s not in lead]
     plan = {
         "version": 1,
         "attempt": attempt,
@@ -86,7 +102,12 @@ def apply_listen_delight_remutate(
 
     notes: list[str] = []
     failed = {str(x) for x in (doc.get("failed_dimensions") or [])}
-    if "nugget_retention" in failed and ctx.artifact_exists("master/selection.json"):
+    assembly_ready = ctx.artifact_exists("master/assembly_preview.wav") or ctx.is_done("edl")
+    if (
+        "nugget_retention" in failed
+        and not assembly_ready
+        and ctx.artifact_exists("master/selection.json")
+    ):
         try:
             from interview_mux.creative_delivery import enforce_creative_selection_edit
 
@@ -102,12 +123,28 @@ def apply_listen_delight_remutate(
             notes.append(f"pack_failed:{exc}")
 
     cleared: list[str] = []
+    from_stage = str(doc.get("from_stage") or "")
+    preserve_edl = from_stage in {"mmaudio_sfx", "mix", "listen_delight_audit"} or (
+        assembly_ready and "nugget_retention" in failed
+    )
     for sid in doc.get("from_stages") or []:
+        if preserve_edl and sid in {
+            "full_master_ranking",
+            "nugget_layup_compose",
+            "edl",
+            "assembly_preview",
+        }:
+            continue
         marker = ctx.run_dir / ".stage_done" / str(sid)
         if marker.is_file():
             marker.unlink(missing_ok=True)
             cleared.append(str(sid))
-    for sid in ("edl", "assembly_preview", "mix", "junction_snip_qa", "listen_delight_audit"):
+    extra_clear = (
+        ("mix", "junction_snip_qa", "listen_delight_audit")
+        if preserve_edl
+        else ("edl", "assembly_preview", "mix", "junction_snip_qa", "listen_delight_audit")
+    )
+    for sid in extra_clear:
         marker = ctx.run_dir / ".stage_done" / sid
         if marker.is_file():
             marker.unlink(missing_ok=True)

@@ -310,7 +310,9 @@ def reconcile_edl_with_omit_ledger(
     out["silence_clip_count"] = sum(1 for c in kept if c.get("type") == "silence")
     from interview_mux.write_staging import write_committed_json
 
-    write_committed_json(ctx, "master/edl.json", out)
+    from interview_mux.air_order import write_live_edl
+
+    write_live_edl(ctx, out, source="omit_ledger")
     try:
         from interview_mux.assembly_ledger import write_assembly_ledger
 

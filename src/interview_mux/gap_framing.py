@@ -580,20 +580,37 @@ def avoid_clone_voice_adjacency(
         target_speaker = speaker_id(target)
         prior = ordered[position[target] - 1] if position[target] else ""
         prior_speaker = speaker_id(prior)
-        adjacent_to_clone = (
-            (placement == "before" and target_speaker == voice)
-            or (placement == "after" and target_speaker == voice)
+        nxt = (
+            ordered[position[target] + 1]
+            if position[target] + 1 < len(ordered)
+            else ""
         )
+        next_speaker = speaker_id(nxt)
+        # QC seats VO between natives: a before-guest insert is still adjacent
+        # to the prior host, even when the target itself is a non-clone speaker.
+        adjacent_to_clone = target_speaker == voice or (
+            placement == "before" and prior_speaker == voice
+        ) or (placement == "after" and next_speaker == voice)
         if not adjacent_to_clone:
             kept.append(line)
             continue
+
+        def _before_slot_clone_safe(candidate: str) -> bool:
+            idx = position.get(candidate)
+            if idx is None:
+                return False
+            if speaker_id(candidate) == voice:
+                return False
+            if idx and speaker_id(ordered[idx - 1]) == voice:
+                return False
+            return True
 
         replacement = next(
             (
                 candidate
                 for candidate in ordered[position[target] + 1 :]
                 if speaker_id(candidate)
-                and speaker_id(candidate) != voice
+                and _before_slot_clone_safe(candidate)
                 and candidate not in occupied_before
             ),
             "",
@@ -1004,6 +1021,42 @@ def dedupe_transitions_for_framing(
         out["framing_deduped_count"] = dropped
         return out
     return transitions_doc
+
+
+def prune_transitions_outside_selection(
+    transitions_doc: dict[str, Any], selected_ids: list[str]
+) -> dict[str, Any]:
+    """Drop spoken bridges whose endpoints are not consecutive on the locked air order."""
+    items = list((transitions_doc or {}).get("transitions") or [])
+    order = [str(s) for s in (selected_ids or []) if s]
+    allow = set(order)
+    adjacent = {(order[i], order[i + 1]) for i in range(len(order) - 1)}
+    if not items:
+        return dict(transitions_doc) if isinstance(transitions_doc, dict) else {"transitions": []}
+    if not allow:
+        return dict(transitions_doc) if isinstance(transitions_doc, dict) else {"transitions": []}
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        after = str(item.get("after_segment_id") or "").strip()
+        before = str(item.get("before_segment_id") or "").strip()
+        if after and after not in allow:
+            pruned += 1
+            continue
+        if before and before not in allow:
+            pruned += 1
+            continue
+        if after and before and (after, before) not in adjacent:
+            pruned += 1
+            continue
+        kept.append(item)
+    out = dict(transitions_doc) if isinstance(transitions_doc, dict) else {}
+    out["transitions"] = kept
+    if pruned:
+        out["outside_selection_pruned_count"] = pruned
+    return out
 
 
 def dedupe_transitions_by_adjacency(transitions_doc: dict[str, Any]) -> dict[str, Any]:

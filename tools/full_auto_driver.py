@@ -294,11 +294,20 @@ RUN_ID = os.environ.get("MUX_RUN_ID", "")
 
 def try_product_recovery(stage_id: str, err: str) -> str | None:
     """One typed playbook via the product controller. Returns resume stage or None."""
-    from interview_mux.recovery_controller import handle_stage_failure
+    from interview_mux.identical_failures import failure_signature, is_halted
+    from interview_mux.recovery_controller import classify_error_class, handle_stage_failure
     from interview_mux.run_context import RunContext
 
     ctx = RunContext(RUN_ID, create=False)
-    result = handle_stage_failure(ctx, stage_id, RuntimeError(err))
+    exc = RuntimeError(err)
+    cls = classify_error_class(stage_id, exc) or "unknown"
+    halt_sig = failure_signature(
+        failed_stage=stage_id, producer=cls, reason=err[:400]
+    )
+    if is_halted(ctx, halt_sig):
+        log(f"recovery_controller halted identical failure {halt_sig}")
+        return None
+    result = handle_stage_failure(ctx, stage_id, exc)
     log(
         f"recovery_controller {result.status} {result.signature} "
         f"playbook={result.playbook_id} detail={result.detail}"
@@ -590,16 +599,52 @@ def assert_fresh_layer_contract() -> None:
         raise RuntimeError("HARD: EDL has no speech clips")
     if vo_n < 1:
         active_vo = 0
+        gr: dict = {}
         if ctx.artifact_exists("understanding/gap_report.json"):
-            gr = ctx.read_json("understanding/gap_report.json")
+            loaded = ctx.read_json("understanding/gap_report.json")
+            gr = loaded if isinstance(loaded, dict) else {}
             active_vo = sum(
                 1
-                for ln in ((gr or {}).get("interviewer_lines") or [])
+                for ln in (gr.get("interviewer_lines") or [])
                 if isinstance(ln, dict) and not ln.get("skipped_optional")
             )
         if active_vo:
-            raise RuntimeError("HARD: EDL has no vo_pickup clips")
-        log("layer check: no vo_pickup (no active interviewer_lines — native_handoff OK)")
+            required_vo = 0
+            try:
+                from interview_mux.omit_ledger import (
+                    OMIT_LEDGER_REL,
+                    effective_air_contract,
+                )
+
+                ledger = (
+                    ctx.read_json(OMIT_LEDGER_REL)
+                    if ctx.artifact_exists(OMIT_LEDGER_REL)
+                    else None
+                )
+                for ln in ((gr or {}).get("interviewer_lines") or []):
+                    if not isinstance(ln, dict) or ln.get("skipped_optional"):
+                        continue
+                    status = str(
+                        (
+                            effective_air_contract(
+                                ledger if isinstance(ledger, dict) else None,
+                                line_id=str(ln.get("line_id") or "") or None,
+                                target_segment_id=str(ln.get("targets_segment_id") or "")
+                                or None,
+                            )
+                            or {}
+                        ).get("status")
+                        or "required"
+                    )
+                    if status == "required":
+                        required_vo += 1
+            except Exception:
+                required_vo = active_vo
+            if required_vo:
+                raise RuntimeError("HARD: EDL has no vo_pickup clips")
+            log(
+                "layer check: no vo_pickup (active lines omitted/suppressed — native_handoff OK)"
+            )
     # Spot-check VO paths pass speech QA
     failed_vo = 0
     for c in clips:
@@ -805,6 +850,10 @@ def wait_job(label: str = "") -> dict[str, Any]:
 def execute(body: dict[str, Any]) -> None:
     body = {**body, "api_consents": {"local": True, "openai": True}}
     from_stage = str(body.get("from_stage") or "")
+    mapped = _LLM_STAGE_TO_PIPELINE.get(from_stage, from_stage)
+    if mapped != from_stage:
+        body = {**body, "from_stage": mapped}
+        from_stage = mapped
     mode = str(body.get("mode") or "")
     if from_stage or mode:
         log_decision(
@@ -1048,6 +1097,70 @@ def complete_g0() -> None:
         log("G0 accepted")
     except RuntimeError as exc:
         log(f"G0 note: {exc}")
+
+
+def _heal_clone_voice_prereqs() -> bool:
+    """Build topology + speaker samples when Chatterbox has no pickup reference.
+
+    Homunculus 0.1.0 can skip source_topology_build; G1 then loops 503 forever.
+    Do not re-execute analysis — write the artifacts in-place on this run.
+    """
+    try:
+        from interview_mux.run_context import RunContext
+        from interview_mux.source_topology import ensure_source_topology, ensure_speaker_sample_clips
+
+        ctx = RunContext(RUN_ID, create=False)
+        ensure_source_topology(ctx)
+        clips = ensure_speaker_sample_clips(ctx)
+        try:
+            from interview_mux.gap_vo_gates import maybe_auto_accept_gap_gate_defaults
+
+            maybe_auto_accept_gap_gate_defaults(ctx)
+        except Exception as exc:
+            log(f"clone-voice in-process gate accept: {exc}")
+        try:
+            accept_gap_framing_defaults()
+        except Exception as exc:
+            # 409 run_busy is expected while vo_synthesize/chatterbox is in flight.
+            log(f"clone-voice API gate accept skipped: {exc}")
+        have = ctx.artifact_exists("understanding/source_topology.json")
+        if have:
+            try:
+                from interview_mux.identical_failures import clear_halts_matching
+
+                n_edl = clear_halts_matching(
+                    ctx, failed_stage="edl", reason_substr="g1 vo pickup missing"
+                )
+                n_g1 = clear_halts_matching(ctx, failed_stage="g1_vo_pickup")
+                log(f"clone-voice prereq heal cleared identical-halts edl={n_edl} g1={n_g1}")
+            except Exception as exc:
+                log(f"clone-voice prereq halt-clear: {exc}")
+
+            def _clear_g1_pause(meta: dict[str, Any]) -> None:
+                stage = str(meta.get("needs_operator_stage") or "").lower()
+                reason = str(meta.get("needs_operator_reason") or "").lower()
+                if stage in {"g1_vo_pickup", "edl", "g1"} or any(
+                    tok in reason for tok in ("g1", "chatterbox", "pickup", "voice")
+                ):
+                    meta.pop("needs_operator", None)
+                    meta.pop("needs_operator_stage", None)
+                    meta.pop("needs_operator_reason", None)
+
+            ctx.mutate_run_meta(_clear_g1_pause)
+        log(
+            f"clone-voice prereq heal topology={have} clips={len(clips) if isinstance(clips, dict) else 0}"
+        )
+        log_decision(
+            "minor",
+            stage="source_topology_build",
+            action="heal",
+            reason="chatterbox_missing_voice_reference",
+            detail={"clips": len(clips) if isinstance(clips, dict) else 0},
+        )
+        return have
+    except Exception as exc:
+        log(f"clone-voice prereq heal failed: {exc}")
+        return False
 
 
 def accept_gap_framing_defaults() -> None:
@@ -1506,6 +1619,7 @@ def approve_music_listen() -> None:
 # Nested LLM stage ids that are not pipeline from_stage values.
 _LLM_STAGE_TO_PIPELINE = {
     "synthetic_framing_plan": "transitions",
+    "selection": "full_master_ranking",
 }
 
 
@@ -1580,14 +1694,20 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
         or "high gap segment" in low
     ):
         return "gap_framing_compose"
-    if "unknown from_stage" in low:
+    if "unknown from_stage" in low or "unknown stage:" in low:
         # e.g. "Unknown from_stage: synthetic_framing_plan" — remap nested LLM ids.
         if "synthetic_framing" in low:
             return "transitions"
         if "content_brief" in low:
             return "topic_coverage_audit"
+        if _re.search(r"unknown (?:from_)?stage:\s*selection\b", low):
+            return "full_master_ranking"
         try:
-            raw = err.split("Unknown from_stage:", 1)[1].strip().split()[0].strip(".:")
+            raw = ""
+            if "Unknown from_stage:" in err:
+                raw = err.split("Unknown from_stage:", 1)[1].strip().split()[0].strip(".:")
+            elif "Unknown stage:" in err:
+                raw = err.split("Unknown stage:", 1)[1].strip().split()[0].strip(".:")
             mapped = _canonicalize(raw)
             if mapped:
                 return mapped
@@ -2038,6 +2158,30 @@ def heal_stage_done_markers() -> None:
                 continue
         except Exception:
             continue
+        if sid == "edl":
+            try:
+                from interview_mux.order_hash import order_drift_heal_action
+
+                sel = (
+                    ctx.read_json("master/selection.json")
+                    if ctx.artifact_exists("master/selection.json")
+                    else None
+                )
+                edl_doc = (
+                    ctx.read_json("master/edl.json")
+                    if ctx.artifact_exists("master/edl.json")
+                    else None
+                )
+                if (
+                    order_drift_heal_action(
+                        sel if isinstance(sel, dict) else None,
+                        edl_doc if isinstance(edl_doc, dict) else None,
+                    )
+                    == "rebuild"
+                ):
+                    continue
+            except Exception:
+                pass
         try:
             ctx.mark_done(sid, force=True)
             healed.append(sid)
@@ -2062,6 +2206,48 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         reason=str(status or "gate"),
         detail=msg[:200],
     )
+
+    if "edl_qc strict" in low and "edl_narrative_qc" not in low:
+        # Speech clips citing NLE/CTA split children that were never written
+        # into segments/manifest.json. Hydrate those rows; do not remutate
+        # ranking or loop layup compose.
+        fail_key = f"edl_qc:{msg[:160]}"
+        n = bump_identical(
+            fail_key,
+            stage=stage or "edl",
+            producer="segments/manifest.json",
+            reason=msg[:240],
+            resume="edl",
+        )
+        if n >= 3:
+            log_decision(
+                "major",
+                stage=stage or "edl",
+                action="stop",
+                reason="identical_edl_qc_unknown_segment_x3",
+                detail=msg[:240],
+            )
+            log(
+                "STOP: edl_qc unknown-segment heal ×3 — hydrate NLE split "
+                "children into the manifest; do not remutate selection"
+            )
+            return pause_needs_operator(
+                "edl",
+                "HARD: edl_qc looping on unknown NLE split children",
+            )
+        try:
+            from interview_mux.nle_state import materialize_all_nle_split_children
+            from interview_mux.run_context import RunContext
+
+            n_kids = materialize_all_nle_split_children(RunContext(RUN_ID, create=False))
+            log(f"edl_qc heal: materialized {n_kids} NLE split children into manifest")
+        except Exception as exc:
+            log(f"edl_qc split-child materialize: {exc}")
+        resume = try_product_recovery(stage or "edl", msg)
+        dest = resume or "edl"
+        log(f"edl_qc unknown-segment → hydrate + resume {dest}")
+        execute({"mode": "delivery", "from_stage": dest})
+        return "continue"
 
     if "missing" in low and "edl.json" in low:
         log("assembly/mix blocked on missing edl.json — resume edl (not ranking)")
@@ -2388,201 +2574,37 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         or "ordered_segment_ids drifted" in low
         or "assembly_ledger.json missing" in low
         or "selection_edl_order_drift" in low
+        or "speech clip order diverges" in low
+        or "speech clip order" in low
+        or "assembly_not_rendered_from_current_edl" in low
     ):
         try:
-            import shutil
-            from pathlib import Path as _P
-
-            from interview_mux.assembly_ledger import write_assembly_ledger
-            from interview_mux.order_hash import order_hashes_match, stamp_order_hash
+            from interview_mux.identical_failures import failure_signature, is_halted
             from interview_mux.run_context import RunContext
-            from interview_mux.file_store import write_json as fs_write_json
 
             ctx = RunContext(RUN_ID, create=False)
-            if "selection order drifted" in low or "ordered_segment_ids drifted" in low:
-                root = _P(ctx.run_dir)
-                asm_exists = (root / "master" / "assembly.wav").is_file() or bool(
-                    sorted((root / ".archived").glob("*/master/assembly.wav"))
+            halt_sig = failure_signature(
+                failed_stage=stage or "mix",
+                producer="selection_edl_order_drift",
+                reason=msg[:400],
+            )
+            if is_halted(ctx, halt_sig):
+                log("STOP: identical_failures halted order-drift heal")
+                pause_needs_operator(
+                    stage or "mix",
+                    "HARD: selection/EDL order drift identical-failure halt",
                 )
-                rebuild_n = int(globals().get("_ORDER_DRIFT_REBUILD_N") or 0)
-                if rebuild_n < 2 and not asm_exists:
-                    globals()["_ORDER_DRIFT_REBUILD_N"] = rebuild_n + 1
-                    for sid in (
-                        "edl",
-                        "assembly_preview",
-                        "listen_delight_audit",
-                        "mix",
-                        "junction_snip_qa",
-                        "master_finalize",
-                    ):
-                        (root / ".stage_done" / sid).unlink(missing_ok=True)
-                    log(
-                        "order/ledger heal: selection changed after narrative repair; "
-                        "rebuild EDL and mix"
-                    )
-                    execute({"mode": "delivery", "from_stage": "edl"})
-                    return "continue"
-                log("order/ledger heal: assembly exists — stamp selection to EDL, skip rebuild")
-            # Prefer live edl; fall back to newest archived edl after a failed junction.
-            edl = None
-            if ctx.artifact_exists("master/edl.json"):
-                edl = ctx.read_json("master/edl.json")
-            if not isinstance(edl, dict):
-                arch_edls = sorted((_P(ctx.run_dir) / ".archived").glob("*/master/edl.json"))
-                if arch_edls:
-                    import json as _json
-
-                    edl = _json.loads(arch_edls[-1].read_text(encoding="utf-8"))
-                    dest = _P(ctx.run_dir) / "master" / "edl.json"
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(arch_edls[-1], dest)
-                    _heal_restored_edl(_P(ctx.run_dir))
-                    log(f"order/ledger heal: restored edl.json from {arch_edls[-1]}")
-            if not isinstance(edl, dict):
-                log("order/ledger heal: missing edl — cannot sync")
                 return "stuck"
-            edl_ids = [str(s) for s in (edl.get("ordered_segment_ids") or []) if s]
-            # Prefer archived selection that already matches EDL air order.
-            sel_path = _P(ctx.run_dir) / "master" / "selection.json"
-            synced = False
-            for cand in reversed(sorted((_P(ctx.run_dir) / ".archived").glob("*/master/selection.json"))):
-                try:
-                    doc = json.loads(cand.read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if isinstance(doc, dict) and order_hashes_match(doc, edl):
-                    shutil.copy2(cand, sel_path)
-                    synced = True
-                    log(f"order/ledger heal: restored matching selection from {cand}")
-                    break
-            if not synced:
-                sel = (
-                    ctx.read_json("master/selection.json")
-                    if ctx.artifact_exists("master/selection.json")
-                    else {"version": 1}
-                )
-                if not isinstance(sel, dict):
-                    sel = {"version": 1}
-                # Selection leads: align EDL to selection lock (never selection←EDL).
-                from interview_mux.order_hash import bump_order_lock, copy_order_lock
-
-                sel = bump_order_lock(sel, source="full_auto_order_ledger_heal")
-                fs_write_json(sel_path, sel)
-                edl = copy_order_lock(
-                    sel,
-                    stamp_order_hash(
-                        {
-                            **dict(edl),
-                            "ordered_segment_ids": list(sel.get("ordered_segment_ids") or edl_ids),
-                        }
-                    ),
-                )
-                log("order/ledger heal: aligned EDL to selection order_lock")
-            else:
-                edl = stamp_order_hash(dict(edl))
-                try:
-                    from interview_mux.order_hash import copy_order_lock
-
-                    live_sel = ctx.read_json("master/selection.json")
-                    if isinstance(live_sel, dict):
-                        edl = copy_order_lock(live_sel, edl)
-                except Exception:
-                    pass
-            fs_write_json(_P(ctx.run_dir) / "master" / "edl.json", edl)
-            write_assembly_ledger(ctx, edl=edl)
-            log("order/ledger heal: wrote assembly_ledger.json")
-            # Restore assembly when present so we can resume at finalize / junction.
-            asm = _P(ctx.run_dir) / "master" / "assembly.wav"
-            if not asm.is_file():
-                arch = sorted((_P(ctx.run_dir) / ".archived").glob("*/master/assembly.wav"))
-                if arch:
-                    asm.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(arch[-1], asm)
-                    log(f"order/ledger heal: restored assembly.wav from {arch[-1]}")
-            for sid in ("edl", "mix"):
-                if sid == "mix" and not asm.is_file():
-                    continue
-                ctx.mark_done(sid, force=True)
-            # Order-drift after junction: re-run junction with synced selection, not full EDL.
-            if "selection_edl_order_drift" in low and asm.is_file():
-                execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
-                return "continue"
-            for sid in ("junction_snip_qa",):
-                if not (
-                    (_P(ctx.run_dir) / "master" / "junction_snip_qa.json").is_file()
-                    or sorted((_P(ctx.run_dir) / ".archived").glob("*/master/junction_snip_qa.json"))
-                ):
-                    continue
-                ctx.mark_done(sid, force=True)
-            if asm.is_file():
-                # Restore junction reports if needed so finalize is not blocked on redo.
-                for name in (
-                    "junction_snip_qa.json",
-                    "junction_thought_complete.json",
-                    "junction_feel_audit.json",
-                    "seam_autopsy.json",
-                    "render_ledger.json",
-                ):
-                    dest = _P(ctx.run_dir) / "master" / name
-                    if dest.is_file():
-                        continue
-                    cands = sorted((_P(ctx.run_dir) / ".archived").glob(f"*/master/{name}"))
-                    if cands:
-                        shutil.copy2(cands[-1], dest)
-                        log(f"order/ledger heal: restored {name}")
-                if not (_P(ctx.run_dir) / "master" / "seam_autopsy.json").is_file():
-                    # Build autopsy from current ledger+EDL rather than re-running
-                    # junction remediations when assembly already exists.
-                    try:
-                        from datetime import datetime, timezone
-
-                        from interview_mux.seam_autopsy import (
-                            build_autopsy,
-                            enrich_ledger,
-                            write_autopsy,
-                            write_render_ledger,
-                        )
-
-                        snip = (
-                            ctx.read_json("master/junction_snip_qa.json")
-                            if ctx.artifact_exists("master/junction_snip_qa.json")
-                            else {"version": 1, "passed": True, "blocking_reasons": []}
-                        )
-                        now = datetime.now(timezone.utc).isoformat()
-                        autopsy = build_autopsy(
-                            ctx,
-                            phase="post_junction",
-                            snip_report=snip if isinstance(snip, dict) else None,
-                            edl=edl,
-                        )
-                        autopsy["commitment"] = {
-                            **(
-                                autopsy.get("commitment")
-                                if isinstance(autopsy.get("commitment"), dict)
-                                else {}
-                            ),
-                            "status": "committed",
-                            "e2e_softened": True,
-                            "verified_at": now,
-                            "reasons": [],
-                        }
-                        autopsy["blocking_reasons"] = []
-                        write_autopsy(ctx, autopsy)
-                        enrich_ledger(ctx, autopsy)
-                        if not (_P(ctx.run_dir) / "master" / "render_ledger.json").is_file():
-                            write_render_ledger(ctx, edl=edl)
-                        log("order/ledger heal: built seam_autopsy from ledger")
-                    except Exception as build_exc:
-                        log(f"order/ledger heal autopsy build failed: {build_exc}")
-                        execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
-                        return "continue"
-                execute({"mode": "delivery", "from_stage": "master_finalize"})
-            else:
-                execute({"mode": "delivery", "from_stage": "mix"})
-            return "continue"
         except Exception as exc:
-            log(f"order/ledger heal: {exc}")
-            return "stuck"
+            log(f"identical halt check: {exc}")
+        resume = try_product_recovery(stage or "mix", msg)
+        if resume:
+            execute({"mode": "delivery", "from_stage": resume})
+            return "continue"
+        log("order/ledger heal: product recovery did not recover — escalate")
+        pause_needs_operator(stage or "mix", f"HARD: order drift unrecovered: {msg[:200]}")
+        return "stuck"
+
 
     if job.get("needs_stage_reuse") and stage:
         decline_reuse(stage)
@@ -2721,6 +2743,29 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
                     ctx_l = RunContext(RUN_ID, create=False)
                     if ctx_l.artifact_exists("understanding/nugget_layup_plan.json"):
+                        plan = ctx_l.read_json("understanding/nugget_layup_plan.json")
+                        sel = (
+                            ctx_l.read_json("master/selection.json")
+                            if ctx_l.artifact_exists("master/selection.json")
+                            else {}
+                        )
+                        plan_ids = [
+                            str(x)
+                            for x in ((plan or {}).get("ordered_segment_ids") or [])
+                            if x
+                        ]
+                        sel_ids = [
+                            str(x)
+                            for x in ((sel or {}).get("ordered_segment_ids") or [])
+                            if x
+                        ]
+                        if sel_ids and plan_ids != sel_ids:
+                            log(
+                                "layup plan stale vs selection "
+                                f"({len(plan_ids)} vs {len(sel_ids)}) — compose, do not waive"
+                            )
+                            execute({"mode": "stage", "stage": "nugget_layup_compose"})
+                            return "continue"
                         try:
                             heal_layup_spoken_copy()
                         except Exception as exc:
@@ -2810,6 +2855,34 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         return "continue"
                 except Exception as exc:
                     log(f"vo_synthesize prerequisite waive: {exc}")
+            if need == "connector_fuse_pass_pre_ranking":
+                n = bump_identical(
+                    "connector_fuse_pass_pre_ranking:incomplete",
+                    stage="connector_fuse_pass_pre_ranking",
+                    producer="analysis/connector_fuse_rounds.json",
+                    reason="pre_ranking_rounds_missing",
+                    resume="connector_fuse_pass_pre_ranking",
+                )
+                if n >= 3:
+                    log(
+                        "STOP: connector_fuse_pass_pre_ranking prerequisite ×3 — "
+                        "pre_ranking rounds still missing"
+                    )
+                    return pause_needs_operator(
+                        "connector_fuse_pass_pre_ranking",
+                        "pre_ranking fuse looping: analysis/connector_fuse_rounds.json missing",
+                    )
+                log(
+                    "prerequisite connector_fuse_pass_pre_ranking — "
+                    "run as single stage (do not skip via first-pass island artifacts)"
+                )
+                execute(
+                    {
+                        "mode": "stage",
+                        "stage": "connector_fuse_pass_pre_ranking",
+                    }
+                )
+                return "continue"
             earliest = first_pending(ANALYSIS_ORDER)
             if (
                 earliest
@@ -2822,6 +2895,36 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 )
                 need = earliest
             log(f"prerequisite incomplete: {need} — resuming from there")
+            if need == "mmaudio_sfx":
+                try:
+                    from interview_mux.artifact_completeness import artifact_status
+                    from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+                    from interview_mux.run_context import RunContext as _RC_qa
+
+                    ctx_qa = _RC_qa(RUN_ID, create=False)
+                    heal_mmaudio_qa_wav_parity(ctx_qa)
+                    if artifact_status("sound_design/mmaudio_qa.json", ctx_qa) == "complete":
+                        log(
+                            "mmaudio_sfx prerequisite: parity heal made QA complete — "
+                            "resume mix, do not regenerate"
+                        )
+                        execute({"mode": "delivery", "from_stage": "mix"})
+                        return "continue"
+                except Exception as exc:
+                    log(f"mmaudio_sfx prerequisite heal: {exc}")
+                n = bump_identical(
+                    "mmaudio_sfx:self_prerequisite",
+                    stage="mmaudio_sfx",
+                    producer="sound_design/mmaudio_qa.json",
+                    reason="empty_or_partial_mmaudio_qa",
+                    resume="mmaudio_sfx",
+                )
+                if n >= 3:
+                    log(
+                        "STOP: mmaudio_sfx prerequisite looped ≥3 — "
+                        "empty QA must not skip generation"
+                    )
+                    raise SystemExit("HARD: mmaudio_sfx self-prerequisite loop x3")
             if need in ANALYSIS_ORDER:
                 mode = "analysis"
             elif need in DELIVERY_ORDER:
@@ -2956,6 +3059,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             heal_layup_spoken_copy()
         except Exception as exc:
             log(f"G1 spoken-copy heal (pre-synth): {exc}")
+        try:
+            from interview_mux.run_context import RunContext as _RC
+
+            if not _RC(RUN_ID, create=False).artifact_exists("understanding/source_topology.json"):
+                _heal_clone_voice_prereqs()
+        except Exception as exc:
+            log(f"clone-voice prereq pre-check: {exc}")
         g1_ok = synthesize_g1()
         if not g1_ok:
             try:
@@ -2975,25 +3085,29 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             except Exception:
                 pass
             if framing_active or delivery in {"chatterbox", "voice_clone", "synthesize"}:
-                # Retry in-place rather than returning "stuck" (which re-executes the
-                # delivery body and can recompose layups, invalidating fresh VO hashes).
-                global _G1_SYNTH_RETRIES
-                _G1_SYNTH_RETRIES = int(globals().get("_G1_SYNTH_RETRIES") or 0) + 1
-                if _G1_SYNTH_RETRIES <= 6:
+                # Missing topology / speaker samples is not a TTS flake — do not
+                # loop synthesize-all. Build clone-voice prereqs once, then retry.
+                if _heal_clone_voice_prereqs():
+                    globals()["_G1_SYNTH_RETRIES"] = 0
+                    g1_ok = synthesize_g1()
+                if not g1_ok:
+                    global _G1_SYNTH_RETRIES
+                    _G1_SYNTH_RETRIES = int(globals().get("_G1_SYNTH_RETRIES") or 0) + 1
+                    if _G1_SYNTH_RETRIES >= 3:
+                        log(
+                            "HARD: G1 synthesize-all failed 3× with framing/chatterbox "
+                            "active after clone-voice prereq heal — stopping this path"
+                        )
+                        return pause_needs_operator(
+                            "g1_vo_pickup",
+                            "HARD: G1 synthesize-all failed while framing/chatterbox active",
+                        )
                     log(
-                        f"G1 synth incomplete (attempt {_G1_SYNTH_RETRIES}/6) — "
+                        f"G1 synth incomplete (attempt {_G1_SYNTH_RETRIES}/3) — "
                         "waiting before retry (not re-executing delivery)"
                     )
                     time.sleep(min(30 * _G1_SYNTH_RETRIES, 180))
                     return "continue"
-                log(
-                    "HARD: G1 synthesize-all failed while framing/chatterbox active — "
-                    "not auto-skipping (fix TTS / leave needs_operator)"
-                )
-                return pause_needs_operator(
-                    "g1_vo_pickup",
-                    "HARD: G1 synthesize-all failed while framing/chatterbox active",
-                )
             skip_g1()
         globals()["_G1_SYNTH_RETRIES"] = 0
         execute({"mode": "delivery", "from_stage": "edl"} if "edl" in low else body)
@@ -3343,6 +3457,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
                 vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
                 resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
+                ctx=ctx,
             )
             errs = validate_flow1_edl_narrative(ctx, edl)
             log(f"post-edl narrative heal: {errs[:3] or 'pass'}")
@@ -3382,6 +3497,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
                             vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
                             resolve_transition_path=lambda a, b: resolve_transition_wav(ctx, a, b),
+                            ctx=ctx,
                         )
                         errs = validate_flow1_edl_narrative(ctx, edl)
                         log(f"post-edl after air-script omit stamp: {errs[:3] or 'pass'}")
@@ -3493,6 +3609,79 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 )
                 execute({"mode": "delivery", "from_stage": "edl"})
                 return "continue"
+            clone_adj_only = hard and all(
+                "cloned voice" in str(e).lower() and "adjacent to native" in str(e).lower()
+                for e in hard
+            )
+            if clone_adj_only:
+                if _trip_edl_narrative_heal_loop(hard):
+                    log_decision(
+                        "major",
+                        stage="edl",
+                        action="stop",
+                        reason="identical_edl_narrative_qc_x3",
+                        detail=_edl_qc_heal_signature(hard)[:240],
+                    )
+                    log(
+                        "STOP: edl_narrative_qc clone-adjacency heal ×3 — "
+                        "retarget/drop generic clone-next-to-native VO in product"
+                    )
+                    return pause_needs_operator(
+                        "edl",
+                        "HARD: edl_narrative_qc heal looping on clone-voice adjacency",
+                    )
+                try:
+                    from interview_mux.gap_framing import avoid_clone_voice_adjacency
+                    from interview_mux.source_topology import pickup_eligible_speaker_id
+
+                    gr = (
+                        ctx.read_json("understanding/gap_report.json")
+                        if ctx.artifact_exists("understanding/gap_report.json")
+                        else {}
+                    )
+                    man = (
+                        ctx.read_json("segments/manifest.json")
+                        if ctx.artifact_exists("segments/manifest.json")
+                        else {}
+                    )
+                    segs = {
+                        str(row.get("segment_id")): row
+                        for row in ((man if isinstance(man, dict) else {}).get("segments") or [])
+                        if isinstance(row, dict) and row.get("segment_id")
+                    }
+                    sel_doc = (
+                        ctx.read_json("master/selection.json")
+                        if ctx.artifact_exists("master/selection.json")
+                        else {}
+                    )
+                    corpus = (
+                        ctx.read_json("understanding/nugget_corpus.json")
+                        if ctx.artifact_exists("understanding/nugget_corpus.json")
+                        else {}
+                    )
+                    cleaned, notes = avoid_clone_voice_adjacency(
+                        gr if isinstance(gr, dict) else {},
+                        segs,
+                        ordered_segment_ids=list(
+                            (sel_doc if isinstance(sel_doc, dict) else {}).get(
+                                "ordered_segment_ids"
+                            )
+                            or []
+                        ),
+                        clone_speaker_id=pickup_eligible_speaker_id(ctx),
+                        nugget_corpus=corpus if isinstance(corpus, dict) else {},
+                    )
+                    if notes and isinstance(cleaned, dict):
+                        ctx.write_json("understanding/gap_report.json", cleaned)
+                        log(
+                            "clone-adjacency: retargeted/dropped "
+                            f"{len(notes)} generic clone-adjacent VO line(s)"
+                        )
+                except Exception as exc:
+                    log(f"clone-adjacency persist: {exc}")
+                log("edl_narrative_qc: clone-adjacent generic VO — resume edl")
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
             # Other hard EDL narrative errors — resume edl; do not fall through.
             log(f"edl_narrative_qc hard issues remain ({len(hard)}) — resume edl")
             execute({"mode": "delivery", "from_stage": "edl"})
@@ -3545,7 +3734,11 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             import shutil
 
             from interview_mux.run_context import RunContext
-            from interview_mux.mmaudio_asset_qa import run_mmaudio_asset_qa
+            from interview_mux.artifact_completeness import artifact_status
+            from interview_mux.mmaudio_asset_qa import (
+                heal_mmaudio_qa_wav_parity,
+                run_mmaudio_asset_qa,
+            )
             from interview_mux.write_staging import exit_stage_staging
 
             exit_stage_staging()
@@ -3558,6 +3751,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(arch[-1], dest)
                     log(f"restored assembly_preview from {arch[-1]}")
+            try:
+                heal_mmaudio_qa_wav_parity(ctx)
+            except Exception as exc:
+                log(f"mix gate heal: parity heal {exc}")
+            if artifact_status("sound_design/mmaudio_qa.json", ctx) == "complete":
+                log("mix gate heal: mmaudio_qa complete after parity — resume mix")
+                execute({"mode": "delivery", "from_stage": "mix"})
+                return "continue"
             doc = run_mmaudio_asset_qa(ctx)
             pending = _P(ctx.run_dir) / ".pending_writes" / "mmaudio_sfx" / "sound_design" / "mmaudio_qa.json"
             final = _P(ctx.run_dir) / "sound_design" / "mmaudio_qa.json"
@@ -3742,24 +3943,56 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             )
             from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
             from interview_mux.write_staging import (
-                discard_stage_writes,
-                exit_stage_staging,
-                stages_with_pending_writes,
+                promote_glue_then_discard_stale_edl,
                 write_committed_json,
             )
 
             ctx = RunContext(RUN_ID, create=False)
             root = _P(ctx.run_dir)
-            # Bridge gates commonly fire from a failed EDL snapshot.  Discard it
-            # before reading or rewriting transitions so stale staged copies do
-            # not shadow the committed repair.
-            exit_stage_staging()
-            stale_stages = stages_with_pending_writes(ctx)
-            for stale_stage in stale_stages:
-                discard_stage_writes(ctx, stale_stage)
-            if stale_stages:
-                log(f"bridge heal: discarded stale staging {stale_stages}")
+            # Promote glue/VO first. Discard only staged master/edl.json so a
+            # failed ledger cannot rmtree the only good gap_report/bridges.
+            glue_flush = promote_glue_then_discard_stale_edl(ctx)
+            if glue_flush.get("promoted") or glue_flush.get("discarded_edl"):
+                log(
+                    "bridge heal: promoted glue "
+                    f"{glue_flush.get('promoted')[:8]} "
+                    f"discarded_edl={glue_flush.get('discarded_edl')}"
+                )
             meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            # Mix overlap-stamps hitch air into the previous native. Rebuild the
+            # ledger from the realized EDL before minting clone speech.
+            if "naked seam" in low or "naked seam(s)" in low:
+                from interview_mux.assembly_ledger import write_assembly_ledger
+
+                n_naked = bump_identical(
+                    "edl:naked_seam",
+                    stage="edl",
+                    producer="master/assembly_ledger.json",
+                    reason=low[:240],
+                    resume="edl",
+                )
+                if n_naked >= 3:
+                    log(
+                        "STOP: naked-seam gate repeated ≥3 — glue promote did not "
+                        "progress; do not discard staging again"
+                    )
+                    raise SystemExit("HARD: assembly_ledger naked seam (x3)")
+
+                edl_now = (
+                    ctx.read_json("master/edl.json")
+                    if ctx.artifact_exists("master/edl.json")
+                    else None
+                )
+                ledger = write_assembly_ledger(
+                    ctx, edl=edl_now if isinstance(edl_now, dict) else None
+                )
+                if ledger.get("complete"):
+                    log(
+                        "naked-seam heal: hitch/glue already on EDL — "
+                        "resume junction without reminting spoken bridges"
+                    )
+                    execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
+                    return "continue"
             soft = bool((meta or {}).get("e2e_soft_junction_residuals"))
             asm = root / "master" / "assembly.wav"
             # Soft e2e: mark ledger complete and finalize instead of remastering.
@@ -3783,8 +4016,29 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             if not ctx.artifact_exists("understanding/reorder_bridges.json"):
-                execute({"mode": "delivery", "from_stage": "edl"})
-                return "continue"
+                try:
+                    from interview_mux.nle_state import segments_by_id_with_nle
+                    from interview_mux.seam_glue import rebuild_reorder_bridges
+
+                    sel_now = (
+                        ctx.read_json("master/selection.json")
+                        if ctx.artifact_exists("master/selection.json")
+                        else {}
+                    )
+                    ordered_now = [
+                        str(s)
+                        for s in ((sel_now or {}).get("ordered_segment_ids") or [])
+                        if s
+                    ]
+                    by_id_now = segments_by_id_with_nle(ctx)
+                    if ordered_now and by_id_now:
+                        rebuild_reorder_bridges(ctx, ordered_now, by_id_now)
+                        log("bridge heal: rebuilt committed reorder_bridges from selection")
+                except Exception as exc:
+                    log(f"bridge heal: rebuild reorder_bridges failed: {exc}")
+                if not ctx.artifact_exists("understanding/reorder_bridges.json"):
+                    execute({"mode": "delivery", "from_stage": "edl"})
+                    return "continue"
             bridges = ctx.read_json("understanding/reorder_bridges.json")
             sel = (
                 ctx.read_json("master/selection.json")
@@ -3905,6 +4159,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 gap_report=gap if isinstance(gap, dict) else None,
                 transitions=tr,
                 justified_skip_before_ids=justified_skip_before,
+                edl=ctx.read_json("master/edl.json")
+                if ctx.artifact_exists("master/edl.json")
+                else None,
             )
             if miss:
                 from interview_mux.seam_glue import mint_missing_transitions
@@ -3923,6 +4180,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     gap_report=gap if isinstance(gap, dict) else None,
                     transitions=tr,
                     justified_skip_before_ids=justified_skip_before,
+                    edl=ctx.read_json("master/edl.json")
+                    if ctx.artifact_exists("master/edl.json")
+                    else None,
                     soft=False,
                 )
             except SystemExit as assert_exc:
@@ -4165,6 +4425,64 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 for item in (audit.get("blocking_issues") or [])
                 if isinstance(item, dict)
             ).lower()
+            chapter_tail = any(
+                needle in issue_blob
+                for needle in (
+                    "planned chapter sequence",
+                    "after the intended final",
+                    "after that resolution",
+                    "after the final-act",
+                    "after the future-facing",
+                    "strands two chapter members after",
+                    "early-chapter",
+                    "finale block",
+                    "placed after the final",
+                )
+            )
+            if chapter_tail and ctx.artifact_exists("master/selection.json"):
+                from interview_mux.selection_order_repair import (
+                    finale_tail_errors,
+                    repair_selection_order,
+                )
+
+                sel = ctx.read_json("master/selection.json")
+                plan = (
+                    ctx.read_json("master/narrative_plan.json")
+                    if ctx.artifact_exists("master/narrative_plan.json")
+                    else None
+                )
+                before = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+                repaired, notes = repair_selection_order(
+                    sel if isinstance(sel, dict) else {},
+                    plan if isinstance(plan, dict) else None,
+                )
+                after = [str(s) for s in (repaired.get("ordered_segment_ids") or []) if s]
+                tail = finale_tail_errors(after, plan if isinstance(plan, dict) else None)
+                if after and after != before and not tail:
+                    write_validated_artifact(
+                        ctx,
+                        "master/selection.json",
+                        repaired,
+                        merge_from_disk=False,
+                        stage_key="full_master_ranking",
+                    )
+                    log(
+                        "edl_narrative chapter-tail: repaired air order "
+                        f"{notes[:4]} — resume transitions (not ranking LLM)"
+                    )
+                    execute({"mode": "delivery", "from_stage": "transitions"})
+                    return "continue"
+                sig = [
+                    str(item.get("issue") or "")[:160]
+                    for item in (audit.get("blocking_issues") or [])
+                    if isinstance(item, dict)
+                ]
+                if _trip_edl_narrative_heal_loop(sig or [msg]):
+                    log("STOP: edl_narrative chapter-tail repair loop ≥3")
+                    return pause_needs_operator(
+                        "edl_narrative_audit",
+                        "HARD: chapter-order tail after finale not repaired by topo",
+                    )
             if any(
                 needle in issue_blob
                 for needle in (
@@ -4174,6 +4492,11 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     "identical selected-order",
                     "one transition per",
                     "competing spoken bridges",
+                    "empty chapter",
+                    "coverage audit",
+                    "outside the authoritative selected",
+                    "late opening",
+                    "opening-style reset",
                 )
             ):
                 sig = [
@@ -4199,10 +4522,27 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if not synthesize_g1():
                     log("host repair G1 synth incomplete — wait/retry, not edl")
                     return "continue"
+                resume = str(applied.get("from_stage") or "edl_narrative_audit")
+                vo_missing = any(
+                    needle in issue_blob
+                    for needle in (
+                        "coverage=missing",
+                        "wav_stale",
+                        "script_match=false",
+                        "script-matched vo",
+                        "lack usable script-matched",
+                        "rerun vo_ingest",
+                    )
+                )
+                if vo_missing and resume == "nugget_layup_compose":
+                    log(
+                        "edl_narrative missing/stale VO — resume vo_synthesize, not compose"
+                    )
+                    resume = "vo_synthesize"
                 execute(
                     {
                         "mode": "delivery",
-                        "from_stage": applied.get("from_stage") or "edl_narrative_audit",
+                        "from_stage": resume,
                     }
                 )
                 return "continue"
@@ -4219,7 +4559,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     import re
 
                     for sid in re.findall(r"seg_\d+[a-z]*", ev):
-                        if "blank" in ev.lower() or "empty" in ev.lower():
+                        # "empty chapter" is a map defect, not blank/unusable audio.
+                        if "blank" in ev.lower() or "unusable" in ev.lower() or "empty answer" in ev.lower():
                             drop.add(sid)
             if ctx.artifact_exists("understanding/gap_report.json"):
                 gr = ctx.read_json("understanding/gap_report.json")
@@ -4645,6 +4986,34 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     return "advance"
             except Exception as exc:
                 log(f"prerequisite keep-artifact: {exc}")
+            if need == "connector_fuse_pass_pre_ranking":
+                n = bump_identical(
+                    "connector_fuse_pass_pre_ranking:incomplete",
+                    stage="connector_fuse_pass_pre_ranking",
+                    producer="analysis/connector_fuse_rounds.json",
+                    reason="pre_ranking_rounds_missing",
+                    resume="connector_fuse_pass_pre_ranking",
+                )
+                if n >= 3:
+                    log(
+                        "STOP: connector_fuse_pass_pre_ranking prerequisite ×3 — "
+                        "pre_ranking rounds still missing"
+                    )
+                    return pause_needs_operator(
+                        "connector_fuse_pass_pre_ranking",
+                        "pre_ranking fuse looping: analysis/connector_fuse_rounds.json missing",
+                    )
+                log(
+                    "prerequisite connector_fuse_pass_pre_ranking — "
+                    "run as single stage (do not skip via first-pass island artifacts)"
+                )
+                execute(
+                    {
+                        "mode": "stage",
+                        "stage": "connector_fuse_pass_pre_ranking",
+                    }
+                )
+                return "continue"
             log(f"prerequisite missing: {need} — resuming from there")
             execute({"mode": "analysis" if "delivery" not in str(body.get("mode")) else "delivery", "from_stage": need})
             return "advance"
@@ -4720,7 +5089,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
     if stage == "g1_vo_pickup" or ("g1" in low and "vo" in low):
         # Handled earlier (before blocked+missing); keep as fallback.
-        if not synthesize_g1():
+        g1_ok = synthesize_g1()
+        if not g1_ok:
             framing_active = False
             delivery = ""
             try:
@@ -4730,6 +5100,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             except Exception:
                 pass
             if framing_active or delivery in {"chatterbox", "voice_clone", "synthesize"}:
+                if _heal_clone_voice_prereqs():
+                    g1_ok = synthesize_g1()
+            if not g1_ok and (framing_active or delivery in {"chatterbox", "voice_clone", "synthesize"}):
                 log(
                     "HARD: G1 synthesize-all failed while framing/chatterbox active — "
                     "not auto-skipping (fix TTS / leave needs_operator)"
@@ -4738,7 +5111,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     "g1_vo_pickup",
                     "HARD: G1 synthesize-all failed while framing/chatterbox active",
                 )
-            skip_g1()
+            if not g1_ok:
+                skip_g1()
         execute(body)
         return "continue"
 
@@ -4879,13 +5253,33 @@ def first_pending(ids: tuple[str, ...] | list[str]) -> str | None:
 
 
 def _edl_ready_artifacts(ctx: Any) -> bool:
-    """True when air order + sound design + framing exist — skip early delivery rewind."""
-    return bool(
+    """True when air order + SDP + framing + fresh layup + transitions exist."""
+    if not (
         ctx.artifact_exists("master/selection.json")
         and ctx.artifact_exists("understanding/sound_design_plan.json")
         and ctx.artifact_exists("understanding/gap_report.json")
         and ctx.artifact_exists("understanding/nugget_layup_plan.json")
-    )
+        and ctx.artifact_exists("master/transitions.json")
+    ):
+        return False
+    try:
+        from interview_mux.nugget_layup import layup_freshness_errors
+
+        if layup_freshness_errors(ctx):
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def _g1_vo_missing(ctx: Any) -> bool:
+    """True when EDL would block on missing G1 pickup WAVs."""
+    try:
+        from interview_mux.gates import check_g1_vo
+
+        return bool(check_g1_vo(ctx))
+    except Exception:
+        return False
 
 
 def write_e2e_failure_brief(
@@ -5074,62 +5468,44 @@ def delivery_resume_stage() -> str | None:
             )
         # Selection + SDP + layup already present: never rewind to nugget_corpus_mine.
         if _edl_ready_artifacts(ctx) and not edl:
+            # Homunculus can skip topology; EDL then loops on G1 missing.
+            # Resume vo_synthesize (gap+transition Chatterbox) instead of edl.
+            if _g1_vo_missing(ctx):
+                return "vo_synthesize"
             return "edl"
         if asm and edl:
-            # Drop stale junction staging that can shadow remastered assembly.wav.
             try:
-                import shutil as _sh
+                from interview_mux.air_order import mix_committed_for_live_gen
+                from interview_mux.order_hash import order_drift_heal_action
 
-                pw = root / ".pending_writes"
-                if pw.is_dir():
-                    _sh.rmtree(pw, ignore_errors=True)
+                sel = (
+                    ctx.read_json("master/selection.json")
+                    if ctx.artifact_exists("master/selection.json")
+                    else None
+                )
+                edl_doc = (
+                    ctx.read_json("master/edl.json")
+                    if ctx.artifact_exists("master/edl.json")
+                    else None
+                )
+                drift = order_drift_heal_action(
+                    sel if isinstance(sel, dict) else None,
+                    edl_doc if isinstance(edl_doc, dict) else None,
+                )
+                if drift in {"rebuild", "exclude_unseated"}:
+                    (root / ".stage_done" / "edl").unlink(missing_ok=True)
+                    (root / ".stage_done" / "mix").unlink(missing_ok=True)
+                    (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
+                    (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
+                    return "edl" if drift == "rebuild" else "mix"
+                if not mix_committed_for_live_gen(ctx):
+                    (root / ".stage_done" / "mix").unlink(missing_ok=True)
+                    (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
+                    (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
+                    return "mix"
             except Exception:
                 pass
-            for sid in (
-                "edl",
-                "assembly_preview",
-                "listen_delight_audit",
-                "music_palette_compose",
-                "sfx_prompt_craft",
-                "sfx_prompt_refine",
-                "mmaudio_sfx",
-                "mix",
-            ):
-                try:
-                    ctx.mark_done(sid, force=True)
-                except Exception:
-                    pass
-            # Soft-junction e2e: skip further junction remediations and finalize.
-            if soft:
-                try:
-                    ctx.mark_done("junction_snip_qa", force=True)
-                except Exception:
-                    pass
-                return first_pending(
-                    [
-                        "master_finalize",
-                        "master_transcript_build",
-                        "episode_meta_build",
-                        "episode_cover_prompt_craft",
-                        "podcast_encode_mp3",
-                        "episode_cover_generate",
-                        "podcast_publish",
-                    ]
-                )
-            if not ctx.is_done("junction_snip_qa"):
-                return "junction_snip_qa"
-            return first_pending(
-                [
-                    "junction_snip_qa",
-                    "master_finalize",
-                    "master_transcript_build",
-                    "episode_meta_build",
-                    "episode_cover_prompt_craft",
-                    "podcast_encode_mp3",
-                    "episode_cover_generate",
-                    "podcast_publish",
-                ]
-            )
+            # Commitment held for live gen — may advance past mix.
         theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
         qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
         if edl and qa_ok and len(theme_wavs) >= 3:
@@ -5356,16 +5732,65 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             from interview_mux.run_context import RunContext as _RCpause
 
             _meta_p = _RCpause(RUN_ID, create=False).read_json("run_meta.json") or {}
-            if isinstance(_meta_p, dict) and _meta_p.get("needs_operator"):
+            live_status = ""
+            live_stage = ""
+            try:
+                live = api("GET", f"/api/runs/{RUN_ID}/job", timeout=8) or {}
+                live_status = str(live.get("status") or "")
+                live_stage = str(live.get("current_stage") or live.get("stage") or "")
+            except Exception:
+                live = {}
+            if (
+                isinstance(_meta_p, dict)
+                and _meta_p.get("needs_operator")
+                and live_status == "running"
+            ):
                 log(
                     f"{label}: needs_operator "
-                    f"{_meta_p.get('needs_operator_stage')} — halt heal loop"
+                    f"{_meta_p.get('needs_operator_stage')} while {live_stage} running — wait"
                 )
-                return {
-                    "status": "needs_operator",
-                    "stage": str(_meta_p.get("needs_operator_stage") or ""),
-                    "message": str(_meta_p.get("needs_operator_reason") or "needs_operator"),
-                }
+                # In-flight rebuild (EDL after order-drift) is the remediation.
+                # Halting here loops keepalive forever and never lets mix run.
+            elif isinstance(_meta_p, dict) and _meta_p.get("needs_operator"):
+                pause_stage = str(_meta_p.get("needs_operator_stage") or "").lower()
+                pause_reason = str(_meta_p.get("needs_operator_reason") or "").lower()
+                g1_pause = pause_stage in {"g1_vo_pickup", "edl", "g1"} or any(
+                    tok in pause_reason
+                    for tok in ("g1", "chatterbox", "pickup", "voice")
+                )
+                already_resumed = bool(globals().get("_CLONE_VOICE_PAUSE_RESUMED"))
+                if (
+                    label == "delivery"
+                    and g1_pause
+                    and not already_resumed
+                    and _heal_clone_voice_prereqs()
+                ):
+                    globals()["_CLONE_VOICE_PAUSE_RESUMED"] = True
+                    meta2 = _RCpause(RUN_ID, create=False).read_json("run_meta.json") or {}
+                    if not (isinstance(meta2, dict) and meta2.get("needs_operator")):
+                        log(
+                            "needs_operator G1/clone-voice: healed topology — "
+                            "clearing pause and continuing"
+                        )
+                        continue
+                if (
+                    "selection order drifted" in pause_reason
+                    or "seam autopsy" in pause_reason
+                ):
+                    log(
+                        "needs_operator order-drift — continue delivery "
+                        "(rebuild EDL/mix) instead of halt"
+                    )
+                else:
+                    log(
+                        f"{label}: needs_operator "
+                        f"{_meta_p.get('needs_operator_stage')} — halt heal loop"
+                    )
+                    return {
+                        "status": "needs_operator",
+                        "stage": str(_meta_p.get("needs_operator_stage") or ""),
+                        "message": str(_meta_p.get("needs_operator_reason") or "needs_operator"),
+                    }
         except Exception:
             pass
         job = wait_job(label)
@@ -5451,6 +5876,44 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         f"{label}: ignoring premature complete "
                         f"({(job.get('message') or '')[:120]}) — resume {resume}"
                     )
+                    if (
+                        label == "delivery"
+                        and ctx_p is not None
+                    ):
+                        try:
+                            from interview_mux.gates import check_g1_vo
+                            from interview_mux.order_hash import order_drift_heal_action
+
+                            missing_g1 = check_g1_vo(ctx_p)
+                            live_sel = (
+                                ctx_p.read_json("master/selection.json")
+                                if ctx_p.artifact_exists("master/selection.json")
+                                else None
+                            )
+                            live_edl = (
+                                ctx_p.read_json("master/edl.json")
+                                if ctx_p.artifact_exists("master/edl.json")
+                                else None
+                            )
+                            drift = order_drift_heal_action(
+                                live_sel if isinstance(live_sel, dict) else None,
+                                live_edl if isinstance(live_edl, dict) else None,
+                            )
+                            if missing_g1:
+                                log(
+                                    "premature EDL complete with G1 missing "
+                                    f"{missing_g1[:8]} — resume edl (do not skip mix)"
+                                )
+                                resume = "edl"
+                            elif drift == "rebuild" or not ctx_p.is_done("mix"):
+                                (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
+                                resume = "edl" if drift == "rebuild" else "mix"
+                                log(
+                                    f"premature EDL complete with mix unseated "
+                                    f"(drift={drift}) — resume {resume}"
+                                )
+                        except Exception as prem_exc:
+                            log(f"premature-complete mix guard skipped: {prem_exc}")
                     fail_key = f"{label}:premature_complete:{resume}"
                     _IDENTICAL_STAGE_FAILURES[fail_key] = (
                         _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
@@ -5730,6 +6193,146 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             log(f"ERROR at {stage}: {err[:400]}")
             low_err = err.lower()
+            if stage == "sound_design_plan" and (
+                "banned for overlap_high" in low_err
+                or "banned for trauma_adjacent" in low_err
+            ):
+                log(
+                    "sound_design_plan overlap/trauma bed cue — drop-repair persist, "
+                    "resume sound_design_vo_finalize (do not LLM-reseed beds)"
+                )
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.artifact_repairs import repair_sound_design_plan
+                    from interview_mux.artifact_writes import write_validated_artifact
+
+                    ctx_sdp = RunContext(RUN_ID, create=False)
+                    sdp_doc = (
+                        ctx_sdp.read_json("understanding/sound_design_plan.json")
+                        if ctx_sdp.artifact_exists("understanding/sound_design_plan.json")
+                        else {}
+                    )
+                    repaired, notes = repair_sound_design_plan(
+                        ctx_sdp, sdp_doc if isinstance(sdp_doc, dict) else {}
+                    )
+                    write_validated_artifact(
+                        ctx_sdp,
+                        "understanding/sound_design_plan.json",
+                        repaired,
+                        merge_from_disk=False,
+                        stage_key="sound_design_plan",
+                    )
+                    dropped = [
+                        n
+                        for n in notes
+                        if isinstance(n, dict)
+                        and n.get("action") in {"drop_overlap_high_bed", "skip_banned_bed_seed"}
+                    ]
+                    log(
+                        f"sdp overlap_high drop-repair: dropped={len(dropped)} "
+                        f"notes={notes[-6:]}"
+                    )
+                    ctx_sdp.mark_done("sound_design_plan", force=True)
+                except Exception as exc:
+                    log(f"sdp overlap_high drop-repair: {exc}")
+                    execute({"mode": "delivery", "from_stage": "sound_design_plan"})
+                    continue
+                # Do not re-run the SDP LLM — it re-seeds overlap_high beds.
+                execute({"mode": "delivery", "from_stage": "sound_design_vo_finalize"})
+                continue
+            if (
+                "has not written the delivery sdp" in low_err
+                or (
+                    stage == "sound_design_plan"
+                    and "delivery sdp" in low_err
+                    and "incomplete" in low_err
+                )
+            ):
+                fail_key = "sound_design_plan:delivery_sdp_missing"
+                count = bump_identical(
+                    fail_key,
+                    stage="sound_design_plan",
+                    producer="understanding/sound_design_plan.json",
+                    reason="delivery_sdp_missing",
+                    resume="sound_design_plan",
+                )
+                if count >= 3:
+                    log(
+                        "STOP: sound_design_plan delivery SDP incomplete repeated ≥3 "
+                        "— palettes-shaped file is not a delivery persist; fix producer fingerprint"
+                    )
+                    raise SystemExit("HARD: sound_design_plan delivery SDP loop x3")
+                log(
+                    f"sound_design_plan delivery SDP incomplete (attempt {count}/3) — "
+                    "retry persist, not ranking rewind"
+                )
+                execute({"mode": "delivery", "from_stage": "sound_design_plan"})
+                continue
+            if stage == "nugget_layup_compose" and (
+                "cta_omit_applied" in low_err
+                or (
+                    "rerun_stage" in low_err
+                    and "selection" in low_err
+                    and any(
+                        token in low_err
+                        for token in (
+                            "sponsor",
+                            "media_ip",
+                            "subscribe",
+                            "monetiz",
+                            "cta",
+                            "outro",
+                            "credits",
+                            "direct listener",
+                        )
+                    )
+                )
+            ):
+                fail_key = "nugget_layup_compose:selection_cta_omit"
+                count = bump_identical(
+                    fail_key,
+                    stage="nugget_layup_compose",
+                    reason="selection_cta_omit",
+                )
+                if count >= 3:
+                    log_decision(
+                        "major",
+                        stage="nugget_layup_compose",
+                        action="stop",
+                        reason="identical_selection_cta_omit_x3",
+                        detail=err[:240],
+                    )
+                    log(
+                        "STOP: nugget_layup_compose selection CTA omit repeated ≥3 "
+                        "times — host omit did not progress; do not bounce "
+                        "selection_framing_apply"
+                    )
+                    raise SystemExit("HARD: nugget_layup_compose selection_cta_omit (x3)")
+                resume = try_product_recovery("nugget_layup_compose", err)
+                try:
+                    from interview_mux.media_ip_cta import execute_cta_omit_from_needs
+                    from interview_mux.run_context import RunContext
+
+                    dropped = execute_cta_omit_from_needs(
+                        RunContext(RUN_ID, create=False),
+                        [
+                            {
+                                "type": "rerun_stage",
+                                "stage": "selection",
+                                "blocking": True,
+                                "reason": f"media_ip_cta credits omit: {err[:400]}",
+                            }
+                        ],
+                    )
+                    log(f"host CTA omit dropped={dropped[:12]}")
+                except Exception as exc:
+                    log(f"host CTA omit: {exc}")
+                log(
+                    "host CTA omit — resume nugget_layup_compose "
+                    f"(not selection_framing_apply) recovery={resume}"
+                )
+                execute({"mode": "delivery", "from_stage": "nugget_layup_compose"})
+                continue
             if stage == "speaker_roles" and (
                 "rerun_stage" in low_err
                 and ("diarization" in low_err or "speaker_diarization" in low_err)
@@ -5871,10 +6474,25 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     if not synthesize_g1():
                         log("host repair G1 synth incomplete (error) — wait/retry, not edl")
                         continue
+                    resume = str(applied.get("from_stage") or "edl_narrative_audit")
+                    if resume == "nugget_layup_compose" and any(
+                        needle in low_err
+                        for needle in (
+                            "coverage=missing",
+                            "wav_stale",
+                            "script_match",
+                            "script-matched vo",
+                            "required high-severity",
+                        )
+                    ):
+                        log(
+                            "edl_narrative missing/stale VO (error) — resume vo_synthesize, not compose"
+                        )
+                        resume = "vo_synthesize"
                     execute(
                         {
                             "mode": "delivery",
-                            "from_stage": applied.get("from_stage") or "edl_narrative_audit",
+                            "from_stage": resume,
                         }
                     )
                     continue
@@ -6253,6 +6871,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 or "min_layup_coverage" in low_err
                 or "layup_coverage=" in low_err
                 or "layup coverage" in low_err
+                or "never_touch_cta" in low_err
             ):
                 try:
                     from interview_mux.nugget_layup import (
@@ -6267,6 +6886,49 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ctx = RunContext(RUN_ID, create=False)
                     if not ctx.artifact_exists(PLAN_REL):
                         raise FileNotFoundError(PLAN_REL)
+                    if "never_touch_cta" in low_err:
+                        resume = try_product_recovery(
+                            stage or "nugget_layup_compose", err
+                        )
+                        if resume:
+                            execute(
+                                {
+                                    "mode": _mode_for_stage(resume),
+                                    "from_stage": resume,
+                                }
+                            )
+                            continue
+                        from interview_mux.nugget_layup import (
+                            prepare_layup_plan_for_persist,
+                            skip_never_touch_cta_layups,
+                        )
+
+                        plan_cta = ctx.read_json(PLAN_REL)
+                        plan_cta, cta_notes = skip_never_touch_cta_layups(ctx, plan_cta)
+                        plan_cta = prepare_layup_plan_for_persist(ctx, plan_cta)
+                        qc_cta = evaluate_layup_qc(ctx, plan_cta)
+                        if qc_cta.get("ok"):
+                            ctx.write_json(
+                                PLAN_REL, plan_cta, stage_key="nugget_layup_compose"
+                            )
+                            publish_layup_plan_to_gap_report(ctx, plan_cta)
+                            ctx.write_json("understanding/nugget_layup_qc.json", qc_cta)
+                            ctx.mark_done("nugget_layup_compose", force=True)
+                            log(
+                                "nugget layup never_touch_cta skip ok "
+                                f"({len(cta_notes)} row(s)) → gap_framing_recompose"
+                            )
+                            execute(
+                                {
+                                    "mode": "delivery",
+                                    "from_stage": "gap_framing_recompose",
+                                }
+                            )
+                            continue
+                        log(
+                            "nugget layup never_touch_cta skip incomplete: "
+                            + "; ".join(str(e) for e in (qc_cta.get("errors") or [])[:4])
+                        )
                     coverage_only = any(
                         marker in low_err
                         for marker in (
@@ -6316,6 +6978,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             from interview_mux.nugget_layup import (
                                 heal_layup_analysis_fields,
                                 repair_or_skip_spoken_copy_layups,
+                                skip_never_touch_cta_layups,
                             )
 
                             plan0 = ctx.read_json(PLAN_REL)
@@ -6323,6 +6986,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             plan0, copy_notes = repair_or_skip_spoken_copy_layups(
                                 ctx, plan0
                             )
+                            plan0, _cta_notes = skip_never_touch_cta_layups(ctx, plan0)
                             plan0 = normalize_layup_talking_point_ledger(ctx, plan0)
                             qc0 = evaluate_layup_qc(ctx, plan0)
                             if qc0.get("ok"):
@@ -8017,7 +8681,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             continue
                         # Best-effort: recreate a minimal synthesize line from the id.
                         target = lid.replace("vo_seed_", "").replace("vo_preface_", "")
-                        if not target.startswith("seg_"):
+                        if lid.startswith("vo_layup_") and lid[len("vo_layup_") :].startswith("seg_"):
+                            target = lid[len("vo_layup_") :]
+                        elif not target.startswith("seg_"):
                             target = "seg_001"
                         lines.append(
                             {
@@ -8042,6 +8708,37 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             }:
                                 line["delivery"] = "synthesize"
                             line.pop("skipped_optional", None)
+                    edl_path = root / "master" / "edl.json"
+                    if edl_path.is_file():
+                        try:
+                            seated = {
+                                str(c.get("line_id") or ""): c
+                                for c in (
+                                    (_json.loads(edl_path.read_text()) or {}).get("clips")
+                                    or []
+                                )
+                                if isinstance(c, dict) and c.get("type") == "vo_pickup"
+                            }
+                            for line in lines:
+                                if not isinstance(line, dict):
+                                    continue
+                                clip = seated.get(str(line.get("line_id") or ""))
+                                if not clip:
+                                    continue
+                                tgt = str(clip.get("targets_segment_id") or "").strip()
+                                if tgt:
+                                    line["targets_segment_id"] = tgt
+                                if str(line.get("delivery") or "").lower() not in {
+                                    "record",
+                                    "synthesize",
+                                }:
+                                    line["delivery"] = "synthesize"
+                                line.pop("skipped_optional", None)
+                                voice = str(clip.get("voice_speaker_id") or "").strip()
+                                if voice:
+                                    line["voice_speaker_id"] = voice
+                        except Exception as exc:
+                            log(f"gap-line heal: EDL target sync skipped: {exc}")
                     best["interviewer_lines"] = lines
                     fs_write_json(disk_gap_path, best)
                     if not synthesize_g1():
@@ -8171,7 +8868,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 except Exception:
                     pass
                 if framing_active:
-                    log("missing gap VO WAV with framing active — running G1 synthesize-all")
+                    log("missing gap VO WAV with framing active — clone-voice prereq then G1")
+                    _heal_clone_voice_prereqs()
                     if synthesize_g1():
                         execute({"mode": "delivery", "from_stage": "edl"})
                         continue
@@ -8896,7 +9594,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                             if not e2e_quality_waivers_enabled():
                                 return
-                            m["e2e_soft_post_master_quality"] = True
+                            # Never soft-waive missing PMQ — playbook only.
+                            if "post-master quality artifact is missing" in low_err:
+                                return
                             m["e2e_soft_junction_residuals"] = True
                             m["e2e_soft_listenability"] = True
 
@@ -9057,82 +9757,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                         continue
 
-                    def _soft_pmq(m: dict) -> None:
-                        m["e2e_soft_post_master_quality"] = True
-
-                    ctx.mutate_run_meta(_soft_pmq)
-                    log_decision(
-                        "major",
-                        stage="master_finalize",
-                        action="soft_waiver",
-                        reason="e2e_soft_post_master_quality",
-                        detail=low_err[:200],
+                    # Missing / failed PMQ is a playbook — never soft-waive the artifact.
+                    resume = try_product_recovery(stage or "master_finalize", err)
+                    if resume:
+                        execute({"mode": "delivery", "from_stage": resume})
+                        continue
+                    pause_needs_operator(
+                        stage or "master_finalize",
+                        "HARD: post_master_quality unrecovered",
                     )
-                    if has_pending_writes(ctx, "master_finalize"):
-                        try:
-                            approve_stage_writes(ctx, "master_finalize")
-                            log("pmq soft-heal: promoted pending master_finalize")
-                        except Exception as promote_exc:
-                            log(f"pmq soft-heal promote: {promote_exc}")
-                    master_wav = root / "master" / "master.wav"
-                    assembly_wav = root / "master" / "assembly.wav"
-                    pending_master = (
-                        root
-                        / ".pending_writes"
-                        / "master_finalize"
-                        / "master"
-                        / "master.wav"
-                    )
-                    if not master_wav.is_file():
-                        import shutil
-
-                        src = (
-                            pending_master
-                            if pending_master.is_file()
-                            else (assembly_wav if assembly_wav.is_file() else None)
-                        )
-                        if src is not None:
-                            master_wav.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src, master_wav)
-                            log(f"pmq soft-heal: created master.wav from {src.name}")
-                    quality = evaluate_post_master_quality(ctx)
-                    # Force publish_allowed under soft flags once master exists.
-                    if master_wav.is_file() and not quality.get(
-                        "publish_allowed"
-                    ):
-                        quality = dict(quality)
-                        quality["status"] = "pass"
-                        quality["publish_allowed"] = True
-                        quality["e2e_softened"] = True
-                        quality["failed_checks"] = []
-                        checks = []
-                        for c in quality.get("checks") or []:
-                            if isinstance(c, dict):
-                                c = dict(c)
-                                c["passed"] = True
-                                checks.append(c)
-                        quality["checks"] = checks
-                    fs_write_json(root / "master" / "post_master_quality.json", quality)
-                    fs_write_json(
-                        root / "master" / "listener_scorecard.json",
-                        build_listener_scorecard(ctx, quality),
-                    )
-                    ctx.mark_done("master_finalize", force=True)
-                    resume = first_pending(
-                        [
-                            "master_transcript_build",
-                            "episode_meta_build",
-                            "episode_cover_prompt_craft",
-                            "podcast_encode_mp3",
-                            "episode_cover_generate",
-                            "podcast_publish",
-                        ]
-                    ) or "master_transcript_build"
-                    log(
-                        f"pmq soft-heal publish_allowed={quality.get('publish_allowed')} "
-                        f"→ {resume}"
-                    )
-                    execute({"mode": "delivery", "from_stage": resume})
                     continue
                 except Exception as exc:
                     log(f"pmq soft-heal: {exc}")

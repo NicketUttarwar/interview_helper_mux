@@ -771,6 +771,9 @@ def _validate_post_edl_audit(ctx: RunContext) -> list[str]:
             or "violating transition" in text
             or "appears after" in text
             or "positions before" in text
+            or "not adjacent" in text
+            or "selected-order adjacenc" in text
+            or "do not match selected-order" in text
         ):
             if _transitions_match_selection_order(ctx):
                 continue
@@ -852,7 +855,7 @@ def _transitions_match_selection_order(ctx: RunContext) -> bool:
         b = str(row.get("before_segment_id") or "")
         if not a or not b or a not in index or b not in index:
             continue
-        if index[a] >= index[b]:
+        if index[b] != index[a] + 1:
             return False
     return True
 

@@ -22,6 +22,7 @@ _ISLAND_ARTIFACTS = (
     "analysis/low_conf_islands.json",
     "analysis/connector_fuse_audit.json",
 )
+_PRE_RANKING_ROUNDS = "analysis/connector_fuse_rounds.json"
 # After G0 is closed, re-STT / re-ingest / re-clip is not a surgical rerun — pack g0_transcript.
 G0_LOCKED_RERUN_STAGES = frozenset(
     {"transcribe", "ingest", "audio_preclean", "transcript_review_build"}
@@ -41,6 +42,7 @@ DELIVERY_LOCKED_TIMELINE_STAGES = frozenset(
     }
 )
 DELIVERY_ANALYSIS_PREREQS: tuple[tuple[str, str], ...] = (
+    ("source_topology_build", "understanding/source_topology.json"),
     ("boundary_detection", "segments/boundaries.json"),
     ("segment_classification", "segments/manifest.json"),
     ("content_brief_reanchor", "understanding/content_brief.json"),
@@ -171,6 +173,10 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
 PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "ingest": ("ingest/normalized.wav",),
     "transcribe": ("transcript/full.json",),
+    "source_topology_build": (
+        "understanding/source_topology.json",
+        "understanding/flow_adaptation.json",
+    ),
     "content_context": ("understanding/content_brief.json",),
     "talking_points_compose": ("understanding/talking_points.json",),
     "ideal_cuts_propose": ("understanding/ideal_cuts.json",),
@@ -192,12 +198,13 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
     "edl": ("master/edl.json",),
     "assembly_preview": ("master/assembly_preview.wav",),
     "listen_delight_audit": ("mastering/listen_delight_audit.json",),
+    "nugget_layup_compose": ("understanding/nugget_layup_plan.json",),
     "music_palette_compose": ("sound_design/music_palette_compose.json",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
     "mmaudio_sfx": ("sound_design/mmaudio_qa.json",),
     "mix": ("master/assembly.wav",),
     "junction_snip_qa": ("master/seam_autopsy.json",),
-    "master_finalize": ("master/master.wav",),
+    "master_finalize": ("master/master.wav", "master/post_master_quality.json"),
     "master_transcript_build": ("master/transcript.json",),
     "episode_meta_build": ("publish/episode_meta.json",),
     "episode_cover_prompt_craft": ("publish/cover_prompt.json",),
@@ -208,9 +215,27 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
 MUSIC_SKIP_GUARD = frozenset(
     {"sfx_prompt_craft", "mmaudio_sfx", "music_palette_compose", "mix"}
 )
+MUSIC_REQUIRES_ASSEMBLY = frozenset(
+    {"music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"}
+)
 
 IDENTICAL_ERROR_REL = "mastering/homunculus/identical_stage_errors.json"
 IDENTICAL_ERROR_CAP = 3
+
+
+def _refuse_music_before_assembly(ctx: RunContext, stage: str, *, action: str) -> None:
+    """Theme/SFX generation is post-assembly. Conductor must not jump the EDL."""
+    if stage not in MUSIC_REQUIRES_ASSEMBLY:
+        return
+    if ctx.artifact_exists("master/assembly.wav") or ctx.artifact_exists(
+        "master/assembly_preview.wav"
+    ):
+        return
+    raise RuntimeError(
+        f"cannot {action} {stage}: assembly audio missing — "
+        "run nugget_layup_compose → transitions → vo_synthesize → edl → "
+        "assembly_preview before MusicGen/SFX"
+    )
 
 
 def _order_for(phase: str) -> list[str]:
@@ -265,9 +290,67 @@ def delivery_sdp_present(ctx: RunContext) -> bool:
     return _sdp_producer_stage(ctx) == "sound_design_plan"
 
 
+def _pre_ranking_rounds_present(ctx: RunContext) -> bool:
+    """True only after the pre-ranking fuse pass wrote its own rounds doc.
+
+    The first ``connector_fuse_pass`` may leave ``connector_fuse_audit.json``
+    (and even a post_sanitize rounds file). Those must not satisfy
+    ``connector_fuse_pass_pre_ranking`` or remaining_stages drops the pass,
+    ranking looks done, and maybe_require then loops on a self-prerequisite.
+    """
+    if not ctx.artifact_exists(_PRE_RANKING_ROUNDS):
+        return False
+    try:
+        doc = ctx.read_json(_PRE_RANKING_ROUNDS)
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    return str(doc.get("pass_id") or "") == "pre_ranking"
+
+
+def _final_mtime(ctx: RunContext, *parts: str) -> float | None:
+    path = ctx.final_path(*parts)
+    if not path.is_file():
+        return None
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def assembly_stale_versus_edl(ctx: RunContext) -> bool:
+    """True when assembly is not the mix of the live AirOrder generation."""
+    try:
+        from interview_mux.air_order import mix_stale_versus_live
+
+        return mix_stale_versus_live(ctx)
+    except Exception:
+        pass
+    edl_m = _final_mtime(ctx, "master", "edl.json")
+    asm_m = _final_mtime(ctx, "master", "assembly.wav")
+    if edl_m is None or asm_m is None:
+        return False
+    return edl_m > asm_m + 1.0
+
+
+def _producer_older_than_assembly(ctx: RunContext, *parts: str) -> bool:
+    asm_m = _final_mtime(ctx, "master", "assembly.wav")
+    other_m = _final_mtime(ctx, *parts)
+    if asm_m is None or other_m is None:
+        return False
+    return asm_m > other_m + 1.0
+
+
 def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
-    if stage in PROTECTED_ISLAND_STAGES:
-        return any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
+    if stage == "low_conf_island_scan":
+        return ctx.artifact_exists("analysis/low_conf_islands.json") or ctx.artifact_exists(
+            "analysis/low_conf_must_keep.json"
+        )
+    if stage == "connector_fuse_pass":
+        return ctx.artifact_exists("analysis/connector_fuse_audit.json")
+    if stage == "connector_fuse_pass_pre_ranking":
+        return _pre_ranking_rounds_present(ctx)
     if stage == "sound_design_plan":
         return delivery_sdp_present(ctx)
     if stage == "vo_synthesize":
@@ -281,6 +364,86 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
             return not current_transition_pairs_missing(ctx)
         except Exception:
             return False
+    if stage in MUSIC_REQUIRES_ASSEMBLY:
+        if not (
+            ctx.artifact_exists("master/assembly.wav")
+            or ctx.artifact_exists("master/assembly_preview.wav")
+        ):
+            return False
+        rels = stage_required_outputs(stage)
+        if not (bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)):
+            return False
+        if stage == "mmaudio_sfx":
+            try:
+                from interview_mux.artifact_completeness import artifact_status
+
+                return artifact_status("sound_design/mmaudio_qa.json", ctx) == "complete"
+            except Exception:
+                return False
+        return True
+    if stage == "edl":
+        if not ctx.artifact_exists("master/edl.json"):
+            return False
+        try:
+            from interview_mux.order_hash import order_drift_heal_action
+
+            sel = (
+                ctx.read_json("master/selection.json")
+                if ctx.artifact_exists("master/selection.json")
+                else None
+            )
+            edl_doc = ctx.read_json("master/edl.json")
+            if (
+                order_drift_heal_action(
+                    sel if isinstance(sel, dict) else None,
+                    edl_doc if isinstance(edl_doc, dict) else None,
+                )
+                not in {"ok", "stamp"}
+            ):
+                return False
+            from interview_mux.order_hash import edl_speech_clip_ids, get_order_lock
+
+            lock = get_order_lock(sel if isinstance(sel, dict) else {}) or {}
+            lock_ids = [str(s) for s in (lock.get("ordered_segment_ids") or []) if s]
+            clip_ids = edl_speech_clip_ids(edl_doc if isinstance(edl_doc, dict) else {})
+            sel_ids = [
+                str(s)
+                for s in ((sel or {}).get("ordered_segment_ids") or [])
+                if s
+            ] if isinstance(sel, dict) else []
+            seated = lock_ids or sel_ids
+            if clip_ids and seated and clip_ids != seated:
+                return False
+        except Exception:
+            return True
+        return True
+    if stage == "mix":
+        try:
+            from interview_mux.air_order import mix_committed_for_live_gen
+
+            if not mix_committed_for_live_gen(ctx):
+                return False
+        except Exception:
+            if assembly_stale_versus_edl(ctx):
+                return False
+    if stage == "mix" and assembly_stale_versus_edl(ctx):
+        return False
+    if stage == "junction_snip_qa" and (
+        assembly_stale_versus_edl(ctx)
+        or _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
+    ):
+        return False
+    if stage == "master_finalize" and (
+        assembly_stale_versus_edl(ctx)
+        or _producer_older_than_assembly(ctx, "master", "master.wav")
+    ):
+        return False
+    if stage == "nugget_layup_compose":
+        # Plan on disk is the producer output. Freshness/hash drift must not
+        # look like a missing artifact — that unmarked compose on EDL resume
+        # and rewrote G1 after a selection-order heal.
+        rels = stage_required_outputs(stage)
+        return bool(rels) and all(ctx.artifact_exists(rel) for rel in rels)
     needed = stage_required_outputs(stage)
     if not needed:
         return ctx.is_done(stage)
@@ -299,6 +462,17 @@ def unmark_hollow_delivery_producers(
         want = {str(s) for s in stages}
     cleared: list[str] = []
     for stage in sorted(want):
+        if stage == "mmaudio_sfx" and not stage_outputs_present(ctx, stage):
+            # Empty QA with theme WAVs already on disk is a label hole, not a
+            # missing producer — rebuild QA instead of regenerating MusicGen.
+            try:
+                from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+                heal_mmaudio_qa_wav_parity(ctx)
+            except Exception:
+                pass
+            if stage_outputs_present(ctx, stage) and not ctx.is_done(stage):
+                ctx.mark_done(stage, force=True)
         if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
             unmark_stage_only(ctx, stage)
             cleared.append(stage)
@@ -355,18 +529,29 @@ def prepare_delivery_guardrails(ctx: RunContext, stages: list[str] | set[str] | 
 
 
 def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) -> dict[str, Any]:
-    """Cap identical prestage/input errors so a missing file cannot spin forever."""
+    """Cap identical prestage/input errors via operator/identical_failures.json."""
+    from interview_mux.identical_failures import record_identical_failure
+
+    row = record_identical_failure(
+        ctx,
+        failed_stage=stage,
+        producer="homunculus_agenda",
+        reason=fingerprint[:400],
+    )
+    # Keep legacy mirror for older readers.
     doc: dict[str, Any] = {}
     if ctx.artifact_exists(IDENTICAL_ERROR_REL):
         raw = ctx.read_json(IDENTICAL_ERROR_REL)
         if isinstance(raw, dict):
             doc = raw
     key = f"{stage}:{fingerprint[:160]}"
-    row = doc.get(key) if isinstance(doc.get(key), dict) else {}
-    count = int(row.get("count") or 0) + 1
-    doc[key] = {"stage": stage, "fingerprint": fingerprint[:160], "count": count}
+    doc[key] = {
+        "stage": stage,
+        "fingerprint": fingerprint[:160],
+        "count": int(row.get("count") or 0),
+    }
     ctx.write_json(IDENTICAL_ERROR_REL, doc, skip_handoff=True)
-    exhausted = count >= IDENTICAL_ERROR_CAP
+    exhausted = bool(row.get("halt"))
     if exhausted:
         def _mark(meta: dict[str, Any]) -> None:
             meta["needs_operator"] = True
@@ -377,7 +562,11 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
             ctx.mutate_run_meta(_mark)
         except Exception:
             pass
-    return {"count": count, "exhausted": exhausted, "stage": stage}
+    return {
+        "count": int(row.get("count") or 0),
+        "exhausted": exhausted,
+        "stage": stage,
+    }
 
 
 def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
@@ -472,6 +661,7 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
         # Fact IDs are not compensating artifacts. A skip without the on-disk
         # output is a hole (exec_087 skipped transitions with fact 67b9d444).
         compensating_fact = None
+    _refuse_music_before_assembly(ctx, stage, action="skip")
     if stage == "chapter_close_hitch":
         from interview_mux.chapter_close_hitch import hitch_latch_committed
 
@@ -507,11 +697,11 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
                 + ", ".join(missing[:6])
             )
     if stage in PROTECTED_ISLAND_STAGES:
-        has_art = any(ctx.artifact_exists(rel) for rel in _ISLAND_ARTIFACTS)
-        if not has_art:
+        if not stage_outputs_present(ctx, stage):
             raise RuntimeError(
                 f"cannot skip {stage}: language-island artifacts missing "
-                "(low_conf_island_scan / connector_fuse_pass required)"
+                "(low_conf_island_scan / connector_fuse_pass / "
+                "connector_fuse_pass_pre_ranking required)"
             )
     protected = (
         stage in PROTECTED_CORE_STAGES
@@ -598,6 +788,7 @@ def rerun_stage(
     _refuse_g0_locked_rerun(ctx, stage, action="rerun")
     _refuse_classified_manifest_rerun(ctx, stage, action="rerun")
     _refuse_delivery_timeline_rewind(ctx, stage, action="rerun")
+    _refuse_music_before_assembly(ctx, stage, action="rerun")
     seq = unmark_stage_only(ctx, stage)
     if extra_fact_ids:
         from interview_mux.homunculus.packer import pack_volley
@@ -679,6 +870,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
             try:
                 _refuse_g0_locked_rerun(ctx, stage, action="walk")
                 _refuse_delivery_timeline_rewind(ctx, stage, action="walk")
+                _refuse_music_before_assembly(ctx, stage, action="walk")
             except RuntimeError:
                 if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
                     ctx.mark_done(stage, force=True)
@@ -712,8 +904,19 @@ def run_homunculus_phase(
 ) -> dict[str, Any]:
     """Conductor selects tools. Leftover stages walk seed order only if requested."""
     prior = list(remaining)
-    holes = prepare_delivery_guardrails(ctx, set(prior) | set(_order_for(phase)))
-    allow = set(prior) | set(holes)
+    seed = _order_for(phase)
+    # Resume slices (from_stage=edl) must not pull earlier hollow producers
+    # (nugget_layup / sound_design_plan) back into the walk — that regenerates
+    # MusicGen after a junction/mix order heal.
+    if phase == "delivery" and prior:
+        first = prior[0]
+        start_idx = seed.index(first) if first in seed else 0
+        forward = set(seed[start_idx:])
+        holes = prepare_delivery_guardrails(ctx, forward)
+        allow = set(prior) | (set(holes) & forward)
+    else:
+        holes = prepare_delivery_guardrails(ctx, set(prior) | set(seed))
+        allow = set(prior) | set(holes)
     remaining = [s for s in remaining_stages(ctx, phase) if s in allow]
     write_agenda(ctx, phase, remaining, source="conductor")
     if phase == "delivery":
@@ -730,9 +933,20 @@ def run_homunculus_phase(
 
                 kept: list[str] = []
                 for sid in remaining:
+                    if sid == "mmaudio_sfx" and not stage_outputs_present(ctx, sid):
+                        try:
+                            from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+                            heal_mmaudio_qa_wav_parity(ctx)
+                        except Exception:
+                            pass
                     if sid in MUSIC_BEFORE_MIX and stage_outputs_present(ctx, sid):
                         if not ctx.is_done(sid):
                             ctx.mark_done(sid, force=True)
+                        if not ctx.is_done(sid):
+                            # Hollow QA/palette files must not drop the generator.
+                            kept.append(sid)
+                            continue
                         ctx.log(
                             f"homunculus keeping {sid} — SDP theme WAVs already on disk",
                             level="info",
@@ -841,15 +1055,37 @@ def run_homunculus_phase(
         )
         walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
     elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
-        ship = ship_after_master_remaining(ctx)
-        if ship:
-            ctx.log(
-                "homunculus delivery walking remaining ship stages "
-                f"({len(ship)} stage(s))",
-                level="warning",
-                stage=ship[0],
+        pmq: dict[str, Any] | None = None
+        if ctx.artifact_exists("master/post_master_quality.json"):
+            loaded = ctx.read_json("master/post_master_quality.json")
+            pmq = loaded if isinstance(loaded, dict) else None
+        pmq_failed = bool(
+            pmq
+            and (
+                pmq.get("status") == "fail"
+                or pmq.get("publish_allowed") is False
             )
-            walk_seed_agenda(ctx, ship, reason="delivery_walk_to_publish")
+        )
+        if pmq_failed:
+            pre_ship = [s for s in still if s not in SHIP_AFTER_MASTER]
+            if pre_ship:
+                ctx.log(
+                    "homunculus delivery remastering after failed post-master quality "
+                    f"({len(pre_ship)} stage(s))",
+                    level="warning",
+                    stage=pre_ship[0],
+                )
+                walk_seed_agenda(ctx, pre_ship, reason="delivery_walk_unpublishable_master")
+        else:
+            ship = ship_after_master_remaining(ctx)
+            if ship:
+                ctx.log(
+                    "homunculus delivery walking remaining ship stages "
+                    f"({len(ship)} stage(s))",
+                    level="warning",
+                    stage=ship[0],
+                )
+                walk_seed_agenda(ctx, ship, reason="delivery_walk_to_publish")
     elif phase == "analysis":
         pending = pending_analysis_for_delivery(ctx)
         prereq_ids = {s for s, _ in DELIVERY_ANALYSIS_PREREQS}

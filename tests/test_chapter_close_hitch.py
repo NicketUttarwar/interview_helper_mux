@@ -197,6 +197,54 @@ def test_recut_extends_hanging_list_into_next_keeper_not_cta() -> None:
     assert windows[1]["end_ms"] == 121_660
 
 
+def test_recut_outgoing_last_word_wins_over_turn_cap_eps() -> None:
+    """Guest last word straddling next_start-80 must not snap back to 'the'."""
+    keepers = [
+        {
+            "segment_id": "seg_003e",
+            "start_ms": 74_810,
+            "end_ms": 83_070,
+            "talking_point_id": "tp_a",
+        },
+        {
+            "segment_id": "seg_003f",
+            "start_ms": 83_070,
+            "end_ms": 87_210,
+            "talking_point_id": "tp_a",
+        },
+    ]
+    words = [
+        _tok(74_960, 75_560, "But"),
+        _tok(76_560, 76_720, "this"),
+        _tok(76_720, 77_180, "platform"),
+        _tok(78_700, 79_020, "provide"),
+        _tok(79_020, 79_420, "earlier"),
+        _tok(79_420, 79_980, "diagnosis"),
+        _tok(80_400, 80_740, "guide"),
+        _tok(80_740, 81_160, "personalized"),
+        _tok(81_160, 81_680, "treatments"),
+        _tok(81_680, 82_260, "by"),
+        _tok(82_260, 82_460, "the"),
+        _tok(82_460, 83_020, "ecologists."),
+        {"start_ms": 83_740, "end_ms": 84_300, "text": "And", "word": "And", "speaker_id": "spk_1"},
+        {"start_ms": 84_300, "end_ms": 84_840, "text": "what", "word": "what", "speaker_id": "spk_1"},
+    ]
+    for w in words:
+        w.setdefault("speaker_id", "spk_0")
+    plan = _plan(_chapter("ch1", "Open", ["seg_003e", "seg_003f"]))
+    windows = compute_recut_windows(
+        keepers=keepers,
+        plan=plan,
+        words=words,
+        max_cut_ms=180_000,
+        next_keeper_eps_ms=80,
+        min_keep_ms=2500,
+    )
+    assert windows[0]["end_ms"] >= 83_020
+    assert windows[0]["end_ms"] < 83_740
+    assert windows[1]["start_ms"] >= 83_020
+
+
 def test_remap_rewrites_brief_talking_points_and_must_keeps(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

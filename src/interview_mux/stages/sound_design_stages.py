@@ -324,6 +324,21 @@ def run_sound_design_plan(ctx: RunContext) -> None:
         write_validated_artifact(
             c, _SOUND_DESIGN_PLAN_REL, sdp, merge_from_disk=False, stage_key="sound_design_plan"
         )
+        # Completeness requires _meta.producer_stage == sound_design_plan.
+        # Stamp during persist so flush cannot drop a palettes-shaped file
+        # without a delivery producer fingerprint.
+        try:
+            from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+            restamp_committed_artifact(
+                c, _SOUND_DESIGN_PLAN_REL, producer_stage="sound_design_plan"
+            )
+        except Exception as exc:
+            c.log(
+                f"sound_design_plan fingerprint restamp failed: {exc}",
+                level="warning",
+                stage="sound_design_plan",
+            )
 
     with logged_step("sound_design_plan/llm_stage", ctx=ctx, stage="sound_design_plan"):
         run_flow_llm_stage(

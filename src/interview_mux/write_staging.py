@@ -577,6 +577,51 @@ def discard_stage_writes(ctx: RunContext, stage_id: str) -> None:
     clear_pending_approval(ctx, stage_id)
 
 
+GLUE_PROMOTE_RELS: tuple[str, ...] = (
+    "understanding/gap_report.json",
+    "understanding/reorder_bridges.json",
+    "master/transitions.json",
+    "master/transitions/",
+    "vo_pickup/",
+)
+
+
+def discard_staged_rel(ctx: RunContext, stage_id: str, rel: str) -> bool:
+    """Delete one staged path without rmtree of the whole stage tree."""
+    root = staging_root(ctx, stage_id)
+    path = root.joinpath(*str(rel).split("/"))
+    if not path.is_file():
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
+def promote_glue_then_discard_stale_edl(ctx: RunContext) -> dict[str, Any]:
+    """Commit glue/VO side-effects from pending stages, then drop only staged EDL.
+
+    Naked-seam heals used to ``discard_stage_writes`` the entire pending tree,
+    which deleted the only copy of ``gap_report`` / ``reorder_bridges``.
+    Walk every ``.pending_writes/<stage>`` dir — not only operator-visible
+    StageInfo outputs — so a staged gap_report still promotes.
+    """
+    exit_stage_staging()
+    promoted: list[str] = []
+    discarded_edl: list[str] = []
+    root = ctx.run_dir / ".pending_writes"
+    sids: list[str] = []
+    if root.is_dir():
+        sids = [p.name for p in sorted(root.iterdir()) if p.is_dir()]
+    for sid in sids:
+        flushed = promote_staged_side_effects(ctx, GLUE_PROMOTE_RELS, stage_id=sid)
+        promoted.extend(f"{sid}:{rel}" for rel in flushed)
+        if discard_staged_rel(ctx, sid, "master/edl.json"):
+            discarded_edl.append(sid)
+    return {"promoted": promoted, "discarded_edl": discarded_edl}
+
+
 def read_pending_content(ctx: RunContext, stage_id: str, rel: str) -> bytes:
     p = staged_path(ctx, rel, stage_id=stage_id)
     if not p.is_file():

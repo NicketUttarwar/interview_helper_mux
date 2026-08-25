@@ -295,7 +295,15 @@ def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[st
                 h = (fp.get("_meta") or {}).get("content_hash")
                 if h:
                     _record_fingerprint(ctx, rel, str(h), stage_key)
-        except Exception:
+        except Exception as exc:
+            try:
+                ctx.log(
+                    f"fingerprint flush skipped for {rel}: {exc}",
+                    level="warning",
+                    stage=stage_key,
+                )
+            except Exception:
+                pass
             continue
 
 

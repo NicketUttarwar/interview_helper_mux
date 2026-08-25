@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from interview_mux.run_context import RunContext
@@ -146,3 +147,262 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
     except Exception:
         pass
     return changed
+
+
+_ORPHAN_OPENING_LINE_IDS = ("vo_preface_opening", "vo_preface_episode_orientation")
+
+
+def drop_orphan_opening_vo_when_native_orients(ctx: RunContext) -> list[str]:
+    """When native open already intros, drop leftover opening WAV/lines.
+
+    Orientation omit leaves vo_preface_opening.wav on disk; EDL/G1 still see it
+    as competing with the first native. Keep the omit; remove the duplicate.
+    """
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return []
+    gap = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(gap, dict):
+        return []
+    from interview_mux.opening_orientation import orientation_omitted
+
+    if not orientation_omitted(gap):
+        return []
+    dropped: list[str] = []
+    lines = gap.get("interviewer_lines")
+    if isinstance(lines, list):
+        kept: list[Any] = []
+        for line in lines:
+            if not isinstance(line, dict):
+                kept.append(line)
+                continue
+            lid = str(line.get("line_id") or "").lower()
+            if lid in _ORPHAN_OPENING_LINE_IDS and not line.get("skipped_optional"):
+                line = dict(line)
+                line["skipped_optional"] = True
+                line["air_script_omit"] = True
+                line["skip"] = True
+                line["skip_reason_code"] = "native_open_self_orients"
+                dropped.append(str(line.get("line_id") or lid))
+            kept.append(line)
+        if dropped:
+            gap["interviewer_lines"] = kept
+            from interview_mux.file_store import write_json as fs_write_json
+
+            fs_write_json(ctx.path("understanding/gap_report.json"), gap)
+    pickup = ctx.final_path("vo_pickup")
+    for lid in _ORPHAN_OPENING_LINE_IDS:
+        for folder in (pickup, pickup / "synthesized"):
+            wav = folder / f"{lid}.wav"
+            if wav.is_file():
+                wav.unlink()
+                dropped.append(wav.name)
+    if dropped:
+        try:
+            ctx.log(
+                f"opening_adjacency: dropped orphan opening VO {dropped[:6]}",
+                level="info",
+                stage="sound_design_vo_finalize",
+            )
+        except Exception:
+            pass
+    return dropped
+
+
+_LATE_INTRO_RE = re.compile(
+    r"\b(?:"
+    r"let['’]?s welcome|"
+    r"welcome (?:to|back)(?:\s+the\s+show)?|"
+    r"hoping to hear|"
+    r"on the show today|"
+    r"joining (?:us|me)|"
+    r"what are you hoping to hear"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+_RECUT_FRAG_RE = re.compile(r"^(seg_\d+)[a-z]+$")
+
+
+def _segment_text(ctx: RunContext, sid: str) -> str:
+    if not sid or not ctx.artifact_exists("segments/manifest.json"):
+        return ""
+    man = ctx.read_json("segments/manifest.json")
+    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+        if isinstance(row, dict) and str(row.get("segment_id") or "") == sid:
+            return str(row.get("text") or row.get("text_excerpt") or "")
+    return ""
+
+
+def drop_late_intro_reset_from_selection(ctx: RunContext) -> list[str]:
+    """Drop recut welcome/intro fragments that air after the body has started.
+
+    A native cold-open already greets the guest. Replaying “what is X / let’s
+    welcome” mid-arc is a late opening-style reset, not a new chapter.
+    """
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(sel, dict):
+        return []
+    ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+    if len(ordered) < 4:
+        return []
+    introish = {sid: bool(_LATE_INTRO_RE.search(_segment_text(ctx, sid))) for sid in ordered}
+    drop: list[str] = []
+    seen_body = False
+    i = 0
+    while i < len(ordered):
+        sid = ordered[i]
+        if not introish.get(sid):
+            # Recut children of the cold-open parent are still the open, even
+            # when a bio/definition slice does not match the welcome regex.
+            # Otherwise "hoping to hear" on seg_001k after seg_001d looks like
+            # a late reset and the whole opening recut is dropped.
+            if not seen_body and _RECUT_FRAG_RE.match(sid):
+                i += 1
+                continue
+            seen_body = True
+            i += 1
+            continue
+        if seen_body:
+            stem_m = _RECUT_FRAG_RE.match(sid)
+            stem = stem_m.group(1) if stem_m else ""
+            k = i
+            while k > 0 and stem and _RECUT_FRAG_RE.match(ordered[k - 1] or "") and ordered[k - 1].startswith(stem):
+                k -= 1
+            j = i
+            while j < len(ordered):
+                cur = ordered[j]
+                if introish.get(cur) or (stem and _RECUT_FRAG_RE.match(cur or "") and cur.startswith(stem)):
+                    j += 1
+                    continue
+                break
+            drop.extend(ordered[k:j])
+            i = j
+            continue
+        i += 1
+    if not drop:
+        return []
+    drop_set = set(drop)
+    sel["ordered_segment_ids"] = [s for s in ordered if s not in drop_set]
+    excl = list(sel.get("excluded_segment_ids") or [])
+    have = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in excl
+    }
+    for sid in drop:
+        if sid not in have:
+            excl.append({"segment_id": sid, "reason": "late_intro_reset"})
+            have.add(sid)
+    sel["excluded_segment_ids"] = excl
+    keep = set(sel["ordered_segment_ids"])
+    for ch in sel.get("chapters") or []:
+        if isinstance(ch, dict):
+            ch["segment_ids"] = [
+                str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep
+            ]
+    from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+
+    sel = reconcile_ordered_vs_excluded(sel)
+    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    try:
+        ctx.log(
+            f"late_intro_reset: dropped {drop[:12]}",
+            level="warning",
+            stage="edl_narrative_audit",
+        )
+    except Exception:
+        pass
+    return drop
+
+
+def _segment_start_ms(ctx: RunContext, sid: str) -> int | None:
+    if not sid or not ctx.artifact_exists("segments/manifest.json"):
+        return None
+    man = ctx.read_json("segments/manifest.json")
+    for row in (man.get("segments") or []) if isinstance(man, dict) else []:
+        if isinstance(row, dict) and str(row.get("segment_id") or "") == sid:
+            try:
+                return int(row.get("start_ms") or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def drop_post_coda_reverse_jump_from_selection(ctx: RunContext) -> list[str]:
+    """Drop early-tape leftovers parked after a late-tape coda.
+
+    CTA omit / order reconcile can leave early sampling clips (low ``start_ms``)
+    after the episode has already reached its closing minutes. That reverse
+    jump fails narrative audit and cannot be healed by recomposing VO.
+    Hard-keeps stay on air.
+    """
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(sel, dict):
+        return []
+    ordered = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+    if len(ordered) < 6:
+        return []
+    starts = {sid: _segment_start_ms(ctx, sid) for sid in ordered}
+    if any(v is None for v in starts.values()):
+        return []
+    peak_ms = max(int(v or 0) for v in starts.values())
+    if peak_ms < 60_000:
+        return []
+    coda_end = 0
+    for i, sid in enumerate(ordered):
+        if int(starts.get(sid) or 0) >= int(peak_ms * 0.80):
+            coda_end = i
+    if coda_end <= 0 or coda_end >= len(ordered) - 1:
+        return []
+    keeps: set[str] = set()
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        keeps = hard_keep_segment_ids(ctx)
+    except Exception:
+        keeps = set()
+    drop: list[str] = []
+    early_cut = int(peak_ms * 0.35)
+    for sid in ordered[coda_end + 1 :]:
+        if sid in keeps:
+            break
+        if int(starts.get(sid) or 0) >= early_cut:
+            break
+        drop.append(sid)
+    if not drop:
+        return []
+    drop_set = set(drop)
+    sel["ordered_segment_ids"] = [s for s in ordered if s not in drop_set]
+    excl = list(sel.get("excluded_segment_ids") or [])
+    have = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in excl
+    }
+    for sid in drop:
+        if sid not in have:
+            excl.append({"segment_id": sid, "reason": "post_coda_reverse_jump"})
+            have.add(sid)
+    sel["excluded_segment_ids"] = excl
+    keep = set(sel["ordered_segment_ids"])
+    for ch in sel.get("chapters") or []:
+        if isinstance(ch, dict):
+            ch["segment_ids"] = [
+                str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep
+            ]
+    from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+    from interview_mux.order_hash import bump_order_lock
+
+    sel = reconcile_ordered_vs_excluded(sel)
+    sel = bump_order_lock(sel, source="post_coda_reverse_jump")
+    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    try:
+        ctx.log(
+            f"post_coda_reverse_jump: dropped {drop[:12]}",
+            level="warning",
+            stage="edl_narrative_audit",
+        )
+    except Exception:
+        pass
+    return drop

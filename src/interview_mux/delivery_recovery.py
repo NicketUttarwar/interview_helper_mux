@@ -113,9 +113,27 @@ def heal_layup_spoken_copy(ctx: RunContext) -> int:
         1
         for note in notes
         if note.get("action")
-        in {"repair_spoken_copy_layup", "skip_unhealable_spoken_copy_layup"}
+        in {
+            "repair_spoken_copy_layup",
+            "skip_unhealable_spoken_copy_layup",
+            "rewrite_meta_question_layup",
+        }
     )
     if n:
+        from interview_mux.vo_synthesis_audit import invalidate_synthesis_entries
+
+        changed_ids = [
+            str(note.get("line_id") or "")
+            for note in notes
+            if note.get("action")
+            in {
+                "repair_spoken_copy_layup",
+                "skip_unhealable_spoken_copy_layup",
+                "rewrite_meta_question_layup",
+            }
+            and note.get("line_id")
+        ]
+        invalidate_synthesis_entries(ctx, changed_ids)
         fs_write_json(ctx.final_path(PLAN_REL), repaired)
         publish_layup_plan_to_gap_report(ctx, repaired)
         gap = (
@@ -183,6 +201,31 @@ def ensure_g1_pickups(
             "errors": [],
             "g1_missing": [],
         }
+
+    try:
+        from interview_mux.source_topology import (
+            confirm_pickup_speaker,
+            ensure_source_topology,
+            ensure_speaker_sample_clips,
+            pickup_speaker_confirmed,
+        )
+
+        ensure_source_topology(ctx)
+        ensure_speaker_sample_clips(ctx)
+        if not pickup_speaker_confirmed(ctx):
+            try:
+                confirm_pickup_speaker(ctx)
+            except Exception:
+                pass
+        from interview_mux.gap_vo_gates import maybe_auto_accept_gap_gate_defaults
+
+        maybe_auto_accept_gap_gate_defaults(ctx)
+    except Exception as exc:
+        ctx.log(
+            f"clone-voice prereq ensure skipped: {exc}",
+            level="warning",
+            stage="delivery_recovery",
+        )
 
     report = ctx.read_json("understanding/gap_report.json")
     omitted: set[str] = set()

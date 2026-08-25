@@ -137,6 +137,11 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
     subprocess.run(["pkill", "-f", "interview_mux serve"], check=False)
     time.sleep(1.0)
     subprocess.run(["pkill", "-9", "-f", "interview_mux serve"], check=False)
+    # Orphan MusicGen workers survive serve recycle (PPID 1) and starve the
+    # current clip on MPS. Kill them with the listener.
+    subprocess.run(["pkill", "-f", "tools/musicgen_generate.py"], check=False)
+    time.sleep(0.4)
+    subprocess.run(["pkill", "-9", "-f", "tools/musicgen_generate.py"], check=False)
     _kill_pids_on_port(port)
     time.sleep(1.5)
     pid = _popen(
@@ -393,6 +398,7 @@ def shutdown_full_auto_stack(
         _pkill_pattern(_DRIVER_PGREP, exclude_pid=exclude_pid)
     if kill_server:
         _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)
+        _pkill_pattern("tools/musicgen_generate.py", exclude_pid=exclude_pid)
         killed_port = _kill_pids_on_port(port)
         # Second pass after brief settle — catch respawn races / child listeners.
         time.sleep(0.6)

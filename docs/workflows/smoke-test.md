@@ -182,10 +182,10 @@ Unattended long runs use the Full-auto soft stack (heal → remutate → re-exec
 ./scripts/run.sh
 
 # Non-interactive headless Full-auto
-MUX_RUN_MODE=full-auto MUX_INPUT_AUDIO=ASSETS/input/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+MUX_RUN_MODE=full-auto MUX_INPUT_AUDIO=ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3 ./scripts/run.sh
 
 # Explicit env alias
-MUX_FULL_AUTO=1 MUX_INPUT_AUDIO=ASSETS/input/Baba_zydus_town_hall.mp4 ./scripts/run.sh
+MUX_FULL_AUTO=1 MUX_INPUT_AUDIO=ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3 ./scripts/run.sh
 
 # Or explicitly:
 python tools/full_auto_daemon_launch.py e2e --fresh

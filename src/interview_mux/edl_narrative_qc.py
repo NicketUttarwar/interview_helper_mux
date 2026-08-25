@@ -640,6 +640,15 @@ def _validate_gap_placements(
                     "Synthesize at G1 or re-run edl."
                 )
         if key not in placement_keys:
+            warning_ok = (
+                line_id in missing_vo
+                or target in missing_vo
+                or line_id in suppressed_clone_adjacency
+            )
+            if delivery == "synthesize" and not require_synth:
+                warning_ok = True
+            if key not in vo_keys and warning_ok:
+                continue
             errors.append(
                 f'master/edl.json: gap line "{line_id}" targeting "{target}" '
                 "has no matching gap_placements entry. Re-run edl."

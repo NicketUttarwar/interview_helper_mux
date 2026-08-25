@@ -1408,9 +1408,9 @@ def resolve_keeper_air_bounds(
     """Tighten keeper source bounds to a legal conceptual hinge.
 
     Ideal-window match is optional; boundary trim is not — every keeper with
-    words runs the legal-hinge path. Keepers stay disjoint: extend never
-    crosses ``next_keeper_start_ms``, and open never walks before
-    ``prev_keeper_end_ms``.
+    words runs the legal-hinge path. Keepers stay disjoint: open never walks
+    before ``prev_keeper_end_ms``. Extend does not cross the next keeper
+    except to finish an outgoing last word that the turn-cap would snap back.
     """
     from pathlib import Path
 
@@ -1558,13 +1558,24 @@ def resolve_keeper_air_bounds(
             if extended is not None and extended - start >= min_keep_ms:
                 end = extended
                 meta["air_bound_reason"] = "extend_to_legal_hinge"
+            elif (
+                next_keeper_start_ms is not None
+                and 0 < int(next_keeper_start_ms) - end <= 1_000
+            ):
+                # STT missed the last word: keep through the nearby turn so
+                # residual outgoing audio is not snapped back off a hanging tail.
+                end = int(next_keeper_start_ms)
+                meta["air_bound_reason"] = "outgoing_hanging_to_turn"
             else:
                 retreated = last_complete_thought_end_ms(
                     words, start_ms=start, end_ms=max(start + min_keep_ms, end - 200)
                 )
                 if retreated is not None and retreated - start >= min_keep_ms:
-                    end = retreated
-                    meta["air_bound_reason"] = "retreat_to_legal_hinge"
+                    from interview_mux.gap_vo_prior_context import end_is_hanging_clause as _hang
+
+                    if not _hang(words, retreated):
+                        end = retreated
+                        meta["air_bound_reason"] = "retreat_to_legal_hinge"
 
     span = end - start
     budget = int(max_keep_ms) if max_keep_ms is not None else None
@@ -1590,15 +1601,59 @@ def resolve_keeper_air_bounds(
             end = snapped
             meta["air_bound_reason"] = "budget_hinge_trim"
 
-    if hard_cap is not None and end > hard_cap:
-        end = hard_cap
-        if words:
-            retreated = last_complete_thought_end_ms(
-                words, start_ms=start, end_ms=end
+    owned_end: int | None = None
+    last_word_cross_ms = 800
+    if words and (hard_cap is not None or next_keeper_start_ms is not None):
+        from interview_mux.cut_edge_refine import (
+            OUTGOING_LAST_WORD_MAX_CROSS_MS,
+            lift_end_for_outgoing_last_word,
+            outgoing_last_word_end_ms,
+        )
+        from interview_mux.gap_vo_prior_context import end_is_hard_hang
+
+        last_word_cross_ms = int(OUTGOING_LAST_WORD_MAX_CROSS_MS)
+        owned_end = outgoing_last_word_end_ms(
+            words,
+            clip_start_ms=start,
+            proposed_end_ms=hard_cap if hard_cap is not None else end,
+            next_keeper_start_ms=next_keeper_start_ms,
+        )
+        if owned_end is not None:
+            # Reuse lift policy: may extend through a legal hinge instead of
+            # freezing on an incomplete tail ("and" before "then").
+            lifted, used = lift_end_for_outgoing_last_word(
+                end,
+                words,
+                clip_start_ms=start,
+                next_keeper_start_ms=next_keeper_start_ms,
+                proposed_end_ms=hard_cap if hard_cap is not None else end,
             )
-            if retreated is not None and retreated - start >= min_keep_ms:
-                end = retreated
-        meta["air_bound_reason"] = "disjoint_cap"
+            if used:
+                owned_end = lifted
+            elif end_is_hard_hang(words, int(owned_end)):
+                owned_end = None
+
+    if hard_cap is not None and end > hard_cap:
+        if owned_end is not None and owned_end >= start + min_keep_ms:
+            end = owned_end
+            meta["air_bound_reason"] = "outgoing_last_word"
+        elif meta.get("air_bound_reason") == "outgoing_hanging_to_turn":
+            pass
+        else:
+            end = hard_cap
+            if words:
+                from interview_mux.gap_vo_prior_context import end_is_hanging_clause
+
+                retreated = last_complete_thought_end_ms(
+                    words, start_ms=start, end_ms=end
+                )
+                if (
+                    retreated is not None
+                    and retreated - start >= min_keep_ms
+                    and not end_is_hanging_clause(words, retreated)
+                ):
+                    end = retreated
+            meta["air_bound_reason"] = "disjoint_cap"
 
     # Exact word pins + acoustic valley micro-nudge (no large free shift).
     if words or (wav_path and acoustic_on):
@@ -1622,15 +1677,37 @@ def resolve_keeper_air_bounds(
                 meta["air_bound_reason"] = f"{meta['air_bound_reason']}+edge_refine"
 
     # Re-assert keeper disjointness after edge refine (acoustic can walk open back).
+    # Outgoing last-word ownership wins over turn-cap snap-back when the cut is
+    # still at that last word (not an earlier legal hinge).
     if prev_floor is not None and start < prev_floor:
         start = prev_floor
         meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_prev_floor"
-    if hard_cap is not None and end > hard_cap:
-        end = hard_cap
-        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_cap"
+    if prev_floor is not None and start < prev_floor:
+        start = prev_floor
+        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_prev_floor"
+    if "outgoing_hanging_to_turn" in str(meta.get("air_bound_reason") or ""):
+        if next_keeper_start_ms is not None:
+            end = max(end, int(next_keeper_start_ms))
+    elif (
+        owned_end is not None
+        and end < owned_end
+        and owned_end - end <= last_word_cross_ms + 200
+    ):
+        end = owned_end
+        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+outgoing_last_word"
+    elif hard_cap is not None and end > hard_cap:
+        if owned_end is not None:
+            end = owned_end
+            meta["air_bound_reason"] = f"{meta['air_bound_reason']}+outgoing_last_word"
+        elif "outgoing_hanging_to_turn" in str(meta.get("air_bound_reason") or ""):
+            pass
+        else:
+            end = hard_cap
+            meta["air_bound_reason"] = f"{meta['air_bound_reason']}+disjoint_cap"
     if end < start + min_keep_ms and hard_cap is not None and hard_cap > start:
         # Prefer a short keep over reverting into an overlapping slab.
-        end = min(hard_cap, max(end, start + min_keep_ms))
+        cap = max(int(hard_cap), int(owned_end or hard_cap))
+        end = min(cap, max(end, start + min_keep_ms))
 
     meta["after_start_ms"] = start
     meta["after_end_ms"] = end

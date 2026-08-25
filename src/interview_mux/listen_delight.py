@@ -58,11 +58,16 @@ def listen_delight_cfg() -> dict[str, Any]:
 
 
 def _nugget_retention(ctx: RunContext) -> float:
-    """Selected duration vs delivery_brief ideal (~65% of source).
+    """Selected duration vs delivery_brief band (~65% of source).
 
-    Prefer concise: at or under ideal scores linearly; over-ideal tapers
-    because 1.5× source is a ceiling, not a goal.
+    Prefer concise: in-band (brief.min → ideal) is the intended landing.
+    Scoring selected/ideal linearly treated a valid min-band cut as a
+    retention miss and remutated ranking after EDL was already seated.
+    Over-ideal tapers because 1.5× source is a ceiling, not a goal.
+    Catastrophic shorts use the same 0.85×min envelope as
+    ``selection_duration_ship_ok``.
     """
+    floor = float(_DEFAULT_DIMENSION_FLOORS["nugget_retention"])
     try:
         from interview_mux.delivery_brief import (
             estimated_selection_duration_sec,
@@ -73,16 +78,26 @@ def _nugget_retention(ctx: RunContext) -> float:
         selected_sec = estimated_selection_duration_sec(ctx)
         if not brief or selected_sec is None:
             return 0.85
-        ideal_sec = float((brief.get("target_duration_sec") or {}).get("ideal") or 0.0)
+        band = brief.get("target_duration_sec") or {}
+        if not isinstance(band, dict):
+            band = {}
+        ideal_sec = float(band.get("ideal") or 0.0)
+        min_sec = float(band.get("min") or 0.0)
         if ideal_sec <= 0 or selected_sec <= 0:
             return 0.85
         ratio = selected_sec / max(ideal_sec, 1.0)
-        if ratio <= 1.0:
-            # Concise: at or under the ~65% ideal is the preferred landing.
-            score = ratio
-        else:
-            # Over the concise target — 1.5× source is a ceiling, not a goal.
+        if selected_sec >= ideal_sec:
             score = 1.0 - min(0.25, (ratio - 1.0) * 0.2)
+        elif min_sec > 0 and selected_sec >= min_sec:
+            span = max(ideal_sec - min_sec, 1.0)
+            t = (selected_sec - min_sec) / span
+            score = floor + (1.0 - floor) * t
+        elif min_sec > 0 and selected_sec >= min_sec * 0.85:
+            score = floor
+        elif min_sec > 0:
+            score = floor * (selected_sec / max(min_sec * 0.85, 1.0))
+        else:
+            score = ratio
         return round(_clamp(score, 0.0, 1.0), 4)
     except Exception:
         return 0.85
@@ -116,8 +131,11 @@ def _cut_integrity(ctx: RunContext) -> float:
     try:
         from interview_mux.gap_vo_prior_context import (
             clause_continues_after,
+            end_is_hard_hang,
             is_legal_conceptual_hinge,
+            same_answer_continues,
         )
+        from interview_mux.assembly_ledger import HITCH_AIR_KINDS
 
         edl = (
             ctx.read_json("master/edl.json")
@@ -136,9 +154,13 @@ def _cut_integrity(ctx: RunContext) -> float:
         ] if isinstance(tr, dict) else []
         clips = (edl or {}).get("clips") or [] if isinstance(edl, dict) else []
         speech_n = 0
-        for clip in clips:
-            if not isinstance(clip, dict) or str(clip.get("type") or "") != "speech":
-                continue
+        speech_idxs = [
+            i
+            for i, c in enumerate(clips)
+            if isinstance(c, dict) and str(c.get("type") or "") == "speech"
+        ]
+        for si, clip_i in enumerate(speech_idxs):
+            clip = clips[clip_i]
             speech_n += 1
             end_ms = int(clip.get("source_end_ms") or 0)
             start_ms = int(clip.get("source_start_ms") or 0)
@@ -153,10 +175,29 @@ def _cut_integrity(ctx: RunContext) -> float:
             end_text = " ".join(end_toks[-12:]) if end_toks else ""
             if not end_text:
                 continue
-            if clause_continues_after(words, end_ms) or not is_legal_conceptual_hinge(
-                end_text, words=words, end_ms=end_ms, next_pause_ms=None
+            if (
+                end_is_hard_hang(words, end_ms)
+                or clause_continues_after(words, end_ms)
+                or not is_legal_conceptual_hinge(
+                    end_text, words=words, end_ms=end_ms, next_pause_ms=None
+                )
             ):
                 hang_hits += 1
+                continue
+            # Soft hang: same-answer split with chapter hinge air between clips.
+            if si + 1 < len(speech_idxs):
+                nxt = clips[speech_idxs[si + 1]]
+                between = clips[clip_i + 1 : speech_idxs[si + 1]]
+                has_hinge = any(
+                    isinstance(c, dict)
+                    and c.get("type") == "silence"
+                    and str(c.get("air_kind") or "") in HITCH_AIR_KINDS
+                    and int(c.get("duration_ms") or 0) > 0
+                    for c in between
+                )
+                right_start = int(nxt.get("source_start_ms") or 0)
+                if has_hinge and same_answer_continues(words, end_ms, right_start):
+                    hang_hits += 1
     except Exception:
         hang_hits = 0
         speech_n = 0

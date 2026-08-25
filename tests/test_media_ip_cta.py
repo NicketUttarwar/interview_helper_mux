@@ -743,6 +743,56 @@ def test_never_touch_qc_rejects_paraphrase() -> None:
     assert any("never_touch_cta" in str(e) for e in qc.get("errors") or [])
 
 
+def test_prepare_layup_skips_never_touch_cta_wording() -> None:
+    """Persist-time skip so rotating never_touch_cta QC fails cannot loop compose."""
+    from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_cta"],
+            "never_touch_segment_ids": ["seg_cta"],
+            "never_touch_texts": [
+                "Go subscribe to my old show and buy the course at the link below"
+            ],
+        },
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_b"]})
+    ctx.write_json("segments/manifest.json", _manifest(_seg("seg_b", "the exit story")))
+    plan = {
+        "ordered_segment_ids": ["seg_b"],
+        "layups": [
+            {
+                "target_segment_id": "seg_b",
+                "text": (
+                    "Go subscribe to my old show and buy the course at the link below. "
+                    "Why did the exit change the market?"
+                ),
+                "target_beat": "The exit",
+                "listener_need_entering_T": "Need the exit beat",
+                "forward_unlock": "Why did the exit change the market?",
+                "skip": False,
+            }
+        ],
+    }
+    assert any(
+        "never_touch_cta" in str(e)
+        for e in (evaluate_layup_qc(ctx, plan).get("errors") or [])
+    )
+    prepared = prepare_layup_plan_for_persist(ctx, plan)
+    row = next(
+        r for r in (prepared.get("layups") or []) if r.get("target_segment_id") == "seg_b"
+    )
+    assert row.get("skip") is True
+    assert row.get("skip_reason_code") == "never_touch_cta"
+    assert is_justified_skip_row(row)
+    qc = evaluate_layup_qc(ctx, prepared)
+    assert not any("never_touch_cta" in str(e) for e in (qc.get("errors") or []))
+
+
 def test_opener_vo_shape_third_person_on_010_only() -> None:
     from interview_mux.opening_orientation import ensure_episode_orientation
 
@@ -1352,3 +1402,299 @@ def test_layup_residue_prunes_all_remaining() -> None:
     assert "seg_a" not in out["ordered_segment_ids"]
     assert "seg_b" not in out["ordered_segment_ids"]
     assert "seg_c" in out["ordered_segment_ids"]
+
+
+def test_execute_cta_omit_from_needs_keeps_reverse_jump_native() -> None:
+    from interview_mux.media_ip_cta import execute_cta_omit_from_needs
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_001a",
+                "The Life Sciences DNA podcast is sponsored by Agilisium Labs.",
+                start=0,
+                end=8000,
+            ),
+            _seg(
+                "seg_003h",
+                "Before we begin, stay up on the latest episodes by hitting the subscribe button.",
+                start=8000,
+                end=12000,
+            ),
+            _seg(
+                "seg_054",
+                "Yeah, and so this is early detection of the tumor changing.",
+                start=12000,
+                end=18000,
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001a", "seg_003h", "seg_054"]},
+    )
+    dropped = execute_cta_omit_from_needs(
+        ctx,
+        [
+            {
+                "type": "rerun_stage",
+                "stage": "selection",
+                "blocking": True,
+                "reason": (
+                    "Remove seg_001a (sponsor bumper) and seg_003h (subscribe CTA); "
+                    "re-evaluate reverse jump seg_054 → seg_003a"
+                ),
+            }
+        ],
+    )
+    sel = ctx.read_json("master/selection.json")
+    order = sel.get("ordered_segment_ids") or []
+    assert "seg_001a" in dropped
+    assert "seg_003h" in dropped
+    assert "seg_054" not in dropped
+    assert "seg_001a" not in order
+    assert "seg_003h" not in order
+    assert "seg_054" in order
+
+
+def test_execute_cta_omit_drops_outro_range() -> None:
+    from interview_mux.media_ip_cta import execute_cta_omit_from_needs
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_054", "This is early detection of the tumor changing.", start=0, end=4000),
+            _seg("seg_068b", "Life Sciences DNA is a bi-monthly podcast produced by Levine Media.", start=4000, end=6000),
+            _seg("seg_068c", "Be sure to follow us on your preferred podcast platform.", start=6000, end=8000),
+            _seg("seg_068l", "Beautiful. Let's Follow Y!", start=8000, end=9000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_054", "seg_068b", "seg_068c", "seg_068l"]},
+    )
+    dropped = execute_cta_omit_from_needs(
+        ctx,
+        [
+            {
+                "type": "rerun_stage",
+                "stage": "selection",
+                "blocking": True,
+                "reason": (
+                    "Remove seg_068b through seg_068l from the locked air order. "
+                    "This run includes direct listener requests to follow and contact "
+                    "the programme, plus disconnected outro credits and sign-off."
+                ),
+            }
+        ],
+    )
+    order = ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    assert "seg_068b" in dropped
+    assert "seg_068c" in dropped
+    assert "seg_068l" in dropped
+    assert "seg_054" not in dropped
+    assert order == ["seg_054"]
+
+
+def test_execute_cta_omit_keeps_reverse_jump_intro_and_commits_under_staging() -> None:
+    from interview_mux.media_ip_cta import execute_cta_omit_from_needs
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_002",
+                "Mohan, thanks for joining us. We're going to talk today about how AI is transforming cancer care.",
+                start=0,
+                end=8000,
+            ),
+            _seg(
+                "seg_074",
+                "Thanks for listening to Life Sciences DNA.",
+                start=8000,
+                end=9000,
+            ),
+            _seg(
+                "seg_074b",
+                "Life Sciences DNA is a bi-monthly podcast produced by the Levine Media Group with production support from FullView Media.",
+                start=9000,
+                end=11000,
+            ),
+            _seg(
+                "seg_074d",
+                "Music for this podcast is provided courtesy of the Jonah Levine Collective.",
+                start=11000,
+                end=12500,
+            ),
+            _seg(
+                "seg_074g",
+                "The Life Sciences DNA.",
+                start=12500,
+                end=13000,
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_002", "seg_074b", "seg_074d", "seg_074g"],
+            "excluded_segment_ids": [{"segment_id": "seg_074", "reason": "media_ip_cta"}],
+        },
+    )
+    enter_stage_staging("nugget_layup_compose")
+    try:
+        dropped = execute_cta_omit_from_needs(
+            ctx,
+            [
+                {
+                    "type": "rerun_stage",
+                    "stage": "selection",
+                    "blocking": True,
+                    "reason": (
+                        "Reconcile the locked air order with the authoritative media-IP CTA "
+                        "exclusion for parent seg_074 and its selected children seg_074b, "
+                        "seg_074d, and seg_074g. The current order also reverse-jumps from "
+                        "end credits into seg_002."
+                    ),
+                }
+            ],
+        )
+    finally:
+        exit_stage_staging()
+    # Staging rollback must not undo the host omit.
+    committed = ctx.final_path("master", "selection.json")
+    import json
+
+    order = json.loads(committed.read_text(encoding="utf-8")).get("ordered_segment_ids") or []
+    assert "seg_074b" in dropped
+    assert "seg_074d" in dropped
+    assert "seg_074g" in dropped
+    assert "seg_002" not in dropped
+    assert "seg_002" in order
+    assert "seg_074b" not in order
+    assert "seg_074d" not in order
+    assert "seg_074g" not in order
+
+
+def test_execute_cta_omit_releases_poisoned_intro_never_touch() -> None:
+    from interview_mux.homunculus.issues import emit_issue
+    from interview_mux.media_ip_cta import ARTIFACT_REL, execute_cta_omit_from_needs
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_002",
+                "Mohan, thanks for joining us. We're going to talk today about how AI is transforming cancer care.",
+                start=0,
+                end=8000,
+            ),
+            _seg(
+                "seg_074",
+                "Thanks for listening to Life Sciences DNA.",
+                start=8000,
+                end=9000,
+            ),
+            _seg(
+                "seg_074b",
+                "Life Sciences DNA is a bi-monthly podcast produced by the Levine Media Group with production support from FullView Media.",
+                start=9000,
+                end=11000,
+            ),
+            _seg(
+                "seg_073",
+                "That is the assay result in the first cohort.",
+                start=7000,
+                end=8000,
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_073", "seg_074b"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_074", "reason": "media_ip_cta"},
+                {"segment_id": "seg_002", "reason": "media_ip_cta"},
+            ],
+        },
+    )
+    ctx.write_json(
+        ARTIFACT_REL,
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_074", "seg_074b", "seg_002"],
+            "never_touch_segment_ids": ["seg_074", "seg_074b", "seg_002"],
+        },
+    )
+    emit_issue(
+        ctx,
+        kind="perspective_direct_monetization",
+        source="apply_editorial_omits",
+        stage_id="full_master_ranking",
+        implicated=["seg_002", "seg_074b"],
+        evidence={"reasons": {"seg_002": "reverse-jumps into seg_002"}},
+    )
+    dropped = execute_cta_omit_from_needs(
+        ctx,
+        [
+            {
+                "type": "rerun_stage",
+                "stage": "selection",
+                "blocking": True,
+                "reason": (
+                    "media_ip_cta credits omit: cta_omit_applied dropped "
+                    "seg_074b,seg_002 reverse-jumps into seg_002"
+                ),
+            }
+        ],
+    )
+    order = ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    state = ctx.read_json(ARTIFACT_REL)
+    assert "seg_002" not in dropped
+    assert "seg_002" in order
+    assert "seg_074b" not in order
+    assert "seg_002" not in (state.get("dropped_segment_ids") or [])
+    assert "seg_002" not in (state.get("never_touch_segment_ids") or [])
+    assert "seg_074" in (state.get("dropped_segment_ids") or []) or "seg_074" in (
+        state.get("never_touch_segment_ids") or []
+    )
+
+
+def test_heal_strips_never_touch_left_on_air() -> None:
+    from interview_mux.media_ip_cta import ARTIFACT_REL, heal_on_air_cta_residue
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_001a", "The podcast is sponsored by Agilisium Labs.", start=0, end=8000),
+            _seg("seg_002", "The assay worked in the first cohort.", start=8000, end=12000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_001a", "seg_002"]},
+    )
+    ctx.write_json(
+        ARTIFACT_REL,
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_001"],
+            "never_touch_segment_ids": ["seg_001", "seg_001a"],
+        },
+    )
+    out = heal_on_air_cta_residue(ctx)
+    order = out.get("ordered_segment_ids") or []
+    assert "seg_001a" not in order
+    assert "seg_002" in order
+    disk = ctx.read_json("master/selection.json")
+    assert "seg_001a" not in (disk.get("ordered_segment_ids") or [])

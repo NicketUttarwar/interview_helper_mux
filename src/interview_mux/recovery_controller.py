@@ -43,6 +43,8 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         "no valid cuts after snap" in msg or "bind_mode requires boundaries" in msg
     ):
         return "empty_snap"
+    if stage in {"nugget_layup_compose", "gap_framing_recompose"} and "never_touch_cta" in msg:
+        return "never_touch_cta"
     if stage in {"nugget_layup_compose", "gap_framing_recompose"} and (
         "layup_coverage" in msg
         or "min_layup_coverage" in msg
@@ -84,7 +86,92 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         and ("diarization" in msg or "speaker_diarization" in msg)
     ):
         return "mixed_diarization"
+    if stage == "edl" and (
+        "unknown segment_id" in msg or "edl_qc strict" in msg or "edl_qc" in msg
+    ):
+        return "unknown_nle_split_child"
+    if stage == "nugget_layup_compose" and (
+        "cta_omit_applied" in msg
+        or (
+            "rerun_stage" in msg
+            and "selection" in msg
+            and any(
+                token in msg
+                for token in (
+                    "sponsor",
+                    "media_ip",
+                    "subscribe",
+                    "monetiz",
+                    "cta",
+                    "outro",
+                    "credits",
+                    "direct listener",
+                )
+            )
+        )
+    ):
+        return "selection_cta_omit"
+    reason = str(getattr(exc, "reason", "") or "").lower()
+    if stage in {"edl", "mix", "junction_snip_qa", "master_finalize"} and (
+        "selection_edl_order_drift" in msg
+        or "ordered_segment_ids drifted" in msg
+        or "speech clip order diverges" in msg
+        or "speech clip order" in msg
+    ):
+        return "selection_edl_order_drift"
+    if (
+        "assembly_not_rendered_from_current_edl" in msg
+        or "air_order generation mismatch" in msg
+        or reason == "assembly_not_rendered_from_current_edl"
+    ):
+        return "assembly_not_rendered_from_current_edl"
+    if (
+        "opening_slot_conflict" in msg
+        or "duplicate opening layup" in msg
+        or "opening_orientation_owns_target" in msg
+    ):
+        return "opening_slot_conflict"
+    if (
+        reason == "post_master_quality_missing"
+        or "post_master_quality_missing" in msg
+        or "post-master quality artifact is missing" in msg
+    ):
+        return "post_master_quality_missing"
+    if "high_gap_unframed" in msg or (
+        "high gap segment" in msg and "no interviewer line" in msg
+    ):
+        return "high_gap_unframed"
     return None
+
+
+CLASSIFIED_PLAYBOOKS = frozenset(
+    {
+        "empty_snap",
+        "never_touch_cta",
+        "layup_coverage",
+        "orientation_target_mismatch",
+        "unknown_nle_split_child",
+        "framing_vo_unseated",
+        "naked_seam",
+        "mmaudio_qa_missing",
+        "sdp_theme_wavs_missing",
+        "episode_close_outro",
+        "missing_g1_pickup",
+        "listen_delight_floors",
+        "fingerprint_mismatch",
+        "mixed_diarization",
+        "selection_cta_omit",
+        "selection_edl_order_drift",
+        "assembly_not_rendered_from_current_edl",
+        "opening_slot_conflict",
+        "post_master_quality_missing",
+        "high_gap_unframed",
+    }
+)
+
+
+def has_classified_playbook(error_class: str | None) -> bool:
+    return bool(error_class) and error_class in CLASSIFIED_PLAYBOOKS
 
 
 def signature_key(stage_id: str, error_class: str) -> str:
@@ -334,6 +421,133 @@ def playbook_mint_reorder_glue(ctx: RunContext) -> list[str]:
     return written
 
 
+
+def _unmark_stages(ctx: RunContext, *stage_ids: str) -> None:
+    for sid in stage_ids:
+        (Path(ctx.run_dir) / ".stage_done" / sid).unlink(missing_ok=True)
+
+
+def playbook_selection_edl_order_drift(ctx: RunContext) -> list[str]:
+    from interview_mux.air_order import commit, rollback
+    from interview_mux.order_hash import order_drift_heal_action
+    from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
+    from interview_mux.timeline_optimizer.daemon import stop_optimizer_daemon
+
+    sel = (
+        ctx.read_json("master/selection.json")
+        if ctx.artifact_exists("master/selection.json")
+        else None
+    )
+    edl = ctx.read_json("master/edl.json") if ctx.artifact_exists("master/edl.json") else None
+    if (
+        isinstance(sel, dict)
+        and sel.get("order_authority") == "timeline_optimizer"
+        and optimizer_live_mutate_blocked(ctx)
+    ):
+        rollback(ctx)
+        return ["master/selection.json"]
+    action = order_drift_heal_action(
+        sel if isinstance(sel, dict) else None,
+        edl if isinstance(edl, dict) else None,
+    )
+    if action == "exclude_unseated":
+        commit(ctx, source="recovery_exclude_unseated")
+        return ["master/selection.json", "master/edl.json"]
+    if action == "stamp":
+        commit(ctx, source="recovery_stamp")
+        return ["master/selection.json", "master/edl.json"]
+    if action == "rebuild":
+        stop_optimizer_daemon(ctx)
+        from interview_mux.stages.assembly import run_edl
+
+        run_edl(ctx)
+        return ["master/edl.json"]
+    if ctx.artifact_exists("master/edl.json"):
+        commit(ctx, source="recovery_order_ok")
+        return ["master/edl.json"]
+    return []
+
+
+def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
+    _unmark_stages(ctx, "mix", "junction_snip_qa", "master_finalize")
+    return ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
+
+
+def playbook_opening_slot_conflict(ctx: RunContext) -> list[str]:
+    from interview_mux.opening_adjacency_repair import (
+        drop_orphan_opening_vo_when_native_orients,
+        suppress_opening_layup_when_orientation_owns_slot,
+    )
+
+    suppress_opening_layup_when_orientation_owns_slot(ctx)
+    drop_orphan_opening_vo_when_native_orients(ctx)
+    if ctx.artifact_exists("master/edl.json"):
+        from interview_mux.air_order import commit
+
+        commit(ctx, source="opening_slot_conflict")
+    written = []
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        written.append("understanding/gap_report.json")
+    if ctx.artifact_exists("master/edl.json"):
+        written.append("master/edl.json")
+    return written
+
+
+def playbook_post_master_quality_missing(ctx: RunContext) -> list[str]:
+    from interview_mux.post_master_quality import QUALITY_REL, run_post_master_quality
+
+    run_post_master_quality(ctx, block=False)
+    return [QUALITY_REL] if ctx.artifact_exists(QUALITY_REL) else []
+
+
+def playbook_high_gap_unframed(ctx: RunContext) -> list[str]:
+    from interview_mux.artifact_repairs import repair_gap_report
+
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return []
+    doc = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(doc, dict):
+        return []
+    repaired, _notes = repair_gap_report(ctx, doc)
+    ctx.write_json("understanding/gap_report.json", repaired)
+    return ["understanding/gap_report.json"]
+
+
+def playbook_skip_never_touch_cta_layups(ctx: RunContext) -> list[str]:
+    from interview_mux.nugget_layup import PLAN_REL, skip_never_touch_cta_layups
+
+    plan = ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    out, _notes = skip_never_touch_cta_layups(ctx, plan if isinstance(plan, dict) else {})
+    ctx.write_json(PLAN_REL, out)
+    return [PLAN_REL]
+
+
+def playbook_materialize_nle_split_children(ctx: RunContext) -> list[str]:
+    from interview_mux.nle_state import materialize_all_nle_split_children
+
+    materialize_all_nle_split_children(ctx)
+    return ["segments/manifest.json"] if ctx.artifact_exists("segments/manifest.json") else []
+
+
+def playbook_host_cta_omit(ctx: RunContext) -> list[str]:
+    from interview_mux.media_ip_cta import execute_cta_omit_from_needs, heal_on_air_cta_residue
+
+    needs: list[dict[str, Any]] = []
+    try:
+        from interview_mux.homunculus.issues import read_issues
+
+        for issue in read_issues(ctx):
+            ev = issue.get("evidence") or {}
+            msg = str(ev.get("message") or "")
+            if "cta" in msg.lower() or "media_ip" in msg.lower():
+                needs.append({"message": msg})
+    except Exception:
+        pass
+    execute_cta_omit_from_needs(ctx, needs)
+    heal_on_air_cta_residue(ctx)
+    return ["master/selection.json"] if ctx.artifact_exists("master/selection.json") else []
+
+
 def handle_stage_failure(
     ctx: RunContext,
     stage_id: str,
@@ -353,12 +567,8 @@ def handle_stage_failure(
             evidence={"error_class": type(exc).__name__, "message": str(exc)[:400]},
         )
         early_class = classify_error_class(stage_id, exc)
-        # Mixed diarization is a deterministic G0-locked repair — do not wait
-        # for a conductor analysis packet.
-        if (
-            is_homunculus_run(ctx)
-            and early_class != "mixed_diarization"
-            and not recovery_allowed(ctx, stage_id)
+        if is_homunculus_run(ctx) and not recovery_allowed(
+            ctx, stage_id, exc=exc, error_class=early_class
         ):
             return _result(
                 status="escalate",
@@ -377,6 +587,25 @@ def handle_stage_failure(
             signature=signature_key(stage_id, "unknown"),
             resume_stage=stage_id,
             detail="no_matching_playbook",
+        )
+    from interview_mux.identical_failures import (
+        failure_signature,
+        is_halted,
+        record_identical_failure,
+    )
+
+    halt_sig = failure_signature(
+        failed_stage=stage_id,
+        producer=error_class,
+        reason=str(exc)[:400],
+    )
+    if is_halted(ctx, halt_sig):
+        return _result(
+            status="escalate",
+            playbook_id="identical_failure_halt",
+            signature=signature_key(stage_id, error_class),
+            resume_stage=stage_id,
+            detail="identical_failures_halted",
         )
     sig = signature_key(stage_id, error_class)
     vo_hash = ""
@@ -423,6 +652,13 @@ def handle_stage_failure(
                 "status": result.status,
                 "detail": result.detail,
             },
+        )
+        record_identical_failure(
+            ctx,
+            failed_stage=stage_id,
+            producer=error_class,
+            reason=str(exc)[:400],
+            resume_attempted=resume_on_budget,
         )
         return result
 
@@ -506,6 +742,49 @@ def handle_stage_failure(
             recovered = bool(artifacts)
             if recovered:
                 resume_stage = "source_topology_build"
+        elif error_class == "never_touch_cta":
+            playbook_id = "skip_never_touch_cta_layups"
+            artifacts = playbook_skip_never_touch_cta_layups(ctx)
+            recovered = True
+        elif error_class == "unknown_nle_split_child":
+            playbook_id = "materialize_nle_split_children"
+            artifacts = playbook_materialize_nle_split_children(ctx)
+            recovered = True
+            resume_stage = "edl"
+        elif error_class == "selection_cta_omit":
+            playbook_id = "host_cta_omit"
+            artifacts = playbook_host_cta_omit(ctx)
+            recovered = True
+            resume_stage = "nugget_layup_compose"
+        elif error_class == "selection_edl_order_drift":
+            playbook_id = "selection_edl_order_drift"
+            artifacts = playbook_selection_edl_order_drift(ctx)
+            recovered = bool(artifacts)
+            resume_stage = (
+                "mix"
+                if stage_id in {"mix", "junction_snip_qa", "master_finalize"}
+                else "edl"
+            )
+        elif error_class == "assembly_not_rendered_from_current_edl":
+            playbook_id = "assembly_not_rendered_from_current_edl"
+            artifacts = playbook_assembly_not_rendered(ctx)
+            recovered = True
+            resume_stage = "mix"
+        elif error_class == "opening_slot_conflict":
+            playbook_id = "opening_slot_conflict"
+            artifacts = playbook_opening_slot_conflict(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "edl"
+        elif error_class == "post_master_quality_missing":
+            playbook_id = "post_master_quality_missing"
+            artifacts = playbook_post_master_quality_missing(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "master_finalize"
+        elif error_class == "high_gap_unframed":
+            playbook_id = "high_gap_unframed"
+            artifacts = playbook_high_gap_unframed(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "gap_framing_compose"
         else:
             recovered = False
             detail = "unhandled_class"
@@ -533,4 +812,16 @@ def handle_stage_failure(
             **({"vo_seats_hash": vo_hash} if vo_hash else {}),
         },
     )
+    if result.status != "recovered":
+        row = record_identical_failure(
+            ctx,
+            failed_stage=stage_id,
+            producer=error_class,
+            reason=str(exc)[:400],
+            resume_attempted=result.resume_stage,
+        )
+        if row.get("halt"):
+            result.status = "escalate"
+            result.playbook_id = "identical_failure_halt"
+            result.detail = (result.detail + " identical_failures_halted").strip()
     return result

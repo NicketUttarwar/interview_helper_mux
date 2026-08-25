@@ -3,27 +3,56 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from interview_mux.run_context import RunContext
 
 PROMPT_REL = "interviewer-gap/high-gap-vo-fill.system.txt"
 
+_CHILD_SUFFIX_RE = re.compile(r"^(seg_\d+)([a-z]+)$", re.IGNORECASE)
+_SEG_IN_TEXT_RE = re.compile(r"(seg_\d+[a-z]*)", re.IGNORECASE)
 
-def _seg_text(ctx: RunContext, sid: str) -> str:
-    if not sid or not ctx.artifact_exists("segments/manifest.json"):
-        return ""
+
+def parent_id_of_segment(sid: str) -> str | None:
+    m = _CHILD_SUFFIX_RE.match(str(sid or "").strip())
+    return m.group(1) if m else None
+
+
+def expand_targeted_with_parents(
+    targeted: set[str],
+    ctx: RunContext | None = None,
+) -> set[str]:
+    """Treat a child target as covering its parent (and vice versa)."""
+    out = {str(s) for s in targeted if s}
+    for sid in list(out):
+        parent = parent_id_of_segment(sid)
+        if parent:
+            out.add(parent)
+    if ctx is None or not ctx.artifact_exists("segments/manifest.json"):
+        return out
     try:
         man = ctx.read_json("segments/manifest.json")
-        for row in (man or {}).get("segments") or []:
-            if isinstance(row, dict) and str(row.get("segment_id") or "") == sid:
-                return str(row.get("text") or "")[:400]
     except Exception:
-        return ""
-    return ""
+        return out
+    for row in (man or {}).get("segments") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        parent = str(row.get("parent_segment_id") or "") or (parent_id_of_segment(sid) or "")
+        if not sid or not parent:
+            continue
+        if sid in out:
+            out.add(parent)
+        if parent in out:
+            out.add(sid)
+    return out
 
 
-def targeted_segment_ids(lines: list[Any] | None) -> set[str]:
+def targeted_segment_ids(
+    lines: list[Any] | None,
+    ctx: RunContext | None = None,
+) -> set[str]:
     """Segment ids already covered by interviewer lines (targets, seeds, supports)."""
     targeted: set[str] = set()
     for ln in lines or []:
@@ -38,6 +67,8 @@ def targeted_segment_ids(lines: list[Any] | None) -> set[str]:
             targeted.add(lid[len("vo_seed_") :])
         if lid.startswith("vo_fill_") and len(lid) > len("vo_fill_"):
             targeted.add(lid[len("vo_fill_") :])
+        for hit in _SEG_IN_TEXT_RE.findall(lid):
+            targeted.add(hit)
         for sid in ln.get("supports_segment_ids") or []:
             if sid:
                 targeted.add(str(sid))
@@ -46,7 +77,20 @@ def targeted_segment_ids(lines: list[Any] | None) -> set[str]:
             path = str(extracted.get("path") or "")
             if path.startswith("repair_seed:"):
                 targeted.add(path.split(":", 1)[1].strip())
-    return targeted
+    return expand_targeted_with_parents(targeted, ctx)
+
+
+def _seg_text(ctx: RunContext, sid: str) -> str:
+    if not sid or not ctx.artifact_exists("segments/manifest.json"):
+        return ""
+    try:
+        man = ctx.read_json("segments/manifest.json")
+        for row in (man or {}).get("segments") or []:
+            if isinstance(row, dict) and str(row.get("segment_id") or "") == sid:
+                return str(row.get("text") or "")[:400]
+    except Exception:
+        return ""
+    return ""
 
 
 def demote_uncovered_high_gaps(
@@ -75,7 +119,7 @@ def demote_uncovered_high_gaps(
         loaded = ctx.read_json("understanding/gap_report.json")
         report = loaded if isinstance(loaded, dict) else {}
     lines = (report or {}).get("interviewer_lines") if isinstance(report, dict) else []
-    targeted = targeted_segment_ids(lines if isinstance(lines, list) else [])
+    targeted = targeted_segment_ids(lines if isinstance(lines, list) else [], ctx)
     demoted = 0
     rows: list[dict[str, Any]] = []
     for row in evals.get("evaluations") or []:
@@ -126,7 +170,7 @@ def fill_uncovered_high_gaps(
     if not isinstance(lines, list):
         lines = []
         out["interviewer_lines"] = lines
-    targeted = targeted_segment_ids(lines)
+    targeted = targeted_segment_ids(lines, ctx)
     high = [
         r
         for r in (evals.get("evaluations") or [])

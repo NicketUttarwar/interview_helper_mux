@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_SEG_NUM_RE = re.compile(r"^seg_(\d+)([a-z]+)?$", re.IGNORECASE)
 
 
 def _as_id(value: Any) -> str:
@@ -129,6 +132,7 @@ def topo_satisfy_order(
     *,
     narrative_plan: dict[str, Any] | None = None,
     selection_chapters: list[dict[str, Any]] | None = None,
+    source_start_ms: dict[str, int] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Return a repaired order that prefers chapter spans and satisfies constraints.
 
@@ -225,7 +229,122 @@ def topo_satisfy_order(
 
     if new_order != deduped:
         applied.append({"action": "topo_rebuild_order", "count": len(new_order)})
+
+    pulled, moved = pull_earlier_source_ids_before_finale(
+        new_order, source_start_ms=source_start_ms
+    )
+    if moved:
+        new_order = pulled
+        applied.append(
+            {
+                "action": "pull_earlier_source_ids_before_finale",
+                "count": len(moved),
+                "ids": moved[:12],
+            }
+        )
     return new_order, applied
+
+
+def _seg_num_suffix(sid: str) -> tuple[int, str] | None:
+    match = _SEG_NUM_RE.match(_as_id(sid))
+    if not match:
+        return None
+    return int(match.group(1)), str(match.group(2) or "")
+
+
+def _parent_seg_id(sid: str) -> str:
+    match = re.match(r"^(seg_\d+)[a-z]+$", _as_id(sid), flags=re.IGNORECASE)
+    return match.group(1) if match else _as_id(sid)
+
+
+def resolved_source_start_ms(sid: str, source_start_ms: dict[str, int] | None) -> int | None:
+    if not source_start_ms:
+        return None
+    key = _as_id(sid)
+    if key in source_start_ms:
+        return int(source_start_ms[key])
+    parent = _parent_seg_id(key)
+    if parent in source_start_ms:
+        return int(source_start_ms[parent])
+    return None
+
+
+def pull_earlier_source_ids_before_finale(
+    ordered: list[str],
+    source_start_ms: dict[str, int] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Keep the latest-in-tape selected id last; never drop ids.
+
+    Live mohan: 045/047/049/050 (earlier tape) were appended after recut sign-off
+    ``seg_051i``. Letter-split families share a parent start when only ``seg_051``
+    exists in boundaries.
+    """
+    base = [_as_id(sid) for sid in ordered if _as_id(sid)]
+    starts = {
+        sid: resolved_source_start_ms(sid, source_start_ms)
+        for sid in base
+    }
+    known = [sid for sid in base if starts.get(sid) is not None]
+    if len(known) >= 2:
+        finale = max(known, key=lambda sid: (int(starts[sid] or 0), base.index(sid)))
+        fi = base.index(finale)
+        earlier = [
+            sid
+            for sid in base[fi + 1 :]
+            if starts.get(sid) is not None and int(starts[sid] or 0) < int(starts[finale] or 0)
+        ]
+        stay = [sid for sid in base[fi + 1 :] if sid not in set(earlier)]
+        if earlier:
+            parent = _parent_seg_id(finale)
+            insert_at = fi
+            for idx, sid in enumerate(base[: fi + 1]):
+                if _parent_seg_id(sid) == parent:
+                    insert_at = idx
+                    break
+            rest = [sid for sid in base[insert_at:] if sid not in set(earlier)]
+            return base[:insert_at] + earlier + rest, earlier
+    return pull_earlier_ids_before_letter_split_signoff(base)
+
+
+def pull_earlier_ids_before_letter_split_signoff(
+    ordered: list[str],
+) -> tuple[list[str], list[str]]:
+    """Keep recut sign-off last when earlier-number hard-keeps were appended after it.
+
+    Live failure: ``seg_051a``…``seg_051i`` then ``seg_045``/``047``/``049``/``050``.
+    Selection chapters listed those four as their own last chapter, so chapter-span
+    repair left them after the 051 sign-off. Move them immediately before the last
+    letter-split member. Never drop ids.
+    """
+    base = [_as_id(sid) for sid in ordered if _as_id(sid)]
+    if len(base) < 3:
+        return base, []
+    parsed = [_seg_num_suffix(sid) for sid in base]
+    last_split_idx = -1
+    for idx in range(len(base) - 1, -1, -1):
+        row = parsed[idx]
+        if row and row[1]:
+            last_split_idx = idx
+            break
+    if last_split_idx < 0 or last_split_idx >= len(base) - 1:
+        return base, []
+    family_num = parsed[last_split_idx][0]
+    move: list[str] = []
+    stay: list[str] = []
+    for sid, row in zip(base[last_split_idx + 1 :], parsed[last_split_idx + 1 :]):
+        if row and row[0] < family_num:
+            move.append(sid)
+        else:
+            stay.append(sid)
+    if not move:
+        return base, []
+    first_family = next(
+        (idx for idx, row in enumerate(parsed) if row and row[0] == family_num),
+        last_split_idx,
+    )
+    before = [sid for sid in base[:first_family] if sid not in set(move)]
+    rest = [sid for sid in base[first_family:] if sid not in set(move)]
+    return before + move + rest, move
 
 
 def fill_chapter_list_membership_gaps(
@@ -303,6 +422,7 @@ def fill_chapter_list_membership_gaps(
 def repair_selection_order(
     selection: dict[str, Any],
     narrative_plan: dict[str, Any] | None,
+    source_start_ms: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Apply topo repair to selection.ordered_segment_ids."""
     out = dict(selection)
@@ -312,7 +432,87 @@ def repair_selection_order(
         ordered,
         narrative_plan=narrative_plan,
         selection_chapters=chapters if isinstance(chapters, list) else None,
+        source_start_ms=source_start_ms,
     )
     if new_order:
         out["ordered_segment_ids"] = new_order
+        chapters = out.get("chapters") if isinstance(out.get("chapters"), list) else None
+        if chapters:
+            contiguous, moved = make_chapter_membership_contiguous(
+                [ch for ch in chapters if isinstance(ch, dict)],
+                new_order,
+            )
+            if moved:
+                applied.append(
+                    {
+                        "action": "make_chapter_membership_contiguous",
+                        "count": len(moved),
+                        "ids": moved[:12],
+                    }
+                )
+            pos = {sid: idx for idx, sid in enumerate(new_order)}
+
+            def _chapter_air_key(ch: dict[str, Any]) -> int:
+                ids = [_as_id(s) for s in (ch.get("segment_ids") or []) if _as_id(s) in pos]
+                return min((pos[s] for s in ids), default=10**9)
+
+            out["chapters"] = sorted(contiguous, key=_chapter_air_key)
+            applied.append({"action": "sort_selection_chapters_to_air_order"})
     return out, applied
+
+
+def make_chapter_membership_contiguous(
+    chapters: list[dict[str, Any]],
+    ordered: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Keep each chapter as one air-order span; rehome isolated members.
+
+    Live mohan: trials listed 040/044 and 051a–i while validation 045–050 sat in
+    the hole — narrative QC treated that as a split chapter.
+    """
+    pos = {sid: idx for idx, sid in enumerate(ordered)}
+    out = [dict(ch) for ch in chapters]
+    owned: dict[str, int] = {}
+    for idx, ch in enumerate(out):
+        keep: list[str] = []
+        for sid in ch.get("segment_ids") or []:
+            s = _as_id(sid)
+            if s in pos and s not in owned:
+                keep.append(s)
+                owned[s] = idx
+        ch["segment_ids"] = keep
+    moved: list[str] = []
+    for idx, ch in enumerate(out):
+        members = [_as_id(s) for s in (ch.get("segment_ids") or []) if _as_id(s) in pos]
+        if len(members) < 2:
+            continue
+        idxs = sorted(pos[s] for s in members)
+        clusters: list[list[int]] = []
+        run = [idxs[0]]
+        for value in idxs[1:]:
+            if value == run[-1] + 1:
+                run.append(value)
+            else:
+                clusters.append(run)
+                run = [value]
+        clusters.append(run)
+        if len(clusters) < 2:
+            continue
+        main = max(clusters, key=len)
+        main_set = set(main)
+        isolated = [s for s in members if pos[s] not in main_set]
+        if not isolated:
+            continue
+        ch["segment_ids"] = [s for s in members if s not in set(isolated)]
+        for sid in isolated:
+            owned.pop(sid, None)
+            prev = next((ordered[j] for j in range(pos[sid] - 1, -1, -1) if ordered[j] in owned), "")
+            dest = owned.get(prev, max(0, idx - 1))
+            dest_ids = [_as_id(s) for s in (out[dest].get("segment_ids") or [])]
+            if sid not in dest_ids:
+                dest_ids.append(sid)
+                dest_ids.sort(key=lambda item: pos.get(item, 10**9))
+                out[dest]["segment_ids"] = dest_ids
+            owned[sid] = dest
+            moved.append(sid)
+    return out, moved

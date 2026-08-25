@@ -424,6 +424,22 @@ def test_validate_clone_suppressed_transition_not_required() -> None:
     assert not any("missing transition clip" in e for e in errors)
 
 
+def test_validate_clone_suppressed_vo_skips_gap_placement() -> None:
+    ctx = RunContext("run_edl_clone_suppressed_vo_placement", create=True)
+    _write_story_artifacts(ctx)
+    report = ctx.read_json("understanding/gap_report.json")
+    report["interviewer_lines"][0]["delivery"] = "synthesize"
+    report["interviewer_lines"][0]["line_id"] = "vo_layup_seg_010"
+    report["interviewer_lines"][0]["targets_segment_id"] = "seg_b"
+    ctx.write_json("understanding/gap_report.json", report)
+    edl = _good_edl()
+    edl["clips"] = [c for c in edl["clips"] if c.get("type") != "vo_pickup"]
+    edl["gap_placements"] = []
+    edl.setdefault("warnings", {})["suppressed_clone_adjacency"] = ["vo_layup_seg_010"]
+    errors = validate_flow1_edl_narrative(ctx, edl)
+    assert not any("gap_placements" in e for e in errors)
+
+
 def test_validate_transition_after_incomplete_thought_fails() -> None:
     ctx = RunContext("run_edl_illegal_hinge_vo", create=True)
     _write_story_artifacts(ctx)
@@ -513,4 +529,29 @@ def test_validate_rejects_mixed_voice_speaker_id() -> None:
             clip["voice_speaker_id"] = "spk_1"
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("mixed voice_speaker_id" in e for e in errors)
+
+
+def test_apply_episode_vo_identity_fills_missing_layup_voice() -> None:
+    from interview_mux.speaker_delivery_plan import apply_episode_vo_identity_to_edl
+
+    ctx = RunContext("run_edl_stamp_voice", create=True)
+    ctx.write_json(
+        "understanding/speaker_delivery_plan.json",
+        {"clone_speaker_id": "spk_1"},
+        skip_handoff=True,
+    )
+    edl = {
+        "clips": [
+            {
+                "type": "vo_pickup",
+                "line_id": "vo_layup_seg_010",
+                "targets_segment_id": "seg_b",
+                "placement": "before",
+            },
+            {"type": "speech", "segment_id": "seg_b"},
+        ]
+    }
+    apply_episode_vo_identity_to_edl(ctx, edl)
+    assert edl["clips"][0]["voice_speaker_id"] == "spk_1"
+    assert "voice_speaker_id" not in edl["clips"][1]
 

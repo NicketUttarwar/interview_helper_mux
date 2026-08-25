@@ -236,3 +236,19 @@ def stamp_episode_vo_identity(ctx: RunContext, line: dict[str, Any]) -> dict[str
     if ident.get("vo_shape"):
         out["vo_shape"] = ident["vo_shape"]
     return out
+
+
+def apply_episode_vo_identity_to_edl(ctx: RunContext, edl: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the episode clone onto seated synthetic clips that omitted voice_speaker_id."""
+    ident = episode_vo_identity(ctx)
+    locked = str(ident.get("speaker_id") or "").strip()
+    if not locked or not isinstance(edl, dict):
+        return edl
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        if str(clip.get("type") or "") not in {"vo_pickup", "transition"}:
+            continue
+        if not str(clip.get("voice_speaker_id") or "").strip():
+            clip["voice_speaker_id"] = locked
+    return edl

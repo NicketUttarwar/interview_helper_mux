@@ -25,6 +25,30 @@ LANE_PRIORITY = {
     LANE_OTHER: 0,
 }
 
+
+def pick_theme_outro_asset(assets: list[Any] | None) -> dict[str, Any] | None:
+    """Prefer placement_hint=close / full_bed_close over an open-hint outro bed."""
+    rows = [a for a in (assets or []) if isinstance(a, dict)]
+    if not rows:
+        return None
+
+    def _aid(row: dict[str, Any]) -> str:
+        return str(row.get("asset_id") or "")
+
+    for row in rows:
+        if str(row.get("placement_hint") or "") == "close":
+            return row
+    for row in rows:
+        if "full_bed_close" in _aid(row).lower():
+            return row
+    for row in rows:
+        if str(row.get("role") or "") == "theme_outro":
+            return row
+    for row in rows:
+        if "outro" in _aid(row).lower() or "close_bed" in _aid(row).lower():
+            return row
+    return None
+
 _CROSSFADE_HANDOFF_MS = 300
 _DUPLICATE_WINDOW_MS = 400
 

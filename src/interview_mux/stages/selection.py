@@ -98,6 +98,29 @@ def commit_persistable_ranking_from_last_envelope(ctx: RunContext) -> bool:
     return True
 
 
+
+def _source_start_ms_map(ctx) -> dict[str, int]:
+    starts: dict[str, int] = {}
+    for rel in ("segments/boundaries.json", "segments/segments.json", "segments/manifest.json"):
+        if not ctx.artifact_exists(rel):
+            continue
+        doc = ctx.read_json(rel)
+        rows = []
+        if isinstance(doc, dict):
+            rows = list(doc.get("boundaries") or doc.get("segments") or [])
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("segment_id"):
+                continue
+            try:
+                starts[str(row["segment_id"])] = int(
+                    row.get("start_ms") or row.get("source_start_ms") or 0
+                )
+            except (TypeError, ValueError):
+                continue
+    return starts
+
+
+
 def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
     """Commit ranking artifacts without re-running the LLM.
 
@@ -116,8 +139,9 @@ def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
     from interview_mux.order_hash import bump_order_lock
 
     artifacts, _ = repair_selection_order(
-        artifacts, plan if isinstance(plan, dict) else None
-    )
+            artifacts, plan if isinstance(plan, dict) else None,
+            source_start_ms=_source_start_ms_map(ctx) or None,
+        )
     artifacts = enforce_hard_keeps(ctx, artifacts)
     try:
         from interview_mux.media_ip_cta import apply_cta_judgments, apply_editorial_omits
@@ -256,7 +280,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         from interview_mux.selection_order_repair import repair_selection_order
 
         artifacts, topo_notes = repair_selection_order(
-            artifacts, plan if isinstance(plan, dict) else None
+            artifacts, plan if isinstance(plan, dict) else None,
+            source_start_ms=_source_start_ms_map(c) or None,
         )
         if topo_notes:
             c.log(
@@ -515,7 +540,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             from interview_mux.selection_order_repair import repair_selection_order
 
             repaired, notes = repair_selection_order(
-                artifacts, plan if isinstance(plan, dict) else None
+                artifacts, plan if isinstance(plan, dict) else None,
+                source_start_ms=_source_start_ms_map(c) or None,
             )
             if notes:
                 artifacts = enforce_hard_keeps(c, repaired)
@@ -581,7 +607,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         )
 
         artifacts, final_notes = repair_selection_order(
-            artifacts, plan if isinstance(plan, dict) else None
+            artifacts, plan if isinstance(plan, dict) else None,
+            source_start_ms=_source_start_ms_map(c) or None,
         )
         if final_notes:
             c.log(
@@ -595,7 +622,8 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         if tail_errs:
             # One more forced rebuild; still fail post-commit if unresolved.
             artifacts, _ = repair_selection_order(
-                artifacts, plan if isinstance(plan, dict) else None
+                artifacts, plan if isinstance(plan, dict) else None,
+                source_start_ms=_source_start_ms_map(c) or None,
             )
             c.log(
                 f"selection finale-tail still present after repair: {tail_errs[:2]}",
@@ -621,8 +649,13 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             artifacts = apply_editorial_omits(c, artifacts)
             artifacts = bump_order_lock(artifacts, source="full_master_ranking")
             from interview_mux.hard_keep import enforce_hard_keeps
+            from interview_mux.selection_order_repair import repair_selection_order
 
             artifacts = enforce_hard_keeps(c, artifacts)
+            artifacts, _ = repair_selection_order(
+                artifacts, plan if isinstance(plan, dict) else None,
+                source_start_ms=_source_start_ms_map(c) or None,
+            )
         except Exception as exc:
             c.log(
                 f"media_ip_cta apply failed (fail-open): {exc}",

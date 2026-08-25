@@ -716,6 +716,69 @@ def test_exclude_reason_uses_finding_kind(tmp_path):
     assert ov.get("exclude_reason") == "junction_snip_qa:vo_micro"
 
 
+def test_exclude_micro_refuses_hard_keep_so_edl_stays_with_selection(tmp_path, monkeypatch):
+    """Junction must not drop hard-keep speech from EDL while selection keeps it.
+
+    That 31-vs-27 drift made mix rebuild EDL and Homunculus rewind MusicGen.
+    """
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_hard_keep")
+    monkeypatch.setattr(
+        "interview_mux.hard_keep.hard_keep_segment_ids",
+        lambda _ctx: {"seg_keep"},
+    )
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_ok", "seg_keep"], "chapters": []}),
+        skip_handoff=True,
+    )
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_ok", "seg_keep"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_ok",
+                    "source_start_ms": 0,
+                    "source_end_ms": 5000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 5000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_keep",
+                    "source_start_ms": 5000,
+                    "source_end_ms": 9000,
+                    "timeline_start_ms": 5000,
+                    "duration_ms": 4000,
+                },
+            ],
+            "timeline_duration_ms": 9000,
+        }
+    )
+    findings = [
+        {
+            "kind": "on_a_roll",
+            "severity": "critical",
+            "segment_id": "seg_keep",
+            "action": "exclude_micro",
+            "detail": {},
+            "evidence": "test",
+        }
+    ]
+    new_edl, applied, _changed = apply_junction_repairs(ctx, edl, findings)
+    assert any(row.get("status") == "refused_hard_keep" for row in applied)
+    speech = [
+        str(c.get("segment_id"))
+        for c in (new_edl.get("clips") or [])
+        if str(c.get("type") or "") == "speech"
+    ]
+    assert speech == ["seg_ok", "seg_keep"]
+    assert list(new_edl.get("ordered_segment_ids") or []) == ["seg_ok", "seg_keep"]
+    sel = ctx.read_json("master/selection.json")
+    assert list(sel.get("ordered_segment_ids") or []) == ["seg_ok", "seg_keep"]
+
+
 def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "exec_junction_music_xf")
     sdp_path = ctx.path("understanding", "sound_design_plan.json")

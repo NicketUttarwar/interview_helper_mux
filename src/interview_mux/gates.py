@@ -595,6 +595,16 @@ def check_edl_narrative_qc(
     strict: bool | None = None,
 ) -> None:
     """Warn or block when final EDL violates narrative intent."""
+    if edl is None and ctx.artifact_exists("master/edl.json"):
+        loaded = ctx.read_json("master/edl.json")
+        edl = loaded if isinstance(loaded, dict) else None
+    if isinstance(edl, dict):
+        try:
+            from interview_mux.speaker_delivery_plan import apply_episode_vo_identity_to_edl
+
+            apply_episode_vo_identity_to_edl(ctx, edl)
+        except Exception:
+            pass
     errors = validate_flow1_edl_narrative(ctx, edl)
     if errors:
         try:

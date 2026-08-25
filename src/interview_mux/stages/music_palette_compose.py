@@ -141,11 +141,11 @@ def _default_cues(
             }
         )
 
-    close_bed = None
-    for a in by_kind.get("full_bed") or []:
-        if str(a.get("placement_hint") or "") == "close" or str(a.get("role")) == "theme_outro":
-            close_bed = a
-            break
+    from interview_mux.music_lane import pick_theme_outro_asset
+
+    close_bed = pick_theme_outro_asset(by_kind.get("full_bed") or []) or pick_theme_outro_asset(
+        assets
+    )
     if close_bed and last:
         cues.append(
             {

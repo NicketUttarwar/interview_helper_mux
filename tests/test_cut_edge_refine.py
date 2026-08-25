@@ -175,6 +175,111 @@ def test_exact_word_edges_no_margin() -> None:
     assert s2 > words[0]["end_ms"]
 
 
+def test_exact_word_edges_completes_straddling_last_word() -> None:
+    """Turn-cap mid last word must finish that word, not snap back to 'the'."""
+    from interview_mux.cut_edge_refine import outgoing_last_word_end_ms
+
+    words = [
+        {"text": "treatments", "start_ms": 80740, "end_ms": 81680, "speaker_id": "spk_0"},
+        {"text": "by", "start_ms": 81680, "end_ms": 82260, "speaker_id": "spk_0"},
+        {"text": "the", "start_ms": 82260, "end_ms": 82460, "speaker_id": "spk_0"},
+        {"text": "ecologists.", "start_ms": 82460, "end_ms": 83020, "speaker_id": "spk_0"},
+        {"text": "And", "start_ms": 83740, "end_ms": 84300, "speaker_id": "spk_1"},
+    ]
+    # next_start 83070 → soft cap 82990 lands inside "ecologists."
+    owned = outgoing_last_word_end_ms(
+        words,
+        clip_start_ms=74810,
+        proposed_end_ms=82990,
+        next_keeper_start_ms=83070,
+        speaker_id="spk_0",
+    )
+    assert owned == 83020
+    _s, e = exact_word_edges(words, 74810, 82990)
+    assert e == 83020
+    # Incoming other-speaker word near the cap must not be stolen.
+    owned_next = outgoing_last_word_end_ms(
+        words,
+        clip_start_ms=74810,
+        proposed_end_ms=82990,
+        next_keeper_start_ms=83070,
+        speaker_id="spk_0",
+    )
+    assert owned_next != 84300
+
+
+def test_air_bounds_turn_cap_keeps_outgoing_last_word() -> None:
+    """Reproduce exec_1071 seg_003e: disjoint cap + edge snap dropped 'oncologists'."""
+    words = [
+        {"text": "But", "start_ms": 74960, "end_ms": 75560, "speaker_id": "spk_0"},
+        {"text": "this", "start_ms": 76560, "end_ms": 76720, "speaker_id": "spk_0"},
+        {"text": "platform", "start_ms": 76720, "end_ms": 77180, "speaker_id": "spk_0"},
+        {"text": "can", "start_ms": 77180, "end_ms": 77840, "speaker_id": "spk_0"},
+        {"text": "provide", "start_ms": 78700, "end_ms": 79020, "speaker_id": "spk_0"},
+        {"text": "earlier", "start_ms": 79020, "end_ms": 79420, "speaker_id": "spk_0"},
+        {"text": "diagnosis", "start_ms": 79420, "end_ms": 79980, "speaker_id": "spk_0"},
+        {"text": "and", "start_ms": 79980, "end_ms": 80400, "speaker_id": "spk_0"},
+        {"text": "guide", "start_ms": 80400, "end_ms": 80740, "speaker_id": "spk_0"},
+        {"text": "personalized", "start_ms": 80740, "end_ms": 81160, "speaker_id": "spk_0"},
+        {"text": "treatments", "start_ms": 81160, "end_ms": 81680, "speaker_id": "spk_0"},
+        {"text": "by", "start_ms": 81680, "end_ms": 82260, "speaker_id": "spk_0"},
+        {"text": "the", "start_ms": 82260, "end_ms": 82460, "speaker_id": "spk_0"},
+        {"text": "ecologists.", "start_ms": 82460, "end_ms": 83020, "speaker_id": "spk_0"},
+        {"text": "And", "start_ms": 83740, "end_ms": 84300, "speaker_id": "spk_1"},
+        {"text": "what", "start_ms": 84300, "end_ms": 84840, "speaker_id": "spk_1"},
+    ]
+    meta: dict = {}
+    _s, e = resolve_keeper_air_bounds(
+        source_start_ms=74810,
+        source_end_ms=83070,
+        words=words,
+        min_keep_ms=800,
+        next_keeper_start_ms=83070,
+        meta_out=meta,
+    )
+    assert e >= 83020
+    assert e < 83740
+    last = [
+        str(w["text"]).lower().rstrip(".,!?")
+        for w in words
+        if int(w["end_ms"]) <= e and w.get("speaker_id") == "spk_0"
+    ][-1]
+    assert last == "ecologists"
+    assert "outgoing_last_word" in str(meta.get("air_bound_reason") or "")
+
+
+def test_air_bounds_hanging_tail_keeps_through_nearby_turn_without_stt_word() -> None:
+    """If STT dropped the last word, do not snap back off 'by the' at a turn."""
+    words = [
+        {"text": "provide", "start_ms": 78700, "end_ms": 79020, "speaker_id": "spk_0"},
+        {"text": "earlier", "start_ms": 79020, "end_ms": 79420, "speaker_id": "spk_0"},
+        {"text": "diagnosis", "start_ms": 79420, "end_ms": 79980, "speaker_id": "spk_0"},
+        {"text": "and", "start_ms": 79980, "end_ms": 80400, "speaker_id": "spk_0"},
+        {"text": "guide", "start_ms": 80400, "end_ms": 80740, "speaker_id": "spk_0"},
+        {"text": "personalized", "start_ms": 80740, "end_ms": 81160, "speaker_id": "spk_0"},
+        {"text": "treatments", "start_ms": 81160, "end_ms": 81680, "speaker_id": "spk_0"},
+        {"text": "by", "start_ms": 81680, "end_ms": 82260, "speaker_id": "spk_0"},
+        {"text": "the", "start_ms": 82260, "end_ms": 82460, "speaker_id": "spk_0"},
+        {"text": "And", "start_ms": 83740, "end_ms": 84300, "speaker_id": "spk_1"},
+    ]
+    meta: dict = {}
+    _s, e = resolve_keeper_air_bounds(
+        source_start_ms=74810,
+        source_end_ms=82_460,
+        words=words,
+        min_keep_ms=800,
+        next_keeper_start_ms=83_070,
+        meta_out=meta,
+    )
+    assert e >= 83_070
+    last = [
+        str(w["text"]).lower().rstrip(".,!?")
+        for w in words
+        if int(w["end_ms"]) <= e and w.get("speaker_id") == "spk_0"
+    ][-1]
+    assert last == "the"
+
+
 def test_acoustic_refine_nudges_into_silence(tmp_path: Path) -> None:
     # 1.4s mono: speech-ish noise 200–1000ms, silence elsewhere.
     sr = 16_000

@@ -778,25 +778,9 @@ def _lint_optimal_questions(artifacts: dict[str, Any], ctx: RunContext) -> list[
             for r in (evals.get("evaluations") or [])
             if isinstance(r, dict) and str(r.get("severity", "")).lower() == "high"
         }
-        targeted = {
-            str(ln.get("targets_segment_id") or ln.get("segment_id") or "")
-            for ln in lines
-            if isinstance(ln, dict)
-        }
-        for ln in lines:
-            if not isinstance(ln, dict):
-                continue
-            lid = str(ln.get("line_id") or "")
-            if lid.startswith("vo_seed_") and len(lid) > len("vo_seed_"):
-                targeted.add(lid[len("vo_seed_") :])
-            for sid in ln.get("supports_segment_ids") or []:
-                if sid:
-                    targeted.add(str(sid))
-            extracted = ln.get("extracted_from")
-            if isinstance(extracted, dict):
-                path = str(extracted.get("path") or "")
-                if path.startswith("repair_seed:"):
-                    targeted.add(path.split(":", 1)[1].strip())
+        from interview_mux.high_gap_vo import targeted_segment_ids
+
+        targeted = targeted_segment_ids(lines, ctx)
         try:
             from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
         except Exception:

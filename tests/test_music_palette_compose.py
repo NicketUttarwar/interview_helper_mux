@@ -460,3 +460,26 @@ def test_ensure_motif_with_counts() -> None:
     kinds = [a.get("palette_kind") for a in out["assets"]]
     assert kinds.count("optional_loop") == 1
     assert kinds.count("full_bed") == 2
+
+
+def test_default_cues_prefers_placement_hint_close_bed() -> None:
+    sdp = {
+        "assets": [
+            {
+                "asset_id": "open_bed",
+                "role": "theme_outro",
+                "palette_kind": "full_bed",
+                "placement_hint": "open",
+            },
+            {
+                "asset_id": "show_theme_v1_full_bed_close",
+                "role": "theme_outro",
+                "palette_kind": "full_bed",
+                "placement_hint": "close",
+            },
+        ]
+    }
+    cues = _default_cues(sdp, ordered=["seg_a", "seg_b"], chapters=[])
+    close = next(c for c in cues if c.get("cue_id") == "compose_close_bed")
+    assert close["asset_id"] == "show_theme_v1_full_bed_close"
+    assert close["after_segment_id"] == "seg_b"

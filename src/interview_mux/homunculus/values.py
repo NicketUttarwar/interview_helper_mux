@@ -28,12 +28,21 @@ _SPEECH_ACT_RES = (
     re.compile(r"\bsubscribe\s+to\s+(my|our|this)\b"),
     re.compile(r"\bsubscribe\s+to\s+(the\s+)?(show|channel|podcast|newsletter)\b"),
     re.compile(r"\bdon'?t\s+forget\s+to\s+subscribe\b"),
-    re.compile(r"\bhit\s+(the\s+)?(like|subscribe)(\s+button)?\b"),
+    re.compile(r"\bhit(ting)?\s+(the\s+)?(like|subscribe)(\s+button)?\b"),
     re.compile(r"\b(leave|drop)\s+(a\s+)?comment"),
     re.compile(r"\bcomments?\s+section\b"),
     re.compile(r"\bour\s+sponsor\b"),
     re.compile(r"\bthanks?\s+(again\s+)?to\s+our\s+sponsor\b"),
     re.compile(r"\baudio[-\s]only\s+version\s+of\s+the\s+show\b"),
+    re.compile(r"\bvisit\s+(them|us)\s+at\b"),
+    re.compile(r"\bfollow\s+us\s+on\b"),
+    re.compile(r"\bpreferred\s+podcast\s+platform\b"),
+    re.compile(r"\bwe'?d\s+love\s+to\s+hear\s+from\s+you\b"),
+    re.compile(r"\bpop\s+us\s+a\s+note\b"),
+    re.compile(r"\bpodcast produced by\b"),
+    re.compile(r"\bproduction support from\b"),
+    re.compile(r"\bmusic for this podcast\b"),
+    re.compile(r"\bmusic\b.+\bprovided courtesy\b"),
 )
 
 
@@ -46,4 +55,9 @@ def should_hard_omit_cta(text: str) -> bool:
     if any(normalize_omit_text(p) in lower for p in phrases):
         return True
     raw = (text or "").lower().replace("\u2019", "'").replace("\u2018", "'")
-    return any(rx.search(raw) for rx in _SPEECH_ACT_RES)
+    if any(rx.search(raw) for rx in _SPEECH_ACT_RES):
+        return True
+    words = lower.split()
+    if words and len(words) <= 4 and words[-1] in {"com", "net", "org"}:
+        return True
+    return False

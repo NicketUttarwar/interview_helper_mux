@@ -20,6 +20,7 @@ from interview_mux.source_topology import (
     check_pickup_speaker_pending,
     classify_topology,
     confirm_pickup_speaker,
+    ensure_source_topology,
     recovery_policy_for_class,
     require_pickup_speaker_clear,
     _speaker_talk_stats,
@@ -115,6 +116,73 @@ def test_source_topology_build_pickup_eligible_is_least_spoken(tmp_path: Path):
     assert "vo_posture" in adapt["recovery_policy"]
 
 
+def test_pickup_defaults_to_least_spoken_host_not_quiet_guest(tmp_path: Path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "transcript").mkdir()
+    (run_dir / "understanding").mkdir()
+    words = []
+    t = 0
+    for _i in range(20):
+        words.append({"word": "hi", "speaker": "spk_0", "start_ms": t, "end_ms": t + 500})
+        t += 500
+    for _i in range(80):
+        words.append({"word": "ok", "speaker": "spk_1", "start_ms": t, "end_ms": t + 500})
+        t += 500
+    (run_dir / "transcript" / "full.json").write_text(json.dumps({"words": words}))
+    (run_dir / "understanding" / "speakers.json").write_text(
+        json.dumps(
+            {
+                "speakers": [
+                    {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
+                    {"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9},
+                ]
+            }
+        )
+    )
+    ctx = RunContext(str(run_dir))
+    topo, adapt = build_topology_artifacts(ctx)
+    assert topo["least_spoken_speaker_id"] == "spk_0"
+    assert topo["pickup_eligible_speaker_id"] == "spk_1"
+    assert adapt["pickup_eligible_speaker_id"] == "spk_1"
+
+
+def test_ensure_source_topology_builds_when_homunculus_skipped(tmp_path: Path):
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "exec_topo_skip")
+    words = []
+    t = 0
+    for _i in range(40):
+        words.append({"word": "hi", "speaker": "spk_0", "start_ms": t, "end_ms": t + 500})
+        t += 500
+    for _i in range(8):
+        words.append({"word": "ok", "speaker": "spk_1", "start_ms": t, "end_ms": t + 500})
+        t += 500
+    (ctx.run_dir / "transcript").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "understanding").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "transcript" / "full.json").write_text(
+        json.dumps({"words": words}), encoding="utf-8"
+    )
+    (ctx.run_dir / "understanding" / "speakers.json").write_text(
+        json.dumps(
+            {
+                "speakers": [
+                    {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
+                    {"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert not ctx.artifact_exists("understanding/source_topology.json")
+    topo = ensure_source_topology(ctx)
+    assert topo.get("pickup_eligible_speaker_id") == "spk_1"
+    assert ctx.artifact_exists("understanding/source_topology.json")
+    assert ctx.artifact_exists("understanding/flow_adaptation.json")
+    assert ctx.is_done("source_topology_build")
+
+
 def _seed_topology_ctx(tmp_path: Path) -> RunContext:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -133,8 +201,8 @@ def _seed_topology_ctx(tmp_path: Path) -> RunContext:
         json.dumps(
             {
                 "speakers": [
-                    {"speaker_id": "spk_0", "role": "interviewee"},
-                    {"speaker_id": "spk_1", "role": "interviewer"},
+                    {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
+                    {"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9},
                 ]
             }
         )

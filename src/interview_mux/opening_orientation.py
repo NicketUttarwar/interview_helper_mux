@@ -657,7 +657,9 @@ def retarget_orientation_to_open(ctx: RunContext) -> list[str]:
                     clip["targets_segment_id"] = target
                     changed = True
             if changed:
-                ctx.write_json("master/edl.json", edl)
+                from interview_mux.air_order import write_live_edl
+
+                write_live_edl(ctx, edl, source="opening_orientation")
                 written.append("master/edl.json")
     _ = actions
     return written

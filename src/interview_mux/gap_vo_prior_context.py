@@ -28,6 +28,7 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
         "and",
         "but",
         "or",
+        "nor",
         "because",
         "that",
         "when",
@@ -43,7 +44,16 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
         "my",
         "our",
         "their",
+        "your",
+        "his",
+        "her",
+        "its",
+        "this",
+        "these",
+        "those",
         "i",
+        "im",
+        "i'm",
         "we",
         "he",
         "she",
@@ -62,6 +72,26 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
         "from",
         "about",
         "for",
+        "by",
+        "at",
+        "on",
+        "in",
+        "up",
+        "out",
+        "over",
+        "under",
+        "through",
+        "between",
+        "among",
+        "via",
+        "per",
+        "without",
+        "within",
+        "across",
+        "toward",
+        "towards",
+        "upon",
+        "against",
         "whether",
         "whose",
         "whom",
@@ -75,6 +105,34 @@ _INCOMPLETE_TAIL_TOKENS = frozenset(
         "including",
         "include",
         "includes",
+        "plus",
+        "except",
+        "unless",
+        "although",
+        "though",
+        "whereas",
+        "meanwhile",
+        # Auxiliaries / modals left hanging mid-thought.
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "having",
+        "do",
+        "does",
+        "did",
+        "can",
+        "could",
+        "would",
+        "should",
+        "will",
+        "shall",
+        "may",
+        "might",
+        "must",
+        "etc",
     }
 )
 
@@ -109,6 +167,24 @@ _HANGING_SETUP_PHRASES: tuple[str, ...] = (
     "such as",
     "for example",
     "for instance",
+    # Soft-hang setups (often STT-punctuated) that still need the payoff clause.
+    "what is happening",
+    "what's happening",
+    "interested in",
+    "the point is",
+    "the key is",
+    "which means",
+    "that means",
+    "in other words",
+    "on the other hand",
+    "as i said",
+    "going to be",
+    "supposed to",
+    "need to",
+    "have to",
+    "trying to",
+    "want to",
+    "able to",
 )
 
 # Tokens that are illegal *opens* (segment starts mid-clause / mid-list).
@@ -116,6 +192,7 @@ _CONTINUER_OPEN_TOKENS = frozenset(
     {
         "and",
         "or",
+        "nor",
         "but",
         "yet",
         "also",
@@ -140,6 +217,32 @@ _CONTINUER_OPEN_TOKENS = frozenset(
         "including",
         "versus",
         "vs",
+        "plus",
+        "except",
+        "unless",
+        "although",
+        "though",
+        "whereas",
+        "meanwhile",
+        "at",
+        "on",
+        "in",
+        "up",
+        "out",
+        "over",
+        "under",
+        "through",
+        "between",
+        "among",
+        "via",
+        "per",
+        "without",
+        "within",
+        "across",
+        "toward",
+        "towards",
+        "upon",
+        "against",
     }
 )
 
@@ -476,6 +579,81 @@ def end_is_hanging_clause(words: list[dict[str, Any]], end_ms: int) -> bool:
         return True
     text = _text_ending_at(words, end_ms)
     return bool(text) and ends_hanging_setup(text)
+
+
+def ends_setup_ignoring_terminal_punct(text: str) -> bool:
+    """Hanging-setup check that ignores a trailing ``.!?`` (soft-hang STT closes)."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    core = re.sub(r"[.!?…]+$", "", stripped).strip()
+    if not core:
+        return False
+    return ends_hanging_setup(core) or bool(_HANGING_SETUP_RE.search(core))
+
+
+def end_is_hard_hang(words: list[dict[str, Any]], end_ms: int) -> bool:
+    """True when the audible end is a weak/incomplete tail (Phase 1 hard hang)."""
+    text = _text_ending_at(words, end_ms)
+    if not text:
+        return False
+    # Strip terminal punct so "and." still counts as a hard hang.
+    core = re.sub(r"[.!?…]+$", "", text.strip()).strip()
+    if not core:
+        return False
+    if _last_token(core) in _INCOMPLETE_TAIL_TOKENS:
+        return True
+    if ends_hanging_setup(core):
+        return True
+    return clause_continues_after(words, end_ms)
+
+
+SAME_ANSWER_MAX_GAP_MS = 3000
+
+
+def same_answer_continues(
+    words: list[dict[str, Any]],
+    left_end_ms: int,
+    right_start_ms: int | None = None,
+    *,
+    max_gap_ms: int = SAME_ANSWER_MAX_GAP_MS,
+) -> bool:
+    """True when speech after ``left_end_ms`` continues the same answer.
+
+    Covers hard hangs (clause continue) and soft hangs (period on a setup whose
+    payoff starts within ``max_gap_ms``). Used to refuse hitch splits and
+    chapter-hinge air through a still-running answer.
+    """
+    if not words or left_end_ms < 0:
+        return False
+    ahead = words_after_end(
+        words,
+        left_end_ms,
+        max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS),
+        abut_tol_ms=WORD_ABUT_TOL_MS,
+    )
+    if not ahead:
+        return False
+    first_start = int(ahead[0].get("start_ms") or 0)
+    if right_start_ms is not None:
+        right = int(right_start_ms)
+        if right < left_end_ms:
+            return False
+        if first_start > right + WORD_ABUT_TOL_MS:
+            # Right clip starts later than the immediate continuation — still
+            # allow when the first continuing word is inside the gap window.
+            pass
+    gap = max(0, first_start - int(left_end_ms))
+    if gap > int(max_gap_ms):
+        return False
+    if clause_continues_after(
+        words, left_end_ms, max_lookahead_ms=max(int(max_gap_ms), CLAUSE_CONTINUE_MAX_GAP_MS)
+    ):
+        return True
+    left_text = _text_ending_at(words, left_end_ms)
+    if left_text and ends_setup_ignoring_terminal_punct(left_text):
+        return True
+    return False
 
 
 def clause_continues_after(
@@ -1220,6 +1398,30 @@ def last_spoken_sentence(text: str) -> str:
     return parts[-1] if parts else stripped
 
 
+def last_sentence_restates_target(
+    text: str,
+    target_text: str,
+    *,
+    overlap_max: float | None = None,
+) -> bool:
+    """True when the last spoken sentence restates the next clip above the ceiling."""
+    last = last_spoken_sentence(text)
+    tgt = str(target_text or "").strip()
+    if not last or not tgt:
+        return False
+    settings = vo_value_gate_cfg()
+    limit = float(
+        overlap_max
+        if overlap_max is not None
+        else (
+            settings.get("restate_overlap_max")
+            or settings.get("allow_summary_overlap_max")
+            or 0.75
+        )
+    )
+    return vo_target_overlap_ratio(last, tgt) > (limit + 1e-6)
+
+
 def has_forward_cue(text: str) -> bool:
     last = last_spoken_sentence(text)
     if not last:
@@ -1404,6 +1606,8 @@ def vo_value_violations(
 
     for line in lines:
         if not isinstance(line, dict):
+            continue
+        if line.get("skipped_optional"):
             continue
         lid = str(line.get("line_id") or line.get("targets_segment_id") or "?")
         text = str(line.get("text") or "").strip()

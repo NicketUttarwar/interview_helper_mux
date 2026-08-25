@@ -12,17 +12,21 @@ from interview_mux.execution_report import (
     write_execution_report,
 )
 from interview_mux.identical_failures import (
+    clear_halts_matching,
+    failure_signature,
     halt_after,
+    normalize_reason,
     record_identical_failure,
     upsert_fail_key,
 )
 from interview_mux.opening_adjacency_repair import (
+    drop_orphan_opening_vo_when_native_orients,
     suppress_opening_layup_when_orientation_owns_slot,
 )
 from interview_mux.stage_families import source_profile_recipe
 from interview_mux.unattended_resume import resume_producer_for_block
 
-from tests.run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx
 
 
 def test_e2e_quality_waivers_off_even_when_soft(monkeypatch):
@@ -32,6 +36,43 @@ def test_e2e_quality_waivers_off_even_when_soft(monkeypatch):
     assert e2e_quality_waivers_enabled() is False
     monkeypatch.setenv("INTERVIEW_MUX_E2E_QUALITY_WAIVERS", "1")
     assert e2e_quality_waivers_enabled() is True
+
+
+def test_identical_failure_collapses_naked_seam_pair_ids():
+    a = "assembly_ledger: 2 naked seam(s): seg_012 → seg_044 hitch missing"
+    b = "assembly_ledger: 2 naked seam(s): seg_001 → seg_070 hitch missing"
+    assert normalize_reason(a) == normalize_reason(b)
+    assert "<pair>" in normalize_reason(a)
+    assert failure_signature(failed_stage="edl", producer="master/assembly_ledger.json", reason=a) == (
+        failure_signature(failed_stage="edl", producer="master/assembly_ledger.json", reason=b)
+    )
+
+
+def test_naked_seam_gate_halts_at_three(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_naked_seam_halt")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    last = None
+    for i, pair in enumerate(("seg_001 → seg_002", "seg_010 → seg_011", "seg_020 → seg_021")):
+        last = record_identical_failure(
+            ctx,
+            failed_stage="edl",
+            producer="master/assembly_ledger.json",
+            reason=f"naked seam(s): {pair}",
+            resume_attempted="edl",
+        )
+    assert last is not None
+    assert last["count"] == 3
+    assert last["halt"] is True
+
+
+def test_identical_failure_collapses_rotating_never_touch_seg_ids():
+    a = "Nugget layup QC failed: never_touch_cta[seg_041]: lay-up reuses dropped CTA wording"
+    b = "Nugget layup QC failed: never_touch_cta[seg_008]: lay-up reuses dropped CTA wording"
+    assert normalize_reason(a) == normalize_reason(b)
+    assert "[<seg>]" in normalize_reason(a)
+    assert failure_signature(failed_stage="nugget_layup_compose", reason=a) == failure_signature(
+        failed_stage="nugget_layup_compose", reason=b
+    )
 
 
 def test_identical_failure_halts_at_three(tmp_path: Path):
@@ -53,6 +94,28 @@ def test_identical_failure_halts_at_three(tmp_path: Path):
         (ctx.run_dir / "operator" / "identical_failures.json").read_text(encoding="utf-8")
     )
     assert stored["signatures"][last["signature"]]["count"] == 3
+
+
+def test_clear_halts_matching_resets_g1_edl_signature(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_clear_g1_halt")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    last = None
+    for _ in range(3):
+        last = record_identical_failure(
+            ctx,
+            failed_stage="edl",
+            reason="Stage 'edl' blocked — G1 VO pickup missing for: ['vo_layup_seg_009']",
+        )
+    assert last is not None
+    assert last["halt"] is True
+    n = clear_halts_matching(ctx, failed_stage="edl", reason_substr="g1 vo pickup missing")
+    assert n == 1
+    stored = json.loads(
+        (ctx.run_dir / "operator" / "identical_failures.json").read_text(encoding="utf-8")
+    )
+    row = stored["signatures"][last["signature"]]
+    assert row["halt"] is False
+    assert row["count"] == 0
 
 
 def test_upsert_fail_key_survives_absolute_counts(tmp_path: Path):
@@ -163,6 +226,202 @@ def test_opening_adjacency_keeps_orientation_suppresses_layup(tmp_path: Path):
     by_id = {ln["line_id"]: ln for ln in out["interviewer_lines"]}
     assert by_id["vo_layup_seg_001"].get("skipped_optional") is True
     assert by_id["vo_preface_episode_orientation"].get("skipped_optional") is not True
+
+
+def test_native_orient_drops_orphan_opening_wav(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_open_omit")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    (ctx.run_dir / "understanding").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "vo_pickup").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "vo_pickup" / "vo_preface_opening.wav").write_bytes(b"RIFF" + b"\x00" * 64)
+    gap = {
+        "opening_orientation": {
+            "omitted": True,
+            "required": False,
+            "omit_reason": "native_open_self_orients",
+            "target_segment_id": "seg_002",
+        },
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_opening",
+                "targets_segment_id": "seg_002",
+                "placement": "before",
+                "text": "Welcome back.",
+            }
+        ],
+    }
+    (ctx.run_dir / "understanding" / "gap_report.json").write_text(
+        json.dumps(gap), encoding="utf-8"
+    )
+    dropped = drop_orphan_opening_vo_when_native_orients(ctx)
+    assert "vo_preface_opening" in dropped
+    assert not (ctx.run_dir / "vo_pickup" / "vo_preface_opening.wav").is_file()
+    out = json.loads((ctx.run_dir / "understanding" / "gap_report.json").read_text(encoding="utf-8"))
+    by_id = {ln["line_id"]: ln for ln in out["interviewer_lines"]}
+    assert by_id["vo_preface_opening"].get("skipped_optional") is True
+
+
+def test_drop_late_intro_reset_keeps_open_drops_mid_arc_welcome(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_late_intro")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "understanding").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "segments").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "selection.json").write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": [
+                    "seg_002",
+                    "seg_054",
+                    "seg_003a",
+                    "seg_003k",
+                    "seg_067",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "segments" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "seg_002",
+                        "text": "Amr, we've got Mohan on the show today.",
+                    },
+                    {
+                        "segment_id": "seg_054",
+                        "text": "By that time the tumor has progressed.",
+                    },
+                    {
+                        "segment_id": "seg_003a",
+                        "text": "And what is OneCell.ai?",
+                    },
+                    {
+                        "segment_id": "seg_003k",
+                        "text": "let's welcome Mohan to the show.",
+                    },
+                    {
+                        "segment_id": "seg_067",
+                        "text": "Regulators, it's going to be more about the trials.",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.opening_adjacency_repair import drop_late_intro_reset_from_selection
+
+    dropped = drop_late_intro_reset_from_selection(ctx)
+    assert "seg_003a" in dropped and "seg_003k" in dropped
+    assert "seg_002" not in dropped
+    sel = json.loads((ctx.run_dir / "master" / "selection.json").read_text(encoding="utf-8"))
+    assert sel["ordered_segment_ids"] == ["seg_002", "seg_054", "seg_067"]
+
+
+def test_drop_late_intro_reset_keeps_opening_recut_cluster(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_open_recut")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "segments").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "selection.json").write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": [
+                    "seg_001c",
+                    "seg_001d",
+                    "seg_001k",
+                    "seg_003",
+                    "seg_070",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "segments" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "seg_001c",
+                        "text": "Amr, we've got Mohan on the show today.",
+                    },
+                    {
+                        "segment_id": "seg_001d",
+                        "text": "Who is Mohan? Mohan is a biotech entrepreneur.",
+                    },
+                    {
+                        "segment_id": "seg_001k",
+                        "text": "And what are you hoping to hear from Mohan today?",
+                    },
+                    {
+                        "segment_id": "seg_003",
+                        "text": "Thank you for inviting me here.",
+                    },
+                    {
+                        "segment_id": "seg_070",
+                        "text": "Regulators, it's going to be more about the trials.",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.opening_adjacency_repair import drop_late_intro_reset_from_selection
+
+    dropped = drop_late_intro_reset_from_selection(ctx)
+    assert dropped == []
+    sel = json.loads((ctx.run_dir / "master" / "selection.json").read_text(encoding="utf-8"))
+    assert sel["ordered_segment_ids"][0:3] == ["seg_001c", "seg_001d", "seg_001k"]
+
+
+def test_drop_post_coda_reverse_jump_drops_early_tail(tmp_path: Path):
+    ctx = isolated_run_ctx(tmp_path, "exec_post_coda")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "segments").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "selection.json").write_text(
+        json.dumps(
+            {
+                "ordered_segment_ids": [
+                    "seg_003",
+                    "seg_070",
+                    "seg_073",
+                    "seg_004",
+                    "seg_005",
+                    "seg_009",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "segments" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {"segment_id": "seg_003", "start_ms": 80_000, "end_ms": 90_000, "text": "open"},
+                    {"segment_id": "seg_070", "start_ms": 3_193_240, "end_ms": 3_274_380, "text": "adoption"},
+                    {"segment_id": "seg_073", "start_ms": 3_373_040, "end_ms": 3_502_960, "text": "regulators coda"},
+                    {"segment_id": "seg_004", "start_ms": 165_300, "end_ms": 184_340, "text": "cancer is deadly"},
+                    {"segment_id": "seg_005", "start_ms": 184_340, "end_ms": 263_860, "text": "historically"},
+                    {"segment_id": "seg_009", "start_ms": 471_720, "end_ms": 524_600, "text": "liquid biopsy"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    from interview_mux.opening_adjacency_repair import drop_post_coda_reverse_jump_from_selection
+
+    dropped = drop_post_coda_reverse_jump_from_selection(ctx)
+    assert dropped == ["seg_004", "seg_005", "seg_009"]
+    sel = json.loads((ctx.run_dir / "master" / "selection.json").read_text(encoding="utf-8"))
+    assert sel["ordered_segment_ids"] == ["seg_003", "seg_070", "seg_073"]
+    reasons = {
+        str(r.get("segment_id")): r.get("reason")
+        for r in (sel.get("excluded_segment_ids") or [])
+        if isinstance(r, dict)
+    }
+    assert reasons["seg_004"] == "post_coda_reverse_jump"
 
 
 def test_resume_producer_for_topic_coverage_missing_gaps(tmp_path: Path):

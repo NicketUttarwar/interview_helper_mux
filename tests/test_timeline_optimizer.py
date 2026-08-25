@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from interview_mux.timeline_optimizer.eval import score_candidate
 from interview_mux.timeline_optimizer.config import optimizer_cfg
-from interview_mux.timeline_optimizer.mutations import apply_mutation
+from interview_mux.timeline_optimizer.mutations import apply_mutation, insert_keepers_by_source_id
 from interview_mux.timeline_optimizer.proposer import heuristic_proposals
 from interview_mux.timeline_optimizer.state import archive_add, empty_state
 
@@ -66,6 +66,61 @@ def test_mint_bridge_uses_grounded_fallback():
     )
 
 
+def test_set_order_splices_omitted_keepers_by_source_id_not_tail():
+    """shape_bind set_order must not dump omitted keepers after the last native."""
+    cand = {
+        "ordered_segment_ids": [
+            "seg_049",
+            "seg_053",
+            "seg_055",
+            "seg_056",
+            "seg_057",
+            "seg_058",
+            "seg_060",
+            "seg_062",
+        ],
+        "excluded_segment_ids": [],
+        "mutations": [],
+    }
+    out = apply_mutation(
+        cand,
+        {
+            "op": "set_order",
+            "ordered_segment_ids": [
+                "seg_049",
+                "seg_056",
+                "seg_057",
+                "seg_058",
+                "seg_060",
+                "seg_062",
+            ],
+        },
+    )
+    assert out["ordered_segment_ids"] == [
+        "seg_049",
+        "seg_053",
+        "seg_055",
+        "seg_056",
+        "seg_057",
+        "seg_058",
+        "seg_060",
+        "seg_062",
+    ]
+    assert out["ordered_segment_ids"][-1] == "seg_062"
+    assert "spliced_missing" in (out["mutations"][-1] or {})
+
+
+def test_insert_keepers_by_source_id_places_before_later_ids():
+    proposed = ["seg_049", "seg_056", "seg_062"]
+    assert insert_keepers_by_source_id(proposed, ["seg_053", "seg_055"]) == [
+        "seg_049",
+        "seg_053",
+        "seg_055",
+        "seg_056",
+        "seg_062",
+    ]
+
+
 def test_set_order_can_include_admitted_story_children():
     cand = {
         "ordered_segment_ids": ["seg_005"],
@@ -110,6 +165,26 @@ def test_empty_state_defaults():
     st = empty_state()
     assert st["status"] == "idle"
     assert st["mode"] == "endless_daemon"
+
+
+def test_optimizer_live_mutate_blocked_when_skipped() -> None:
+    from interview_mux.run_context import RunContext
+    from interview_mux.timeline_optimizer.apply import take_best_candidate
+    from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
+    from interview_mux.timeline_optimizer.daemon import start_optimizer_daemon
+
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "homunculus_version": "0.1.0",
+            "timeline_optimizer_skipped": True,
+            "e2e_skip_optimizer_remaster": True,
+        },
+    )
+    assert optimizer_live_mutate_blocked(ctx) is True
+    assert start_optimizer_daemon(ctx) == {"ok": False, "error": "skipped"}
+    assert take_best_candidate(ctx) == {"ok": False, "error": "optimizer_skipped"}
 
 
 def test_optimizer_config_always_auto_applies_and_remasters(monkeypatch):

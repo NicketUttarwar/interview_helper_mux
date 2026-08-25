@@ -8,6 +8,7 @@ from interview_mux.nle_state import (
     apply_nle_to_selection,
     apply_segments_with_nle,
     incomplete_trim_ends,
+    materialize_all_nle_split_children,
     nle_has_operator_edits,
     save_nle,
 )
@@ -230,6 +231,39 @@ def test_incomplete_trim_ends_skips_excluded_and_missing_transcript(
     nle_ctx.path("transcript", "full.json").unlink()
     nle = {"segment_overrides": {"seg_a": {"start_ms": 0, "end_ms": 1200}}}
     assert incomplete_trim_ends(nle_ctx, nle) == []
+
+
+def test_materialize_all_nle_split_children_hydrates_parent_id_overrides(
+    nle_ctx: RunContext,
+) -> None:
+    save_nle(
+        nle_ctx,
+        {
+            "segment_overrides": {
+                "seg_aa": {
+                    "parent_id": "seg_a",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "label": "hello there",
+                },
+                "seg_ab": {
+                    "parent_id": "seg_a",
+                    "start_ms": 4000,
+                    "end_ms": 10_000,
+                    "label": "and we shipped it",
+                },
+            }
+        },
+    )
+    inserted = materialize_all_nle_split_children(nle_ctx)
+    assert inserted == 2
+    man = nle_ctx.read_json("segments/manifest.json")
+    ids = {s["segment_id"] for s in man["segments"]}
+    assert "seg_aa" in ids
+    assert "seg_ab" in ids
+    by_id = {s["segment_id"]: s for s in man["segments"]}
+    assert by_id["seg_aa"]["end_ms"] == 4000
+    assert by_id["seg_a"]["split_into"] == ["seg_aa", "seg_ab"]
 
 
 def test_save_nle_warns_on_incomplete_end_by_default(nle_ctx: RunContext) -> None:

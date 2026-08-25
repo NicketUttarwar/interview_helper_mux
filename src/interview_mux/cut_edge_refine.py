@@ -19,6 +19,156 @@ def _norm(tok: str) -> str:
     return tok.lower().strip(".,!?;:\"'()[]")
 
 
+# Soft turn-cap (next_start - eps) must not drop a word that started in this clip.
+OUTGOING_LAST_WORD_MAX_CROSS_MS = 800
+# Ignore incoming first-words that only just started near the cap.
+OUTGOING_WORD_ESTABLISHED_MS = 80
+
+
+def _word_ms(w: dict[str, Any]) -> tuple[int, int] | None:
+    try:
+        w0 = int(float(w.get("start_ms") or 0))
+        w1 = int(float(w.get("end_ms") or w0))
+    except (TypeError, ValueError):
+        return None
+    return w0, w1
+
+
+def outgoing_last_word_end_ms(
+    words: list[dict[str, Any]],
+    *,
+    clip_start_ms: int,
+    proposed_end_ms: int,
+    next_keeper_start_ms: int | None = None,
+    speaker_id: str | None = None,
+    max_cross_ms: int = OUTGOING_LAST_WORD_MAX_CROSS_MS,
+) -> int | None:
+    """End of an outgoing last word a turn-cap would otherwise snap back.
+
+    A word that began in this clip and either straddles ``proposed_end_ms``
+    (typically ``next_start - eps``) or finishes after that soft cap but at or
+    before the next keeper start belongs to this clip. Words that start at or
+    after the next keeper belong to the next clip.
+
+    Does not require correct STT spelling — only word interval ownership.
+    """
+    clip_start = max(0, int(clip_start_ms))
+    proposed = int(proposed_end_ms)
+    if proposed <= clip_start or not words:
+        return None
+    next_start = int(next_keeper_start_ms) if next_keeper_start_ms is not None else None
+    max_cross = max(0, int(max_cross_ms))
+    established = proposed - int(OUTGOING_WORD_ESTABLISHED_MS)
+
+    last_spk = str(speaker_id or "").strip()
+    if not last_spk:
+        for w in reversed(words):
+            if not isinstance(w, dict) or not _tok(w):
+                continue
+            times = _word_ms(w)
+            if times is None:
+                continue
+            w0, w1 = times
+            if w1 <= clip_start or w0 >= proposed:
+                continue
+            spk = str(w.get("speaker_id") or "").strip()
+            if spk:
+                last_spk = spk
+                break
+
+    owned: int | None = None
+    for w in words:
+        if not isinstance(w, dict) or not _tok(w):
+            continue
+        times = _word_ms(w)
+        if times is None:
+            continue
+        w0, w1 = times
+        if w1 <= clip_start or w0 < clip_start - 5:
+            continue
+        if next_start is not None and w0 >= next_start:
+            continue
+        if w0 >= proposed:
+            continue
+        if w0 > established:
+            continue
+        spk = str(w.get("speaker_id") or "").strip()
+        if last_spk and spk and spk != last_spk:
+            continue
+        if w1 <= proposed:
+            continue
+        # Straddles the soft cap, or finishes in the eps pad before next keeper.
+        ceiling = proposed + max_cross
+        if next_start is not None:
+            ceiling = max(ceiling, next_start)
+        if w1 > ceiling + max_cross:
+            continue
+        if w1 - proposed > max_cross and (next_start is None or w1 > next_start + max_cross):
+            continue
+        owned = w1 if owned is None else max(owned, w1)
+    return owned
+
+
+def lift_end_for_outgoing_last_word(
+    end_ms: int,
+    words: list[dict[str, Any]],
+    *,
+    clip_start_ms: int,
+    next_keeper_start_ms: int | None = None,
+    speaker_id: str | None = None,
+    proposed_end_ms: int | None = None,
+) -> tuple[int, bool]:
+    """Return ``(end, lifted)`` keeping an outgoing last word past a turn cap.
+
+    Never lifts onto a hard hang (incomplete tail / continuer). When the owned
+    word would hang, try to extend to the next listen-complete hinge inside a
+    short horizon; otherwise refuse the lift.
+    """
+    end = int(end_ms)
+    proposed = int(proposed_end_ms) if proposed_end_ms is not None else end
+    owned = outgoing_last_word_end_ms(
+        words,
+        clip_start_ms=clip_start_ms,
+        proposed_end_ms=proposed,
+        next_keeper_start_ms=next_keeper_start_ms,
+        speaker_id=speaker_id,
+    )
+    from interview_mux.gap_vo_prior_context import end_is_hard_hang
+
+    target = int(owned) if owned is not None else end
+    if owned is not None and owned > end and not end_is_hard_hang(words, target):
+        return target, True
+    # Already at/past owned, or owned is a hard hang — heal weak tails.
+    hang_from = target if end_is_hard_hang(words, target) else (
+        end if end_is_hard_hang(words, end) else None
+    )
+    if hang_from is None:
+        if owned is not None and owned > end:
+            return int(owned), True
+        return end, False
+    try:
+        from interview_mux.thought_complete_recut import complete_thought_candidates
+
+        horizon = int(hang_from) + 8_000
+        if next_keeper_start_ms is not None:
+            horizon = max(horizon, int(next_keeper_start_ms) + 8_000)
+        cands = complete_thought_candidates(
+            words, int(hang_from), horizon_ms=horizon, speaker=""
+        )
+        # Also try from just before the hanging token so "and then …" completes.
+        if not cands and hang_from > clip_start_ms + 50:
+            cands = complete_thought_candidates(
+                words, max(int(clip_start_ms), int(hang_from) - 50), horizon_ms=horizon, speaker=""
+            )
+        for cut in cands:
+            cut_i = int(cut)
+            if cut_i > end and not end_is_hard_hang(words, cut_i):
+                return cut_i, True
+    except Exception:
+        pass
+    return end, False
+
+
 def words_in_span(
     words: list[dict[str, Any]], start_ms: int, end_ms: int
 ) -> list[dict[str, Any]]:
@@ -123,7 +273,9 @@ def exact_word_edges(
     - If ``start_ms`` is mid-word, keep ``start_ms`` (do not pull to the previous
       word start — that would violate ideal-window clamps).
     - Otherwise snap forward to the next word start in span.
-    End snaps to the last word that ends at/before ``end_ms`` (+5ms slack).
+    End snaps to the last word that ends at/before ``end_ms`` (+5ms slack),
+    except a word that started in this clip and straddles ``end_ms`` is
+    completed (outgoing last-word wins over turn-cap snap-back).
     """
     span = words_in_span(words, start_ms, end_ms)
     if not span:
@@ -168,6 +320,11 @@ def exact_word_edges(
         if e1 is None:
             e1 = span[-1].get("start_ms")
         e = max(s, int(float(e1 if e1 is not None else end_i)))
+    owned = outgoing_last_word_end_ms(
+        words, clip_start_ms=start_i, proposed_end_ms=end_i
+    )
+    if owned is not None:
+        e = max(e, int(owned))
     return s, e
 
 

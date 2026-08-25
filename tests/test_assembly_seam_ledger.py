@@ -200,12 +200,34 @@ def test_assembly_ledger_marks_naked_then_glued(tmp_path):
         build_reorder_bridges(["seg_010", "seg_002"], segs),
     )
 
-    naked_edl = build_flow1_edl(
+    built = build_flow1_edl(
         selection={"ordered_segment_ids": ["seg_010", "seg_002"]},
         segments_by_id=segs,
         transitions={"transitions": []},
     )
-    # Simulate durations so glue detection works; inject a fake transition atom path
+    # Chapter-scale joins now land hitch air in the EDL builder itself.
+    built_ledger = build_assembly_ledger(ctx, edl=built)
+    assert built_ledger["naked_seam_count"] == 0
+
+    # A speech→speech cut with no hitch/VO/transition is still naked.
+    naked_edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_010", "seg_002"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_010",
+                "timeline_start_ms": 0,
+                "duration_ms": 24_980,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_002",
+                "timeline_start_ms": 24_980,
+                "duration_ms": 34_140,
+            },
+        ],
+    }
     ledger = build_assembly_ledger(ctx, edl=naked_edl)
     assert ledger["naked_seam_count"] >= 1
     with pytest.raises(SystemExit):
@@ -249,6 +271,115 @@ def test_assembly_ledger_marks_naked_then_glued(tmp_path):
     assert_ledger_no_naked_seams(ledger2)
     assert any(a["type"] == "transition" for a in ledger2["atoms"])
     assert ledger2["chapters"]
+
+
+def test_chapter_hitch_silence_counts_as_seam_glue(tmp_path):
+    """Clone-blocked spoken glue still needs an audible hitch between chapter-scale natives."""
+    segs = _seg_map()
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json(
+        "segments/manifest.json",
+        {"segments": list(segs.values())},
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_010", "seg_002"],
+            "chapters": [
+                {
+                    "chapter_id": "ch_01",
+                    "title": "Founding Sparks",
+                    "segment_ids": ["seg_010", "seg_002"],
+                }
+            ],
+        },
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        build_reorder_bridges(["seg_010", "seg_002"], segs),
+    )
+    glued = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_010", "seg_002"],
+        "timeline_duration_ms": 60_000,
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_010",
+                "timeline_start_ms": 0,
+                "duration_ms": 24_980,
+            },
+            {
+                "type": "silence",
+                "air_kind": "chapter_hinge",
+                "clone_adjacency_hitch": True,
+                "preserve_planned_music": True,
+                "timeline_start_ms": 24_980,
+                "duration_ms": 1200,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_002",
+                "timeline_start_ms": 26_180,
+                "duration_ms": 34_140,
+            },
+        ],
+    }
+    ledger = build_assembly_ledger(ctx, edl=glued)
+    assert ledger["naked_seam_count"] == 0
+    assert_ledger_no_naked_seams(ledger)
+    assert any(a.get("seam_role") == "glue" and a.get("type") == "silence" for a in ledger["atoms"])
+
+
+def test_mix_overlapped_hitch_still_counts_as_glue(tmp_path):
+    """Realized mix EDL pulls hitch t0 into the previous native via crossfade."""
+    segs = _seg_map()
+    ctx = _FakeCtx(tmp_path)
+    ctx.write_json("segments/manifest.json", {"segments": list(segs.values())})
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_002"]},
+    )
+    ctx.write_json(
+        "understanding/reorder_bridges.json",
+        build_reorder_bridges(["seg_010", "seg_002"], segs),
+    )
+    overlapped = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_010", "seg_002"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_010",
+                "timeline_start_ms": 0,
+                "duration_ms": 24_980,
+                "mix_overlap_ms": 192,
+            },
+            {
+                "type": "silence",
+                "air_kind": "chapter_hinge",
+                "required_seam_hitch": True,
+                "timeline_start_ms": 24_900,
+                "duration_ms": 1800,
+                "mix_overlap_ms": 80,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_002",
+                "timeline_start_ms": 26_620,
+                "duration_ms": 34_140,
+                "mix_overlap_ms": 80,
+            },
+        ],
+    }
+    ledger = build_assembly_ledger(ctx, edl=overlapped)
+    assert ledger["naked_seam_count"] == 0
+    assert_ledger_no_naked_seams(ledger)
+    missing = missing_reorder_bridges(
+        build_reorder_bridges(["seg_010", "seg_002"], segs),
+        edl=overlapped,
+    )
+    assert missing == []
 
 
 def test_justified_layup_skip_waives_naked_seam(tmp_path, monkeypatch):

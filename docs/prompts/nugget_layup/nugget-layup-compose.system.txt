@@ -17,6 +17,8 @@ Attempt a decision for **every** `ordered_segment_id`, but **prefer typed skip**
 - Opening orientation already owns the before-slot (`opening_owner` / `opening_owned_segment_ids`).
 - Any candidate air copy would be vague, meta, or only restate T.
 
+**Hard — do not skip high-salience holes.** You may **not** skip with `no_eligible_unspent_nugget`, `no_unrecovered_high_salience`, or `self_explanatory_native` when `open_nuggets_ranked` still contains a high or critical nugget for T. Air that fact, or place the line on the next native that is not the cloned host speaker. Sparse placement is for seams with nothing left to recover — not for leaving corpus claims on the table.
+
 Air a lay-up only when it recovers unaired high-value excluded-tape facts **or** supplies a genuine conversational bridge a first-time listener needs. Sparse strategic placement beats dense coverage.
 
 When `degraded_lexicon_island` / `degraded_path` is true (or `transcript_quality` is degraded):
@@ -32,7 +34,7 @@ For **each** `ordered_segment_id`, emit one `layups[]` row that is either a cont
 - `setup_from_nuggets` — the recovered facts as host paraphrase, faithful to the evidence quotes.
 - `forward_unlock` — the concrete, T-specific reason to keep listening.
 - `text` — the spoken line built from `setup_from_nuggets` + `forward_unlock` (`forward_cue_ok: true`). Never copy `listener_need_entering_T` or `target_beat` verbatim into air.
-- When T is spoken by the same person as the cloned host VO, emit a lay-up only when its selected nuggets recover facts from `in_selection: false` source segments. That explanatory recovery is allowed; generic host framing before that same speaker is not.
+- When T is spoken by the same person as the cloned host VO, emit a lay-up only when its selected nuggets recover high-salience or excluded-tape facts. Code retargets that line onto the next non-clone native (or merges into that dest). Generic host framing before that same speaker is skipped, not relocated.
 - Skip with a **typed** decision — never bare `skip: true`. When skipping, set `skip: true` plus:
   - `skip_reason_code` (closed enum) — prefer `self_explanatory_native`, `native_self_orients`, `listener_already_oriented`, `no_unrecovered_high_salience`, `no_eligible_unspent_nugget`, `opening_orientation_owns_target`
   - `evidence_refs[]`

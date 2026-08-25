@@ -49,6 +49,9 @@ PERSPECTIVES = {
             "brought to you by",
             "powered by",
             "in partnership with",
+            "podcast produced by",
+            "production support from",
+            "music for this podcast",
         ],
         "thoughtful_include": ["customers", "revenue model", "two-sided market"],
     }

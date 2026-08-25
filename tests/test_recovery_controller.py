@@ -35,6 +35,15 @@ def test_classify_exec_1822_signatures():
     )
     assert (
         classify_error_class(
+            "nugget_layup_compose",
+            RuntimeError(
+                "Nugget layup QC failed: never_touch_cta[seg_009]: lay-up reuses dropped CTA wording"
+            ),
+        )
+        == "never_touch_cta"
+    )
+    assert (
+        classify_error_class(
             "edl",
             RuntimeError(
                 'clips[0]: vo_pickup line_id "vo_preface_episode_orientation" '
@@ -44,6 +53,20 @@ def test_classify_exec_1822_signatures():
         == "orientation_target_mismatch"
     )
     assert classify_error_class("edl", RuntimeError("naked seam: seg_033→seg_034")) == "naked_seam"
+    assert (
+        classify_error_class(
+            "edl",
+            RuntimeError("edl_qc strict: 8 issue(s) before edl. Fix master/edl.json or re-run edl."),
+        )
+        == "unknown_nle_split_child"
+    )
+    assert (
+        classify_error_class(
+            "edl",
+            RuntimeError('clips[2]: unknown segment_id "seg_003a"'),
+        )
+        == "unknown_nle_split_child"
+    )
     assert classify_error_class("mix", RuntimeError("mmaudio_qa.json missing")) == "mmaudio_qa_missing"
     assert (
         classify_error_class(
@@ -72,6 +95,39 @@ def test_classify_exec_1822_signatures():
             ),
         )
         == "mixed_diarization"
+    )
+    assert (
+        classify_error_class(
+            "nugget_layup_compose",
+            RuntimeError(
+                "LLM stage nugget_layup_compose incomplete: status=partial "
+                "needs=[{'type': 'rerun_stage', 'stage': 'selection', "
+                "'reason': 'Remove seg_001a sponsor bumper', 'blocking': True}]"
+            ),
+        )
+        == "selection_cta_omit"
+    )
+    assert (
+        classify_error_class(
+            "nugget_layup_compose",
+            RuntimeError(
+                "LLM stage nugget_layup_compose incomplete: status=partial "
+                "needs=[{'type': 'rerun_stage', 'stage': 'selection', "
+                "'reason': 'Remove seg_068b through seg_068l outro credits', "
+                "'blocking': True}]"
+            ),
+        )
+        == "selection_cta_omit"
+    )
+    assert (
+        classify_error_class(
+            "nugget_layup_compose",
+            RuntimeError(
+                "LLM stage nugget_layup_compose incomplete: "
+                "cta_omit_applied dropped seg_001a,seg_003h"
+            ),
+        )
+        == "selection_cta_omit"
     )
 
 
@@ -111,6 +167,107 @@ def test_mixed_diarization_playbook_writes_speakers(tmp_path: Path) -> None:
     assert result.resume_stage == "source_topology_build"
     assert ctx.is_done("speaker_roles")
     assert ctx.artifact_exists("understanding/speakers.json")
+
+
+def test_homunculus_selection_cta_omit_runs_without_analysis(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "rec_cta_omit_h")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_002", "seg_074b"]},
+        skip_handoff=True,
+    )
+    result = handle_stage_failure(
+        ctx,
+        "nugget_layup_compose",
+        RuntimeError(
+            "LLM stage nugget_layup_compose incomplete: "
+            "cta_omit_applied dropped seg_074b,seg_074d,seg_074g,seg_002"
+        ),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "host_cta_omit"
+    assert result.resume_stage == "nugget_layup_compose"
+
+
+def test_never_touch_cta_playbook_skips_without_analysis(tmp_path: Path):
+    from interview_mux.nugget_layup import PLAN_REL, evaluate_layup_qc
+
+    ctx = RunContext(str(tmp_path / "rec_never_touch"), create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
+    )
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_cta"],
+            "never_touch_segment_ids": ["seg_cta"],
+            "never_touch_texts": [
+                "Go subscribe to my old show and buy the course at the link below"
+            ],
+        },
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_b"]})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_b",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                    "text": "the exit story",
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ["seg_b"],
+            "layups": [
+                {
+                    "target_segment_id": "seg_b",
+                    "text": (
+                        "Go subscribe to my old show and buy the course at the link below. "
+                        "Why did the exit change the market?"
+                    ),
+                    "target_beat": "The exit",
+                    "listener_need_entering_T": "Need the exit beat",
+                    "forward_unlock": "Why did the exit change the market?",
+                    "skip": False,
+                }
+            ],
+        },
+    )
+    result = handle_stage_failure(
+        ctx,
+        "nugget_layup_compose",
+        RuntimeError(
+            "Nugget layup QC failed: never_touch_cta[seg_b]: lay-up reuses dropped CTA wording"
+        ),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "skip_never_touch_cta_layups"
+    plan = ctx.read_json(PLAN_REL)
+    row = (plan.get("layups") or [])[0]
+    assert row.get("skip") is True
+    assert row.get("skip_reason_code") == "never_touch_cta"
+    qc = evaluate_layup_qc(ctx, plan)
+    assert not any("never_touch_cta" in str(e) for e in (qc.get("errors") or []))
 
 
 def test_second_identical_signature_escalates(tmp_path: Path, monkeypatch):
@@ -283,6 +440,95 @@ def test_place_episode_close_cue_when_bed_present(tmp_path: Path):
     outro = next(c for c in cues if isinstance(c, dict) and c.get("role") == "theme_outro")
     assert int(outro.get("fade_out_ms") or 0) >= 180
     assert "e2e_softened" not in sdp
+
+
+def test_place_episode_close_cue_rebinds_to_last_speech_clip(tmp_path: Path):
+    from interview_mux.music_lane import pick_theme_outro_asset
+    from run_fixtures import sound_design_plan_with
+
+    ctx = RunContext(str(tmp_path / "rec_close_rebind"), create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_060", "seg_062"]},
+    )
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_060", "seg_062"],
+            "timeline_duration_ms": 2500,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_060",
+                    "source_start_ms": 0,
+                    "source_end_ms": 1000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 1000,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_062",
+                    "source_start_ms": 2000,
+                    "source_end_ms": 2500,
+                    "timeline_start_ms": 1000,
+                    "duration_ms": 500,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_055",
+                    "source_start_ms": 3000,
+                    "source_end_ms": 4000,
+                    "timeline_start_ms": 1500,
+                    "duration_ms": 1000,
+                },
+            ],
+        },
+        skip_handoff=True,
+    )
+    sdp = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "onecell_documentary_close_bed_v17",
+                "role": "theme_outro",
+                "placement_hint": "open",
+                "description": "Open-style bed",
+                "duration_seconds": 18,
+            },
+            {
+                "asset_id": "show_theme_v1_full_bed_close",
+                "role": "theme_outro",
+                "placement_hint": "close",
+                "description": "Episode close bed",
+                "duration_seconds": 18,
+            },
+        ],
+        flow_plans={
+            "podcast": {
+                "cues": [
+                    {
+                        "cue_id": "theme_outro_seed",
+                        "role": "theme_outro",
+                        "asset_id": "onecell_documentary_close_bed_v17",
+                        "placement": "after_segment",
+                        "after_segment_id": "seg_060",
+                        "segment_id": "seg_060",
+                    }
+                ]
+            }
+        },
+    )
+    ctx.write_json("understanding/sound_design_plan.json", sdp, skip_handoff=True)
+    picked = pick_theme_outro_asset(sdp["assets"])
+    assert picked is not None
+    assert picked["asset_id"] == "show_theme_v1_full_bed_close"
+    written = place_episode_close_cue(ctx)
+    assert written
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    cues = list(((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    outro = next(c for c in cues if isinstance(c, dict) and c.get("role") == "theme_outro")
+    assert outro["after_segment_id"] == "seg_055"
+    assert outro["asset_id"] == "show_theme_v1_full_bed_close"
 
 
 def test_qc_failed_uses_topology_synth_ladder(tmp_path: Path, monkeypatch):

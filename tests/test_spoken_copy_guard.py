@@ -94,7 +94,12 @@ def test_editorial_filler_without_context_fails_closed() -> None:
     assert "spoken_generic_filler" in decision["violations"] or "spoken_stock_copy" in decision["violations"]
 
 
-def test_edit_structure_and_chapter_language_are_rejected() -> None:
+def test_unprefixed_story_in_motion_is_generic_filler() -> None:
+    hits = spoken_copy_violations(
+        "What set this part of the story in motion?",
+        evidence={},
+    )
+    assert "spoken_generic_filler" in hits or "spoken_stock_copy" in hits
     for text in (
         "In the previous clip, gym buyers showed up.",
         "The earlier segment ended on snack demand.",
@@ -327,6 +332,14 @@ def test_stale_script_hash_rejects_generated_wav(
             }
         },
     )
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_synthesis_audit.analyze_vo_wav",
+        lambda *_a, **_k: {"pass": True, "reasons": []},
+    )
     ctx = isolated_run_ctx(tmp_path, "run_stale_vo")
     wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
     _wav(wav)
@@ -342,12 +355,79 @@ def test_stale_script_hash_rejects_generated_wav(
     matches, reason = synthesis_entry_matches_line(ctx, changed)
     assert matches is False
     assert reason == "stale_script_hash"
-    assert resolve_vo_pickup_path(ctx, changed) is None
+    # G1 accepts on-disk wav when audit line_id matches even if script_hash is stale.
+    assert resolve_vo_pickup_path(ctx, changed) is not None
 
     retargeted = {**original, "targets_segment_id": "seg_2"}
     matches, reason = synthesis_entry_matches_line(ctx, retargeted)
     assert matches is True
     assert reason == "script_match_stale_context"
+
+
+def test_top_level_pickup_without_audit_is_present(tmp_path, monkeypatch) -> None:
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "run_promoted_stale")
+    wav = ctx.path("vo_pickup", "line_1.wav")
+    _wav(wav)
+    line = {
+        "line_id": "line_1",
+        "text": "Mohan describes cell biopsy as next-generation liquid biopsy.",
+        "targets_segment_id": "seg_1",
+        "placement": "before",
+    }
+    assert resolve_vo_pickup_path(ctx, line) is not None
+
+
+def test_heal_invalidates_synthesis_audit(tmp_path, monkeypatch) -> None:
+    from interview_mux.delivery_recovery import heal_layup_spoken_copy
+    from interview_mux.vo_synthesis_audit import (
+        invalidate_synthesis_entries,
+        synthesis_entry_for_line,
+    )
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "run_heal_invalidate")
+    wav = ctx.path("vo_pickup", "synthesized", "vo_layup_seg_012.wav")
+    _wav(wav)
+    line = {
+        "line_id": "vo_layup_seg_012",
+        "text": "What set this part of the story in motion?",
+        "targets_segment_id": "seg_012",
+    }
+    record_synthesis(ctx, line, backend="mlx_audio", out_wav=wav)
+    assert synthesis_entry_for_line(ctx, "vo_layup_seg_012") is not None
+    removed = invalidate_synthesis_entries(ctx, ["vo_layup_seg_012"])
+    assert removed == 1
+    assert synthesis_entry_for_line(ctx, "vo_layup_seg_012") is None
+    assert heal_layup_spoken_copy(ctx) == 0
 
 
 def test_tone_mode_never_prefixes_delivery_instruction(

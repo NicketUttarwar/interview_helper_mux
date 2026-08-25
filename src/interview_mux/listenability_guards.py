@@ -752,8 +752,27 @@ def _seat_unused_host_vo(ctx: RunContext, edl: dict[str, Any], *, min_ratio: flo
         )
         notes.append(f"seat_host_vo:{line_id}:{dur}ms")
 
-    deferred: list[tuple[str, Path, str, str]] = []
-    for line_id, wav_path in wavs.items():
+    def _nugget_seat_rank(line_id: str) -> tuple[int, str]:
+        line = lines.get(line_id) or {}
+        nids = line.get("nugget_ids") or line.get("selected_nugget_ids") or []
+        grounded = bool(nids) or str(line.get("origin") or "") == "nugget_layup"
+        return (0 if grounded else 1, line_id)
+
+    def _retarget_non_clone(target: str, voice: str) -> str:
+        if not voice or target not in speech_index:
+            return ""
+        idx = speech_index[target]
+        for clip in clips[idx + 1 :]:
+            if not isinstance(clip, dict) or str(clip.get("type") or "") != "speech":
+                continue
+            sid = str(clip.get("segment_id") or "").strip()
+            if sid and _clone_safe_before_speech(
+                ctx, voice_speaker_id=voice, speech_clip=clip
+            ):
+                return sid
+        return ""
+
+    for line_id, wav_path in sorted(wavs.items(), key=lambda kv: _nugget_seat_rank(kv[0])):
         if host_vo_duration_ratio(ctx, edl) + 0.001 >= min_ratio:
             break
         if not line_id or line_id in seated:
@@ -785,17 +804,14 @@ def _seat_unused_host_vo(ctx: RunContext, edl: dict[str, Any], *, min_ratio: flo
             except Exception:
                 voice = ""
         if not _clone_safe_before_speech(ctx, voice_speaker_id=voice, speech_clip=speech_clip):
+            alt = _retarget_non_clone(target, voice)
+            if alt:
+                notes.append(f"retarget_host_vo:{line_id}:{target}->{alt}")
+                _insert(line_id, wav_path, target=alt, voice=voice, exempt=False)
+                continue
             notes.append(f"skip_clone_adjacent:{line_id}->{target}")
-            deferred.append((line_id, wav_path, target, voice))
             continue
         _insert(line_id, wav_path, target=target, voice=voice, exempt=False)
-    for line_id, wav_path, target, voice in deferred:
-        if host_vo_duration_ratio(ctx, edl) + 0.001 >= min_ratio:
-            break
-        if line_id in seated or target not in speech_index:
-            continue
-        _insert(line_id, wav_path, target=target, voice=voice, exempt=True)
-        notes.append(f"seat_host_vo_clone_exempt:{line_id}")
     return notes
 
 

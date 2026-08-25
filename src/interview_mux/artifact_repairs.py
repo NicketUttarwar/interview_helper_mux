@@ -1269,6 +1269,32 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             applied.append(
                 {"action": "fill_unlisted_manifest_exclusions", "count": len(missing)}
             )
+    try:
+        from interview_mux.selection_order_repair import repair_selection_order
+
+        plan = None
+        if ctx.artifact_exists("master/narrative_plan.json"):
+            loaded = ctx.read_json("master/narrative_plan.json")
+            plan = loaded if isinstance(loaded, dict) else None
+        starts: dict[str, int] = {}
+        for rel in ("segments/boundaries.json", "segments/segments.json"):
+            if not ctx.artifact_exists(rel):
+                continue
+            doc = ctx.read_json(rel)
+            rows = []
+            if isinstance(doc, dict):
+                rows = list(doc.get("boundaries") or doc.get("segments") or [])
+            for row in rows:
+                if not isinstance(row, dict) or not row.get("segment_id"):
+                    continue
+                try:
+                    starts[str(row["segment_id"])] = int(row.get("start_ms") or 0)
+                except (TypeError, ValueError):
+                    continue
+        out, order_notes = repair_selection_order(out, plan, source_start_ms=starts or None)
+        applied.extend(order_notes)
+    except Exception:
+        pass
     # Selection is the air-order authority.  Narrative chapters may describe a
     # wider candidate pool, but they must never force excluded material back
     # into the episode (exec_1131 expanded a tight pack by 161 segments here).
@@ -1400,6 +1426,7 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
         if reconciled.get("exclude_rationales") != out.get("exclude_rationales"):
             applied.append({"action": "prune_stale_exclude_rationales"})
     out = reconciled
+    _sort_selection_chapters_with_backward_jumps(ctx, out, applied)
     from interview_mux.order_hash import bump_order_lock
 
     stamped = bump_order_lock(out, source="artifact_repairs.repair_selection")
@@ -1417,6 +1444,84 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
     for entry in applied:
         _append_repair_meta(out, entry)
     return out, applied
+
+
+def _segment_start_ms_map(ctx: Any) -> dict[str, int]:
+    starts: dict[str, int] = {}
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return starts
+    manifest = ctx.read_json("segments/manifest.json")
+    for row in (manifest.get("segments") or []) if isinstance(manifest, dict) else []:
+        if not isinstance(row, dict) or not row.get("segment_id"):
+            continue
+        sid = str(row["segment_id"])
+        try:
+            starts[sid] = int(row.get("start_ms") or 0)
+        except (TypeError, ValueError):
+            starts[sid] = 0
+    return starts
+
+
+def _start_ms_for(sid: str, starts: dict[str, int]) -> int:
+    if sid in starts:
+        return starts[sid]
+    stem = _parent_stem_segment_id(sid)
+    return starts.get(stem, 0)
+
+
+def _sort_selection_chapters_with_backward_jumps(
+    ctx: Any,
+    out: dict[str, Any],
+    applied: list[dict[str, Any]],
+) -> None:
+    """Restore source time inside a chapter that currently airs a backward jump.
+
+    Ranking sometimes parks a late fragment (e.g. seg_062) at the front of the
+    closing chapter, then jumps back into earlier regulatory talk. Sort that
+    contiguous chapter span by start_ms so the selected order stays coherent.
+    """
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    chapters = out.get("chapters")
+    if not ordered or not isinstance(chapters, list):
+        return
+    starts = _segment_start_ms_map(ctx)
+    if not starts:
+        return
+    pos = {sid: idx for idx, sid in enumerate(ordered)}
+    changed = False
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        ids = [str(s) for s in (ch.get("segment_ids") or []) if s in pos]
+        if len(ids) < 2:
+            continue
+        times = [_start_ms_for(sid, starts) for sid in ids]
+        if not any(times[i] + 5000 < times[i - 1] for i in range(1, len(times))):
+            continue
+        idxs = [pos[sid] for sid in ids]
+        lo, hi = min(idxs), max(idxs)
+        span = ordered[lo : hi + 1]
+        if set(span) != set(ids):
+            continue
+        ranked = sorted(
+            ids,
+            key=lambda sid: (_start_ms_for(sid, starts), pos[sid]),
+        )
+        if ranked == ids:
+            continue
+        ordered[lo : hi + 1] = ranked
+        ch["segment_ids"] = ranked
+        pos = {sid: idx for idx, sid in enumerate(ordered)}
+        changed = True
+        applied.append(
+            {
+                "action": "sort_chapter_air_order_by_source_time",
+                "title": str(ch.get("title") or "")[:80],
+                "ids": ranked[:12],
+            }
+        )
+    if changed:
+        out["ordered_segment_ids"] = ordered
 
 
 def align_narrative_plan_to_selection(
@@ -2215,6 +2320,33 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             elif extracted is None and "extracted_from" in fixed:
                 fixed.pop("extracted_from", None)
                 applied.append({"action": "drop_null", "path": "extracted_from"})
+            guard = fixed.get("spoken_copy_guard")
+            if "spoken_copy_guard" in fixed and guard is None:
+                fixed.pop("spoken_copy_guard", None)
+                applied.append({"action": "drop_null", "path": "spoken_copy_guard"})
+            elif isinstance(guard, dict):
+                cleaned_g: dict[str, Any] = {}
+                changed = False
+                for gkey, gval in guard.items():
+                    if gval is None:
+                        changed = True
+                        if gkey == "action":
+                            cleaned_g[gkey] = "omit"
+                        elif gkey in {"script_hash", "context_hash"}:
+                            cleaned_g[gkey] = ""
+                        continue
+                    cleaned_g[gkey] = gval
+                if changed:
+                    if cleaned_g:
+                        fixed["spoken_copy_guard"] = cleaned_g
+                    else:
+                        fixed.pop("spoken_copy_guard", None)
+                    applied.append(
+                        {
+                            "action": "coalesce_spoken_copy_guard_nulls",
+                            "line_id": fixed.get("line_id"),
+                        }
+                    )
             # Schema requires arrays; LLMs often emit null for unused lists.
             for arr_key in (
                 "replaces_source_segments",
@@ -2304,6 +2436,7 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             courtesy_seed_text,
             has_forward_cue,
             is_interruptive_opener,
+            last_sentence_restates_target,
             load_ordered_and_segments,
             prior_context_cfg,
             repair_last_sentence_layup,
@@ -2328,13 +2461,15 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 continue
             # Authoritative layups own their recovery copy — courtesy rewrites
             # were replacing plan text with canned hinges and failing EDL.
-            if (
+            is_authoritative_layup = (
                 bool(out.get("nugget_layup_authority"))
                 and str(line.get("origin") or "") == "nugget_layup"
+            )
+            if (
+                not is_authoritative_layup
+                and line.get("prior_impact_beat")
+                and is_interruptive_opener(str(line.get("text") or ""))
             ):
-                fixed_lines.append(line)
-                continue
-            if line.get("prior_impact_beat") and is_interruptive_opener(str(line.get("text") or "")):
                 cat = str(line.get("line_category") or "framing_question")
                 prior = build_prior_native_context(
                     target_segment_id=str(line.get("targets_segment_id") or ""),
@@ -2357,11 +2492,12 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             tid_now = str(line.get("targets_segment_id") or "").strip()
             target_row = by_id.get(tid_now) or {}
             target_text = str(target_row.get("text") or target_row.get("text_excerpt") or "")
-            needs_layup = text_now and (
+            overlap_dirty = last_sentence_restates_target(text_now, target_text)
+            needs_layup = (not is_authoritative_layup) and text_now and (
                 not has_forward_cue(text_now)
                 or not cold_open_layup_ok(line, target_text=target_text, ordered_ids=ordered)
             )
-            if needs_layup:
+            if needs_layup or overlap_dirty:
                 cat = str(line.get("line_category") or "framing_question")
                 prior = build_prior_native_context(
                     target_segment_id=tid_now,
@@ -2379,7 +2515,19 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                 )
                 applied.append(
                     {
-                        "action": "repair_last_sentence_layup",
+                        "action": "repair_last_sentence_overlap"
+                        if overlap_dirty
+                        else "repair_last_sentence_layup",
+                        "line_id": line.get("line_id"),
+                        "targets_segment_id": tid_now,
+                    }
+                )
+            if last_sentence_restates_target(str(line.get("text") or ""), target_text):
+                line["skipped_optional"] = True
+                line["blocking"] = False
+                applied.append(
+                    {
+                        "action": "skip_last_sentence_overlap",
                         "line_id": line.get("line_id"),
                         "targets_segment_id": tid_now,
                     }
@@ -2663,16 +2811,257 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
     return out, applied
 
 
+_COVERAGE_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "because",
+        "being",
+        "from",
+        "have",
+        "into",
+        "that",
+        "their",
+        "there",
+        "these",
+        "this",
+        "those",
+        "through",
+        "using",
+        "when",
+        "which",
+        "while",
+        "with",
+        "would",
+        "could",
+        "should",
+        "mohan",
+        "says",
+        "said",
+        "also",
+        "than",
+        "then",
+        "them",
+        "they",
+        "were",
+        "what",
+        "your",
+    }
+)
+
+
+def _coverage_tokens(text: str) -> set[str]:
+    raw = re.findall(r"[a-z][a-z0-9']{3,}|[0-9]+(?:\.[0-9]+)?", str(text or "").lower())
+    return {t for t in raw if t not in _COVERAGE_STOPWORDS}
+
+
+def _alias_topic_to_brief(topic: str, brief_names: list[str]) -> str:
+    src = _coverage_tokens(topic)
+    if not src or not brief_names:
+        return ""
+    best = ""
+    best_score = 0.0
+    for name in brief_names:
+        dst = _coverage_tokens(name)
+        if not dst:
+            continue
+        score = len(src & dst) / max(1, len(src | dst))
+        if score > best_score:
+            best_score = score
+            best = name
+    return best if best_score >= 0.35 else ""
+
+
+def _parent_stem_segment_id(sid: str) -> str:
+    match = re.match(r"^(seg_\d+)[a-z]+$", str(sid or ""), re.I)
+    return match.group(1) if match else ""
+
+
+def _selected_air_texts(ctx: Any, sel_ids: list[str]) -> dict[str, str]:
+    by_id: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("segments/manifest.json"):
+        manifest = ctx.read_json("segments/manifest.json")
+        for row in (manifest.get("segments") or []) if isinstance(manifest, dict) else []:
+            if isinstance(row, dict) and row.get("segment_id"):
+                by_id[str(row["segment_id"])] = row
+    texts: dict[str, str] = {}
+    for sid in sel_ids:
+        row = by_id.get(sid) or {}
+        text = str(row.get("text") or "").strip()
+        if not text:
+            parent = str(row.get("parent_id") or "") or _parent_stem_segment_id(sid)
+            if parent and parent in by_id:
+                text = str(by_id[parent].get("text") or "").strip()
+        if not text:
+            start = int(row.get("start_ms") or 0)
+            end = int(row.get("end_ms") or 0)
+            if end > start:
+                text = str(segment_text_excerpt(ctx, start, end, max_chars=1200) or "").strip()
+        texts[sid] = text
+    return texts
+
+
+def _best_matching_segments(
+    query: str,
+    texts: dict[str, str],
+    *,
+    min_hits: int = 2,
+    cap: int = 4,
+) -> list[str]:
+    qtoks = _coverage_tokens(query)
+    if not qtoks:
+        return []
+    scored: list[tuple[int, str]] = []
+    for sid, text in texts.items():
+        blob = str(text or "").lower()
+        if not blob:
+            continue
+        hits = sum(1 for token in qtoks if token in blob)
+        if hits >= min_hits:
+            scored.append((hits, sid))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [sid for _, sid in scored[:cap]]
+
+
+def _bind_coverage_to_selected_air(
+    ctx: Any,
+    out: dict[str, Any],
+    applied: list[dict[str, Any]],
+) -> None:
+    """Map empty coverage rows onto selected-air transcripts.
+
+    Talking-points coverage often ships with empty segment_ids (cuts lack
+    talking_point_id) while the selected order still contains the cited
+    evidence. Bind those rows instead of leaving coverage_score at 0.
+    """
+    if not ctx.artifact_exists("master/selection.json"):
+        return
+    sel = ctx.read_json("master/selection.json")
+    sel_ids = (
+        [str(x) for x in ((sel or {}).get("ordered_segment_ids") or []) if x]
+        if isinstance(sel, dict)
+        else []
+    )
+    if not sel_ids:
+        return
+    texts = _selected_air_texts(ctx, sel_ids)
+    if not any(texts.values()):
+        return
+    sel_set = set(sel_ids)
+    bound = 0
+
+    def _mark_row(row: dict[str, Any], query: str, *, min_hits: int) -> bool:
+        existing = [str(s) for s in (row.get("segment_ids") or []) if str(s) in sel_set]
+        if existing:
+            changed = existing != list(row.get("segment_ids") or []) or not row.get("covered")
+            row["segment_ids"] = existing
+            row["covered"] = True
+            return changed
+        hits = _best_matching_segments(query, texts, min_hits=min_hits)
+        if not hits:
+            return False
+        row["segment_ids"] = hits
+        row["covered"] = True
+        return True
+
+    for row in out.get("claim_mappings") or []:
+        if not isinstance(row, dict):
+            continue
+        query = str(row.get("claim") or row.get("text") or "")
+        if query and _mark_row(row, query, min_hits=2):
+            bound += 1
+
+    brief_names: list[str] = []
+    if ctx.artifact_exists("understanding/content_brief.json"):
+        brief = ctx.read_json("understanding/content_brief.json")
+        for topic in (brief.get("topics") or []) if isinstance(brief, dict) else []:
+            if isinstance(topic, dict) and topic.get("name"):
+                name = str(topic["name"]).strip()
+                if name and name not in brief_names:
+                    brief_names.append(name)
+
+    topic_rows = out.get("topic_mappings")
+    if not isinstance(topic_rows, list):
+        topic_rows = []
+        out["topic_mappings"] = topic_rows
+    by_topic = {
+        str(row.get("topic") or row.get("name") or "").strip().lower(): row
+        for row in topic_rows
+        if isinstance(row, dict)
+    }
+    for name in brief_names:
+        key = name.lower()
+        row = by_topic.get(key)
+        if row is None:
+            row = {"topic": name, "segment_ids": [], "covered": False}
+            topic_rows.append(row)
+            by_topic[key] = row
+        if _mark_row(row, name, min_hits=1):
+            bound += 1
+
+    if not bound:
+        return
+    applied.append({"action": "bind_coverage_to_selection", "count": bound})
+    covered_topics = {
+        str(row.get("topic") or "").strip().lower()
+        for row in topic_rows
+        if isinstance(row, dict) and row.get("covered") and (row.get("segment_ids") or [])
+    }
+    missing = out.get("missing_coverage")
+    if isinstance(missing, list) and covered_topics:
+        kept_missing: list[Any] = []
+        for row in missing:
+            if not isinstance(row, dict):
+                kept_missing.append(row)
+                continue
+            label = str(row.get("topic") or row.get("item") or "").strip().lower()
+            aliased = _alias_topic_to_brief(label, brief_names).lower() if label else ""
+            if label in covered_topics or aliased in covered_topics:
+                continue
+            kept_missing.append(row)
+        if len(kept_missing) != len(missing):
+            out["missing_coverage"] = kept_missing
+            applied.append(
+                {
+                    "action": "drop_missing_coverage_now_bound",
+                    "count": len(missing) - len(kept_missing),
+                }
+            )
+    mapped = {
+        str(s)
+        for key in ("topic_mappings", "claim_mappings")
+        for row in (out.get(key) or [])
+        if isinstance(row, dict)
+        for s in (row.get("segment_ids") or [])
+        if s
+    }
+    if mapped:
+        out["orphan_segment_ids"] = [
+            sid for sid in (out.get("orphan_segment_ids") or []) if str(sid) not in mapped
+        ]
+    covered_n = sum(
+        1
+        for row in topic_rows
+        if isinstance(row, dict) and row.get("covered") and (row.get("segment_ids") or [])
+    )
+    if topic_rows:
+        out["coverage_score"] = round(covered_n / max(1, len(topic_rows)), 4)
+
+
 def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
     manifest_ids, _ = _manifest_ids_and_tags(ctx)
+    brief_names: list[str] = []
     brief_topics: set[str] = set()
     if ctx.artifact_exists("understanding/content_brief.json"):
         brief = ctx.read_json("understanding/content_brief.json")
         for t in (brief.get("topics") or []) if isinstance(brief, dict) else []:
             if isinstance(t, dict) and t.get("name"):
-                brief_topics.add(str(t["name"]).lower())
+                name = str(t["name"]).strip()
+                if name and name not in brief_names:
+                    brief_names.append(name)
+                brief_topics.add(name.lower())
     all_mapped: set[str] = set()
     for key in ("topic_mappings", "claim_mappings"):
         rows = out.get(key)
@@ -2685,8 +3074,19 @@ def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
             if key == "topic_mappings":
                 topic = str(row.get("topic") or row.get("name") or "").lower()
                 if brief_topics and topic and topic not in brief_topics:
-                    applied.append({"action": "drop_orphan_ref", "topic": topic})
-                    continue
+                    aliased = _alias_topic_to_brief(topic, brief_names)
+                    if aliased:
+                        row["topic"] = aliased
+                        applied.append(
+                            {
+                                "action": "alias_topic_mapping_to_brief",
+                                "from": topic,
+                                "to": aliased,
+                            }
+                        )
+                    else:
+                        applied.append({"action": "drop_orphan_ref", "topic": topic})
+                        continue
             seg_ids = row.get("segment_ids")
             if isinstance(seg_ids, list) and manifest_ids:
                 cleaned = _sanitize_topic_segment_ids(seg_ids, manifest_ids)
@@ -2896,6 +3296,7 @@ def repair_coverage_audit(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any]
                     )
         except Exception:
             pass
+    _bind_coverage_to_selected_air(ctx, out, applied)
     if out.get("coverage_score") is None and out.get("topics_covered") is not None:
         out["coverage_score"] = float(out.get("topics_covered") or 0)
         applied.append({"action": "default_value", "path": "coverage_score"})
@@ -3549,6 +3950,56 @@ def _edl_issue_contradicted_by_disk(ctx: Any, row: dict[str, Any]) -> bool:
             )
         counts = Counter(pairs)
         return bool(pairs) and all(c == 1 for c in counts.values())
+    if any(
+        needle in text
+        for needle in (
+            "not adjacent",
+            "selected-order adjacenc",
+            "do not match selected-order",
+        )
+    ) and ctx.artifact_exists("master/transitions.json"):
+        from interview_mux.artifact_cross_validate import _transitions_match_selection_order
+
+        return _transitions_match_selection_order(ctx)
+    if any(
+        needle in text
+        for needle in (
+            "zero coverage",
+            "uncovered claim",
+            "coverage audit reports",
+            "empty chapter",
+            "outside selection",
+            "outside declared chapter",
+            "retained timeline material outside",
+        )
+    ):
+        sel_ids: set[str] = set()
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                sel_ids = {
+                    str(x) for x in (sel.get("ordered_segment_ids") or []) if x
+                }
+                chapters = sel.get("chapters") or []
+                if chapters and all(
+                    isinstance(ch, dict) and (ch.get("segment_ids") or [])
+                    for ch in chapters
+                ):
+                    if "empty chapter" in text or "outside" in text:
+                        return True
+        if "coverage" in text or "uncovered claim" in text:
+            if ctx.artifact_exists("master/coverage_audit.json") and sel_ids:
+                cov = ctx.read_json("master/coverage_audit.json")
+                if isinstance(cov, dict):
+                    for key in ("topic_mappings", "claim_mappings"):
+                        for row in cov.get(key) or []:
+                            if not isinstance(row, dict) or not row.get("covered"):
+                                continue
+                            mapped = {
+                                str(s) for s in (row.get("segment_ids") or []) if s
+                            }
+                            if mapped & sel_ids:
+                                return True
     return False
 
 
@@ -3716,6 +4167,24 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         if isinstance(sel, dict):
             selection_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
     selection_set = set(selection_ids)
+    banned_bed_segs: set[str] = set()
+    try:
+        from interview_mux.sonic_context import load_sonic_context
+
+        sonic = load_sonic_context(ctx) or {}
+        flags = sonic.get("segment_flags") if isinstance(sonic.get("segment_flags"), dict) else {}
+        banned_bed_segs.update(str(x) for x in (flags.get("overlap_high") or []) if x)
+        banned_bed_segs.update(str(x) for x in (flags.get("trauma_adjacent") or []) if x)
+    except Exception:
+        banned_bed_segs = set()
+    meta_in = out.get("_meta") if isinstance(out.get("_meta"), dict) else {}
+    banned_bed_segs.update(
+        str(x) for x in (meta_in.get("banned_bed_segment_ids") or []) if x
+    )
+    coh_in = out.get("coherence") if isinstance(out.get("coherence"), dict) else {}
+    banned_bed_segs.update(
+        str(x) for x in (coh_in.get("banned_bed_segment_ids") or []) if x
+    )
     palette_seg_ids: list[str] = []
     seen_pal: set[str] = set()
     for pal in out.get("palettes") or []:
@@ -3727,9 +4196,17 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                 seen_pal.add(s)
                 palette_seg_ids.append(s)
     # Beds may only sit on palette-mapped segments (lint + sdp_cross_validate).
-    bed_anchor_pool = [s for s in palette_seg_ids if not selection_set or s in selection_set]
+    bed_anchor_pool = [
+        s
+        for s in palette_seg_ids
+        if s not in banned_bed_segs and (not selection_set or s in selection_set)
+    ]
     if not bed_anchor_pool:
-        bed_anchor_pool = list(palette_seg_ids) or list(selection_ids)
+        bed_anchor_pool = [
+            s
+            for s in (list(palette_seg_ids) or list(selection_ids))
+            if s not in banned_bed_segs
+        ]
     # Contiguous music continuity: when coverage floors require more bed time than
     # the thin palette allows, extend anchors across selection quartiles.
     if selection_ids and len(bed_anchor_pool) < max(4, min(12, len(selection_ids) // 3 or 1)):
@@ -3738,13 +4215,13 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         n = len(selection_ids)
         for frac in (0.12, 0.37, 0.62, 0.87):
             sid = selection_ids[min(n - 1, max(0, int(n * frac)))]
-            if sid not in seen_anchor:
+            if sid not in seen_anchor and sid not in banned_bed_segs:
                 expanded.append(sid)
                 seen_anchor.add(sid)
         # Also take every ~Nth selected segment for denser contiguous coverage.
         step = max(1, n // 8)
         for sid in selection_ids[::step]:
-            if sid not in seen_anchor:
+            if sid not in seen_anchor and sid not in banned_bed_segs:
                 expanded.append(sid)
                 seen_anchor.add(sid)
         if expanded != bed_anchor_pool:
@@ -3819,10 +4296,27 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         if asset_id_is_banned(aid) or is_banned_role(role):
             applied.append({"action": "drop_banned_sfx_cue", "cue_id": cue.get("cue_id"), "asset_id": aid})
             continue
+        if (
+            str(cue.get("placement") or "") == "under_segment"
+            and str(cue.get("segment_id") or "") in banned_bed_segs
+        ):
+            banned_bed_segs.add(str(cue.get("segment_id") or ""))
+            applied.append(
+                {
+                    "action": "drop_overlap_high_bed",
+                    "cue_id": cue.get("cue_id"),
+                    "segment_id": cue.get("segment_id"),
+                }
+            )
+            continue
         kept_cues.append(cue)
     if len(kept_cues) != len(cues):
         podcast["cues"] = kept_cues
         cues = kept_cues
+    if banned_bed_segs:
+        meta_out = dict(out.get("_meta") or {}) if isinstance(out.get("_meta"), dict) else {}
+        meta_out["banned_bed_segment_ids"] = sorted(banned_bed_segs)
+        out["_meta"] = meta_out
 
     palette_set = set(palette_seg_ids)
     if palette_set:
@@ -3833,6 +4327,8 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             seg = str(cue.get("segment_id") or "")
             if seg and seg in palette_set and (not selection_set or seg in selection_set):
                 continue
+            if seg in banned_bed_segs:
+                continue
             if seg and (not selection_set or seg in selection_set) and pals and isinstance(pals[0], dict):
                 ids = [str(x) for x in (pals[0].get("segment_ids") or [])]
                 if seg not in ids:
@@ -3840,7 +4336,7 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                     palette_set.add(seg)
                     applied.append({"action": "extend_palette_for_bed_segment", "segment_id": seg})
                 continue
-            target = bed_anchor_pool[0] if bed_anchor_pool else None
+            target = next((s for s in bed_anchor_pool if s not in banned_bed_segs), None)
             if not target:
                 continue
             cue["segment_id"] = target
@@ -3854,6 +4350,15 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
             )
 
     def _add_cue(*, cue_id: str, placement: str, segment_id: str | None, asset_id: str | None) -> None:
+        if placement == "under_segment" and segment_id and str(segment_id) in banned_bed_segs:
+            applied.append(
+                {
+                    "action": "skip_banned_bed_seed",
+                    "cue_id": cue_id,
+                    "segment_id": segment_id,
+                }
+            )
+            return
         row: dict[str, Any] = {
             "cue_id": cue_id,
             "placement": placement,
@@ -3958,10 +4463,21 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
         )
 
     # Always ensure musical episode close after last native when theme_outro asset exists.
-    outro_asset = next(
-        (str(a.get("asset_id") or "") for a in assets if str(a.get("role") or "") == "theme_outro"),
-        None,
-    )
+    from interview_mux.music_lane import pick_theme_outro_asset
+
+    outro_row = pick_theme_outro_asset(assets)
+    outro_asset = str(outro_row.get("asset_id") or "") if outro_row else None
+    last_native = selection_ids[-1] if selection_ids else ""
+    if ctx.artifact_exists("master/edl.json"):
+        try:
+            from interview_mux.order_hash import last_speech_clip_id
+
+            edl_now = ctx.read_json("master/edl.json")
+            clip_last = last_speech_clip_id(edl_now if isinstance(edl_now, dict) else None)
+            if clip_last:
+                last_native = clip_last
+        except Exception:
+            pass
     has_outro = any(
         isinstance(c, dict)
         and str((assets_by_id.get(str(c.get("asset_id") or "")) or {}).get("role") or c.get("role") or "")
@@ -3988,28 +4504,43 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
                         fade_out_ms = int(music["fade_out_ms"])
     except Exception:
         pass
-    if require_outro and outro_asset and not has_outro and selection_ids:
-        _add_cue(
-            cue_id="theme_outro_seed",
-            placement="after_segment",
-            segment_id=selection_ids[-1],
-            asset_id=outro_asset,
-        )
-        # Stamp gentle fade intent on the seeded cue.
+    if require_outro and outro_asset and last_native:
+        if not has_outro:
+            _add_cue(
+                cue_id="theme_outro_seed",
+                placement="after_segment",
+                segment_id=last_native,
+                asset_id=outro_asset,
+            )
+        rebound_outro = False
         for c in cues:
-            if isinstance(c, dict) and str(c.get("cue_id") or "") == "theme_outro_seed":
-                c["role"] = "theme_outro"
-                c["fade_out_ms"] = max(fade_out_ms, int(c.get("fade_out_ms") or 0) or fade_out_ms)
-                c["preserve_full_duration"] = True
-                applied.append(
-                    {
-                        "action": "seed_theme_outro",
-                        "segment_id": selection_ids[-1],
-                        "asset_id": outro_asset,
-                        "fade_out_ms": fade_out_ms,
-                    }
-                )
-                break
+            if not isinstance(c, dict):
+                continue
+            role = str(
+                (assets_by_id.get(str(c.get("asset_id") or "")) or {}).get("role")
+                or c.get("role")
+                or ""
+            )
+            if role != "theme_outro" and "outro" not in str(c.get("cue_id") or "").lower():
+                continue
+            c["role"] = "theme_outro"
+            c["placement"] = "after_segment"
+            c["segment_id"] = last_native
+            c["after_segment_id"] = last_native
+            c["asset_id"] = outro_asset
+            c["fade_out_ms"] = max(fade_out_ms, int(c.get("fade_out_ms") or 0) or fade_out_ms)
+            c["preserve_full_duration"] = True
+            c["skip"] = False
+            rebound_outro = True
+        if rebound_outro:
+            applied.append(
+                {
+                    "action": "seed_theme_outro",
+                    "segment_id": last_native,
+                    "asset_id": outro_asset,
+                    "fade_out_ms": fade_out_ms,
+                }
+            )
 
     # Seed information-package resolve face-outs when packages are committed to air.
     try:
@@ -4668,6 +5199,12 @@ def repair_sound_design_plan(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, A
     except Exception as exc:
         applied.append({"action": "bed_loop_level_repair_skipped", "error": str(exc)[:160]})
 
+    # Persist seed-lock on coherence (schema allows extra keys). Root _meta is
+    # stripped before return so LLM re-validate must read this field.
+    if banned_bed_segs:
+        coh_lock = dict(out.get("coherence") or {}) if isinstance(out.get("coherence"), dict) else {}
+        coh_lock["banned_bed_segment_ids"] = sorted(banned_bed_segs)
+        out["coherence"] = coh_lock
     # sound_design_plan.schema.json forbids root additionalProperties (_meta);
     # write_validated_artifact strips/restores _meta, but keep disk payload clean.
     out.pop("_meta", None)
@@ -5054,6 +5591,14 @@ def repair_edl_narrative_selection(ctx: Any) -> list[dict[str, Any]]:
     notes: list[dict[str, Any]] = []
     if not ctx.artifact_exists("master/selection.json"):
         return notes
+    try:
+        from interview_mux.nle_state import materialize_all_nle_split_children
+
+        n_kids = materialize_all_nle_split_children(ctx)
+        if n_kids:
+            notes.append({"action": "materialize_nle_split_children", "count": n_kids})
+    except Exception:
+        pass
     from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
 
     sel = ctx.read_json("master/selection.json")

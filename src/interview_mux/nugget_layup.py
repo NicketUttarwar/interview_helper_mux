@@ -85,6 +85,7 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         ),
         "authoritative_gap_report": bool(block.get("authoritative_gap_report", True)),
         "block_on_open_must_keep": bool(block.get("block_on_open_must_keep", True)),
+        "block_on_open_high_salience": bool(block.get("block_on_open_high_salience", True)),
         "honor_information_package_dense_budget": bool(
             block.get("honor_information_package_dense_budget", True)
         ),
@@ -179,11 +180,12 @@ def layup_freshness_errors(
     if selection and planned != selection:
         missing = [sid for sid in selection if sid not in set(planned)]
         extra = [sid for sid in planned if sid not in set(selection)]
-        if missing:
-            errors.append(
-                "nugget_layup_plan ordered_segment_ids do not match master/selection.json "
-                f"(missing={missing[:8]}, stale={extra[:8]})"
-            )
+        # Extras (dropped bumper/outro children) are as stale as missing natives.
+        # Matching the selection *set* while keeping a longer order must fail closed.
+        errors.append(
+            "nugget_layup_plan ordered_segment_ids do not match master/selection.json "
+            f"(missing={missing[:8]}, stale={extra[:8]})"
+        )
     # Order-lock revision mismatch even when lists somehow match.
     try:
         from interview_mux.order_hash import get_order_lock, order_locks_match
@@ -1054,6 +1056,81 @@ def row_nugget_ids(row: dict[str, Any]) -> list[str]:
     return ids
 
 
+def row_is_aired(row: dict[str, Any] | None) -> bool:
+    """True when a plan row will publish as listener-facing before-VO."""
+    if not isinstance(row, dict) or row.get("skip"):
+        return False
+    return bool(str(row.get("text") or "").strip())
+
+
+def aired_nugget_ids(plan: dict[str, Any] | None) -> set[str]:
+    """Nugget ids spent on non-skip aired rows only — skips do not discharge."""
+    ids: set[str] = set()
+    for row in (plan or {}).get("layups") or []:
+        if row_is_aired(row):
+            ids.update(row_nugget_ids(row))
+    return ids
+
+
+def _corpus_high_salience_ids(corpus: dict[str, Any] | None) -> set[str]:
+    ids: set[str] = set()
+    for nug in (corpus or {}).get("nuggets") or []:
+        if not isinstance(nug, dict):
+            continue
+        if str(nug.get("salience") or "") not in {"high", "critical"}:
+            continue
+        nid = str(nug.get("nugget_id") or "")
+        if nid:
+            ids.add(nid)
+    return ids
+
+
+def _nugget_claim_text(nugget: dict[str, Any] | None) -> str:
+    if not isinstance(nugget, dict):
+        return ""
+    return str(
+        nugget.get("text_claim")
+        or nugget.get("text")
+        or nugget.get("claim")
+        or nugget.get("summary")
+        or ""
+    ).strip()
+
+
+def _nugget_preview_ok(
+    row: dict[str, Any],
+    text: str,
+    target_text: str,
+    *,
+    overlap: float,
+    corpus: dict[str, Any] | None = None,
+) -> bool:
+    """True when VO↔T overlap is a nugget preview, not a verbatim dump of T."""
+    nids = row_nugget_ids(row)
+    if not nids:
+        return False
+    # Near-verbatim copy of the upcoming native is never a preview.
+    if overlap >= 0.92:
+        return False
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in ((corpus or {}).get("nuggets") or [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
+    target_tokens = _tokens(target_text)
+    extra = set()
+    excluded = False
+    for nid in nids:
+        nug = nug_by_id.get(nid) or {}
+        extra |= _tokens(_nugget_claim_text(nug) + " " + str(nug.get("evidence_quote") or ""))
+        if nug.get("in_selection") is False:
+            excluded = True
+    if excluded or extra - target_tokens:
+        return True
+    # Claims already live in T, but the line still spends corpus ids as a hinge-in.
+    return bool(nids) and overlap < 0.92
+
+
 def layup_line_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a plan layup row into a gap_report interviewer_line (or None if skip)."""
     if not isinstance(row, dict):
@@ -1145,7 +1222,9 @@ _COVERAGE_EXEMPT_SKIP_REASONS = frozenset(
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
         "clone_voice_adjacency",
+        "merged_clone_adjacency",
         "media_ip_cta_hole",
+        "never_touch_cta",
     }
 )
 
@@ -1156,7 +1235,9 @@ JUSTIFIED_SKIP_REASON_CODES = frozenset(
         "spoken_copy_unhealable",
         "opening_orientation_owns_target",
         "clone_voice_adjacency",
+        "merged_clone_adjacency",
         "media_ip_cta_hole",
+        "never_touch_cta",
         "episode_open_native_self_orients",
         "self_explanatory_native",
         "native_self_orients",
@@ -1177,7 +1258,9 @@ _DEFAULT_COMPENSATING_PATHS = {
     "spoken_copy_unhealable": "omit_unsafe_spoken_copy",
     "opening_orientation_owns_target": "opening_orientation",
     "clone_voice_adjacency": "clone_voice_policy",
+    "merged_clone_adjacency": "merged_into_non_clone_target",
     "media_ip_cta_hole": "media_ip_cta_omit",
+    "never_touch_cta": "media_ip_cta_omit",
     "episode_open_native_self_orients": "native_self_orients",
     "self_explanatory_native": "native_self_orients",
     "native_self_orients": "native_self_orients",
@@ -1507,15 +1590,71 @@ def heal_layup_analysis_fields(
     return out, notes
 
 
+def _next_non_clone_target(
+    ordered: list[str],
+    by_id: dict[str, dict[str, Any]],
+    *,
+    after: str,
+    voice: str,
+) -> str:
+    """First later native whose diarized speaker is not the clone voice."""
+    try:
+        start = ordered.index(after) + 1
+    except ValueError:
+        return ""
+    for candidate in ordered[start:]:
+        speaker = str((by_id.get(candidate) or {}).get("speaker_id") or "").strip()
+        if speaker and speaker != voice:
+            return candidate
+    return ""
+
+
+def _merge_nugget_layup_into(
+    dest: dict[str, Any],
+    source: dict[str, Any],
+    nug_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Fold source nugget claims/setup into an existing dest layup (mutates dest)."""
+    ids = list(dict.fromkeys([*row_nugget_ids(dest), *row_nugget_ids(source)]))
+    dest["nugget_ids"] = ids
+    dest["selected_nugget_ids"] = ids
+    src_setup = str(source.get("setup_from_nuggets") or "").strip()
+    dst_setup = str(dest.get("setup_from_nuggets") or "").strip()
+    if src_setup and src_setup.casefold() not in dst_setup.casefold():
+        dest["setup_from_nuggets"] = " ".join(
+            p for p in (dst_setup, src_setup) if p
+        ).strip()
+    dest_text = str(dest.get("text") or "").strip()
+    dest_fold = dest_text.casefold()
+    extra: list[str] = []
+    for nid in row_nugget_ids(source):
+        bit = _nugget_claim_text(nug_by_id.get(nid))
+        if bit and bit.casefold() not in dest_fold:
+            extra.append(bit.rstrip(".") + ".")
+    if extra:
+        body = " ".join(extra)
+        dest["text"] = f"{body} {dest_text}".strip() if dest_text else body
+        dest["word_count"] = _word_count(str(dest.get("text") or ""))
+    tps = list(
+        dict.fromkeys(
+            [
+                *[str(x) for x in (dest.get("talking_point_ids") or []) if x],
+                *[str(x) for x in (source.get("talking_point_ids") or []) if x],
+            ]
+        )
+    )
+    if tps:
+        dest["talking_point_ids"] = tps
+
+
 def apply_clone_voice_adjacency_skips(
     ctx: RunContext, plan: dict[str, Any] | None = None
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Skip non-recovery before-VO that would abut the clone source speaker.
+    """Keep clone-self-talk off air: skip generic lines, relocate nugget recoveries.
 
-    Publishing those rows makes ``avoid_clone_voice_adjacency`` retarget many
-    lines onto the same next non-clone native, collapsing unique gap_report
-    coverage below ``min_layup_coverage``. Prefer a typed plan skip (coverage
-    exempt) over silent retarget stacking.
+    Generic interviewer-target VO is a typed skip. Nugget-grounded lines retarget
+    to the next non-clone native, or merge into that dest if it already has a layup.
+    Proven excluded-tape cut-recovery stays on the clone speaker (EDL-exempt).
     """
     out, notes = dedupe_layup_rows_by_target(plan)
     try:
@@ -1548,8 +1687,29 @@ def apply_clone_voice_adjacency_skips(
     ordered = _ordered_ids(ctx)
     corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
     corpus = corpus if isinstance(corpus, dict) else {}
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in (corpus.get("nuggets") or [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
 
-    for row in out.get("layups") or []:
+    def _probe(row: dict[str, Any], tid: str) -> dict[str, Any]:
+        return {
+            "origin": "nugget_layup",
+            "delivery": str(row.get("delivery") or "synthesize"),
+            "nugget_ids": row_nugget_ids(row),
+            "targets_segment_id": tid,
+            "replaces_source_segments": list(row.get("replaces_source_segments") or []),
+            "supports_segment_ids": list(row.get("supports_segment_ids") or []),
+        }
+
+    def _row_by_target(tid: str) -> dict[str, Any] | None:
+        for candidate in out.get("layups") or []:
+            if isinstance(candidate, dict) and str(candidate.get("target_segment_id") or "") == tid:
+                return candidate
+        return None
+
+    for row in list(out.get("layups") or []):
         if not isinstance(row, dict) or row.get("skip"):
             continue
         if row.get("cta_cover") or row.get("clone_adjacency_exempt"):
@@ -1560,17 +1720,85 @@ def apply_clone_voice_adjacency_skips(
         target_speaker = str((by_id.get(tid) or {}).get("speaker_id") or "").strip()
         if not target_speaker or target_speaker != voice:
             continue
-        probe = {
-            "origin": "nugget_layup",
-            "delivery": str(row.get("delivery") or "synthesize"),
-            "nugget_ids": row_nugget_ids(row),
-            "targets_segment_id": tid,
-            "replaces_source_segments": list(row.get("replaces_source_segments") or []),
-            "supports_segment_ids": list(row.get("supports_segment_ids") or []),
-        }
         if is_cut_recovery_vo(
-            probe, ordered_segment_ids=ordered, nugget_corpus=corpus
+            _probe(row, tid), ordered_segment_ids=ordered, nugget_corpus=corpus
         ):
+            continue
+        nids = row_nugget_ids(row)
+        dest = _next_non_clone_target(ordered, by_id, after=tid, voice=voice)
+        if nids and dest:
+            dest_row = _row_by_target(dest)
+            if dest_row is not None and row_is_aired(dest_row):
+                _merge_nugget_layup_into(dest_row, row, nug_by_id)
+                stamp_typed_skip(
+                    row,
+                    reason_code="merged_clone_adjacency",
+                    evidence_refs=[
+                        f"target:{tid}",
+                        f"merged_into:{dest}",
+                        f"clone_speaker:{voice}",
+                    ],
+                    value_forgone=nids,
+                    compensating_path="merged_into_non_clone_target",
+                    revisit_if=["clone_speaker_change"],
+                    decision_confidence=0.9,
+                    owner_stage="nugget_layup_compose",
+                )
+                notes.append(
+                    {
+                        "action": "merge_clone_voice_adjacency",
+                        "target_segment_id": tid,
+                        "merged_into": dest,
+                        "line_id": row.get("line_id"),
+                        "clone_speaker_id": voice,
+                    }
+                )
+                continue
+            old_tid = tid
+            old_lid = str(row.get("line_id") or f"vo_layup_{old_tid}")
+            row["target_segment_id"] = dest
+            row["line_id"] = f"vo_layup_{dest}"
+            hole = {
+                "target_segment_id": old_tid,
+                "line_id": old_lid if old_lid != row["line_id"] else f"vo_layup_{old_tid}",
+            }
+            stamp_typed_skip(
+                hole,
+                reason_code="compensated_by_prior_layup",
+                evidence_refs=[
+                    f"target:{old_tid}",
+                    f"retarget_to:{dest}",
+                    f"clone_speaker:{voice}",
+                ],
+                value_forgone=[],
+                compensating_path="prior_layup",
+                revisit_if=["clone_speaker_change"],
+                decision_confidence=0.9,
+                owner_stage="nugget_layup_compose",
+            )
+            layups_list = out.setdefault("layups", [])
+            if isinstance(layups_list, list):
+                layups_list.append(hole)
+            notes.append(
+                {
+                    "action": "retarget_clone_voice_adjacency",
+                    "from": old_tid,
+                    "to": dest,
+                    "line_id": row.get("line_id"),
+                    "clone_speaker_id": voice,
+                }
+            )
+            if dest_row is not None and dest_row is not row and dest_row.get("skip"):
+                stamp_typed_skip(
+                    dest_row,
+                    reason_code="compensated_by_prior_layup",
+                    evidence_refs=[f"target:{dest}", f"retarget_from:{tid}"],
+                    value_forgone=row_nugget_ids(dest_row),
+                    compensating_path="prior_layup",
+                    revisit_if=["clone_speaker_change"],
+                    decision_confidence=0.85,
+                    owner_stage="nugget_layup_compose",
+                )
             continue
         stamp_typed_skip(
             row,
@@ -1580,7 +1808,7 @@ def apply_clone_voice_adjacency_skips(
                 f"clone_speaker:{voice}",
                 "clone_voice_policy:before_slot_abuts_source",
             ],
-            value_forgone=row_nugget_ids(row),
+            value_forgone=nids,
             compensating_path="clone_voice_policy",
             revisit_if=["clone_speaker_change", "cut_recovery_nuggets"],
             decision_confidence=0.95,
@@ -1594,6 +1822,8 @@ def apply_clone_voice_adjacency_skips(
                 "clone_speaker_id": voice,
             }
         )
+    out, dedupe_notes = dedupe_layup_rows_by_target(out)
+    notes.extend(dedupe_notes)
     return out, notes
 
 
@@ -1794,7 +2024,83 @@ def stamp_valueless_skips(
                 continue
             if is_justified_skip_row(row, soft_migrate=True):
                 continue
+            if any(nid in high_ids for nid in row_nugget_ids(row)):
+                continue
             _stamp(row, "self_explanatory_native")
+    return out, notes
+
+
+def skip_never_touch_cta_layups(
+    ctx: RunContext, plan: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Host-skip lay-ups that reuse omitted CTA / credits wording.
+
+    QC currently hard-fails the whole compose on ``never_touch_cta[seg_X]``.
+    The LLM often rotates the implicated native, so a stamp-valueless retry
+    never converges. Skipping the overlapping row is the same omit the
+    never-touch ledger already decided — not a quality waiver.
+    """
+    out = plan if isinstance(plan, dict) else (
+        ctx.read_json(PLAN_REL) if ctx.artifact_exists(PLAN_REL) else {}
+    )
+    out = dict(out) if isinstance(out, dict) else {"layups": []}
+    notes: list[dict[str, Any]] = []
+    try:
+        from interview_mux.media_ip_cta import (
+            air_overlaps_never_touch,
+            never_touch_segment_ids,
+        )
+    except Exception:
+        return out, notes
+
+    banned_ids = never_touch_segment_ids(ctx)
+    for row in out.get("layups") or []:
+        if not isinstance(row, dict) or row.get("skip"):
+            continue
+        if row.get("cta_cover"):
+            continue
+        tid = str(row.get("target_segment_id") or "").strip()
+        text = str(row.get("text") or "").strip()
+        hits_id = bool(tid and tid in banned_ids)
+        hits_text = bool(text) and air_overlaps_never_touch(ctx, text)
+        if not hits_id and not hits_text:
+            continue
+        stamp_typed_skip(
+            row,
+            reason_code="never_touch_cta",
+            evidence_refs=[
+                f"target:{tid}",
+                "skip_reason:never_touch_cta",
+                "never_touch:wording" if hits_text else "never_touch:target_id",
+            ],
+            value_forgone=row_nugget_ids(row),
+            compensating_path="media_ip_cta_omit",
+            revisit_if=["selection_change", "new_grounded_copy"],
+            decision_confidence=0.95,
+            owner_stage="nugget_layup_compose",
+        )
+        notes.append(
+            {
+                "action": "skip_never_touch_cta",
+                "target_segment_id": tid,
+                "reason_code": "never_touch_cta",
+                "line_id": row.get("line_id"),
+                "by_target_id": hits_id,
+                "by_wording": hits_text,
+            }
+        )
+    if notes:
+        try:
+            ctx.log(
+                "nugget_layup_compose: skipped never-touch CTA layups "
+                f"({len(notes)} row(s): "
+                + ",".join(str(n.get("target_segment_id") or "") for n in notes[:8])
+                + ")",
+                level="warning",
+                stage="nugget_layup_compose",
+            )
+        except Exception:
+            pass
     return out, notes
 
 
@@ -1805,7 +2111,7 @@ def analysis_fields_leaked_into_text(row: dict[str, Any]) -> list[str]:
         return []
     text_fold = text.casefold()
     leaked: list[str] = []
-    for field in ANALYSIS_FIELDS:
+    for field in ("target_beat", "listener_need_entering_T"):
         val = str(row.get(field) or "").strip()
         if len(val) < 20:
             continue
@@ -1824,6 +2130,7 @@ def prepare_layup_plan_for_persist(ctx: RunContext, plan: dict[str, Any] | None)
     doc = normalize_layup_talking_point_ledger(ctx, doc)
     doc, _notes = heal_layup_analysis_fields(ctx, doc)
     doc, _clone_notes = apply_clear_native_handoff_skips(ctx, doc)
+    doc, _cta_notes = skip_never_touch_cta_layups(ctx, doc)
     doc, _skip_notes = stamp_valueless_skips(ctx, doc)
     return attach_selection_order_lock(ctx, doc)
 
@@ -1928,10 +2235,12 @@ def repair_or_skip_spoken_copy_layups(
                 text = rewritten
         if leaked:
             unlock_early = str(row.get("forward_unlock") or "").strip()
-            recover_bits = [
-                " ".join(bit for bit in (setup, unlock_early) if bit).strip(),
-                setup,
-            ]
+            recover_bits = []
+            if setup:
+                recover_bits.append(
+                    " ".join(bit for bit in (setup, unlock_early) if bit).strip()
+                )
+                recover_bits.append(setup)
             recovered_early = ""
             for candidate in recover_bits:
                 candidate = " ".join(candidate.split()).strip()
@@ -2026,14 +2335,16 @@ def repair_or_skip_spoken_copy_layups(
         # vo_value restatement / missing forward cue can fail delivery even when
         # spoken_copy_guard's coarser restatement check is quiet.
         soft_bad = False
+        overlap = (
+            vo_target_overlap_ratio(text, target_text) if text and target_text else 0.0
+        )
+        preview_ok = _nugget_preview_ok(
+            row, text, target_text, overlap=overlap, corpus={"nuggets": list(nuggets.values())}
+        )
         if text and not has_forward_cue(text):
             soft_bad = True
             violations = list(violations) + ["missing_forward_cue"]
-        if (
-            text
-            and target_text
-            and vo_target_overlap_ratio(text, target_text) > 0.75
-        ):
+        if text and target_text and overlap > 0.75 and not preview_ok:
             soft_bad = True
             if "spoken_next_clip_restatement" not in violations:
                 violations = list(violations) + ["spoken_next_clip_restatement"]
@@ -2046,34 +2357,44 @@ def repair_or_skip_spoken_copy_layups(
             str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
             for nid in row_nugget_ids(row)
         ]
-        restates = bool(
-            target_text and text and vo_target_overlap_ratio(text, target_text) > 0.75
-        )
-        # Restating bodies cannot be salvaged by appending a cue — that still
-        # fails spoken_copy on publish. Prefer unlock/nugget/cue-only recovery.
-        # Never recover by pasting analysis fields (listener_need / target_beat).
-        seed_for_repair = "" if restates else text
-        candidates = [
-            " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
-            unlock,
-            repair_last_sentence_layup(
-                seed_for_repair,
-                target_text=target_text,
-                category=str(row.get("line_category") or "extracted_context"),
-                target_segment_id=target,
-            ),
-        ]
-        if setup and setup.casefold() not in {
-            str(row.get(f) or "").strip().casefold() for f in ANALYSIS_FIELDS
-        }:
-            candidates.insert(0, " ".join(bit for bit in (setup, unlock) if bit).strip())
-        if restates:
-            candidates.extend(
-                _target_aware_forward_cues(
-                    target_text,
+        nugget_grounded = bool(row_nugget_ids(row) or any(nugget_bits))
+        restates = bool(target_text and text and overlap > 0.75 and not preview_ok)
+        # Nugget bodies keep their claims; only wipe seed when a non-nugget line
+        # restates T. Never recover by pasting analysis fields.
+        seed_for_repair = "" if (restates and not nugget_grounded) else text
+        candidates: list[str] = []
+        if nugget_grounded:
+            body = setup or " ".join(bit for bit in nugget_bits[:2] if bit).strip() or seed_for_repair
+            cue = unlock or derive_forward_unlock(row, target_text=target_text)
+            if body and cue and cue.casefold() not in body.casefold():
+                candidates.append(f"{body.rstrip('.!?')}. {cue}".strip())
+            candidates.append(" ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip())
+            if setup:
+                candidates.append(" ".join(bit for bit in (setup, unlock) if bit).strip())
+            if seed_for_repair and not has_forward_cue(seed_for_repair) and cue:
+                candidates.insert(0, f"{seed_for_repair.rstrip('.!?')}. {cue}".strip())
+        else:
+            candidates = [
+                " ".join(bit for bit in (*nugget_bits[:2], unlock) if bit).strip(),
+                unlock,
+                repair_last_sentence_layup(
+                    seed_for_repair,
+                    target_text=target_text,
                     category=str(row.get("line_category") or "extracted_context"),
+                    target_segment_id=target,
+                ),
+            ]
+            if setup and setup.casefold() not in {
+                str(row.get(f) or "").strip().casefold() for f in ANALYSIS_FIELDS
+            }:
+                candidates.insert(0, " ".join(bit for bit in (setup, unlock) if bit).strip())
+            if restates:
+                candidates.extend(
+                    _target_aware_forward_cues(
+                        target_text,
+                        category=str(row.get("line_category") or "extracted_context"),
+                    )
                 )
-            )
         recovered = ""
         for candidate in candidates:
             candidate = " ".join(candidate.split()).strip()
@@ -2083,15 +2404,41 @@ def repair_or_skip_spoken_copy_layups(
                 continue
             if spoken_copy_violations(candidate, evidence=evidence, seen_texts=seen):
                 continue
+            if canned_air_violations(candidate) or _is_generic_unlock(candidate):
+                continue
             if not has_forward_cue(candidate):
                 continue
-            if target_text and vo_target_overlap_ratio(candidate, target_text) > 0.75:
-                continue
+            cand_overlap = (
+                vo_target_overlap_ratio(candidate, target_text) if target_text else 0.0
+            )
+            if target_text and cand_overlap > 0.75:
+                probe_preview = dict(row)
+                probe_preview["text"] = candidate
+                if not _nugget_preview_ok(
+                    probe_preview,
+                    candidate,
+                    target_text,
+                    overlap=cand_overlap,
+                    corpus={"nuggets": list(nuggets.values())},
+                ):
+                    continue
             # Reject recovery that still embeds planner analysis prose.
             probe = dict(row)
             probe["text"] = candidate
             if analysis_fields_leaked_into_text(probe):
                 continue
+            # Cue-only hinges are not a salvage when the row had nugget claims.
+            if nugget_grounded:
+                body_ok = any(
+                    bit and bit.casefold() in candidate.casefold()
+                    for bit in (*nugget_bits[:2], setup)
+                    if bit
+                )
+                if not body_ok and seed_for_repair:
+                    # Keep original nugget body if the candidate dropped it.
+                    continue
+                if not body_ok:
+                    continue
             recovered = candidate
             break
         if recovered:
@@ -2180,8 +2527,11 @@ def dedupe_gap_report_nugget_claims(
 
 
 def attach_selection_order_lock(ctx: RunContext, plan: dict[str, Any]) -> dict[str, Any]:
-    """Copy selection order_lock onto a layup plan document."""
+    """Copy selection air order + order_lock onto a layup plan document."""
     out = dict(plan)
+    ordered = _ordered_ids(ctx)
+    if ordered:
+        out["ordered_segment_ids"] = list(ordered)
     if not ctx.artifact_exists("master/selection.json"):
         return out
     try:
@@ -2243,7 +2593,7 @@ def publish_layup_plan_to_gap_report(
     # nugget lists cannot collide with later layups that already own them.
     claimed_nugs: set[str] = set()
     for row in plan.get("layups") or []:
-        if isinstance(row, dict):
+        if isinstance(row, dict) and row_is_aired(row):
             claimed_nugs.update(row_nugget_ids(row))
 
     # Orientation already owns the opening handoff into the first native. A
@@ -2651,6 +3001,195 @@ def _text_covers_talking_point(text: str, tp: dict[str, Any]) -> bool:
     return _overlap(_tokens(hay), _tokens(_talking_point_evidence_text(tp))) >= 0.35
 
 
+def _unskip_row_with_nuggets(
+    row: dict[str, Any],
+    nids: list[str],
+    nug_by_id: dict[str, dict[str, Any]],
+    *,
+    target_text: str = "",
+) -> None:
+    """Turn a skip (or empty) row into aired copy from nugget claims + a short cue."""
+    ids = list(dict.fromkeys([*row_nugget_ids(row), *nids]))
+    row["nugget_ids"] = ids
+    row["selected_nugget_ids"] = ids
+    setup = str(row.get("setup_from_nuggets") or "").strip()
+    bits = [_nugget_claim_text(nug_by_id.get(nid)) for nid in ids]
+    bits = [b.rstrip(".") + "." for b in bits if b]
+    body = setup or " ".join(bits[:2])
+    if not str(row.get("setup_from_nuggets") or "").strip() and bits:
+        row["setup_from_nuggets"] = " ".join(bits[:2])
+    unlock = derive_forward_unlock(row, target_text=target_text)
+    if unlock and canned_air_violations(unlock):
+        unlock = ""
+    text = " ".join(p for p in (body, unlock) if p).strip()
+    text = " ".join(text.split())
+    if text and text[-1:] not in ".!?":
+        text = text.rstrip(".") + "."
+        if unlock:
+            text = f"{body.rstrip('.!?')}. {unlock}".strip()
+            text = " ".join(text.split())
+    row["skip"] = False
+    row.pop("skip_reason_code", None)
+    row.pop("compensating_path", None)
+    row["text"] = text
+    row["word_count"] = _word_count(text)
+    row["forward_cue_ok"] = True
+    row["recovered_open_high_salience"] = True
+    if not str(row.get("target_beat") or "").strip() and target_text:
+        row["target_beat"] = _clip_text(target_text, 180)
+    if not str(row.get("listener_need_entering_T") or "").strip():
+        row["listener_need_entering_T"] = "Recover unaired high-salience fact before this beat."
+    if not str(row.get("forward_unlock") or "").strip() and unlock:
+        row["forward_unlock"] = unlock
+    if not str(row.get("line_id") or "").strip():
+        tid = str(row.get("target_segment_id") or "").strip()
+        if tid:
+            row["line_id"] = f"vo_layup_{tid}"
+
+
+def recover_open_high_salience_nuggets(
+    ctx: RunContext,
+    plan: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Air or retarget leftover high/critical nuggets even under sparse_omit.
+
+    Skip rows do not discharge. Attach to an existing aired layup when possible,
+    otherwise unskip the best native (prefer non-clone speaker) and materialize
+    from corpus claims.
+    """
+    out = dict(plan) if isinstance(plan, dict) else {}
+    corpus = ctx.read_json(CORPUS_REL) if ctx.artifact_exists(CORPUS_REL) else {}
+    corpus = corpus if isinstance(corpus, dict) else {}
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in (corpus.get("nuggets") or [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
+    cfg = nugget_layup_cfg()
+    waived = {
+        str(x.get("nugget_id") or x)
+        for x in (out.get("waived_nugget_ids") or [])
+        if isinstance(x, (dict, str))
+    }
+    aired = aired_nugget_ids(out)
+    opening = _opening_owned_targets(ctx)
+    ordered = [str(x) for x in (out.get("ordered_segment_ids") or _ordered_ids(ctx)) if x]
+    by_id = {
+        str(row.get("segment_id") or ""): row
+        for row in _manifest_segments(ctx)
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    voice = ""
+    try:
+        from interview_mux.source_topology import pickup_eligible_speaker_id
+
+        voice = str(pickup_eligible_speaker_id(ctx) or "").strip()
+    except Exception:
+        voice = ""
+
+    open_ids: list[str] = []
+    for nug in corpus.get("nuggets") or []:
+        if not isinstance(nug, dict):
+            continue
+        nid = str(nug.get("nugget_id") or "")
+        if not nid or nid in aired or nid in waived:
+            continue
+        if nug.get("already_aired_in_selection"):
+            continue
+        if str(nug.get("salience") or "") not in {"high", "critical"}:
+            continue
+        if nug.get("in_selection") and cfg.get("prefer_excluded_nuggets"):
+            # Prefer excluded tape; still recover in-selection high if it was listed open.
+            listed = nid in {
+                str(x) for x in (out.get("open_high_salience_nugget_ids") or []) if x
+            }
+            if not listed:
+                continue
+        open_ids.append(nid)
+
+    notes: list[str] = []
+    if not open_ids:
+        out["open_high_salience_nugget_ids"] = []
+        out["discharged_nugget_ids"] = sorted(aired_nugget_ids(out))
+        return out, notes
+
+    layups = [r for r in (out.get("layups") or []) if isinstance(r, dict)]
+    by_target = {
+        str(r.get("target_segment_id") or ""): r
+        for r in layups
+        if r.get("target_segment_id")
+    }
+
+    def _best_target(nid: str, nug: dict[str, Any]) -> str:
+        for row in layups:
+            held = set(row_nugget_ids(row)) | {
+                str(x) for x in (row.get("value_forgone") or []) if x
+            }
+            tid = str(row.get("target_segment_id") or "")
+            if nid in held and tid and tid not in opening:
+                return tid
+        best_tid, best_score = "", -1.0
+        for sid in ordered:
+            if sid in opening:
+                continue
+            text = str((by_id.get(sid) or {}).get("text") or "")
+            ranked = rank_open_nuggets_for_target(
+                text,
+                [nug],
+                exclude_ids=set(),
+                limit=1,
+                prefer_excluded=bool(cfg.get("prefer_excluded_nuggets", True)),
+            )
+            score = float((ranked[0].get("relevance_to_target") or 0) if ranked else 0)
+            score += _salience_weight(nug)
+            speaker = str((by_id.get(sid) or {}).get("speaker_id") or "")
+            if voice and speaker == voice:
+                score -= 0.25
+            if score > best_score:
+                best_score, best_tid = score, sid
+        return best_tid
+
+    remaining: list[str] = []
+    for nid in open_ids:
+        nug = nug_by_id.get(nid) or {}
+        tid = _best_target(nid, nug)
+        if not tid:
+            remaining.append(nid)
+            continue
+        row = by_target.get(tid)
+        if row is None:
+            row = {"target_segment_id": tid, "line_id": f"vo_layup_{tid}", "skip": True}
+            layups.append(row)
+            by_target[tid] = row
+        target_text = str((by_id.get(tid) or {}).get("text") or "")
+        if row_is_aired(row):
+            ids = list(dict.fromkeys([*row_nugget_ids(row), nid]))
+            row["nugget_ids"] = ids
+            row["selected_nugget_ids"] = ids
+            bit = _nugget_claim_text(nug)
+            text = str(row.get("text") or "")
+            if bit and bit.casefold() not in text.casefold():
+                row["text"] = f"{bit.rstrip('.')}. {text}".strip()
+                row["word_count"] = _word_count(row["text"])
+            notes.append(f"attached:{nid}:{tid}")
+            continue
+        _unskip_row_with_nuggets(row, [nid], nug_by_id, target_text=target_text)
+        if not str(row.get("text") or "").strip():
+            remaining.append(nid)
+            continue
+        notes.append(f"unskipped:{nid}:{tid}")
+
+    out["layups"] = layups
+    out["discharged_nugget_ids"] = sorted(aired_nugget_ids(out))
+    still_open = [
+        nid
+        for nid in remaining
+        if nid not in aired_nugget_ids(out)
+    ]
+    out["open_high_salience_nugget_ids"] = still_open
+    return out, notes
+
+
 def recover_open_must_keep_talking_points(
     ctx: RunContext,
     plan: dict[str, Any],
@@ -2771,7 +3310,13 @@ def evaluate_layup_qc(
     coverage = (present / len(eligible)) if eligible else 1.0
     open_must = [str(x) for x in (plan.get("open_talking_point_ids") or []) if x]
 
-    open_high = [str(x) for x in (plan.get("open_high_salience_nugget_ids") or []) if x]
+    aired = aired_nugget_ids(plan)
+    high_in_corpus = _corpus_high_salience_ids(corpus)
+    open_high = [
+        str(x)
+        for x in (plan.get("open_high_salience_nugget_ids") or [])
+        if x and str(x) in high_in_corpus and str(x) not in aired
+    ]
     for nug in corpus.get("nuggets") or []:
         if not isinstance(nug, dict):
             continue
@@ -2793,10 +3338,11 @@ def evaluate_layup_qc(
         }
         assigned = False
         for row in layups:
-            if nid in row_nugget_ids(row):
+            if row_is_aired(row) and nid in row_nugget_ids(row):
                 assigned = True
                 break
-        if not assigned and nid not in discharged_n and nid not in waived and nid not in open_high:
+        discharged_aired = discharged_n & aired_nugget_ids(plan)
+        if not assigned and nid not in discharged_aired and nid not in waived and nid not in open_high:
             if not nug.get("in_selection"):
                 open_high.append(nid)
 
@@ -2810,6 +3356,8 @@ def evaluate_layup_qc(
         errors.append(f"missing_layup_rows={missing_required[:12]}")
     if open_must and cfg.get("block_on_open_must_keep"):
         errors.append(f"open_must_keep_talking_points={open_must[:12]}")
+    if open_high and cfg.get("block_on_open_high_salience"):
+        errors.append(f"open_high_salience_nuggets={open_high[:12]}")
 
     craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
     errors.extend(craft["errors"])
@@ -2929,7 +3477,14 @@ def evaluate_layup_craft(
         if target_text:
             restate = _overlap(_tokens(text), _tokens(target_text))
             if restate >= float(settings["max_target_restate_overlap"]):
-                errors.append(f"restates_target[{tid}]: overlap={restate:.2f}")
+                corpus = {}
+                if ctx.artifact_exists(CORPUS_REL):
+                    loaded = ctx.read_json(CORPUS_REL)
+                    corpus = loaded if isinstance(loaded, dict) else {}
+                if not _nugget_preview_ok(
+                    row, text, target_text, overlap=restate, corpus=corpus
+                ):
+                    errors.append(f"restates_target[{tid}]: overlap={restate:.2f}")
         for nid in row_nugget_ids(row):
             if nid in owner and owner[nid] != tid:
                 duplicates.append(nid)
@@ -3059,7 +3614,9 @@ def materialize_over_skipped_layups(
             "spoken_copy_unhealable",
             "opening_orientation_owns_target",
             "clone_voice_adjacency",
+            "merged_clone_adjacency",
             "media_ip_cta_hole",
+            "never_touch_cta",
         }:
             notes.append(f"preserve_unhealable_skip:{tid}:{reason}")
             continue

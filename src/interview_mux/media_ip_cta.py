@@ -11,10 +11,43 @@ LLM-first. Editorial exclude rationales must leave the locked air order.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import Any, Iterator
 
 from interview_mux.run_context import RunContext
+
+_SEG_ID_RE = re.compile(r"\bseg_[a-zA-Z0-9]+\b")
+_SEG_RANGE_RE = re.compile(
+    r"(seg_[a-zA-Z0-9]+)\s+through\s+(seg_[a-zA-Z0-9]+)",
+    flags=re.IGNORECASE,
+)
+_REVERSE_JUMP_INTO_RE = re.compile(
+    r"reverse[-\s]?jumps?\b[^.]{0,120}?\b(?:into|to|->|→)\s+(seg_[a-zA-Z0-9]+)",
+    flags=re.IGNORECASE,
+)
+_REVERSE_JUMP_ARROW_RE = re.compile(
+    r"reverse[-\s]?jump\s+seg_[a-zA-Z0-9]+\s*(?:→|->)\s*(seg_[a-zA-Z0-9]+)",
+    flags=re.IGNORECASE,
+)
+_OUTRO_REASON_TOKENS = (
+    "outro",
+    "sign_off",
+    "sign-off",
+    "credits",
+    "follow us",
+    "direct listener",
+    "contact the programme",
+    "contact the program",
+)
+_SELECTION_RERUN_STAGES = frozenset(
+    {
+        "selection",
+        "full_master_ranking",
+        "selection_framing_apply",
+        "ranking",
+    }
+)
 
 REASON = "media_ip_cta"
 ARTIFACT_REL = "mastering/media_ip_cta.json"
@@ -65,6 +98,86 @@ def never_touch_segment_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
+def release_false_cta_never_touch(ctx: RunContext) -> list[str]:
+    """Unstamp never-touch ids whose tape is not a CTA (reverse-jump intros)."""
+    state = load_state(ctx)
+    if not isinstance(state, dict):
+        return []
+    dropped = [str(x) for x in (state.get("dropped_segment_ids") or []) if x]
+    never = [str(x) for x in (state.get("never_touch_segment_ids") or []) if x]
+    by_id = _segments_by_id(ctx)
+    pool = [sid for sid in dict.fromkeys([*dropped, *never]) if sid]
+    parents: set[str] = set()
+    for sid in pool:
+        suffix = sid.split("_", 1)[-1]
+        letter = re.search(r"[a-z]+$", suffix)
+        if letter:
+            parents.add(sid[: -len(letter.group(0))])
+        elif not re.search(r"[a-z]$", suffix):
+            parents.add(sid)
+    released: list[str] = []
+
+    def _keep(sid: str) -> bool:
+        text = str((by_id.get(sid) or {}).get("text") or "").strip()
+        if not text:
+            return True
+        if _tape_is_hard_omit_cta(ctx, sid, by_id):
+            return True
+        if any(_is_nle_child(sid, parent) for parent in parents):
+            return True
+        if any(_is_nle_child(child, sid) for child in pool):
+            return True
+        released.append(sid)
+        return False
+
+    if not dropped and not never:
+        return []
+    new_dropped = [sid for sid in dropped if _keep(sid)]
+    new_never = [sid for sid in never if _keep(sid)]
+    # `_keep` appends once per call; de-dupe released.
+    released = list(dict.fromkeys(released))
+    if new_dropped == dropped and new_never == never:
+        return []
+    state["dropped_segment_ids"] = new_dropped
+    state["never_touch_segment_ids"] = new_never
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, ARTIFACT_REL, state, stage_key="full_master_ranking")
+    except Exception:
+        _write_state(ctx, state)
+    return released
+
+
+def _restore_released_to_order(
+    ctx: RunContext, ordered: list[str], released: list[str]
+) -> list[str]:
+    """Put wrongly never-touched natives back on the air, source-time order."""
+    if not released:
+        return list(ordered)
+    by_id = _segments_by_id(ctx)
+    out = list(ordered)
+    for sid in released:
+        if not sid or sid in out:
+            continue
+        if not str((by_id.get(sid) or {}).get("text") or "").strip():
+            continue
+        try:
+            start = int((by_id.get(sid) or {}).get("start_ms") or 0)
+        except (TypeError, ValueError):
+            start = 0
+        idx = 0
+        for i, other in enumerate(out):
+            try:
+                ostart = int((by_id.get(other) or {}).get("start_ms") or 0)
+            except (TypeError, ValueError):
+                ostart = 0
+            if ostart <= start:
+                idx = i + 1
+        out.insert(idx, sid)
+    return out
+
+
 def ranking_cta_omit_ids(ctx: RunContext) -> set[str]:
     """IDs ranking must exclude: stored never-touch plus tape-scan hard-omit CTAs.
 
@@ -79,7 +192,8 @@ def ranking_cta_omit_ids(ctx: RunContext) -> set[str]:
         from interview_mux.homunculus.values import should_hard_omit_cta
     except Exception:
         return {s for s in ids if s}
-    for sid, row in _segments_by_id(ctx).items():
+    by_id = _segments_by_id(ctx)
+    for sid, row in by_id.items():
         text = str((row or {}).get("text") or "")
         if text and should_hard_omit_cta(text):
             ids.add(str(sid))
@@ -96,7 +210,8 @@ def ranking_cta_omit_ids(ctx: RunContext) -> set[str]:
             }:
                 continue
             for sid in issue.get("implicated") or []:
-                if sid:
+                key = str(sid or "").strip()
+                if key and _tape_is_hard_omit_cta(ctx, key, by_id):
                     ids.add(str(sid))
     except Exception:
         pass
@@ -476,7 +591,7 @@ def _collect_cta_seeds(
                 continue
             for sid in issue.get("implicated") or []:
                 key = str(sid or "").strip()
-                if key:
+                if key and _tape_is_hard_omit_cta(ctx, key, by_id):
                     seeds.append(key)
     except Exception:
         pass
@@ -654,28 +769,13 @@ def _prune_parent(
         if kind == "dirty":
             cta_kids.append(kid)
             continue
-        if depth + 1 < cfg["prune_max_depth"]:
-            child_row = _segments_by_id(ctx).get(kid) or {}
-            child_text = str(child_row.get("text") or classified[i].get("text") or "")
-            from interview_mux.homunculus.values import should_hard_omit_cta
+        child_row = _segments_by_id(ctx).get(kid) or {}
+        child_text = str(child_row.get("text") or classified[i].get("text") or "")
+        from interview_mux.homunculus.values import should_hard_omit_cta
 
-            still = should_hard_omit_cta(child_text) and len(child_text.split()) > 12
-            if still:
-                nested_recut = _prune_parent(
-                    ctx,
-                    kid,
-                    judgment={**row, "mixed_with_story": True},
-                    depth=depth + 1,
-                    visited=visited,
-                )
-                nested.append(nested_recut)
-                if nested_recut.get("ok") and nested_recut.get("story_children"):
-                    story_kids.extend(str(x) for x in nested_recut.get("story_children") or [] if x)
-                    cta_kids.extend(str(x) for x in nested_recut.get("cta_children") or [] if x)
-                    continue
-                if not nested_recut.get("ok"):
-                    cta_kids.append(kid)
-                    continue
+        if should_hard_omit_cta(child_text):
+            cta_kids.append(kid)
+            continue
         story_kids.append(kid)
     tree["children"] = nested
     if not cta_kids and not story_kids:
@@ -826,7 +926,8 @@ def run_cta_prune(
         sid for sid in _cta_like_excluded_ids(out) if sid not in drop_set and sid not in set(story_ids)
     ]
     dropped = list(dict.fromkeys([*dropped, *leftover_ranking_cta]))
-    drop_set = set(dropped)
+    drop_set = set(dropped) | never_touch_segment_ids(ctx)
+    dropped = list(dict.fromkeys([*dropped, *sorted(drop_set)]))
     ordered = [s for s in ordered if s not in drop_set]
     never_touch = list(dict.fromkeys([*dropped, *recut_parents]))
 
@@ -924,30 +1025,63 @@ def heal_on_air_cta_residue(
         out = dict(loaded) if isinstance(loaded, dict) else {}
     if not enabled(ctx):
         return out
+    released = release_false_cta_never_touch(ctx)
     from interview_mux.homunculus.values import should_hard_omit_cta
 
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    ordered = _restore_released_to_order(ctx, ordered, released)
+    if released:
+        out["ordered_segment_ids"] = ordered
     by_id = _segments_by_id(ctx)
+    never_touch = never_touch_segment_ids(ctx)
+    stripped_never_touch = False
+    if never_touch:
+        kept = [sid for sid in ordered if sid not in never_touch]
+        if kept != ordered:
+            out["ordered_segment_ids"] = kept
+            ordered = kept
+            stripped_never_touch = True
+    excluded_ids: set[str] = set(never_touch)
+    for row in out.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            excluded_ids.add(str(row.get("segment_id") or ""))
+        else:
+            excluded_ids.add(str(row or ""))
+    empty_shells = [
+        sid
+        for sid in ordered
+        if not str((by_id.get(sid) or {}).get("text") or "").strip()
+        and any(_is_nle_child(other, sid) for other in excluded_ids if other)
+    ]
+    if empty_shells:
+        ordered = [sid for sid in ordered if sid not in set(empty_shells)]
+        out["ordered_segment_ids"] = ordered
+        stripped_never_touch = True
     residue = [
         sid
         for sid in ordered
         if should_hard_omit_cta(str((by_id.get(sid) or {}).get("text") or ""))
     ]
     if not residue:
+        if stripped_never_touch and ctx.artifact_exists("master/selection.json"):
+            try:
+                from interview_mux.write_staging import write_committed_json
+
+                write_committed_json(
+                    ctx, "master/selection.json", out, stage_key="full_master_ranking"
+                )
+            except Exception:
+                ctx.write_json("master/selection.json", out)
         return out
     before = list(ordered)
     out = run_cta_prune(ctx, out, notes=["layup_residue_scan"])
     after = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-    if before != after and artifacts is None and ctx.artifact_exists("master/selection.json"):
+    if before != after and ctx.artifact_exists("master/selection.json"):
         try:
-            from interview_mux.artifact_writes import write_validated_artifact
+            from interview_mux.write_staging import write_committed_json
 
-            write_validated_artifact(
-                ctx,
-                "master/selection.json",
-                out,
-                merge_from_disk=False,
-                stage_key="nugget_layup_compose",
+            write_committed_json(
+                ctx, "master/selection.json", out, stage_key="full_master_ranking"
             )
         except Exception:
             ctx.write_json("master/selection.json", out)
@@ -959,7 +1093,9 @@ def _reapply_locked(
 ) -> dict[str, Any]:
     """Keep previously chosen CTA drops so --from-stage does not retarget."""
     dropped = [str(x) for x in (prev.get("dropped_segment_ids") or []) if x]
-    drop_set = set(dropped)
+    drop_set = set(dropped) | {
+        str(x) for x in (prev.get("never_touch_segment_ids") or []) if x
+    }
     recuts = list(prev.get("recuts") or [])
     id_map = _id_map_from_recuts(recuts)
     story_ids = _story_ids_from_recuts(recuts)
@@ -1051,9 +1187,65 @@ def apply_cta_judgments(ctx: RunContext, artifacts: dict[str, Any] | None) -> di
     return out
 
 
+def _tape_is_hard_omit_cta(ctx: RunContext, sid: str, by_id: dict[str, dict[str, Any]] | None = None) -> bool:
+    """True only when this id's native tape is a listener CTA / sponsor bumper."""
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    rows = by_id if by_id is not None else _segments_by_id(ctx)
+    text = str((rows.get(sid) or {}).get("text") or "")
+    return bool(text and should_hard_omit_cta(text))
+
+
+def _is_nle_child(sid: str, parent: str) -> bool:
+    """True when sid is an NLE letter-suffix child of parent (seg_074b of seg_074)."""
+    if not sid or not parent or sid == parent or not sid.startswith(parent):
+        return False
+    rest = sid[len(parent) :]
+    return bool(rest) and rest[0].isalpha()
+
+
+def _reverse_jump_keep_ids(reason: str) -> set[str]:
+    """Air-order destinations named only as reverse-jump landings — do not omit."""
+    text = str(reason or "")
+    dests = {m.group(1) for m in _REVERSE_JUMP_INTO_RE.finditer(text)}
+    dests |= {m.group(1) for m in _REVERSE_JUMP_ARROW_RE.finditer(text)}
+    return dests
+
+
+def _ids_from_cta_need_reason(reason: str, ordered: list[str]) -> list[str]:
+    """Segment ids named in a need, including 'seg_X through seg_Y' ranges on the air order."""
+    text = str(reason or "")
+    keep = _reverse_jump_keep_ids(text)
+    ids = [sid for sid in _SEG_ID_RE.findall(text) if sid not in keep]
+    order_set = {str(s): i for i, s in enumerate(ordered)}
+    for start_id, end_id in _SEG_RANGE_RE.findall(text):
+        if start_id in order_set and end_id in order_set:
+            lo = min(order_set[start_id], order_set[end_id])
+            hi = max(order_set[start_id], order_set[end_id])
+            ids.extend(sid for sid in ordered[lo : hi + 1] if sid not in keep)
+    return list(dict.fromkeys(ids))
+
+
+def _outro_like_reason(reason: str) -> bool:
+    key = str(reason or "").casefold().replace("-", "_")
+    return any(token.replace("-", "_") in key for token in _OUTRO_REASON_TOKENS)
+
+
 def is_editorial_exclude_reason(reason: str) -> bool:
     """True for CTA / sponsor / monetization / editorial-omit reasons."""
-    return _cta_like_reason(reason)
+    return _cta_like_reason(reason) or _outro_like_reason(reason)
+
+
+def is_selection_cta_omit_need(need: Any) -> bool:
+    """True when an LLM need asks ranking/selection to drop sponsor or media-IP CTA."""
+    if not isinstance(need, dict):
+        return False
+    if str(need.get("type") or "").strip() != "rerun_stage":
+        return False
+    stage = str(need.get("stage") or "").strip()
+    if stage not in _SELECTION_RERUN_STAGES:
+        return False
+    return is_editorial_exclude_reason(str(need.get("reason") or ""))
 
 
 def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> dict[str, Any]:
@@ -1120,7 +1312,7 @@ def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> 
                 continue
             for sid in issue.get("implicated") or []:
                 key = str(sid or "").strip()
-                if key:
+                if key and _tape_is_hard_omit_cta(ctx, key, by_id):
                     drop_reasons.setdefault(key, kind or "perspective_direct_monetization")
     except Exception:
         pass
@@ -1171,6 +1363,122 @@ def apply_editorial_omits(ctx: RunContext, artifacts: dict[str, Any] | None) -> 
         detail={"dropped_segment_ids": list(drop_set)[:12]},
     )
     return out
+
+
+def execute_cta_omit_from_needs(
+    ctx: RunContext, needs: list[Any] | None = None
+) -> list[str]:
+    """Host-drop on-air sponsor/CTA natives named by layup rerun_stage needs.
+
+    Flagship-on-the-fly: the host executes omits. Do not bounce layup through
+    selection_framing_apply. Only drops ids whose tape text is a hard-omit CTA
+    so reverse-jump mentions in the same need stay on the air.
+    """
+    if not enabled(ctx):
+        return []
+    released = release_false_cta_never_touch(ctx)
+    before: list[str] = []
+    if ctx.artifact_exists("master/selection.json"):
+        loaded = ctx.read_json("master/selection.json")
+        if isinstance(loaded, dict):
+            before = [str(s) for s in (loaded.get("ordered_segment_ids") or []) if s]
+    before = _restore_released_to_order(ctx, before, released)
+    from interview_mux.homunculus.values import should_hard_omit_cta
+
+    by_id = _segments_by_id(ctx)
+    extra: dict[str, str] = {}
+    excluded_now: set[str] = set()
+    if ctx.artifact_exists("master/selection.json"):
+        loaded = ctx.read_json("master/selection.json")
+        if isinstance(loaded, dict):
+            for row in loaded.get("excluded_segment_ids") or []:
+                if isinstance(row, dict):
+                    excluded_now.add(str(row.get("segment_id") or ""))
+                else:
+                    excluded_now.add(str(row or ""))
+    excluded_now |= never_touch_segment_ids(ctx)
+    excluded_now -= set(released)
+    for need in needs or []:
+        if not is_selection_cta_omit_need(need):
+            continue
+        reason = str(need.get("reason") or "media_ip_cta")
+        named = _ids_from_cta_need_reason(reason, before)
+        range_drop = bool(_SEG_RANGE_RE.search(reason))
+        keep = _reverse_jump_keep_ids(reason)
+        omitted_parents = {
+            sid
+            for sid in named
+            if sid in excluded_now and not re.search(r"[a-z]$", sid.split("_", 1)[-1])
+        }
+        omitted_parents |= {
+            sid
+            for sid in excluded_now
+            if any(_is_nle_child(n, sid) for n in named)
+        }
+        omitted_parents |= {
+            sid
+            for sid in named
+            if sid not in keep
+            and not str((by_id.get(sid) or {}).get("text") or "").strip()
+            and not re.search(r"[a-z]$", sid.split("_", 1)[-1])
+        }
+        for sid in list(dict.fromkeys([*named, *before])):
+            if sid in keep:
+                continue
+            text = str((by_id.get(sid) or {}).get("text") or "")
+            child_of_omitted = any(_is_nle_child(sid, parent) for parent in omitted_parents)
+            empty_parent = (not text.strip()) and sid in omitted_parents
+            if (
+                (text and should_hard_omit_cta(text))
+                or range_drop
+                or child_of_omitted
+                or empty_parent
+            ):
+                extra.setdefault(sid, reason[:240] or "media_ip_cta")
+    out: dict[str, Any] | None = None
+    if ctx.artifact_exists("master/selection.json") and (extra or released):
+        sel = ctx.read_json("master/selection.json")
+        sel = dict(sel) if isinstance(sel, dict) else {}
+        sel["ordered_segment_ids"] = list(before)
+        rationales = (
+            dict(sel.get("exclude_rationales") or {})
+            if isinstance(sel.get("exclude_rationales"), dict)
+            else {}
+        )
+        excl = []
+        released_set = set(released)
+        for row in sel.get("excluded_segment_ids") or []:
+            sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+            if sid in released_set:
+                rationales.pop(sid, None)
+                continue
+            excl.append(row)
+        have = {
+            str(row.get("segment_id") if isinstance(row, dict) else row) for row in excl
+        }
+        for sid, reason in extra.items():
+            if sid in released_set:
+                continue
+            rationales[sid] = reason
+            if sid not in have:
+                excl.append({"segment_id": sid, "reason": reason})
+        sel["exclude_rationales"] = rationales
+        sel["excluded_segment_ids"] = excl
+        out = apply_editorial_omits(ctx, sel) if extra else sel
+    healed = heal_on_air_cta_residue(ctx, out)
+    after = [str(s) for s in (healed.get("ordered_segment_ids") or []) if s]
+    if ctx.artifact_exists("master/selection.json") and healed and (
+        (after and after != before) or released
+    ):
+        try:
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(
+                ctx, "master/selection.json", healed, stage_key="full_master_ranking"
+            )
+        except Exception:
+            ctx.write_json("master/selection.json", healed)
+    return [sid for sid in before if sid not in set(after)]
 
 
 def strip_never_touch_nuggets(ctx: RunContext, corpus: dict[str, Any] | None) -> dict[str, Any]:
@@ -1434,6 +1742,16 @@ def _cta_like_reason(reason: str) -> bool:
             "promo",
             "hard_omit",
             "editorial_omit",
+            "subscribe",
+            "visit_them",
+            "visit_the_site",
+            "visit_us_at",
+            "direct_listener",
+            "direct listener",
+            "outro",
+            "credits",
+            "sign_off",
+            "follow us",
         )
     )
 
@@ -1632,8 +1950,15 @@ def _admit_story_ids(
     out = list(ordered)
     have = set(out)
     by_id = _segments_by_id(ctx)
+    try:
+        from interview_mux.homunculus.values import should_hard_omit_cta
+    except Exception:
+        should_hard_omit_cta = lambda _text: False  # noqa: E731
     for sid in story_ids:
         if not sid or sid in drop_set or sid in have:
+            continue
+        text = str((by_id.get(sid) or {}).get("text") or "")
+        if text and should_hard_omit_cta(text):
             continue
         start = 0
         try:

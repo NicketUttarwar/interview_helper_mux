@@ -244,7 +244,9 @@ def persist_sanitized_edl(ctx: RunContext, edl: dict[str, Any] | None = None) ->
     if not cleared:
         return []
     try:
-        ctx.write_json(EDL_REL, cleaned, skip_handoff=True)
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, cleaned, source="edl_source_contract")
     except Exception:
         from interview_mux.write_staging import write_mirrored_json
 

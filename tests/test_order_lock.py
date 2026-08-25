@@ -8,7 +8,10 @@ from interview_mux.order_hash import (
     assert_selection_leads_edl,
     bump_order_lock,
     copy_order_lock,
+    copy_order_lock_if_clips_match,
+    edl_speech_clip_ids,
     get_order_lock,
+    order_drift_heal_action,
     order_hashes_match,
     order_locks_match,
     stamp_order_hash,
@@ -65,3 +68,54 @@ def test_order_hashes_match_still_list_authoritative():
     assert order_hashes_match(sel, edl)
     edl2 = {"ordered_segment_ids": ["b", "a"]}
     assert not order_hashes_match(sel, edl2)
+
+
+def _speech(sid: str) -> dict:
+    return {
+        "type": "speech",
+        "segment_id": sid,
+        "source_start_ms": 0,
+        "source_end_ms": 1000,
+        "duration_ms": 1000,
+    }
+
+
+def test_copy_order_lock_if_clips_match_refuses_id_stamp_over_clip_order():
+    """exec_1071: keep-list IDs must not be stamped onto a different mix clip order."""
+    sel = bump_order_lock(
+        {"ordered_segment_ids": ["seg_049", "seg_053", "seg_055", "seg_056", "seg_062"]},
+        source="ranking",
+    )
+    edl = {
+        "ordered_segment_ids": ["seg_049", "seg_053", "seg_055", "seg_056", "seg_062"],
+        "clips": [
+            _speech("seg_049"),
+            _speech("seg_056"),
+            _speech("seg_062"),
+            _speech("seg_053"),
+            _speech("seg_055"),
+        ],
+    }
+    assert edl_speech_clip_ids(edl) != sel["ordered_segment_ids"]
+    assert order_hashes_match(sel, edl)
+    assert order_drift_heal_action(sel, edl) == "rebuild"
+    with pytest.raises(ValueError, match="speech clip order diverges"):
+        copy_order_lock_if_clips_match(sel, edl)
+    with pytest.raises(ValueError, match="speech clip order diverges"):
+        assert_selection_leads_edl(sel, edl)
+
+
+def test_copy_order_lock_if_clips_match_stamps_when_clips_already_match():
+    sel = bump_order_lock(
+        {"ordered_segment_ids": ["seg_a", "seg_b"]},
+        source="ranking",
+    )
+    edl = {
+        "ordered_segment_ids": ["seg_b", "seg_a"],
+        "clips": [_speech("seg_a"), _speech("seg_b")],
+    }
+    assert order_drift_heal_action(sel, edl) == "stamp"
+    aligned = copy_order_lock_if_clips_match(sel, edl)
+    assert aligned["ordered_segment_ids"] == ["seg_a", "seg_b"]
+    assert edl_speech_clip_ids(aligned) == ["seg_a", "seg_b"]
+    assert_selection_leads_edl(sel, aligned)

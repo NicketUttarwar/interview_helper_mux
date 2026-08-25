@@ -304,6 +304,64 @@ def test_check_edl_qc_strict_raises() -> None:
         check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
 
 
+def test_validate_flow1_edl_accepts_nle_split_children_missing_from_manifest() -> None:
+    """CTA/NLE recuts live as overrides; QC must not treat those ids as unknown."""
+    ctx = RunContext("run_edl_qc_nle_child", create=True)
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_003", start_ms=0, end_ms=30_000),
+        ),
+    )
+    ctx.write_json(
+        "segments/nle_edits.json",
+        {
+            "playhead_ms": 0,
+            "sequence_order": [],
+            "segment_overrides": {
+                "seg_003a": {
+                    "parent_id": "seg_003",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "label": "intro a",
+                },
+                "seg_003b": {
+                    "parent_id": "seg_003",
+                    "start_ms": 4000,
+                    "end_ms": 8000,
+                    "label": "intro b",
+                },
+            },
+        },
+    )
+    _write_gap_report(ctx)
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_003a", "seg_003b"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_003a",
+                "source_start_ms": 0,
+                "source_end_ms": 4000,
+                "timeline_start_ms": 0,
+                "duration_ms": 4000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_003b",
+                "source_start_ms": 4000,
+                "source_end_ms": 8000,
+                "timeline_start_ms": 4000,
+                "duration_ms": 4000,
+            },
+        ],
+        "timeline_duration_ms": 8000,
+    }
+    errors = validate_flow1_edl(ctx, edl)
+    assert not any("unknown segment_id" in e for e in errors), errors
+
+
 def test_check_edl_qc_warn_does_not_raise() -> None:
     ctx = RunContext("run_edl_qc_warn", create=True)
     _write_manifest(ctx)
@@ -317,3 +375,34 @@ def test_check_edl_qc_warn_does_not_raise() -> None:
     check_edl_qc(ctx, stage="mix", edl=edl, strict=False)
     meta = ctx.read_json("run_meta.json")
     assert qc_summary(meta, "edl_qc")["passed"] is False
+
+
+def test_validate_flow1_edl_speech_clip_order_mismatch() -> None:
+    ctx = RunContext("run_edl_qc_clip_order", create=True)
+    _write_manifest(ctx)
+    _write_gap_report(ctx)
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_a", "seg_b"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_b",
+                "source_start_ms": 10_000,
+                "source_end_ms": 25_000,
+                "timeline_start_ms": 0,
+                "duration_ms": 15_000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 0,
+                "source_end_ms": 10_000,
+                "timeline_start_ms": 15_000,
+                "duration_ms": 10_000,
+            },
+        ],
+        "timeline_duration_ms": 25_000,
+    }
+    errors = validate_flow1_edl(ctx, edl)
+    assert any("speech clip order" in e and "ordered_segment_ids" in e for e in errors)

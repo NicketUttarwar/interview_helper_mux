@@ -516,7 +516,9 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
             try:
                 from interview_mux.homunculus.runtime import is_homunculus_run, recovery_allowed
 
-                skip_recovery = is_homunculus_run(ctx) and not recovery_allowed(ctx, stage)
+                skip_recovery = is_homunculus_run(ctx) and not recovery_allowed(
+                    ctx, stage, exc=exc
+                )
             except Exception:
                 skip_recovery = False
             result = None

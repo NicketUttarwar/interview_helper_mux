@@ -345,6 +345,7 @@ def test_conductor_budget_exhausted_walks_remaining_delivery(
 
     ctx = _ctx(tmp_path, "walk_cap")
     for rel in (
+        "understanding/source_topology.json",
         "segments/boundaries.json",
         "segments/manifest.json",
         "understanding/content_brief.json",
@@ -356,6 +357,7 @@ def test_conductor_budget_exhausted_walks_remaining_delivery(
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text("{}", encoding="utf-8")
         producer = {
+            "understanding/source_topology.json": "source_topology_build",
             "segments/boundaries.json": "boundary_detection",
             "segments/manifest.json": "segment_classification",
             "understanding/content_brief.json": "content_brief_reanchor",
@@ -389,6 +391,140 @@ def test_skip_with_artifact_never_marks_done(tmp_path: Path) -> None:
     assert "transitions" not in remaining_stages(ctx, "delivery")
 
 
+def test_pre_ranking_fuse_not_satisfied_by_first_pass_audit(tmp_path: Path) -> None:
+    """exec_1071 loop: first-pass audit must not drop pre_ranking from remaining_stages."""
+    from interview_mux.homunculus.agenda import remaining_stages, skip_stage, stage_outputs_present
+    from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+    ctx = _ctx(tmp_path, "pre_rank_fuse")
+    ctx.write_json(
+        "analysis/connector_fuse_audit.json",
+        {"version": 1, "pass_id": "post_sanitize", "stay_independent": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "analysis/low_conf_islands.json",
+        {"island_count": 1, "islands": []},
+        skip_handoff=True,
+    )
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001"]}, skip_handoff=True)
+    ctx.mark_done("topic_coverage_audit", force=True)
+    ctx.mark_done("narrative_arc_plan", force=True)
+    ctx.mark_done("chapter_close_hitch", force=True)
+    ctx.mark_done("full_master_ranking", force=True)
+    ctx.mark_done("connector_fuse_pass", force=True)
+
+    assert stage_outputs_present(ctx, "connector_fuse_pass") is True
+    assert stage_outputs_present(ctx, "connector_fuse_pass_pre_ranking") is False
+    remaining = remaining_stages(ctx, "delivery")
+    assert "connector_fuse_pass_pre_ranking" in remaining
+    with pytest.raises(RuntimeError, match="language-island artifacts missing"):
+        skip_stage(ctx, "connector_fuse_pass_pre_ranking", reason="first-pass audit")
+
+    maybe_require_upstream_llm_progress(ctx, "connector_fuse_pass_pre_ranking")
+    with pytest.raises(SystemExit, match="connector_fuse_pass_pre_ranking"):
+        maybe_require_upstream_llm_progress(ctx, "full_master_ranking")
+
+    ctx.write_json(
+        "analysis/connector_fuse_rounds.json",
+        {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
+        skip_handoff=True,
+    )
+    assert stage_outputs_present(ctx, "connector_fuse_pass_pre_ranking") is True
+    assert "connector_fuse_pass_pre_ranking" not in remaining_stages(ctx, "delivery")
+
+
+def test_incomplete_layup_plan_stays_in_remaining(tmp_path: Path) -> None:
+    """Partial/restart layup plan must not skip to selection_framing_apply."""
+    ctx = _ctx(tmp_path, "layup_partial")
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_001a"]}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": ["seg_001a"],
+            "layups": [],
+            "warnings": ["compose_restart"],
+        },
+        skip_handoff=True,
+    )
+    for sid in (
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "chapter_close_hitch",
+        "connector_fuse_pass_pre_ranking",
+        "full_master_ranking",
+        "air_script_compose",
+        "nugget_corpus_mine",
+        "information_package_plan",
+    ):
+        ctx.mark_done(sid, force=True)
+        if sid == "connector_fuse_pass_pre_ranking":
+            ctx.write_json(
+                "analysis/connector_fuse_rounds.json",
+                {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
+                skip_handoff=True,
+            )
+
+    assert stage_outputs_present(ctx, "nugget_layup_compose") is False
+    remaining = remaining_stages(ctx, "delivery")
+    assert "nugget_layup_compose" in remaining
+    assert remaining.index("nugget_layup_compose") < remaining.index("selection_framing_apply")
+
+    ctx.mark_done("nugget_layup_compose", force=True)
+    assert stage_outputs_present(ctx, "nugget_layup_compose") is True
+    assert "nugget_layup_compose" not in remaining_stages(ctx, "delivery")
+
+
+def test_stale_extra_ids_keep_layup_in_remaining(tmp_path: Path) -> None:
+    """CTA-pruned selection with leftover outro children must re-run compose."""
+    ctx = _ctx(tmp_path, "layup_extras")
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_002", "seg_005", "seg_065"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {
+            "ordered_segment_ids": [
+                "seg_002",
+                "seg_005",
+                "seg_065",
+                "seg_068b",
+                "seg_068l",
+            ],
+            "layups": [{"target_segment_id": "seg_005", "text": "Then the assay."}],
+        },
+        skip_handoff=True,
+    )
+    for sid in (
+        "topic_coverage_audit",
+        "narrative_arc_plan",
+        "chapter_close_hitch",
+        "connector_fuse_pass_pre_ranking",
+        "full_master_ranking",
+        "air_script_compose",
+        "nugget_corpus_mine",
+        "information_package_plan",
+        "nugget_layup_compose",
+    ):
+        ctx.mark_done(sid, force=True)
+        if sid == "connector_fuse_pass_pre_ranking":
+            ctx.write_json(
+                "analysis/connector_fuse_rounds.json",
+                {"version": 1, "pass_id": "pre_ranking", "rounds": [], "total_applied": 0},
+                skip_handoff=True,
+            )
+
+    assert stage_outputs_present(ctx, "nugget_layup_compose") is False
+    remaining = remaining_stages(ctx, "delivery")
+    assert "nugget_layup_compose" in remaining
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    reason = stage_artifact_incompleteness(ctx, "nugget_layup_compose")
+    assert reason and "stale=" in reason
+
+
 def test_conductor_budget_exhausted_when_turn_cap_hit(tmp_path: Path) -> None:
     from interview_mux.homunculus.budget import (
         check_dispatch,
@@ -404,3 +540,43 @@ def test_conductor_budget_exhausted_when_turn_cap_hit(tmp_path: Path) -> None:
     assert remaining_conductor_turns(ctx) == 0
     with pytest.raises(LimitExhausted, match="conductor_turn"):
         check_dispatch(ctx, identity="conductor_turn", kind="conductor_turn")
+
+
+def test_delivery_sdp_fingerprint_survives_schema(tmp_path: Path) -> None:
+    """Palettes-shaped SDP without _meta is hollow; restamp must be schema-valid."""
+    from interview_mux.analysis_memory import default_sound_design_plan
+    from interview_mux.artifact_lifecycle import fingerprint_artifact, restamp_committed_artifact
+    from interview_mux.homunculus.agenda import delivery_sdp_present
+    from interview_mux.prompt_validation import validate_artifact_write
+
+    ctx = _ctx(tmp_path, "sdp_fp")
+    ctx.write_json("master/transitions.json", {"transitions": []}, skip_handoff=True)
+    plan = default_sound_design_plan()
+    ctx.write_json("understanding/sound_design_plan.json", plan, skip_handoff=True)
+    assert delivery_sdp_present(ctx) is False
+
+    fp = fingerprint_artifact(plan, "sound_design_plan")
+    assert fp["_meta"]["producer_stage"] == "sound_design_plan"
+    assert validate_artifact_write("understanding/sound_design_plan.json", fp) == []
+
+    restamp_committed_artifact(
+        ctx,
+        "understanding/sound_design_plan.json",
+        producer_stage="sound_design_plan",
+        doc=plan,
+    )
+    assert delivery_sdp_present(ctx) is True
+
+
+def test_host_repair_counts_orientation_omit_as_progress() -> None:
+    from interview_mux.edl_narrative_remutate import HOST_REPAIR_PROGRESS_NOTES
+
+    assert "retarget_orientation" in HOST_REPAIR_PROGRESS_NOTES
+    assert "omit_episode_orientation" in HOST_REPAIR_PROGRESS_NOTES
+    assert "suppress_opening_layup" in HOST_REPAIR_PROGRESS_NOTES
+    assert "drop_late_intro_reset" in HOST_REPAIR_PROGRESS_NOTES
+    assert "drop_post_coda_reverse_jump" in HOST_REPAIR_PROGRESS_NOTES
+    assert "prune_stale_transitions" in HOST_REPAIR_PROGRESS_NOTES
+    assert "align_selection_chapters" in HOST_REPAIR_PROGRESS_NOTES
+    assert "repair_coverage_for_selection" in HOST_REPAIR_PROGRESS_NOTES
+    assert "align_narrative_plan" in HOST_REPAIR_PROGRESS_NOTES

@@ -137,6 +137,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.nugget_layup.demote_synthetic_framing_content` | `synthetic_framing` | Skip contentful synthetic framing LLM under layup authority (default **true**) |
 | `analysis.nugget_layup.authoritative_gap_report` | `gap_framing_recompose` | Recompose becomes thin adapter when layup plan exists (default **true**) |
 | `analysis.nugget_layup.block_on_open_must_keep` | `assert_layup_qc_or_raise` | Fail compose when must_keep TPs remain open (default **true**) |
+| `analysis.nugget_layup.block_on_open_high_salience` | `evaluate_layup_qc` | Fail compose when high/critical corpus nuggets remain unaired (default **true**). Skip rows do not discharge. |
 | `analysis.nugget_layup.degraded_layup.*` | spine mask + craft QC | Grace floors / unclear-span policy for lexicon islands (default enabled) |
 | `analysis.low_conf_selection.enabled` | `low_conf_island_scan` | Master switch for density ladder + top-decile must_keep (default **true**) |
 | `analysis.low_conf_selection.top_percentile` | `write_low_conf_must_keep` | Hard-include fraction of natives (default **0.10**) |

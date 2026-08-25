@@ -290,3 +290,37 @@ def test_recommendability_only_does_not_schedule_ranking_remutate(tmp_path):
     assert plan["from_stages"] == []
     assert plan["from_stage"] is None
     assert plan["exhausted"] is True
+
+
+def test_nugget_retention_concise_in_brief_band_meets_floor(tmp_path):
+    """Slightly under brief.min but inside the ship 0.85×min envelope must pass."""
+    from interview_mux.listen_delight import _nugget_retention
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_concise_band")
+    _write_raw(
+        ctx,
+        "understanding/delivery_brief.json",
+        {"version": 1, "target_duration_sec": {"min": 1622, "ideal": 2318, "max": 5349}},
+    )
+    _write_raw(
+        ctx,
+        "segments/manifest.json",
+        {"segments": [{"segment_id": "seg_001", "start_ms": 0, "end_ms": 1_546_400}]},
+    )
+    _write_raw(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_001"]})
+    score = _nugget_retention(ctx)
+    assert score >= 0.80
+    assert score < 1.0
+
+
+def test_nugget_retention_after_assembly_resumes_mix_not_ranking(tmp_path):
+    from interview_mux.listen_delight_remutate import plan_listen_delight_remutate
+
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_retention_after_edl")
+    (ctx.run_dir / ".stage_done" / "edl").write_text("done\n", encoding="utf-8")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
+    plan = plan_listen_delight_remutate(ctx, failed_dimensions=["nugget_retention"])
+    assert "full_master_ranking" not in plan["from_stages"]
+    assert plan["from_stage"] in {"mmaudio_sfx", "mix", "listen_delight_audit"}
+    assert plan["exhausted"] is False

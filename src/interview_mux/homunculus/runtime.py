@@ -193,13 +193,42 @@ def dispatch_stage(
     append_ledger(ctx, {"kind": "stage", "identity": identity, "status": "done", "source": source})
 
 
-def recovery_allowed(ctx: RunContext, stage: str) -> bool:
-    """0.1.0: recovery playbook only after an analysis exists for this stage failure."""
+def recovery_allowed(
+    ctx: RunContext,
+    stage: str,
+    exc: BaseException | None = None,
+    error_class: str | None = None,
+) -> bool:
+    """0.1.0: classified playbooks run without analyze_issue; novel failures wait."""
     if not is_homunculus_run(ctx):
         return True
+    cls = error_class
+    if cls is None and exc is not None:
+        from interview_mux.recovery_controller import classify_error_class
+
+        cls = classify_error_class(stage, exc)
+    if cls:
+        from interview_mux.recovery_controller import has_classified_playbook
+
+        if has_classified_playbook(cls):
+            return True
     # G0-locked mixed diarization: deterministic dominant-role write, no conductor packet.
     if stage == "speaker_roles":
         return True
+    if stage == "listen_delight_audit":
+        return True
+    if stage == "nugget_layup_compose":
+        return True
+    if stage == "edl":
+        from interview_mux.homunculus.issues import read_issues
+
+        for issue in read_issues(ctx):
+            ev = issue.get("evidence") or {}
+            msg = str(ev.get("message") or "").lower()
+            if issue.get("stage_id") == "edl" and (
+                "unknown segment_id" in msg or "edl_qc" in msg
+            ):
+                return True
     from interview_mux.homunculus.issues import read_issues
 
     for issue in read_issues(ctx):

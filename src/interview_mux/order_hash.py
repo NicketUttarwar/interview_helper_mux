@@ -153,14 +153,93 @@ def order_hashes_match(
     return ordered_segment_ids_hash(sel_ids) == ordered_segment_ids_hash(edl_ids)
 
 
+def edl_speech_clip_ids(edl: dict[str, Any] | None) -> list[str]:
+    """Ordered speech segment ids from EDL clips (mix concatenates these, not the id list)."""
+    if not isinstance(edl, dict):
+        return []
+    out: list[str] = []
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        if str(clip.get("type") or "") != "speech":
+            continue
+        sid = str(clip.get("segment_id") or "").strip()
+        if sid:
+            out.append(sid)
+    return out
+
+
+def last_speech_clip_id(edl: dict[str, Any] | None) -> str:
+    ids = edl_speech_clip_ids(edl)
+    return ids[-1] if ids else ""
+
+
+def _is_subsequence(small: list[str], big: list[str]) -> bool:
+    it = iter(big)
+    return all(item in it for item in small)
+
+
+def order_drift_heal_action(
+    selection: dict[str, Any] | None,
+    edl: dict[str, Any] | None,
+) -> str:
+    """How to reconcile selection vs seated EDL.
+
+    ``exclude_unseated`` — clips are a proper subsequence of selection (extras never
+    seated); drop them from the lock in the same generation. ``rebuild`` — different
+    order or clips not a subset. ``stamp`` — clips already match selection ids.
+    ``ok`` — ids, lock, and clips agree.
+    """
+    if not isinstance(selection, dict) or not isinstance(edl, dict):
+        return "rebuild"
+    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    clip_ids = edl_speech_clip_ids(edl)
+    if clip_ids and clip_ids != sel_ids:
+        clip_set = set(clip_ids)
+        sel_set = set(sel_ids)
+        if clip_ids and sel_ids and clip_set < sel_set and _is_subsequence(clip_ids, sel_ids):
+            return "exclude_unseated"
+        return "rebuild"
+    if not sel_ids:
+        return "rebuild"
+    if order_hashes_match(selection, edl) and (not clip_ids or clip_ids == sel_ids):
+        return "ok"
+    return "stamp"
+
+
+def copy_order_lock_if_clips_match(
+    selection: dict[str, Any],
+    edl: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy selection lock onto EDL only when speech clips already equal selection ids."""
+    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    clip_ids = edl_speech_clip_ids(edl)
+    if clip_ids and clip_ids != sel_ids:
+        raise ValueError(
+            "speech clip order diverges from selection; rebuild EDL (run_edl), "
+            "do not stamp ordered_segment_ids. "
+            f"clips_tail={clip_ids[-8:]} selection_tail={sel_ids[-8:]}"
+        )
+    out = dict(edl)
+    out["ordered_segment_ids"] = list(sel_ids)
+    return copy_order_lock(selection, stamp_order_hash(out))
+
+
 def assert_selection_leads_edl(
     selection: dict[str, Any],
     edl: dict[str, Any],
 ) -> None:
     """Fail closed when EDL diverges from selection — never rewrite selection from EDL."""
+    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+    clip_ids = edl_speech_clip_ids(edl)
+    if clip_ids and clip_ids != sel_ids:
+        raise ValueError(
+            "speech clip order diverges from selection; "
+            "rebuild EDL from selection (run_edl) — ID-only stamp is banned. "
+            f"clips_n={len(clip_ids)} selection_n={len(sel_ids)}"
+        )
     if order_locks_match(selection, edl) or order_hashes_match(selection, edl):
         return
-    sel_ids = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
     edl_ids = [str(s) for s in (edl.get("ordered_segment_ids") or []) if s]
     raise ValueError(
         "EDL air order diverges from selection order_lock; "

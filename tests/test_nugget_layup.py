@@ -12,6 +12,7 @@ from interview_mux.nugget_layup import (
     CORPUS_REL,
     GAP_REL,
     PLAN_REL,
+    aired_nugget_ids,
     attach_selection_order_lock,
     assert_layup_fresh_vs_selection,
     build_corpus_mine_input,
@@ -20,6 +21,7 @@ from interview_mux.nugget_layup import (
     coverage_exempt_target_ids,
     dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
+    recover_open_high_salience_nuggets,
     recover_open_must_keep_talking_points,
     gap_has_layup_before,
     heal_layup_analysis_fields,
@@ -499,6 +501,7 @@ def test_cfg_defaults():
     assert cfg["enabled"] is True
     assert cfg["min_layup_coverage"] == 0.4
     assert cfg["authoritative_gap_report"] is True
+    assert cfg["block_on_open_high_salience"] is True
 
 
 def test_exec_1579_shaped_recovery_mapping():
@@ -632,6 +635,28 @@ def test_stale_or_reordered_plan_fails_closed():
         assert_layup_fresh_vs_selection(ctx, stale_meta)
 
 
+def test_extra_dropped_ids_fail_freshness():
+    """Dropped bumper/outro children left on the plan must fail closed."""
+    ctx = RunContext("exec_nugget_layup_extras", create=True)
+    _seed_air_order(ctx, ["seg_002", "seg_005", "seg_009"], {})
+    plan = {
+        "ordered_segment_ids": [
+            "seg_002",
+            "seg_005",
+            "seg_009",
+            "seg_068b",
+            "seg_068c",
+        ],
+        "layups": [_layup_row("seg_005", "The assay sets up the deal terms.")],
+    }
+    errors = layup_freshness_errors(ctx, plan)
+    assert errors
+    assert "stale=" in errors[0]
+    assert "seg_068b" in errors[0]
+    with pytest.raises(LoudStageFailure):
+        assert_layup_fresh_vs_selection(ctx, plan)
+
+
 @pytest.mark.parametrize(
     "llm_lock",
     [
@@ -656,6 +681,20 @@ def test_attach_selection_lock_overwrites_llm_authored_lock(llm_lock: dict):
     assert layup_freshness_errors(ctx, plan)
     stamped = attach_selection_order_lock(ctx, plan)
     assert stamped["order_lock"] == selection["order_lock"]
+    assert layup_freshness_errors(ctx, stamped) == []
+
+
+def test_attach_selection_lock_restamps_reordered_ids():
+    ctx = RunContext("exec_nugget_layup_reorder_stamp", create=True)
+    ordered = ["seg_049", "seg_056", "seg_062"]
+    _seed_air_order(ctx, ordered, {})
+    plan = {
+        "ordered_segment_ids": ["seg_049", "seg_062", "seg_056"],
+        "layups": [_layup_row("seg_056", "Validation sits before the recurrence close.")],
+    }
+    assert layup_freshness_errors(ctx, plan)
+    stamped = attach_selection_order_lock(ctx, plan)
+    assert stamped["ordered_segment_ids"] == ordered
     assert layup_freshness_errors(ctx, stamped) == []
 
 
@@ -1602,3 +1641,271 @@ def test_publish_restamps_stale_opening_skip_when_native_self_orients(tmp_path):
     assert layup_entries
     assert layup_entries[0].get("decision") == "omit"
     assert layup_entries[0].get("replacement_ref") in (None, "")
+
+
+def test_qc_open_high_salience_fails_and_skip_does_not_discharge():
+    ctx = RunContext("exec_nugget_open_high", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_012"],
+        {"seg_012": "Guest explains circulating tumour cells in blood."},
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_012"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_012",
+                    "line_id": "vo_layup_seg_012",
+                    "nugget_ids": ["nug_004"],
+                    **_ANALYSIS,
+                },
+                reason_code="no_eligible_unspent_nugget",
+            )
+        ],
+        "discharged_nugget_ids": ["nug_004"],
+        "open_high_salience_nugget_ids": [],
+    }
+    corpus = {
+        "nuggets": [
+            {
+                "nugget_id": "nug_004",
+                "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                "evidence_quote": "one in a billion",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+            },
+            {
+                "nugget_id": "nug_005",
+                "text_claim": "Price-performance improved a thousandfold.",
+                "evidence_quote": "thousandfold",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+            },
+        ]
+    }
+    qc = evaluate_layup_qc(ctx, plan, corpus)
+    assert qc["ok"] is False
+    assert "nug_004" in qc["open_high_salience_nugget_ids"]
+    assert "nug_005" in qc["open_high_salience_nugget_ids"]
+    assert any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+    assert "nug_004" not in aired_nugget_ids(plan)
+
+
+def test_recover_open_high_salience_unskips_skipped_nugget():
+    ctx = RunContext("exec_nugget_recover_high", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {
+            "seg_002": "Welcome, today we talk about diagnostics.",
+            "seg_012": "Guest explains circulating tumour cells in blood.",
+        },
+    )
+    corpus = {
+        "nuggets": [
+            {
+                "nugget_id": "nug_004",
+                "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                "evidence_quote": "one in a billion",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+                "source_segment_ids": ["seg_cut"],
+            }
+        ]
+    }
+    ctx.write_json(CORPUS_REL, corpus)
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_002",
+                    "line_id": "vo_layup_seg_002",
+                    **_ANALYSIS,
+                },
+                reason_code="opening_orientation_owns_target",
+            ),
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_012",
+                    "line_id": "vo_layup_seg_012",
+                    "nugget_ids": ["nug_004"],
+                    "value_forgone": ["nug_004"],
+                    **_ANALYSIS,
+                },
+                reason_code="no_eligible_unspent_nugget",
+            )
+        ],
+        "open_high_salience_nugget_ids": ["nug_004"],
+        "discharged_nugget_ids": [],
+    }
+    recovered, notes = recover_open_high_salience_nuggets(ctx, plan)
+    row = next(r for r in recovered["layups"] if r.get("target_segment_id") == "seg_012")
+    assert any(n.startswith("unskipped:nug_004") for n in notes)
+    assert row.get("skip") is not True
+    assert "nug_004" in (row.get("nugget_ids") or [])
+    assert "one in a billion" in str(row.get("text") or "").lower()
+    qc = evaluate_layup_qc(ctx, recovered, corpus)
+    assert "nug_004" not in qc["open_high_salience_nugget_ids"]
+    assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+
+
+def _set_host_guest_speakers(ctx: RunContext) -> None:
+    man = ctx.read_json("segments/manifest.json")
+    segs = man.get("segments") or []
+    if segs:
+        segs[0]["speaker_id"] = "spk_0"
+        segs[0]["speaker_role"] = "interviewer"
+        segs[0]["type"] = "interviewer_question"
+    for seg in segs[1:]:
+        seg["speaker_id"] = "spk_1"
+        seg["speaker_role"] = "interviewee"
+        seg["type"] = "interviewee_answer"
+    ctx.write_json("segments/manifest.json", man)
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.95},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.95},
+            ]
+        },
+    )
+
+
+def test_spoken_copy_keeps_nugget_body_and_appends_cue(monkeypatch):
+    ctx = RunContext("exec_nugget_heal_body", create=True)
+    target = (
+        "Mohan walks through how a blood draw finds circulating tumour cells."
+    )
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {
+            "seg_002": "Welcome, today we talk about diagnostics.",
+            "seg_012": target,
+        },
+    )
+    _set_host_guest_speakers(ctx)
+    monkeypatch.setattr(
+        "interview_mux.source_topology.pickup_eligible_speaker_id",
+        lambda _ctx: "spk_0",
+    )
+    ctx.write_json(
+        CORPUS_REL,
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "nug_004",
+                    "text_claim": (
+                        "Mohan describes cell biopsy as a blood-based liquid biopsy "
+                        "using circulating tumour cells."
+                    ),
+                    "evidence_quote": "circulating tumour cells",
+                    "in_selection": False,
+                    "salience": "high",
+                }
+            ]
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [
+            {
+                "target_segment_id": "seg_012",
+                "line_id": "vo_layup_seg_012",
+                "text": (
+                    "Mohan describes cell biopsy as a blood-based liquid biopsy "
+                    "using circulating tumour cells."
+                ),
+                "nugget_ids": ["nug_004"],
+                "selected_nugget_ids": ["nug_004"],
+                "setup_from_nuggets": (
+                    "Mohan describes cell biopsy as a blood-based liquid biopsy "
+                    "using circulating tumour cells."
+                ),
+                "target_beat": "Blood-draw CTC detection",
+                "listener_need_entering_T": "The CTC rarity needs a setup.",
+                "forward_unlock": "What should we listen for in that explanation?",
+                "skip": False,
+            }
+        ],
+    }
+    fixed, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("line_id") == "vo_layup_seg_012")
+    text = str(row.get("text") or "")
+    assert row.get("skip") is not True
+    assert "cell biopsy" in text.lower()
+    assert "?" in text
+    assert "story in motion" not in text.lower()
+    assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
+
+
+def test_spoken_copy_rejects_cue_only_when_nuggets_exist(monkeypatch):
+    ctx = RunContext("exec_nugget_heal_no_hinge", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {
+            "seg_002": "Welcome, today we talk about diagnostics.",
+            "seg_012": "Guest explains circulating tumour cells in blood.",
+        },
+    )
+    _set_host_guest_speakers(ctx)
+    monkeypatch.setattr(
+        "interview_mux.source_topology.pickup_eligible_speaker_id",
+        lambda _ctx: "spk_0",
+    )
+    ctx.write_json(
+        CORPUS_REL,
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "nug_004",
+                    "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                    "evidence_quote": "one in a billion",
+                    "in_selection": False,
+                    "salience": "high",
+                }
+            ]
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_002",
+                    "line_id": "vo_layup_seg_002",
+                    **_ANALYSIS,
+                },
+                reason_code="opening_orientation_owns_target",
+            ),
+            {
+                "target_segment_id": "seg_012",
+                "line_id": "vo_layup_seg_012",
+                "text": "What set this part of the story in motion?",
+                "nugget_ids": ["nug_004"],
+                "selected_nugget_ids": ["nug_004"],
+                "setup_from_nuggets": "CTCs occur at roughly one in a billion blood cells.",
+                "target_beat": "CTC rarity",
+                "listener_need_entering_T": "Need the one-in-a-billion fact.",
+                "forward_unlock": "What should we listen for next?",
+                "skip": False,
+            }
+        ],
+    }
+    fixed, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("line_id") == "vo_layup_seg_012")
+    text = str(row.get("text") or "")
+    if row.get("skip"):
+        assert row.get("skip_reason_code") == "spoken_copy_unhealable"
+        assert any(n.get("action") == "skip_unhealable_spoken_copy_layup" for n in notes)
+    else:
+        assert "one in a billion" in text.lower()
+        assert "story in motion" not in text.lower()
+        assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)

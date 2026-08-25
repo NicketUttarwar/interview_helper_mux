@@ -226,6 +226,51 @@ def test_dedupe_transitions_by_adjacency_prefers_statement() -> None:
     assert not by_pair[("seg_008", "seg_009")].endswith("?")
 
 
+def test_prune_transitions_outside_selection() -> None:
+    from interview_mux.gap_framing import prune_transitions_outside_selection
+
+    doc = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_002",
+                "before_segment_id": "seg_005",
+                "text": "Then the assay.",
+            },
+            {
+                "after_segment_id": "seg_068b",
+                "before_segment_id": "seg_068c",
+                "text": "Follow us on your platform.",
+            },
+        ]
+    }
+    out = prune_transitions_outside_selection(doc, ["seg_002", "seg_005"])
+    assert [row["after_segment_id"] for row in out["transitions"]] == ["seg_002"]
+    assert out.get("outside_selection_pruned_count") == 1
+
+
+def test_prune_transitions_drops_non_adjacent_selected_pair() -> None:
+    from interview_mux.gap_framing import prune_transitions_outside_selection
+
+    doc = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_003k",
+                "before_segment_id": "seg_062",
+                "text": "Let's talk about adoption.",
+            },
+            {
+                "after_segment_id": "seg_032",
+                "before_segment_id": "seg_038",
+                "text": "So what does the assay report?",
+            },
+        ]
+    }
+    order = ["seg_003k", "seg_005", "seg_032", "seg_038", "seg_049", "seg_062"]
+    out = prune_transitions_outside_selection(doc, order)
+    assert [row["after_segment_id"] for row in out["transitions"]] == ["seg_032"]
+    assert out.get("outside_selection_pruned_count") == 1
+
+
 def test_demote_uncovered_high_gaps_clears_compose_lint(ctx: RunContext) -> None:
     from interview_mux.deterministic_lint import _lint_optimal_questions
     from interview_mux.high_gap_vo import demote_uncovered_high_gaps

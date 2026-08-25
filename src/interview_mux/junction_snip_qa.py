@@ -1522,7 +1522,9 @@ def apply_junction_repairs(
                         level="warning",
                         stage=STAGE_ID,
                     )
-        write_committed_json(ctx, "master/edl.json", new_edl, stage_key=STAGE_ID)
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, new_edl, source=STAGE_ID)
 
     return new_edl, applied, changed
 
@@ -1707,7 +1709,9 @@ def remaster_mix_only(ctx: RunContext) -> None:
                 if validate_flow1_edl_narrative(ctx, edl_now):
                     pass
                 else:
-                    ctx.write_json("master/edl.json", edl_now)
+                    from interview_mux.air_order import write_live_edl
+
+                    write_live_edl(ctx, edl_now, source="junction_snip_qa")
     assembly.run_mix(ctx)
     from interview_mux.seam_autopsy import write_render_ledger
 
@@ -2099,6 +2103,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         _persist_terminal_autopsy(ctx, report={"skipped": True, "reason": "missing_edl"})
         return
 
+    from interview_mux.air_order import assert_consumer
+
+    assert_consumer(ctx, STAGE_ID)
     edl = ctx.read_json("master/edl.json")
     if not isinstance(edl, dict):
         raise ValueError("master/edl.json is not an object")
@@ -2362,7 +2369,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         ) or str(disk_edl.get("order_content_hash") or "") != str(
             current_edl.get("order_content_hash") or ""
         ):
-            write_committed_json(ctx, "master/edl.json", current_edl, stage_key=STAGE_ID)
+            from interview_mux.air_order import write_live_edl
+
+            write_live_edl(ctx, current_edl, source=STAGE_ID)
 
         # If assembly is older than the committed EDL (or missing), remaster once.
         try:

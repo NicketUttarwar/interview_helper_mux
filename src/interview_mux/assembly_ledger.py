@@ -9,6 +9,35 @@ from interview_mux.reorder_bridges import build_reorder_bridges
 from interview_mux.run_context import RunContext
 from interview_mux.seam_glue import CHAPTER_SCALE_GAP_MS, is_chapter_scale_pair
 
+# Spoken clone VO cannot abut its source native. Chapter-scale seams still
+# need audible glue — a hitch (air / planned music) counts when speech cannot.
+HITCH_AIR_KINDS = frozenset({"chapter_hinge", "opening_music"})
+
+
+def hitch_covered_pairs(clips: list[Any]) -> set[tuple[str, str]]:
+    """Speech pairs that already have hitch air between them (clone-safe glue)."""
+    speech_pos: list[tuple[int, str]] = []
+    for i, clip in enumerate(clips or []):
+        if not isinstance(clip, dict) or clip.get("type") != "speech":
+            continue
+        sid = str(clip.get("segment_id") or "").strip()
+        if sid:
+            speech_pos.append((i, sid))
+    covered: set[tuple[str, str]] = set()
+    for idx in range(len(speech_pos) - 1):
+        i_a, a = speech_pos[idx]
+        i_b, b = speech_pos[idx + 1]
+        between = (clips or [])[i_a + 1 : i_b]
+        if any(
+            isinstance(c, dict)
+            and c.get("type") == "silence"
+            and str(c.get("air_kind") or "") in HITCH_AIR_KINDS
+            and int(c.get("duration_ms") or 0) > 0
+            for c in between
+        ):
+            covered.add((a, b))
+    return covered
+
 
 def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
     if not ctx.artifact_exists("segments/manifest.json"):
@@ -218,8 +247,14 @@ def _seam_index(
             str(c.get("piece_id") or f"clip_{j}")
             for j, c in enumerate(between, start=i_a + 1)
             if isinstance(c, dict)
-            and c.get("type") in {"vo_pickup", "transition"}
             and int(c.get("duration_ms") or 0) > 0
+            and (
+                c.get("type") in {"vo_pickup", "transition"}
+                or (
+                    c.get("type") == "silence"
+                    and str(c.get("air_kind") or "") in HITCH_AIR_KINDS
+                )
+            )
         ]
         waived = b in skip_before
         requires = meta is not None and not waived
@@ -316,7 +351,8 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
         chapter_id, tp_id = _parent_ids_for_segment(sid, chapter_spans, talking_points)
         seam_role = "content"
         if ctype == "silence":
-            seam_role = "air"
+            kind = str(clip.get("air_kind") or "")
+            seam_role = "glue" if kind in HITCH_AIR_KINDS else "air"
         elif ctype in {"vo_pickup", "transition"}:
             seam_role = "glue"
 
@@ -362,6 +398,37 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
         justified_skip_before_ids=skip_before,
         glue_waive_reasons=waive_reasons,
     )
+    words: list[dict[str, Any]] = []
+    if ctx.artifact_exists("transcript/full.json"):
+        try:
+            tr = ctx.read_json("transcript/full.json")
+            if isinstance(tr, dict):
+                words = [w for w in (tr.get("words") or []) if isinstance(w, dict)]
+        except Exception:
+            words = []
+    if words:
+        from interview_mux.gap_vo_prior_context import same_answer_continues
+
+        for seam in seams:
+            if not isinstance(seam, dict) or seam.get("glue_waived"):
+                continue
+            a = str(seam.get("after_segment_id") or "")
+            b = str(seam.get("before_segment_id") or "")
+            left = segments_by_id.get(a) or {}
+            right = segments_by_id.get(b) or {}
+            try:
+                left_end = int(left.get("end_ms") or left.get("source_end_ms") or 0)
+                right_start = int(right.get("start_ms") or right.get("source_start_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            if left_end and right_start and same_answer_continues(
+                words, left_end, right_start
+            ):
+                waive_reasons[b] = "same_answer_continuity"
+                seam["requires_glue"] = False
+                seam["glue_waived"] = "same_answer_continuity"
+                seam["naked"] = False
+                seam["kind"] = "contiguous"
     for seam in seams:
         a = seam["after_segment_id"]
         b = seam["before_segment_id"]
@@ -373,21 +440,28 @@ def build_assembly_ledger(ctx: RunContext, *, edl: dict[str, Any] | None = None)
                 after_end = atom["timeline_start_ms"] + atom["duration_ms"]
             if atom["type"] == "speech" and atom.get("segment_id") == b:
                 before_start = atom["timeline_start_ms"]
+        index_glue = [str(x) for x in (seam.get("glue_piece_ids") or []) if x]
         if after_end is not None and before_start is not None:
             for atom in atoms:
                 if atom["seam_role"] != "glue":
                     continue
-                t0 = atom["timeline_start_ms"]
-                if after_end <= t0 < before_start and atom["duration_ms"] > 0:
+                t0 = int(atom["timeline_start_ms"] or 0)
+                dur = int(atom["duration_ms"] or 0)
+                if dur <= 0:
+                    continue
+                # Mix crossfades pull hitch t0 into the previous speech; still glue
+                # if the atom overlaps the seam window at all.
+                t1 = t0 + dur
+                if t0 < before_start and t1 > after_end:
                     glue.append(atom["piece_id"])
-        seam["glue_piece_ids"] = glue
+        seam["glue_piece_ids"] = list(dict.fromkeys([*index_glue, *glue]))
         # Recompute naked after timeline glue scan; keep justified-skip waive.
         if b in waive_reasons:
             seam["requires_glue"] = False
             seam["glue_waived"] = waive_reasons[b]
             seam["naked"] = False
         else:
-            seam["naked"] = bool(seam.get("requires_glue") and not glue)
+            seam["naked"] = bool(seam.get("requires_glue") and not seam["glue_piece_ids"])
 
     naked = [s for s in seams if s.get("naked")]
     from interview_mux.order_hash import copy_order_lock, get_order_lock

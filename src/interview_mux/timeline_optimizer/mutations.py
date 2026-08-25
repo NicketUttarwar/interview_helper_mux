@@ -33,6 +33,31 @@ def _excluded_id_set(excluded: list[Any]) -> set[str]:
     return ids
 
 
+def _segment_sort_key(sid: str) -> tuple[int, str]:
+    m = re.match(r"^seg_(\d+)([a-z]*)$", str(sid or ""), flags=re.IGNORECASE)
+    if m:
+        return (int(m.group(1)), m.group(2) or "")
+    return (10**9, str(sid or ""))
+
+
+def insert_keepers_by_source_id(proposed: list[str], missing: list[str]) -> list[str]:
+    """Splice omitted keepers into the proposal at source-id order — never tail-dump."""
+    result = list(proposed)
+    for sid in missing:
+        if not sid or sid in result:
+            continue
+        key = _segment_sort_key(sid)
+        inserted = False
+        for i, other in enumerate(result):
+            if _segment_sort_key(other) > key:
+                result.insert(i, sid)
+                inserted = True
+                break
+        if not inserted:
+            result.append(sid)
+    return result
+
+
 def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[str, Any]:
     """Return a new candidate with mutation applied."""
     op = str(mutation.get("op") or "")
@@ -120,8 +145,14 @@ def apply_mutation(candidate: dict[str, Any], mutation: dict[str, Any]) -> dict[
             if not filtered:
                 filtered = new_order
             missing = [s for s in ordered if s not in filtered]
-            ordered = filtered + missing
-            notes.append({"op": op, "count": len(filtered)})
+            if missing:
+                ordered = insert_keepers_by_source_id(filtered, missing)
+                notes.append(
+                    {"op": op, "count": len(filtered), "spliced_missing": missing}
+                )
+            else:
+                ordered = filtered
+                notes.append({"op": op, "count": len(filtered)})
 
     elif op == "mint_bridge":
         from interview_mux.seam_glue import (

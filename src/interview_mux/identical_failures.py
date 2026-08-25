@@ -17,6 +17,11 @@ DEFAULT_HALT_AFTER = 3
 _COUNT_SUFFIX_RE = re.compile(r"\sx\d+\b", flags=re.IGNORECASE)
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
 _HEX_RE = re.compile(r"\b[a-f0-9]{8,}\b", flags=re.IGNORECASE)
+_SEG_BRACKET_RE = re.compile(r"\[seg_[a-z0-9_]+\]", flags=re.IGNORECASE)
+_SEAM_PAIR_RE = re.compile(
+    r"seg_[a-z0-9_]+\s*(?:→|->)\s*seg_[a-z0-9_]+",
+    flags=re.IGNORECASE,
+)
 
 
 def _utc_now() -> str:
@@ -37,6 +42,8 @@ def normalize_reason(reason: str) -> str:
     text = " ".join(str(reason or "").strip().split())
     text = _TS_RE.sub("<ts>", text)
     text = _COUNT_SUFFIX_RE.sub("", text)
+    text = _SEG_BRACKET_RE.sub("[<seg>]", text)
+    text = _SEAM_PAIR_RE.sub("<pair>", text)
     text = _HEX_RE.sub("<id>", text)
     return text[:240].strip().lower()
 
@@ -174,6 +181,9 @@ def upsert_fail_key(
     doc["updated_at"] = _utc_now()
     _write(ctx, doc)
     return row
+
+
+def is_halted(ctx: RunContext, signature: str) -> bool:
     doc = read_identical_failures(ctx)
     row = (doc.get("signatures") or {}).get(signature) or {}
     return bool(row.get("halt")) or int(row.get("count") or 0) >= halt_after()
@@ -187,3 +197,42 @@ def halted_rows(ctx: RunContext) -> list[dict[str, Any]]:
         if isinstance(row, dict) and row.get("halt"):
             out.append(row)
     return out
+
+
+def clear_halts_matching(
+    ctx: RunContext,
+    *,
+    failed_stage: str = "",
+    reason_substr: str = "",
+) -> int:
+    """Reset halt counters after the root cause of those failures was repaired.
+
+    Without this, a G1/topology heal cannot resume EDL: the supervisor keeps
+    `halt=True` for the old G1-missing signature and needs_operator loops.
+    """
+    doc = read_identical_failures(ctx)
+    signatures = dict(doc.get("signatures") or {})
+    stage_key = str(failed_stage or "").strip().lower()
+    needle = str(reason_substr or "").strip().lower()
+    cleared = 0
+    for sig, row in list(signatures.items()):
+        if not isinstance(row, dict):
+            continue
+        stage = str(row.get("failed_stage") or "").strip().lower()
+        reason = str(row.get("reason") or row.get("raw_reason") or "").lower()
+        if stage_key and stage != stage_key:
+            continue
+        if needle and needle not in reason:
+            continue
+        row = dict(row)
+        row["count"] = 0
+        row["halt"] = False
+        row["cleared_at"] = _utc_now()
+        signatures[sig] = row
+        cleared += 1
+    if not cleared:
+        return 0
+    doc["signatures"] = signatures
+    doc["updated_at"] = _utc_now()
+    _write(ctx, doc)
+    return cleared

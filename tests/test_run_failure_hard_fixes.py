@@ -60,6 +60,84 @@ def test_hard_keep_restores_vanish_from_both():
     assert "seg_keep" not in excl_ids
 
 
+def test_hard_keep_finale_tail_omits_early_chapter_instead_of_append():
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {"must_keep_segment_ids": ["seg_001"]},
+            "master/narrative_plan.json": {
+                "chapters": [
+                    {"chapter_id": "ch_open", "segment_ids": ["seg_001", "seg_002"]},
+                    {"chapter_id": "ch_coda", "segment_ids": ["seg_coda"]},
+                ]
+            },
+        }
+    )
+    out = enforce_hard_keeps(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_coda"],
+            "excluded_segment_ids": [{"segment_id": "seg_001", "reason": "aside"}],
+        },
+    )
+    assert "seg_001" not in out["ordered_segment_ids"]
+    assert out["ordered_segment_ids"][-1] == "seg_coda"
+    excl = out["excluded_segment_ids"]
+    assert any(
+        (isinstance(row, dict) and row.get("segment_id") == "seg_001" and row.get("reason") == "finale_tail_leftover")
+        for row in excl
+    )
+    assert (out.get("exclude_rationales") or {}).get("seg_001") == "finale_tail_leftover"
+
+
+def test_hard_keep_last_chapter_restores_before_letter_split_signoff():
+    ctx = _FakeCtx(
+        {
+            "understanding/ideal_cuts.json": {
+                "must_keep_segment_ids": ["seg_045", "seg_047", "seg_049", "seg_050"]
+            },
+            "segments/boundaries.json": {
+                "boundaries": [
+                    {"segment_id": "seg_044", "start_ms": 2_700_000},
+                    {"segment_id": "seg_045", "start_ms": 2_792_660},
+                    {"segment_id": "seg_047", "start_ms": 3_000_000},
+                    {"segment_id": "seg_049", "start_ms": 3_100_000},
+                    {"segment_id": "seg_050", "start_ms": 3_200_000},
+                    {"segment_id": "seg_051", "start_ms": 3_374_470},
+                ]
+            },
+            "master/narrative_plan.json": {
+                "chapters": [
+                    {
+                        "chapter_id": "ch_trials",
+                        "segment_ids": ["seg_051a", "seg_051i"],
+                    },
+                    {
+                        "chapter_id": "ch_validation",
+                        "segment_ids": ["seg_045", "seg_047", "seg_049", "seg_050"],
+                    },
+                ]
+            },
+        }
+    )
+    out = enforce_hard_keeps(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_044", "seg_051a", "seg_051i"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_045", "reason": "aside"},
+                {"segment_id": "seg_047", "reason": "aside"},
+                {"segment_id": "seg_049", "reason": "aside"},
+                {"segment_id": "seg_050", "reason": "aside"},
+            ],
+        },
+    )
+    order = out["ordered_segment_ids"]
+    for sid in ("seg_045", "seg_047", "seg_049", "seg_050"):
+        assert sid in order
+        assert order.index(sid) < order.index("seg_051i")
+    assert order[-1] == "seg_051i"
+
+
 def test_spoken_copy_imperatives_not_entities():
     ev = {
         "strict_grounding": True,

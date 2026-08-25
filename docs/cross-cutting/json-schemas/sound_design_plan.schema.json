@@ -154,6 +154,11 @@
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 },
       "description": "Fixed MusicGen palette inventory counts (motif/beds/stingers) from harden_palette_inventory."
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Lifecycle fingerprint (producer_stage, content_hash) stamped on flush.",
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

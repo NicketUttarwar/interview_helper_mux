@@ -219,10 +219,12 @@ def _extract_loudnorm_json(stderr: str) -> dict[str, str]:
     return data
 
 def run_master_finalize(ctx: RunContext) -> Path:
+    from interview_mux.air_order import assert_consumer
     from interview_mux.gates import require_g_listen_clear, require_timeline_optimizer_clear
     from interview_mux.omit_ledger import heal_omit_ledger_air_contract
     from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
 
+    assert_consumer(ctx, "master_finalize")
     # VO text/WAV may have been repaired after EDL build; refresh clip hashes first
     # so post-master audible_script_hash_agreement judges current authority.
     heal = heal_omit_ledger_air_contract(ctx)

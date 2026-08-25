@@ -330,6 +330,135 @@ def test_repair_coverage_audit_drops_unknown_topics(tmp_path, monkeypatch: pytes
     )
 
 
+def test_repair_coverage_binds_claims_to_selected_air(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_cov_bind")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            {
+                **minimal_manifest_segment("seg_010"),
+                "text": (
+                    "Mohan says ctDNA is the subset of cell-free DNA released "
+                    "when tumour cells die, and liquid biopsy must distinguish it."
+                ),
+            },
+            {
+                **minimal_manifest_segment("seg_044"),
+                "text": (
+                    "OncoInsight uses two 10 ml blood tubes for a 1080-gene "
+                    "ctDNA panel and CTC capture."
+                ),
+            },
+        ),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010", "seg_044"], "chapters": []},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {
+            "thesis": "Cell biopsy",
+            "topics": [
+                {
+                    "name": "OncoInsight assay and integrated reporting",
+                    "summary": "Assay reporting",
+                }
+            ],
+            "key_claims": [
+                {
+                    "claim": (
+                        "Mohan says ctDNA is the subset of cell-free DNA released "
+                        "when tumour cells die."
+                    ),
+                    "evidence_segment_ids": [],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    patched, applied = repair_coverage_audit(
+        ctx,
+        {
+            "topic_mappings": [
+                {
+                    "topic": "OncoInsight Assay and Integrated Reporting",
+                    "segment_ids": [],
+                    "covered": False,
+                }
+            ],
+            "claim_mappings": [
+                {
+                    "claim": (
+                        "Mohan says ctDNA is the subset of cell-free DNA released "
+                        "when tumour cells die."
+                    ),
+                    "segment_ids": [],
+                    "covered": False,
+                }
+            ],
+            "missing_coverage": [],
+            "coverage_score": 0.0,
+        },
+    )
+    claims = patched.get("claim_mappings") or []
+    assert claims and claims[0].get("covered") is True
+    assert "seg_010" in (claims[0].get("segment_ids") or [])
+    topics = patched.get("topic_mappings") or []
+    assert any(
+        isinstance(row, dict)
+        and row.get("covered")
+        and "seg_044" in (row.get("segment_ids") or [])
+        for row in topics
+    )
+    assert patched.get("coverage_score", 0) > 0
+    assert any(
+        isinstance(row, dict) and row.get("action") == "bind_coverage_to_selection"
+        for row in applied
+    )
+
+
+def test_repair_master_selection_sorts_backward_closing_chapter(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "p1_back_jump")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment("seg_010", start_ms=10_000, end_ms=20_000),
+            minimal_manifest_segment("seg_056", start_ms=100_000, end_ms=110_000),
+            minimal_manifest_segment("seg_062", start_ms=200_000, end_ms=210_000),
+        ),
+        skip_handoff=True,
+    )
+    patched, applied = repair_master_selection(
+        ctx,
+        {
+            "ordered_segment_ids": ["seg_010", "seg_062", "seg_056"],
+            "chapters": [
+                {"title": "Open", "segment_ids": ["seg_010"]},
+                {
+                    "title": "Validation, access and the recurrence-monitoring ambition",
+                    "segment_ids": ["seg_062", "seg_056"],
+                },
+            ],
+        },
+    )
+    assert patched["ordered_segment_ids"] == ["seg_010", "seg_056", "seg_062"]
+    assert patched["chapters"][-1]["segment_ids"] == ["seg_056", "seg_062"]
+    assert any(
+        isinstance(row, dict)
+        and row.get("action") == "sort_chapter_air_order_by_source_time"
+        for row in applied
+    )
+
+
 def test_repair_master_selection_coerces_null_cut_ms(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "p1_cta_cut")

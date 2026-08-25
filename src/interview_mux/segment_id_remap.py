@@ -226,6 +226,12 @@ def rewrite_artifact_segment_refs(
         if rel == "master/edl.json" and isinstance(rewritten, dict):
             rewritten = _pop_transition_source_paths(rewritten)
         if rewritten != doc:
+            if rel == "master/edl.json" and isinstance(rewritten, dict):
+                from interview_mux.air_order import write_live_edl
+
+                write_live_edl(ctx, rewritten, source=stage_key or "segment_id_remap")
+                updated.append(rel)
+                continue
             kwargs: dict[str, Any] = {"skip_handoff": skip_handoff}
             if stage_key:
                 kwargs["stage_key"] = stage_key

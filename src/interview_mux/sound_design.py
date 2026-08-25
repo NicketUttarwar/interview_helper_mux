@@ -415,7 +415,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
                         detail=(listen_fix_notes[:8] + qc_errors[:8]),
                     )
                 else:
-                    ctx.write_json("master/edl.json", edl)
+                    from interview_mux.air_order import write_live_edl
+
+                    write_live_edl(ctx, edl, source="mix_listenability")
                     ctx.log(
                         "mix: listenability EDL remediations applied",
                         level="info",
@@ -707,7 +709,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             edl["clips"] = clips
             edl["timeline_duration_ms"] = int(len(base))
             try:
-                ctx.write_json("master/edl.json", edl)
+                from interview_mux.air_order import write_live_edl
+
+                write_live_edl(ctx, edl, source="mix_realized_times")
             except Exception as exc:
                 ctx.log(
                     f"mix: failed to persist realized EDL times: {exc}",
@@ -1114,6 +1118,9 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
         from interview_mux.seam_autopsy import write_render_ledger
 
         write_render_ledger(ctx)
+        from interview_mux.air_order import stamp_after_mix
+
+        stamp_after_mix(ctx)
     except Exception as exc:
         ctx.log(f"render_ledger write skipped: {exc}", level="warning", stage="mix")
     ctx.mark_done("mix")

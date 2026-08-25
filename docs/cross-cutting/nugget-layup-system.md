@@ -15,7 +15,10 @@ When selection drops segments, the facts still live in the full transcript. This
 **Clone-adjacency rule:** a cloned VO may sit immediately before or after native
 audio from its clone source only when it is a nugget lay-up with evidence that it
 recovers a source segment excluded from the final selection. Generic framing,
-orientation, and transitions must be retargeted or omitted instead.
+orientation, and transitions must be omitted. **Nugget-grounded (high-salience)
+lines that would abut the clone speaker are retargeted** to the next non-clone
+native (`before`), or merged into that dest if it already has a layup — they are
+not typed-skipped.
 
 ```mermaid
 flowchart TD

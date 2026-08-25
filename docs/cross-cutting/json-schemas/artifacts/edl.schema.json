@@ -114,6 +114,21 @@
                 "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
                 "type": "integer",
                 "minimum": 0
+              },
+              "voice_speaker_id": {
+                "type": "string"
+              },
+              "clone_adjacency_exempt": {
+                "type": "boolean"
+              },
+              "line_category": {
+                "type": "string"
+              },
+              "episode_orientation": {
+                "type": "boolean"
+              },
+              "allow_music_bed_overlap": {
+                "type": "boolean"
               }
             }
           },
@@ -162,6 +177,9 @@
                 "description": "Realized mix crossfade into this clip. timeline_start_ms already subtracts it.",
                 "type": "integer",
                 "minimum": 0
+              },
+              "voice_speaker_id": {
+                "type": "string"
               }
             }
           },

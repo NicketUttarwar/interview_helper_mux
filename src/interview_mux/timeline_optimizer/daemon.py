@@ -56,6 +56,10 @@ def start_optimizer_daemon(
     cfg = optimizer_cfg()
     if not cfg.get("enabled") and not force:
         return {"ok": False, "error": "disabled"}
+    from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
+
+    if optimizer_live_mutate_blocked(ctx) and not force:
+        return {"ok": False, "error": "skipped"}
     run_id = ctx.run_id
     with _lock:
         if is_optimizer_running(run_id) and not force:
@@ -89,6 +93,14 @@ def start_optimizer_daemon(
 def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
     ctx = RunContext(run_id, create=False)
     cfg = optimizer_cfg()
+    from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
+
+    if optimizer_live_mutate_blocked(ctx):
+        state = load_optimizer_state(ctx)
+        state["status"] = "stopped"
+        state["stop_requested"] = True
+        save_optimizer_state(ctx, state)
+        return
     state = load_optimizer_state(ctx)
     if state.get("status") not in {"running", "stopping"}:
         state = empty_state()
@@ -203,6 +215,9 @@ def _run_loop(run_id: str, stop_ev: threading.Event) -> None:
         state["status"] = "running"
         save_optimizer_state(ctx, state)
 
+        if optimizer_live_mutate_blocked(ctx):
+            stop_ev.set()
+            break
         # Plateau / soft budget → auto-promote (still endless afterward)
         if (
             cfg.get("auto_promote_on_plateau")

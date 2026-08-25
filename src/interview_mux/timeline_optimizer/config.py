@@ -36,3 +36,21 @@ def optimizer_cfg() -> dict[str, Any]:
         ),
         "use_llm_proposer": bool(cfg.get("use_llm_proposer", True)),
     }
+
+
+def optimizer_live_mutate_blocked(ctx: Any) -> bool:
+    """True when full-auto/operator skip forbids live selection rewrites after mix."""
+    if ctx is None:
+        return False
+    try:
+        if not ctx.artifact_exists("run_meta.json"):
+            return False
+        meta = ctx.read_json("run_meta.json") or {}
+    except Exception:
+        return False
+    if not isinstance(meta, dict):
+        return False
+    return bool(
+        meta.get("timeline_optimizer_skipped")
+        or meta.get("e2e_skip_optimizer_remaster")
+    )

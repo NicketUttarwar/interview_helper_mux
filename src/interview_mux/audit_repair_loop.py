@@ -37,6 +37,7 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
 
     from interview_mux.artifact_repairs import (
         align_narrative_plan_to_selection,
+        repair_coverage_audit,
         repair_edl_audit,
         repair_master_selection,
     )
@@ -55,6 +56,18 @@ def maybe_repair_after_narrative_audit(ctx: RunContext, artifacts: dict[str, Any
             stage_key="edl_narrative_audit_repair",
         )
     notes.extend(align_narrative_plan_to_selection(ctx))
+    if ctx.artifact_exists("master/coverage_audit.json"):
+        cov = ctx.read_json("master/coverage_audit.json")
+        if isinstance(cov, dict):
+            repaired_cov, cov_notes = repair_coverage_audit(ctx, cov)
+            notes.extend(cov_notes)
+            write_validated_artifact(
+                ctx,
+                "master/coverage_audit.json",
+                repaired_cov,
+                merge_from_disk=False,
+                stage_key="topic_coverage_audit",
+            )
 
     def _mark(m: dict) -> None:
         m["edl_narrative_audit_repair_done"] = True

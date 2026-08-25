@@ -134,6 +134,17 @@ def rebuild_reorder_bridges(
         episode_vo_shape=vo_shape,
     )
     ctx.write_json("understanding/reorder_bridges.json", bridges)
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(
+            ctx,
+            "understanding/reorder_bridges.json",
+            bridges,
+            stage_key="edl",
+        )
+    except Exception:
+        pass
     return bridges
 
 
@@ -626,11 +637,17 @@ def ensure_seam_glue(
         pass
 
     bridges = rebuild_reorder_bridges(ctx, ordered, segments_by_id)
+    edl = (
+        ctx.read_json("master/edl.json")
+        if ctx.artifact_exists("master/edl.json")
+        else None
+    )
     missing = missing_reorder_bridges(
         bridges,
         gap_report=gap_report,
         transitions=transitions,
         justified_skip_before_ids=justified_skip_before,
+        edl=edl if isinstance(edl, dict) else None,
     )
     transitions_doc = transitions if isinstance(transitions, dict) else {"transitions": []}
     if missing:
@@ -642,6 +659,7 @@ def ensure_seam_glue(
         gap_report=gap_report,
         transitions=transitions_doc,
         justified_skip_before_ids=justified_skip_before,
+        edl=edl if isinstance(edl, dict) else None,
         soft=soft,
     )
     ctx.write_json("master/bridge_completeness.json", completeness)

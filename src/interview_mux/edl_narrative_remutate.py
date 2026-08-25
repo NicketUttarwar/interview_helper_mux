@@ -20,6 +20,16 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
         "layup_repair",
         "seed_missing_seated_layup",
         "ensure_adjacency_transition",
+        "retarget_orientation",
+        "omit_episode_orientation",
+        "suppress_opening_layup",
+        "drop_orphan_opening_vo",
+        "drop_late_intro_reset",
+        "drop_post_coda_reverse_jump",
+        "prune_stale_transitions",
+        "align_selection_chapters",
+        "repair_coverage_for_selection",
+        "align_narrative_plan",
     }
 )
 
@@ -337,6 +347,40 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
             notes.append("rewrite_episode_orientation_meta_question")
         elif written:
             notes.append("retarget_orientation")
+        try:
+            from interview_mux.opening_orientation import orientation_omitted
+
+            gap_o = (
+                ctx.read_json("understanding/gap_report.json")
+                if ctx.artifact_exists("understanding/gap_report.json")
+                else {}
+            )
+            if orientation_omitted(gap_o if isinstance(gap_o, dict) else None):
+                notes.append("omit_episode_orientation")
+        except Exception:
+            pass
+        try:
+            from interview_mux.opening_adjacency_repair import (
+                drop_late_intro_reset_from_selection,
+                drop_orphan_opening_vo_when_native_orients,
+                drop_post_coda_reverse_jump_from_selection,
+                suppress_opening_layup_when_orientation_owns_slot,
+            )
+
+            suppressed = suppress_opening_layup_when_orientation_owns_slot(ctx)
+            if suppressed:
+                notes.append("suppress_opening_layup")
+            dropped = drop_orphan_opening_vo_when_native_orients(ctx)
+            if dropped:
+                notes.append("drop_orphan_opening_vo")
+            late = drop_late_intro_reset_from_selection(ctx)
+            if late:
+                notes.append("drop_late_intro_reset")
+            jumped = drop_post_coda_reverse_jump_from_selection(ctx)
+            if jumped:
+                notes.append("drop_post_coda_reverse_jump")
+        except Exception as adj_exc:
+            notes.append(f"opening_adjacency:{adj_exc}")
     except Exception as exc:
         notes.append(f"orientation:{exc}")
     try:
@@ -428,8 +472,112 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 after = len(tr.get("transitions") or [])
                 if after < before:
                     notes.append("dedupe_transitions_by_adjacency")
+            try:
+                from interview_mux.gap_framing import prune_transitions_outside_selection
+
+                sel_ids = []
+                if ctx.artifact_exists("master/selection.json"):
+                    sel0 = ctx.read_json("master/selection.json")
+                    sel_ids = [
+                        str(x)
+                        for x in ((sel0 or {}).get("ordered_segment_ids") or [])
+                        if x
+                    ]
+                before_n = len(tr.get("transitions") or [])
+                tr = prune_transitions_outside_selection(tr, sel_ids)
+                ctx.write_json("master/transitions.json", tr)
+                after_n = len(tr.get("transitions") or [])
+                if after_n < before_n:
+                    notes.append("prune_stale_transitions")
+            except Exception as prune_exc:
+                notes.append(f"prune_transitions:{prune_exc}")
         except Exception as exc:
             notes.append(f"transitions:{exc}")
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            from interview_mux.artifact_repairs import repair_master_selection
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            sel_c = ctx.read_json("master/selection.json")
+            if isinstance(sel_c, dict):
+                before_order = [
+                    str(x) for x in (sel_c.get("ordered_segment_ids") or []) if x
+                ]
+                before_ch = [
+                    tuple((ch.get("segment_ids") or []) if isinstance(ch, dict) else [])
+                    for ch in (sel_c.get("chapters") or [])
+                ]
+                repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
+                write_validated_artifact(
+                    ctx,
+                    "master/selection.json",
+                    repaired_sel,
+                    merge_from_disk=False,
+                    stage_key="full_master_ranking",
+                )
+                after_order = [
+                    str(x)
+                    for x in (repaired_sel.get("ordered_segment_ids") or [])
+                    if x
+                ]
+                after_ch = [
+                    tuple((ch.get("segment_ids") or []) if isinstance(ch, dict) else [])
+                    for ch in (repaired_sel.get("chapters") or [])
+                ]
+                if (
+                    after_ch != before_ch
+                    or after_order != before_order
+                    or any(
+                        isinstance(n, dict)
+                        and n.get("action")
+                        in {
+                            "drop_empty_selection_chapters",
+                            "sort_chapter_air_order_by_source_time",
+                        }
+                        for n in sel_notes
+                    )
+                ):
+                    notes.append("align_selection_chapters")
+    except Exception as exc:
+        notes.append(f"chapters:{exc}")
+    try:
+        from interview_mux.artifact_repairs import align_narrative_plan_to_selection
+
+        align_notes = align_narrative_plan_to_selection(ctx)
+        if align_notes:
+            notes.append("align_narrative_plan")
+    except Exception as exc:
+        notes.append(f"narrative_plan:{exc}")
+    try:
+        if ctx.artifact_exists("master/coverage_audit.json") and ctx.artifact_exists(
+            "master/selection.json"
+        ):
+            from interview_mux.artifact_repairs import repair_coverage_audit
+            from interview_mux.artifact_writes import write_validated_artifact
+
+            cov = ctx.read_json("master/coverage_audit.json")
+            if isinstance(cov, dict):
+                repaired_cov, cov_notes = repair_coverage_audit(ctx, cov)
+                write_validated_artifact(
+                    ctx,
+                    "master/coverage_audit.json",
+                    repaired_cov,
+                    merge_from_disk=False,
+                    stage_key="topic_coverage_audit",
+                )
+                if any(
+                    isinstance(n, dict)
+                    and n.get("action")
+                    in {
+                        "bind_coverage_to_selection",
+                        "alias_topic_mapping_to_brief",
+                        "drop_missing_coverage_now_bound",
+                    }
+                    for n in cov_notes
+                ):
+                    notes.append("repair_coverage_for_selection")
+    except Exception as exc:
+        notes.append(f"coverage:{exc}")
     if pending_adj:
         try:
             tr = (
@@ -550,7 +698,14 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
     except Exception:
         pass
     from_stage = "edl_narrative_audit"
-    if "seed_missing_seated_layup" in notes:
+    if "drop_late_intro_reset" in notes or "drop_post_coda_reverse_jump" in notes:
+        from_stage = "nugget_layup_compose"
+        for sid in ("nugget_layup_compose", "selection_framing_apply", "transitions"):
+            marker = ctx.run_dir / ".stage_done" / sid
+            if marker.is_file():
+                marker.unlink(missing_ok=True)
+                cleared.append(sid)
+    elif "seed_missing_seated_layup" in notes:
         from_stage = "sound_design_vo_finalize"
     elif "ensure_adjacency_transition" in notes:
         from_stage = "transitions"
@@ -571,13 +726,18 @@ def apply_edl_narrative_remutate(ctx: RunContext, plan: dict[str, Any] | None = 
     )
     actions = set((doc or {}).get("actions") or []) if isinstance(doc, dict) else set()
     vo_notes = HOST_REPAIR_PROGRESS_NOTES
-    # Orientation / duplicate-adjacency / question-only layup are host-fixed.
-    # Rewinding transitions or layup compose recreates the same defects.
-    if vo_notes.intersection(host.get("notes") or []) and not (actions & {"rerank", "drop_blank"}):
+    # Orientation / late-intro-reset / duplicate-adjacency are host-fixed.
+    # Rewinding ranking recreates the same late welcome-back cluster.
+    if vo_notes.intersection(host.get("notes") or []):
+        from_stage = str(host.get("from_stage") or "edl_narrative_audit")
+        if "drop_late_intro_reset" in (host.get("notes") or []) or "drop_post_coda_reverse_jump" in (
+            host.get("notes") or []
+        ):
+            from_stage = "nugget_layup_compose"
         return {
             "ok": True,
             "cleared": host.get("cleared") or [],
-            "from_stage": "edl_narrative_audit",
+            "from_stage": from_stage,
             "host_fixed": True,
             "notes": host.get("notes") or [],
         }

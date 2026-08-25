@@ -234,6 +234,26 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             ctx.mark_done("nugget_layup_compose", force=True)
         return
 
+    try:
+        from interview_mux.media_ip_cta import heal_on_air_cta_residue
+
+        healed = heal_on_air_cta_residue(ctx)
+        if isinstance(healed, dict) and healed.get("ordered_segment_ids") is not None:
+            ctx.log(
+                "nugget_layup_compose: host CTA residue prune before compose",
+                level="info",
+                stage="nugget_layup_compose",
+                detail={
+                    "natives": len(healed.get("ordered_segment_ids") or []),
+                },
+            )
+    except Exception as exc:
+        ctx.log(
+            f"nugget_layup_compose: CTA residue prune skipped: {exc}",
+            level="warning",
+            stage="nugget_layup_compose",
+        )
+
     persist_plan = make_stage_persist(PLAN_REL, "nugget_layup_compose")
     deg = degraded_layup_cfg()
     cfg = nugget_layup_cfg()
@@ -358,6 +378,23 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 qc = evaluate_layup_qc(c, doc)
                 c.log(
                     "recovered open must_keep talking points: "
+                    + "; ".join(str(n) for n in rec_notes[-10:]),
+                    level="warning",
+                    stage="nugget_layup_compose",
+                )
+        if not qc.get("ok") and qc.get("open_high_salience_nugget_ids"):
+            from interview_mux.nugget_layup import recover_open_high_salience_nuggets
+
+            doc, rec_notes = recover_open_high_salience_nuggets(c, doc)
+            if rec_notes:
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
+
+                doc = prepare_layup_plan_for_persist(c, doc)
+                persist_plan(c, doc)
+                report = publish_layup_plan_to_gap_report(c, doc)
+                qc = evaluate_layup_qc(c, doc)
+                c.log(
+                    "recovered open high-salience nuggets: "
                     + "; ".join(str(n) for n in rec_notes[-10:]),
                     level="warning",
                     stage="nugget_layup_compose",

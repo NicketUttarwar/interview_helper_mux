@@ -140,6 +140,7 @@ _STAGE_REUSE_OUTPUTS: dict[str, tuple[str, ...]] = {
     "assembly_preview": ("master/assembly_preview.wav",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
     "mmaudio_sfx": (
+        "sound_design/mmaudio_qa.json",
         "glob:sound_design/assets/*.wav",
         "glob:master/sfx/*.wav",
     ),
