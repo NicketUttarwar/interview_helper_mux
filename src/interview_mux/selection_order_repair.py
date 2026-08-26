@@ -183,18 +183,47 @@ def topo_satisfy_order(
 
     leftovers = [sid for sid in deduped if sid not in assigned]
     if leftovers and spans:
-        # Insert a dedicated block *before* the finale span (never append onto it).
-        if len(spans) >= 2:
-            spans.insert(len(spans) - 1, leftovers)
+        # Opening-tape leftovers prepend to first span; body leftovers before finale.
+        opening_leftovers: list[str] = []
+        body_leftovers: list[str] = []
+        if source_start_ms:
+            window = 180_000
+            try:
+                from interview_mux.air_order_integrity import opening_window_ms
+
+                window = opening_window_ms()
+            except Exception:
+                pass
+            for sid in leftovers:
+                start = resolved_source_start_ms(sid, source_start_ms)
+                if start is not None and int(start) < window:
+                    opening_leftovers.append(sid)
+                else:
+                    body_leftovers.append(sid)
         else:
-            spans[0] = leftovers + spans[0]
-        applied.append(
-            {
-                "action": "insert_leftovers_before_finale_span",
-                "count": len(leftovers),
-                "ids": leftovers[:12],
-            }
-        )
+            body_leftovers = list(leftovers)
+        if opening_leftovers and spans:
+            spans[0] = opening_leftovers + spans[0]
+            applied.append(
+                {
+                    "action": "prepend_opening_leftovers",
+                    "count": len(opening_leftovers),
+                    "ids": opening_leftovers[:12],
+                }
+            )
+        pack = body_leftovers if body_leftovers else []
+        if pack:
+            if len(spans) >= 2:
+                spans.insert(len(spans) - 1, pack)
+            else:
+                spans[0] = pack + spans[0]
+            applied.append(
+                {
+                    "action": "insert_leftovers_before_finale_span",
+                    "count": len(pack),
+                    "ids": pack[:12],
+                }
+            )
     elif leftovers:
         spans.append(leftovers)
 
@@ -229,6 +258,26 @@ def topo_satisfy_order(
 
     if new_order != deduped:
         applied.append({"action": "topo_rebuild_order", "count": len(new_order)})
+
+    from interview_mux.air_order_integrity import pull_mid_arc_reverse_jumps
+
+    mid_pulled, mid_moved, mid_drop = pull_mid_arc_reverse_jumps(
+        new_order, source_start_ms=source_start_ms
+    )
+    if mid_drop:
+        applied.append(
+            {"action": "pull_mid_arc_reverse_jumps_drop", "ids": mid_drop[:12]}
+        )
+        new_order = [s for s in mid_pulled if s not in set(mid_drop)]
+    elif mid_moved or mid_pulled != new_order:
+        new_order = mid_pulled
+        applied.append(
+            {
+                "action": "pull_mid_arc_reverse_jumps",
+                "count": len(mid_moved),
+                "ids": mid_moved[:12],
+            }
+        )
 
     pulled, moved = pull_earlier_source_ids_before_finale(
         new_order, source_start_ms=source_start_ms

@@ -37,6 +37,13 @@ _PLACEHOLDER = re.compile(
 )
 _MALFORMED_END = re.compile(r"(?:\.\.\.|…|[—–,:;/(\[])\s*$")
 _NEXT_WORD = re.compile(r"\b(?:next|then|after that|what followed)\b", re.IGNORECASE)
+_OPENING_STYLE_BRIDGE = re.compile(
+    r"\b(?:"
+    r"meet the entrepreneur|on the show today|who is\b|co-founder and ceo|"
+    r"welcome to|we(?:'|')ve got\b|joining us today"
+    r")\b",
+    re.IGNORECASE,
+)
 # Relative / stock hinges are never acceptable air copy — even with evidence.
 _GENERIC_FILLER = re.compile(
     r"\b(?:"
@@ -370,6 +377,20 @@ def spoken_copy_violations(
         source_gap = None
     if source_gap is not None and source_gap < 0 and _NEXT_WORD.search(clean):
         errors.append("spoken_chronology_mismatch")
+    if source_gap is not None and source_gap < 0 and _OPENING_STYLE_BRIDGE.search(clean):
+        errors.append("spoken_opening_style_bridge")
+    if _OPENING_STYLE_BRIDGE.search(clean):
+        try:
+            from interview_mux.air_order_integrity import opening_body_start_index
+
+            before_id = str(ev.get("before_segment_id") or "")
+            air_index = ev.get("before_air_index")
+            if air_index is not None and int(air_index) >= opening_body_start_index():
+                errors.append("spoken_opening_style_bridge")
+            elif before_id and ev.get("before_is_opening_tape"):
+                errors.append("spoken_opening_style_bridge")
+        except Exception:
+            pass
     # Generic relative hinges are banned under every circumstance.
     if _GENERIC_FILLER.search(clean):
         errors.append("spoken_generic_filler")

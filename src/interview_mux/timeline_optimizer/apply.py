@@ -203,6 +203,12 @@ def take_best_candidate(
             merge_from_disk=False,
             stage_key="timeline_optimizer",
         )
+        try:
+            from interview_mux.air_order_integrity import audit_and_report
+
+            audit_and_report(ctx, stage="timeline_optimizer", repair=False)
+        except Exception:
+            pass
 
         if isinstance(best.get("transitions"), dict):
             ctx.write_json("master/transitions.json", best["transitions"])

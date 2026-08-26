@@ -262,13 +262,13 @@ def test_cover_prompt_hard_requires_episode_meta(tmp_path: Path) -> None:
     assert any("episode_meta.json" in msg for msg in pre)
 
 
-def test_listen_delight_is_authoritative_fail_early() -> None:
+def test_listen_delight_fail_early_default_is_false() -> None:
     from interview_mux.listen_delight import listen_delight_cfg
     from interview_mux.junction_snip_qa import junction_snip_cfg
 
     delight = listen_delight_cfg()
     assert str(delight.get("mode") or "") == "authoritative"
-    assert delight.get("fail_early_at_audit_stage") is True
+    assert delight.get("fail_early_at_audit_stage") is False
     assert str(junction_snip_cfg().get("mode") or "") == "authoritative"
 
 

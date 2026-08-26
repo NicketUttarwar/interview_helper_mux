@@ -1111,6 +1111,13 @@ def apply_junction_repairs(
     excluded: set[str] = set()
     exclude_reasons: dict[str, str] = {}
     changed = False
+    hard_keeps: set[str] = set()
+    try:
+        from interview_mux.hard_keep import hard_keep_segment_ids
+
+        hard_keeps = set(hard_keep_segment_ids(ctx) or [])
+    except Exception:
+        hard_keeps = set()
 
     # Process excludes first
     for f in findings:
@@ -1118,6 +1125,9 @@ def apply_junction_repairs(
             continue
         sid = str(f.get("segment_id") or "")
         if not sid or sid in excluded:
+            continue
+        if sid in hard_keeps:
+            applied.append({**f, "status": "refused_hard_keep"})
             continue
         kind = str(f.get("kind") or "exclude_micro")
         reason = f"junction_snip_qa:{kind}"
@@ -1557,7 +1567,7 @@ def _exclude_from_selection(
     if not isinstance(sel, dict):
         return
     from interview_mux.order_hash import bump_order_lock
-    from interview_mux.write_staging import write_committed_json
+    from interview_mux.air_order_boundary import commit_selection_mutation
 
     ordered = [s for s in (sel.get("ordered_segment_ids") or []) if str(s) not in excluded]
     sel = dict(sel)
@@ -1573,13 +1583,13 @@ def _exclude_from_selection(
         reason = (reasons or {}).get(sid) or "junction_snip_qa:exclude_micro"
         excl_list.append({"segment_id": sid, "reason": reason})
     sel["excluded_segment_ids"] = excl_list
-    # Commit immediately — staging-only writes are invisible to commitment verify
-    # when StageInfo does not claim selection.json.
-    write_committed_json(
+    commit_selection_mutation(
         ctx,
-        "master/selection.json",
         bump_order_lock(sel, source="junction_snip_qa:exclude"),
+        producer="junction_snip_qa",
         stage_key=STAGE_ID,
+        checkpoint_mode="detect",
+        write_committed=True,
     )
 
 

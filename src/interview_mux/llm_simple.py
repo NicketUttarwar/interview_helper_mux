@@ -148,6 +148,23 @@ def _warn_only_lint(ctx: RunContext, stage_key: str, envelope: dict[str, Any]) -
 
         lint_errors = deterministic_lint(stage_key, envelope, ctx)
         if lint_errors:
+            from interview_mux.air_order_integrity import block_ranking_on_critical
+
+            critical_markers = (
+                "reverse",
+                "opening-tape",
+                "opening_tape",
+                "hard-keep",
+                "late_opening",
+                "mid_arc",
+            )
+            has_critical = any(
+                any(m in str(e).lower() for m in critical_markers) for e in lint_errors
+            )
+            if has_critical and block_ranking_on_critical():
+                raise ValueError(
+                    "Blocking lint (air order integrity): " + "; ".join(lint_errors[:4])
+                )
             ctx.log(
                 f"Lint warnings (non-blocking): {'; '.join(lint_errors[:4])}",
                 level="warning",

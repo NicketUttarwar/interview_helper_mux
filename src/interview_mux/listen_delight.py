@@ -1,12 +1,12 @@
 """Listen delight audit — authoritative ship gate (config: mastering.listen_delight).
 
-Computes real per-dimension scores from whatever artifacts are already on
-disk at call time (delivery_brief/selection, bridge_completeness, seam
-autopsy, junction_snip_qa, mode_consistency). Missing artifacts fall back to
-sane soft defaults rather than failing the audit outright. When
-``mastering.listen_delight.mode`` is ``authoritative`` (the default), floor
-failures are a hard ship blocker for `master_finalize` / publish — see
-NORTH_STAR.md and docs/cross-cutting/mastering-process.md.
+Computes per-dimension scores from on-disk artifacts at call time. When
+``mastering.listen_delight.mode`` is ``authoritative`` (default), floor failures
+**block ship at master_finalize** after ``master/master.wav`` exists.
+
+The ``listen_delight_audit`` stage (after assembly_preview) is an **early,
+non-blocking** pass when ``fail_early_at_audit_stage`` is false (default):
+scores and logs failures, but hard stop waits for the post-master re-eval.
 """
 
 from __future__ import annotations
@@ -55,6 +55,68 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
 def listen_delight_cfg() -> dict[str, Any]:
     raw = (merged_config().get("mastering") or {}).get("listen_delight") or {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _fail_early_at_audit_stage(conf: dict[str, Any] | None = None) -> bool:
+    cfg = conf if conf is not None else listen_delight_cfg()
+    return bool(cfg.get("fail_early_at_audit_stage", False))
+
+
+def _late_opening_native_in_edl_ok(ctx: RunContext) -> bool:
+    """True when EDL has no opening-tape native clips late in the timeline."""
+    if not ctx.artifact_exists("master/edl.json"):
+        return True
+    try:
+        from interview_mux.air_order_integrity import (
+            opening_window_ms,
+            resolved_segment_starts,
+        )
+        from interview_mux.edl_narrative_qc import _speech_order
+
+        edl = ctx.read_json("master/edl.json")
+        if not isinstance(edl, dict):
+            return True
+        speech = _speech_order(edl)
+        if not speech:
+            return True
+        starts = resolved_segment_starts(ctx)
+        window = opening_window_ms()
+        opening_ids = {
+            sid
+            for sid in speech
+            if (resolved := starts.get(sid)) is not None and int(resolved) < window
+        }
+        if not opening_ids:
+            return True
+        threshold = max(1, int(len(speech) * 0.25))
+        for idx, sid in enumerate(speech):
+            if sid in opening_ids and idx >= threshold:
+                return False
+    except Exception:
+        return True
+    return True
+
+
+def _air_order_cut_penalty(ctx: RunContext) -> float:
+    """Penalty for tape-order violations that degrade listen cut integrity."""
+    penalty = 0.0
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            from interview_mux.air_order_integrity import (
+                collect_violations,
+                critical_violations,
+            )
+
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                critical = critical_violations(collect_violations(ctx, sel))
+                if critical:
+                    penalty = max(penalty, min(1.0, 0.25 * len(critical)))
+    except Exception:
+        pass
+    if not _late_opening_native_in_edl_ok(ctx):
+        penalty = max(penalty, 0.5)
+    return penalty
 
 
 def _nugget_retention(ctx: RunContext) -> float:
@@ -205,6 +267,9 @@ def _cut_integrity(ctx: RunContext) -> float:
         # Ratio, not 0.2×count — five hangs on a 150-clip tape must not zero the dim.
         hang_ratio = hang_hits / max(speech_n, hang_hits, 1)
         score = _clamp(min(score, 1.0 - 0.8 * hang_ratio))
+    air_penalty = _air_order_cut_penalty(ctx)
+    if air_penalty:
+        score = _clamp(min(score, 1.0 - air_penalty))
     return round(score, 4)
 
 
@@ -415,15 +480,16 @@ def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
     }
 
 
-def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
-    conf = listen_delight_cfg()
-    result = evaluate_listen_delight(ctx, cfg=conf)
-    dims = result["dimensions"]
-    authoritative = bool(result["authoritative"])
-    blocking = authoritative
-    advisory = not authoritative
-
-    notes: list[str] = []
+def _build_audit_doc(
+    result: dict[str, Any],
+    dims: dict[str, float],
+    *,
+    pass_phase: str,
+    blocking: bool,
+    advisory: bool,
+    extra_notes: list[str] | None = None,
+) -> dict[str, Any]:
+    notes: list[str] = list(extra_notes or [])
     if result["passed"]:
         notes.append("listen_delight floors satisfied")
     else:
@@ -431,15 +497,22 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
             f"listen_delight floors failed: overall={result['overall']} "
             f"(min {result['overall_min']}); dims_below_floor={result['failed_dimensions'] or 'none'}"
         )
-    notes.append(
-        "listen_delight mode=authoritative: floors are a hard ship blocker"
-        if authoritative
-        else "listen_delight mode=advisory: floors are observational only"
-    )
-
-    audit = {
+    if pass_phase == "pre_mix":
+        notes.append(
+            "listen_delight pre-mix pass (non-blocking); authoritative ship gate at master_finalize"
+        )
+    elif pass_phase == "post_master":
+        notes.append(
+            "listen_delight authoritative post-master pass (ship gate)"
+            if blocking
+            else "listen_delight post-master pass (advisory)"
+        )
+    elif pass_phase == "post_mix":
+        notes.append("listen_delight dual-pass after mix (non-blocking)")
+    return {
         "version": 1,
         "mode": result["mode"],
+        "pass": pass_phase,
         "advisory": advisory,
         "blocking": blocking,
         "narrative_mode": result["narrative_mode"],
@@ -458,8 +531,9 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
         "human_rubric_ref": "NORTH_STAR.md#human-listen-rubric-ship-checklist",
         "generated_at": _now(),
     }
-    ctx.write_json(AUDIT_REL, audit)
 
+
+def _write_listen_delight_qc_meta(ctx: RunContext, result: dict[str, Any], dims: dict[str, float], *, blocking: bool, advisory: bool) -> None:
     meta: dict[str, Any]
     if ctx.artifact_exists("run_meta.json"):
         doc = ctx.read_json("run_meta.json")
@@ -487,7 +561,27 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     meta["qc_summaries"] = qc
     ctx.write_json("run_meta.json", meta)
 
-    if blocking and not result["passed"] and bool(conf.get("fail_early_at_audit_stage", True)):
+
+def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
+    conf = listen_delight_cfg()
+    result = evaluate_listen_delight(ctx, cfg=conf)
+    dims = result["dimensions"]
+    authoritative = bool(result["authoritative"])
+    fail_early = _fail_early_at_audit_stage(conf)
+    blocking = authoritative and fail_early
+    advisory = not blocking
+
+    audit = _build_audit_doc(
+        result,
+        dims,
+        pass_phase="pre_mix",
+        blocking=blocking,
+        advisory=advisory,
+    )
+    ctx.write_json(AUDIT_REL, audit)
+    _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=advisory)
+
+    if blocking and not result["passed"]:
         try:
             from interview_mux.homunculus.issues import ingest_catch
 
@@ -536,6 +630,92 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
                 "remutate": remutate,
             },
         )
+    elif authoritative and not result["passed"]:
+        try:
+            from interview_mux.homunculus.issues import ingest_catch
+
+            ingest_catch(
+                ctx,
+                kind="listen_delight_floors",
+                source="listen_delight",
+                stage_id="listen_delight_audit",
+                implicated=["listen_delight_audit", "master_finalize"],
+                evidence={
+                    "failed_dimensions": result.get("failed_dimensions"),
+                    "deferred_to": "master_finalize",
+                },
+            )
+        except Exception:
+            pass
+    return audit
+
+
+def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
+    """Fresh authoritative delight after master.wav — hard ship gate."""
+    conf = listen_delight_cfg()
+    mode_str = str(conf.get("mode") or "authoritative")
+    if mode_str != "authoritative":
+        if ctx.artifact_exists(AUDIT_REL):
+            try:
+                loaded = ctx.read_json(AUDIT_REL)
+                return loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    result = evaluate_listen_delight(ctx, cfg=conf)
+    dims = result["dimensions"]
+    blocking = True
+    prior: dict[str, Any] = {}
+    if ctx.artifact_exists(AUDIT_REL):
+        try:
+            loaded = ctx.read_json(AUDIT_REL)
+            if isinstance(loaded, dict):
+                prior = loaded
+        except Exception:
+            prior = {}
+    audit = _build_audit_doc(
+        result,
+        dims,
+        pass_phase="post_master",
+        blocking=blocking,
+        advisory=False,
+        extra_notes=list(prior.get("notes") or [])[:4],
+    )
+    ctx.write_json(AUDIT_REL, audit)
+    _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=False)
+
+    if not result["passed"]:
+        try:
+            from interview_mux.homunculus.issues import ingest_catch
+
+            ingest_catch(
+                ctx,
+                kind="listen_delight_floors",
+                source="listen_delight",
+                stage_id="master_finalize",
+                implicated=["listen_delight_audit", "master_finalize", "mix"],
+                evidence={"failed_dimensions": result.get("failed_dimensions"), "pass": "post_master"},
+            )
+        except Exception:
+            pass
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Listen delight floors failed at ship: overall="
+            f"{result['overall']} (min {result['overall_min']}); "
+            f"dims_below_floor={result['failed_dimensions'] or 'none'}",
+            stage="master_finalize",
+            reason="listen_delight_floors_failed",
+            detail={
+                "overall": result["overall"],
+                "overall_min": result["overall_min"],
+                "failed_dimensions": result["failed_dimensions"],
+                "dimensions": dims,
+                "pass": "post_master",
+            },
+        )
     return audit
 
 
@@ -546,6 +726,7 @@ def rerun_listen_delight_after_mix(ctx: RunContext) -> dict[str, Any]:
     """
     conf = listen_delight_cfg()
     result = evaluate_listen_delight(ctx, cfg=conf)
+    dims = result["dimensions"]
     prior: dict[str, Any] = {}
     if ctx.artifact_exists(AUDIT_REL):
         try:
@@ -556,22 +737,14 @@ def rerun_listen_delight_after_mix(ctx: RunContext) -> dict[str, Any]:
             prior = {}
     audit = dict(prior)
     audit.update(
-        {
-            "version": 1,
-            "mode": result["mode"],
-            "pass": "post_mix",
-            "dimensions": result["dimensions"],
-            "overall": result["overall"],
-            "overall_min": result["overall_min"],
-            "dimension_floors": result["dimension_floors"],
-            "failed_dimensions": result["failed_dimensions"],
-            "passed": result["passed"],
-            "generated_at": _now(),
-        }
+        _build_audit_doc(
+            result,
+            dims,
+            pass_phase="post_mix",
+            blocking=False,
+            advisory=True,
+        )
     )
-    notes = list(audit.get("notes") or [])
-    notes.append("listen_delight dual-pass after mix")
-    audit["notes"] = notes
     ctx.write_json(AUDIT_REL, audit)
     return audit
 
@@ -582,5 +755,6 @@ __all__ = [
     "evaluate_listen_delight",
     "listen_delight_cfg",
     "rerun_listen_delight_after_mix",
+    "run_authoritative_listen_delight_at_ship",
     "run_listen_delight_audit",
 ]

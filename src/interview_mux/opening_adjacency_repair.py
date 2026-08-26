@@ -303,7 +303,18 @@ def drop_late_intro_reset_from_selection(ctx: RunContext) -> list[str]:
     from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
 
     sel = reconcile_ordered_vs_excluded(sel)
-    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    from interview_mux.air_order_boundary import commit_selection_mutation
+    from interview_mux.order_hash import bump_order_lock
+
+    sel = bump_order_lock(sel, source="opening_adjacency_repair:late_intro")
+    commit_selection_mutation(
+        ctx,
+        sel,
+        producer="opening_adjacency_repair",
+        stage_key="opening_adjacency_repair",
+        checkpoint_mode="repair",
+        skip_handoff=True,
+    )
     try:
         ctx.log(
             f"late_intro_reset: dropped {drop[:12]}",
@@ -396,7 +407,16 @@ def drop_post_coda_reverse_jump_from_selection(ctx: RunContext) -> list[str]:
 
     sel = reconcile_ordered_vs_excluded(sel)
     sel = bump_order_lock(sel, source="post_coda_reverse_jump")
-    ctx.write_json("master/selection.json", sel, skip_handoff=True)
+    from interview_mux.air_order_boundary import commit_selection_mutation
+
+    commit_selection_mutation(
+        ctx,
+        sel,
+        producer="opening_adjacency_repair",
+        stage_key="opening_adjacency_repair",
+        checkpoint_mode="repair",
+        skip_handoff=True,
+    )
     try:
         ctx.log(
             f"post_coda_reverse_jump: dropped {drop[:12]}",

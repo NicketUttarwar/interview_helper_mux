@@ -405,7 +405,17 @@ def commit(
     _set_committing(ctx, True)
     try:
         if isinstance(sel_out, dict):
-            ctx.write_json(SELECTION_REL, sel_out, skip_handoff=True)
+            from interview_mux.air_order_boundary import commit_selection_mutation
+
+            sel_out = commit_selection_mutation(
+                ctx,
+                sel_out,
+                producer="air_order",
+                stage_key=source,
+                checkpoint_mode="detect",
+                skip_handoff=True,
+                skip_checkpoint=False,
+            )
         if isinstance(edl_out, dict):
             ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
         ctx.write_json(AIR_ORDER_REL, bundle, skip_handoff=True)

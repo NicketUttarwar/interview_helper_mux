@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AirOrderIntegrityReport",
+  "type": "object",
+  "required": ["version", "stage", "ok", "violation_count", "critical_count", "violations"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "stage": { "type": "string" },
+    "repaired": { "type": "boolean" },
+    "recorded_at": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "violation_count": { "type": "integer", "minimum": 0 },
+    "critical_count": { "type": "integer", "minimum": 0 },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "enum": ["critical", "warn", "info"] },
+          "message": { "type": "string" },
+          "after_segment_id": { "type": "string" },
+          "before_segment_id": { "type": "string" },
+          "segment_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "source_gap_ms": { "type": "integer" },
+          "air_index": { "type": "integer" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": true
+}

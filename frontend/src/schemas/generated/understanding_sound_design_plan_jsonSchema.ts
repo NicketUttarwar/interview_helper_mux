@@ -60,4 +60,5 @@ export const understanding_sound_design_plan_jsonSchema = z.object({
   "palette_counts": z.record(z.string(), z.unknown()).optional(),
 }).optional(),
   "palette_counts": z.record(z.string(), z.unknown()).optional(),
+  "_meta": z.record(z.string(), z.unknown()).optional(),
 });

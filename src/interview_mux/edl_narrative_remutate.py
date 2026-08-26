@@ -508,12 +508,15 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     for ch in (sel_c.get("chapters") or [])
                 ]
                 repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
-                write_validated_artifact(
+                from interview_mux.air_order_boundary import commit_selection_mutation
+
+                repaired_sel = commit_selection_mutation(
                     ctx,
-                    "master/selection.json",
                     repaired_sel,
-                    merge_from_disk=False,
+                    producer="edl_narrative_remutate",
                     stage_key="full_master_ranking",
+                    checkpoint_mode="detect",
+                    merge_from_disk=False,
                 )
                 after_order = [
                     str(x)

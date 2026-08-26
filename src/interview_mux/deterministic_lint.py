@@ -689,6 +689,43 @@ def _lint_transitions(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
     from interview_mux.spoken_meta_lint import lint_transitions_doc
 
     errors.extend(lint_transitions_doc(transitions))
+    if transitions:
+        from interview_mux.air_order_integrity import (
+            critical_violations,
+            pair_source_gap_ms,
+            resolved_segment_starts,
+            reverse_jump_margin_ms,
+            opening_body_start_index,
+            opening_tape_segment_ids,
+        )
+
+        starts = resolved_segment_starts(ctx)
+        sel_order: list[str] = []
+        if ctx.artifact_exists("master/selection.json"):
+            try:
+                sel = ctx.read_json("master/selection.json")
+                if isinstance(sel, dict):
+                    sel_order = [
+                        str(s) for s in (sel.get("ordered_segment_ids") or []) if s
+                    ]
+            except Exception:
+                pass
+        pos = {sid: idx for idx, sid in enumerate(sel_order)}
+        opening_ids = opening_tape_segment_ids(sel_order, starts) if sel_order else set()
+        margin = reverse_jump_margin_ms()
+        body_start = opening_body_start_index()
+        for tr in transitions:
+            if not isinstance(tr, dict):
+                continue
+            after = str(tr.get("after_segment_id") or "")
+            before = str(tr.get("before_segment_id") or "")
+            gap = tr.get("source_gap_ms")
+            if gap is None and after and before:
+                gap = pair_source_gap_ms(after, before, starts)
+            if gap is not None and int(gap) < -margin:
+                errors.append(f"transition reverse jump {after}->{before} gap={gap}")
+            if before in opening_ids and pos.get(before, 0) >= body_start:
+                errors.append(f"transition lands on late opening tape {before}")
     return errors
 
 
@@ -760,6 +797,23 @@ def _lint_full_master_ranking(artifacts: dict[str, Any], ctx: RunContext) -> lis
 
             errors.extend(ordering_constraint_errors(ordered, plan))
             errors.extend(finale_tail_errors(ordered, plan))
+    if ordered:
+        from interview_mux.air_order_integrity import (
+            chapter_opening_mask_violations,
+            critical_violations,
+            late_opening_cluster_violations,
+            lint_hard_keep_family_errors,
+            reverse_tape_jump_violations,
+        )
+
+        for v in critical_violations(
+            reverse_tape_jump_violations(ctx, ordered)
+            + late_opening_cluster_violations(ctx, ordered)
+        ):
+            errors.append(str(v.get("message") or v.get("code") or "reverse_tape_jump"))
+        for v in chapter_opening_mask_violations(ctx, artifacts):
+            errors.append(str(v.get("message") or v.get("code") or "chapter_opening_mask"))
+        errors.extend(lint_hard_keep_family_errors(ctx, artifacts))
     return errors
 
 

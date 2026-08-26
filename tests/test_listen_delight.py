@@ -7,7 +7,12 @@ import json
 import pytest
 
 from interview_mux.loud_fail import LoudStageFailure
-from interview_mux.listen_delight import AUDIT_REL, run_listen_delight_audit
+from interview_mux.listen_delight import (
+    AUDIT_REL,
+    evaluate_listen_delight,
+    run_authoritative_listen_delight_at_ship,
+    run_listen_delight_audit,
+)
 from run_fixtures import isolated_run_ctx
 
 
@@ -27,7 +32,7 @@ def test_authoritative_mode_is_default(tmp_path):
 
 
 def test_authoritative_fails_below_floors_and_hard_stops(tmp_path):
-    """Forbidden-for-mode glue (not system layups) still hard-stops ship."""
+    """Forbidden-for-mode glue hard-stops ship at master_finalize (not pre-mix)."""
     ctx = isolated_run_ctx(tmp_path, "exec_delight_fail")
     _write_raw(
         ctx,
@@ -48,17 +53,21 @@ def test_authoritative_fails_below_floors_and_hard_stops(tmp_path):
         {"narrative_mode": "sparse_source", "plan_status": "complete"},
     )
 
-    with pytest.raises(LoudStageFailure, match="Listen delight floors failed"):
-        run_listen_delight_audit(ctx)
-
-    # The audit artifact is still written (observability) even though the stage hard-stops.
-    audit = ctx.read_json("mastering/listen_delight_audit.json")
-    assert audit["mode"] == "authoritative"
-    assert audit["blocking"] is True
-    assert audit["advisory"] is False
+    audit = run_listen_delight_audit(ctx)
+    assert audit["pass"] == "pre_mix"
+    assert audit["blocking"] is False
     assert audit["passed"] is False
-    assert audit["overall"] < audit["overall_min"]
-    assert audit["failed_dimensions"]
+
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF")
+
+    with pytest.raises(LoudStageFailure, match="Listen delight floors failed at ship"):
+        run_authoritative_listen_delight_at_ship(ctx)
+
+    audit = ctx.read_json("mastering/listen_delight_audit.json")
+    assert audit["pass"] == "post_master"
+    assert audit["blocking"] is True
+    assert audit["passed"] is False
 
 
 def test_authoritative_passes_when_floors_are_cleared(tmp_path):
@@ -102,7 +111,8 @@ def test_authoritative_passes_when_floors_are_cleared(tmp_path):
     audit = run_listen_delight_audit(ctx)
 
     assert audit["mode"] == "authoritative"
-    assert audit["blocking"] is True
+    assert audit["pass"] == "pre_mix"
+    assert audit["blocking"] is False
     assert audit["passed"] is True
     assert audit["overall"] >= audit["overall_min"]
     assert not audit["failed_dimensions"]
@@ -193,10 +203,17 @@ def test_cut_integrity_uses_hang_ratio_not_per_hit_zero(tmp_path, monkeypatch):
     assert result["dimensions"]["cut_integrity"] < 1.0
 
 
-def test_authoritative_fail_writes_remutate_plan(tmp_path):
+def test_authoritative_fail_early_legacy_blocks_at_audit_stage(tmp_path, monkeypatch):
     from interview_mux.listen_delight_remutate import REMUTATE_REL
 
     ctx = isolated_run_ctx(tmp_path, "exec_delight_remutate")
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {
+            "mode": "authoritative",
+            "fail_early_at_audit_stage": True,
+        },
+    )
     _write_raw(
         ctx,
         "understanding/gap_report.json",
@@ -292,7 +309,30 @@ def test_recommendability_only_does_not_schedule_ranking_remutate(tmp_path):
     assert plan["exhausted"] is True
 
 
-def test_nugget_retention_concise_in_brief_band_meets_floor(tmp_path):
+def test_cut_integrity_penalizes_air_order_violations(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_air_order")
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"mode": "advisory"},
+    )
+    _write_raw(
+        ctx,
+        "segments/boundaries.json",
+        {
+            "boundaries": [
+                {"segment_id": "seg_003", "start_ms": 152_000},
+                {"segment_id": "seg_050", "start_ms": 2_416_000},
+                {"segment_id": "seg_001c", "start_ms": 0},
+            ]
+        },
+    )
+    _write_raw(
+        ctx,
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003", "seg_050", "seg_001c"]},
+    )
+    result = evaluate_listen_delight(ctx)
+    assert result["dimensions"]["cut_integrity"] < 0.85
     """Slightly under brief.min but inside the ship 0.85×min envelope must pass."""
     from interview_mux.listen_delight import _nugget_retention
 
@@ -322,5 +362,5 @@ def test_nugget_retention_after_assembly_resumes_mix_not_ranking(tmp_path):
     (ctx.run_dir / "master" / "assembly_preview.wav").write_bytes(b"RIFF")
     plan = plan_listen_delight_remutate(ctx, failed_dimensions=["nugget_retention"])
     assert "full_master_ranking" not in plan["from_stages"]
-    assert plan["from_stage"] in {"mmaudio_sfx", "mix", "listen_delight_audit"}
+    assert plan["from_stage"] in {"mmaudio_sfx", "mix", "listen_delight_audit", "master_finalize"}
     assert plan["exhausted"] is False

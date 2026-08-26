@@ -1508,6 +1508,18 @@
       "bed_coverage_aim_hi": 0.88,
       "_comment": "Shape realization on mastering_plan — docs/cross-cutting/air-script.md. Fail-open only if plan absent."
     },
+    "air_order_integrity": {
+      "opening_window_ms": 180000,
+      "opening_air_slots": 6,
+      "opening_body_start_index": 3,
+      "reverse_jump_margin_ms": 300000,
+      "block_ranking_on_critical": false,
+      "block_publish_on_critical": true,
+      "invalidate_edl_on_order_change": true,
+      "invalidate_transitions_on_order_change": true,
+      "invalidate_mix_on_order_change": false,
+      "_comment_block_ranking": "Default false during boundary-bus rollout; set true after soak"
+    },
     "edl": {
       "clone_adjacency_verify": true,
       "clone_adjacency_verify_clip_ms": 4000,
@@ -1671,7 +1683,8 @@
         "story_followability": 0.85
       },
       "require_mode_consistency": true,
-      "fail_early_at_audit_stage": true
+      "fail_early_at_audit_stage": false,
+      "_comment_fail_early": "When false (default), listen_delight_audit is pre-mix advisory; authoritative block runs at master_finalize after master.wav"
     },
     "homunculus": {
       "default_version": "latest",

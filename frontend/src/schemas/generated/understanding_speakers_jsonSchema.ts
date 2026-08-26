@@ -37,6 +37,13 @@ export const understanding_speakers_jsonSchema = z.object({
   "blocking": z.boolean().optional(),
 })).nullable().optional(),
   "confirmed_conversation_hypothesis_id": z.string().nullable().optional(),
+  "role_tape_conflict": z.object({
+  "blocking": z.boolean().optional(),
+  "conflict_count": z.number().optional(),
+  "typed_qa_count": z.number().optional(),
+  "conflict_ratio": z.number().optional(),
+  "examples": z.array(z.record(z.string(), z.unknown())).optional(),
+}).nullable().optional(),
   "gap_sensitivity": z.object({
   "format_class": z.string().optional(),
   "tone_class": z.string().optional(),

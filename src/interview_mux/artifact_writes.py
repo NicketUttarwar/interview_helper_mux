@@ -162,6 +162,76 @@ def write_validated_artifact(
         )
         raise ValueError(f"{rel_path}: schema validation failed — {'; '.join(errors[:6])}")
 
+    if rel_path in {"master/selection.json", "master/transitions.json"} and stage_key:
+        from interview_mux.air_order_integrity import block_ranking_on_critical
+        from interview_mux.stage_acceptance import stage_acceptance_ok
+
+        stage_for_accept = (
+            "full_master_ranking"
+            if rel_path == "master/selection.json"
+            else "transitions"
+        )
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        if STAGE_ARTIFACT_DISK_PATHS.get(stage_for_accept) == rel_path:
+            acceptance = stage_acceptance_ok(
+                ctx,
+                stage_for_accept,
+                staged=False,
+                include_cross_validate=False,
+                include_downstream=False,
+            )
+            # Re-lint the in-memory payload (disk may not be written yet).
+            from interview_mux.deterministic_lint import _LINTERS
+
+            lint_fn = _LINTERS.get(stage_for_accept)
+            lint_errors: list[str] = []
+            if lint_fn:
+                try:
+                    lint_errors = list(lint_fn(out, ctx) or [])
+                except Exception as exc:  # noqa: BLE001
+                    lint_errors = [f"lint internal error: {exc}"]
+            combined = list(acceptance.lint_errors or []) + lint_errors
+            if rel_path == "master/selection.json" and ctx.artifact_exists(
+                "master/air_order_integrity.json"
+            ):
+                try:
+                    integrity = ctx.read_json("master/air_order_integrity.json")
+                    if isinstance(integrity, dict) and not integrity.get("ok"):
+                        for v in integrity.get("violations") or []:
+                            if (
+                                isinstance(v, dict)
+                                and str(v.get("severity") or "").lower() == "critical"
+                            ):
+                                combined.append(
+                                    str(v.get("message") or v.get("code") or "integrity")
+                                )
+                except Exception:
+                    pass
+            if combined:
+                blocking = block_ranking_on_critical()
+                critical_markers = (
+                    "reverse",
+                    "opening-tape",
+                    "opening_tape",
+                    "hard-keep",
+                    "late_opening",
+                    "mid_arc",
+                    "integrity",
+                )
+                has_critical = any(
+                    any(m in str(e).lower() for m in critical_markers) for e in combined
+                )
+                if blocking and has_critical:
+                    raise ValueError(
+                        f"{rel_path}: blocking lint failed — {'; '.join(combined[:4])}"
+                    )
+                ctx.log(
+                    f"Lint on {rel_path}: {'; '.join(combined[:4])}",
+                    level="warning" if not has_critical else "error",
+                    stage=stage_key,
+                )
+
     return ctx.write_json(rel_path, out, stage_key=stage_key)
 
 

@@ -269,7 +269,10 @@ def test_listen_delight_floors_pass_when_audit_clears_floors(tmp_path, monkeypat
                 "mode_coherence": 1.0,
                 "finishability": 0.9,
                 "recommendability": 0.9,
+                "story_followability": 0.88,
             },
+            "failed_dimensions": [],
+            "passed": True,
             "dimension_floors": {
                 "nugget_retention": 0.80,
                 "cut_integrity": 0.85,

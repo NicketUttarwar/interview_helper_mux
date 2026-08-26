@@ -935,6 +935,22 @@ def layup_plan_is_stale(ctx: Any) -> bool:
         return False
 
 
+def air_order_integrity_blocks_delivery(ctx: Any) -> str | None:
+    """Return blocking message when critical air-order integrity remains."""
+    if not ctx.artifact_exists("master/air_order_integrity.json"):
+        return None
+    try:
+        doc = ctx.read_json("master/air_order_integrity.json")
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or doc.get("ok"):
+        return None
+    for v in doc.get("violations") or []:
+        if isinstance(v, dict) and str(v.get("severity") or "") == "critical":
+            return str(v.get("message") or v.get("code") or "air_order_integrity")
+    return None
+
+
 def refresh_nugget_layup_plan(ctx: Any, *, reason: str) -> bool:
     """Rebuild the lay-up plan for the current air order instead of republishing it.
 
@@ -2601,6 +2617,17 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 and edl_path.is_file()
                 and asm.stat().st_mtime_ns < edl_path.stat().st_mtime_ns
             ):
+                block = air_order_integrity_blocks_delivery(ctx)
+                if block:
+                    log_decision(
+                        "major",
+                        stage="mix",
+                        action="route_product_repair",
+                        reason="air_order_integrity_critical",
+                        detail={"message": block[:200]},
+                    )
+                    execute({"mode": "delivery", "from_stage": "full_master_ranking"})
+                    return "continue"
                 log("commitment heal: assembly stale — resume mix")
                 execute({"mode": "delivery", "from_stage": "mix"})
                 return "continue"

@@ -143,15 +143,59 @@ def _apply_reconciled_order(
         if s and s not in cleaned:
             cleaned.append(s)
     sel = dict(sel)
+    previous = dict(sel)
     sel["ordered_segment_ids"] = cleaned
     sel["order_reconcile_source"] = source
-    stamped = bump_order_lock(sel, source=f"order_reconcile:{source}")
     try:
-        from interview_mux.write_staging import write_committed_json
+        from interview_mux.air_order_integrity import (
+            critical_violations,
+            collect_violations,
+            on_selection_order_changed,
+            repair_air_order_integrity,
+        )
 
-        write_committed_json(ctx, "master/selection.json", stamped)
+        sel, _ = repair_air_order_integrity(ctx, sel)
+        violations = collect_violations(ctx, sel)
+        if critical_violations(violations) and source.startswith("flagship"):
+            ctx.log(
+                "order_reconcile: reverting LLM order — critical air_order integrity",
+                level="error",
+                stage="order_reconcile",
+                detail=critical_violations(violations)[:4],
+            )
+            sel = previous
+            sel["ordered_segment_ids"] = [
+                str(s) for s in (previous.get("ordered_segment_ids") or []) if s
+            ]
+    except Exception as exc:
+        ctx.log(
+            f"order_reconcile integrity repair failed: {exc}",
+            level="warning",
+            stage="order_reconcile",
+        )
+    stamped = bump_order_lock(sel, source=f"order_reconcile:{source}")
+    from interview_mux.air_order_boundary import commit_selection_mutation
+
+    try:
+        commit_selection_mutation(
+            ctx,
+            stamped,
+            producer="order_reconcile",
+            stage_key="order_reconcile",
+            checkpoint_mode="repair",
+            write_committed=True,
+            skip_checkpoint=True,
+        )
     except Exception:
         ctx.write_json("master/selection.json", stamped)
+        try:
+            from interview_mux.air_order_integrity import on_selection_order_changed
+
+            on_selection_order_changed(
+                ctx, source=f"order_reconcile:{source}", previous=previous, current=stamped
+            )
+        except Exception:
+            pass
     try:
         from interview_mux.nugget_layup import adopt_layup_plan_to_selection
 

@@ -81,6 +81,41 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
 _SOFTENABLE_DELIGHT_DIMS = frozenset({"sonic_weave"})
 
 
+def _pmq_no_late_opening_native(ctx: RunContext) -> bool:
+    """True when EDL has no opening-tape native clips late in the timeline."""
+    if not ctx.artifact_exists("master/edl.json"):
+        return True
+    try:
+        from interview_mux.air_order_integrity import (
+            opening_window_ms,
+            resolved_segment_starts,
+        )
+        from interview_mux.edl_narrative_qc import _speech_order
+
+        edl = ctx.read_json("master/edl.json")
+        if not isinstance(edl, dict):
+            return True
+        speech = _speech_order(edl)
+        if not speech:
+            return True
+        starts = resolved_segment_starts(ctx)
+        window = opening_window_ms()
+        opening_ids = {
+            sid
+            for sid in speech
+            if (resolved := starts.get(sid)) is not None and int(resolved) < window
+        }
+        if not opening_ids:
+            return True
+        threshold = max(1, int(len(speech) * 0.25))
+        for idx, sid in enumerate(speech):
+            if sid in opening_ids and idx >= threshold:
+                return False
+    except Exception:
+        return True
+    return True
+
+
 def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     conf = post_master_quality_cfg()
@@ -153,6 +188,27 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         },
     )
     add("render_ledger_exists", ctx.artifact_exists("master/render_ledger.json"))
+
+    if ctx.artifact_exists("master/air_order_integrity.json"):
+        try:
+            integrity = ctx.read_json("master/air_order_integrity.json")
+            critical = [
+                v
+                for v in ((integrity or {}).get("violations") or [])
+                if isinstance(v, dict) and str(v.get("severity") or "") == "critical"
+            ]
+            from interview_mux.air_order_integrity import block_publish_on_critical
+
+            block = block_publish_on_critical()
+            add(
+                "air_order_integrity",
+                not critical or not block,
+                {"critical_count": len(critical), "blocked": bool(critical and block)},
+            )
+        except Exception:
+            add("air_order_integrity", True, {"skipped": True})
+
+    add("spoken_native_intro_duplicate", _pmq_no_late_opening_native(ctx))
 
     plan_required = ctx.is_done("mastering_plan_synthesize") or ctx.is_done(
         "mastering_plan_confirm"
@@ -704,9 +760,12 @@ def build_listener_scorecard(ctx: RunContext, quality: dict[str, Any]) -> dict[s
 
 
 def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str, Any]:
+    from interview_mux.listen_delight import run_authoritative_listen_delight_at_ship
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
     from interview_mux.write_staging import write_committed_json
 
+    if ctx.artifact_exists("master/master.wav"):
+        run_authoritative_listen_delight_at_ship(ctx)
     snip = (
         ctx.read_json("master/junction_snip_qa.json")
         if ctx.artifact_exists("master/junction_snip_qa.json")

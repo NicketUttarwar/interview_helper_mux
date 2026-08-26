@@ -4021,6 +4021,57 @@ def _persist_soundscape_policy(ctx: Any, policy: dict[str, Any]) -> None:
             pass
 
 
+def prune_reverse_jump_transitions(
+    ctx: Any,
+    transitions_doc: dict[str, Any],
+    ordered: list[str],
+) -> tuple[dict[str, Any], list[str]]:
+    """Drop transitions with reverse tape jumps or late opening-tape landings."""
+    from interview_mux.air_order_integrity import (
+        opening_body_start_index,
+        opening_tape_segment_ids,
+        pair_source_gap_ms,
+        resolved_segment_starts,
+        reverse_jump_margin_ms,
+    )
+
+    out = copy.deepcopy(transitions_doc) if isinstance(transitions_doc, dict) else {"transitions": []}
+    notes: list[str] = []
+    items = list(out.get("transitions") or [])
+    if not items:
+        return out, notes
+    starts = resolved_segment_starts(ctx)
+    if not starts:
+        return out, notes
+    order = [str(s) for s in (ordered or []) if s]
+    pos = {sid: idx for idx, sid in enumerate(order)}
+    opening_ids = opening_tape_segment_ids(order, starts)
+    margin = reverse_jump_margin_ms()
+    body_start = opening_body_start_index()
+    kept: list[dict[str, Any]] = []
+    pruned = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        after = str(item.get("after_segment_id") or "")
+        before = str(item.get("before_segment_id") or "")
+        gap = item.get("source_gap_ms")
+        if gap is None and after and before:
+            gap = pair_source_gap_ms(after, before, starts)
+        if gap is not None and int(gap) < -margin:
+            pruned += 1
+            continue
+        if before in opening_ids and pos.get(before, 0) >= body_start:
+            pruned += 1
+            continue
+        kept.append(item)
+    out["transitions"] = kept
+    if pruned:
+        out["reverse_jump_pruned_count"] = pruned
+        notes.append(f"pruned_reverse_jump_transitions:{pruned}")
+    return out, notes
+
+
 def repair_transitions(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Keep one spoken bridge per selected-order adjacency."""
     from interview_mux.gap_framing import (
@@ -4043,6 +4094,9 @@ def repair_transitions(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], l
     pruned = int(out.get("outside_selection_pruned_count") or 0)
     if pruned:
         applied.append({"action": "prune_transitions_outside_selection", "count": pruned})
+    out, rnotes = prune_reverse_jump_transitions(ctx, out, sel_ids)
+    if rnotes:
+        applied.append({"action": "prune_reverse_jump_transitions", "notes": rnotes[:4]})
     out = dedupe_transitions_by_adjacency(out)
     extras = int(out.get("adjacency_deduped_count") or 0)
     if extras:

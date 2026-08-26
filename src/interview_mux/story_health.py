@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from interview_mux.selection_order_repair import (
     finale_tail_errors,
     ordering_constraint_errors,
 )
+
+if TYPE_CHECKING:
+    from interview_mux.run_context import RunContext
 
 
 def evaluate_story_health(
@@ -20,6 +23,7 @@ def evaluate_story_health(
     transitions: dict[str, Any] | None = None,
     nle_overlay_applied: bool = False,
     hook_segment_id: str | None = None,
+    ctx: RunContext | None = None,
 ) -> dict[str, Any]:
     """Return story_health document.
 
@@ -33,6 +37,29 @@ def evaluate_story_health(
         issues.append({"code": "ordering_constraint", "severity": "error", "message": msg})
     for msg in finale_tail_errors(ordered_ids, narrative_plan):
         issues.append({"code": "finale_tail", "severity": "error", "message": msg})
+
+    if ctx is not None and ordered_ids:
+        from interview_mux.air_order_integrity import (
+            late_opening_cluster_violations,
+            reverse_tape_jump_violations,
+        )
+
+        for v in reverse_tape_jump_violations(ctx, ordered_ids):
+            issues.append(
+                {
+                    "code": "reverse_tape_jump",
+                    "severity": "error",
+                    "message": str(v.get("message") or v.get("code") or ""),
+                }
+            )
+        for v in late_opening_cluster_violations(ctx, ordered_ids):
+            issues.append(
+                {
+                    "code": "late_opening_cluster",
+                    "severity": "error",
+                    "message": str(v.get("message") or v.get("code") or ""),
+                }
+            )
 
     if ordered_ids and hook_segment_id and str(hook_segment_id) not in {
         ordered_ids[0],

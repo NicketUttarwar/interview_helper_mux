@@ -849,6 +849,25 @@ def validate_flow1_edl_narrative(
     if errors:
         return errors
 
+    if ctx.artifact_exists("master/air_order_integrity.json"):
+        try:
+            integrity = ctx.read_json("master/air_order_integrity.json")
+            if isinstance(integrity, dict) and not integrity.get("ok"):
+                critical = [
+                    v
+                    for v in (integrity.get("violations") or [])
+                    if isinstance(v, dict) and str(v.get("severity") or "") == "critical"
+                ]
+                if critical:
+                    errors.append(
+                        "air_order_integrity unresolved critical: "
+                        + "; ".join(
+                            str(v.get("message") or v.get("code") or "") for v in critical[:3]
+                        )
+                    )
+        except Exception:
+            pass
+
     selection = ctx.read_json("master/selection.json")
     coverage = ctx.read_json("master/coverage_audit.json")
     narrative_plan = ctx.read_json("master/narrative_plan.json")

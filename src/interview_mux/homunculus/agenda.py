@@ -850,6 +850,35 @@ def rerun_stage(
     return {"ok": True, "stage": stage, "seq": seq}
 
 
+def heal_air_order_integrity(ctx: RunContext) -> dict[str, Any]:
+    """Deterministic repair for reverse tape jumps and late opening clusters."""
+    from interview_mux.stages.selection import finalize_selection_order
+
+    if not ctx.artifact_exists("master/selection.json"):
+        return {"ok": False, "error": "no_selection"}
+    sel = ctx.read_json("master/selection.json")
+    if not isinstance(sel, dict):
+        return {"ok": False, "error": "invalid_selection"}
+    try:
+        out = finalize_selection_order(ctx, sel, stage="full_master_ranking", apply_cta=True)
+        from interview_mux.artifact_writes import write_validated_artifact
+
+        write_validated_artifact(
+            ctx,
+            "master/selection.json",
+            out,
+            merge_from_disk=True,
+            stage_key="full_master_ranking",
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    append_ledger(
+        ctx,
+        {"kind": "heal_air_order_integrity", "identity": "heal_air_order_integrity"},
+    )
+    return {"ok": True}
+
+
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")

@@ -9,8 +9,13 @@ export const mastering_media_ip_cta_jsonSchema = z.object({
   "never_touch_segment_ids": z.array(z.string()).optional(),
   "never_touch_texts": z.array(z.string()).optional(),
   "cover_target_ids": z.array(z.string()).optional(),
+  "admitted_story_segment_ids": z.array(z.string()).optional(),
+  "considerable_segment_ids": z.array(z.string()).optional(),
   "recuts": z.array(z.record(z.string(), z.unknown())).optional(),
   "cta_open_parent": z.string().nullable().optional(),
   "open_choice": z.string().nullable().optional(),
   "notes": z.array(z.string()).optional(),
+  "prune_tree": z.array(z.record(z.string(), z.unknown())).optional(),
+  "seed_ids": z.array(z.string()).optional(),
+  "seed_count": z.number().optional(),
 });

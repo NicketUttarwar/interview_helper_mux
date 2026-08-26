@@ -447,6 +447,21 @@ def mint_missing_transitions(
         b = str(pair.get("before_segment_id") or "")
         if not a or not b or a == b or (a, b) in existing:
             continue
+        try:
+            gap = pair.get("source_gap_ms")
+            if gap is None:
+                from interview_mux.air_order_integrity import (
+                    pair_source_gap_ms,
+                    resolved_segment_starts,
+                    reverse_jump_margin_ms,
+                )
+
+                starts = resolved_segment_starts(ctx)
+                gap = pair_source_gap_ms(a, b, starts)
+            if gap is not None and int(gap) < -reverse_jump_margin_ms():
+                continue
+        except Exception:
+            pass
         if transition_redundant_with_framing(gap_report, a, b):
             continue
         # Contentful lay-up before the next native already covers the seam.

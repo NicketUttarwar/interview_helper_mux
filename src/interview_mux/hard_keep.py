@@ -166,6 +166,24 @@ def _place_or_omit_restored_for_finale(
             continue
         kept_restored.append(sid)
     if omitted:
+        from interview_mux.air_order_integrity import (
+            opening_window_ms,
+            resolved_segment_starts,
+        )
+
+        starts = resolved_segment_starts(ctx)
+        window = opening_window_ms()
+        ordered_list = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
+        guest_first = False
+        if ordered_list and starts:
+            first = starts.get(ordered_list[0])
+            if first is None:
+                from interview_mux.selection_order_repair import resolved_source_start_ms
+
+                fs = resolved_source_start_ms(ordered_list[0], starts)
+                first = fs
+            if first is not None and int(first) >= window:
+                guest_first = True
         excl = list(selection.get("excluded_segment_ids") or [])
         seen_ex = set()
         for row in excl:
@@ -176,7 +194,8 @@ def _place_or_omit_restored_for_finale(
         for sid in omitted:
             if sid in seen_ex:
                 continue
-            excl.append({"segment_id": sid, "reason": "finale_tail_leftover"})
+            reason = "opening_skipped_duplicate" if guest_first else "finale_tail_leftover"
+            excl.append({"segment_id": sid, "reason": reason})
             seen_ex.add(sid)
         rationales = (
             dict(selection.get("exclude_rationales") or {})
@@ -184,10 +203,19 @@ def _place_or_omit_restored_for_finale(
             else {}
         )
         for sid in omitted:
-            rationales[sid] = "finale_tail_leftover"
+            reason = rationales.get(sid) or (
+                "opening_skipped_duplicate" if guest_first else "finale_tail_leftover"
+            )
+            rationales[sid] = reason
         selection["excluded_segment_ids"] = excl
         selection["exclude_rationales"] = rationales
     selection["ordered_segment_ids"] = ordered
+    try:
+        from interview_mux.air_order_integrity import repair_air_order_integrity
+
+        selection, _ = repair_air_order_integrity(ctx, selection)
+    except Exception:
+        pass
     return selection, kept_restored, omitted
 
 

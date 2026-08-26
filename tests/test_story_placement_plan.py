@@ -44,6 +44,48 @@ def test_topo_does_not_append_early_after_finale():
     assert applied
 
 
+def test_exec_188_mid_arc_repair_excludes_host_intro():
+    from interview_mux.air_order_integrity import repair_air_order_integrity
+
+    starts = {
+        "seg_001": 0,
+        "seg_003": 152_000,
+        "seg_050": 2_416_000,
+        "seg_001c": 0,
+        "seg_001d": 0,
+        "seg_058": 2_500_000,
+    }
+
+    class _Ctx:
+        def artifact_exists(self, path: str) -> bool:
+            return path == "segments/boundaries.json"
+
+        def read_json(self, path: str):
+            return {
+                "boundaries": [
+                    {"segment_id": k, "start_ms": v} for k, v in starts.items()
+                ]
+            }
+
+    selection = {
+        "ordered_segment_ids": [
+            "seg_003",
+            "seg_010",
+            "seg_050",
+            "seg_001c",
+            "seg_001d",
+            "seg_058",
+        ],
+        "excluded_segment_ids": [],
+    }
+    repaired, actions = repair_air_order_integrity(_Ctx(), selection)
+    ordered = repaired.get("ordered_segment_ids") or []
+    assert "seg_001c" not in ordered
+    assert "seg_001d" not in ordered
+    assert ordered.index("seg_050") < len(ordered) - 1
+    assert actions
+
+
 def test_repair_pulls_earlier_hard_keeps_before_letter_split_signoff():
     """Live mohan: last-chapter 045/047/049/050 must not sit after sign-off 051i."""
     from interview_mux.selection_order_repair import (

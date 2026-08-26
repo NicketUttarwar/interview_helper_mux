@@ -31,3 +31,4 @@
 11. [docs/cross-cutting/anchored-toolchain.md](docs/cross-cutting/anchored-toolchain.md) — pins; AWS = Terraform + boto3
 12. [docs/workflows/api-reference.md](docs/workflows/api-reference.md)
 13. [docs/cross-cutting/timeline-optimizer.md](docs/cross-cutting/timeline-optimizer.md) · [stage-volley-matrix.md](docs/cross-cutting/stage-volley-matrix.md) · [episode-architecture-spine.md](docs/cross-cutting/episode-architecture-spine.md)
+14. [docs/cross-cutting/air-order-boundary.md](docs/cross-cutting/air-order-boundary.md) — federated air-order constitution, checkpoints, lifecycle bus

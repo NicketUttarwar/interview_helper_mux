@@ -958,6 +958,15 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
 | `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
 | `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
+| `mastering.air_order_integrity.opening_window_ms` | `180000` | Source-tape window treated as opening | Segments with earlier `start_ms` subject to opening policy |
+| `mastering.air_order_integrity.opening_air_slots` | `6` | Max early air index for opening cluster when host-first | Guest-first runs use stricter index-0 rule |
+| `mastering.air_order_integrity.opening_body_start_index` | `3` | Body-started threshold for transition/PMQ guards | — |
+| `mastering.air_order_integrity.reverse_jump_margin_ms` | `300000` | Min backward source gap to flag reverse jump | — |
+| `mastering.air_order_integrity.block_ranking_on_critical` | `false` | Halt ranking/transitions commit on critical integrity (after repair) | `true` after boundary-bus soak |
+| `mastering.air_order_integrity.block_publish_on_critical` | `true` | PMQ backstop on unresolved critical integrity | — |
+| `mastering.air_order_integrity.invalidate_edl_on_order_change` | `true` | Clear `.stage_done/edl` when selection order changes post-transitions | — |
+| `mastering.air_order_integrity.invalidate_transitions_on_order_change` | `true` | Clear transitions + prune on order change | — |
+| `mastering.air_order_integrity.invalidate_mix_on_order_change` | `false` | Clear `.stage_done/mix` when EDL invalidated and assembly stale | Opt-in; default off |
 | `mastering.edl.clone_adjacency_verify` | `true` | EDL clone-adjacency suppress | `false` restores ID-only suppress (no same-person listen) |
 | `mastering.edl.clone_adjacency_verify_clip_ms` | `4000` | Tape window paired with the clone sample | Too short starves Sortformer; too long mixes in the other speaker |
 | `mastering.media_ip_cta.prune_max_depth` | `2` | `media_ip_cta` still-mixed re-split only | Higher than 2 re-peels leftover mixed children |
@@ -1029,7 +1038,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |
-| `mastering.listen_delight.fail_early_at_audit_stage` | `true` | Hard-stop inside `listen_delight_audit` (before mix/junction/finalize) when floors fail | `false` only relies on the `post_master_quality` re-check before publish |
+| `mastering.listen_delight.fail_early_at_audit_stage` | `false` | Hard-stop inside `listen_delight_audit` (pre-mix) when floors fail | `true` restores legacy early block; authoritative ship gate always re-runs at `master_finalize` |
 | `mastering.homunculus.default_version` | `latest` | Start-tab / create-run default brain. `latest` = highest registered (currently `0.1.0`). Pin `0.0.0` to restore the original walk. | Unknown versions refuse to start |
 | `mastering.homunculus.mode` | `authoritative` | 0.1.0+ conductor authority (`advisory` debug) | Unused on 0.0.0 |
 | `mastering.homunculus.conductor_model` | `gpt-4o` | OpenAI model for the 0.1.0 tool loop | Nested stage LLMs still use the model registry |

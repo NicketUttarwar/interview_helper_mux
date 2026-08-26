@@ -25,6 +25,8 @@ export const master_selection_jsonSchema = z.object({
   "order_authority": z.string().optional(),
   "optimizer_candidate_id": z.string().optional(),
   "optimizer_score": z.unknown().optional(),
+  "admitted_story_segment_ids": z.array(z.string()).optional(),
+  "considerable_segment_ids": z.array(z.string()).optional(),
   "media_ip_cta": z.array(z.object({
   "segment_id": z.string(),
   "clearly_media_ip_pitch": z.boolean(),

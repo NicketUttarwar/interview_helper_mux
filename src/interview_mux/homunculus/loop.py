@@ -247,6 +247,10 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
         from interview_mux.homunculus.agenda import invalidate_downstream
 
         return invalidate_downstream(ctx, str(args.get("stage") or ""))
+    if name == "heal_air_order_integrity":
+        from interview_mux.homunculus.agenda import heal_air_order_integrity
+
+        return heal_air_order_integrity(ctx)
     if name == "axis_select":
         from interview_mux.homunculus.packer import pack_volley, select_axes
 

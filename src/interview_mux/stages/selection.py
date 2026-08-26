@@ -120,50 +120,157 @@ def _source_start_ms_map(ctx) -> dict[str, int]:
     return starts
 
 
-
-def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
-    """Commit ranking artifacts without re-running the LLM.
-
-    Applies topo repair, CTA omit, then hard-keep (banned IDs already stripped)
-    so air-script and later stages get a schema-valid selection.json.
-    """
-    if not ranking_artifacts_persistable(artifacts):
-        raise ValueError("ranking artifacts missing ordered_segment_ids")
-    plan = (
-        ctx.read_json("master/narrative_plan.json")
-        if ctx.artifact_exists("master/narrative_plan.json")
-        else None
+def finalize_selection_order(
+    ctx: RunContext,
+    artifacts: dict[str, Any],
+    *,
+    stage: str = "full_master_ranking",
+    plan: dict[str, Any] | None = None,
+    apply_cta: bool = True,
+    write_integrity_report: bool = True,
+    block_on_critical: bool | None = None,
+    skip_lifecycle: bool = False,
+) -> dict[str, Any]:
+    """Single authoritative selection finalize: topo, hard-keep, CTA, integrity, health."""
+    from interview_mux.air_order_integrity import (
+        block_ranking_on_critical,
+        collect_violations,
+        critical_violations,
+        on_selection_order_changed,
+        repair_air_order_integrity,
+        write_air_order_integrity_report,
     )
-    from interview_mux.selection_order_repair import repair_selection_order
     from interview_mux.hard_keep import enforce_hard_keeps
     from interview_mux.order_hash import bump_order_lock
+    from interview_mux.selection_order_repair import (
+        finale_tail_errors,
+        repair_selection_order,
+    )
+    from interview_mux.story_health import evaluate_story_health
+
+    if plan is None and ctx.artifact_exists("master/narrative_plan.json"):
+        raw = ctx.read_json("master/narrative_plan.json")
+        plan = raw if isinstance(raw, dict) else None
+
+    previous = dict(artifacts)
+    starts = _source_start_ms_map(ctx) or None
 
     artifacts, _ = repair_selection_order(
-            artifacts, plan if isinstance(plan, dict) else None,
-            source_start_ms=_source_start_ms_map(ctx) or None,
-        )
+        artifacts, plan, source_start_ms=starts
+    )
     artifacts = enforce_hard_keeps(ctx, artifacts)
-    try:
+    artifacts, _ = repair_air_order_integrity(ctx, artifacts)
+
+    if apply_cta:
         from interview_mux.media_ip_cta import apply_cta_judgments, apply_editorial_omits
 
         artifacts = apply_cta_judgments(ctx, artifacts)
-        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        artifacts = bump_order_lock(artifacts, source=stage)
         artifacts = apply_editorial_omits(ctx, artifacts)
-        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
+        artifacts = bump_order_lock(artifacts, source=stage)
         artifacts = enforce_hard_keeps(ctx, artifacts)
-    except Exception as exc:
-        ctx.log(
-            f"media_ip_cta apply failed (fail-open): {exc}",
-            level="warning",
-            stage="full_master_ranking",
+        artifacts, _ = repair_selection_order(
+            artifacts, plan, source_start_ms=starts
         )
-    artifacts = bump_order_lock(artifacts, source="full_master_ranking")
-    write_validated_artifact(
+        artifacts, _ = repair_air_order_integrity(ctx, artifacts)
+
+    final_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
+    tail_errs = finale_tail_errors(final_ordered, plan)
+    if tail_errs:
+        artifacts, _ = repair_selection_order(
+            artifacts, plan, source_start_ms=starts
+        )
+        artifacts, _ = repair_air_order_integrity(ctx, artifacts)
+
+    gap = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else None
+    )
+    tr = (
+        ctx.read_json("master/transitions.json")
+        if ctx.artifact_exists("master/transitions.json")
+        else None
+    )
+    cov = (
+        ctx.read_json("master/coverage_audit.json")
+        if ctx.artifact_exists("master/coverage_audit.json")
+        else None
+    )
+    bridges = (
+        ctx.read_json("understanding/reorder_bridges.json")
+        if ctx.artifact_exists("understanding/reorder_bridges.json")
+        else None
+    )
+    hook_id = artifacts.get("native_cold_open_segment_id")
+    health = evaluate_story_health(
+        ordered=[str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s],
+        narrative_plan=plan,
+        coverage_audit=cov if isinstance(cov, dict) else None,
+        reorder_bridges=bridges if isinstance(bridges, dict) else None,
+        gap_report=gap if isinstance(gap, dict) else None,
+        transitions=tr if isinstance(tr, dict) else None,
+        hook_segment_id=str(hook_id) if hook_id else None,
+        ctx=ctx,
+    )
+    ctx.write_json("master/story_health.json", health, stage_key=stage)
+
+    violations = collect_violations(ctx, artifacts)
+    integrity_actions: list[dict[str, Any]] = []
+    if write_integrity_report:
+        write_air_order_integrity_report(
+            ctx,
+            violations=violations,
+            actions=integrity_actions,
+            stage=stage,
+            repaired=True,
+        )
+
+    should_block = block_ranking_on_critical() if block_on_critical is None else block_on_critical
+    if should_block and critical_violations(violations):
+        raise ValueError(
+            "air_order_integrity critical violations: "
+            + "; ".join(
+                str(v.get("message") or v.get("code") or "")
+                for v in critical_violations(violations)[:3]
+            )
+        )
+    if should_block and health.get("verdict") == "fail":
+        raise ValueError(
+            "story_health fail: "
+            + "; ".join(
+                str(i.get("message") or i.get("code") or "")
+                for i in (health.get("issues") or [])[:3]
+                if isinstance(i, dict)
+            )
+        )
+
+    artifacts = bump_order_lock(artifacts, source=stage)
+    if not skip_lifecycle:
+        on_selection_order_changed(
+            ctx, source=f"{stage}:finalize", previous=previous, current=artifacts
+        )
+    return artifacts
+
+
+
+def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
+    """Commit ranking artifacts without re-running the LLM."""
+    if not ranking_artifacts_persistable(artifacts):
+        raise ValueError("ranking artifacts missing ordered_segment_ids")
+    artifacts = finalize_selection_order(
+        ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
+    )
+    from interview_mux.air_order_boundary import commit_selection_mutation
+
+    commit_selection_mutation(
         ctx,
-        "master/selection.json",
         artifacts,
-        merge_from_disk=True,
+        producer="full_master_ranking",
         stage_key="full_master_ranking",
+        checkpoint_mode="detect",
+        merge_from_disk=True,
+        skip_checkpoint=True,
     )
     try:
         from interview_mux.nugget_layup import adopt_layup_plan_to_selection
@@ -606,36 +713,7 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         except Exception:
             pass
 
-        # Final topo repair after Shape/hook/story_health — order may have drifted.
-        from interview_mux.selection_order_repair import (
-            finale_tail_errors,
-            repair_selection_order,
-        )
-
-        artifacts, final_notes = repair_selection_order(
-            artifacts, plan if isinstance(plan, dict) else None,
-            source_start_ms=_source_start_ms_map(c) or None,
-        )
-        if final_notes:
-            c.log(
-                f"selection final topo repair: {len(final_notes)} action(s)",
-                level="info",
-                stage="full_master_ranking",
-                detail=final_notes[:8],
-            )
-        final_ordered = [str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s]
-        tail_errs = finale_tail_errors(final_ordered, plan if isinstance(plan, dict) else None)
-        if tail_errs:
-            # One more forced rebuild; still fail post-commit if unresolved.
-            artifacts, _ = repair_selection_order(
-                artifacts, plan if isinstance(plan, dict) else None,
-                source_start_ms=_source_start_ms_map(c) or None,
-            )
-            c.log(
-                f"selection finale-tail still present after repair: {tail_errs[:2]}",
-                level="warning",
-                stage="full_master_ranking",
-            )
+        # Final topo + integrity finalize after Shape/hook/story_health drift.
         final_ordered = [
             str(s) for s in (artifacts.get("ordered_segment_ids") or []) if s
         ]
@@ -644,30 +722,12 @@ def run_full_master_ranking(ctx: RunContext) -> None:
         else:
             artifacts.pop("native_cold_open_segment_id", None)
 
-        from interview_mux.order_hash import bump_order_lock
-
-        artifacts = bump_order_lock(artifacts, source="full_master_ranking")
-        try:
-            from interview_mux.media_ip_cta import apply_cta_judgments, apply_editorial_omits
-
-            artifacts = apply_cta_judgments(c, artifacts)
-            artifacts = bump_order_lock(artifacts, source="full_master_ranking")
-            artifacts = apply_editorial_omits(c, artifacts)
-            artifacts = bump_order_lock(artifacts, source="full_master_ranking")
-            from interview_mux.hard_keep import enforce_hard_keeps
-            from interview_mux.selection_order_repair import repair_selection_order
-
-            artifacts = enforce_hard_keeps(c, artifacts)
-            artifacts, _ = repair_selection_order(
-                artifacts, plan if isinstance(plan, dict) else None,
-                source_start_ms=_source_start_ms_map(c) or None,
-            )
-        except Exception as exc:
-            c.log(
-                f"media_ip_cta apply failed (fail-open): {exc}",
-                level="warning",
-                stage="full_master_ranking",
-            )
+        artifacts = finalize_selection_order(
+            c,
+            artifacts,
+            stage="full_master_ranking",
+            plan=plan if isinstance(plan, dict) else None,
+        )
         write_validated_artifact(
             c,
             "master/selection.json",
@@ -745,11 +805,24 @@ def run_full_master_ranking(ctx: RunContext) -> None:
 
 
 def run_transitions(ctx: RunContext) -> None:
-    # Synthetic framing is authoritative only after the native air order is
-    # stable.  This nested LLM stage builds the complete context packet first.
-    from interview_mux.synthetic_framing import run_synthetic_framing_plan
-
+    # Repair air-order integrity before transitions freeze bad adjacencies.
     if ctx.artifact_exists("master/selection.json"):
+        from interview_mux.air_order_integrity import audit_and_report, on_selection_order_changed
+        from interview_mux.opening_adjacency_repair import (
+            drop_late_intro_reset_from_selection,
+            drop_post_coda_reverse_jump_from_selection,
+        )
+
+        previous = ctx.read_json("master/selection.json")
+        drop_late_intro_reset_from_selection(ctx)
+        drop_post_coda_reverse_jump_from_selection(ctx)
+        audit_and_report(ctx, stage="transitions", repair=True)
+        if isinstance(previous, dict) and ctx.artifact_exists("master/selection.json"):
+            current = ctx.read_json("master/selection.json")
+            if isinstance(current, dict):
+                on_selection_order_changed(
+                    ctx, source="transitions:prerepair", previous=previous, current=current
+                )
         from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
 
         sel = ctx.read_json("master/selection.json")
@@ -760,17 +833,23 @@ def run_transitions(ctx: RunContext) -> None:
                 or repaired.get("ordered_segment_ids") != sel.get("ordered_segment_ids")
                 or repaired.get("excluded_segment_ids") != sel.get("excluded_segment_ids")
             ):
-                ctx.write_json(
-                    "master/selection.json",
+                from interview_mux.air_order_boundary import commit_selection_mutation
+
+                commit_selection_mutation(
+                    ctx,
                     repaired,
+                    producer="transitions",
+                    stage_key="transitions",
+                    checkpoint_mode="repair",
                     skip_handoff=True,
-                    stage_key="full_master_ranking",
                 )
                 ctx.log(
                     "transitions: reconciled selection so exclude_rationales match air order",
                     level="warning",
                     stage="transitions",
                 )
+
+    from interview_mux.synthetic_framing import run_synthetic_framing_plan
 
     synthetic_plan = run_synthetic_framing_plan(ctx)
 
@@ -843,6 +922,41 @@ def run_transitions(ctx: RunContext) -> None:
         )
         artifacts = dedupe_transitions_for_framing(gap_report, artifacts, ctx=c)
         artifacts = dedupe_transitions_by_adjacency(artifacts)
+        from interview_mux.air_order_integrity import (
+            opening_body_start_index,
+            opening_tape_segment_ids,
+            pair_source_gap_ms,
+            resolved_segment_starts,
+            reverse_jump_margin_ms,
+        )
+
+        starts = resolved_segment_starts(c)
+        sel_order: list[str] = []
+        if c.artifact_exists("master/selection.json"):
+            sel = c.read_json("master/selection.json")
+            if isinstance(sel, dict):
+                sel_order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+        pos = {sid: idx for idx, sid in enumerate(sel_order)}
+        opening_ids = opening_tape_segment_ids(sel_order, starts) if sel_order else set()
+        margin = reverse_jump_margin_ms()
+        body_start = opening_body_start_index()
+        kept_transitions: list[dict[str, Any]] = []
+        for row in artifacts.get("transitions") or []:
+            if not isinstance(row, dict):
+                continue
+            a = str(row.get("after_segment_id") or "")
+            b = str(row.get("before_segment_id") or "")
+            gap = row.get("source_gap_ms")
+            if gap is None and a and b:
+                gap = pair_source_gap_ms(a, b, starts)
+                if gap is not None:
+                    row["source_gap_ms"] = gap
+            if gap is not None and int(gap) < -margin:
+                continue
+            if b in opening_ids and pos.get(b, 0) >= body_start:
+                continue
+            kept_transitions.append(row)
+        artifacts["transitions"] = kept_transitions
         manifest = (
             c.read_json("segments/manifest.json")
             if c.artifact_exists("segments/manifest.json")
@@ -875,6 +989,9 @@ def run_transitions(ctx: RunContext) -> None:
                     "before_topic": (by_id.get(a) or {}).get("topic"),
                     "after_topic": (by_id.get(b) or {}).get("topic"),
                     "source_gap_ms": row.get("source_gap_ms"),
+                    "before_segment_id": b,
+                    "before_air_index": pos.get(b),
+                    "before_is_opening_tape": b in opening_ids,
                     "strict_grounding": True,
                 },
             )
