@@ -71,6 +71,17 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         "episode_close_outro" in msg or "missing_episode_close_outro" in msg
     ):
         return "episode_close_outro"
+    if stage in {"edl", "mix", "junction_snip_qa", "master_finalize", "gap_framing_recompose"} and (
+        "nugget_layup_plan_stale" in msg
+        or "stale vs selection" in msg
+        or "layup plan stale" in msg
+    ):
+        return "layup_stale"
+    if (
+        "hitch_listen_restage" in msg
+        or "incomplete_cut_restage_hitch" in msg
+    ):
+        return "hitch_listen_restage"
     if stage in {"edl", "g1_vo", "g1_vo_pickup"} and (
         "g1 vo pickup missing" in msg or "stale_or_missing_pickup" in msg
     ):
@@ -157,6 +168,8 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "sdp_theme_wavs_missing",
         "episode_close_outro",
         "missing_g1_pickup",
+        "layup_stale",
+        "hitch_listen_restage",
         "listen_delight_floors",
         "fingerprint_mismatch",
         "mixed_diarization",
@@ -327,6 +340,24 @@ def playbook_ensure_g1(ctx: RunContext) -> list[str]:
     return []
 
 
+def playbook_adopt_layup(ctx: RunContext) -> list[str]:
+    from interview_mux.nugget_layup import PLAN_REL, adopt_layup_plan_to_selection
+
+    result = adopt_layup_plan_to_selection(ctx, persist=True, stage="recovery_adopt_layup")
+    if result.get("ok") and ctx.artifact_exists(PLAN_REL):
+        return [PLAN_REL]
+    return []
+
+
+def playbook_hitch_listen_restage(ctx: RunContext) -> list[str]:
+    from interview_mux.chapter_close_hitch import LATCH_REL, arm_hitch_listen_restage
+
+    armed = arm_hitch_listen_restage(ctx)
+    if armed or ctx.artifact_exists(LATCH_REL):
+        return [LATCH_REL]
+    return []
+
+
 def playbook_listen_delight_remutate(ctx: RunContext) -> list[str]:
     from interview_mux.listen_delight import evaluate_listen_delight
     from interview_mux.listen_delight_remutate import (
@@ -469,7 +500,12 @@ def playbook_selection_edl_order_drift(ctx: RunContext) -> list[str]:
 
 
 def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
-    _unmark_stages(ctx, "mix", "junction_snip_qa", "master_finalize")
+    from interview_mux.heal_routing import mix_assembly_seated
+
+    if mix_assembly_seated(ctx):
+        _unmark_stages(ctx, "junction_snip_qa", "master_finalize")
+    else:
+        _unmark_stages(ctx, "mix", "junction_snip_qa", "master_finalize")
     return ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
 
 
@@ -715,6 +751,17 @@ def handle_stage_failure(
             playbook_id = "ensure_g1_pickups"
             artifacts = playbook_ensure_g1(ctx)
             recovered = bool(artifacts)
+            resume_stage = "vo_synthesize"
+        elif error_class == "layup_stale":
+            playbook_id = "adopt_layup_to_selection"
+            artifacts = playbook_adopt_layup(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "edl"
+        elif error_class == "hitch_listen_restage":
+            playbook_id = "hitch_listen_restage"
+            artifacts = playbook_hitch_listen_restage(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "chapter_close_hitch"
         elif error_class == "listen_delight_floors":
             playbook_id = "listen_delight_remutate"
             artifacts = playbook_listen_delight_remutate(ctx)
@@ -760,16 +807,27 @@ def handle_stage_failure(
             playbook_id = "selection_edl_order_drift"
             artifacts = playbook_selection_edl_order_drift(ctx)
             recovered = bool(artifacts)
-            resume_stage = (
-                "mix"
-                if stage_id in {"mix", "junction_snip_qa", "master_finalize"}
-                else "edl"
-            )
+            resume_stage = "edl"
+            try:
+                from interview_mux.heal_routing import mix_assembly_seated
+
+                if stage_id in {"mix", "junction_snip_qa", "master_finalize"}:
+                    resume_stage = "junction_snip_qa" if mix_assembly_seated(ctx) else "edl"
+            except Exception:
+                if stage_id in {"mix", "junction_snip_qa", "master_finalize"}:
+                    resume_stage = "edl"
         elif error_class == "assembly_not_rendered_from_current_edl":
             playbook_id = "assembly_not_rendered_from_current_edl"
             artifacts = playbook_assembly_not_rendered(ctx)
             recovered = True
             resume_stage = "mix"
+            try:
+                from interview_mux.heal_routing import mix_assembly_seated
+
+                if mix_assembly_seated(ctx):
+                    resume_stage = "junction_snip_qa"
+            except Exception:
+                pass
         elif error_class == "opening_slot_conflict":
             playbook_id = "opening_slot_conflict"
             artifacts = playbook_opening_slot_conflict(ctx)

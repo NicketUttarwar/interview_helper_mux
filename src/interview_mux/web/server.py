@@ -476,12 +476,14 @@ def create_app() -> FastAPI:
             for r in runs[: max(enrich_limit, 0)]:
                 try:
                     ctx = RunContext(r["run_id"], create=False)
+                    job = runner.get_job(r["run_id"])
                     stages = _build_stage_list(
                         ctx,
                         check_g1_vo(ctx),
                         check_transcript_review_pending(ctx),
                         is_operator_profile_verified(ctx),
                         check_profile_gate_pending(ctx),
+                        job=job,
                     )
                     done = sum(1 for s in stages if s["status"] == "done")
                     r["progress"] = {"done": done, "total": len(stages)}
@@ -492,7 +494,6 @@ def create_app() -> FastAPI:
                     log_entries = read_log(ctx.run_dir, tail=1)
                     if log_entries:
                         r["last_log"] = log_entries[-1]
-                    job = runner.get_job(r["run_id"])
                     if job.get("status"):
                         r["job_status"] = job.get("status")
                     journey = build_journey_snapshot(ctx, job=job, stages=stages)
@@ -615,12 +616,14 @@ def create_app() -> FastAPI:
     def get_run_summary(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
         summary = RunContext.summarize_run(run_id)
+        job = _sanitize_job(runner.get_job(run_id))
         stages = _build_stage_list(
             ctx,
             check_g1_vo(ctx),
             check_transcript_review_pending(ctx),
             is_operator_profile_verified(ctx),
             check_profile_gate_pending(ctx),
+            job=job,
         )
         done = sum(1 for s in stages if s["status"] == "done")
         log_entries = read_log(ctx.run_dir, tail=1)
@@ -669,10 +672,15 @@ def create_app() -> FastAPI:
             skip_doc = ctx.read_json("understanding/gap_fill_skip.json")
             if isinstance(skip_doc, dict):
                 gap_skip_reason = skip_doc.get("reason")
-        stages = _build_stage_list(
-            ctx, g1_missing, tr_pending, profile_verified, profile_gate_pending
-        )
         job = _sanitize_job(runner.get_job(run_id))
+        stages = _build_stage_list(
+            ctx,
+            g1_missing,
+            tr_pending,
+            profile_verified,
+            profile_gate_pending,
+            job=job,
+        )
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
             existing = job.get("last_error") if isinstance(job.get("last_error"), dict) else {}
@@ -4109,6 +4117,7 @@ def _build_stage_list(
     profile_gate_pending: bool,
     *,
     reconcile_done_markers: bool = False,
+    job: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     stages = all_stages_for_run(None)
     from interview_mux.stage_completion import reconcile_stage_done_marker
@@ -4283,6 +4292,9 @@ def _build_stage_list(
 
             reconcile_stage_status(s)
         s["operator_phase"] = stage_operator_phase(sid)
+    from interview_mux.web.job_progress import overlay_stage_list_status
+
+    overlay_stage_list_status(ctx, stages, job)
     from interview_mux.stage_guidance import attach_guidance_to_stages
 
     attach_guidance_to_stages(

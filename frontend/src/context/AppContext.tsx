@@ -30,7 +30,8 @@ import type {
   ToastLevel,
 } from "../types";
 import { formatApiError } from "../utils/safeApi";
-import { isJobActivelyRunning } from "../utils/jobStatus";
+import { applyLiveJobToStages, isJobActivelyRunning } from "../utils/jobStatus";
+import { preferFresherLogTail } from "../utils/logStreams";
 import { isOperatorGateStartResponse } from "../utils/jobStartResponse";
 import { countRequiredAttention } from "../utils/attentionQueue";
 import { maybePingForRequiredAttention } from "../utils/attentionPing";
@@ -301,6 +302,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const recentClientLogRef = useRef<{ key: string; at: number } | null>(null);
   const logCountRef = useRef(0);
+  const logLastTsRef = useRef<string>("");
   const bootGenRef = useRef(0);
   const persistUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runIdRef = useRef<string | null>(null);
@@ -557,6 +559,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const renderLogWithAlerts = useCallback((entries: LogEntry[]) => {
     setLogEntries(entries);
     logCountRef.current = entries.length;
+    logLastTsRef.current = entries.length ? String(entries[entries.length - 1]?.ts ?? "") : "";
   }, []);
 
   const refreshHome = useCallback(async (opts: { enrichRuns?: boolean } = {}) => {
@@ -625,18 +628,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const data = await api<{ entries: LogEntry[] }>(
         `/api/runs/${runId}/log?tail=500`,
       );
-      if (force || data.entries?.length !== logCountRef.current) {
-        renderLogWithAlerts(data.entries);
+      const entries = data.entries || [];
+      const lastTs = entries.length ? String(entries[entries.length - 1]?.ts ?? "") : "";
+      if (
+        force ||
+        entries.length !== logCountRef.current ||
+        lastTs !== logLastTsRef.current
+      ) {
+        renderLogWithAlerts(entries);
         setRun((prev) => {
           if (!prev) return prev;
           const prevTail = prev.log_tail;
           if (
-            prevTail?.length === data.entries?.length &&
-            prevTail?.[prevTail.length - 1]?.ts === data.entries?.[data.entries.length - 1]?.ts
+            prevTail?.length === entries.length &&
+            prevTail?.[prevTail.length - 1]?.ts === lastTs
           ) {
             return prev;
           }
-          return { ...prev, log_tail: data.entries };
+          return { ...prev, log_tail: entries };
         });
       }
     } catch (reason) {
@@ -746,7 +755,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const runData = await api<RunData>(`/api/runs/${runId}`);
       syncTranscriptReuseEditConsumed(runId, runData.meta);
-      setRun(runData);
+      setRun((prev) => {
+        const log_tail = preferFresherLogTail(prev?.log_tail, runData.log_tail);
+        return { ...runData, log_tail };
+      });
       setRunState(runData);
       setShownPrecleanOffers(
         new Set(runData.meta?.audio_preclean?.offered_at || []),
@@ -755,13 +767,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         () => null,
       );
       setTimeline(tl);
-      renderLogWithAlerts(runData.log_tail || []);
+      setLogEntries((prev) => {
+        const next = preferFresherLogTail(prev, runData.log_tail);
+        logCountRef.current = next.length;
+        logLastTsRef.current = next.length ? String(next[next.length - 1]?.ts ?? "") : "";
+        return next;
+      });
       return runData;
     } catch (reason) {
       showToast(formatApiError(reason, "Refresh run"), "error");
       return null;
     }
-  }, [runId, renderLogWithAlerts, showToast]);
+  }, [runId, showToast]);
 
   const setActiveStepId = useCallback(
     (stepId: string | null) => {
@@ -889,7 +906,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const job = await api<JobState>(`/api/runs/${rid}/job`);
       const active = isJobActivelyRunning(job);
       setJobRunning(active);
-      setRun((prev) => (prev ? { ...prev, job } : prev));
+      setRun((prev) => {
+        if (!prev) return prev;
+        return { ...prev, job, stages: applyLiveJobToStages(prev.stages, job) };
+      });
       maybeAutoSelectRunningStage(job);
       return job;
     } catch (reason) {
@@ -920,7 +940,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (isJobActivelyRunning(polled)) {
             jobPollSawRunningRef.current = true;
           }
-          setRun((prev) => (prev ? { ...prev, job: polled } : prev));
+          setRun((prev) => {
+            if (!prev) return prev;
+            const stages = applyLiveJobToStages(prev.stages, polled);
+            return { ...prev, job: polled, stages };
+          });
           maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
             const refreshed = await refreshRun();
@@ -1011,7 +1035,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else {
             runRefreshTickRef.current += 1;
             const statusChanged = prevStatus !== polled.status;
-            if (statusChanged || runRefreshTickRef.current % 5 === 0) {
+            if (statusChanged || runRefreshTickRef.current % 2 === 0) {
               await refreshRun();
             }
           }

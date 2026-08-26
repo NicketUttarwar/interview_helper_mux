@@ -613,19 +613,24 @@ def assert_guarded_spoken_copy(
     ctx: Any = None,
     exclude_line_id: str | None = None,
 ) -> dict[str, Any]:
-    corpus = list(seen_texts) if seen_texts is not None else None
-    if corpus is None and ctx is not None:
-        corpus = load_persisted_spoken_texts(
+    corpus: list[str] = []
+    if seen_texts is not None:
+        corpus.extend(str(x) for x in seen_texts if x)
+    if ctx is not None:
+        persisted = load_persisted_spoken_texts(
             ctx,
             exclude_line_id=exclude_line_id,
             exclude_text=text,
         )
+        for item in persisted:
+            if item and item not in corpus:
+                corpus.append(item)
     decision = guard_spoken_copy(
         text,
         evidence=evidence,
         required=True,
         purpose=purpose,
-        seen_texts=corpus,
+        seen_texts=corpus or None,
     )
     if decision["action"] == "block":
         raise ValueError(
@@ -686,11 +691,37 @@ def artifact_spoken_copy_errors(
                 + ",".join(violations)
             )
         seen.append(str(row.get("text") or ""))
+    syn_pair_text: dict[tuple[str, str], str] = {}
+    syn_line_ids: dict[str, str] = {}
+    for row in ((synthetic_framing or {}).get("lines") or []):
+        if not isinstance(row, dict):
+            continue
+        txt = str(row.get("text") or "").strip()
+        if not txt:
+            continue
+        lid = str(row.get("line_id") or "")
+        if lid:
+            syn_line_ids[lid] = txt
+        sa = str(row.get("after_segment_id") or "")
+        sb = str(row.get("before_segment_id") or "")
+        if sa and sb:
+            syn_pair_text[(sa, sb)] = txt
     for row in ((transitions or {}).get("transitions") or []):
         if not isinstance(row, dict) or not str(row.get("text") or "").strip():
             continue
         a = str(row.get("after_segment_id") or "")
         b = str(row.get("before_segment_id") or "")
+        if a and a == b:
+            errors.append(f"transition[{a}->{b}]:spoken_self_loop_seam")
+            continue
+        text = str(row.get("text") or "")
+        # Same seam materialized from synthetic plan is one air owner, not a dup.
+        plan_lid = str(row.get("synthetic_plan_line_id") or "")
+        same_seam_echo = False
+        if plan_lid and syn_line_ids.get(plan_lid, "").casefold() == text.strip().casefold():
+            same_seam_echo = True
+        elif (a, b) in syn_pair_text and syn_pair_text[(a, b)].casefold() == text.strip().casefold():
+            same_seam_echo = True
         evidence = {
             "before_excerpt": (by_id.get(a) or {}).get("text"),
             "after_excerpt": (by_id.get(b) or {}).get("text"),
@@ -699,10 +730,16 @@ def artifact_spoken_copy_errors(
             "source_gap_ms": row.get("source_gap_ms"),
             "strict_grounding": True,
         }
+        seen_for_row = (
+            [s for s in seen if s.strip().casefold() != text.strip().casefold()]
+            if same_seam_echo
+            else seen
+        )
         violations = spoken_copy_violations(
-            str(row.get("text") or ""), evidence=evidence, seen_texts=seen
+            text, evidence=evidence, seen_texts=seen_for_row
         )
         if violations:
             errors.append(f"transition[{a}->{b}]:" + ",".join(violations))
-        seen.append(str(row.get("text") or ""))
+        if not same_seam_echo:
+            seen.append(text)
     return errors

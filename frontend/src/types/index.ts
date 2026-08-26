@@ -480,6 +480,9 @@ export interface JobState {
   stage_index?: number;
   stage_total?: number;
   stages_planned?: string[];
+  stages_done?: string[];
+  parent_stage?: string;
+  stage_progress?: Array<{ id: string; status: string }>;
   message?: string;
   updated_at?: string;
   /** Intra-stage checkpoint (e.g. gap 45/389 during disfluency extract). */

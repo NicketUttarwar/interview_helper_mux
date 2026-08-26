@@ -97,20 +97,32 @@ class JobRunner:
         total: int,
         stages_planned: list[str],
     ) -> None:
-        title = self._stage_title(stage_id)
-        self._write_job(
-            ctx,
-            {
-                **job_base,
-                "status": "running",
-                "stage": stage_id,
-                "current_stage": stage_id,
-                "stage_index": index,
-                "stage_total": total,
-                "stages_planned": stages_planned,
-                "message": f"Running {title}… ({index}/{total})",
-            },
+        from interview_mux.web.job_progress import persist_running_stage_progress
+
+        written = persist_running_stage_progress(
+            ctx.run_id,
+            stage_id,
+            index=index,
+            total=total,
+            stages_planned=stages_planned,
+            job_base=job_base,
+            ctx=ctx,
         )
+        if written is None:
+            title = self._stage_title(stage_id)
+            self._write_job(
+                ctx,
+                {
+                    **job_base,
+                    "status": "running",
+                    "stage": stage_id,
+                    "current_stage": stage_id,
+                    "stage_index": index,
+                    "stage_total": total,
+                    "stages_planned": stages_planned,
+                    "message": f"Running {title}… ({index}/{total})",
+                },
+            )
 
     def _write_job(self, ctx: RunContext, payload: dict[str, Any]) -> None:
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -230,8 +242,10 @@ class JobRunner:
 
     def get_job(self, run_id: str) -> dict[str, Any]:
         from interview_mux.gui_job_reconcile import reconcile_job_if_stale
+        from interview_mux.web.job_progress import attach_live_stage_progress
 
-        return reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
+        job = reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
+        return attach_live_stage_progress(run_id, job)
 
     def is_running(self, run_id: str) -> bool:
         """True only when this process is executing a background job for the run."""
@@ -612,7 +626,7 @@ class JobRunner:
                     stages_planned=planned,
                 )
 
-            register_job_progress(run_id, _progress_hook)
+            register_job_progress(run_id, _progress_hook, job_base=job_base)
             dir_lock_released = {"value": False}
             try:
                 msg = info.description if info else f"Running pipeline mode: {mode}"

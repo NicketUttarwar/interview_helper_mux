@@ -261,6 +261,179 @@ def _commit_json(ctx: RunContext, rel: str, data: dict[str, Any]) -> None:
         ctx.write_json(rel, data)
 
 
+def _ordered_index(ordered_ids: list[str]) -> dict[str, int]:
+    return {sid: i for i, sid in enumerate(ordered_ids) if sid}
+
+
+def _is_stock_bridge_text(text: str) -> bool:
+    from interview_mux.spoken_copy_guard import normalize_script
+
+    clean = normalize_script(text).casefold()
+    if not clean:
+        return True
+    if clean.startswith("turning to ") and clean.endswith(", what changed?"):
+        return True
+    if clean.startswith("moving from ") and clean.endswith(", what changed?"):
+        return True
+    if clean.startswith("with ") and clean.endswith(" established, what changed?"):
+        return True
+    return False
+
+
+def _canonicalize_between_ids(
+    row: dict[str, Any], index: dict[str, int]
+) -> str | None:
+    """Return drop reason, or None if row kept (possibly rewritten).
+
+    Air order: after = prior native, before = next native, must be adjacent.
+    """
+    after = str(row.get("after_segment_id") or "")
+    before = str(row.get("before_segment_id") or "")
+    if not after and not before:
+        return None
+    if after and before and after == before:
+        return "self_loop"
+    if after and after not in index:
+        row["after_segment_id"] = None
+        after = ""
+    if before and before not in index:
+        row["before_segment_id"] = None
+        before = ""
+    if after and before:
+        ia, ib = index[after], index[before]
+        if ia > ib:
+            row["after_segment_id"], row["before_segment_id"] = before, after
+            after, before = before, after
+            ia, ib = ib, ia
+            row["adopted_seam_repair"] = "reversed"
+        if ib != ia + 1:
+            # Keep text+anchor for flexible adopt; clear wrong chronology.
+            row["after_segment_id"] = None
+            row["before_segment_id"] = None
+            row.pop("adopted_seam_repair", None)
+    return None
+
+
+def _line_covers_pair(line: dict[str, Any], a: str, b: str) -> bool:
+    return (
+        str(line.get("placement") or "") == "between_segments"
+        and str(line.get("after_segment_id") or "") == a
+        and str(line.get("before_segment_id") or "") == b
+        and bool(str(line.get("text") or "").strip())
+    )
+
+
+def _sole_cover_of_other_required(
+    line: dict[str, Any],
+    *,
+    a: str,
+    b: str,
+    required_pairs: list[tuple[str, str]],
+    cleaned: list[dict[str, Any]],
+) -> bool:
+    """True when this line is the only cover of a different required seam."""
+    la = str(line.get("after_segment_id") or "")
+    lb = str(line.get("before_segment_id") or "")
+    if not la or not lb or (la, lb) == (a, b):
+        return False
+    if (la, lb) not in required_pairs:
+        return False
+    others = [
+        row
+        for row in cleaned
+        if row is not line and _line_covers_pair(row, la, lb)
+    ]
+    return not others
+
+
+def _bind_line_to_seam(
+    line: dict[str, Any],
+    *,
+    a: str,
+    b: str,
+    repair: str,
+    native_by_id: dict[str, dict[str, Any]],
+    cleaned: list[dict[str, Any]],
+    pair: dict[str, Any],
+) -> bool:
+    """Rewrite line onto air-order seam if spoken guard accepts. Mutates line."""
+    from interview_mux.seam_glue import bridge_guard_evidence, enrich_bridge_pair_excerpts
+    from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy, normalize_script
+
+    text = normalize_script(str(line.get("text") or ""))
+    if not text:
+        return False
+    if line.get("auto_minted_seam") or _is_stock_bridge_text(text):
+        # Prefer non-stock planned VO; stock may still bind only if nothing else can.
+        if repair != "stock_ok":
+            return False
+    enriched = enrich_bridge_pair_excerpts(dict(pair), native_by_id)
+    try:
+        guarded = assert_guarded_spoken_copy(
+            text,
+            evidence=bridge_guard_evidence(enriched),
+            purpose=f"synthetic_adopt[{a}->{b}]",
+            seen_texts=[
+                str(x.get("text") or "")
+                for x in cleaned
+                if x is not line and str(x.get("text") or "").strip()
+            ],
+        )
+    except ValueError:
+        return False
+    if guarded.get("action") in {"block", "omit"}:
+        return False
+    violations = list(guarded.get("violations") or [])
+    if any(
+        v.split(":", 1)[0]
+        in {
+            "spoken_chronology_mismatch",
+            "spoken_next_clip_restatement",
+            "spoken_path_or_filename",
+            "spoken_production_jargon",
+            "spoken_placeholder",
+            "spoken_malformed_fragment",
+        }
+        for v in violations
+    ):
+        return False
+    line["placement"] = "between_segments"
+    line["after_segment_id"] = a
+    line["before_segment_id"] = b
+    line["role"] = line.get("role") or "bridge"
+    if a and not str(line.get("anchor_segment_id") or ""):
+        line["anchor_segment_id"] = a
+    line["text"] = str(guarded.get("text") or text)
+    line["adopted_seam_repair"] = repair
+    line["spoken_copy_guard"] = {
+        "action": guarded.get("action"),
+        "script_hash": guarded.get("script_hash"),
+        "context_hash": guarded.get("context_hash"),
+    }
+    line.pop("auto_minted_seam", None)
+    return True
+
+
+def _candidate_rank_key(line: dict[str, Any], a: str, b: str) -> tuple[int, int]:
+    """Lower is better. Prefer exact, reverse, following, prior, then anchor."""
+    la = str(line.get("after_segment_id") or "")
+    lb = str(line.get("before_segment_id") or "")
+    anchor = str(line.get("anchor_segment_id") or "")
+    text = str(line.get("text") or "")
+    stock = 1 if (line.get("auto_minted_seam") or _is_stock_bridge_text(text)) else 0
+    if la == a and lb == b:
+        return (0, stock)
+    if la == b and lb == a:
+        return (1, stock)
+    if lb == b:
+        return (2, stock)
+    if la == a:
+        return (3, stock)
+    if anchor in {a, b}:
+        return (4, stock)
+    return (9, stock)
+
+
 def normalize_synthetic_plan(
     ctx: RunContext, plan: dict[str, Any], packet: dict[str, Any]
 ) -> dict[str, Any]:
@@ -268,14 +441,16 @@ def normalize_synthetic_plan(
     out = dict(plan)
     out["selection_order_content_hash"] = packet.get("selection_order_content_hash")
     out["generated_at"] = _now()
-    ordered = {str(x) for x in (packet.get("ordered_segment_ids") or []) if x}
+    ordered_list = [str(x) for x in (packet.get("ordered_segment_ids") or []) if x]
+    ordered = set(ordered_list)
+    index = _ordered_index(ordered_list)
     native_by_id = {
         str(row.get("segment_id")): row
         for row in (packet.get("selected_native_segments") or [])
         if isinstance(row, dict) and row.get("segment_id")
     }
     cleaned: list[dict[str, Any]] = []
-    for index, line in enumerate(out.get("lines") or []):
+    for index_i, line in enumerate(out.get("lines") or []):
         if not isinstance(line, dict):
             continue
         row = dict(line)
@@ -288,6 +463,14 @@ def normalize_synthetic_plan(
             row["after_segment_id"] = None
         if before and before not in ordered:
             row["before_segment_id"] = None
+        drop = _canonicalize_between_ids(row, index)
+        if drop == "self_loop":
+            ctx.log(
+                f"synthetic_framing: dropped self-loop line {row.get('line_id')}",
+                level="info",
+                stage=STAGE_ID,
+            )
+            continue
         try:
             ratio = float(row.get("duration_ratio"))
         except (TypeError, ValueError):
@@ -313,7 +496,7 @@ def normalize_synthetic_plan(
                 f"Orientation for selected native segment {anchor}"
             )
         if not str(row.get("line_id") or "").strip():
-            row["line_id"] = f"syn_{index:03d}_{anchor}"
+            row["line_id"] = f"syn_{index_i:03d}_{anchor}"
         if not str(row.get("text") or "").strip():
             continue
         from interview_mux.spoken_copy_guard import guard_spoken_copy
@@ -332,7 +515,7 @@ def normalize_synthetic_plan(
             str(row.get("text") or ""),
             evidence=evidence,
             required=required_line,
-            purpose=f"synthetic_framing[{row.get('line_id') or index}]",
+            purpose=f"synthetic_framing[{row.get('line_id') or index_i}]",
             seen_texts=[str(x.get("text") or "") for x in cleaned],
         )
         if guarded["action"] == "block":
@@ -359,19 +542,22 @@ def normalize_synthetic_plan(
         out["strategy_summary"] = (
             "Synthetic host framing only where selected native continuity needs help."
         )
-    # Ensure between_segments fields for required reorder seams when the LLM
-    # anchored a usable line but omitted after/before ids.
-    required = packet.get("required_reorder_seams") or []
+    # Ensure between_segments fields for required reorder seams — prefer planned
+    # VO (exact / reverse / endpoint) over stock mint.
+    required = [p for p in (packet.get("required_reorder_seams") or []) if isinstance(p, dict)]
+    required_pairs = [
+        (str(p.get("after_segment_id") or ""), str(p.get("before_segment_id") or ""))
+        for p in required
+        if p.get("after_segment_id") and p.get("before_segment_id")
+    ]
     covered = {
-        (
+        (str(line.get("after_segment_id") or ""), str(line.get("before_segment_id") or ""))
+        for line in cleaned
+        if _line_covers_pair(
+            line,
             str(line.get("after_segment_id") or ""),
             str(line.get("before_segment_id") or ""),
         )
-        for line in cleaned
-        if str(line.get("placement") or "") == "between_segments"
-        and str(line.get("after_segment_id") or "")
-        and str(line.get("before_segment_id") or "")
-        and str(line.get("text") or "").strip()
     }
     from interview_mux.seam_glue import (
         bridge_guard_evidence,
@@ -380,6 +566,8 @@ def normalize_synthetic_plan(
     )
 
     def _mint_seam(pair: dict[str, Any], a: str, b: str) -> None:
+        if a == b:
+            return
         native = native_by_id.get(a) or native_by_id.get(b) or {}
         native_ms = max(
             250,
@@ -398,6 +586,7 @@ def normalize_synthetic_plan(
             evidence=bridge_guard_evidence(enriched),
             purpose=f"synthetic_reorder_seam[{a}->{b}]",
             seen_texts=[str(x.get("text") or "") for x in cleaned],
+            ctx=ctx,
         )
         cleaned.append(
             {
@@ -425,37 +614,73 @@ def normalize_synthetic_plan(
             }
         )
         covered.add((a, b))
+        ctx.log(
+            f"synthetic_framing: minted stock seam {a}->{b} (no safe planned VO)",
+            level="info",
+            stage=STAGE_ID,
+        )
+
+    def _try_adopt(pair: dict[str, Any], a: str, b: str) -> bool:
+        if a == b or (a, b) in covered:
+            return True
+        candidates: list[tuple[tuple[int, int], dict[str, Any], str]] = []
+        for line in cleaned:
+            if not str(line.get("text") or "").strip():
+                continue
+            if _sole_cover_of_other_required(
+                line, a=a, b=b, required_pairs=required_pairs, cleaned=cleaned
+            ):
+                continue
+            la = str(line.get("after_segment_id") or "")
+            lb = str(line.get("before_segment_id") or "")
+            anchor = str(line.get("anchor_segment_id") or "")
+            if la == a and lb == b:
+                repair = "exact"
+            elif la == b and lb == a:
+                repair = "reversed"
+            elif lb == b:
+                repair = "endpoint"
+            elif la == a:
+                repair = "endpoint"
+            elif anchor in {a, b} and not (la and lb and {la, lb} - {a, b}):
+                repair = "anchor"
+            else:
+                continue
+            rank = _candidate_rank_key(line, a, b)
+            candidates.append((rank, line, repair))
+        candidates.sort(key=lambda item: item[0])
+        # Prefer non-stock; allow stock bind only if that is the only candidate.
+        non_stock = [c for c in candidates if c[0][1] == 0]
+        pool = non_stock or [(r, line, "stock_ok") for r, line, _ in candidates]
+        for _rank, line, repair in pool:
+            if _line_covers_pair(line, a, b):
+                covered.add((a, b))
+                return True
+            if _bind_line_to_seam(
+                line,
+                a=a,
+                b=b,
+                repair=repair,
+                native_by_id=native_by_id,
+                cleaned=cleaned,
+                pair=pair,
+            ):
+                covered.add((a, b))
+                ctx.log(
+                    f"synthetic_framing: adopted planned VO onto {a}->{b} "
+                    f"({repair}, line={line.get('line_id')})",
+                    level="info",
+                    stage=STAGE_ID,
+                )
+                return True
+        return False
 
     for pair in required:
-        if not isinstance(pair, dict):
-            continue
         a = str(pair.get("after_segment_id") or "")
         b = str(pair.get("before_segment_id") or "")
         if not a or not b or (a, b) in covered:
             continue
-        # Adopt only free lines — never rewrite a line that already covers a seam.
-        adopted = False
-        for line in cleaned:
-            if str(line.get("anchor_segment_id") or "") not in {a, b}:
-                continue
-            if not str(line.get("text") or "").strip():
-                continue
-            existing_after = str(line.get("after_segment_id") or "")
-            existing_before = str(line.get("before_segment_id") or "")
-            if (
-                str(line.get("placement") or "") == "between_segments"
-                and existing_after
-                and existing_before
-            ):
-                continue
-            line["placement"] = "between_segments"
-            line["after_segment_id"] = a
-            line["before_segment_id"] = b
-            line["role"] = line.get("role") or "bridge"
-            covered.add((a, b))
-            adopted = True
-            break
-        if not adopted:
+        if not _try_adopt(pair, a, b):
             _mint_seam(pair, a, b)
 
     # Second pass: rebuild coverage from actual line fields, then remint gaps.
@@ -471,13 +696,12 @@ def normalize_synthetic_plan(
         and str(line.get("text") or "").strip()
     }
     for pair in required:
-        if not isinstance(pair, dict):
-            continue
         a = str(pair.get("after_segment_id") or "")
         b = str(pair.get("before_segment_id") or "")
-        if not a or not b or (a, b) in covered:
+        if not a or not b or a == b or (a, b) in covered:
             continue
-        _mint_seam(pair, a, b)
+        if not _try_adopt(pair, a, b):
+            _mint_seam(pair, a, b)
 
     out["lines"] = cleaned
     return out
@@ -494,7 +718,9 @@ def validate_synthetic_plan(
     ratio_min, ratio_max = _ratio_bounds()
     allow_canned = bool(conf.get("allow_canned_bridge_fallback", False))
     selection = ctx.read_json("master/selection.json")
-    ordered = {str(x) for x in (selection.get("ordered_segment_ids") or []) if x}
+    ordered_list = [str(x) for x in (selection.get("ordered_segment_ids") or []) if x]
+    ordered = set(ordered_list)
+    air_index = _ordered_index(ordered_list)
     if str(plan.get("selection_order_content_hash") or "") != str(
         selection.get("order_content_hash") or ""
     ):
@@ -519,6 +745,21 @@ def validate_synthetic_plan(
             errors.append(f"lines[{index}] violates native speaker protection")
         if not str(line.get("comprehension_reason") or "").strip():
             errors.append(f"lines[{index}].comprehension_reason missing")
+        if str(line.get("placement") or "") == "between_segments":
+            after = str(line.get("after_segment_id") or "")
+            before = str(line.get("before_segment_id") or "")
+            if after and before:
+                if after == before:
+                    errors.append(f"lines[{index}] self-loop seam {after}->{before}")
+                elif after in air_index and before in air_index:
+                    if air_index[after] > air_index[before]:
+                        errors.append(
+                            f"lines[{index}] reversed air-order seam {after}->{before}"
+                        )
+                    elif air_index[before] != air_index[after] + 1:
+                        errors.append(
+                            f"lines[{index}] non-adjacent seam {after}->{before}"
+                        )
     # Required reorder seams must be covered by speakable between_segments lines.
     try:
         if packet is None:
@@ -661,18 +902,33 @@ def planned_transition_for_pair(
 ) -> dict[str, Any] | None:
     if not isinstance(plan, dict):
         return None
+
+    def _ok_placement(line: dict[str, Any]) -> bool:
+        return str(line.get("placement") or "") in {
+            "between_segments",
+            "before_segment",
+            "after_segment",
+        }
+
     for line in plan.get("lines") or []:
-        if not isinstance(line, dict):
+        if not isinstance(line, dict) or not _ok_placement(line):
             continue
         if str(line.get("after_segment_id") or "") != after_id:
             continue
         if str(line.get("before_segment_id") or "") != before_id:
             continue
-        if str(line.get("placement") or "") not in {
-            "between_segments",
-            "before_segment",
-            "after_segment",
-        }:
-            continue
         return line
+    # Belt: reversed ids — rewrite to requested air-order pair before return.
+    for line in plan.get("lines") or []:
+        if not isinstance(line, dict) or not _ok_placement(line):
+            continue
+        if str(line.get("after_segment_id") or "") != before_id:
+            continue
+        if str(line.get("before_segment_id") or "") != after_id:
+            continue
+        fixed = dict(line)
+        fixed["after_segment_id"] = after_id
+        fixed["before_segment_id"] = before_id
+        fixed["adopted_seam_repair"] = fixed.get("adopted_seam_repair") or "reversed"
+        return fixed
     return None

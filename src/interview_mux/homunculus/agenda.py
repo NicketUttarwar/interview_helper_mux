@@ -125,10 +125,43 @@ def _delivery_phase_active(ctx: RunContext) -> bool:
     return str(_read_agenda(ctx).get("phase") or "") == "delivery"
 
 
+_GAP_FILL_ANALYSIS_PREREQS = frozenset({"missing_framing", "gap_framing_compose"})
+
+
+def _restore_skipped_gap_prereqs(ctx: RunContext) -> None:
+    """Re-materialize skip artifacts so delivery is not blocked after a wrap discard."""
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            assess_gap_fill_eligibility,
+            gap_fill_was_skipped,
+        )
+        from interview_mux.stages.gaps import ensure_gap_fill_skipped
+    except Exception:
+        return
+    if not gap_fill_was_skipped(ctx):
+        return
+    decision = assess_gap_fill_eligibility(ctx)
+    ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
+
+
 def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
     """Analysis producers topic_coverage_audit needs before a delivery walk."""
     pending: list[str] = []
+    gap_skipped = False
+    try:
+        from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+        gap_skipped = bool(gap_fill_was_skipped(ctx))
+    except Exception:
+        gap_skipped = False
+    if gap_skipped:
+        _restore_skipped_gap_prereqs(ctx)
     for stage, rel in DELIVERY_ANALYSIS_PREREQS:
+        if gap_skipped and stage in _GAP_FILL_ANALYSIS_PREREQS:
+            if ctx.artifact_exists(rel):
+                if not ctx.is_done(stage):
+                    ctx.mark_done(stage, force=True)
+                continue
         if ctx.artifact_exists(rel) and ctx.is_done(stage):
             continue
         if ctx.artifact_exists(rel) and not ctx.is_done(stage):
@@ -419,15 +452,14 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
         return True
     if stage == "mix":
         try:
-            from interview_mux.air_order import mix_committed_for_live_gen
+            from interview_mux.air_order import mix_outputs_seated
 
-            if not mix_committed_for_live_gen(ctx):
-                return False
+            return bool(mix_outputs_seated(ctx))
         except Exception:
             if assembly_stale_versus_edl(ctx):
                 return False
-    if stage == "mix" and assembly_stale_versus_edl(ctx):
-        return False
+            needed = stage_required_outputs(stage)
+            return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
     if stage == "junction_snip_qa" and (
         assembly_stale_versus_edl(ctx)
         or _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
@@ -859,6 +891,13 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
 
     setattr(ctx, "_homunculus_seed_walk", True)
     try:
+        from interview_mux.web.job_progress import notify_batch_plan
+
+        notify_batch_plan(
+            ctx.run_id,
+            stages,
+            message=f"Walking {len(stages)} remaining stage(s) ({reason})",
+        )
         prepare_delivery_guardrails(ctx, stages)
         for stage in stages:
             if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
@@ -1003,7 +1042,16 @@ def run_homunculus_phase(
     if remaining:
         try:
             from interview_mux.homunculus.loop import run_conductor
+            from interview_mux.web.job_progress import notify_batch_plan
 
+            notify_batch_plan(
+                ctx.run_id,
+                remaining,
+                message=(
+                    f"Homunculus selecting next {phase} stage "
+                    f"({len(remaining)} remaining)"
+                ),
+            )
             msg = (
                 f"Complete the {phase} phase for this tape. Remaining stages (seed order): "
                 f"{', '.join(remaining)}. You may skip, reorder, or surgically re-run. "

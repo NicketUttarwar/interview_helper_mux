@@ -147,14 +147,19 @@ def ensure_gap_fill_skipped(
         merge_from_disk=False,
         stage_key="missing_framing",
     )
+    # Persist skip outputs on the running stage. Using optimal_questions as
+    # stage_key discarded gap_report.json when missing_framing's wrap finished.
     write_validated_artifact(
         ctx,
         "understanding/gap_report.json",
         report_doc,
         merge_from_disk=False,
-        stage_key="optimal_questions",
+        stage_key="missing_framing",
     )
-    ctx.path("understanding", "interviewer_script.txt").write_text(
+    ctx.write_json("understanding/gap_report.json", report_doc, skip_handoff=True)
+    script_path = ctx.path("understanding", "interviewer_script.txt")
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(
         "# Interviewer script — gap-fill skipped (no pickup lines required)\n",
         encoding="utf-8",
     )

@@ -128,6 +128,83 @@ def test_hard_hang_scan_and_then_radiology() -> None:
     assert last != "and"
 
 
+def test_hitch_recut_does_not_split_happening_regulators_across_chapters() -> None:
+    words = [
+        _tok(0, 200, "physicians"),
+        _tok(200, 400, "and"),
+        _tok(400, 700, "patients"),
+        _tok(700, 900, "are"),
+        _tok(900, 1200, "interested"),
+        _tok(1200, 1400, "in"),
+        _tok(1400, 1600, "understanding"),
+        _tok(1600, 1800, "what"),
+        _tok(1800, 2000, "is"),
+        _tok(2000, 2400, "happening."),
+        _tok(2900, 3400, "Regulators,"),
+        _tok(3400, 3800, "it's"),
+        _tok(3800, 4200, "about"),
+        _tok(4200, 4800, "insurers."),
+    ]
+    keepers = [
+        {
+            "segment_id": "seg_050",
+            "start_ms": 0,
+            "end_ms": 2400,
+            "speaker_id": "spk_0",
+        },
+        {
+            "segment_id": "seg_051",
+            "start_ms": 2900,
+            "end_ms": 4800,
+            "speaker_id": "spk_0",
+        },
+    ]
+    plan = {
+        "chapters": [
+            {"chapter_id": "ch_01", "title": "What is happening", "segment_ids": ["seg_050"]},
+            {"chapter_id": "ch_02", "title": "Regulators", "segment_ids": ["seg_051"]},
+        ]
+    }
+    windows = compute_recut_windows(
+        keepers=keepers,
+        plan=plan,
+        words=words,
+        min_keep_ms=400,
+        extend_hanging_horizon_ms=8_000,
+    )
+    assert windows[0]["end_ms"] > 2400
+    assert windows[0]["end_ms"] >= 3400
+    assert int(windows[1]["start_ms"]) >= int(windows[0]["end_ms"])
+
+
+def test_acoustic_refine_cannot_undo_keep_merge() -> None:
+    from interview_mux.chapter_close_hitch import reapply_same_speaker_keep_merge
+
+    words = [
+        _tok(0, 2000, "happening."),
+        _tok(2500, 4000, "Regulators,"),
+        _tok(4000, 4800, "insurers."),
+    ]
+    windows = [
+        {
+            "segment_id": "seg_050",
+            "start_ms": 0,
+            "end_ms": 2000,
+            "speaker_id": "spk_0",
+            "keep_merge": True,
+        },
+        {
+            "segment_id": "seg_051",
+            "start_ms": 2500,
+            "end_ms": 4800,
+            "speaker_id": "spk_0",
+        },
+    ]
+    out = reapply_same_speaker_keep_merge(windows, words, max_cut_ms=180_000)
+    assert out[0]["end_ms"] >= 2500
+    assert out[0]["keep_merge"] is True
+
+
 def test_hitch_recut_extends_through_and_hang() -> None:
     words = [
         _tok(0, 200, "You"),

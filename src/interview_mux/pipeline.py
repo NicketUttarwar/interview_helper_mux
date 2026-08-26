@@ -213,6 +213,37 @@ def _gap_path_skipped(ctx: RunContext) -> bool:
     return gap_fill_was_skipped(ctx) or not gap_framing_enabled(ctx)
 
 
+def _skip_ineligible_gap_fill_unattended(ctx: RunContext) -> bool:
+    """Full-auto / Homunculus 0.1.0: skip interviewer VO when the tape is ineligible.
+
+    Manual 0.0.0 still LoudStageFailure so the operator can fix roles or skip G-Framing.
+    """
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict):
+        if bool(meta.get("full_auto")) or str(meta.get("run_mode") or "").lower() in {
+            "full-auto",
+            "fullauto",
+            "e2e",
+        }:
+            return True
+    try:
+        from interview_mux.gap_vo_gates import auto_accept_gap_gate_defaults_enabled
+
+        if auto_accept_gap_gate_defaults_enabled():
+            return True
+    except Exception:
+        pass
+    try:
+        from interview_mux.homunculus.gates import recommended_framing_action
+        from interview_mux.homunculus.runtime import is_homunculus_run
+
+        if is_homunculus_run(ctx) and recommended_framing_action(ctx) == "skip":
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _run_missing_framing_stage(ctx: RunContext) -> None:
     from interview_mux.gap_fill_eligibility import (
         assess_gap_fill_eligibility,
@@ -239,7 +270,7 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
         return
     decision = assess_gap_fill_eligibility(ctx)
     if not decision.eligible:
-        if gap_fill_auto_skip_enabled():
+        if gap_fill_auto_skip_enabled() or _skip_ineligible_gap_fill_unattended(ctx):
             gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
             return
         from interview_mux.loud_fail import raise_loud_failure
@@ -265,6 +296,10 @@ def _run_missing_framing_stage(ctx: RunContext) -> None:
 
 def _run_gap_framing_compose_stage(ctx: RunContext) -> None:
     if _gap_path_skipped(ctx):
+        from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility
+
+        decision = assess_gap_fill_eligibility(ctx)
+        gaps.ensure_gap_fill_skipped(ctx, reason=decision.reason, signals=decision.signals)
         return
     gaps.run_gap_framing_compose(ctx)
     # Refinement Pass: seed the gap_vo champion/draft snapshot so
@@ -430,6 +465,7 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
         index=1,
         total=1,
         stages_planned=[stage],
+        ctx=ctx,
     )
     try:
         from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
@@ -694,6 +730,7 @@ def run_analysis(
             index=plan_idx,
             total=total,
             stages_planned=planned,
+            ctx=ctx,
         )
         run_wrapped_stage(ctx, name, fn)
         if until_stage and name == until_stage:
@@ -851,6 +888,7 @@ def _run_steps(
             index=plan_idx if name in visible_planned else max(plan_idx, 1),
             total=total,
             stages_planned=visible_planned,
+            ctx=ctx,
         )
         if preclean_hook is not None:
             preclean_hook(name)

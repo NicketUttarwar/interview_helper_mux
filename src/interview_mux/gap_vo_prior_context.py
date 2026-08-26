@@ -574,11 +574,15 @@ def _text_ending_at(words: list[dict[str, Any]], end_ms: int) -> str:
 
 
 def end_is_hanging_clause(words: list[dict[str, Any]], end_ms: int) -> bool:
-    """True when the tape at ``end_ms`` is not a listen-complete hinge."""
+    """True when the tape at ``end_ms`` is not a listen-complete hinge.
+
+    A trailing ``.!?`` does not legalize a hanging setup (STT often closes
+    mid-thought with a period).
+    """
     if clause_continues_after(words, end_ms):
         return True
     text = _text_ending_at(words, end_ms)
-    return bool(text) and ends_hanging_setup(text)
+    return bool(text) and ends_setup_ignoring_terminal_punct(text)
 
 
 def ends_setup_ignoring_terminal_punct(text: str) -> bool:
@@ -654,6 +658,66 @@ def same_answer_continues(
     if left_text and ends_setup_ignoring_terminal_punct(left_text):
         return True
     return False
+
+
+def speaker_at_ms(words: list[dict[str, Any]], ms: int) -> str:
+    """Speaker covering ``ms``, else the last word ending at or before it."""
+    if not words:
+        return ""
+    covering = ""
+    last_before = ""
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        try:
+            start = int(float(w.get("start_ms") or 0))
+            end = int(float(w.get("end_ms") or 0))
+        except (TypeError, ValueError):
+            continue
+        spk = str(w.get("speaker_id") or w.get("speaker") or "").strip()
+        if start <= ms <= end and spk:
+            covering = spk
+        if end <= ms and spk:
+            last_before = spk
+    return covering or last_before
+
+
+def same_speaker_continuous_keep(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    words: list[dict[str, Any]] | None = None,
+    *,
+    max_gap_ms: int = SAME_ANSWER_MAX_GAP_MS,
+) -> bool:
+    """True when adjacent keepers are the same speaker on continuous tape.
+
+    Includes complete sentence → next sentence (``happening.`` / ``Regulators``).
+    Chapter metadata must not split this as a speech cut.
+    """
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    try:
+        left_end = int(left.get("end_ms") or 0)
+        right_start = int(right.get("start_ms") or 0)
+    except (TypeError, ValueError):
+        return False
+    if right_start < left_end:
+        return False
+    gap = right_start - left_end
+    if gap > int(max_gap_ms):
+        return False
+    left_spk = str(left.get("speaker_id") or left.get("speaker") or "").strip()
+    right_spk = str(right.get("speaker_id") or right.get("speaker") or "").strip()
+    word_list = words if isinstance(words, list) else []
+    if not left_spk and word_list:
+        left_spk = speaker_at_ms(word_list, left_end)
+    if not right_spk and word_list:
+        right_spk = speaker_at_ms(word_list, right_start)
+    if not left_spk or not right_spk or left_spk != right_spk:
+        return False
+    if word_list and same_answer_continues(word_list, left_end, right_start, max_gap_ms=max_gap_ms):
+        return True
+    return True
 
 
 def clause_continues_after(

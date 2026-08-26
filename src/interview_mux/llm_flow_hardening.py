@@ -398,6 +398,18 @@ def maybe_require_upstream_llm_progress(ctx: RunContext, stage_key: str) -> None
     """When hardening is on, verify seed-order progress before running stage_key."""
     if not flow_hardening_enabled():
         return
+    if stage_key == "chapter_close_hitch":
+        try:
+            latch = (
+                ctx.read_json("mastering/chapter_close_hitch.json")
+                if ctx.artifact_exists("mastering/chapter_close_hitch.json")
+                else {}
+            )
+            if isinstance(latch, dict) and str(latch.get("status") or "") == "running":
+                # Hitch archives its own upstreams, then restages them internally.
+                return
+        except Exception:
+            pass
     earliest = _earliest_incomplete_seed_stage(ctx, stage_key)
     if earliest and earliest != stage_key:
         require_llm_stage_progress(ctx, earliest)

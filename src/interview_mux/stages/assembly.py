@@ -964,6 +964,7 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                 )
         from interview_mux.nugget_layup import (
+            adopt_layup_plan_to_selection,
             assert_gap_report_layup_authority,
             assert_layup_fresh_vs_selection,
             dedupe_gap_report_nugget_claims,
@@ -984,12 +985,9 @@ def run_edl(ctx: RunContext) -> None:
         ctx.write_json("master/selection.json", selection)
         try:
             from interview_mux.nugget_layup import PLAN_REL
-            from interview_mux.order_hash import copy_order_lock
 
             if ctx.artifact_exists(PLAN_REL):
-                plan = ctx.read_json(PLAN_REL)
-                if isinstance(plan, dict):
-                    ctx.write_json(PLAN_REL, copy_order_lock(selection, plan))
+                adopt_layup_plan_to_selection(ctx, persist=True, stage="edl")
         except Exception:
             pass
         assert_layup_fresh_vs_selection(ctx, stage="edl")

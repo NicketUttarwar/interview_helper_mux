@@ -165,6 +165,12 @@ def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
         merge_from_disk=True,
         stage_key="full_master_ranking",
     )
+    try:
+        from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+        adopt_layup_plan_to_selection(ctx, persist=True, stage="full_master_ranking")
+    except Exception:
+        pass
 
 
 def _log_nle_apply(ctx: RunContext, *, stage: str, selection: dict) -> None:
@@ -669,6 +675,12 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             merge_from_disk=True,
             stage_key="full_master_ranking",
         )
+        try:
+            from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+            adopt_layup_plan_to_selection(c, persist=True, stage="full_master_ranking")
+        except Exception:
+            pass
         # Unify narrative constraints with selection air-order (flagship reconcile on conflict).
         try:
             from interview_mux.order_reconcile import reconcile_selection_and_narrative
@@ -676,6 +688,12 @@ def run_full_master_ranking(ctx: RunContext) -> None:
             reconcile_selection_and_narrative(
                 c, allow_llm=True, label="full_master_ranking/order_reconcile"
             )
+            try:
+                from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+                adopt_layup_plan_to_selection(c, persist=True, stage="full_master_ranking")
+            except Exception:
+                pass
         except Exception as exc:
             c.log(
                 f"order_reconcile after ranking failed (fail-open): {exc}",

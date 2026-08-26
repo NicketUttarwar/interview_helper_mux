@@ -2526,6 +2526,185 @@ def dedupe_gap_report_nugget_claims(
     return report, notes
 
 
+def _segment_windows(ctx: RunContext) -> dict[str, tuple[int, int]]:
+    """Live segment id → (start_ms, end_ms) from manifest, hitch keepers, or boundaries."""
+    out: dict[str, tuple[int, int]] = {}
+    for rel in (
+        "segments/manifest.json",
+        "mastering/chapter_close_hitch/hitch_keepers.json",
+        "segments/boundaries.json",
+    ):
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        rows: list[Any]
+        if isinstance(doc, dict):
+            rows = list(
+                doc.get("segments")
+                or doc.get("keepers")
+                or doc.get("boundaries")
+                or []
+            )
+        else:
+            rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("segment_id") or "").strip()
+            if not sid or sid in out:
+                continue
+            start = int(row.get("start_ms") or 0)
+            end = int(row.get("end_ms") or start)
+            if end > start:
+                out[sid] = (start, end)
+    return out
+
+
+def _overlap_ms(a0: int, a1: int, b0: int, b1: int) -> int:
+    return max(0, min(a1, b1) - max(a0, b0))
+
+
+def adopt_layup_plan_to_selection(
+    ctx: RunContext,
+    mapping: dict[str, str] | None = None,
+    remap_doc: dict[str, Any] | None = None,
+    *,
+    persist: bool = True,
+    stage: str = "nugget_layup_compose",
+) -> dict[str, Any]:
+    """Rewrite layup ids onto the live selection without remine.
+
+    Displaced rows rebind onto the earliest overlapping live native. Extra hitch
+    split children skip (no new VO, no compose). Satisfies
+    ``assert_layup_fresh_vs_selection``.
+    """
+    if not nugget_layup_enabled():
+        return {"ok": True, "skipped": True}
+    if not ctx.artifact_exists(PLAN_REL):
+        return {"ok": True, "no_plan": True}
+    try:
+        plan = ctx.read_json(PLAN_REL)
+    except Exception:
+        return {"ok": False, "error": "unreadable_plan"}
+    if not isinstance(plan, dict):
+        return {"ok": False, "error": "invalid_plan"}
+
+    map_ids = {
+        str(k): str(v)
+        for k, v in (mapping or {}).items()
+        if k and v
+    }
+    if not map_ids and isinstance(remap_doc, dict):
+        map_ids = {
+            str(k): str(v)
+            for k, v in (remap_doc.get("old_to_new") or {}).items()
+            if k and v
+        }
+    if map_ids:
+        from interview_mux.segment_id_remap import apply_segment_id_map
+
+        plan = apply_segment_id_map(plan, map_ids)
+
+    selection = _ordered_ids(ctx)
+    if not selection:
+        return {"ok": True, "no_selection": True}
+
+    layups = [dict(r) for r in (plan.get("layups") or []) if isinstance(r, dict)]
+    windows = _segment_windows(ctx)
+    by_target: dict[str, dict[str, Any]] = {}
+    for row in layups:
+        tid = str(row.get("target_segment_id") or "").strip()
+        if tid and tid not in by_target:
+            by_target[tid] = row
+
+    inherited: list[str] = []
+    skipped_ids: list[str] = []
+    rebound: list[str] = []
+
+    # Rebind rows whose target left the air order onto the earliest overlapping native.
+    for row in list(layups):
+        tid = str(row.get("target_segment_id") or "").strip()
+        if not tid or tid in selection:
+            continue
+        tw = windows.get(tid)
+        best: tuple[int, int, str] | None = None
+        for sid in selection:
+            sw = windows.get(sid)
+            if not tw or not sw:
+                continue
+            ov = _overlap_ms(tw[0], tw[1], sw[0], sw[1])
+            if ov <= 0:
+                continue
+            start = sw[0]
+            if best is None or start < best[1] or (start == best[1] and ov > best[0]):
+                best = (ov, start, sid)
+        if best is None:
+            continue
+        dest = best[2]
+        if dest in by_target and dest != tid:
+            continue
+        old_tid = tid
+        row["target_segment_id"] = dest
+        lid = str(row.get("line_id") or "")
+        if lid and old_tid in lid:
+            row["line_id"] = lid.replace(old_tid, dest)
+        else:
+            row["line_id"] = f"vo_layup_{dest}"
+        row["adopted_from_target"] = old_tid
+        by_target.pop(old_tid, None)
+        by_target[dest] = row
+        rebound.append(dest)
+        inherited.append(dest)
+
+    for sid in selection:
+        if sid in by_target:
+            continue
+        skip_row = {
+            "target_segment_id": sid,
+            "line_id": f"vo_layup_{sid}",
+        }
+        stamp_typed_skip(
+            skip_row,
+            reason_code="hitch_split_no_inherit",
+            compensating_path="native_self_orients",
+            owner_stage=stage,
+        )
+        layups.append(skip_row)
+        by_target[sid] = skip_row
+        skipped_ids.append(sid)
+
+    plan = dict(plan)
+    plan["layups"] = layups
+    plan = attach_selection_order_lock(ctx, plan)
+    meta = dict(plan.get("_meta") or {}) if isinstance(plan.get("_meta"), dict) else {}
+    meta["adopted_to_selection"] = True
+    meta["adopted_inherited"] = inherited
+    meta["adopted_skipped"] = skipped_ids
+    meta["adopted_rebound"] = rebound
+    plan["_meta"] = meta
+    if persist:
+        ctx.write_json(PLAN_REL, plan, skip_handoff=True, stage_key=stage)
+        try:
+            publish_layup_plan_to_gap_report(ctx, plan)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": str(exc)[:240],
+                "inherited": inherited,
+                "skipped": skipped_ids,
+                "rebound": rebound,
+            }
+    return {
+        "ok": True,
+        "inherited": inherited,
+        "skipped": skipped_ids,
+        "rebound": rebound,
+    }
+
+
 def attach_selection_order_lock(ctx: RunContext, plan: dict[str, Any]) -> dict[str, Any]:
     """Copy selection air order + order_lock onto a layup plan document."""
     out = dict(plan)

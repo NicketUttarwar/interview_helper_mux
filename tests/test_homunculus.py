@@ -1114,6 +1114,63 @@ def test_pending_analysis_for_delivery_lists_missing_gap_artifacts() -> None:
     assert "delivery_brief_build" in pending
 
 
+def test_pending_analysis_for_delivery_restores_skipped_gap_artifacts() -> None:
+    from interview_mux.homunculus.agenda import pending_analysis_for_delivery
+    from interview_mux.stages.gaps import ensure_gap_fill_skipped
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "speaker_id": "spk_1",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+    )
+    bpath = ctx.path("segments/boundaries.json")
+    bpath.parent.mkdir(parents=True, exist_ok=True)
+    bpath.write_text(
+        '{"boundaries":[{"segment_id":"seg_001","start_ms":0,"end_ms":8000,'
+        '"proposed_split_reason":"pause"}]}',
+        encoding="utf-8",
+    )
+    (ctx.run_dir / ".stage_done").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / ".stage_done" / "boundary_detection").write_text("", encoding="utf-8")
+    (ctx.run_dir / ".stage_done" / "segment_classification").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "understanding/content_brief.json",
+        {
+            "thesis": "Precision oncology from circulating tumour cells.",
+            "topics": [{"name": "liquid biopsy", "summary": "blood draw diagnostics"}],
+        },
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done" / "content_brief_reanchor").write_text("", encoding="utf-8")
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"topology_class": "one_on_one_balanced", "speaker_stats": [{"speaker_id": "spk_0"}]},
+        skip_handoff=True,
+    )
+    (ctx.run_dir / ".stage_done" / "source_topology_build").write_text("", encoding="utf-8")
+    ensure_gap_fill_skipped(
+        ctx, reason="low_frame_confidence", signals={"topology_class": "one_on_one_balanced"}
+    )
+    ctx.path("understanding", "gap_report.json").unlink(missing_ok=True)
+    pending = pending_analysis_for_delivery(ctx)
+    assert "missing_framing" not in pending
+    assert "gap_framing_compose" not in pending
+    assert ctx.artifact_exists("understanding/gap_report.json")
+    assert "delivery_brief_build" in pending
+
+
 def test_remaining_stages_uses_seed_order_not_scheduled_reorder() -> None:
     from interview_mux.homunculus.agenda import remaining_stages, write_agenda
 

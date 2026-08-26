@@ -2471,16 +2471,27 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         ]
         if critical_left:
             blocking_reasons.append("critical_incomplete_cut_residuals")
-            # Prefer seam re-fuse when incomplete residuals remain between selected natives.
+            hitch_armed = False
             try:
-                from interview_mux.stages.low_conf_fuse_stages import (
-                    run_connector_fuse_pass_junction_heal,
-                )
+                from interview_mux.chapter_close_hitch import arm_hitch_listen_restage
 
-                run_connector_fuse_pass_junction_heal(ctx)
-                report["connector_fuse_junction_heal"] = True
-            except Exception as fuse_exc:  # noqa: BLE001
-                report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
+                hitch_armed = arm_hitch_listen_restage(ctx)
+            except Exception as hitch_exc:  # noqa: BLE001
+                report["hitch_listen_restage_error"] = str(hitch_exc)[:300]
+            if hitch_armed:
+                blocking_reasons.append("hitch_listen_restage")
+                report["hitch_listen_restage"] = True
+            else:
+                # Prefer seam re-fuse when incomplete residuals remain between selected natives.
+                try:
+                    from interview_mux.stages.low_conf_fuse_stages import (
+                        run_connector_fuse_pass_junction_heal,
+                    )
+
+                    run_connector_fuse_pass_junction_heal(ctx)
+                    report["connector_fuse_junction_heal"] = True
+                except Exception as fuse_exc:  # noqa: BLE001
+                    report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
     # unavailable after retry is a blocking quality signal unless mechanical
     # commitment already passed with no critical residuals (LLM outage must not
     # discard a remastered assembly).

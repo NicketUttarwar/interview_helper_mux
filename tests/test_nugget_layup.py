@@ -698,6 +698,102 @@ def test_attach_selection_lock_restamps_reordered_ids():
     assert layup_freshness_errors(ctx, stamped) == []
 
 
+def test_adopt_layup_rewrites_ids_and_embeds():
+    from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+    ctx = RunContext("exec_nugget_layup_adopt_remap", create=True)
+    _seed_air_order(ctx, ["seg_101", "seg_102"], {})
+    plan = {
+        "ordered_segment_ids": ["seg_001", "seg_002"],
+        "layups": [
+            _layup_row("seg_001", "Recovered ESOP breadth sets up the deal terms."),
+        ],
+        "vo_layup_note": "before vo_layup_seg_001",
+    }
+    ctx.write_json(PLAN_REL, plan)
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
+    result = adopt_layup_plan_to_selection(
+        ctx,
+        mapping={"seg_001": "seg_101", "seg_002": "seg_102"},
+        persist=True,
+        stage="chapter_close_hitch",
+    )
+    assert result.get("ok")
+    live = ctx.read_json(PLAN_REL)
+    assert live["ordered_segment_ids"] == ["seg_101", "seg_102"]
+    targets = [str(r.get("target_segment_id")) for r in live.get("layups") or []]
+    assert "seg_101" in targets
+    assert "vo_layup_seg_101" in str(live)
+    assert_layup_fresh_vs_selection(ctx, live)
+
+
+def test_adopt_layup_split_child_skips_and_freshness_passes():
+    from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+    ctx = RunContext("exec_nugget_layup_adopt_split", create=True)
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_050", "seg_051"]})
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_050",
+                    "start_ms": 0,
+                    "end_ms": 5000,
+                    "text": "parent first half",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                },
+                {
+                    "segment_id": "seg_051",
+                    "start_ms": 5000,
+                    "end_ms": 10000,
+                    "text": "parent second half",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": [],
+                },
+            ]
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_050"],
+        "layups": [_layup_row("seg_050", "The assay sets up the deal terms.")],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
+    result = adopt_layup_plan_to_selection(ctx, persist=True, stage="chapter_close_hitch")
+    assert result.get("ok")
+    live = ctx.read_json(PLAN_REL)
+    assert live["ordered_segment_ids"] == ["seg_050", "seg_051"]
+    by_t = {
+        str(r.get("target_segment_id")): r
+        for r in live.get("layups") or []
+        if isinstance(r, dict)
+    }
+    assert "seg_050" in by_t
+    assert "seg_051" in by_t
+    child = by_t["seg_051"]
+    assert child.get("skip") or child.get("skipped_optional")
+    assert child.get("skip_reason_code") == "hitch_split_no_inherit"
+    assert_layup_fresh_vs_selection(ctx, live)
+
+
+def test_stale_plan_without_adopt_still_fails_freshness():
+    ctx = RunContext("exec_nugget_layup_stale_no_adopt", create=True)
+    _seed_air_order(ctx, ["seg_050", "seg_051"], {})
+    stale = {
+        "ordered_segment_ids": ["seg_009"],
+        "layups": [_layup_row("seg_009", "Wrong native still on the plan.")],
+    }
+    ctx.write_json(PLAN_REL, stale)
+    with pytest.raises(LoudStageFailure):
+        assert_layup_fresh_vs_selection(ctx)
+
+
 def test_recompose_cannot_wipe_layups():
     ctx = RunContext("exec_nugget_layup_authority", create=True)
     ordered = ["seg_011", "seg_028"]

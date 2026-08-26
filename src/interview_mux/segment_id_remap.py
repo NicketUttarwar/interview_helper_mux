@@ -62,6 +62,7 @@ SHARED_REMAP_RELS = (
     "understanding/omit_ledger.json",
     "understanding/gap_report.json",
     "understanding/gap_evaluations.json",
+    "understanding/nugget_layup_plan.json",
     "understanding/episode_structure.json",
     "vo_pickup/synthesis_report.json",
     "master/selection.json",

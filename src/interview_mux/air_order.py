@@ -476,6 +476,52 @@ def live_generation_matches(ctx: RunContext) -> bool:
     return True
 
 
+def mix_wav_fresh_versus_edl(ctx: RunContext) -> bool:
+    """True when final ``master/assembly.wav`` exists and is not older than live EDL."""
+    asm = ctx.final_path("master", "assembly.wav")
+    edl = ctx.final_path("master", "edl.json")
+    if not asm.is_file() or not edl.is_file():
+        return False
+    try:
+        asm_m = asm.stat().st_mtime
+        edl_m = edl.stat().st_mtime
+    except OSError:
+        return False
+    return asm_m + 1.0 >= edl_m
+
+
+def mix_outputs_seated(ctx: RunContext) -> bool:
+    """Mix-done: flushed wav + live EDL, not autopsy commitment.
+
+    Junction / finalize still use ``mix_committed_for_live_gen``.
+    """
+    if not mix_wav_fresh_versus_edl(ctx):
+        return False
+    if not live_generation_matches(ctx):
+        return False
+    sel = _read_dict(ctx, SELECTION_REL)
+    edl = _read_dict(ctx, EDL_REL)
+    if not isinstance(sel, dict):
+        return True
+    sel_ids = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    if not sel_ids:
+        return True
+    from interview_mux.order_hash import edl_speech_clip_ids, get_order_lock, order_drift_heal_action
+
+    if (
+        order_drift_heal_action(sel, edl if isinstance(edl, dict) else None)
+        not in {"ok", "stamp"}
+    ):
+        return False
+    lock = get_order_lock(sel) or {}
+    lock_ids = [str(s) for s in (lock.get("ordered_segment_ids") or []) if s]
+    clip_ids = edl_speech_clip_ids(edl if isinstance(edl, dict) else {})
+    seated = lock_ids or sel_ids
+    if clip_ids and seated and clip_ids != seated:
+        return False
+    return True
+
+
 def mix_stale_versus_live(ctx: RunContext) -> bool:
     """True when assembly is not the mix of the live AirOrder generation."""
     if not ctx.artifact_exists("master/assembly.wav") or not ctx.artifact_exists(EDL_REL):

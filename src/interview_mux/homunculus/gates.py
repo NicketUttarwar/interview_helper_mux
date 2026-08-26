@@ -33,6 +33,14 @@ def recommended_framing_action(ctx: RunContext) -> str:
             return "skip"
     except Exception:
         pass
+    try:
+        from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility
+
+        decision = assess_gap_fill_eligibility(ctx)
+        if not decision.eligible:
+            return "skip"
+    except Exception:
+        pass
     return "present_operator"
 
 

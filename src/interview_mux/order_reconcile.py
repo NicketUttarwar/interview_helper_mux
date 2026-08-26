@@ -152,6 +152,12 @@ def _apply_reconciled_order(
         write_committed_json(ctx, "master/selection.json", stamped)
     except Exception:
         ctx.write_json("master/selection.json", stamped)
+    try:
+        from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+        adopt_layup_plan_to_selection(ctx, persist=True, stage="order_reconcile")
+    except Exception:
+        pass
     return cleaned
 
 

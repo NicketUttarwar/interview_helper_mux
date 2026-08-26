@@ -251,6 +251,305 @@ def test_validate_synthetic_plan_seam_coverage_follows_canned_flag(
     assert synthetic_framing.validate_synthetic_plan(ctx, plan) == []
 
 
+def _synthetic_packet(ctx, *, ordered: list[str], required: list[dict]) -> dict:
+    man = ctx.read_json("segments/manifest.json")
+    by_id = {
+        str(s["segment_id"]): s
+        for s in (man.get("segments") or [])
+        if isinstance(s, dict) and s.get("segment_id")
+    }
+    return {
+        "version": 1,
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "selection_order_content_hash": ctx.read_json("master/selection.json")[
+            "order_content_hash"
+        ],
+        "ordered_segment_ids": ordered,
+        "selected_native_segments": [
+            {
+                "segment_id": sid,
+                "start_ms": by_id.get(sid, {}).get("start_ms", 0),
+                "end_ms": by_id.get(sid, {}).get("end_ms", 1000),
+                "text": by_id.get(sid, {}).get("text", ""),
+                "topic": by_id.get(sid, {}).get("topic", ""),
+            }
+            for sid in ordered
+        ],
+        "native_duration_ms": 11000,
+        "policy": {"plan_after_native_selection": True},
+        "required_reorder_seams": required,
+    }
+
+
+def test_normalize_keeps_reversed_llm_text_on_air_order_seam(tmp_path: Path) -> None:
+    from interview_mux import synthetic_framing
+
+    ctx = _reorder_ctx(tmp_path)
+    packet = _synthetic_packet(
+        ctx,
+        ordered=["seg_a", "seg_b"],
+        required=[{"after_segment_id": "seg_a", "before_segment_id": "seg_b"}],
+    )
+    llm_text = (
+        "As we explore the evolution of cancer diagnostics, it's crucial to "
+        "understand the limitations of traditional tissue biopsies."
+    )
+    plan = {
+        "selection_order_content_hash": packet["selection_order_content_hash"],
+        "lines": [
+            {
+                "line_id": "syn_reversed",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": "seg_a",
+                "after_segment_id": "seg_b",
+                "before_segment_id": "seg_a",
+                "text": llm_text,
+                "duration_ratio": 1.0,
+                "comprehension_reason": "LLM bridge with swapped ids",
+            }
+        ],
+    }
+    out = synthetic_framing.normalize_synthetic_plan(ctx, plan, packet)
+    lines = out["lines"]
+    assert len(lines) == 1
+    row = lines[0]
+    assert row["after_segment_id"] == "seg_a"
+    assert row["before_segment_id"] == "seg_b"
+    assert "cancer diagnostics" in str(row["text"]).casefold()
+    assert row.get("auto_minted_seam") is not True
+    assert "what changed?" not in str(row["text"]).casefold()
+
+
+def test_normalize_adopts_endpoint_messy_ids_onto_required_seam(tmp_path: Path) -> None:
+    from interview_mux import synthetic_framing
+
+    ctx = _reorder_ctx(tmp_path)
+    packet = _synthetic_packet(
+        ctx,
+        ordered=["seg_a", "seg_b"],
+        required=[{"after_segment_id": "seg_a", "before_segment_id": "seg_b"}],
+    )
+    llm_text = (
+        "Liquid biopsy techniques change how clinicians sample tumor biology "
+        "without invasive tissue collection."
+    )
+    plan = {
+        "selection_order_content_hash": packet["selection_order_content_hash"],
+        "lines": [
+            {
+                "line_id": "syn_follow",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": "seg_b",
+                # Missing prior id — only following endpoint set.
+                "after_segment_id": None,
+                "before_segment_id": "seg_b",
+                "text": llm_text,
+                "duration_ratio": 1.0,
+                "comprehension_reason": "bridge into next native",
+            }
+        ],
+    }
+    out = synthetic_framing.normalize_synthetic_plan(ctx, plan, packet)
+    row = next(r for r in out["lines"] if r.get("line_id") == "syn_follow")
+    assert row["after_segment_id"] == "seg_a"
+    assert row["before_segment_id"] == "seg_b"
+    assert "biopsy" in str(row["text"]).casefold()
+    assert row.get("adopted_seam_repair") in {"endpoint", "anchor", "exact", "reversed"}
+
+
+def test_normalize_drops_self_loop_and_validate_flags_bad_pairs(tmp_path: Path) -> None:
+    from interview_mux import synthetic_framing
+
+    ctx = _reorder_ctx(tmp_path)
+    packet = _synthetic_packet(
+        ctx,
+        ordered=["seg_a", "seg_b"],
+        required=[{"after_segment_id": "seg_a", "before_segment_id": "seg_b"}],
+    )
+    plan = {
+        "selection_order_content_hash": packet["selection_order_content_hash"],
+        "lines": [
+            {
+                "line_id": "syn_loop",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": "seg_a",
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_a",
+                "text": "Turning to fundraising constraints, what changed?",
+                "duration_ratio": 1.0,
+                "comprehension_reason": "bad self loop",
+            },
+            {
+                "line_id": "syn_ok",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": "seg_a",
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "text": (
+                    "Fundraising constraints reshape how teams prioritize the "
+                    "strategic sale conversation."
+                ),
+                "duration_ratio": 1.0,
+                "comprehension_reason": "valid seam",
+            },
+        ],
+    }
+    out = synthetic_framing.normalize_synthetic_plan(ctx, plan, packet)
+    ids = {str(r.get("line_id")) for r in out["lines"]}
+    assert "syn_loop" not in ids
+    assert any(r.get("after_segment_id") == "seg_a" and r.get("before_segment_id") == "seg_b" for r in out["lines"])
+
+    bad = {
+        "selection_order_content_hash": packet["selection_order_content_hash"],
+        "lines": [
+            {
+                "line_id": "syn_rev",
+                "role": "bridge",
+                "placement": "between_segments",
+                "anchor_segment_id": "seg_a",
+                "after_segment_id": "seg_b",
+                "before_segment_id": "seg_a",
+                "text": "A short bridge about the strategic sale path.",
+                "duration_ratio": 1.0,
+                "comprehension_reason": "reversed residual",
+            }
+        ],
+    }
+    errors = synthetic_framing.validate_synthetic_plan(ctx, bad, packet=packet)
+    assert any("reversed air-order" in e or "self-loop" in e for e in errors)
+
+
+def test_seam_glue_skips_self_loop_and_avoids_duplicate_stock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.seam_glue import mint_missing_transitions
+    from interview_mux.spoken_copy_guard import artifact_spoken_copy_errors
+
+    ctx = _reorder_ctx(tmp_path)
+    patch_merged_config(
+        monkeypatch,
+        {"mastering": {"synthetic_framing": {"allow_canned_bridge_fallback": False}}},
+    )
+    planned_text = (
+        "Fundraising constraints reshape how teams prioritize the strategic sale."
+    )
+    ctx.write_json(
+        "understanding/synthetic_framing_plan.json",
+        {
+            "selection_order_content_hash": ctx.read_json("master/selection.json")[
+                "order_content_hash"
+            ],
+            "strategy_summary": "test",
+            "synthetic_input_share_estimate": 0.1,
+            "lines": [
+                {
+                    "line_id": "syn_seam_seg_a_seg_b",
+                    "role": "bridge",
+                    "placement": "between_segments",
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "anchor_segment_id": "seg_a",
+                    "text": planned_text,
+                    "duration_ratio": 1.0,
+                    "target_duration_ms": 1200,
+                    "native_respect_violation": False,
+                    "comprehension_reason": "planned",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    doc = mint_missing_transitions(
+        ctx,
+        [
+            {
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_b",
+                "kind": "reorder",
+                "source_gap_ms": 115000,
+            },
+            {
+                "after_segment_id": "seg_a",
+                "before_segment_id": "seg_a",
+                "kind": "reorder",
+                "source_gap_ms": 1000,
+            },
+        ],
+        transitions={"transitions": []},
+    )
+    pairs = {
+        (str(t.get("after_segment_id")), str(t.get("before_segment_id")))
+        for t in doc["transitions"]
+    }
+    assert ("seg_a", "seg_a") not in pairs
+    assert ("seg_a", "seg_b") in pairs
+    man = ctx.read_json("segments/manifest.json")
+    by_id = {
+        str(s["segment_id"]): s
+        for s in (man.get("segments") or [])
+        if isinstance(s, dict)
+    }
+    errs = artifact_spoken_copy_errors(
+        gap_report=None,
+        transitions=doc,
+        segments_by_id=by_id,
+        synthetic_framing=ctx.read_json("understanding/synthetic_framing_plan.json"),
+    )
+    assert not any("spoken_repeated_copy" in e for e in errs)
+    assert not any("spoken_self_loop_seam" in e for e in errs)
+
+
+def test_planned_transition_for_pair_rewrites_reversed_ids() -> None:
+    from interview_mux.synthetic_framing import planned_transition_for_pair
+
+    plan = {
+        "lines": [
+            {
+                "line_id": "syn_rev",
+                "placement": "between_segments",
+                "after_segment_id": "seg_b",
+                "before_segment_id": "seg_a",
+                "text": "Bridge text.",
+            }
+        ]
+    }
+    row = planned_transition_for_pair(plan, "seg_a", "seg_b")
+    assert row is not None
+    assert row["after_segment_id"] == "seg_a"
+    assert row["before_segment_id"] == "seg_b"
+    assert row.get("adopted_seam_repair") == "reversed"
+
+
+def test_assert_guarded_unions_seen_with_persisted_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux import spoken_copy_guard as scg
+
+    ctx = _reorder_ctx(tmp_path)
+    calls: list[dict] = []
+    real_load = scg.load_persisted_spoken_texts
+
+    def _tracking_load(*args, **kwargs):
+        calls.append(dict(kwargs))
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(scg, "load_persisted_spoken_texts", _tracking_load)
+    scg.assert_guarded_spoken_copy(
+        "A grounded bridge about fundraising constraints and the strategic sale.",
+        evidence={
+            "before_topic": "fundraising constraints",
+            "after_topic": "the strategic sale",
+            "strict_grounding": True,
+        },
+        purpose="transition[seg_a->seg_b]",
+        seen_texts=["unrelated prior line about weather patterns today"],
+        ctx=ctx,
+    )
+    assert calls, "persisted corpus must be loaded even when seen_texts is provided"
+
+
 # ── Anti-oscillation ──────────────────────────────────────────────────────────
 
 

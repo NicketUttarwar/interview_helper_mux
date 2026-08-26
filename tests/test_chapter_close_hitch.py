@@ -27,6 +27,7 @@ from interview_mux.chapter_close_hitch import (
     run_chapter_close_hitch,
     run_inner_walk,
     rewrite_upstream_segment_refs,
+    _publish_boundaries_from_windows,
 )
 from interview_mux.homunculus.agenda import skip_stage
 from interview_mux.homunculus.ledger import append_ledger, count_identity
@@ -473,6 +474,71 @@ def test_inner_walk_does_not_dispatch_stage_budget(
     assert count_identity(ctx, "narrative_arc_plan") == 0
 
 
+def test_publish_boundaries_drops_zero_duration(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    windows = [
+        {"start_ms": 0, "end_ms": 4000, "talking_point_id": "tp_a"},
+        {"start_ms": 728320, "end_ms": 728320, "talking_point_id": ""},
+        {"start_ms": 8000, "end_ms": 12000, "talking_point_id": "tp_b"},
+    ]
+    boundaries, snapped = _publish_boundaries_from_windows(ctx, windows)
+    ids = [b.get("segment_id") for b in (boundaries.get("boundaries") or [])]
+    assert len(ids) == 2
+    assert all(
+        int(b["end_ms"]) > int(b["start_ms"]) for b in (boundaries.get("boundaries") or [])
+    )
+    starts = [int(b["start_ms"]) for b in (boundaries.get("boundaries") or [])]
+    assert starts == sorted(starts)
+    assert snapped.get("snap_warnings")
+
+
+def test_publish_boundaries_clamps_overlaps(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    windows = [
+        {"start_ms": 0, "end_ms": 640060},
+        {"start_ms": 634480, "end_ms": 700000},
+        {"start_ms": 800000, "end_ms": 900000},
+    ]
+    boundaries, snapped = _publish_boundaries_from_windows(ctx, windows)
+    rows = boundaries.get("boundaries") or []
+    assert len(rows) == 3
+    for i in range(1, len(rows)):
+        assert int(rows[i]["start_ms"]) >= int(rows[i - 1]["end_ms"])
+    assert any("clamped" in str(w) for w in (snapped.get("snap_warnings") or []))
+
+
+def test_inner_walk_skips_recollate_when_hitch_published(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(
+        "segments/boundaries.json",
+        {
+            "boundaries": [
+                {
+                    "segment_id": "seg_001",
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "proposed_split_reason": "chapter_close_hitch",
+                }
+            ],
+            "_meta": {"segment_contract": {"publisher_stage": "chapter_close_hitch"}},
+        },
+        skip_handoff=True,
+    )
+    seen: list[str] = []
+
+    def _stage(_ctx: RunContext, stage: str) -> None:
+        seen.append(stage)
+        _ctx.mark_done(stage, force=True)
+
+    monkeypatch.setattr("interview_mux.pipeline.run_single_stage", _stage)
+    ran = run_inner_walk(ctx, stages=["boundary_detection", "segment_classification"])
+    assert ran == ["boundary_detection", "segment_classification"]
+    assert seen == ["segment_classification"]
+    assert ctx.is_done("boundary_detection")
+
+
 def test_hitch_identity_counts_one_on_010(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -702,6 +768,30 @@ def test_resume_running_latch_does_not_double_recut(
     assert walk_calls["n"] == 2
 
 
+def test_hitch_resume_input_check_accepts_frozen_intent(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.stage_input_checks import _check_chapter_close_hitch
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(INTENT_REL, _plan(_chapter("ch1", "Keep", ["seg_001"])), skip_handoff=True)
+    assert _check_chapter_close_hitch(ctx) == []
+
+
+def test_hitch_running_latch_skips_upstream_topic_coverage_gate(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.llm_flow_hardening import maybe_require_upstream_llm_progress
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    ctx.write_json(
+        LATCH_REL,
+        {"version": 1, "status": "running", "wiped": True, "seq": 1},
+        skip_handoff=True,
+    )
+    maybe_require_upstream_llm_progress(ctx, "chapter_close_hitch")
+
+
 def test_hitch_rewrites_vo_omit_and_keeps_chapter_title(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -905,3 +995,25 @@ def test_episode_structure_aligns_to_remapped_chapters(
     assert hinges[0]["bound_segment_ids"] == ["seg_101", "seg_102"] or hinges[0][
         "bound_segment_ids"
     ][-1] == "seg_102"
+
+
+def test_shared_remap_rels_include_layup_plan() -> None:
+    from interview_mux.segment_id_remap import SHARED_REMAP_RELS
+
+    assert "understanding/nugget_layup_plan.json" in SHARED_REMAP_RELS
+
+
+def test_hitch_listen_restage_latches_once(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from interview_mux.chapter_close_hitch import (
+        arm_hitch_listen_restage,
+        hitch_listen_restage_count,
+    )
+
+    ctx = _ctx(tmp_path, monkeypatch)
+    assert arm_hitch_listen_restage(ctx) is True
+    assert hitch_listen_restage_count(ctx) == 1
+    latch = ctx.read_json(LATCH_REL)
+    assert latch.get("status") == "running"
+    assert latch.get("listen_restage") is True
+    assert arm_hitch_listen_restage(ctx) is False
+    assert hitch_listen_restage_count(ctx) == 1

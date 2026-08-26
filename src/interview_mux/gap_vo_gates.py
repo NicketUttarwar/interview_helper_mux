@@ -266,6 +266,17 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
     applied = False
     if check_gap_framing_decision_pending(ctx):
         enabled = recommended_gap_framing_enabled()
+        try:
+            from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility
+            from interview_mux.homunculus.gates import recommended_framing_action
+            from interview_mux.homunculus.runtime import is_homunculus_run
+
+            if not assess_gap_fill_eligibility(ctx).eligible:
+                enabled = False
+            elif is_homunculus_run(ctx) and recommended_framing_action(ctx) == "skip":
+                enabled = False
+        except Exception:
+            pass
         set_gap_framing_enabled(ctx, enabled)
         applied = True
         ctx.log(

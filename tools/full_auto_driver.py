@@ -157,6 +157,49 @@ def pause_needs_operator(stage: str, reason: str) -> str:
     return "pause"
 
 
+def skip_ineligible_gap_fill(*, reason: str = "") -> bool:
+    """Skip interviewer VO when eligibility says this tape cannot host gap-fill.
+
+    Product path: ``operator_skip_gap_fill`` / ``ensure_gap_fill_skipped``. Never retry
+    missing_framing for the same ineligible invariant.
+    """
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            assess_gap_fill_eligibility,
+            gap_fill_was_skipped,
+            operator_skip_gap_fill,
+        )
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+        if gap_fill_was_skipped(ctx):
+            return True
+        decision = assess_gap_fill_eligibility(ctx)
+        if decision.eligible:
+            return False
+        why = (reason or decision.reason or "gap_fill_ineligible")[:400]
+        operator_skip_gap_fill(ctx, reason=why)
+
+        def _clear(meta: dict[str, Any]) -> None:
+            meta["needs_operator"] = False
+            meta.pop("needs_operator_stage", None)
+            meta.pop("needs_operator_reason", None)
+
+        ctx.mutate_run_meta(_clear)
+        log_decision(
+            "minor",
+            stage="missing_framing",
+            action="skip_optional_vo",
+            reason="gap_fill_ineligible",
+            detail=why[:240],
+        )
+        log(f"gap-fill ineligible — skipped VO ({why[:160]})")
+        return True
+    except Exception as exc:
+        log(f"gap-fill ineligible skip failed: {exc}")
+        return False
+
+
 def summarize_decisions(*, label: str = "ship") -> None:
     majors = [d for d in _DECISIONS if d.get("severity") == "major"]
     minors = [d for d in _DECISIONS if d.get("severity") == "minor"]
@@ -2397,16 +2440,24 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     if "missing master/assembly.wav" in low or ("assembly.wav" in low and "missing" in low):
         try:
             from pathlib import Path as _P
+            from interview_mux.heal_routing import (
+                classify_heal_error,
+                heal_is_halted,
+                record_heal_fingerprint,
+            )
             from interview_mux.run_context import RunContext
             from interview_mux.soundscape_verify import _clear_pending_sdp_shadows
 
             ctx = RunContext(RUN_ID, create=False)
+            route = classify_heal_error(low, ctx, stage=stage or "mix")
+            if route and heal_is_halted(ctx, route, reason=low, stage=stage or "mix"):
+                log("STOP: identical mix-without-assembly heal ×3 — not remastering mix")
+                raise SystemExit("HARD: mix-without-assembly loop x3")
             done = _P(ctx.run_dir) / ".stage_done" / "mix"
             if done.is_file() and not (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
                 done.unlink(missing_ok=True)
                 log("gate: cleared mix done — assembly.wav missing (re-run mix)")
             _clear_pending_sdp_shadows(ctx)
-            # Prefer restore archived assembly over full remaster when present.
             dest = _P(ctx.run_dir) / "master" / "assembly.wav"
             if not dest.is_file():
                 import shutil
@@ -2419,8 +2470,17 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     log(f"gate: restored assembly.wav from {arch[-1]}")
                     execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
                     return "continue"
-            execute({"mode": "delivery", "from_stage": "mix"})
+            resume = (route.from_stage if route else "mix")
+            if route:
+                row = record_heal_fingerprint(ctx, route, reason=low, stage=stage or "mix")
+                if row.get("halt"):
+                    log("STOP: identical mix-without-assembly heal ×3 — not remastering mix")
+                    raise SystemExit("HARD: mix-without-assembly loop x3")
+            log(f"gate: assembly heal → {resume} ({(route.detail if route else '')})")
+            execute({"mode": "delivery", "from_stage": resume})
             return "continue"
+        except SystemExit:
+            raise
         except Exception as exc:
             log(f"gate assembly heal: {exc}")
             return "stuck"
@@ -5015,6 +5075,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 )
                 return "continue"
             log(f"prerequisite missing: {need} — resuming from there")
+            if need == "missing_framing" and skip_ineligible_gap_fill():
+                nxt = first_pending(
+                    [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
+                ) or "delivery_brief_build"
+                if nxt == "missing_framing":
+                    nxt = "gap_framing_compose"
+                execute({"mode": "analysis", "from_stage": nxt})
+                return "advance"
             execute({"mode": "analysis" if "delivery" not in str(body.get("mode")) else "delivery", "from_stage": need})
             return "advance"
         return "stuck"
@@ -5042,6 +5110,15 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         or "gap delivery" in low
         or "voice clone" in low
     ):
+        if skip_ineligible_gap_fill(reason=msg if isinstance(msg, str) else ""):
+            nxt = first_pending(
+                [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
+            ) or "delivery_brief_build"
+            if nxt in {"missing_framing", "gap_framing_compose", "optimal_questions"}:
+                nxt = "delivery_brief_build"
+            log(f"gap-framing ineligible — skip VO, resume analysis from {nxt}")
+            execute({"mode": "analysis", "from_stage": nxt})
+            return "continue"
         accept_gap_framing_defaults()
         # Never re-execute the original analysis body from an early from_stage —
         # that re-enters source_acoustic_profile, invalidates mid-pipeline markers,
@@ -5475,7 +5552,7 @@ def delivery_resume_stage() -> str | None:
             return "edl"
         if asm and edl:
             try:
-                from interview_mux.air_order import mix_committed_for_live_gen
+                from interview_mux.air_order import mix_outputs_seated
                 from interview_mux.order_hash import order_drift_heal_action
 
                 sel = (
@@ -5498,14 +5575,14 @@ def delivery_resume_stage() -> str | None:
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
                     return "edl" if drift == "rebuild" else "mix"
-                if not mix_committed_for_live_gen(ctx):
+                if not mix_outputs_seated(ctx):
                     (root / ".stage_done" / "mix").unlink(missing_ok=True)
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
                     return "mix"
             except Exception:
                 pass
-            # Commitment held for live gen — may advance past mix.
+            # Wav flushed for live EDL — may advance past mix (junction keeps commitment).
         theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
         qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
         if edl and qa_ok and len(theme_wavs) >= 3:
@@ -5781,6 +5858,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "needs_operator order-drift — continue delivery "
                         "(rebuild EDL/mix) instead of halt"
                     )
+                elif (
+                    "not eligible" in pause_reason
+                    or "skip gap-fill" in pause_reason
+                    or pause_stage == "missing_framing"
+                ) and skip_ineligible_gap_fill(reason=str(_meta_p.get("needs_operator_reason") or "")):
+                    log("needs_operator missing_framing ineligible — skipped VO, continuing")
+                    continue
                 else:
                     log(
                         f"{label}: needs_operator "
@@ -5905,9 +5989,22 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     f"{missing_g1[:8]} — resume edl (do not skip mix)"
                                 )
                                 resume = "edl"
-                            elif drift == "rebuild" or not ctx_p.is_done("mix"):
+                            elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
-                                resume = "edl" if drift == "rebuild" else "mix"
+                                resume = "edl"
+                                log(
+                                    f"premature EDL complete with mix unseated "
+                                    f"(drift={drift}) — resume {resume}"
+                                )
+                            elif not ctx_p.is_done("mix"):
+                                from interview_mux.heal_routing import mix_assembly_seated
+
+                                (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
+                                resume = (
+                                    "junction_snip_qa"
+                                    if mix_assembly_seated(ctx_p)
+                                    else "mix"
+                                )
                                 log(
                                     f"premature EDL complete with mix unseated "
                                     f"(drift={drift}) — resume {resume}"
@@ -6679,6 +6776,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 try:
                     from interview_mux.nugget_layup import (
                         PLAN_REL,
+                        adopt_layup_plan_to_selection,
                         attach_selection_order_lock,
                         assert_gap_report_layup_authority,
                         dedupe_gap_report_nugget_claims,
@@ -6689,12 +6787,58 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     from interview_mux.run_context import RunContext
 
                     ctx = RunContext(RUN_ID, create=False)
-                    # Cheap heal: drop plan-only extras so ordered_segment_ids match
-                    # selection without remine (avoids VO script-hash death spiral).
+                    from interview_mux.heal_routing import (
+                        classify_heal_error,
+                        heal_is_halted,
+                        record_heal_fingerprint,
+                    )
+
+                    route = classify_heal_error(low_err, ctx, stage=stage or "edl")
+                    if route and heal_is_halted(ctx, route, reason=low_err, stage=stage or "edl"):
+                        log("STOP: identical layup-stale heal ×3 — not remine, not mix")
+                        raise SystemExit("HARD: layup-stale loop x3")
+                    if route:
+                        row = record_heal_fingerprint(
+                            ctx, route, reason=low_err, stage=stage or "edl"
+                        )
+                        if row.get("halt"):
+                            log("STOP: identical layup-stale heal ×3 — not remine, not mix")
+                            raise SystemExit("HARD: layup-stale loop x3")
+                    # Adopt (remap + skip extras/split children) — never rewrite
+                    # ids by hand and skip missing children, and never remine.
                     if ctx.artifact_exists(PLAN_REL) and ctx.artifact_exists(
                         "master/selection.json"
                     ):
-                        plan = ctx.read_json(PLAN_REL)
+                        adopted = adopt_layup_plan_to_selection(
+                            ctx, persist=True, stage="nugget_layup_compose"
+                        )
+                        plan = (
+                            ctx.read_json(PLAN_REL)
+                            if ctx.artifact_exists(PLAN_REL)
+                            else {}
+                        )
+                        if adopted.get("ok") and isinstance(plan, dict):
+                            ctx.mark_done("nugget_layup_compose", force=True)
+                            log(
+                                "layup plan adopted to selection "
+                                f"skipped={adopted.get('skipped') or []} "
+                                f"rebound={adopted.get('rebound') or []}"
+                            )
+                            if not layup_freshness_errors(ctx, plan):
+                                execute(
+                                    {
+                                        "mode": "delivery",
+                                        "from_stage": "master_finalize"
+                                        if (
+                                            ctx.is_done("mix")
+                                            or ctx.artifact_exists(
+                                                "master/assembly.wav"
+                                            )
+                                        )
+                                        else "edl",
+                                    }
+                                )
+                                continue
                         sel = ctx.read_json("master/selection.json")
                         if isinstance(plan, dict) and isinstance(sel, dict):
                             selection = [
@@ -6707,8 +6851,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 for x in (plan.get("ordered_segment_ids") or [])
                                 if x
                             ]
-                            extras = [s for s in planned if s not in set(selection)]
-                            missing = [s for s in selection if s not in set(planned)]
                             if selection and planned == selection and layup_freshness_errors(ctx, plan):
                                 # A matching air order with only an LLM-authored
                                 # stale lock does not need a costly remine.
@@ -6718,42 +6860,6 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 )
                                 ctx.mark_done("nugget_layup_compose", force=True)
                                 log("layup plan reattached to current selection order lock")
-                                if not layup_freshness_errors(ctx, plan):
-                                    execute(
-                                        {
-                                            "mode": "delivery",
-                                            "from_stage": "master_finalize"
-                                            if (
-                                                ctx.is_done("mix")
-                                                or ctx.artifact_exists(
-                                                    "master/assembly.wav"
-                                                )
-                                            )
-                                            else "edl",
-                                        }
-                                    )
-                                    continue
-                            if selection and extras and not missing:
-                                plan = dict(plan)
-                                plan["ordered_segment_ids"] = list(selection)
-                                meta = (
-                                    dict(plan.get("_meta"))
-                                    if isinstance(plan.get("_meta"), dict)
-                                    else {}
-                                )
-                                meta.pop("stale", None)
-                                meta.pop("stale_reason", None)
-                                meta["e2e_synced_to_selection"] = True
-                                meta["dropped_segments"] = extras
-                                plan["_meta"] = meta
-                                ctx.write_json(
-                                    PLAN_REL, plan, stage_key="nugget_layup_compose"
-                                )
-                                ctx.mark_done("nugget_layup_compose", force=True)
-                                log(
-                                    "layup plan synced to selection "
-                                    f"(dropped extras={extras[:8]})"
-                                )
                                 if not layup_freshness_errors(ctx, plan):
                                     execute(
                                         {
@@ -9433,21 +9539,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log(f"seam coverage heal: {exc}")
             if "missing master/assembly.wav" in low_err or (
                 "missing" in low_err and "assembly.wav" in low_err
+            ) or (
+                "assembly.wav" in low_err and "finished without" in low_err
             ):
                 try:
                     from pathlib import Path as _P
+                    from interview_mux.heal_routing import (
+                        classify_heal_error,
+                        heal_is_halted,
+                        record_heal_fingerprint,
+                    )
                     from interview_mux.run_context import RunContext
                     from interview_mux.soundscape_verify import _clear_pending_sdp_shadows
 
                     ctx = RunContext(RUN_ID, create=False)
-                    # Drop false mix-done if assembly never committed (soundscape discard bug).
+                    route = classify_heal_error(low_err, ctx, stage=stage or "mix")
+                    if route and heal_is_halted(ctx, route, reason=low_err, stage=stage or "mix"):
+                        log("STOP: identical mix-without-assembly heal ×3 — not remastering mix")
+                        raise SystemExit("HARD: mix-without-assembly loop x3")
                     done = _P(ctx.run_dir) / ".stage_done" / "mix"
                     if done.is_file() and not (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
                         done.unlink(missing_ok=True)
                         log("cleared mix done marker — assembly.wav missing")
                     _clear_pending_sdp_shadows(ctx)
-                    execute({"mode": "delivery", "from_stage": "mix"})
+                    resume = route.from_stage if route else "mix"
+                    if route:
+                        row = record_heal_fingerprint(
+                            ctx, route, reason=low_err, stage=stage or "mix"
+                        )
+                        if row.get("halt"):
+                            log(
+                                "STOP: identical mix-without-assembly heal ×3 — "
+                                "not remastering mix"
+                            )
+                            raise SystemExit("HARD: mix-without-assembly loop x3")
+                    log(f"assembly heal → {resume} ({(route.detail if route else '')})")
+                    execute({"mode": "delivery", "from_stage": resume})
                     continue
+                except SystemExit:
+                    raise
                 except Exception as exc:
                     log(f"assembly missing heal: {exc}")
             if "boto3 is required" in low_err or "no module named 'boto3'" in low_err:
@@ -9517,6 +9647,146 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 )
             ):
                 hard_repair_n = int(globals().get("_PMQ_HARD_REPAIR_N") or 0)
+                copy_fail = (
+                    "spoken_vo_speakable" in low_err
+                    and any(
+                        tok in low_err
+                        for tok in (
+                            "spoken_repeated_copy",
+                            "spoken_repeated_sentence",
+                            "spoken_self_loop_seam",
+                            "self-loop",
+                            "self_loop",
+                        )
+                    )
+                )
+                # Also inspect live PMQ artifact when the error string is truncated.
+                if not copy_fail and "spoken_vo_speakable" in low_err:
+                    try:
+                        from interview_mux.run_context import RunContext as _RCpmq
+
+                        _ctx_pmq = _RCpmq(RUN_ID, create=False)
+                        if _ctx_pmq.artifact_exists("master/post_master_quality.json"):
+                            _pmq = _ctx_pmq.read_json("master/post_master_quality.json")
+                            for chk in (_pmq or {}).get("checks") or []:
+                                if not isinstance(chk, dict):
+                                    continue
+                                if chk.get("check_id") != "spoken_vo_speakable":
+                                    continue
+                                if chk.get("passed"):
+                                    continue
+                                detail = chk.get("detail") or {}
+                                errs = " ".join(
+                                    str(x) for x in (detail.get("errors") or [])
+                                )
+                                if any(
+                                    tok in errs
+                                    for tok in (
+                                        "spoken_repeated_copy",
+                                        "spoken_repeated_sentence",
+                                        "spoken_self_loop_seam",
+                                    )
+                                ):
+                                    copy_fail = True
+                    except Exception:
+                        pass
+                if copy_fail:
+                    copy_n = int(globals().get("_PMQ_SPOKEN_COPY_REPAIR_N") or 0)
+                    if copy_n >= 3:
+                        log(
+                            "STOP: spoken_vo_speakable copy collision ×3 — "
+                            "not remastering mix; fix transitions/synthetic text"
+                        )
+                        raise SystemExit(
+                            "HARD: spoken_vo_speakable copy loop x3"
+                        )
+                    try:
+                        from interview_mux.run_context import RunContext
+                        from interview_mux.spoken_copy_guard import normalize_script
+                        from interview_mux.synthetic_framing import (
+                            CONTEXT_REL,
+                            PLAN_REL,
+                            normalize_synthetic_plan,
+                        )
+
+                        globals()["_PMQ_SPOKEN_COPY_REPAIR_N"] = copy_n + 1
+                        ctx = RunContext(RUN_ID, create=False)
+                        cleared = 0
+                        if ctx.artifact_exists("master/transitions.json"):
+                            tdoc = ctx.read_json("master/transitions.json")
+                            seen_norm: set[str] = set()
+                            if ctx.artifact_exists("understanding/gap_report.json"):
+                                gr = ctx.read_json("understanding/gap_report.json")
+                                for line in (gr or {}).get("interviewer_lines") or []:
+                                    if isinstance(line, dict):
+                                        n = normalize_script(
+                                            str(line.get("text") or "")
+                                        ).casefold()
+                                        if n:
+                                            seen_norm.add(n)
+                            if ctx.artifact_exists(PLAN_REL):
+                                syn = ctx.read_json(PLAN_REL)
+                                for line in (syn or {}).get("lines") or []:
+                                    if not isinstance(line, dict):
+                                        continue
+                                    n = normalize_script(
+                                        str(line.get("text") or "")
+                                    ).casefold()
+                                    if n:
+                                        seen_norm.add(n)
+                            for row in tdoc.get("transitions") or []:
+                                if not isinstance(row, dict):
+                                    continue
+                                a = str(row.get("after_segment_id") or "")
+                                b = str(row.get("before_segment_id") or "")
+                                text = str(row.get("text") or "")
+                                norm = normalize_script(text).casefold()
+                                drop = False
+                                if a and a == b:
+                                    drop = True
+                                elif norm and norm in seen_norm and not row.get(
+                                    "synthetic_plan_line_id"
+                                ):
+                                    # Duplicate of gap/synthetic that is not the
+                                    # authorized materialization of that plan line.
+                                    drop = True
+                                elif norm and norm in {
+                                    normalize_script(str(x.get("text") or "")).casefold()
+                                    for x in (tdoc.get("transitions") or [])
+                                    if isinstance(x, dict)
+                                    and x is not row
+                                    and str(x.get("text") or "").strip()
+                                }:
+                                    drop = True
+                                if drop and text.strip():
+                                    row["text"] = ""
+                                    row["spoken_copy_guard"] = {
+                                        "action": "omit",
+                                        "e2e_healed": "cleared_spoken_copy_collision",
+                                    }
+                                    cleared += 1
+                            ctx.write_json("master/transitions.json", tdoc)
+                        if ctx.artifact_exists(PLAN_REL) and ctx.artifact_exists(
+                            CONTEXT_REL
+                        ):
+                            packet = ctx.read_json(CONTEXT_REL)
+                            plan = ctx.read_json(PLAN_REL)
+                            if isinstance(plan, dict) and isinstance(packet, dict):
+                                fixed = normalize_synthetic_plan(ctx, plan, packet)
+                                ctx.write_json(PLAN_REL, fixed)
+                        for sid in ("master_finalize", "edl", "transitions", "mix"):
+                            done = Path(ctx.run_dir) / ".stage_done" / sid
+                            if done.is_file():
+                                done.unlink()
+                        log(
+                            f"pmq heal: cleared spoken-copy collisions "
+                            f"cleared={cleared} → resume transitions "
+                            f"(not mix remaster)"
+                        )
+                        execute({"mode": "delivery", "from_stage": "transitions"})
+                        continue
+                    except Exception as exc:
+                        log(f"pmq spoken-copy heal: {exc}")
                 if hard_repair_n < 2:
                     try:
                         import shutil as _sh
@@ -9553,7 +9823,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     done.unlink()
                             # Omitted VO clips changed the timeline — remaster
                             # assembly from mix so master matches EDL authority.
+                            # Pure speakable-copy collisions are handled above.
                             resume_from = "mix" if omit_removed else "master_finalize"
+                            if "spoken_vo_speakable" in low_err and not omit_removed:
+                                resume_from = "transitions"
                             log(
                                 f"pmq heal: resume {resume_from} after EDL VO sync "
                                 f"(omit_removed={len(omit_removed)}; no soft waive "

@@ -36,6 +36,7 @@ def dispatch_stage(
     from interview_mux.homunculus.agenda import (
         _refuse_delivery_timeline_rewind,
         _refuse_g0_locked_rerun,
+        _refuse_music_before_assembly,
         prepare_outputs_present,
         unmark_hollow_prepare_stages,
         unmark_stage_only,
@@ -78,6 +79,20 @@ def dispatch_stage(
         elif ctx.is_done(stage):
             unmark_stage_only(ctx, stage)
         raise
+    _refuse_music_before_assembly(ctx, stage, action="run")
+    try:
+        from interview_mux.web.job_progress import notify_stage_start
+
+        notify_stage_start(
+            ctx.run_id,
+            stage,
+            index=0,
+            total=0,
+            stages_planned=[],
+            ctx=ctx,
+        )
+    except Exception:
+        pass
     identity = stage
     inflight = _INFLIGHT.setdefault(ctx.run_id, set())
     check_dispatch(ctx, identity=identity, kind="stage")
@@ -110,6 +125,16 @@ def dispatch_stage(
         if needed and not stage_outputs_present(ctx, stage):
             if stage == "vo_synthesize" and ctx.artifact_exists("mastering/vo_synthesize.json"):
                 pass
+            elif stage == "mix":
+                final_asm = ctx.final_path("master", "assembly.wav")
+                if final_asm.is_file():
+                    raise RuntimeError(
+                        "mix finished without live EDL seating "
+                        "(wav flushed, mix not seated)"
+                    )
+                raise RuntimeError(
+                    f"{stage} finished without required artifact ({', '.join(needed)})"
+                )
             else:
                 raise RuntimeError(
                     f"{stage} finished without required artifact ({', '.join(needed)})"

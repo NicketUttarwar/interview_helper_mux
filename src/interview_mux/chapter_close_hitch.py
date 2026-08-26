@@ -56,6 +56,36 @@ def hitch_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {**defaults, **(raw if isinstance(raw, dict) else {})}
 
 
+def hitch_listen_restage_count(ctx: RunContext) -> int:
+    doc = _latch_doc(ctx)
+    try:
+        return int(doc.get("listen_restage_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def arm_hitch_listen_restage(ctx: RunContext) -> bool:
+    """Latch one hitch recut/merge restage. Returns False if already used."""
+    prior = _latch_doc(ctx)
+    try:
+        count = int(prior.get("listen_restage_count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count >= 1:
+        return False
+    payload = dict(prior) if prior else {"version": 1}
+    payload["version"] = 1
+    payload["status"] = "running"
+    payload["listen_restage_count"] = 1
+    payload["listen_restage"] = True
+    payload["generated_at"] = payload.get("generated_at") or _now()
+    _write_latch(ctx, payload)
+    marker = ctx.final_path(".stage_done", STAGE_ID)
+    if marker.is_file():
+        marker.unlink(missing_ok=True)
+    return True
+
+
 def hitch_latch_committed(ctx: RunContext) -> bool:
     if not ctx.artifact_exists(LATCH_REL):
         return False
@@ -211,6 +241,7 @@ def _keepers_from_ctx(ctx: RunContext) -> list[dict[str, Any]]:
                         "end_ms": int(s.get("end_ms") or 0),
                         "talking_point_id": str(s.get("talking_point_id") or ""),
                         "text": str(s.get("text") or ""),
+                        "speaker_id": str(s.get("speaker_id") or s.get("speaker") or ""),
                     }
                 )
     if not rows and ctx.artifact_exists(BOUNDARIES_REL):
@@ -225,6 +256,7 @@ def _keepers_from_ctx(ctx: RunContext) -> list[dict[str, Any]]:
                     "end_ms": int(b.get("end_ms") or 0),
                     "talking_point_id": str(b.get("talking_point_id") or ""),
                     "text": "",
+                    "speaker_id": str(b.get("speaker_id") or b.get("speaker") or ""),
                 }
             )
     if ctx.artifact_exists(MATERIALIZED_REL):
@@ -360,7 +392,10 @@ def compute_recut_windows(
     extend_hanging_horizon_ms: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return keeper rows with updated ``end_ms`` aimed at chapter/TP close."""
-    from interview_mux.gap_vo_prior_context import end_is_hanging_clause
+    from interview_mux.gap_vo_prior_context import (
+        end_is_hanging_clause,
+        same_speaker_continuous_keep,
+    )
 
     membership = _chapter_membership(plan, keepers)
     last_ids = _chapter_last_ids(plan, keepers)
@@ -382,8 +417,10 @@ def compute_recut_windows(
         orig_start = int(keepers[i].get("start_ms") or start)
         sid = str(row.get("segment_id") or "")
         next_start: int | None = None
+        next_row: dict[str, Any] | None = None
         if i + 1 < len(rows):
-            next_start = int(rows[i + 1].get("start_ms") or 0)
+            next_row = rows[i + 1]
+            next_start = int(next_row.get("start_ms") or 0)
         cid = membership.get(sid, "")
         is_last = sid in last_ids
         tp_id = str(row.get("talking_point_id") or "")
@@ -391,20 +428,31 @@ def compute_recut_windows(
             brief, tp_id, tp_titles.get(tp_id, "")
         )
         hanging = bool(words) and end_is_hanging_clause(words, end)
+        continuous_keep = bool(
+            next_row is not None
+            and words
+            and same_speaker_continuous_keep(row, next_row, words)
+        )
         leftover_after_extend = start > orig_start
         extended = False
+        keep_merge = False
         bound = start + int(max_cut_ms)
         if leftover_after_extend:
             # Prior keeper already claimed the hanging close; leave the CTA/leftover slab.
             new_end = end
             bound = end
-        elif hanging:
+        elif hanging or continuous_keep:
             ext_horizon = min(end + horizon, start + int(max_cut_ms))
             if i + 1 < len(rows):
                 ext_horizon = min(
                     ext_horizon, int(rows[i + 1].get("end_ms") or ext_horizon)
                 )
-            if topic_end is not None and topic_end > start:
+            if continuous_keep and next_row is not None:
+                payoff = int(next_row.get("end_ms") or next_start or end)
+                ext_horizon = max(ext_horizon, payoff)
+                ext_horizon = min(ext_horizon, start + int(max_cut_ms))
+                keep_merge = True
+            if topic_end is not None and topic_end > start and not continuous_keep:
                 ext_horizon = min(ext_horizon, topic_end)
             ext_horizon = max(ext_horizon, end)
             bound = ext_horizon
@@ -412,7 +460,18 @@ def compute_recut_windows(
                 words, from_ms=end, horizon_ms=ext_horizon
             )
             new_end = int(snapped) if snapped is not None else end
-            extended = snapped is not None
+            if keep_merge:
+                listen = last_listen_complete_end_ms(
+                    words,
+                    start_ms=start,
+                    bound_end_ms=bound,
+                    min_keep_ms=min_keep_ms,
+                )
+                if listen is not None and int(listen) > new_end:
+                    new_end = int(listen)
+                if next_row is not None and new_end < int(next_row.get("start_ms") or 0):
+                    new_end = min(int(next_row.get("end_ms") or new_end), bound)
+            extended = new_end > end
         else:
             if is_last and cid:
                 nxt_ch = _next_chapter_start_ms(plan, rows, cid)
@@ -519,6 +578,7 @@ def compute_recut_windows(
         updated["last_in_chapter"] = is_last
         updated["chapter_id"] = cid
         updated["hanging_extended"] = extended
+        updated["keep_merge"] = keep_merge
         out.append(updated)
     return out
 
@@ -566,13 +626,58 @@ def apply_acoustic_refine(
                 next_keeper_start_ms=next_start,
                 proposed_end_ms=e2,
             )
-            if used:
-                e2 = lifted
+        if used:
+            e2 = lifted
+        if row.get("keep_merge") or row.get("hanging_extended"):
+            prior_end = int(row.get("end_ms") or e2)
+            if prior_end > e2:
+                e2 = prior_end
+        elif words and i + 1 < len(windows):
+            from interview_mux.gap_vo_prior_context import (
+                same_answer_continues,
+                same_speaker_continuous_keep,
+            )
+
+            nxt = windows[i + 1]
+            probe = dict(row)
+            probe["end_ms"] = e2
+            if same_speaker_continuous_keep(probe, nxt, words) or same_answer_continues(
+                words, e2, next_start
+            ):
+                prior_end = int(row.get("end_ms") or e2)
+                if prior_end > e2:
+                    e2 = prior_end
         updated = dict(row)
         updated["start_ms"] = int(s2)
         updated["end_ms"] = int(e2)
         updated["edge_refine"] = meta
         out.append(updated)
+    return out
+
+
+def reapply_same_speaker_keep_merge(
+    windows: list[dict[str, Any]],
+    words: list[dict[str, Any]],
+    *,
+    max_cut_ms: int = 180_000,
+) -> list[dict[str, Any]]:
+    """Restore keep-merge after acoustic refine snaps an end back to a period."""
+    from interview_mux.gap_vo_prior_context import same_speaker_continuous_keep
+
+    out = [dict(r) for r in windows if isinstance(r, dict)]
+    for i in range(len(out) - 1):
+        left = out[i]
+        right = out[i + 1]
+        if not same_speaker_continuous_keep(left, right, words):
+            continue
+        start = int(left.get("start_ms") or 0)
+        payoff = int(right.get("end_ms") or left.get("end_ms") or 0)
+        desired = min(payoff, start + int(max_cut_ms))
+        if desired <= int(left.get("end_ms") or 0):
+            continue
+        left["end_ms"] = desired
+        left["keep_merge"] = True
+        _shrink_next_keeper_start(words, keep_end_ms=desired, next_row=right)
     return out
 
 
@@ -1139,9 +1244,13 @@ def _publish_boundaries_from_windows(
     from interview_mux.ideal_cuts import boundaries_from_snapped_cuts
 
     cuts = []
+    dropped_zero = 0
     for i, row in enumerate(windows):
         start = int(row.get("start_ms") or 0)
         end = int(row.get("end_ms") or start)
+        if end <= start:
+            dropped_zero += 1
+            continue
         cuts.append(
             {
                 "cut_id": row.get("cut_id") or f"hitch_cut_{i + 1:03d}",
@@ -1154,7 +1263,30 @@ def _publish_boundaries_from_windows(
                 "speaker_id": row.get("speaker_id") or "spk_0",
             }
         )
+    cuts.sort(key=lambda c: (int(c["start_ms"]), int(c["end_ms"])))
+    clamped: list[dict[str, Any]] = []
+    prev_end: int | None = None
+    overlap_clamped = 0
+    for cut in cuts:
+        start = int(cut["start_ms"])
+        end = int(cut["end_ms"])
+        if prev_end is not None and start < prev_end:
+            start = prev_end
+            overlap_clamped += 1
+        if end <= start:
+            dropped_zero += 1
+            continue
+        cut = {**cut, "start_ms": start, "end_ms": end}
+        clamped.append(cut)
+        prev_end = end
+    cuts = clamped
     snapped = {"version": 1, "cuts": cuts, "snap_warnings": []}
+    warnings: list[str] = []
+    if dropped_zero:
+        warnings.append(f"dropped {dropped_zero} zero-duration hitch window(s)")
+    if overlap_clamped:
+        warnings.append(f"clamped {overlap_clamped} overlapping hitch window(s)")
+    snapped["snap_warnings"] = warnings
     boundaries = boundaries_from_snapped_cuts(snapped, publisher_stage=STAGE_ID)
     return boundaries, snapped
 
@@ -1177,6 +1309,20 @@ def _windows_from_boundaries(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _hitch_published_boundaries(ctx: RunContext) -> bool:
+    if not ctx.artifact_exists(BOUNDARIES_REL):
+        return False
+    try:
+        doc = ctx.read_json(BOUNDARIES_REL)
+    except Exception:
+        return False
+    if not isinstance(doc, dict) or not (doc.get("boundaries") or []):
+        return False
+    meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+    contract = meta.get("segment_contract") if isinstance(meta.get("segment_contract"), dict) else {}
+    return str(contract.get("publisher_stage") or "") == STAGE_ID
+
+
 def run_inner_walk(ctx: RunContext, stages: list[str] | None = None) -> list[str]:
     """Restage host stages with the inner-stage flag so 0.1.0 budget is not burned."""
     from interview_mux.pipeline import run_single_stage
@@ -1189,6 +1335,17 @@ def run_inner_walk(ctx: RunContext, stages: list[str] | None = None) -> list[str
         _ensure_inner_walk_gates(ctx)
         for stage in order:
             if stage == STAGE_ID:
+                continue
+            # Hitch already republished the timeline. Re-collating here undoes the
+            # recut and can reintroduce zero-length windows from the LLM collate.
+            if stage == "boundary_detection" and _hitch_published_boundaries(ctx):
+                if not ctx.is_done(stage):
+                    ctx.mark_done(stage, force=True)
+                ctx.log(
+                    "chapter_close_hitch: keeping hitch-published boundaries — skip recollate",
+                    stage=STAGE_ID,
+                )
+                ran.append(stage)
                 continue
             run_single_stage(ctx, stage)
             ran.append(stage)
@@ -1239,6 +1396,15 @@ def apply_post_walk_patches(
         structure = align_episode_structure_to_narrative(ctx, mapping, new_ids)
     except Exception as exc:
         structure = {"ok": False, "adopted": "error", "error": str(exc)[:240]}
+    layup_adopt: dict[str, Any] = {}
+    try:
+        from interview_mux.nugget_layup import adopt_layup_plan_to_selection
+
+        layup_adopt = adopt_layup_plan_to_selection(
+            ctx, mapping=mapping, persist=True, stage="chapter_close_hitch"
+        )
+    except Exception as exc:
+        layup_adopt = {"ok": False, "error": str(exc)[:240]}
     return {
         "vo_files": vo_files,
         "vo_gap": vo_gap,
@@ -1247,6 +1413,7 @@ def apply_post_walk_patches(
         "rewritten": rewritten,
         "chapter_authority": authority,
         "episode_structure": structure,
+        "layup_adopt": layup_adopt,
     }
 
 
@@ -1340,15 +1507,27 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
     prior = _latch_doc(ctx)
     resume = str(prior.get("status") or "") == "running" and bool(prior.get("wiped"))
     resume_count = int(prior.get("resume_count") or 0)
+    try:
+        listen_restage_n = int(prior.get("listen_restage_count") or 0)
+    except (TypeError, ValueError):
+        listen_restage_n = 0
+    listen_restage = bool(prior.get("listen_restage")) or (
+        listen_restage_n >= 1 and str(prior.get("status") or "") == "running"
+    )
     if resume:
         resume_count += 1
 
-    old_keepers = load_pre_keepers(ctx)
-    if not old_keepers:
+    if listen_restage:
         old_keepers = _keepers_from_ctx(ctx)
-        snapshot_pre_hitch_state(ctx, old_keepers)
-    elif not ctx.artifact_exists(VO_SNAPSHOT_REL):
-        snapshot_pre_hitch_state(ctx, old_keepers)
+        if not ctx.artifact_exists(VO_SNAPSHOT_REL):
+            snapshot_pre_hitch_state(ctx, old_keepers)
+    else:
+        old_keepers = load_pre_keepers(ctx)
+        if not old_keepers:
+            old_keepers = _keepers_from_ctx(ctx)
+            snapshot_pre_hitch_state(ctx, old_keepers)
+        elif not ctx.artifact_exists(VO_SNAPSHOT_REL):
+            snapshot_pre_hitch_state(ctx, old_keepers)
 
     _write_latch(
         ctx,
@@ -1413,6 +1592,11 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         except Exception:
             wav = None
         windows = apply_acoustic_refine(windows, words, wav)
+        windows = reapply_same_speaker_keep_merge(
+            windows,
+            words,
+            max_cut_ms=int(conf.get("max_cut_ms") or 180_000),
+        )
 
         any_change = any(bool(w.get("end_changed")) for w in windows)
         boundaries, snapped = _publish_boundaries_from_windows(ctx, windows)
@@ -1505,7 +1689,10 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             "vo_reattach": patches.get("vo_gap"),
             "omit_updated": bool(patches.get("omit_updated")),
             "episode_structure": patches.get("episode_structure"),
+            "layup_adopt": patches.get("layup_adopt"),
             "resume_count": resume_count,
+            "listen_restage_count": listen_restage_n,
+            "listen_restage": bool(listen_restage),
         },
     )
     ctx.mark_done(STAGE_ID, force=True)

@@ -503,6 +503,11 @@ def _check_narrative_arc_plan(ctx: RunContext) -> list[StageInputIssue]:
 
 def _check_chapter_close_hitch(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
+    if ctx.artifact_exists("master/narrative_plan.json"):
+        return issues
+    # Crash-resume: clear_from archives narrative_plan; frozen intent is enough.
+    if ctx.artifact_exists("mastering/chapter_close_hitch/intent_plan.json"):
+        return issues
     issue = _require_artifact(
         ctx, "master/narrative_plan.json", remediation="Run narrative_arc_plan."
     )

@@ -137,6 +137,7 @@ export function PipelineStepList() {
           const isRunning =
             (jobRunning || isJobActivelyRunning(run.job)) &&
             (run.job?.current_stage === entry.stage.id ||
+              run.job?.parent_stage === entry.stage.id ||
               run.job?.stage === entry.stage.id);
           const isError =
             run.job?.status === "error" &&

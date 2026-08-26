@@ -52,6 +52,8 @@ export function LogsTab() {
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
+  const followLiveRef = useRef(false);
+  const prevLiveStageRef = useRef<string | null>(null);
 
   const onStageClick = useCallback(
     (stageId: string) => {
@@ -67,6 +69,28 @@ export function LogsTab() {
   useEffect(() => {
     if (jobRunning) setJourneyFilter(false);
   }, [jobRunning]);
+
+  useEffect(() => {
+    if (!jobRunning) {
+      followLiveRef.current = false;
+      return;
+    }
+    const live = run?.job?.current_stage || run?.job?.stage || null;
+    if (!live) return;
+    setStageFilter((prev) => {
+      if (prev === "all") return prev;
+      if (
+        followLiveRef.current ||
+        prev === live ||
+        prev === prevLiveStageRef.current
+      ) {
+        followLiveRef.current = true;
+        return live;
+      }
+      return prev;
+    });
+    prevLiveStageRef.current = live;
+  }, [jobRunning, run?.job?.current_stage, run?.job?.stage]);
 
   useEffect(() => {
     if (!logFilterPreset) return;
@@ -170,6 +194,7 @@ export function LogsTab() {
             type="button"
             className="btn ghost sm"
             onClick={() => {
+              followLiveRef.current = true;
               setLevelFilter("all");
               setStageFilter(
                 run?.job?.current_stage || run?.job?.stage || "all",
@@ -208,7 +233,10 @@ export function LogsTab() {
             <select
               className="select sm"
               value={stageFilter}
-              onChange={(e) => setStageFilter(e.target.value)}
+              onChange={(e) => {
+                followLiveRef.current = false;
+                setStageFilter(e.target.value);
+              }}
             >
               <option value="all">All stages</option>
               {stageFilterOptions.map((s) => (

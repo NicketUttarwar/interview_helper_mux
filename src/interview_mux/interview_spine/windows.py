@@ -74,13 +74,14 @@ def build_windows(
     spans: list[tuple[int, int, list[dict[str, Any]]]] = []
     for start_ms, end_ms, span_words in raw_spans:
         if end_ms - start_ms <= window_ms or hop_ms <= 0:
-            spans.append((start_ms, end_ms, span_words))
+            if end_ms > start_ms:
+                spans.append((start_ms, end_ms, span_words))
             continue
         cursor = start_ms
         while cursor < end_ms:
             sub_end = min(end_ms, cursor + window_ms)
             sub_words = _words_in_span(span_words, cursor, sub_end)
-            if sub_words:
+            if sub_words and sub_end > cursor:
                 spans.append((cursor, sub_end, sub_words))
             cursor += hop_ms
 

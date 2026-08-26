@@ -359,6 +359,13 @@ def mint_missing_transitions(
         if ctx.artifact_exists("understanding/synthetic_framing_plan.json")
         else None
     )
+    if isinstance(synthetic_plan, dict):
+        for ln in synthetic_plan.get("lines") or []:
+            if not isinstance(ln, dict):
+                continue
+            txt = str(ln.get("text") or "").strip()
+            if txt:
+                used_bridge_texts.add(txt)
     from interview_mux.synthetic_framing import (
         planned_transition_for_pair,
         synthetic_framing_cfg,
@@ -438,7 +445,7 @@ def mint_missing_transitions(
         pair = enrich_bridge_pair_excerpts(pair, segments_by_id)
         a = str(pair.get("after_segment_id") or "")
         b = str(pair.get("before_segment_id") or "")
-        if not a or not b or (a, b) in existing:
+        if not a or not b or a == b or (a, b) in existing:
             continue
         if transition_redundant_with_framing(gap_report, a, b):
             continue
@@ -514,6 +521,10 @@ def mint_missing_transitions(
                 ctx=ctx,
             )
             text = str(decision["text"])
+            if not text.strip():
+                # Guard omitted duplicate/stock — do not append empty self-echo.
+                existing.add((a, b))
+                continue
             canned = bool(canned and decision["action"] == "allow")
             tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
             items.append(
@@ -540,14 +551,22 @@ def mint_missing_transitions(
             minted += 1
             continue
         text = str(planned.get("text") or "").strip()
+        # Materializing the plan row into transitions is one air owner, not a
+        # duplicate — exclude this planned string from the collision corpus.
+        seen_for_planned = sorted(
+            t for t in used_bridge_texts if t.casefold() != text.casefold()
+        )
         decision = assert_guarded_spoken_copy(
             text,
             evidence=bridge_guard_evidence(pair),
             purpose=f"transition[{a}->{b}]",
-            seen_texts=sorted(used_bridge_texts),
+            seen_texts=seen_for_planned,
             ctx=ctx,
         )
         text = str(decision["text"])
+        if not text.strip():
+            existing.add((a, b))
+            continue
         tr_type = "chapter" if is_chapter_scale_pair(pair) else "bridge"
         items.append(
             {

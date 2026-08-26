@@ -5,19 +5,49 @@ Single window (legacy):
   {"wav_path","start_ms","end_ms","model_id"} -> {"available","vector","dim",...}
 
 Batch (preferred — load model once):
-  {"wav_path","windows":[{"start_ms","end_ms"},...],"model_id"}
-    -> {"available","vectors":[[...],...],"dim",...}
+  {"wav_path","windows":[{"start_ms","end_ms"},...],"model_id","output_path"?}
+    -> {"available","vectors":[[...],...],"dim",...}  (or small receipt when output_path set)
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+
+# HuggingFace / tqdm progress on stdout poisons json.loads of the contract payload.
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 
 def _respond(payload: dict[str, object], *, exit_code: int = 0) -> None:
     print(json.dumps(payload))
     raise SystemExit(exit_code)
+
+
+def _emit_result(
+    payload: dict[str, object],
+    *,
+    output_path: Path | None,
+    exit_code: int = 0,
+) -> None:
+    """Write the full contract to output_path (if set) and print a small stdout receipt."""
+    if output_path is None:
+        _respond(payload, exit_code=exit_code)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload), encoding="utf-8")
+    _respond(
+        {
+            "available": bool(payload.get("available")),
+            "count": payload.get("count") or payload.get("dim"),
+            "dim": payload.get("dim"),
+            "model_id": payload.get("model_id"),
+            "output_path": str(output_path),
+            "error": payload.get("error"),
+        },
+        exit_code=exit_code,
+    )
 
 
 def _embed_audio(model, processor, audio, *, torch) -> list[float]:
@@ -44,6 +74,8 @@ def main() -> None:
     text = str(payload.get("text") or "").strip()
     wav_path = Path(str(payload.get("wav_path") or ""))
     model_id = str(payload.get("model_id") or "laion/clap-htsat-fused")
+    output_path_raw = str(payload.get("output_path") or "").strip()
+    output_path = Path(output_path_raw) if output_path_raw else None
     windows_raw = payload.get("windows")
     batch_windows: list[dict[str, int]] = []
     if isinstance(windows_raw, list) and windows_raw:
@@ -60,6 +92,12 @@ def main() -> None:
     try:
         import torch
         from transformers import ClapModel, ClapProcessor
+        try:
+            from transformers.utils import logging as hf_logging
+
+            hf_logging.set_verbosity_error()
+        except Exception:
+            pass
     except ImportError as exc:
         _respond({"available": False, "error": f"missing_deps: {exc}"})
 
@@ -97,7 +135,7 @@ def main() -> None:
                 start_ms = int(win["start_ms"])
                 end_ms = int(win["end_ms"])
                 if end_ms <= start_ms:
-                    _respond({"available": False, "error": "invalid_time_range"})
+                    end_ms = start_ms + 50
                 audio, sr = librosa.load(
                     str(wav_path), sr=48000, mono=True, offset=start_ms / 1000.0
                 )
@@ -106,14 +144,15 @@ def main() -> None:
                 audio = audio[:max_samples]
                 vectors.append(_embed_audio(model, processor, audio, torch=torch))
             dim = len(vectors[0]) if vectors else 0
-            _respond(
+            _emit_result(
                 {
                     "available": True,
                     "vectors": vectors,
                     "dim": dim,
                     "count": len(vectors),
                     "model_id": model_id,
-                }
+                },
+                output_path=output_path,
             )
 
         start_ms = int(payload.get("start_ms") or 0)

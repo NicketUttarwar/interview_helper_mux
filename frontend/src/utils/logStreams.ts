@@ -75,7 +75,16 @@ export function filterLiveStream(
 ): LogEntry[] {
   const stageId = resolveLiveStageId(run, jobRunning, entries);
   if (!stageId) return entries.slice(-20);
-  return filterByStage(entries, stageId);
+  const parent = run?.job?.parent_stage;
+  const ids = new Set([stageId, parent].filter(Boolean) as string[]);
+  const filtered = entries.filter((e) => !e.stage || ids.has(e.stage));
+  if (
+    filtered.length === 0 &&
+    (jobRunning || isJobActivelyRunning(run?.job))
+  ) {
+    return entries.slice(-20);
+  }
+  return filtered;
 }
 
 export function resolveActiveStream(
@@ -105,6 +114,21 @@ export function formatStreamLabel(run: RunData | null, stageId: string | null): 
 
 export function latestEntry(entries: LogEntry[]): LogEntry | null {
   return entries.length ? entries[entries.length - 1] : null;
+}
+
+/** Keep a longer live tail when GET /runs returns a shorter snapshot. */
+export function preferFresherLogTail(
+  current: LogEntry[] | undefined,
+  incoming: LogEntry[] | undefined,
+): LogEntry[] {
+  const cur = current || [];
+  const next = incoming || [];
+  if (!cur.length) return next;
+  if (!next.length) return cur;
+  const curLast = String(cur[cur.length - 1]?.ts ?? "");
+  const nextLast = String(next[next.length - 1]?.ts ?? "");
+  if (cur.length > next.length && curLast >= nextLast) return cur;
+  return next;
 }
 
 /** Remove entries already shown in the pinned strip. */

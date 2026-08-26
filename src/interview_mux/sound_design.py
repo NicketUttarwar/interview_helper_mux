@@ -1115,6 +1115,12 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             else:
                 ctx.log(msg, level="warning", stage="mix")
     try:
+        from interview_mux.write_staging import promote_staged_side_effects
+
+        promote_staged_side_effects(ctx, ("master/assembly.wav",), stage_id="mix")
+    except Exception as exc:
+        ctx.log(f"mix: assembly promote skipped: {exc}", level="warning", stage="mix")
+    try:
         from interview_mux.seam_autopsy import write_render_ledger
 
         write_render_ledger(ctx)
