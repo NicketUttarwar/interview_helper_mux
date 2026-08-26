@@ -428,13 +428,24 @@ shutdown_baba_stack = shutdown_full_auto_stack
 def main() -> int:
     args = sys.argv[1:]
     run_id = None
+    input_audio = None
     for i, arg in enumerate(args):
         if arg == "--run-id" and i + 1 < len(args):
             run_id = args[i + 1]
+        if arg == "--input" and i + 1 < len(args):
+            input_audio = args[i + 1]
     fresh = "--fresh" in args
     restart_server = "--restart-server" in args
     force_e2e = "--force-e2e" in args or restart_server or bool(run_id)
-    skip = {"--fresh", "--run-id", "--restart-server", "--force-e2e", run_id}
+    skip = {
+        "--fresh",
+        "--run-id",
+        "--restart-server",
+        "--force-e2e",
+        "--input",
+        run_id,
+        input_audio,
+    }
     modes = {a for a in args if a not in skip and not a.startswith("--")}
     if "stop" in modes or "shutdown" in modes:
         info = shutdown_full_auto_stack()
@@ -448,7 +459,12 @@ def main() -> int:
         print(f"server pid={pid or 'already-up'}")
     if "e2e" in modes:
         # Recycle driver when --run-id / --force-e2e / --restart-server so code edits load.
-        pid = ensure_e2e(fresh=fresh, run_id=run_id, force=force_e2e)
+        pid = ensure_e2e(
+            fresh=fresh,
+            run_id=run_id,
+            force=force_e2e,
+            input_audio=input_audio,
+        )
         print(f"e2e pid={pid or 'already-up'}")
     if "keepalive" in modes:
         pid = ensure_keepalive()
