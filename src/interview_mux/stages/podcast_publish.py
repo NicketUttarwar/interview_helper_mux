@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from interview_mux.config import repo_root
+from interview_mux.podcast_rss.settings import show_artwork_source_rel
 from interview_mux.llm_simple import run_llm_stage_simple
 from interview_mux.podcast_rss.cover_prompt import (
     BRILLIANT_EXEMPLAR,
@@ -37,9 +37,9 @@ from interview_mux.run_context import RunContext
 
 
 def _show_artwork_path() -> Path:
-    rel = str(_podcast_cfg().get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
-    path = repo_root() / rel
-    return path
+    from interview_mux.config import repo_root
+
+    return repo_root() / show_artwork_source_rel()
 
 
 def _copy_show_fallback(ctx: RunContext, dest: Path, *, reason: str) -> Path:

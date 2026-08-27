@@ -20,7 +20,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from interview_mux.config import repo_root  # noqa: E402
 from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config  # noqa: E402
-from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings  # noqa: E402
 from interview_mux.podcast_rss.s3_publish import (  # noqa: E402
     ensure_s3_prefixes,
     invalidate_current_feed,
@@ -34,6 +33,11 @@ from interview_mux.podcast_rss.settings import (  # noqa: E402
     require_publish_ready,
     s3_layout,
     show_artwork_s3_key,
+)
+from interview_mux.podcast_rss.show_branding import (  # noqa: E402
+    prepare_show_artwork_jpeg,
+    publish_invalidation_paths,
+    show_artwork_source_rel,
 )
 
 
@@ -50,22 +54,13 @@ def main() -> int:
     base = targets["feed_base_url"]
     region = targets["region"]
 
-    art_rel = str(cfg.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
+    art_rel = show_artwork_source_rel(cfg)
     art_src = repo_root() / art_rel
     if not art_src.is_file():
         print(f"Missing show artwork: {art_src}", file=sys.stderr)
         return 1
 
-    settings = resolve_cover_image_settings(cfg)
-    art_jpg = repo_root() / "ASSETS" / "podcast" / "show_artwork.jpg"
-    art_jpg.parent.mkdir(parents=True, exist_ok=True)
-    ensure_square_cover(
-        art_src,
-        min_size=int(settings.get("min_output_px") or 3000),
-        output_format="jpeg",
-        jpeg_quality=int(settings.get("jpeg_quality") or 90),
-        dest=art_jpg,
-    )
+    art_jpg = prepare_show_artwork_jpeg(cfg)
 
     channel = channel_meta_from_config(cfg)
     feed_key = layout["feed_key"]
@@ -123,7 +118,10 @@ def main() -> int:
     )
     inv_id = ""
     try:
-        inv = invalidate_current_feed()
+        inv = invalidate_current_feed(
+            paths=publish_invalidation_paths(),
+            wait=True,
+        )
         inv_id = inv["invalidation_id"]
         feed_url = inv.get("feed_url") or feed_url
     except Exception as exc:

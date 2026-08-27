@@ -251,23 +251,15 @@ def read_last_sync_result() -> dict[str, Any]:
 
 
 def _prepared_show_artwork() -> Path | None:
-    from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
+    from interview_mux.podcast_rss.show_branding import prepare_show_artwork_jpeg
+    from interview_mux.podcast_rss.settings import show_artwork_source_path
 
-    cfg = podcast_cfg()
-    rel = str(cfg.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
-    src = repo_root() / rel
-    if not src.is_file():
+    if not show_artwork_source_path().is_file():
         return None
-    settings = resolve_cover_image_settings()
-    dest = repo_root() / "ASSETS" / "podcast" / "show_artwork.jpg"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    return ensure_square_cover(
-        src,
-        min_size=int(settings.get("min_output_px") or 3000),
-        output_format="jpeg",
-        jpeg_quality=int(settings.get("jpeg_quality") or 90),
-        dest=dest,
-    )
+    try:
+        return prepare_show_artwork_jpeg()
+    except FileNotFoundError:
+        return None
 
 
 def sync_ready_packages(
@@ -536,7 +528,9 @@ def sync_ready_packages(
         content_type="application/rss+xml",
         cache_control="max-age=0, must-revalidate",
     )
-    inv = invalidate_current_feed()
+    from interview_mux.podcast_rss.show_branding import publish_invalidation_paths
+
+    inv = invalidate_current_feed(paths=publish_invalidation_paths())
     result.invalidation_id = inv["invalidation_id"]
     result.feed_url = inv.get("feed_url") or feed_url_from_base(base)
     write_last_sync_result(result)

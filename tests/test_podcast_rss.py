@@ -685,3 +685,4 @@ def test_invalidate_current_feed_uses_live_secrets():
     kwargs = cf.create_invalidation.call_args.kwargs
     assert kwargs["DistributionId"] == "ENEWDIST"
     assert "/feed.xml" in kwargs["InvalidationBatch"]["Paths"]["Items"]
+    assert "/show/*" in kwargs["InvalidationBatch"]["Paths"]["Items"]

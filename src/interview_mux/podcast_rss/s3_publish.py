@@ -380,9 +380,13 @@ def invalidate_current_feed(
     project = str(targets.get("project_name") or "") or None
     layout = s3_layout()
     feed_path = "/" + layout["feed_key"].lstrip("/")
-    items = [p.strip() for p in (paths or [feed_path]) if str(p).strip()]
-    if feed_path not in items and not paths:
-        items = [feed_path]
+    show_path = "/show/*"
+    if paths is None:
+        items = [feed_path, show_path]
+    else:
+        items = [p.strip() for p in paths if str(p).strip()]
+        if feed_path not in items:
+            items.insert(0, feed_path)
     inv_id = invalidate_paths(
         distribution_id=dist,
         paths=items,

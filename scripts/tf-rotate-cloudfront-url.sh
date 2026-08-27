@@ -136,19 +136,21 @@ if [[ "$AUTO_CONFIRM" != true ]]; then
   fi
 fi
 
-tf_log "Planning CloudFront replacement (S3 must stay untouched)…"
+tf_log "Planning CloudFront replacement (S3 bucket must not be created/destroyed/replaced)…"
 PLAN_TEXT="$("$SCRIPT_DIR/tf-plan.sh" -replace="${CF_ADDR}" -no-color 2>&1 || true)"
 printf '%s\n' "$PLAN_TEXT"
 
-# Hard refuse any plan that would create/destroy/replace the origin bucket.
-if printf '%s' "$PLAN_TEXT" | grep -E 'aws_s3_bucket\.origin' >/dev/null; then
-  tf_warn "Plan mentions aws_s3_bucket.origin — refusing so S3 is never touched"
+# Refuse only when the *bucket resource itself* would be created/destroyed/replaced.
+# Mere mentions (origin ID, bucket policy, OAC) are normal for a CF rotate and must pass.
+if printf '%s' "$PLAN_TEXT" | grep -E '# aws_s3_bucket\.origin (will be (created|destroyed)|must be replaced)' >/dev/null; then
+  tf_warn "Plan would create/destroy/replace aws_s3_bucket.origin — refusing so S3 is never touched"
   exit 1
 fi
 if ! printf '%s' "$PLAN_TEXT" | grep -F "aws_cloudfront_distribution.podcast will be replaced" >/dev/null; then
   tf_warn "Plan did not mark ${CF_ADDR} for replacement; refusing"
   exit 1
 fi
+tf_log "Plan OK: CloudFront will be replaced; S3 bucket resource is not created/destroyed/replaced."
 
 tf_log "Applying CloudFront replacement (S3 untouched)…"
 "$SCRIPT_DIR/tf-apply.sh" -replace="${CF_ADDR}" -auto-approve

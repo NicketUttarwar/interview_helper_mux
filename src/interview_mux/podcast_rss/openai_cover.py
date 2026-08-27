@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from interview_mux.config import merged_config, repo_root, require_secret
 from interview_mux.podcast_rss.cover_prompt import cover_image_cfg
+from interview_mux.podcast_rss.settings import show_artwork_source_rel
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def _style_ref_path(settings: dict[str, Any]) -> Path | None:
     rel = str(ref.get("path") or "")
     if not rel:
         podcast = (merged_config().get("podcast") or {}) if isinstance(merged_config().get("podcast"), dict) else {}
-        rel = str(podcast.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
+        rel = show_artwork_source_rel(podcast)
     p = Path(rel)
     if not p.is_absolute():
         p = repo_root() / p

@@ -18,7 +18,10 @@ from pathlib import Path
 from typing import Any, TextIO
 from urllib.parse import quote, urlparse
 
-from interview_mux.config import load_secrets, merged_config
+from interview_mux.config import load_secrets, merged_config, repo_root
+
+# Canonical default show logo (palette + fail-open + S3 channel art source).
+DEFAULT_SHOW_ARTWORK_REL = "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png"
 
 # Apple's documented add-show pass-through. ``submitfeed`` is the public RSS
 # URL (https://podcasters.apple.com/support/829-validate-your-podcast).
@@ -37,6 +40,15 @@ APPLE_PODCASTS_PASSTHROUGH_NOTICE = (
 def podcast_cfg() -> dict[str, Any]:
     cfg = merged_config().get("podcast") or {}
     return cfg if isinstance(cfg, dict) else {}
+
+
+def show_artwork_source_rel(cfg: dict[str, Any] | None = None) -> str:
+    root = cfg if cfg is not None else podcast_cfg()
+    return str(root.get("show_artwork_path") or DEFAULT_SHOW_ARTWORK_REL)
+
+
+def show_artwork_source_path(cfg: dict[str, Any] | None = None) -> Path:
+    return repo_root() / show_artwork_source_rel(cfg)
 
 
 def s3_layout(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
