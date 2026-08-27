@@ -6,7 +6,7 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) for the single product goal: **`master/
 
 | # | Phase | Operator action |
 |---|-------|-----------------|
-| 1 | Start | Select audio; pick **Manual / Full-auto**; pick **brain (default 0.1.0 latest homunculus, or 0.0.0 original)**; optional preclean offer (accept/dismiss) |
+| 1 | Start | Select audio; pick **Manual / Full-auto / Partially accelerated**; pick **brain (default 0.1.0 latest homunculus, or 0.0.0 original)**; pick **destination podcast** (default Zero Shot Podcast DEMO — horizontal artwork cards); optional preclean offer (accept/dismiss) |
 | 2 | Prepare | Automated: preclean → ingest → transcribe → review queue |
 | 3 | Fix transcript | **G0 mandatory** — correct STT in transcript review |
 | 4 | Understand | Automated analysis: speakers → talking-points/ideal cuts → segments → palettes stub → **Mastering research + Shape** |

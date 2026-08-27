@@ -59,6 +59,11 @@ def main() -> int:
         action="store_true",
         help="Re-put episode files even when remote size matches (still no new folder for known execution_ids)",
     )
+    parser.add_argument(
+        "--podcast-id",
+        default=None,
+        help="Catalog show to publish to (default: the run's stamped podcast_id, else catalog default)",
+    )
     args = parser.parse_args()
 
     if args.all:
@@ -66,12 +71,14 @@ def main() -> int:
             dry_run=args.dry_run,
             force_files=args.force_files,
             all_ready=True,
+            podcast_id=args.podcast_id,
         )
     else:
         result = sync_ready_packages(
             dry_run=args.dry_run,
             force_files=args.force_files,
             execution_id=args.execution_id,
+            podcast_id=args.podcast_id,
         )
     print(json.dumps(result.to_dict(), indent=2))
     # Always show Apple's pass-through next to the live feed URL.

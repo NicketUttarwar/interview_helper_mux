@@ -147,9 +147,10 @@ def _append_api_error_log(
 class CreateRunBody(BaseModel):
     input_audio_path: str
     run_id: str | None = None
-    run_mode: str = "manual"  # manual | full-auto
+    run_mode: str = "manual"  # manual | full-auto | partially-accelerated
     full_auto: bool | None = None  # optional explicit flag (overrides run_mode when true)
     homunculus_version: str | None = None  # omitted → highest registered (currently 0.1.0)
+    podcast_id: str | None = None  # omitted → catalog default (zero_shot_podcast_demo)
 
 
 class InvestigationPatchBody(BaseModel):
@@ -398,6 +399,26 @@ def create_app() -> FastAPI:
 
         return {"default": default_version(), "brains": brains_public()}
 
+    @app.get("/api/podcasts")
+    def list_podcasts() -> dict[str, Any]:
+        from interview_mux.podcast_rss.settings import list_shows_public
+
+        return list_shows_public()
+
+    @app.get("/api/podcasts/{podcast_id}/artwork")
+    def podcast_artwork(podcast_id: str) -> FileResponse:
+        from interview_mux.podcast_rss.settings import normalize_podcast_id, show_artwork_file
+
+        try:
+            pid = normalize_podcast_id(podcast_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        path = show_artwork_file(pid)
+        if not path.is_file():
+            raise HTTPException(404, f"No artwork for podcast_id={pid!r}")
+        media, _ = mimetypes.guess_type(str(path))
+        return FileResponse(path, media_type=media or "image/png")
+
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:
         cfg = merged_config()
@@ -535,10 +556,17 @@ def create_app() -> FastAPI:
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
         from interview_mux.full_auto_launch import normalize_run_mode
         from interview_mux.homunculus.version import normalize_version, stamp_run_meta
+        from interview_mux.podcast_rss.settings import stamp_podcast_meta
         from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
 
         try:
             homunculus_version = normalize_version(body.homunculus_version)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            from interview_mux.podcast_rss.settings import normalize_podcast_id
+
+            podcast_id = normalize_podcast_id(body.podcast_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         run_mode = normalize_run_mode(body.run_mode)
@@ -555,10 +583,16 @@ def create_app() -> FastAPI:
         )
         ensure_analysis_workspace(ctx)
         stamp_run_meta(ctx, homunculus_version)
+        stamp_podcast_meta(ctx, podcast_id)
 
         def _stamp_run_mode(meta: dict[str, Any]) -> None:
             meta["run_mode"] = run_mode
             meta["full_auto"] = run_mode == "full-auto"
+            meta["partial_auto"] = run_mode == "partially-accelerated"
+            if run_mode != "partially-accelerated":
+                meta.pop("partial_auto", None)
+                meta.pop("partial_auto_driver_active", None)
+                meta.pop("partial_auto_complete", None)
 
         ctx.mutate_run_meta(_stamp_run_mode)
         refresh_journey_meta(ctx)
@@ -580,7 +614,9 @@ def create_app() -> FastAPI:
             "source_audio_hash_short": meta.get("source_audio_hash_short"),
             "run_mode": run_mode,
             "full_auto": run_mode == "full-auto",
+            "partial_auto": run_mode == "partially-accelerated",
             "homunculus_version": homunculus_version,
+            "podcast_id": podcast_id,
         }
         if run_mode == "full-auto":
             from interview_mux.full_auto_launch import launch_full_auto_for_run
@@ -609,6 +645,40 @@ def create_app() -> FastAPI:
                 raise HTTPException(
                     500,
                     f"Execution created but Full-auto launch failed: {exc}",
+                ) from exc
+        elif run_mode == "partially-accelerated":
+            from interview_mux.full_auto_launch import launch_partial_auto_for_run
+
+            try:
+                launch_info = launch_partial_auto_for_run(
+                    run_id=ctx.run_id,
+                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                    keep_gui_server=True,
+                )
+                payload["partial_auto_launch"] = launch_info
+
+                def _mark_driver(meta: dict[str, Any]) -> None:
+                    meta["partial_auto_driver_active"] = True
+                    meta.pop("partial_auto_complete", None)
+
+                ctx.mutate_run_meta(_mark_driver)
+                append_log(
+                    ctx.run_dir,
+                    "Partially-accelerated worker launched (G0 + S3 require operator).",
+                    level="info",
+                    stage="setup",
+                    detail={"journey_kind": "partial_auto", **launch_info},
+                )
+            except Exception as exc:
+                append_log(
+                    ctx.run_dir,
+                    f"Partially-accelerated launch failed: {exc}",
+                    level="error",
+                    stage="setup",
+                )
+                raise HTTPException(
+                    500,
+                    f"Execution created but partially-accelerated launch failed: {exc}",
                 ) from exc
         return payload
 
@@ -1695,14 +1765,20 @@ def create_app() -> FastAPI:
     @app.get("/api/runs/{run_id}/g-publish")
     def get_g_publish(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
-        from interview_mux.config import load_secrets, merged_config
         from interview_mux.gates import check_g_publish_pending
-        from interview_mux.podcast_rss.settings import apple_podcasts_passthrough_url, feed_url_from_base
+        from interview_mux.podcast_rss.settings import (
+            apple_podcasts_passthrough_url,
+            feed_url_from_base,
+            podcast_id_from_ctx,
+            resolve_publish_targets,
+            show_cfg,
+        )
         from interview_mux.podcast_rss.sync_assets import read_last_sync_result, sync_status_summary
 
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        secrets = load_secrets()
-        podcast = merged_config().get("podcast") or {}
+        pid = podcast_id_from_ctx(ctx)
+        show = show_cfg(pid)
+        targets = resolve_publish_targets(pid)
         result = (
             ctx.read_json("publish/publish_result.json")
             if ctx.artifact_exists("publish/publish_result.json")
@@ -1713,14 +1789,15 @@ def create_app() -> FastAPI:
             if ctx.artifact_exists("publish/package_ready.json")
             else {}
         )
-        base = str(secrets.get("PODCAST_FEED_BASE_URL") or "").rstrip("/")
-        feed_url = feed_url_from_base(base) or None
+        base = str(targets.get("feed_base_url") or "").rstrip("/")
+        feed_url = feed_url_from_base(base, cfg=show) or None
         # Counts + sync are scoped to this run only — never sibling executions.
         sync_summary = sync_status_summary(execution_id=run_id)
         return {
             "pending": check_g_publish_pending(ctx),
-            "enabled": bool(podcast.get("enabled", True)),
-            "show_title": podcast.get("show_title") or "Zero Shot Podcast DEMO",
+            "enabled": bool(show.get("enabled", True)),
+            "podcast_id": pid,
+            "show_title": show.get("show_title") or "Zero Shot Podcast DEMO",
             "feed_base_url": base or None,
             "feed_url": feed_url,
             "apple_podcasts_passthrough_url": apple_podcasts_passthrough_url(feed_url) or None,

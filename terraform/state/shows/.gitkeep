@@ -1,0 +1,2 @@
+# Isolated per-show Terraform state (not Zero Shot).
+# Default Zero Shot inventory stays at terraform/state/terraform.tfstate.

@@ -557,4 +557,6 @@ class RunContext:
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "outputs": outputs,
             "homunculus_version": meta.get("homunculus_version") or "0.0.0",
+            "podcast_id": meta.get("podcast_id"),
+            "podcast_title": meta.get("podcast_title"),
         }

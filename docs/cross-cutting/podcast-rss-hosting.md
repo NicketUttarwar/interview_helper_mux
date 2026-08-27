@@ -9,8 +9,8 @@
 | Concern | Mechanism | Not used |
 |---------|-----------|----------|
 | Create / change / destroy S3 + CloudFront | **Terraform** via [`scripts/tf-*.sh`](../../scripts/) — updates committed [`terraform/state/terraform.tfstate`](../../terraform/state/terraform.tfstate) | AWS Console click-ops, imperative setup scripts, AWS CLI |
-| Sync CF ID + feed base into secrets | `./scripts/tf-apply.sh` → [`sync_podcast_tf_secrets.sh`](../../scripts/sync_podcast_tf_secrets.sh) | Manual copy from Console |
-| Upload episode / seed / invalidate / sync | **boto3** in Python (`podcast_rss/s3_publish.py`, `podcast_rss/sync_assets.py`) using `config/secrets/secrets.env` | `aws s3`, `aws cloudfront`, `aws login` |
+| Sync CF ID + feed base into catalog | `./scripts/tf-apply.sh` → [`sync_podcast_tf_secrets.sh`](../../scripts/sync_podcast_tf_secrets.sh) | Manual copy from Console; creating AWS from the GUI |
+| Upload episode / seed / invalidate / sync | **boto3** using catalog destinations + `secrets.env` creds | `aws s3`, `aws cloudfront`, `aws login` |
 
 Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) in `secrets.env`. **Never** assume `aws login` or AWS CLI is installed.
 
@@ -30,12 +30,14 @@ Operators put `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or `AWS_PROFILE`) i
 
 | Kind | Where | Examples |
 |------|--------|----------|
-| Non-secret operator config | [`config/app.defaults.json`](../../config/app.defaults.json) `podcast` | `s3_bucket`, `season`, `show_website`, show meta, S3 layout / file names |
+| Per-show identity + destinations | [`config/podcast/catalog.json`](../../config/podcast/catalog.json) (**committed**, Start picker SoT) | `id`, `title`, `artwork_path`, `s3_bucket`, `cloudfront_distribution_id`, `feed_base_url` |
+| Shared pipeline defaults | [`config/app.defaults.json`](../../config/app.defaults.json) `podcast` | S3 key layout, mp3 settings, OpenAI cover cascade |
 | Credentials | [`config/secrets/secrets.env`](../../config/secrets/secrets.env) (**gitignored**) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` / `AWS_PROFILE` |
-| AWS-derived runtime IDs | same `secrets.env` (synced by `tf-apply` / `sync_podcast_tf_secrets.sh`) | `PODCAST_CLOUDFRONT_DISTRIBUTION_ID`, `PODCAST_FEED_BASE_URL` |
-| Infra inventory | [`terraform/state/terraform.tfstate`](../../terraform/state/terraform.tfstate) (**committed**) | Full resource graph |
+| Optional Zero Shot fallback IDs | same `secrets.env` (default-show `tf-apply` only) | `PODCAST_CLOUDFRONT_DISTRIBUTION_ID`, `PODCAST_FEED_BASE_URL` |
+| Zero Shot infra inventory | [`terraform/state/terraform.tfstate`](../../terraform/state/terraform.tfstate) (**committed**) | Live Zero Shot S3 + CloudFront |
+| Other show infra | [`terraform/state/shows/<id>/terraform.tfstate`](../../terraform/state/shows/) | Isolated; `--podcast-id` never loads Zero Shot state |
 
-Keep `podcast.s3_bucket` aligned with Terraform `s3_bucket_name` (see `config/terraform.tfvars.example`). Optional `PODCAST_S3_BUCKET` in secrets is an override only and must match.
+The GUI **picks** a catalog show on Start and uploads/invalidates that destination. It **never** creates S3 or CloudFront. New origins: terminal `./scripts/tf-*.sh --podcast-id <id>`, then commit the catalog row. Do **not** use `tf-podcast-rss-origin.sh` to add a second podcast (that archives the old origin out of state).
 
 ## S3 layout (retrieveability)
 
@@ -58,8 +60,8 @@ episodes/NNNN/              # one folder per published master / run
   transcript.vtt            # Apple Podcasts captions (podcast:transcript)
 ```
 
-Public URLs: `{PODCAST_FEED_BASE_URL}/episodes/NNNN/…`  
-Feed URL: `{PODCAST_FEED_BASE_URL}/feed.xml`
+Public URLs: `{catalog.feed_base_url}/episodes/NNNN/…`  
+Feed URL: `{catalog.feed_base_url}/feed.xml`
 
 ## Show channel
 

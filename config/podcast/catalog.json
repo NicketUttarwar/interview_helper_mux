@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "default_podcast_id": "zero_shot_podcast_demo",
+  "shows": [
+    {
+      "id": "zero_shot_podcast_demo",
+      "title": "Zero Shot Podcast DEMO",
+      "artwork_path": "config/podcast/shows/zero_shot_podcast_demo/artwork.png",
+      "cover_theme_path": "config/podcast/shows/zero_shot_podcast_demo/cover_theme.json",
+      "project_name": "zero_shot_podcast_demo_001",
+      "s3_bucket": "zero-shot-podcast-demo-rss-001",
+      "aws_region": "us-east-1",
+      "cloudfront_distribution_id": "EJYLTCDHR4U4U",
+      "feed_base_url": "https://dtf67uy8922u.cloudfront.net",
+      "show_author": "Nicket Uttarwar",
+      "show_email": "contact.nicketuttarwar@gmail.com",
+      "show_website": "https://nicketuttarwar.com/",
+      "language": "en-us",
+      "category": "Business",
+      "subcategory": "Entrepreneurship",
+      "show_type": "episodic",
+      "season": 1,
+      "explicit": "false",
+      "show_subtitle": "Long-form business interviews on building, judgment, and the rooms where decisions get made.",
+      "show_description": "Zero Shot Podcast DEMO is a long-form business interview podcast. Each episode sits with founders, operators, and builders for unhurried conversations about entrepreneurship, product, capital, and the hard calls that shape companies.",
+      "podcast_guid": "257ed0f5-7002-4d17-9a04-cbe13341bb50"
+    }
+  ]
+}

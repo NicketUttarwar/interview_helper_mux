@@ -10,11 +10,13 @@ Private **S3** origin + **CloudFront OAC** for The War Room feed and episode med
 | Do | Do not |
 |----|--------|
 | Use `./scripts/tf-*.sh` from the repo root | Call `terraform` raw against this tree (skips secrets load, session backup, var-file wiring) |
-| Keep `config/terraform.tfvars` `s3_bucket_name` == `podcast.s3_bucket` in `config/app.defaults.json` | Put the bucket name only in secrets |
-| Commit `terraform/state/terraform.tfstate` after successful applies | Commit `config/terraform.tfvars` or `config/secrets/secrets.env` |
-| App publish / seed / invalidate via **boto3** + `secrets.env` | Require AWS CLI, `aws login`, or Console click-ops |
+| Keep `s3_bucket_name` aligned with `config/podcast/catalog.json` for that show | Put the bucket name only in secrets |
+| Commit `terraform/state/terraform.tfstate` (Zero Shot) and `terraform/state/shows/<id>/terraform.tfstate` (other shows) after successful applies | Commit `config/terraform.tfvars` or `config/secrets/secrets.env` |
+| App publish / seed / invalidate via **boto3** + catalog destinations + `secrets.env` creds | Require AWS CLI, `aws login`, Console click-ops, or creating AWS from the GUI |
 
-Region is fixed to **`us-east-1`**. Default logical base: **`the_war_room_001`**.
+Region is fixed to **`us-east-1`**. Default Zero Shot stack: **`zero_shot_podcast_demo_001`**.
+
+The **GUI never creates AWS resources**. Start only picks a catalog show. New S3 + CloudFront origins are terminal (`./scripts/tf-*.sh --podcast-id <id>`), then recorded in [`config/podcast/catalog.json`](../config/podcast/catalog.json).
 
 ## Layout
 
@@ -35,27 +37,36 @@ Variable values: copy [`config/terraform.tfvars.example`](../config/terraform.tf
 ## State model
 
 ```text
-terraform/state/terraform.tfstate     ← live (committed)
-terraform/state/session/latest.tfstate ← rolling backup (one file; updated after success)
+terraform/state/terraform.tfstate              ← Zero Shot live (committed; do not retarget)
+terraform/state/session/latest.tfstate         ← Zero Shot rolling backup
+terraform/state/shows/<podcast_id>/terraform.tfstate  ← other shows (committed after apply)
 ```
 
-- Every successful `scripts/tf-*.sh` run that touches state refreshes `session/latest.tfstate`.
-- Restore before a command: `USE_LATEST_SESSION=1 ./scripts/tf-plan.sh` or `./scripts/tf-plan.sh --use-session` (flag is stripped before Terraform).
+- Default wrappers (no `--podcast-id`) always use the Zero Shot state file above.
+- `--podcast-id <id>` (when `<id>` is not `zero_shot_podcast_demo`) uses isolated state + `TF_DATA_DIR` so a plan/apply cannot load Zero Shot resources.
+- Do **not** use `tf-podcast-rss-origin.sh` to add a second podcast — that archives the old origin out of state. Add a catalog row, write `config/terraform/shows/<id>.tfvars`, then `tf-init` / `tf-apply --podcast-id <id>`.
 
 ## Operator workflow
 
 ```bash
 # 1) AWS creds in config/secrets/secrets.env
 #    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (or AWS_PROFILE)
-# 2) Align bucket name
+# 2) Align bucket name with catalog.json for this show
 cp config/terraform.tfvars.example config/terraform.tfvars
-# edit s3_bucket_name to match config/app.defaults.json → podcast.s3_bucket
 
 ./scripts/tf-init.sh
 ./scripts/tf-plan.sh
-./scripts/tf-apply.sh   # also upserts PODCAST_* into secrets.env
+./scripts/tf-apply.sh   # writes destinations into catalog.json (Zero Shot also updates secrets fallback)
 
 python scripts/seed_podcast_origin.py
+
+# New show (does not touch Zero Shot state):
+#   1. Add a row to config/podcast/catalog.json (id, title, artwork_path, …)
+#   2. Write config/terraform/shows/<id>.tfvars
+#   3. ./scripts/tf-init.sh --podcast-id <id>
+#   4. ./scripts/tf-apply.sh --podcast-id <id>
+#   5. python scripts/seed_podcast_origin.py --podcast-id <id>
+#   6. Commit catalog.json + terraform/state/shows/<id>/terraform.tfstate
 
 # Destructive reset: remove every S3 object but preserve the bucket + CloudFront
 ./scripts/tf-empty-bucket.sh

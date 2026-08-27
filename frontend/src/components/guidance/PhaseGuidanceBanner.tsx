@@ -145,9 +145,12 @@ export function StartPhaseGuidance() {
   return (
     <section className="phase-guidance-banner panel-inset" aria-label="Start guidance">
       <h3 className="phase-guidance-title">Start</h3>
-      <p className="hint phase-guidance-goal">Pick one interview WAV from ASSETS/ and click Start.</p>
+      <p className="hint phase-guidance-goal">
+        Pick run mode, brain, destination podcast, then one interview WAV from ASSETS/.
+      </p>
       <ol className="hint sm start-phase-steps">
-            <li>Select a WAV from ASSETS/</li>
+            <li>Choose Manual or Full-auto, then Brain (default 0.1.0)</li>
+            <li>Select the destination podcast (default Zero Shot)</li>
             <li>Click Start on your chosen file</li>
       </ol>
     </section>

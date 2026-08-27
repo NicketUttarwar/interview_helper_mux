@@ -11,6 +11,7 @@ import {
 interface GPublishPayload {
   pending: boolean;
   enabled?: boolean;
+  podcast_id?: string;
   show_title?: string;
   feed_url?: string | null;
   feed_base_url?: string | null;
@@ -28,7 +29,7 @@ interface GPublishPayload {
   sync_job?: Record<string, unknown>;
 }
 
-/** Ship gate: prepare local package + upload this run only to Zero Shot Podcast DEMO RSS. */
+/** Ship gate: prepare local package + upload this run only to the selected catalog podcast. */
 export function GPublishPanel() {
   const { runId, refreshRun, appendClientLog, showToast } = useApp();
   const [payload, setPayload] = useState<GPublishPayload | null>(null);
@@ -135,7 +136,8 @@ export function GPublishPanel() {
   };
 
   return (
-    <GatePanelShell title="G-Publish — Zero Shot Podcast DEMO RSS">
+    <div data-partial-auto-checkpoint="g_publish">
+    <GatePanelShell title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}>
       <p className="hint">
         Mastering is separate from RSS. Prepare a local package for this run, then upload only this
         run&apos;s complete package to {payload.show_title ?? "Zero Shot Podcast DEMO"} (S3 + CloudFront). Sync
@@ -223,5 +225,6 @@ export function GPublishPanel() {
         ) : null}
       </div>
     </GatePanelShell>
+    </div>
   );
 }

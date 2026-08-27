@@ -49,24 +49,79 @@ fi
 # --- Session state: filter --use-session from terraform args ----------------
 
 # Populates _TF_FILTERED_ARGS and sets _TF_USE_SESSION_FLAG=1 if restore requested.
+# Strips --podcast-id (catalog show) so it is never passed to terraform itself.
 terraform_common_filter_session_args() {
   _TF_FILTERED_ARGS=()
   _TF_USE_SESSION_FLAG=0
+  _TF_BACKEND_PATH=""
   if [[ "${USE_LATEST_SESSION:-}" == "1" ]]; then
     _TF_USE_SESSION_FLAG=1
   fi
-  local arg
-  for arg in "$@"; do
+  local arg next skip_next=0
+  local -a incoming=("$@")
+  local i
+  for ((i = 0; i < ${#incoming[@]}; i++)); do
+    arg="${incoming[$i]}"
+    if [[ "$skip_next" == "1" ]]; then
+      skip_next=0
+      continue
+    fi
     case "$arg" in
       --use-session)
         _TF_USE_SESSION_FLAG=1
         tf_log "Option --use-session: will restore live state from latest session backup (if present)"
+        ;;
+      --podcast-id)
+        next="${incoming[$((i + 1))]:-}"
+        if [[ -z "$next" || "$next" == -* ]]; then
+          tf_warn "--podcast-id requires a catalog show id"
+          exit 2
+        fi
+        TF_PODCAST_ID="$next"
+        export TF_PODCAST_ID
+        skip_next=1
+        ;;
+      --podcast-id=*)
+        TF_PODCAST_ID="${arg#--podcast-id=}"
+        export TF_PODCAST_ID
         ;;
       *)
         _TF_FILTERED_ARGS+=("$arg")
         ;;
     esac
   done
+  terraform_common_bind_podcast_origin
+}
+
+# Isolated per-show Terraform state. Omitted / default id keeps the live Zero Shot
+# inventory at terraform/state/terraform.tfstate (never retargeted).
+terraform_common_bind_podcast_origin() {
+  local id="${TF_PODCAST_ID:-}"
+  [[ -n "$id" ]] || return 0
+  if [[ ! "$id" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+    tf_warn "Invalid --podcast-id: $id"
+    exit 2
+  fi
+  if [[ "$id" == "zero_shot_podcast_demo" ]]; then
+    tf_log "podcast-id=$id is the default Zero Shot origin — using terraform/state/terraform.tfstate"
+    return 0
+  fi
+  TF_STATE_LIVE="${TF_DIR}/state/shows/${id}/terraform.tfstate"
+  TF_STATE_SESSION_DIR="${TF_DIR}/state/shows/${id}/session"
+  TF_STATE_SESSION_LATEST="${TF_STATE_SESSION_DIR}/latest.tfstate"
+  export TF_DATA_DIR="${TF_DIR}/.terraform-data/${id}"
+  mkdir -p "$(dirname "$TF_STATE_LIVE")" "$TF_STATE_SESSION_DIR" "$TF_DATA_DIR"
+  local vf="${REPO_ROOT}/config/terraform/shows/${id}.tfvars"
+  if [[ -f "$vf" ]]; then
+    export TF_VAR_FILE="$vf"
+    tf_log "Isolated origin podcast-id=$id"
+    tf_log "  state=$TF_STATE_LIVE"
+    tf_log "  TF_DATA_DIR=$TF_DATA_DIR"
+    tf_log "  var-file=$vf"
+  else
+    tf_warn "No tfvars at $vf — create config/terraform/shows/${id}.tfvars before plan/apply"
+  fi
+  _TF_BACKEND_PATH="state/shows/${id}/terraform.tfstate"
 }
 
 terraform_common_wants_session_restore() {
@@ -270,6 +325,21 @@ terraform_common_finalize_args() {
     terraform_common_maybe_warn_legacy_tfvars "$vf"
     tf_log "Using -var-file=$vf"
     _TF_FINAL_ARGS+=(-var-file="$vf")
+  fi
+  if [[ -n "${_TF_BACKEND_PATH:-}" && "$subcmd" == "init" ]]; then
+    local has_backend=0 prev=""
+    local arg
+    for arg in "${_TF_FILTERED_ARGS[@]}"; do
+      if [[ "$arg" == -backend-config=* || "$prev" == -backend-config ]]; then
+        has_backend=1
+        break
+      fi
+      prev="$arg"
+    done
+    if [[ "$has_backend" -eq 0 ]]; then
+      tf_log "Using isolated backend path=${_TF_BACKEND_PATH}"
+      _TF_FINAL_ARGS+=(-backend-config="path=${_TF_BACKEND_PATH}")
+    fi
   fi
 }
 

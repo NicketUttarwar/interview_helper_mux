@@ -43,4 +43,6 @@ export const run_meta_jsonSchema = z.object({
   "full_auto": z.boolean().optional(),
   "homunculus_version": z.string().optional(),
   "homunculus_kind": z.enum(["original_pipeline", "homunculus"]).optional(),
+  "podcast_id": z.string().optional(),
+  "podcast_title": z.string().optional(),
 });

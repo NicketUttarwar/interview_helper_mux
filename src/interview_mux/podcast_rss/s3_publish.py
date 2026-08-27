@@ -305,9 +305,10 @@ def invalidate_paths(
     paths: list[str],
     region: str | None = None,
     project_name: str | None = None,
+    podcast_id: str | None = None,
 ) -> str:
-    cfg = podcast_cfg()
-    project = (project_name or str(cfg.get("project_name") or "the_war_room_001")).strip()
+    cfg = podcast_cfg(podcast_id)
+    project = (project_name or str(cfg.get("project_name") or cfg.get("podcast_id") or "podcast")).strip()
     items = []
     for p in paths:
         p = str(p).strip()
@@ -319,7 +320,7 @@ def invalidate_paths(
     if not items:
         raise RuntimeError("No CloudFront invalidation paths provided")
     if not distribution_id:
-        raise RuntimeError("PODCAST_CLOUDFRONT_DISTRIBUTION_ID required for invalidation")
+        raise RuntimeError("cloudfront_distribution_id required for invalidation (catalog.json)")
     cf = _client("cloudfront", region=region)
     try:
         resp = cf.create_invalidation(
@@ -332,7 +333,7 @@ def invalidate_paths(
     except Exception as exc:
         raise RuntimeError(
             f"CloudFront CreateInvalidation failed: {exc}. "
-            "Check AWS credentials and PODCAST_CLOUDFRONT_DISTRIBUTION_ID."
+            "Check AWS credentials and catalog cloudfront_distribution_id."
         ) from exc
     return str((resp.get("Invalidation") or {}).get("Id") or "")
 
@@ -342,20 +343,18 @@ def invalidate_feed(
     distribution_id: str | None = None,
     region: str | None = None,
     project_name: str | None = None,
+    podcast_id: str | None = None,
 ) -> str:
-    """Invalidate ``/feed.xml`` on the live CloudFront distribution.
-
-    When ``distribution_id`` is omitted, reads ``PODCAST_CLOUDFRONT_DISTRIBUTION_ID``
-    from secrets (same source as ``scripts/invalidate_podcast_cf.sh``).
-    """
-    dist = (distribution_id or "").strip() or resolve_publish_targets()["distribution_id"]
-    layout = s3_layout(podcast_cfg())
+    """Invalidate ``/feed.xml`` on the selected show's CloudFront distribution."""
+    dist = (distribution_id or "").strip() or resolve_publish_targets(podcast_id)["distribution_id"]
+    layout = s3_layout(podcast_cfg(podcast_id))
     feed_path = "/" + layout["feed_key"].lstrip("/")
     return invalidate_paths(
         distribution_id=dist,
         paths=[feed_path],
         region=region,
         project_name=project_name,
+        podcast_id=podcast_id,
     )
 
 
@@ -363,22 +362,23 @@ def invalidate_current_feed(
     *,
     paths: list[str] | None = None,
     wait: bool = False,
+    podcast_id: str | None = None,
 ) -> dict[str, str]:
-    """Invalidate the live RSS URL from current secrets. Used by CLI + app publish.
+    """Invalidate the selected show's CloudFront feed URL.
 
-    Always re-reads ``secrets.env`` so a CloudFront URL rotate is picked up without
-    restarting the app. Return dict includes ``apple_podcasts_passthrough_url``.
+    Destinations come from ``config/podcast/catalog.json``. Return dict includes
+    ``apple_podcasts_passthrough_url``.
     """
-    targets = resolve_publish_targets()
+    targets = resolve_publish_targets(podcast_id)
     dist = str(targets.get("distribution_id") or "").strip()
     if not dist:
         raise RuntimeError(
-            "PODCAST_CLOUDFRONT_DISTRIBUTION_ID missing in secrets.env — "
-            "run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh"
+            "cloudfront_distribution_id missing in config/podcast/catalog.json — "
+            "record it after a terminal terraform apply"
         )
     region = str(targets.get("region") or "") or None
     project = str(targets.get("project_name") or "") or None
-    layout = s3_layout()
+    layout = s3_layout(podcast_cfg(podcast_id))
     feed_path = "/" + layout["feed_key"].lstrip("/")
     show_path = "/show/*"
     if paths is None:
@@ -392,6 +392,7 @@ def invalidate_current_feed(
         paths=items,
         region=region,
         project_name=project,
+        podcast_id=podcast_id,
     )
     status = ""
     if wait:
@@ -413,21 +414,21 @@ def invalidate_current_feed(
     )
 
 
-def retarget_public_feed(*, invalidate: bool = True) -> dict[str, Any]:
-    """Rebuild ``feed.xml`` (and episode public URLs) for the live CloudFront base.
+def retarget_public_feed(*, invalidate: bool = True, podcast_id: str | None = None) -> dict[str, Any]:
+    """Rebuild ``feed.xml`` (and episode public URLs) for the show's CloudFront base.
 
     Same S3 objects; only the public ``dxxxx.cloudfront.net`` host changes. Call
     after ``tf-rotate-cloudfront-url.sh`` so Apple/self links match the new URL.
     """
     from interview_mux.podcast_rss.feed import build_feed_xml, channel_meta_from_config
 
-    targets = resolve_publish_targets()
+    targets = resolve_publish_targets(podcast_id)
     bucket = str(targets.get("bucket") or "").strip()
     region = str(targets.get("region") or "") or None
     base = str(targets.get("feed_base_url") or "").rstrip("/")
     if not bucket or not base:
-        raise RuntimeError("Publish targets incomplete — bucket and PODCAST_FEED_BASE_URL required")
-    cfg = podcast_cfg()
+        raise RuntimeError("Publish targets incomplete — catalog s3_bucket and feed_base_url required")
+    cfg = podcast_cfg(podcast_id)
     layout = s3_layout(cfg)
     files = layout["episode_files"]
     episodes = list_episode_metas(bucket, region=region)
@@ -464,7 +465,7 @@ def retarget_public_feed(*, invalidate: bool = True) -> dict[str, Any]:
     )
     inv: dict[str, str] = {}
     if invalidate:
-        inv = invalidate_current_feed()
+        inv = invalidate_current_feed(podcast_id=podcast_id)
     return attach_apple_passthrough(
         {
             "bucket": bucket,
@@ -570,7 +571,7 @@ def upload_episode_files(
     force: bool = False,
 ) -> dict[str, Any]:
     """Upload one episode folder with size-based skip. Never deletes remote objects."""
-    cfg = podcast_cfg()
+    cfg = podcast_cfg(str(episode_meta.get("podcast_id") or "") or None)
     layout = s3_layout(cfg)
     files = layout["episode_files"]
     prefix = episode_prefix(episode_number, cfg=cfg)
@@ -674,7 +675,7 @@ def publish_episode_package(
 
     Never deletes remote objects.
     """
-    cfg = podcast_cfg()
+    cfg = podcast_cfg(str(episode_meta.get("podcast_id") or "") or None)
     layout = s3_layout(cfg)
     files = layout["episode_files"]
 
@@ -734,7 +735,7 @@ def publish_episode_package(
         )
     live_base = ""
     if invalidate:
-        current = invalidate_current_feed()
+        current = invalidate_current_feed(podcast_id=cfg.get("podcast_id"))
         inv_id = current["invalidation_id"]
         live_base = str(current.get("feed_base_url") or "").rstrip("/")
     base = live_base or feed_base_url.rstrip("/")

@@ -487,10 +487,12 @@ def test_versions_api_and_create_run_stamps(tmp_path, monkeypatch) -> None:
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["homunculus_version"] == "0.1.0"
+    assert ok.json()["podcast_id"] == "zero_shot_podcast_demo"
     meta = (tmp_path / "ASSETS" / "executions" / ok.json()["run_id"] / "run_meta.json").read_text(
         encoding="utf-8"
     )
     assert '"homunculus_version": "0.1.0"' in meta
+    assert '"podcast_id": "zero_shot_podcast_demo"' in meta
 
 
 def test_write_json_admits_on_010() -> None:

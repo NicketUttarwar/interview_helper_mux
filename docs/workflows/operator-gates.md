@@ -10,6 +10,8 @@ Product stages record bounded repairs in `operator/resilience_report.json` and o
 
 **Never auto-published (Manual GUI):** `force_publish` / `soft_ship` / quality waivers are rejected from the interactive operator path. Soft e2e ship remains opt-in via `INTERVIEW_MUX_E2E_SOFT=1` only — enabled automatically when launching **Full-auto** from the GUI Start page or `./scripts/run.sh` (legacy `MUX_BABA_E2E=1` still accepted). Full-auto heal/remutates/re-executes with soft waivers, and logs each choice as `[DECISION major|minor]` in `ASSETS/full_auto_console.log`.
 
+**Partially accelerated (GUI):** Uses the same detached driver and gate auto-accept stack as Full-auto, but **never** auto-accepts G0 (`transcript_review`) or uploads to S3. The operator must complete transcript review and confirm G-Publish upload (or skip). A GUI overlay blocks mis-clicks during automated phases.
+
 Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/runs/{id}/delivery/recover` and `GET /api/runs/{id}/resilience`.
 
 ## Hard gates

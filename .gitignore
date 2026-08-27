@@ -241,19 +241,24 @@ __marimo__/
 # Ignore state everywhere except the committed local backend file.
 *.tfstate
 !terraform/state/terraform.tfstate
+!terraform/state/shows/*/terraform.tfstate
 *.tfstate.*
 crash.log
 crash.*.log
 # Local Terraform variable files (includes config/terraform.tfvars — never commit)
 *.tfvars
 !*.tfvars.example
+!config/terraform/shows/*.tfvars
 *.auto.tfvars
 *.auto.tfvars.json
 # Destroy plan from ./scripts/destroy-stack.sh (local only)
 terraform/.destroy.tfplan
+# Isolated per-show plugin/backend dirs (never the Zero Shot .terraform/)
+terraform/.terraform-data/
 # Rolling session backup (latest.tfstate only; see scripts/lib/terraform-common.sh)
 terraform/state/session/*
 !terraform/state/session/.gitkeep
+terraform/state/shows/*/session/*
 # Keep lock file committed (terraform/.terraform.lock.hcl)
 
 

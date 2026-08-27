@@ -33,19 +33,28 @@ from interview_mux.podcast_rss.settings import (  # noqa: E402
     require_publish_ready,
     s3_layout,
     show_artwork_s3_key,
+    show_artwork_source_rel,
 )
 from interview_mux.podcast_rss.show_branding import (  # noqa: E402
     prepare_show_artwork_jpeg,
     publish_invalidation_paths,
-    show_artwork_source_rel,
 )
 
 
 def main() -> int:
-    cfg = podcast_cfg()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed a podcast S3 origin (empty feed + show art).")
+    parser.add_argument(
+        "--podcast-id",
+        default=None,
+        help="Catalog show to seed (default: catalog default_podcast_id)",
+    )
+    args = parser.parse_args()
+    cfg = podcast_cfg(args.podcast_id)
     layout = s3_layout(cfg)
     try:
-        targets = require_publish_ready()
+        targets = require_publish_ready(podcast_id=args.podcast_id)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -119,8 +128,9 @@ def main() -> int:
     inv_id = ""
     try:
         inv = invalidate_current_feed(
-            paths=publish_invalidation_paths(),
+            paths=publish_invalidation_paths(cfg=cfg),
             wait=True,
+            podcast_id=args.podcast_id,
         )
         inv_id = inv["invalidation_id"]
         feed_url = inv.get("feed_url") or feed_url

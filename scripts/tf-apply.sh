@@ -7,15 +7,16 @@ source "${SCRIPT_DIR}/lib/terraform-common.sh"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [options to terraform apply...]
+Usage: $(basename "$0") [--podcast-id ID] [options to terraform apply...]
 
 Apply changes. Loads config/secrets/secrets.env when present.
-On success, upserts PODCAST_* keys into secrets.env via sync_podcast_tf_secrets.sh
-(skipped for destroy plan applies).
+On success, upserts catalog.json destinations (and PODCAST_* in secrets.env
+for the default Zero Shot show).
 
 Examples:
   $(basename "$0")
   $(basename "$0") -auto-approve
+  $(basename "$0") --podcast-id my_show -auto-approve
   $(basename "$0") tfplan
 EOF
 }

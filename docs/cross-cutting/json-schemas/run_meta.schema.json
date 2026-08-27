@@ -80,7 +80,12 @@
     "homunculus_kind": {
       "type": "string",
       "enum": ["original_pipeline", "homunculus"]
-    }
+    },
+    "podcast_id": {
+      "type": "string",
+      "description": "Catalog show selected at Start. Locked for the run; selects S3 bucket + CloudFront invalidation. Omit → config/podcast/catalog.json default_podcast_id."
+    },
+    "podcast_title": { "type": "string" }
   },
   "additionalProperties": true
 }

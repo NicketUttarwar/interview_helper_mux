@@ -686,3 +686,111 @@ def test_invalidate_current_feed_uses_live_secrets():
     assert kwargs["DistributionId"] == "ENEWDIST"
     assert "/feed.xml" in kwargs["InvalidationBatch"]["Paths"]["Items"]
     assert "/show/*" in kwargs["InvalidationBatch"]["Paths"]["Items"]
+
+
+def test_catalog_default_show_and_publish_targets():
+    from interview_mux.podcast_rss.settings import (
+        default_podcast_id,
+        list_shows_public,
+        normalize_podcast_id,
+        resolve_publish_targets,
+        show_cfg,
+        show_artwork_source_path,
+    )
+
+    assert default_podcast_id() == "zero_shot_podcast_demo"
+    assert normalize_podcast_id(None) == "zero_shot_podcast_demo"
+    cfg = show_cfg()
+    assert cfg["podcast_id"] == "zero_shot_podcast_demo"
+    assert cfg["show_title"] == "Zero Shot Podcast DEMO"
+    assert cfg["s3_bucket"] == "zero-shot-podcast-demo-rss-001"
+    assert cfg["cloudfront_distribution_id"] == "EJYLTCDHR4U4U"
+    assert "s3" in cfg
+    assert show_artwork_source_path(cfg).is_file()
+    targets = resolve_publish_targets("zero_shot_podcast_demo")
+    assert targets["bucket"] == "zero-shot-podcast-demo-rss-001"
+    assert targets["distribution_id"] == "EJYLTCDHR4U4U"
+    assert targets["feed_base_url"] == "https://dtf67uy8922u.cloudfront.net"
+    public = list_shows_public()
+    assert public["default"] == "zero_shot_podcast_demo"
+    assert any(s["id"] == "zero_shot_podcast_demo" and s["has_artwork"] for s in public["shows"])
+
+
+def test_unknown_podcast_id_rejected():
+    from interview_mux.podcast_rss.settings import normalize_podcast_id
+
+    try:
+        normalize_podcast_id("not_a_real_show")
+    except ValueError as exc:
+        assert "Unknown podcast_id" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_resolve_publish_targets_per_show(tmp_path, monkeypatch):
+    from interview_mux.podcast_rss import settings as st
+
+    catalog = {
+        "version": 1,
+        "default_podcast_id": "zero_shot_podcast_demo",
+        "shows": [
+            {
+                "id": "zero_shot_podcast_demo",
+                "title": "Zero Shot Podcast DEMO",
+                "s3_bucket": "zero-shot-podcast-demo-rss-001",
+                "cloudfront_distribution_id": "EJYLTCDHR4U4U",
+                "feed_base_url": "https://dtf67uy8922u.cloudfront.net",
+                "project_name": "zero_shot_podcast_demo_001",
+            },
+            {
+                "id": "other_show",
+                "title": "Other Show",
+                "s3_bucket": "other-show-rss-001",
+                "cloudfront_distribution_id": "EOTHERDIST",
+                "feed_base_url": "https://dother.cloudfront.net",
+                "project_name": "other_show_001",
+                "show_email": "other@example.com",
+            },
+        ],
+    }
+    (tmp_path / "catalog.json").write_text(__import__("json").dumps(catalog), encoding="utf-8")
+    monkeypatch.setattr(st, "PODCAST_CATALOG_REL", "catalog.json")
+    monkeypatch.setattr(st, "repo_root", lambda: tmp_path)
+    a = st.resolve_publish_targets("zero_shot_podcast_demo")
+    b = st.resolve_publish_targets("other_show")
+    assert a["bucket"] != b["bucket"]
+    assert a["distribution_id"] == "EJYLTCDHR4U4U"
+    assert b["distribution_id"] == "EOTHERDIST"
+    assert b["feed_base_url"] == "https://dother.cloudfront.net"
+
+
+def test_podcasts_api_lists_zero_shot_artwork():
+    from fastapi.testclient import TestClient
+    from interview_mux.web.server import create_app
+
+    client = TestClient(create_app())
+    res = client.get("/api/podcasts")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["default"] == "zero_shot_podcast_demo"
+    shows = {s["id"]: s for s in body["shows"]}
+    assert shows["zero_shot_podcast_demo"]["has_artwork"] is True
+    art = client.get("/api/podcasts/zero_shot_podcast_demo/artwork")
+    assert art.status_code == 200
+    assert (art.headers.get("content-type") or "").startswith("image/")
+    missing = client.get("/api/podcasts/not_a_real_show/artwork")
+    assert missing.status_code == 404
+
+
+def test_podcast_id_from_execution_defaults(tmp_path):
+    from interview_mux.podcast_rss.settings import podcast_id_from_execution
+
+    assert podcast_id_from_execution("missing", exec_root=tmp_path) == "zero_shot_podcast_demo"
+    run = tmp_path / "exec_1"
+    run.mkdir()
+    (run / "run_meta.json").write_text(
+        '{"podcast_id": "zero_shot_podcast_demo", "podcast_title": "Zero Shot Podcast DEMO"}',
+        encoding="utf-8",
+    )
+    assert podcast_id_from_execution("exec_1", exec_root=tmp_path) == "zero_shot_podcast_demo"
+

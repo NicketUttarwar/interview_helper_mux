@@ -1102,40 +1102,20 @@ Optional placeholders in `config/templates/secrets.env.example` (AssemblyAI, Dee
 
 ## `podcast`
 
-Committed operator config for The War Room RSS. See [podcast-rss-hosting.md](./podcast-rss-hosting.md).
+Shared pipeline defaults in `config/app.defaults.json`. Per-show identity and AWS destinations live in [`config/podcast/catalog.json`](../../config/podcast/catalog.json) (Start picker source of truth). See [podcast-rss-hosting.md](./podcast-rss-hosting.md).
 
 | Key | Default | Role |
 |-----|---------|------|
 | `enabled` | `true` | Gates G-Publish |
-| `project_name` | `the_war_room_001` | Tags / invalidation caller prefix |
-| `s3_bucket` | `the-war-room-rss-001` | Origin bucket — **source of truth** (not secrets) |
-| `aws_region` | `us-east-1` | boto3 region |
-| `show_title` / `show_author` / `show_email` / `language` / `explicit` | show channel | RSS channel fields |
-| `show_website` | `https://nicketuttarwar.com/` | Channel `<link>` |
-| `category` / `subcategory` | `Business` / `Entrepreneurship` | Nested iTunes category |
-| `show_type` | `episodic` | `itunes:type` |
-| `season` | `1` | `itunes:season` on items (edit to advance) |
-| `show_subtitle` / `show_description` | business interview copy | Channel subtitle/summary |
-| `podcast_guid` | stable UUID | Podcasting 2.0 `<podcast:guid>` |
-| `show_artwork_path` | `config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png` | Local show art (palette + fail-open; seeded as JPEG) |
-| `cover_theme_path` | `config/podcast/cover_theme.json` | Palette / anatomy / text policy bible |
-| `cover_image.provider` | `openai` | Images backend (local MLX retired) |
-| `cover_image.model` | `gpt-image-1` | Non-mini gpt-image pin |
-| `cover_image.size` | `1024x1024` | Square generate size (upscaled to `min_output_px`) |
-| `cover_image.quality` | `high` | Images quality |
-| `cover_image.candidate_count` | `3` | Always three candidates, same prompt |
-| `cover_image.min_output_px` | `3000` | Upscale target (Apple preferred max) |
-| `cover_image.output_format` | `jpeg` | Episode/show feed art format |
-| `cover_image.jpeg_quality` | `90` | JPEG encode quality |
-| `cover_image.prompt_max_chars` | `32000` | Craft budget (reject/rewrite; no truncate) |
-| `cover_image.style_reference.*` | edits + `input_fidelity: low` | Show-art mood only |
-| `cover_image.vision_pick.*` | brilliance primary, `max_rebatch: 1` | Flagship vision among 3 |
+| `cover_image.*` | OpenAI cascade | Shared cover pipeline; `style_reference.path` overlays the selected show's artwork |
 | `mp3_bitrate_k` | `192` | Encode bitrate |
 | `mp3_channels` | `2` | Stereo enclosure |
 | `enclosure_type` | `audio/mpeg` | Documented enclosure MIME |
 | `upload_master_wav` | `true` | Always upload `master.wav` beside MP3 |
 | `s3.show_artwork_key` | `artwork.jpg` | Show art object name |
 | `s3.episodes_prefix` / `s3.episode_files.*` | `episodes` / file names | S3 key layout per episode (`cover.jpg`, …) |
+
+Catalog show fields (not in `app.defaults`): `id`, `title`, `artwork_path`, `cover_theme_path`, `project_name`, `s3_bucket`, `aws_region`, `cloudfront_distribution_id`, `feed_base_url`, channel identity (`show_author`, `podcast_guid`, …). Default show id: `zero_shot_podcast_demo`.
 
 Cover cascade details: [podcast-cover-theme.md](./podcast-cover-theme.md). Flagship chat stages: `models.stages.episode_meta_build`, `episode_cover_prompt_craft`, `episode_cover_vision_pick`.
 

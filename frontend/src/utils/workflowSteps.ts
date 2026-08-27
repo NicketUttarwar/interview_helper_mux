@@ -20,7 +20,7 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
   {
     id: "start",
     label: "Start",
-    tooltip: "Pick source audio and choose your output type.",
+    tooltip: "Pick source audio, brain, and destination podcast.",
     subTab: "stage",
   },
   {

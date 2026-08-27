@@ -843,6 +843,10 @@ def finish_complete_run() -> int:
     process running so the operator can keep watching status in the browser.
     """
     assert_fresh_layer_contract()
+    if is_partial_auto():
+        if not wait_for_operator_g_publish():
+            return 1
+        return finish_partial_complete_run()
     s3_info = sync_publish_to_s3()
     log_decision(
         "major",
@@ -1178,6 +1182,9 @@ def clear_optimizer_remaster_for_finalize() -> None:
 
 
 def complete_g0() -> None:
+    if is_partial_auto():
+        log("partial-auto: complete_g0 skipped (operator must review transcript)")
+        return
     try:
         api("POST", f"/api/runs/{RUN_ID}/transcript-review/complete", {"accept_unreviewed": True})
         log_decision(
@@ -1189,6 +1196,187 @@ def complete_g0() -> None:
         log("G0 accepted")
     except RuntimeError as exc:
         log(f"G0 note: {exc}")
+
+
+_PARTIAL_AUTO: bool | None = None
+PARTIAL_G0_WAIT_SEC = int(os.environ.get("MUX_PARTIAL_G0_WAIT_SEC", str(24 * 3600)))
+PARTIAL_GPUBLISH_WAIT_SEC = int(os.environ.get("MUX_PARTIAL_GPUBLISH_WAIT_SEC", str(24 * 3600)))
+
+
+def is_partial_auto() -> bool:
+    global _PARTIAL_AUTO
+    if _PARTIAL_AUTO is not None:
+        return _PARTIAL_AUTO
+    raw = str(os.environ.get("MUX_PARTIAL_AUTO") or "").strip().lower()
+    if raw in {"1", "true", "yes"}:
+        _PARTIAL_AUTO = True
+        return True
+    if RUN_ID:
+        try:
+            from interview_mux.run_context import RunContext
+
+            ctx = RunContext(RUN_ID, create=False)
+            if ctx.artifact_exists("run_meta.json"):
+                meta = ctx.read_json("run_meta.json")
+                if isinstance(meta, dict) and (
+                    meta.get("partial_auto")
+                    or str(meta.get("run_mode") or "") == "partially-accelerated"
+                ):
+                    _PARTIAL_AUTO = True
+                    return True
+        except Exception:
+            pass
+    _PARTIAL_AUTO = False
+    return False
+
+
+def _patch_partial_auto_meta(**fields: Any) -> None:
+    if not RUN_ID:
+        return
+    try:
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+
+        def patch(meta: dict[str, Any]) -> None:
+            for key, val in fields.items():
+                if val is None:
+                    meta.pop(key, None)
+                else:
+                    meta[key] = val
+
+        ctx.mutate_run_meta(patch)
+    except Exception as exc:
+        log(f"partial_auto meta patch failed: {exc}")
+
+
+def _focus_pipeline_transcript_review() -> None:
+    try:
+        api(
+            "PUT",
+            "/api/session/active",
+            {
+                "run_id": RUN_ID,
+                "active_tab": "pipeline",
+                "selected_stage_id": "transcript_review",
+            },
+        )
+    except RuntimeError as exc:
+        log(f"partial-auto focus G0: {exc}")
+
+
+def _transcript_review_needs_operator() -> bool:
+    """True when G0 review queue exists and operator has not signed off."""
+    if g0_complete():
+        return False
+    run_dir = MASTER.parent.parent
+    if not (run_dir / ".stage_done" / "transcript_review_build").is_file():
+        return False
+    return (run_dir / "transcript" / "review_queue.json").is_file()
+
+
+def wait_for_operator_g0() -> bool:
+    """Block until operator completes transcript review (partial-auto only)."""
+    if g0_complete():
+        return True
+    log("partial-auto: waiting for operator G0 transcript review")
+    _patch_partial_auto_meta(partial_auto_driver_active=True)
+    _focus_pipeline_transcript_review()
+    deadline = time.time() + PARTIAL_G0_WAIT_SEC
+    while time.time() < deadline:
+        if g0_complete():
+            log("partial-auto: G0 complete — resuming automation")
+            return True
+        time.sleep(POLL_SEC)
+    pause_needs_operator("transcript_review", "partial-auto G0 wait timed out")
+    return False
+
+
+def _g_publish_operator_done(payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("skipped"):
+        return True
+    if int(payload.get("already_uploaded_count") or 0) >= 1:
+        return True
+    last = payload.get("last_sync")
+    if isinstance(last, dict):
+        if str(last.get("execution_id") or "") == RUN_ID and last.get("ok"):
+            return True
+        uploaded = last.get("uploaded") or last.get("uploaded_executions") or []
+        if isinstance(uploaded, list) and RUN_ID in uploaded:
+            return True
+    sync_job = payload.get("sync_job")
+    if isinstance(sync_job, dict) and sync_job.get("status") == "complete":
+        result = sync_job.get("result")
+        if isinstance(result, dict) and int(result.get("uploaded_count") or 0) > 0:
+            return True
+    return False
+
+
+def wait_for_operator_g_publish() -> bool:
+    """Block until operator uploads to S3 or skips G-Publish (partial-auto only)."""
+    log("partial-auto: waiting for operator G-Publish (S3 upload or skip)")
+    _patch_partial_auto_meta(partial_auto_driver_active=True)
+    try:
+        api("PUT", "/api/session/active", {"run_id": RUN_ID, "active_tab": "pipeline"})
+    except RuntimeError as exc:
+        log(f"partial-auto focus G-Publish: {exc}")
+    deadline = time.time() + PARTIAL_GPUBLISH_WAIT_SEC
+    while time.time() < deadline:
+        try:
+            payload = api("GET", f"/api/runs/{RUN_ID}/g-publish", timeout=120)
+        except RuntimeError as exc:
+            log(f"partial-auto g-publish poll: {exc}")
+            time.sleep(POLL_SEC)
+            continue
+        if _g_publish_operator_done(payload if isinstance(payload, dict) else {}):
+            log("partial-auto: G-Publish operator action complete")
+            return True
+        time.sleep(POLL_SEC)
+    pause_needs_operator("podcast_publish", "partial-auto G-Publish wait timed out")
+    return False
+
+
+def finish_partial_complete_run() -> int:
+    """Ship bar for partial-auto: no S3 sync — operator already uploaded or skipped."""
+    write_full_auto_status(
+        job_status="idle",
+        stage="podcast_publish",
+        message="partial-auto complete (operator G-Publish)",
+        partial_auto=True,
+    )
+    log(f"DONE partial-auto master={MASTER} size={MASTER.stat().st_size}")
+    summarize_decisions(label="partial_ship")
+    _patch_partial_auto_meta(
+        partial_auto_driver_active=False,
+        partial_auto_complete=True,
+    )
+    _write_terminal_report(
+        outcome="complete",
+        halt_stage="podcast_publish",
+        root_cause="partial_auto_operator_publish",
+        s3={"uploaded": False, "operator": True},
+    )
+    keep_server = _keep_gui_server()
+    try:
+        from full_auto_daemon_launch import shutdown_full_auto_stack
+
+        info = shutdown_full_auto_stack(
+            kill_e2e=False,
+            kill_server=not keep_server,
+            exclude_pid=os.getpid(),
+        )
+        log_decision(
+            "minor",
+            stage="podcast_publish",
+            action="partial_auto_shutdown",
+            reason="ship_bar_complete",
+            detail=info,
+        )
+    except Exception as exc:
+        log(f"partial-auto shutdown note: {exc}")
+    return 0
 
 
 def _heal_clone_voice_prereqs() -> bool:
@@ -10735,7 +10923,10 @@ def main() -> int:
         return 2
     grant_consent()
     created = ensure_run()
-    log(f"=== full-auto start run={RUN_ID} created={created} ===")
+    mode_label = "partial-auto" if is_partial_auto() else "full-auto"
+    log(f"=== {mode_label} start run={RUN_ID} created={created} ===")
+    if is_partial_auto():
+        _patch_partial_auto_meta(partial_auto_driver_active=True, partial_auto_complete=False)
     dismiss_preclean()
     heal_stage_done_markers()
     hard_fail_rounds = 0
@@ -10781,7 +10972,10 @@ def main() -> int:
                 time.sleep(10)
                 break
             if label == "prepare":
-                if not g0_complete():
+                if is_partial_auto() and _transcript_review_needs_operator():
+                    if not wait_for_operator_g0():
+                        return 1
+                elif not is_partial_auto() and not g0_complete():
                     complete_g0()
                 if g0_complete():
                     log("G0 confirmed — leaving prepare")
@@ -10789,6 +10983,8 @@ def main() -> int:
                 return finish_complete_run()
             if job.get("status") == "needs_operator":
                 log("needs_operator — Full-auto halted (see operator/EXECUTION_REPORT.md)")
+                if is_partial_auto():
+                    _patch_partial_auto_meta(partial_auto_driver_active=False)
                 return 1
             if job.get("status") == "error":
                 msg = str(job.get("message") or job.get("error") or "")

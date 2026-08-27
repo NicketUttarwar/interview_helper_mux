@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from interview_mux.config import merged_config, repo_root
+from interview_mux.config import repo_root
 
 STYLE_CONTRACT_VERSION = 2
 
@@ -49,16 +49,25 @@ _DEFAULT_NO_PERSON_WITHOUT = (
 
 
 def cover_image_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    root = cfg if cfg is not None else merged_config()
-    podcast = root.get("podcast") if isinstance(root.get("podcast"), dict) else {}
-    cov = podcast.get("cover_image") if isinstance(podcast.get("cover_image"), dict) else {}
+    block = _as_podcast_block(cfg)
+    cov = block.get("cover_image") if isinstance(block.get("cover_image"), dict) else {}
     return dict(cov)
 
 
+def _as_podcast_block(cfg: dict[str, Any] | None) -> dict[str, Any]:
+    if cfg is None:
+        from interview_mux.podcast_rss.settings import show_cfg
+
+        return show_cfg()
+    if isinstance(cfg.get("podcast"), dict) and "cover_image" not in cfg and "show_title" not in cfg:
+        nested = cfg.get("podcast")
+        return nested if isinstance(nested, dict) else {}
+    return cfg
+
+
 def cover_theme_path(cfg: dict[str, Any] | None = None) -> Path:
-    root = cfg if cfg is not None else merged_config()
-    podcast = root.get("podcast") if isinstance(root.get("podcast"), dict) else {}
-    rel = str(podcast.get("cover_theme_path") or "config/podcast/cover_theme.json")
+    block = _as_podcast_block(cfg)
+    rel = str(block.get("cover_theme_path") or "config/podcast/shows/zero_shot_podcast_demo/cover_theme.json")
     p = Path(rel)
     if not p.is_absolute():
         p = repo_root() / p

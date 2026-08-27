@@ -39,9 +39,11 @@ from interview_mux.podcast_rss.s3_publish import (
 )
 from interview_mux.podcast_rss.settings import (
     apple_podcasts_passthrough_url,
+    default_podcast_id,
     episode_prefix,
     feed_url_from_base,
     podcast_cfg,
+    podcast_id_from_execution,
     require_publish_ready,
     resolve_publish_targets,
     s3_layout,
@@ -250,14 +252,15 @@ def read_last_sync_result() -> dict[str, Any]:
     return _read_json(last_sync_result_path())
 
 
-def _prepared_show_artwork() -> Path | None:
+def _prepared_show_artwork(cfg: dict[str, Any] | None = None) -> Path | None:
     from interview_mux.podcast_rss.show_branding import prepare_show_artwork_jpeg
     from interview_mux.podcast_rss.settings import show_artwork_source_path
 
-    if not show_artwork_source_path().is_file():
+    root = cfg if cfg is not None else podcast_cfg()
+    if not show_artwork_source_path(root).is_file():
         return None
     try:
-        return prepare_show_artwork_jpeg()
+        return prepare_show_artwork_jpeg(root)
     except FileNotFoundError:
         return None
 
@@ -269,6 +272,7 @@ def sync_ready_packages(
     exec_root: Path | None = None,
     execution_id: str | None = None,
     all_ready: bool = False,
+    podcast_id: str | None = None,
 ) -> SyncResult:
     """Upload complete local package(s) not yet in the S3 execution catalog.
 
@@ -296,7 +300,12 @@ def sync_ready_packages(
         )
         return result
 
-    cfg = podcast_cfg()
+    pid = str(podcast_id or "").strip() or None
+    if not pid and eid:
+        pid = podcast_id_from_execution(eid, exec_root=exec_root)
+    if not pid:
+        pid = default_podcast_id()
+    cfg = podcast_cfg(pid)
     if not bool(cfg.get("enabled", True)):
         result.errors.append({"error": "podcast.enabled is false"})
         return result
@@ -306,7 +315,7 @@ def sync_ready_packages(
     catalog_prefix = layout["catalog_prefix"]
 
     try:
-        targets = require_publish_ready()
+        targets = require_publish_ready(podcast_id=pid)
     except RuntimeError as exc:
         result.errors.append({"error": str(exc)})
         return result
@@ -334,6 +343,20 @@ def sync_ready_packages(
     result.ready = len(ready)
     result.skipped_already_uploaded = list(already)
     result.skipped_incomplete = list(incomplete)
+
+    if not eid:
+        ready = [
+            pkg
+            for pkg in ready
+            if podcast_id_from_execution(pkg.execution_id, exec_root=root) == pid
+        ]
+        result.skipped_already_uploaded = [
+            i for i in already if podcast_id_from_execution(i, exec_root=root) == pid
+        ]
+        result.skipped_incomplete = [
+            i for i in incomplete if podcast_id_from_execution(i, exec_root=root) == pid
+        ]
+        result.ready = len(ready)
 
     if dry_run:
         for pkg in ready:
@@ -368,7 +391,7 @@ def sync_ready_packages(
     by_hash = load_by_source_hash(by_hash_raw)
     by_execution = dict(by_exec_raw) if isinstance(by_exec_raw, dict) else {}
     season = int(cfg.get("season") or 1)
-    show_art = _prepared_show_artwork()
+    show_art = _prepared_show_artwork(cfg)
     new_episode_docs: list[dict[str, Any]] = []
 
     for pkg in ready:
@@ -379,7 +402,7 @@ def sync_ready_packages(
             prior = prior_publish_count(by_hash, pkg.source_audio_hash) if pkg.source_audio_hash else 0
             title = apply_version_suffix(pkg.title, prior_count=prior)
             episode_number, sequence = allocate_episode_number(sequence)
-            prefix = episode_prefix(episode_number)
+            prefix = episode_prefix(episode_number, cfg=cfg)
             mp3 = pkg.publish_dir / files["audio"]
             duration = _probe_duration_seconds(mp3)
             published_at = datetime.now(timezone.utc).isoformat()
@@ -396,6 +419,7 @@ def sync_ready_packages(
                 "description": pkg.description,
                 "guid": pkg.execution_id,
                 "execution_id": pkg.execution_id,
+                "podcast_id": pid,
                 "source_audio_hash": pkg.source_audio_hash,
                 "s3_prefix": prefix,
                 "pub_date": rfc2822(),
@@ -502,8 +526,8 @@ def sync_ready_packages(
         else:
             put_file_if_changed(bucket=bucket, key=art_key, path=show_art, region=region)
 
-    # Re-read secrets so a CloudFront URL rotate mid-run still hits the live feed.
-    fresh = resolve_publish_targets()
+    # Re-read catalog destinations so a CloudFront URL rotate still hits the live feed.
+    fresh = resolve_publish_targets(pid)
     base = str(fresh.get("feed_base_url") or base).rstrip("/")
     channel = channel_meta_from_config(cfg)
     existing = list_episode_metas(bucket, region=region)
@@ -515,7 +539,7 @@ def sync_ready_packages(
     art_key = show_artwork_s3_key(cfg)
     feed_xml = build_feed_xml(
         channel=channel,
-        feed_url=feed_url_from_base(base),
+        feed_url=feed_url_from_base(base, cfg=cfg),
         show_artwork_url=f"{base}/{art_key}",
         episodes=feed_episodes,
     )
@@ -530,7 +554,7 @@ def sync_ready_packages(
     )
     from interview_mux.podcast_rss.show_branding import publish_invalidation_paths
 
-    inv = invalidate_current_feed(paths=publish_invalidation_paths())
+    inv = invalidate_current_feed(paths=publish_invalidation_paths(cfg=cfg), podcast_id=pid)
     result.invalidation_id = inv["invalidation_id"]
     result.feed_url = inv.get("feed_url") or feed_url_from_base(base)
     write_last_sync_result(result)
@@ -546,8 +570,9 @@ def sync_status_summary(
 
     When ``execution_id`` is set, counts apply only to that run (never sibling executions).
     """
-    cfg = podcast_cfg()
     eid = str(execution_id or "").strip() or None
+    pid = podcast_id_from_execution(eid, exec_root=exec_root) if eid else default_podcast_id()
+    cfg = podcast_cfg(pid)
     if not bool(cfg.get("enabled", True)):
         return {
             "enabled": False,
@@ -559,8 +584,8 @@ def sync_status_summary(
         }
     by_exec: dict[str, Any] = {}
     try:
-        targets = require_publish_ready()
-        layout = s3_layout()
+        targets = require_publish_ready(podcast_id=pid)
+        layout = s3_layout(cfg)
         by_exec = get_json(
             targets["bucket"],
             f"{layout['catalog_prefix']}/by_execution_id.json",

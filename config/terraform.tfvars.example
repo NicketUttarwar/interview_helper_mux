@@ -1,10 +1,10 @@
 # Copy to terraform.tfvars (gitignored):
 #   cp config/terraform.tfvars.example config/terraform.tfvars
 #
-# Keep s3_bucket_name identical to config/app.defaults.json → podcast.s3_bucket
-# (committed app config is the runtime source of truth for the bucket name).
-# Terraform state remains the infra inventory; secrets.env holds only AWS creds
-# + derived CloudFront ID / feed base URL.
+# Keep s3_bucket_name identical to the matching row in
+# config/podcast/catalog.json (Start picker / publish destination SoT).
+# Terraform state remains the infra inventory; secrets.env holds AWS creds.
+# Default wrappers (no --podcast-id) manage the Zero Shot origin only.
 #
 # Migrating the bucket name updates the CloudFront origin but keeps the same
 # distribution domain (feed URL stays stable).
@@ -14,10 +14,10 @@
 # New bucket + new CloudFront (archives the old pair, leaves it live):
 #   ./scripts/tf-podcast-rss-origin.sh
 
-project_name   = "the_war_room_001"
-show_title     = "The War Room"
+project_name   = "zero_shot_podcast_demo_001"
+show_title     = "Zero Shot Podcast DEMO"
 environment    = "prod"
-s3_bucket_name = "the-war-room-rss-001"
+s3_bucket_name = "zero-shot-podcast-demo-rss-001"
 
 cloudfront_price_class = "PriceClass_200"
 # common_tags = { Owner = "you" }

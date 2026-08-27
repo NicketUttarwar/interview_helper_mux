@@ -38,6 +38,9 @@ export function StartTab() {
     homunculusVersion,
     setHomunculusVersion,
     homunculusBrains,
+    selectedPodcastId,
+    setSelectedPodcastId,
+    podcastShows,
   } = useApp();
   const sessionLocked = Boolean(runId);
 
@@ -102,8 +105,16 @@ export function StartTab() {
     const sourcePath = run.meta?.input_audio_path || "Unknown source";
     const sourceName = sourcePath.split("/").pop() || sourcePath;
     const isFullAuto = run.meta?.run_mode === "full-auto" || Boolean(run.meta?.full_auto);
+    const isPartialAuto =
+      run.meta?.run_mode === "partially-accelerated" || Boolean(run.meta?.partial_auto);
     const brainId = run.meta?.homunculus_version || "0.0.0";
     const brainLabel = formatBrainLabel(brainId, run.meta?.homunculus_kind);
+    const lockedPodcastId = run.meta?.podcast_id || "";
+    const lockedPodcast =
+      podcastShows.find((s) => s.id === lockedPodcastId) ||
+      (run.meta?.podcast_title
+        ? { id: lockedPodcastId, title: run.meta.podcast_title, artwork_url: lockedPodcastId ? `/api/podcasts/${lockedPodcastId}/artwork` : null }
+        : null);
     return (
       <main className="view tab-view">
         <section className="panel hero hero-compact">
@@ -116,6 +127,12 @@ export function StartTab() {
             <p className="hint" data-testid="start-full-auto-active">
               Full-auto is running — gates, package, and S3 publish are handled automatically.
               Watch Pipeline / Logs for progress.
+            </p>
+          ) : null}
+          {isPartialAuto ? (
+            <p className="hint" data-testid="start-partial-auto-active">
+              Partially accelerated — automation runs until transcript review and S3 upload.
+              The guardrail overlay lifts at those two checkpoints only.
             </p>
           ) : null}
           <p className="hint start-live-subline">
@@ -154,6 +171,11 @@ export function StartTab() {
               <div className="asset-meta" data-testid="start-brain-locked">
                 Brain: {brainLabel} (locked)
               </div>
+              {lockedPodcast ? (
+                <div className="asset-meta start-podcast-locked" data-testid="start-podcast-locked">
+                  Podcast: {lockedPodcast.title} (locked)
+                </div>
+              ) : null}
             </div>
             <span className="stage-status-pill done">Locked</span>
           </div>
@@ -179,6 +201,8 @@ export function StartTab() {
   }
 
   const fullAutoSelected = startRunMode === "full-auto";
+  const partialAutoSelected = startRunMode === "partially-accelerated";
+  const manualSelected = startRunMode === "manual";
 
   return (
     <main className="view tab-view start-tab-view">
@@ -198,21 +222,40 @@ export function StartTab() {
           <h3>Run mode</h3>
         </div>
         <div
-          className="start-run-mode-slider"
+          className="start-run-mode-slider start-run-mode-slider-three"
           role="radiogroup"
-          aria-label="Manual or Full-auto"
+          aria-label="Manual, Full-auto, or Partially accelerated"
         >
           <button
             type="button"
             role="radio"
-            aria-checked={!fullAutoSelected}
-            className={`start-run-mode-option${!fullAutoSelected ? " selected" : ""}`}
+            aria-checked={manualSelected}
+            className={`start-run-mode-option${manualSelected ? " selected" : ""}`}
             data-testid="start-mode-manual"
             onClick={() => setStartRunMode("manual")}
           >
             <span className="start-run-mode-title">Manual</span>
             <span className="start-run-mode-desc">
               You review transcript, framing, VO, and publish steps in the GUI.
+            </span>
+            <span className="start-run-mode-footnote hint sm">
+              Full control at every gate.
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={partialAutoSelected}
+            className={`start-run-mode-option partial-accelerated${partialAutoSelected ? " selected" : ""}`}
+            data-testid="start-mode-partial-auto"
+            onClick={() => setStartRunMode("partially-accelerated")}
+          >
+            <span className="start-run-mode-title">Partially accelerated</span>
+            <span className="start-run-mode-desc">
+              Full-auto speed with stops for STT review and S3 upload only.
+            </span>
+            <span className="start-run-mode-footnote hint sm">
+              Guardrail mode — change the transcript and confirm publish; everything else is automatic.
             </span>
           </button>
           <button
@@ -228,12 +271,21 @@ export function StartTab() {
               After Start, the app accepts every gate, builds the master, prepares the package,
               and uploads this run to S3.
             </span>
+            <span className="start-run-mode-footnote hint sm">
+              Bypasses transcript review and voice-clone consent.
+            </span>
           </button>
         </div>
         {fullAutoSelected ? (
           <p className="hint start-run-mode-warning" data-testid="start-full-auto-hint">
             Full-auto bypasses transcript review and voice-clone consent. Use only when you want
             an unattended end-to-end ship including S3 publish.
+          </p>
+        ) : null}
+        {partialAutoSelected ? (
+          <p className="hint start-run-mode-warning" data-testid="start-partial-auto-hint">
+            Partially accelerated never auto-accepts transcript review or uploads to S3 without
+            your confirmation.
           </p>
         ) : null}
       </section>
@@ -291,6 +343,64 @@ export function StartTab() {
         )}
       </section>
       <section
+        className="panel panel-compact start-run-mode-panel"
+        data-testid="start-podcast"
+        aria-label="Destination podcast"
+      >
+        <div className="panel-head">
+          <h3>Podcast</h3>
+        </div>
+        <p className="hint sm" data-testid="start-podcast-default-note">
+          Choose which RSS feed this run uploads to. Default is{" "}
+          <strong>{podcastShows.find((s) => s.is_default)?.title || "Zero Shot Podcast DEMO"}</strong>.
+          New S3 / CloudFront origins are created in the terminal, then recorded in the catalog.
+        </p>
+        <div
+          className="start-podcast-slider"
+          role="radiogroup"
+          aria-label="Destination podcast"
+        >
+          {podcastShows.map((show) => {
+            const selected = selectedPodcastId === show.id;
+            const initials = show.title
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((w) => w[0]?.toUpperCase() || "")
+              .join("");
+            return (
+              <button
+                key={show.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={`start-podcast-card${selected ? " selected" : ""}${show.is_default ? " is-default-podcast" : ""}`}
+                data-testid={`start-podcast-${show.id}`}
+                onClick={() => setSelectedPodcastId(show.id)}
+              >
+                {show.has_artwork && show.artwork_url ? (
+                  <img
+                    className="start-podcast-art"
+                    src={show.artwork_url}
+                    alt=""
+                  />
+                ) : (
+                  <div className="start-podcast-art start-podcast-art-fallback" aria-hidden="true">
+                    {initials || "?"}
+                  </div>
+                )}
+                <span className="start-podcast-title">
+                  {show.title}
+                  {show.is_default ? (
+                    <span className="start-brain-default-pill">Default</span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <section
         className="panel panel-compact"
         data-testid="start-tab-ready"
         data-ready={sessionReady ? "true" : "false"}
@@ -341,7 +451,11 @@ export function StartTab() {
                   }}
                 >
                   <ActionMarker status="todo" />{" "}
-                  {fullAutoSelected ? "Start Full-auto" : "Start"}
+                  {fullAutoSelected
+                    ? "Start Full-auto"
+                    : partialAutoSelected
+                      ? "Start partially accelerated"
+                      : "Start"}
                 </button>
               </div>
             ))

@@ -21,6 +21,7 @@ import type {
   LogStreamTab,
   OpenRunOptions,
   PipelineSubTab,
+  PodcastShowInfo,
   RunData,
   RunSummary,
   SessionActive,
@@ -159,11 +160,14 @@ interface AppContextValue {
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string) => Promise<void>;
-  startRunMode: "manual" | "full-auto";
+  startRunMode: "manual" | "full-auto" | "partially-accelerated";
   setStartRunMode: (mode: "manual" | "full-auto") => void;
   homunculusVersion: string;
   setHomunculusVersion: (version: string) => void;
   homunculusBrains: HomunculusBrainInfo[];
+  selectedPodcastId: string;
+  setSelectedPodcastId: (id: string) => void;
+  podcastShows: PodcastShowInfo[];
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
   refreshRun: () => Promise<RunData | null>;
@@ -220,7 +224,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [run, setRun] = useState<RunData | null>(null);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
-  const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto">("manual");
+  const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto" | "partially-accelerated">("manual");
   const [homunculusVersion, setHomunculusVersionState] = useState("0.1.0");
   const brainTouchedRef = useRef(false);
   const setHomunculusVersion = useCallback((version: string) => {
@@ -241,6 +245,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       summary: "First homunculus brain: higher-level syncing, tool-loop conductor.",
       kind: "homunculus",
       is_default: true,
+    },
+  ]);
+  const [selectedPodcastId, setSelectedPodcastIdState] = useState("zero_shot_podcast_demo");
+  const podcastTouchedRef = useRef(false);
+  const setSelectedPodcastId = useCallback((id: string) => {
+    podcastTouchedRef.current = true;
+    setSelectedPodcastIdState(id);
+  }, []);
+  const [podcastShows, setPodcastShows] = useState<PodcastShowInfo[]>([
+    {
+      id: "zero_shot_podcast_demo",
+      title: "Zero Shot Podcast DEMO",
+      is_default: true,
+      has_artwork: true,
+      artwork_url: "/api/podcasts/zero_shot_podcast_demo/artwork",
     },
   ]);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
@@ -600,6 +619,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         },
         "Brains",
+      ),
+      track(
+        api<{ default?: string; shows?: PodcastShowInfo[] }>("/api/podcasts"),
+        (data) => {
+          if (data.shows?.length) setPodcastShows(data.shows);
+          if (data.default && !podcastTouchedRef.current) {
+            setSelectedPodcastIdState(data.default);
+          }
+        },
+        "Podcasts",
       ),
       track(
         api<{ runs?: RunSummary[] }>(runsPath),
@@ -1455,13 +1484,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           run_mode: startRunMode,
           full_auto: startRunMode === "full-auto",
           homunculus_version: homunculusVersion,
+          podcast_id: selectedPodcastId,
         };
-        showToast(
+        const modeToast =
           startRunMode === "full-auto"
             ? "Creating execution and launching Full-auto…"
-            : "Creating execution…",
-          "info",
-        );
+            : startRunMode === "partially-accelerated"
+              ? "Creating execution and launching partially accelerated run…"
+              : "Creating execution…";
+        showToast(modeToast, "info");
         const res = await api<{ run_id: string; run_mode?: string }>(
           "/api/runs",
           {
@@ -1470,15 +1501,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify(body),
           },
         );
-        appendClientLog(
+        const modeLog =
           startRunMode === "full-auto"
             ? `Created execution ${res.run_id} (Full-auto)`
-            : `Created execution ${res.run_id}`,
-          "success",
-        );
+            : startRunMode === "partially-accelerated"
+              ? `Created execution ${res.run_id} (Partially accelerated)`
+              : `Created execution ${res.run_id}`;
+        appendClientLog(modeLog, "success");
         if (startRunMode === "full-auto") {
           showToast(
             "Full-auto running — gates, package, and S3 publish are automatic.",
+            "info",
+          );
+        } else if (startRunMode === "partially-accelerated") {
+          showToast(
+            "Partially accelerated — you'll confirm transcript review and S3 upload only.",
             "info",
           );
         }
@@ -1487,7 +1524,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(e instanceof Error ? e.message : "Failed to start run", "error");
       }
     },
-    [appendClientLog, openRun, showToast, runId, sessionReady, startRunMode, homunculusVersion],
+    [appendClientLog, openRun, showToast, runId, sessionReady, startRunMode, homunculusVersion, selectedPodcastId],
   );
 
   const clearSession = useCallback(async () => {
@@ -2236,6 +2273,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     homunculusVersion,
     setHomunculusVersion,
     homunculusBrains,
+    selectedPodcastId,
+    setSelectedPodcastId,
+    podcastShows,
     openRun,
     retryOpenRun,
     refreshRun,

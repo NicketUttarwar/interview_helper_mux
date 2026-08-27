@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Invalidate The War Room CloudFront paths (default: /feed.xml).
-# Always uses the *live* feed URL from secrets.env (synced by tf-apply /
-# tf-rotate-cloudfront-url.sh). Same helper the app calls on G-Publish sync.
+# Invalidate CloudFront paths for a catalog podcast (default: /feed.xml).
+# Destinations come from config/podcast/catalog.json (optional --podcast-id).
 # boto3 only — no AWS CLI required.
 #
 # After invalidation, prints the Apple Podcasts Connect pass-through next to
@@ -19,14 +18,13 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-  Invalidate CloudFront for the current podcast RSS URL.
+  Invalidate CloudFront for a catalog podcast RSS URL.
 
-  Reads PODCAST_CLOUDFRONT_DISTRIBUTION_ID and PODCAST_FEED_BASE_URL from
-  config/secrets/secrets.env (rewritten by ./scripts/tf-apply.sh and
-  ./scripts/tf-rotate-cloudfront-url.sh). The app publish path uses the
-  same Python helper (invalidate_current_feed).
+  Reads destination from config/podcast/catalog.json (bucket + distribution).
+  Optional --podcast-id selects the show (default: catalog default).
 
   Options:
+    --podcast-id ID   Catalog show id (default: catalog default_podcast_id)
     --paths 'a,b'     Comma-separated paths (default: /feed.xml)
     --all-media       Also invalidate /episodes/* and /show/*
     --wait            Poll until the invalidation completes
@@ -37,12 +35,17 @@ EOF
 PATHS="/feed.xml"
 WAIT=0
 ALL_MEDIA=0
+PODCAST_ID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h | --help)
       usage
       exit 0
+      ;;
+    --podcast-id)
+      PODCAST_ID="${2:-}"
+      shift 2
       ;;
     --paths)
       PATHS="${2:-}"
@@ -66,24 +69,13 @@ done
 
 load_secrets_env "${REPO_ROOT}" || true
 
-if [[ -z "${PODCAST_CLOUDFRONT_DISTRIBUTION_ID:-}" ]]; then
-  echo "PODCAST_CLOUDFRONT_DISTRIBUTION_ID missing in secrets.env" >&2
-  echo "Run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh" >&2
-  exit 1
-fi
-
-if [[ -z "${PODCAST_FEED_BASE_URL:-}" ]]; then
-  echo "PODCAST_FEED_BASE_URL missing in secrets.env — cannot target the live RSS URL" >&2
-  echo "Run ./scripts/tf-apply.sh or ./scripts/tf-rotate-cloudfront-url.sh" >&2
-  exit 1
-fi
-
 if [[ "$ALL_MEDIA" == "1" ]]; then
   PATHS="/feed.xml,/episodes/*,/show/*"
 fi
 
 export INVALIDATE_PATHS="$PATHS"
 export INVALIDATE_WAIT="$WAIT"
+export INVALIDATE_PODCAST_ID="$PODCAST_ID"
 
 PYTHON="${REPO_ROOT}/.venv/bin/python"
 if [[ ! -x "$PYTHON" ]]; then
@@ -106,9 +98,11 @@ from interview_mux.podcast_rss.settings import print_apple_passthrough_notice
 
 raw = os.environ.get("INVALIDATE_PATHS") or "/feed.xml"
 paths = [p.strip() for p in raw.split(",") if p.strip()]
+pid = (os.environ.get("INVALIDATE_PODCAST_ID") or "").strip() or None
 result = invalidate_current_feed(
     paths=paths,
     wait=os.environ.get("INVALIDATE_WAIT") == "1",
+    podcast_id=pid,
 )
 feed = result.get("feed_url") or result.get("feed_base_url") or "—"
 print(

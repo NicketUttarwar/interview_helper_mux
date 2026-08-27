@@ -175,7 +175,9 @@ See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terra
 
 ## Detached e2e / Full-auto companion
 
-Unattended long runs use the Full-auto soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Prefer the **large Manual / Full-auto control on the GUI Start page** when the browser is open. Decision lines are logged as `[DECISION major|minor]` in `ASSETS/full_auto_console.log`.
+Unattended long runs use the Full-auto soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Prefer the **Run mode control on the GUI Start page** when the browser is open (Manual, Full-auto, or Partially accelerated). Decision lines are logged as `[DECISION major|minor]` in `ASSETS/full_auto_console.log`.
+
+**Partially accelerated GUI verify:** Start tab → Partially accelerated → pick podcast + brain + audio → Start. Confirm overlay during automation; overlay lifts at G0 (transcript review) and G-Publish (S3 upload confirm only). Manual and Full-auto regressions unchanged.
 
 ```bash
 # Interactive GUI (default Manual): pick Full-auto on the Start page, then Start

@@ -102,6 +102,8 @@ export interface RunSummary {
   blocking_message?: string | null;
   attention_count?: number;
   homunculus_version?: string;
+  podcast_id?: string;
+  podcast_title?: string;
 }
 
 export interface HomunculusBrainInfo {
@@ -111,6 +113,15 @@ export interface HomunculusBrainInfo {
   kind: "original_pipeline" | "homunculus" | string;
   prompt_tree?: string | null;
   is_default?: boolean;
+}
+
+export interface PodcastShowInfo {
+  id: string;
+  title: string;
+  is_default?: boolean;
+  has_artwork?: boolean;
+  feed_base_url?: string;
+  artwork_url?: string | null;
 }
 
 export type StageStatus =
@@ -593,10 +604,15 @@ export interface RunMeta {
   source_audio_hash?: string;
   source_audio_hash_short?: string;
   updated_at?: string;
-  run_mode?: "manual" | "full-auto" | string;
+  run_mode?: "manual" | "full-auto" | "partially-accelerated" | string;
   full_auto?: boolean;
+  partial_auto?: boolean;
+  partial_auto_driver_active?: boolean;
+  partial_auto_complete?: boolean;
   homunculus_version?: string;
   homunculus_kind?: "original_pipeline" | "homunculus" | string;
+  podcast_id?: string;
+  podcast_title?: string;
   operator_phase?: OperatorPhase;
   journey_milestones?: Record<string, boolean>;
   preview_listened_at?: string;

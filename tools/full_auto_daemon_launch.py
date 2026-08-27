@@ -165,6 +165,35 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
     raise RuntimeError("server failed to become healthy")
 
 
+def _driver_env(
+    *,
+    port: int,
+    audio: str,
+    keep_gui_server: bool,
+    partial_auto: bool,
+) -> dict[str, str]:
+    run_mode = "partially-accelerated" if partial_auto else os.environ.get("MUX_RUN_MODE", "full-auto")
+    env: dict[str, str] = {
+        "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
+        "MUX_POLL_SEC": "20",
+        "MUX_INPUT_AUDIO": audio,
+        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
+        "MUX_E2E_SOFT_LISTENABILITY": "1",
+        "INTERVIEW_MUX_E2E_SOFT": "1",
+        "MUX_RUN_MODE": run_mode,
+        "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
+        "MUX_WEB_PORT": str(port),
+        "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
+    }
+    if partial_auto:
+        env["MUX_PARTIAL_AUTO"] = "1"
+    else:
+        env["MUX_FULL_AUTO"] = "1"
+    if keep_gui_server:
+        env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"
+    return env
+
+
 def ensure_e2e(
     *,
     fresh: bool = False,
@@ -172,6 +201,7 @@ def ensure_e2e(
     force: bool = False,
     input_audio: str | None = None,
     keep_gui_server: bool = False,
+    partial_auto: bool = False,
 ) -> int | None:
     """Launch or resume the Full-auto driver.
 
@@ -191,21 +221,7 @@ def ensure_e2e(
         or os.environ.get("MUX_INPUT_AUDIO")
         or "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3"
     )
-    env = {
-        "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
-        "MUX_POLL_SEC": "20",
-        "MUX_INPUT_AUDIO": audio,
-        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
-        "MUX_E2E_SOFT_LISTENABILITY": "1",
-        "INTERVIEW_MUX_E2E_SOFT": "1",
-        "MUX_FULL_AUTO": "1",
-        "MUX_RUN_MODE": os.environ.get("MUX_RUN_MODE", "full-auto"),
-        "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
-        "MUX_WEB_PORT": str(port),
-        "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
-    }
-    if keep_gui_server:
-        env["MUX_FULL_AUTO_KEEP_SERVER"] = "1"
+    env = _driver_env(port=port, audio=audio, keep_gui_server=keep_gui_server, partial_auto=partial_auto)
     if fresh:
         rotate_e2e_console()
         env["MUX_FRESH"] = "1"
@@ -223,6 +239,39 @@ def ensure_e2e(
     )
     (ASSETS / "full_auto.pid").write_text(str(pid))
     return pid
+
+
+def launch_partial_auto_for_run(
+    *,
+    run_id: str,
+    input_audio: str,
+    keep_gui_server: bool = True,
+) -> dict[str, object]:
+    """In-app entry: partially-accelerated driver on an already-created run."""
+    rid = (run_id or "").strip()
+    if not rid:
+        raise ValueError("run_id is required")
+    audio = (input_audio or "").strip()
+    if not audio:
+        raise ValueError("input_audio is required")
+    pid = ensure_e2e(
+        fresh=False,
+        run_id=rid,
+        force=True,
+        input_audio=audio,
+        keep_gui_server=keep_gui_server,
+        partial_auto=True,
+    )
+    ka_pid = ensure_keepalive(keep_gui_server=keep_gui_server)
+    return {
+        "ok": True,
+        "run_id": rid,
+        "run_mode": "partially-accelerated",
+        "driver_pid": pid,
+        "keepalive_pid": ka_pid,
+        "console_log": str(E2E_CONSOLE.relative_to(ROOT)),
+        "keep_gui_server": keep_gui_server,
+    }
 
 
 def launch_full_auto_for_run(

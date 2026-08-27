@@ -12,7 +12,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from interview_mux.podcast_rss.settings import show_artwork_source_rel
 from interview_mux.llm_simple import run_llm_stage_simple
 from interview_mux.podcast_rss.cover_prompt import (
     BRILLIANT_EXEMPLAR,
@@ -30,26 +29,34 @@ from interview_mux.podcast_rss.cover_prompt import (
 from interview_mux.stages.llm_runner import run_prompt_envelope
 from interview_mux.podcast_rss.encode import encode_master_to_mp3
 from interview_mux.podcast_rss.settings import (
-    podcast_cfg as _podcast_cfg,
+    podcast_id_from_ctx,
     s3_layout,
+    show_artwork_source_rel,
+    show_cfg,
 )
 from interview_mux.run_context import RunContext
 
 
-def _show_artwork_path() -> Path:
+def _podcast_cfg(ctx: RunContext | None = None) -> dict[str, Any]:
+    if ctx is None:
+        return show_cfg()
+    return show_cfg(podcast_id_from_ctx(ctx))
+
+
+def _show_artwork_path(ctx: RunContext | None = None) -> Path:
     from interview_mux.config import repo_root
 
-    return repo_root() / show_artwork_source_rel()
+    return repo_root() / show_artwork_source_rel(_podcast_cfg(ctx))
 
 
 def _copy_show_fallback(ctx: RunContext, dest: Path, *, reason: str) -> Path:
     from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
-    src = _show_artwork_path()
+    src = _show_artwork_path(ctx)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not src.is_file():
         raise FileNotFoundError(f"Show artwork missing: {src}")
-    settings = resolve_cover_image_settings()
+    settings = resolve_cover_image_settings(_podcast_cfg(ctx))
     ensure_square_cover(
         src,
         min_size=int(settings.get("min_output_px") or 3000),
@@ -75,7 +82,7 @@ def _build_meta_input(ctx: RunContext) -> dict[str, Any]:
             "chapters": (narrative or {}).get("chapters") if isinstance(narrative, dict) else [],
         },
         "selection_chapters": (selection or {}).get("chapters") if isinstance(selection, dict) else [],
-        "show_title": _podcast_cfg().get("show_title") or "Zero Shot Podcast DEMO",
+        "show_title": _podcast_cfg(ctx).get("show_title") or "Zero Shot Podcast DEMO",
     }
 
 
@@ -109,8 +116,8 @@ def run_episode_meta_build(ctx: RunContext) -> None:
 
 
 def _build_cover_prompt_input(ctx: RunContext) -> dict[str, Any]:
-    theme = load_cover_theme()
-    style_head = refresh_style_head()
+    theme = load_cover_theme(_podcast_cfg(ctx))
+    style_head = refresh_style_head(_podcast_cfg(ctx))
     harvest = harvest_motif_context(ctx)
     max_chars = prompt_max_chars()
     return {
@@ -323,8 +330,8 @@ def run_podcast_encode_mp3(ctx: RunContext) -> None:
     master = ctx.read_path("master/master.wav")
     if not master.is_file():
         raise FileNotFoundError("master/master.wav missing — run master_finalize first")
-    bitrate = int(_podcast_cfg().get("mp3_bitrate_k") or 192)
-    channels = int(_podcast_cfg().get("mp3_channels") or 2)
+    bitrate = int(_podcast_cfg(ctx).get("mp3_bitrate_k") or 192)
+    channels = int(_podcast_cfg(ctx).get("mp3_channels") or 2)
     dest = ctx.path("publish/audio.mp3")
     encode_master_to_mp3(master, dest, bitrate_k=bitrate, channels=channels)
     shutil.copy2(master, ctx.path("publish/master.wav"))
@@ -335,8 +342,8 @@ def run_podcast_encode_mp3(ctx: RunContext) -> None:
     ctx.mark_done("podcast_encode_mp3")
 
 
-def _vision_pick_cfg() -> dict[str, Any]:
-    cov = _podcast_cfg().get("cover_image") if isinstance(_podcast_cfg().get("cover_image"), dict) else {}
+def _vision_pick_cfg(ctx: RunContext | None = None) -> dict[str, Any]:
+    cov = _podcast_cfg(ctx).get("cover_image") if isinstance(_podcast_cfg(ctx).get("cover_image"), dict) else {}
     vp = cov.get("vision_pick") if isinstance(cov.get("vision_pick"), dict) else {}
     return {
         "enabled": vp.get("enabled", True),
@@ -390,7 +397,7 @@ def _all_hard_failed(pick: dict[str, Any], candidate_count: int) -> bool:
 
 def run_episode_cover_generate(ctx: RunContext) -> None:
     """OpenAI ×3 candidates + flagship vision pick (brilliance primary); fail-open show art."""
-    files = s3_layout().get("episode_files") or {}
+    files = s3_layout(_podcast_cfg(ctx)).get("episode_files") or {}
     cover_name = str(files.get("cover") or "cover.jpg")
     dest = ctx.path(f"publish/{cover_name}")
     prompt_doc = (
@@ -412,8 +419,8 @@ def run_episode_cover_generate(ctx: RunContext) -> None:
     from interview_mux.podcast_rss.cover_vision import local_fallback_pick, pick_cover_winner
     from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
-    settings = resolve_cover_image_settings()
-    vp = _vision_pick_cfg()
+    settings = resolve_cover_image_settings(_podcast_cfg(ctx))
+    vp = _vision_pick_cfg(ctx)
     meta = ctx.read_json("publish/episode_meta.json") if ctx.artifact_exists("publish/episode_meta.json") else {}
     harvest = harvest_motif_context(ctx)
     max_rebatch = max(0, int(vp.get("max_rebatch") or 0))
@@ -519,7 +526,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
     from interview_mux.podcast_rss.openai_cover import require_cover_min_size
 
     require_publishable(ctx, stage="podcast_publish")
-    layout = s3_layout()
+    layout = s3_layout(_podcast_cfg(ctx))
     files = layout["episode_files"]
 
     def _existing_publish(rel: str) -> Path:
@@ -537,7 +544,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
         if legacy.is_file():
             from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
-            settings = resolve_cover_image_settings()
+            settings = resolve_cover_image_settings(_podcast_cfg(ctx))
             ensure_square_cover(
                 legacy,
                 min_size=int(settings.get("min_output_px") or 3000),
@@ -595,7 +602,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
     run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     source_hash = str((run_meta or {}).get("source_audio_hash") or "")
     execution_id = str((run_meta or {}).get("execution_id") or ctx.run_id)
-    season = int(_podcast_cfg().get("season") or 1)
+    season = int(_podcast_cfg(ctx).get("season") or 1)
     title = str((meta or {}).get("title") or "Untitled Episode").strip() or "Untitled Episode"
     description = str((meta or {}).get("description") or title).strip() or title
     prepared_at = datetime.now(timezone.utc).isoformat()
@@ -606,6 +613,7 @@ def run_podcast_publish(ctx: RunContext) -> None:
         "description": description,
         "guid": execution_id,
         "execution_id": execution_id,
+        "podcast_id": podcast_id_from_ctx(ctx),
         "source_audio_hash": source_hash,
         "prepared_at": prepared_at,
         "package_status": "ready_local",

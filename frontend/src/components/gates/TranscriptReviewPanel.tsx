@@ -168,7 +168,7 @@ export function TranscriptReviewPanel() {
     chunkDirtyRef.current.size > 0 || Boolean(dockRef.current?.hasPendingSaves?.());
 
   return (
-    <div className="tr-review-panel">
+    <div className="tr-review-panel" data-partial-auto-checkpoint="g0">
       <p className="hint sm tr-review-panel-hint">
         Edit words in the transcript below. Changes save when you finish with{" "}
         <strong>Save and complete review</strong> (banner) or{" "}

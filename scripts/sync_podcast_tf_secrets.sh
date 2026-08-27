@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Upsert AWS-derived podcast IDs into secrets.env (CloudFront + feed base).
-# Bucket name lives in config/app.defaults.json podcast.s3_bucket (committed).
+# Upsert AWS-derived podcast destinations into config/podcast/catalog.json.
+# For the default Zero Shot show, also upsert PODCAST_* into secrets.env
+# (one-release fallback). Bucket + CF id belong in the committed catalog.
 #
-# After writing PODCAST_FEED_BASE_URL, always print the Apple Podcasts Connect
-# pass-through (print_apple_passthrough_notice) so a new RSS URL is never shown
-# without a copy-ready submit link.
+# After writing a public feed URL, always print the Apple Podcasts Connect
+# pass-through (print_apple_passthrough_notice).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,20 +13,18 @@ source "${SCRIPT_DIR}/lib/terraform-common.sh"
 
 SECRETS="${REPO_ROOT}/config/secrets/secrets.env"
 EXAMPLE="${REPO_ROOT}/config/templates/secrets.env.example"
-APP_DEFAULTS="${REPO_ROOT}/config/app.defaults.json"
+CATALOG="${REPO_ROOT}/config/podcast/catalog.json"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0")
+Usage: $(basename "$0") [--podcast-id ID]
 
-Read terraform outputs and upsert into config/secrets/secrets.env:
-  AWS_DEFAULT_REGION
-  PODCAST_CLOUDFRONT_DISTRIBUTION_ID
-  PODCAST_FEED_BASE_URL
+Read terraform outputs and write destinations into config/podcast/catalog.json
+for the selected show (TF_PODCAST_ID / --podcast-id, else catalog default).
 
-Does NOT write the S3 bucket name — that belongs in
-  config/app.defaults.json → podcast.s3_bucket
-(optional legacy PODCAST_S3_BUCKET in secrets remains an override).
+Also upserts AWS_DEFAULT_REGION into secrets.env. Singular PODCAST_CLOUDFRONT_*
+/ PODCAST_FEED_BASE_URL are written only for the default Zero Shot show
+(legacy fallback). The GUI never creates AWS resources.
 
 Loads AWS credentials from secrets.env when present (same as other tf wrappers).
 EOF
@@ -63,7 +61,7 @@ PY
 }
 
 tf_log "Reading terraform outputs…"
-OUT_JSON="$(terraform_common_exec output -json)"
+OUT_JSON="$(terraform_common_exec output -json "$@")"
 
 read -r AWS_DEFAULT_REGION TF_BUCKET PODCAST_CLOUDFRONT_DISTRIBUTION_ID PODCAST_FEED_BASE_URL < <(
   printf '%s' "$OUT_JSON" | python3 -c '
@@ -97,31 +95,59 @@ if [[ ! -f "$SECRETS" ]]; then
 fi
 
 upsert_secret "AWS_DEFAULT_REGION" "$AWS_DEFAULT_REGION" "$SECRETS"
-upsert_secret "PODCAST_CLOUDFRONT_DISTRIBUTION_ID" "$PODCAST_CLOUDFRONT_DISTRIBUTION_ID" "$SECRETS"
-upsert_secret "PODCAST_FEED_BASE_URL" "$PODCAST_FEED_BASE_URL" "$SECRETS"
 
-# Warn if app.defaults bucket drifts from Terraform.
-if [[ -f "$APP_DEFAULTS" ]]; then
-  CFG_BUCKET="$(python3 -c '
-import json
-from pathlib import Path
-p = Path("'"$APP_DEFAULTS"'")
-data = json.loads(p.read_text())
-print((data.get("podcast") or {}).get("s3_bucket") or "")
-')"
-  if [[ -n "$CFG_BUCKET" && "$CFG_BUCKET" != "$TF_BUCKET" ]]; then
-    tf_warn "app.defaults podcast.s3_bucket=$CFG_BUCKET differs from Terraform bucket=$TF_BUCKET — update app.defaults.json"
-  elif [[ -z "$CFG_BUCKET" ]]; then
-    tf_warn "Set podcast.s3_bucket=$TF_BUCKET in config/app.defaults.json"
-  else
-    tf_log "app.defaults podcast.s3_bucket matches Terraform ($TF_BUCKET)"
-  fi
+PODCAST_ID="${TF_PODCAST_ID:-zero_shot_podcast_demo}"
+DEFAULT_ID="zero_shot_podcast_demo"
+if [[ "$PODCAST_ID" == "$DEFAULT_ID" ]]; then
+  upsert_secret "PODCAST_CLOUDFRONT_DISTRIBUTION_ID" "$PODCAST_CLOUDFRONT_DISTRIBUTION_ID" "$SECRETS"
+  upsert_secret "PODCAST_FEED_BASE_URL" "$PODCAST_FEED_BASE_URL" "$SECRETS"
+  tf_log "Updated $SECRETS (default show CF/feed fallback; bucket stays in catalog)"
+else
+  tf_log "Skipping singular PODCAST_* secrets (non-default podcast-id=$PODCAST_ID)"
 fi
 
-tf_log "Updated $SECRETS (derived CF/feed only; bucket stays in app.defaults)"
+CATALOG="$CATALOG" PODCAST_ID="$PODCAST_ID" TF_BUCKET="$TF_BUCKET" \
+  DIST_ID="$PODCAST_CLOUDFRONT_DISTRIBUTION_ID" FEED_BASE="$PODCAST_FEED_BASE_URL" \
+  REGION="$AWS_DEFAULT_REGION" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["CATALOG"])
+pid = os.environ["PODCAST_ID"]
+bucket = os.environ["TF_BUCKET"]
+dist = os.environ["DIST_ID"]
+feed = os.environ["FEED_BASE"].rstrip("/")
+region = os.environ["REGION"]
+if not path.is_file():
+    raise SystemExit(f"catalog missing: {path}")
+data = json.loads(path.read_text(encoding="utf-8"))
+shows = data.get("shows")
+if not isinstance(shows, list):
+    raise SystemExit("catalog.json has no shows[]")
+found = False
+for row in shows:
+    if not isinstance(row, dict):
+        continue
+    if str(row.get("id") or "").strip() != pid:
+        continue
+    row["s3_bucket"] = bucket
+    row["cloudfront_distribution_id"] = dist
+    row["feed_base_url"] = feed
+    if region:
+        row["aws_region"] = region
+    found = True
+    break
+if not found:
+    raise SystemExit(f"podcast_id {pid!r} not in {path} — add the show row, then re-run")
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"Updated {path} for podcast_id={pid}")
+PY
+
+tf_log "  catalog podcast_id=$PODCAST_ID bucket=$TF_BUCKET"
 tf_log "  PODCAST_CLOUDFRONT_DISTRIBUTION_ID=$PODCAST_CLOUDFRONT_DISTRIBUTION_ID"
 tf_log "  PODCAST_FEED_BASE_URL=$PODCAST_FEED_BASE_URL"
 echo "Feed URL: ${PODCAST_FEED_BASE_URL}/feed.xml"
-echo "Bucket (app.defaults): check podcast.s3_bucket == $TF_BUCKET"
+echo "Commit config/podcast/catalog.json (and terraform/state/shows/${PODCAST_ID}/ if this is a new origin)."
 # Always print Apple's pass-through next to a new/synced public RSS URL.
 print_apple_passthrough_notice "${PODCAST_FEED_BASE_URL}/feed.xml" 0

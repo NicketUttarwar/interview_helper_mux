@@ -23,12 +23,17 @@ from interview_mux.podcast_rss.s3_publish import (
 from interview_mux.podcast_rss.settings import (
     apple_podcasts_passthrough_url,
     attach_apple_passthrough,
+    default_podcast_id,
     episode_prefix,
     feed_url_from_base,
     format_apple_passthrough_notice,
+    list_shows_public,
+    normalize_podcast_id,
+    podcast_cfg,
     print_apple_passthrough_notice,
     resolve_publish_targets,
     s3_layout,
+    show_cfg,
 )
 
 __all__ = [
@@ -54,7 +59,12 @@ __all__ = [
     "put_file_if_changed",
     "record_execution",
     "record_publish",
+    "default_podcast_id",
+    "list_shows_public",
+    "normalize_podcast_id",
+    "podcast_cfg",
     "resolve_publish_targets",
+    "show_cfg",
     "s3_layout",
     "upload_episode_files",
 ]
