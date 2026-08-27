@@ -98,6 +98,195 @@ def never_touch_segment_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
+def _is_cta_exclude_reason(reason: Any) -> bool:
+    key = str(reason or "").strip().lower().replace("-", "_")
+    return key == REASON or key.startswith(f"{REASON}_") or key.startswith(f"{REASON}:")
+
+
+def selection_cta_exclude_ids(ctx: RunContext) -> set[str]:
+    """Never-touch CTA ids from media-IP state plus selection exclude rationales.
+
+    Selection alone is enough when ``mastering/media_ip_cta.json`` is thin or
+    stale — excluded subscribe/pitch tape must stay out of speech source bounds.
+    """
+    ids = set(never_touch_segment_ids(ctx))
+    if not ctx.artifact_exists("master/selection.json"):
+        return ids
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return ids
+    if not isinstance(sel, dict):
+        return ids
+    rationales = (
+        sel.get("exclude_rationales")
+        if isinstance(sel.get("exclude_rationales"), dict)
+        else {}
+    )
+    for sid, reason in rationales.items():
+        if sid and _is_cta_exclude_reason(reason):
+            ids.add(str(sid))
+    for row in sel.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "").strip()
+            if sid and _is_cta_exclude_reason(row.get("reason")):
+                ids.add(sid)
+        elif isinstance(row, str) and row.strip():
+            sid = row.strip()
+            if _is_cta_exclude_reason(rationales.get(sid)):
+                ids.add(sid)
+    return ids
+
+
+def never_touch_source_intervals(ctx: RunContext) -> list[tuple[int, int, str]]:
+    """Source-time ranges that speech clips must never play (CTA / never-touch).
+
+    Parent CTA slabs are skipped when NLE children of that parent are still on
+    the air order — those children (and leaf CTA siblings) own the tape map.
+    Otherwise a dropped parent range would zero every packaging keep inside it.
+    """
+    by_id = _segments_by_id(ctx)
+    ordered: list[str] = []
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+        except Exception:
+            sel = None
+        if isinstance(sel, dict):
+            ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    out: list[tuple[int, int, str]] = []
+    for sid in sorted(selection_cta_exclude_ids(ctx)):
+        if ordered and any(_is_nle_child(child, sid) for child in ordered):
+            continue
+        seg = by_id.get(sid) or {}
+        if not isinstance(seg, dict):
+            continue
+        try:
+            start = int(seg.get("start_ms") or 0)
+            end = int(seg.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if end > start:
+            out.append((start, end, sid))
+    return out
+
+
+def never_touch_end_cap_ms(
+    source_start_ms: int,
+    intervals: list[tuple[int, int, str]] | None,
+) -> int | None:
+    """Earliest never-touch start that an extend past ``source_start_ms`` would invade."""
+    if not intervals:
+        return None
+    start = int(source_start_ms)
+    cap: int | None = None
+    for nt_s, nt_e, _sid in intervals:
+        if nt_e <= start:
+            continue
+        if nt_s <= start < nt_e:
+            return start
+        if start < nt_s:
+            cap = nt_s if cap is None else min(cap, nt_s)
+    return cap
+
+
+def clamp_source_away_from_never_touch(
+    source_start_ms: int,
+    source_end_ms: int,
+    intervals: list[tuple[int, int, str]] | None,
+    *,
+    min_span_ms: int = 400,
+) -> tuple[int, int, list[str]]:
+    """Trim speech source bounds so they do not overlap never-touch CTA tape.
+
+    Prefer ending before the invaded CTA over extending through subscribe pitch.
+    """
+    start = int(source_start_ms)
+    end = int(source_end_ms)
+    notes: list[str] = []
+    if end <= start or not intervals:
+        return start, end, notes
+    for nt_s, nt_e, sid in sorted(intervals, key=lambda row: (row[0], row[1])):
+        if end <= nt_s or start >= nt_e:
+            continue
+        if start < nt_s:
+            new_end = nt_s
+            if new_end != end:
+                end = new_end
+                notes.append(f"clamp_end_before_never_touch:{sid}")
+            continue
+        # Open is inside never-touch — push past when possible.
+        if nt_e < end and end - nt_e >= int(min_span_ms):
+            start = nt_e
+            notes.append(f"clamp_start_after_never_touch:{sid}")
+            continue
+        # Entire keep is never-touch tape — zero it rather than air CTA.
+        end = start
+        notes.append(f"zeroed_inside_never_touch:{sid}")
+        break
+    if end < start:
+        end = start
+    return start, end, notes
+
+
+def clamp_edl_speech_away_from_never_touch(
+    ctx: RunContext,
+    edl: dict[str, Any] | None,
+    *,
+    intervals: list[tuple[int, int, str]] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Clamp every speech clip's source range away from never-touch CTA intervals."""
+    if not isinstance(edl, dict):
+        return {}, []
+    out = dict(edl)
+    clips = [dict(c) for c in (out.get("clips") or []) if isinstance(c, dict)]
+    ranges = (
+        list(intervals)
+        if intervals is not None
+        else never_touch_source_intervals(ctx)
+    )
+    if not ranges:
+        out["clips"] = clips
+        return out, []
+    changed_rows: list[dict[str, Any]] = []
+    for index, clip in enumerate(clips):
+        if str(clip.get("type") or "") != "speech":
+            continue
+        try:
+            ss = int(clip.get("source_start_ms") or 0)
+            se = int(clip.get("source_end_ms") or ss)
+        except (TypeError, ValueError):
+            continue
+        new_ss, new_se, notes = clamp_source_away_from_never_touch(ss, se, ranges)
+        if not notes or (new_ss == ss and new_se == se):
+            continue
+        clip["source_start_ms"] = new_ss
+        clip["source_end_ms"] = new_se
+        clip["duration_ms"] = max(0, new_se - new_ss)
+        prior = str(clip.get("air_bound_reason") or "")
+        clip["air_bound_reason"] = (
+            f"{prior}+never_touch_clamp" if prior else "never_touch_clamp"
+        )
+        changed_rows.append(
+            {
+                "clip_index": index,
+                "segment_id": clip.get("segment_id"),
+                "before": [ss, se],
+                "after": [new_ss, new_se],
+                "notes": notes,
+            }
+        )
+        clips[index] = clip
+    if changed_rows:
+        from interview_mux.listenability_guards import reindex_clip_timeline
+
+        out["clips"] = clips
+        out["timeline_duration_ms"] = reindex_clip_timeline(clips)
+    else:
+        out["clips"] = clips
+    return out, changed_rows
+
+
 def release_false_cta_never_touch(ctx: RunContext) -> list[str]:
     """Unstamp never-touch ids whose tape is not a CTA (reverse-jump intros)."""
     state = load_state(ctx)

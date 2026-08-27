@@ -499,7 +499,7 @@ def test_thin_target_beat_only_layup_is_skipped_and_not_published():
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True
-    assert cfg["min_layup_coverage"] == 0.4
+    assert cfg["min_layup_coverage"] == 0.55
     assert cfg["authoritative_gap_report"] is True
     assert cfg["block_on_open_high_salience"] is True
 
@@ -1378,7 +1378,8 @@ def test_materialize_preserves_justified_skips(tmp_path, monkeypatch):
     assert by[ordered[0]].get("skip") is True
     assert by[ordered[1]].get("skip") is True
     assert any("preserve_justified_skip" in str(n) or "preserve_opening" in str(n) for n in notes)
-    assert any(str(n).startswith("materialized:") for n in notes)
+    assert not any(str(n).startswith("materialized:") for n in notes)
+    assert any("skip_no_grounded_nugget" in str(n) for n in notes)
 
 
 def test_compose_packet_exposes_handoff_and_opening():

@@ -1402,6 +1402,7 @@ def resolve_keeper_air_bounds(
     max_extend_ms: int = 12_000,
     next_keeper_start_ms: int | None = None,
     prev_keeper_end_ms: int | None = None,
+    never_touch_cap_ms: int | None = None,
     meta_out: dict[str, Any] | None = None,
     wav_path: Any | None = None,
 ) -> tuple[int, int]:
@@ -1411,6 +1412,8 @@ def resolve_keeper_air_bounds(
     words runs the legal-hinge path. Keepers stay disjoint: open never walks
     before ``prev_keeper_end_ms``. Extend does not cross the next keeper
     except to finish an outgoing last word that the turn-cap would snap back.
+    ``never_touch_cap_ms`` hard-stops extends before media-IP CTA / never-touch
+    tape even when the next keeper sits after that hole.
     """
     from pathlib import Path
 
@@ -1475,6 +1478,9 @@ def resolve_keeper_air_bounds(
     hard_cap = None
     if next_keeper_start_ms is not None:
         hard_cap = int(next_keeper_start_ms) - 80
+    if never_touch_cap_ms is not None:
+        nt_cap = int(never_touch_cap_ms)
+        hard_cap = nt_cap if hard_cap is None else min(hard_cap, nt_cap)
     prev_floor = None
     if prev_keeper_end_ms is not None:
         prev_floor = int(prev_keeper_end_ms) + 80
@@ -1709,14 +1715,33 @@ def resolve_keeper_air_bounds(
         cap = max(int(hard_cap), int(owned_end or hard_cap))
         end = min(cap, max(end, start + min_keep_ms))
 
+    # Absolute: never air media-IP CTA / never-touch tape via hinge or last-word extend.
+    if never_touch_cap_ms is not None and end > int(never_touch_cap_ms):
+        end = int(never_touch_cap_ms)
+        meta["air_bound_reason"] = f"{meta['air_bound_reason']}+never_touch_cap"
+
     meta["after_start_ms"] = start
     meta["after_end_ms"] = end
     if end - start < min_keep_ms:
+        # Prefer a truncated keep that stays out of never-touch over reverting into CTA.
+        if never_touch_cap_ms is not None and end <= int(never_touch_cap_ms) and end > start:
+            meta["air_bound_reason"] = f"{meta['air_bound_reason']}+never_touch_short_keep"
+            if meta_out is not None:
+                meta_out.update(meta)
+            return start, end
         meta["air_bound_reason"] = "min_keep_revert"
         meta["after_start_ms"] = orig_start
         meta["after_end_ms"] = orig_end
         if meta_out is not None:
             meta_out.update(meta)
+        # Still refuse CTA bleed if the original slab invaded never-touch.
+        if never_touch_cap_ms is not None and orig_end > int(never_touch_cap_ms):
+            safe_end = max(orig_start + 1, min(orig_end, int(never_touch_cap_ms)))
+            meta["air_bound_reason"] = "min_keep_revert+never_touch_cap"
+            meta["after_end_ms"] = safe_end
+            if meta_out is not None:
+                meta_out.update(meta)
+            return orig_start, safe_end
         return orig_start, orig_end
     if meta_out is not None:
         meta_out.update(meta)

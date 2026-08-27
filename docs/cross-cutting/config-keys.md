@@ -120,7 +120,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**). Does **not** force a synthetic preface: `ensure_episode_orientation` omits when native hosts already intro. |
 | `analysis.nugget_layup.enabled` | `nugget_layup`, corpus/layup stages | Master switch for Nugget Layup System (default **true**) |
 | `analysis.nugget_layup.require_layup_per_native` | `evaluate_layup_qc` | Require a plan row per ordered native (default **true**) |
-| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.4** — try every seam; air only when useful) |
+| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.55** — try every seam; air only when useful) |
 | `analysis.nugget_layup.min_layup_words` / `max_layup_words` | layup compose prompt budgets | Word bounds for each before-VO (defaults **18** / **90**) |
 | `analysis.nugget_layup.prefer_excluded_nuggets` | corpus/layup prompts | Prefer recovering off-air facts (default **true**) |
 | `analysis.nugget_layup.segment_text_max_chars` | `build_corpus_mine_input`, `build_layup_compose_input` | Chars of native text handed to the LLM — full upcoming clip, not a stub (default **1500**) |
@@ -397,9 +397,10 @@ Binary eligibility gate for `missing_framing` / `gap_framing_compose` / G1 VO �
 | `analysis.gap_fill.enabled` | `true` | Eligibility never evaluated; gap stages always run |
 | `analysis.gap_fill.default_framing_enabled` | `true` | G-Framing recommends No; product default is Yes + voice-cloned least-spoken host |
 | `analysis.gap_fill.require_explicit_opt_in` | `true` | Framing decision may be treated as settled without operator confirm |
-| `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / least-spoken / Chatterbox without human input |
+| `analysis.gap_fill.auto_accept_defaults` | `false` | Set `true` (or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`) for unattended/E2E to apply Yes / cloned host / Chatterbox without human input. Homunculus 0.1.0 auto-Yes for hosted 1:1 even when this is false. |
 | `analysis.gap_fill.auto_skip_when_ineligible` | `false` | When false (default), ineligible framing with G-Framing Yes hard-stops; set true for legacy silent skip |
-| `analysis.gap_fill.frame_confidence_min` | `0.65` | Frame-speaker threshold for eligibility |
+| `analysis.gap_fill.frame_confidence_min` | `0.65` | Clone **auto-approve** floor (voice-ref / consent). Does not skip G-Framing eligibility. Below this, Homunculus still auto-Yes but will not auto-approve a non-frame or low-confidence clone. |
+| `analysis.gap_fill.min_synthetic_vo_lines` | `3` | Post-layup / EDL / G1 ship bar for hosted 1:1 with G-Framing Yes (capped by native count). Not enforced at `gap_framing_compose`. Panels / sparse-host are auto-Yes without this floor. |
 | `analysis.gap_fill.hide_gui_stages_when_skipped` | `false` | If `true`, skipped gap stages are hidden from the step list (legacy v2 behavior; Refinement Pass keeps the full step list always visible) |
 
 ---
@@ -1116,7 +1117,7 @@ Committed operator config for The War Room RSS. See [podcast-rss-hosting.md](./p
 | `season` | `1` | `itunes:season` on items (edit to advance) |
 | `show_subtitle` / `show_description` | business interview copy | Channel subtitle/summary |
 | `podcast_guid` | stable UUID | Podcasting 2.0 `<podcast:guid>` |
-| `show_artwork_path` | `config/podcast/the-war-room-cover.png` | Local show art (palette + fail-open; seeded as JPEG) |
+| `show_artwork_path` | `config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png` | Local show art (palette + fail-open; seeded as JPEG) |
 | `cover_theme_path` | `config/podcast/cover_theme.json` | Palette / anatomy / text policy bible |
 | `cover_image.provider` | `openai` | Images backend (local MLX retired) |
 | `cover_image.model` | `gpt-image-1` | Non-mini gpt-image pin |

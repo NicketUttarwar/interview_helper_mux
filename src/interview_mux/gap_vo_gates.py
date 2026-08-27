@@ -259,21 +259,29 @@ def require_clone_consent_clear(ctx: RunContext) -> None:
 
 
 def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
-    """Apply product defaults for unattended / E2E runs. Operator GUI still requires explicit choice."""
-    if not auto_accept_gap_gate_defaults_enabled():
+    """Apply product defaults for unattended / E2E / Homunculus auto-resolve Yes."""
+    homunculus_auto = False
+    try:
+        from interview_mux.homunculus.gates import recommended_framing_action
+        from interview_mux.homunculus.runtime import is_homunculus_run
+
+        homunculus_auto = is_homunculus_run(ctx) and recommended_framing_action(ctx) == "auto_resolve"
+    except Exception:
+        homunculus_auto = False
+    if not auto_accept_gap_gate_defaults_enabled() and not homunculus_auto:
         return False
 
     applied = False
     if check_gap_framing_decision_pending(ctx):
         enabled = recommended_gap_framing_enabled()
         try:
-            from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility
-            from interview_mux.homunculus.gates import recommended_framing_action
-            from interview_mux.homunculus.runtime import is_homunculus_run
+            from interview_mux.gap_fill_eligibility import (
+                assess_gap_fill_eligibility,
+                silent_skip_allowed,
+            )
 
-            if not assess_gap_fill_eligibility(ctx).eligible:
-                enabled = False
-            elif is_homunculus_run(ctx) and recommended_framing_action(ctx) == "skip":
+            decision = assess_gap_fill_eligibility(ctx)
+            if silent_skip_allowed(decision):
                 enabled = False
         except Exception:
             pass
@@ -300,10 +308,16 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
 
     if check_pickup_speaker_pending(ctx):
         try:
-            confirm_pickup_speaker(ctx)
+            from interview_mux.source_topology import resolve_clone_host_speaker_id
+
+            host_id = resolve_clone_host_speaker_id(ctx)
+            if host_id:
+                confirm_pickup_speaker(ctx, speaker_id=host_id)
+            else:
+                raise ValueError("no_frame_speaker_for_clone")
             applied = True
             ctx.log(
-                "Pickup speaker auto-confirmed (least-spoken default)",
+                "Pickup speaker auto-confirmed (frame / question-density host)",
                 level="action",
                 stage="missing_framing",
                 detail={"kind": "gate", "action_id": "auto.adaptation.pickup_speaker"},
@@ -317,8 +331,13 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
             return applied
 
     if check_voice_reference_pending(ctx):
-        speaker_id = pickup_eligible_speaker_id(ctx)
-        if speaker_id:
+        from interview_mux.source_topology import (
+            clone_host_auto_approve_allowed,
+            resolve_clone_host_speaker_id,
+        )
+
+        speaker_id = resolve_clone_host_speaker_id(ctx) or pickup_eligible_speaker_id(ctx)
+        if speaker_id and clone_host_auto_approve_allowed(ctx, speaker_id):
             try:
                 from interview_mux.voice_reference import approve_voice_reference
 
@@ -337,6 +356,14 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
                     stage="missing_framing",
                 )
                 return applied
+        else:
+            ctx.log(
+                "no_frame_speaker_for_clone — not auto-approving voice reference",
+                level="warning",
+                stage="missing_framing",
+                action_id="auto.voice_reference.blocked",
+            )
+            return applied
 
     if check_gap_delivery_pending(ctx):
         from interview_mux.gap_framing import gap_vo_cfg

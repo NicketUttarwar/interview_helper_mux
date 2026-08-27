@@ -13,10 +13,23 @@ from interview_mux.run_context import RunContext
 GAP_FILL_SKIP_REL = "understanding/gap_fill_skip.json"
 GAP_FILL_GUI_STAGE_IDS = frozenset({"missing_framing", "gap_framing_compose", "optimal_questions", "g1_vo_pickup"})
 
-_SKIP_TOPOLOGY_CLASSES = frozenset(
-    {"one_on_one_balanced", "monologue_heavy", "multi_idea_sparse_host"}
+# Skip G-Framing only for a true solo. Hosted 1:1 (including balanced talk-time)
+# is always eligible. Sparse-omit is recovery_policy.vo_posture — not a skip.
+_SKIP_TOPOLOGY_CLASSES = frozenset({"monologue_heavy", "monologue"})
+_ELIGIBLE_TOPOLOGY_CLASSES = frozenset(
+    {"one_on_one_asymmetric", "one_on_one_balanced", "balanced_1on1"}
 )
-_ELIGIBLE_TOPOLOGY_CLASSES = frozenset({"one_on_one_asymmetric"})
+_SILENT_SKIP_SIGNALS = frozenset({"forced_skipped", "true_monologue", "topology_skip_class"})
+_SYNTHETIC_DELIVERIES = frozenset({"synthesize", "chatterbox", "record", "mlx_audio"})
+# Authoritative VO count is post-layup. Compose is hints only — do not deadlock there.
+_GAP_VO_COUNT_STAGES = frozenset({"nugget_layup_compose"})
+_EDL_VO_COUNT_STAGES = frozenset(
+    {"g1_vo_pickup", "vo_synthesize", "edl", "mix", "master_finalize"}
+)
+_SKIP_STUB_RELS = (
+    "understanding/gap_report.json",
+    "understanding/gap_evaluations.json",
+)
 
 _GAP_FILL_INVALIDATION_STAGES = frozenset({"speaker_roles", "source_topology_build"})
 
@@ -35,6 +48,7 @@ def gap_fill_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "auto_skip_when_ineligible": False,
         "frame_confidence_min": 0.65,
         "hide_gui_stages_when_skipped": False,
+        "min_synthetic_vo_lines": 3,
     }
     raw = analysis.get("gap_fill")
     if isinstance(raw, dict):
@@ -57,7 +71,8 @@ def gap_fill_hide_gui_stages(cfg: dict[str, Any] | None = None) -> bool:
     return bool(gap_fill_cfg(cfg).get("hide_gui_stages_when_skipped", True))
 
 
-def _frame_confidence_min(cfg: dict[str, Any] | None = None) -> float:
+def frame_confidence_min(cfg: dict[str, Any] | None = None) -> float:
+    """Clone auto-approve floor — does not skip G-Framing eligibility."""
     return float(gap_fill_cfg(cfg).get("frame_confidence_min", 0.65))
 
 
@@ -80,11 +95,29 @@ def gap_fill_mode(ctx: RunContext) -> Literal["active", "skipped", "pending"]:
     return "pending"
 
 
+def _discard_skip_stub_gap_artifacts(ctx: RunContext) -> None:
+    """Remove skip-producer gap_report / evaluations so framing Yes cannot inherit a stub."""
+    for rel in _SKIP_STUB_RELS:
+        if not ctx.artifact_exists(rel):
+            continue
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            continue
+        producer = str((doc.get("_meta") or {}).get("producer") or "") if isinstance(doc, dict) else ""
+        if producer != "gap_fill_skip":
+            continue
+        path = ctx.final_path(*rel.split("/"))
+        if path.is_file():
+            path.unlink(missing_ok=True)
+
+
 def clear_gap_fill_skip(ctx: RunContext, *, reason: str = "upstream_invalidation") -> None:
     """Remove skip artifact and gap stage done markers when roles/topology may have changed."""
     skip_path = ctx.final_path(*GAP_FILL_SKIP_REL.split("/"))
     if skip_path.is_file():
         skip_path.unlink(missing_ok=True)
+    _discard_skip_stub_gap_artifacts(ctx)
     for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         marker = ctx.final_path(".stage_done", stage_id)
         if marker.is_file():
@@ -119,8 +152,15 @@ def maybe_clear_gap_fill_skip_on_invalidation(ctx: RunContext, stage_id: str) ->
         clear_gap_fill_skip(ctx, reason=f"redo_from_{stage_id}")
 
 
+def silent_skip_allowed(decision: GapFillDecision) -> bool:
+    """True only for operator skip / true monologue — never for hosted interviews."""
+    if decision.eligible:
+        return False
+    return str((decision.signals or {}).get("skip_signal") or "") in _SILENT_SKIP_SIGNALS
+
+
 def assess_gap_fill_eligibility(ctx: RunContext) -> GapFillDecision:
-    """Deterministic binary gate: True when classic asymmetric interview gap-fill applies."""
+    """Fail-open: hosted / multi-speaker tapes run G-Framing. Skip only true solo."""
     if not gap_fill_enabled():
         return GapFillDecision(
             eligible=True,
@@ -134,7 +174,7 @@ def assess_gap_fill_eligibility(ctx: RunContext) -> GapFillDecision:
         return GapFillDecision(
             eligible=False,
             reason="run_meta.gap_fill_mode=skipped (operator escape hatch)",
-            signals={"forced": "skipped"},
+            signals={"forced": "skipped", "skip_signal": "forced_skipped"},
         )
     if forced == "active":
         return GapFillDecision(
@@ -144,66 +184,17 @@ def assess_gap_fill_eligibility(ctx: RunContext) -> GapFillDecision:
         )
 
     conv = load_conversation_context(ctx)
+    speakers = [sp for sp in (conv.speakers or []) if isinstance(sp, dict)]
+    n_speakers = len(speakers)
+    topology_class = _topology_class(ctx)
     signals: dict[str, Any] = {
         "frame_ids": list(conv.frame_ids),
         "format_class": conv.format_class,
         "hypotheses_pending": conv.hypotheses_pending,
+        "speaker_count": n_speakers,
+        "topology_class": topology_class,
     }
 
-    if conv.hypotheses_pending:
-        return GapFillDecision(
-            eligible=False,
-            reason="Conversation format hypotheses pending — skip gap-fill VO",
-            signals={**signals, "skip_signal": "hypotheses_pending"},
-        )
-
-    speakers = conv.speakers or []
-    if speakers and all(str(sp.get("role") or "").lower() == "unknown" for sp in speakers if isinstance(sp, dict)):
-        return GapFillDecision(
-            eligible=False,
-            reason="All speaker roles unknown — skip gap-fill VO",
-            signals={**signals, "skip_signal": "all_roles_unknown"},
-        )
-
-    if not conv.frame_ids:
-        return GapFillDecision(
-            eligible=False,
-            reason="No frame/interviewer speaker identified — skip gap-fill VO",
-            signals={**signals, "skip_signal": "zero_frame_speakers"},
-        )
-
-    min_conf = _frame_confidence_min()
-    frame_speakers = [
-        conv.speaker_by_id[sid]
-        for sid in conv.frame_ids
-        if sid in conv.speaker_by_id
-    ]
-    low_conf = [
-        str(sp.get("speaker_id"))
-        for sp in frame_speakers
-        if isinstance(sp, dict)
-        and float(sp.get("confidence") or 0) < min_conf
-    ]
-    if low_conf:
-        return GapFillDecision(
-            eligible=False,
-            reason=f"Frame speaker confidence below {min_conf:.2f} — skip gap-fill VO",
-            signals={**signals, "skip_signal": "low_frame_confidence", "low_conf_speakers": low_conf},
-        )
-
-    dynamics = conv.dynamics or {}
-    turn_asymmetry = str(dynamics.get("turn_asymmetry") or "medium")
-    signals["turn_asymmetry"] = turn_asymmetry
-
-    if len(conv.frame_ids) > 1 and turn_asymmetry == "low":
-        return GapFillDecision(
-            eligible=False,
-            reason="Multiple frame speakers with balanced turns — skip gap-fill VO",
-            signals={**signals, "skip_signal": "multi_frame_low_asymmetry"},
-        )
-
-    topology_class = _topology_class(ctx)
-    signals["topology_class"] = topology_class
     if topology_class in _SKIP_TOPOLOGY_CLASSES:
         return GapFillDecision(
             eligible=False,
@@ -211,31 +202,31 @@ def assess_gap_fill_eligibility(ctx: RunContext) -> GapFillDecision:
             signals={**signals, "skip_signal": "topology_skip_class"},
         )
 
-    if conv.format_class == "fireside" and _storyteller_dominant(ctx, conv):
+    if topology_class in _ELIGIBLE_TOPOLOGY_CLASSES:
         return GapFillDecision(
-            eligible=False,
-            reason="Fireside format with dominant storyteller — skip gap-fill VO",
-            signals={**signals, "skip_signal": "fireside_storyteller_dominant"},
+            eligible=True,
+            reason="Hosted one-on-one topology — run gap-fill evaluation",
+            signals={**signals, "eligible_signal": "hosted_one_on_one"},
         )
 
-    if len(conv.frame_ids) == 1 and _frame_eligible(conv, min_conf):
-        if topology_class in _ELIGIBLE_TOPOLOGY_CLASSES or turn_asymmetry in ("medium", "high"):
-            return GapFillDecision(
-                eligible=True,
-                reason="Clear asymmetric interview frame — run gap-fill evaluation",
-                signals={**signals, "eligible_signal": "asymmetric_interview"},
-            )
-        if _question_density_on_frame(ctx, conv):
-            return GapFillDecision(
-                eligible=True,
-                reason="Question density concentrated on frame speaker — run gap-fill",
-                signals={**signals, "eligible_signal": "frame_question_density"},
-            )
+    if n_speakers >= 2:
+        return GapFillDecision(
+            eligible=True,
+            reason="Multi-speaker tape — run gap-fill evaluation",
+            signals={**signals, "eligible_signal": "multi_speaker_fail_open"},
+        )
+
+    if n_speakers <= 1 and not _solo_frame_asks_questions(conv):
+        return GapFillDecision(
+            eligible=False,
+            reason="True monologue — no interviewer frame for gap-fill VO",
+            signals={**signals, "skip_signal": "true_monologue"},
+        )
 
     return GapFillDecision(
-        eligible=False,
-        reason="Interview frame not clear enough for gap-fill VO — using segments as-is",
-        signals={**signals, "skip_signal": "default_not_eligible"},
+        eligible=True,
+        reason="Solo frame speaker asks questions — run gap-fill evaluation",
+        signals={**signals, "eligible_signal": "solo_frame_questions"},
     )
 
 
@@ -248,36 +239,111 @@ def _topology_class(ctx: RunContext) -> str | None:
     return None
 
 
-def _storyteller_dominant(ctx: RunContext, conv: Any) -> bool:
-    if not ctx.artifact_exists("understanding/source_topology.json"):
+def _solo_frame_asks_questions(conv: Any) -> bool:
+    speakers = [sp for sp in (conv.speakers or []) if isinstance(sp, dict)]
+    if len(speakers) != 1:
         return False
-    topo = ctx.read_json("understanding/source_topology.json")
-    if not isinstance(topo, dict):
+    sp = speakers[0]
+    if not role_is_frame(str(sp.get("role") or "")):
         return False
-    stats = topo.get("speaker_stats") or []
-    if not isinstance(stats, list) or len(stats) < 2:
-        return False
-    ratios = sorted(
-        (float(row.get("talk_ratio") or 0) for row in stats if isinstance(row, dict)),
-        reverse=True,
+    return str(sp.get("question_density") or "").lower() in {"medium", "high"}
+
+
+def _native_segment_count(ctx: RunContext) -> int:
+    if ctx.artifact_exists("master/selection.json"):
+        sel = ctx.read_json("master/selection.json")
+        if isinstance(sel, dict):
+            ids = [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+            if ids:
+                return len(ids)
+    if ctx.artifact_exists("segments/manifest.json"):
+        man = ctx.read_json("segments/manifest.json")
+        rows = (man.get("segments") if isinstance(man, dict) else None) or []
+        return len([r for r in rows if isinstance(r, dict)])
+    return 0
+
+
+def min_synthetic_vo_lines(ctx: RunContext) -> int:
+    floor = max(1, int(gap_fill_cfg().get("min_synthetic_vo_lines") or 3))
+    natives = _native_segment_count(ctx)
+    if natives <= 0:
+        return floor
+    return max(1, min(floor, natives))
+
+
+def count_active_gap_vo_lines(ctx: RunContext) -> int:
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return 0
+    doc = ctx.read_json("understanding/gap_report.json")
+    if not isinstance(doc, dict):
+        return 0
+    n = 0
+    for ln in doc.get("interviewer_lines") or []:
+        if not isinstance(ln, dict) or ln.get("skipped_optional"):
+            continue
+        raw = ln.get("delivery")
+        if raw is None:
+            delivery = "synthesize"
+        else:
+            delivery = str(raw).strip().lower()
+            if not delivery:
+                continue
+        if delivery in _SYNTHETIC_DELIVERIES:
+            n += 1
+    return n
+
+
+def count_edl_vo_pickup(ctx: RunContext) -> int:
+    if not ctx.artifact_exists("master/edl.json"):
+        return 0
+    edl = ctx.read_json("master/edl.json")
+    if not isinstance(edl, dict):
+        return 0
+    return sum(
+        1
+        for c in (edl.get("clips") or [])
+        if isinstance(c, dict) and str(c.get("type") or "") == "vo_pickup"
     )
-    return len(ratios) >= 2 and ratios[0] >= 0.75
 
 
-def _frame_eligible(conv: Any, min_conf: float) -> bool:
-    if len(conv.frame_ids) != 1:
+def hosted_framing_requires_synthetic_vo(ctx: RunContext) -> bool:
+    """Min-3 cloned host questions — hosted 1:1 with G-Framing Yes only.
+
+    Panels / co-host / sparse-host stay auto-Yes but are not held to this floor.
+    """
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return False
+    except Exception:
         return False
-    sp = conv.speaker_by_id.get(conv.frame_ids[0]) or {}
-    role = str(sp.get("role") or "")
-    return role_is_frame(role) and float(sp.get("confidence") or 0) >= min_conf
-
-
-def _question_density_on_frame(ctx: RunContext, conv: Any) -> bool:
-    if len(conv.frame_ids) != 1:
+    if gap_fill_was_skipped(ctx):
         return False
-    frame_id = conv.frame_ids[0]
-    sp = conv.speaker_by_id.get(frame_id) or {}
-    return str(sp.get("question_density") or "").lower() in ("medium", "high")
+    return _topology_class(ctx) in _ELIGIBLE_TOPOLOGY_CLASSES
+
+
+def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
+    """Ship bar: G-Framing Yes on hosted 1:1 requires cloned host questions."""
+    if not hosted_framing_requires_synthetic_vo(ctx):
+        return None
+    need = min_synthetic_vo_lines(ctx)
+    if stage_id in _GAP_VO_COUNT_STAGES:
+        have = count_active_gap_vo_lines(ctx)
+        if have < need:
+            return (
+                f"G-Framing Yes requires ≥{need} synthetic host line(s), "
+                f"gap_report has {have}"
+            )
+        return None
+    if stage_id in _EDL_VO_COUNT_STAGES:
+        have = max(count_active_gap_vo_lines(ctx), count_edl_vo_pickup(ctx))
+        if have < need:
+            return (
+                f"G-Framing Yes requires ≥{need} synthetic host VO clip(s) on the "
+                f"timeline, have {have}"
+            )
+    return None
 
 
 def persist_gap_fill_mode(ctx: RunContext, decision: GapFillDecision, *, skipped: bool) -> None:
@@ -349,9 +415,16 @@ def operator_skip_gap_fill(
     adapt = load_flow_adaptation(ctx) or {}
     overrides = dict(adapt.get("operator_overrides") or {})
     overrides["gap_fill_skipped"] = True
+    overrides["gap_framing_enabled"] = False
     overrides["pickup_speaker_confirmed"] = True
     adapt["operator_overrides"] = overrides
     ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+
+    def _disable_framing(meta: dict[str, Any]) -> None:
+        meta["gap_framing_enabled"] = False
+
+    if ctx.artifact_exists("run_meta.json"):
+        ctx.mutate_run_meta(_disable_framing)
 
     for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         if has_pending_writes(ctx, stage_id):
@@ -381,6 +454,11 @@ __all__ = [
     "gap_fill_stage_visibility",
     "visible_pipeline_stage_ids",
     "filter_visible_job_stages",
+    "frame_confidence_min",
     "gap_fill_skipped_by_operator",
+    "hosted_framing_requires_synthetic_vo",
+    "min_synthetic_vo_lines",
     "operator_skip_gap_fill",
+    "silent_skip_allowed",
+    "synthetic_vo_incompleteness",
 ]

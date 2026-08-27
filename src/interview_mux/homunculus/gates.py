@@ -22,26 +22,44 @@ CATEGORIES = (
 DECISIONS_REL = "mastering/homunculus/gate_decisions.json"
 
 
+def _monologue_topology(topo: str) -> bool:
+    t = str(topo or "").lower()
+    return t in {"monologue_heavy", "monologue"} or t.startswith("monologue_")
+
+
 def recommended_framing_action(ctx: RunContext) -> str:
-    """Whether framing is on. Clone speaker stays least-spoken host."""
+    """Whether framing is on. Hosted interviews auto-resolve Yes; clone stays least-spoken host."""
     try:
         from interview_mux.homunculus.source_card import read_source_card
 
         card = read_source_card(ctx) or {}
-        circ = [str(x).lower() for x in (card.get("circumstances") or [])]
-        if card.get("framing_posture") == "sparse_omit" or "monologue" in circ:
+        topo = str(card.get("topology") or "").lower()
+        posture = str(card.get("framing_posture") or "")
+        if _monologue_topology(topo):
             return "skip"
+        if posture == "least_spoken_host" or topo in {
+            "one_on_one_asymmetric",
+            "one_on_one_balanced",
+            "balanced_1on1",
+            "multi_idea_sparse_host",
+        }:
+            return "auto_resolve"
     except Exception:
         pass
     try:
-        from interview_mux.gap_fill_eligibility import assess_gap_fill_eligibility
+        from interview_mux.gap_fill_eligibility import (
+            assess_gap_fill_eligibility,
+            silent_skip_allowed,
+        )
 
         decision = assess_gap_fill_eligibility(ctx)
-        if not decision.eligible:
+        if silent_skip_allowed(decision):
             return "skip"
+        if decision.eligible:
+            return "auto_resolve"
     except Exception:
         pass
-    return "present_operator"
+    return "auto_resolve"
 
 
 def category_status(ctx: RunContext) -> dict[str, Any]:
@@ -104,7 +122,7 @@ def set_gate_decision(ctx: RunContext, category: str, action: str) -> dict[str, 
     if category == "framing_consent" and action == "auto_resolve":
         if recommended_framing_action(ctx) == "skip":
             raise RuntimeError(
-                "framing_consent cannot auto-resolve dense gap VO when posture is sparse_omit"
+                "framing_consent cannot auto-resolve dense gap VO for a true monologue"
             )
     doc = {"decisions": {}}
     if ctx.artifact_exists(DECISIONS_REL):

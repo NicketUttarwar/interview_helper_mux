@@ -96,15 +96,152 @@ def _speaker_talk_stats(transcript: dict[str, Any], speakers_doc: dict[str, Any]
     return rows
 
 
+def _speaker_confidence(row: dict[str, Any]) -> float:
+    try:
+        return float(row.get("confidence") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _question_density_rank(row: dict[str, Any]) -> int:
+    dens = str(row.get("question_density") or "").lower()
+    if dens == "high":
+        return 2
+    if dens == "medium":
+        return 1
+    try:
+        if int(row.get("question_count") or 0) > 0:
+            return 1
+    except (TypeError, ValueError):
+        pass
+    return 0
+
+
+def _framing_enabled_for_pickup(ctx: RunContext) -> bool:
+    """Local copy of G-Framing Yes — avoid importing gap_vo_gates (cycle)."""
+    if ctx.artifact_exists("run_meta.json"):
+        meta = ctx.read_json("run_meta.json")
+        if isinstance(meta, dict) and "gap_framing_enabled" in meta:
+            return bool(meta.get("gap_framing_enabled"))
+    adapt = load_flow_adaptation(ctx) or {}
+    if isinstance(adapt, dict):
+        overrides = adapt.get("operator_overrides") or {}
+        if "gap_framing_enabled" in overrides:
+            return bool(overrides.get("gap_framing_enabled"))
+    return True
+
+
+def resolve_clone_host_speaker_id(
+    ctx: RunContext | None = None,
+    *,
+    stats: list[dict[str, Any]] | None = None,
+    speakers: list[dict[str, Any]] | None = None,
+) -> str | None:
+    """Interviewer clone: frame role, else question-density — never guest talk-time.
+
+    Returns None when two-or-more speakers have no frame and no question signal.
+    """
+    rows: list[dict[str, Any]] = []
+    if speakers:
+        rows = [s for s in speakers if isinstance(s, dict) and s.get("speaker_id")]
+    elif ctx is not None and ctx.artifact_exists("understanding/speakers.json"):
+        doc = ctx.read_json("understanding/speakers.json")
+        if isinstance(doc, dict):
+            rows = [
+                s
+                for s in (doc.get("speakers") or [])
+                if isinstance(s, dict) and s.get("speaker_id")
+            ]
+    stat_rows = list(stats or [])
+    if not stat_rows and ctx is not None:
+        topo = load_topology(ctx) if ctx.artifact_exists("understanding/source_topology.json") else None
+        if isinstance(topo, dict) and isinstance(topo.get("speaker_stats"), list):
+            stat_rows = [s for s in topo["speaker_stats"] if isinstance(s, dict)]
+    talk = {
+        str(s.get("speaker_id")): float(s.get("talk_ms") or 0)
+        for s in stat_rows
+        if s.get("speaker_id")
+    }
+    by_id: dict[str, dict[str, Any]] = {}
+    for s in stat_rows:
+        sid = str(s.get("speaker_id") or "")
+        if sid:
+            by_id[sid] = dict(s)
+    for sp in rows:
+        sid = str(sp.get("speaker_id") or "")
+        if not sid:
+            continue
+        merged = dict(by_id.get(sid) or {"speaker_id": sid})
+        merged["role_hint"] = sp.get("role") or sp.get("role_hint") or merged.get("role_hint")
+        if sp.get("confidence") is not None:
+            merged["confidence"] = sp.get("confidence")
+        if sp.get("question_density"):
+            merged["question_density"] = sp.get("question_density")
+        by_id[sid] = merged
+    pool = list(by_id.values())
+    n = len(pool)
+    if n <= 1:
+        if pool:
+            return str(pool[0].get("speaker_id"))
+        return None
+
+    frames = [s for s in pool if _role_is_frame(str(s.get("role_hint") or s.get("role") or ""))]
+    if frames:
+        frames.sort(
+            key=lambda s: (
+                -_speaker_confidence(s),
+                talk.get(str(s.get("speaker_id")), float(s.get("talk_ms") or 0)),
+            )
+        )
+        return str(frames[0].get("speaker_id"))
+
+    asked = [s for s in pool if _question_density_rank(s) > 0]
+    if asked:
+        asked.sort(
+            key=lambda s: (
+                -_question_density_rank(s),
+                talk.get(str(s.get("speaker_id")), float(s.get("talk_ms") or 0)),
+            )
+        )
+        return str(asked[0].get("speaker_id"))
+    return None
+
+
+def clone_host_auto_approve_allowed(ctx: RunContext, speaker_id: str) -> bool:
+    """True when voice-ref / clone consent may auto-approve this speaker."""
+    from interview_mux.gap_fill_eligibility import frame_confidence_min
+
+    sid = str(speaker_id or "").strip()
+    if not sid:
+        return False
+    floor = frame_confidence_min()
+    if ctx.artifact_exists("understanding/speakers.json"):
+        doc = ctx.read_json("understanding/speakers.json")
+        speakers = (doc.get("speakers") or []) if isinstance(doc, dict) else []
+        for sp in speakers:
+            if not isinstance(sp, dict) or str(sp.get("speaker_id")) != sid:
+                continue
+            role = str(sp.get("role") or sp.get("role_hint") or "")
+            if not role_is_frame(role):
+                return False
+            return _speaker_confidence(sp) >= floor
+    topo = load_topology(ctx) or {}
+    for row in (topo.get("speaker_stats") or []) if isinstance(topo, dict) else []:
+        if not isinstance(row, dict) or str(row.get("speaker_id")) != sid:
+            continue
+        if not _role_is_frame(str(row.get("role_hint") or "")):
+            return False
+        conf = _speaker_confidence(row)
+        if conf > 0:
+            return conf >= floor
+        return True
+    return False
+
+
 def _least_spoken_host_id(stats: list[dict[str, Any]]) -> str:
     """Clone-voice default: least-spoken frame/host, not the quietest guest."""
-    if not stats:
-        return "spk_0"
-    least = min(stats, key=lambda s: s["talk_ms"])["speaker_id"]
-    frame = [s for s in stats if _role_is_frame(str(s.get("role_hint")))]
-    if frame:
-        return min(frame, key=lambda s: s["talk_ms"])["speaker_id"]
-    return least
+    sid = resolve_clone_host_speaker_id(stats=stats)
+    return str(sid or "")
 
 
 def _role_is_content(role: str) -> bool:
@@ -230,7 +367,14 @@ def recovery_policy_for_class(topology_class: str) -> dict[str, str]:
         "synth_ladder": "chatterbox_then_mlx_qc",
     }
     by_class = {
-        "one_on_one_balanced": dict(sparse),
+        "one_on_one_balanced": {
+            "vo_posture": "framing_needed",
+            "cuts_fallback": "ranking_only",
+            "contiguous_seam": "skip_waive_glue",
+            "reorder_seam": "mint_bridge",
+            "outro": "place_plan_cue",
+            "synth_ladder": "chatterbox_then_mlx_qc",
+        },
         "one_on_one_asymmetric": {
             "vo_posture": "framing_needed",
             "cuts_fallback": "ranking_only",
@@ -318,7 +462,12 @@ def build_topology_artifacts(
     speakers_doc = ctx.read_json("understanding/speakers.json")
     stats = _speaker_talk_stats(transcript, speakers_doc)
     least = min(stats, key=lambda s: s["talk_ms"])["speaker_id"] if stats else "spk_0"
-    pickup_id = _least_spoken_host_id(stats)
+    speaker_rows = speakers_doc.get("speakers") if isinstance(speakers_doc, dict) else None
+    pickup_id = (
+        resolve_clone_host_speaker_id(ctx, stats=stats, speakers=speaker_rows)
+        or _least_spoken_host_id(stats)
+        or ""
+    )
     topology_class = classify_topology(stats, speakers_doc)
     seg_policy = _segmentation_policy(topology_class)
     if overrides:
@@ -392,14 +541,23 @@ def load_flow_adaptation(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def pickup_eligible_speaker_id(ctx: RunContext) -> str | None:
-    # Prefer dynamic speaker_delivery_plan clone (monologue self-clone / panel pickup)
+    # Prefer dynamic speaker_delivery_plan clone except guest self-clone under G-Framing Yes.
     if ctx.artifact_exists("understanding/speaker_delivery_plan.json"):
         try:
             plan = ctx.read_json("understanding/speaker_delivery_plan.json")
-            if isinstance(plan, dict) and plan.get("clone_speaker_id"):
-                return str(plan["clone_speaker_id"])
+            strategy = str((plan or {}).get("insert_strategy") or "")
+            clone_id = (plan or {}).get("clone_speaker_id") if isinstance(plan, dict) else None
+            skip_guest_self = (
+                _framing_enabled_for_pickup(ctx)
+                and strategy in {"self_clone_no_interviewer"}
+            )
+            if isinstance(plan, dict) and clone_id and not skip_guest_self:
+                return str(clone_id)
         except Exception:
             pass
+    resolved = resolve_clone_host_speaker_id(ctx)
+    if resolved:
+        return resolved
     topo = load_topology(ctx)
     if isinstance(topo, dict) and topo.get("pickup_eligible_speaker_id"):
         return str(topo["pickup_eligible_speaker_id"])
@@ -776,7 +934,7 @@ def confirm_pickup_speaker(ctx: RunContext, *, speaker_id: str | None = None) ->
     valid = _speaker_ids_from_stats(stats if isinstance(stats, list) else [])
     selected = str(speaker_id or "")
     if not selected:
-        host = _least_spoken_host_id(stats if isinstance(stats, list) else [])
+        host = resolve_clone_host_speaker_id(ctx, stats=stats if isinstance(stats, list) else [])
         current = str(adapt.get("pickup_eligible_speaker_id") or topo.get("pickup_eligible_speaker_id") or "")
         selected = host or current
     if not selected or selected not in valid:

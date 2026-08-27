@@ -214,34 +214,13 @@ def _gap_path_skipped(ctx: RunContext) -> bool:
 
 
 def _skip_ineligible_gap_fill_unattended(ctx: RunContext) -> bool:
-    """Full-auto / Homunculus 0.1.0: skip interviewer VO when the tape is ineligible.
+    """Silent skip only for true monologue / operator skip — never hosted interviews."""
+    from interview_mux.gap_fill_eligibility import (
+        assess_gap_fill_eligibility,
+        silent_skip_allowed,
+    )
 
-    Manual 0.0.0 still LoudStageFailure so the operator can fix roles or skip G-Framing.
-    """
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    if isinstance(meta, dict):
-        if bool(meta.get("full_auto")) or str(meta.get("run_mode") or "").lower() in {
-            "full-auto",
-            "fullauto",
-            "e2e",
-        }:
-            return True
-    try:
-        from interview_mux.gap_vo_gates import auto_accept_gap_gate_defaults_enabled
-
-        if auto_accept_gap_gate_defaults_enabled():
-            return True
-    except Exception:
-        pass
-    try:
-        from interview_mux.homunculus.gates import recommended_framing_action
-        from interview_mux.homunculus.runtime import is_homunculus_run
-
-        if is_homunculus_run(ctx) and recommended_framing_action(ctx) == "skip":
-            return True
-    except Exception:
-        pass
-    return False
+    return silent_skip_allowed(assess_gap_fill_eligibility(ctx))
 
 
 def _run_missing_framing_stage(ctx: RunContext) -> None:

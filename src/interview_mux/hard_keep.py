@@ -148,7 +148,13 @@ def _place_or_omit_restored_for_finale(
     selection: dict[str, Any],
     restored: list[str],
 ) -> tuple[dict[str, Any], list[str], list[str]]:
-    """Do not append early-chapter hard-keeps after coda — typed-omit them."""
+    """Do not append early-chapter hard-keeps after coda.
+
+    When the episode already opens past the opening window (guest/company first),
+    prefer prepending early host-intro hard-keeps to the front rather than
+    excluding them as ``opening_skipped_duplicate``. True post-coda leftovers
+    still get a typed omit.
+    """
     if not restored:
         return selection, restored, []
     ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
@@ -157,6 +163,7 @@ def _place_or_omit_restored_for_finale(
         return selection, restored, []
     kept_restored: list[str] = []
     omitted: list[str] = []
+    prepend_candidates: list[str] = []
     ordered_set = set(ordered)
     for sid in restored:
         if sid in early:
@@ -165,6 +172,9 @@ def _place_or_omit_restored_for_finale(
             omitted.append(sid)
             continue
         kept_restored.append(sid)
+
+    guest_first = False
+    starts: dict[str, int] = {}
     if omitted:
         from interview_mux.air_order_integrity import (
             opening_window_ms,
@@ -174,41 +184,75 @@ def _place_or_omit_restored_for_finale(
         starts = resolved_segment_starts(ctx)
         window = opening_window_ms()
         ordered_list = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
-        guest_first = False
         if ordered_list and starts:
             first = starts.get(ordered_list[0])
             if first is None:
                 from interview_mux.selection_order_repair import resolved_source_start_ms
 
-                fs = resolved_source_start_ms(ordered_list[0], starts)
-                first = fs
+                first = resolved_source_start_ms(ordered_list[0], starts)
             if first is not None and int(first) >= window:
                 guest_first = True
-        excl = list(selection.get("excluded_segment_ids") or [])
-        seen_ex = set()
-        for row in excl:
-            if isinstance(row, dict):
-                seen_ex.add(str(row.get("segment_id") or ""))
-            elif isinstance(row, str):
-                seen_ex.add(row)
-        for sid in omitted:
-            if sid in seen_ex:
-                continue
-            reason = "opening_skipped_duplicate" if guest_first else "finale_tail_leftover"
-            excl.append({"segment_id": sid, "reason": reason})
-            seen_ex.add(sid)
-        rationales = (
-            dict(selection.get("exclude_rationales") or {})
-            if isinstance(selection.get("exclude_rationales"), dict)
-            else {}
-        )
-        for sid in omitted:
-            reason = rationales.get(sid) or (
-                "opening_skipped_duplicate" if guest_first else "finale_tail_leftover"
+
+        if guest_first:
+            # Prefer native host intro on air: prepend early hard-keeps, do not trash.
+            from interview_mux.selection_order_repair import resolved_source_start_ms
+
+            prepend_candidates = list(omitted)
+            family_sorted = sorted(
+                prepend_candidates,
+                key=lambda s: (
+                    resolved_source_start_ms(s, starts) or starts.get(s) or 0,
+                    prepend_candidates.index(s),
+                ),
             )
-            rationales[sid] = reason
-        selection["excluded_segment_ids"] = excl
-        selection["exclude_rationales"] = rationales
+            ordered = family_sorted + [s for s in ordered if s not in set(family_sorted)]
+            kept_restored = list(dict.fromkeys(kept_restored + family_sorted))
+            omitted = []
+            # Drop stale opening_skipped_duplicate excludes for restored intros.
+            excl = []
+            for row in selection.get("excluded_segment_ids") or []:
+                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+                reason = (
+                    str(row.get("reason") or "")
+                    if isinstance(row, dict)
+                    else str((selection.get("exclude_rationales") or {}).get(sid) or "")
+                )
+                if sid in set(family_sorted) and reason == "opening_skipped_duplicate":
+                    continue
+                excl.append(row)
+            selection["excluded_segment_ids"] = excl
+            rationales = (
+                dict(selection.get("exclude_rationales") or {})
+                if isinstance(selection.get("exclude_rationales"), dict)
+                else {}
+            )
+            for sid in family_sorted:
+                if rationales.get(sid) == "opening_skipped_duplicate":
+                    rationales.pop(sid, None)
+            selection["exclude_rationales"] = rationales
+        else:
+            excl = list(selection.get("excluded_segment_ids") or [])
+            seen_ex = set()
+            for row in excl:
+                if isinstance(row, dict):
+                    seen_ex.add(str(row.get("segment_id") or ""))
+                elif isinstance(row, str):
+                    seen_ex.add(row)
+            for sid in omitted:
+                if sid in seen_ex:
+                    continue
+                excl.append({"segment_id": sid, "reason": "finale_tail_leftover"})
+                seen_ex.add(sid)
+            rationales = (
+                dict(selection.get("exclude_rationales") or {})
+                if isinstance(selection.get("exclude_rationales"), dict)
+                else {}
+            )
+            for sid in omitted:
+                rationales[sid] = rationales.get(sid) or "finale_tail_leftover"
+            selection["excluded_segment_ids"] = excl
+            selection["exclude_rationales"] = rationales
+
     selection["ordered_segment_ids"] = ordered
     try:
         from interview_mux.air_order_integrity import repair_air_order_integrity

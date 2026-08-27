@@ -43,7 +43,7 @@ Consecutive `vo_then_clip` is a smell. Beds may duck under `native_handoff`. Do 
 
 A first-time listener must retell who was talking, the thesis, the main claims, and why the ending landed.
 
-1. At most one orientation, early, and only when native hosts do not already intro. Never re-welcome.
+1. Prefer a strong native host intro at the front (prepend, do not drop as duplicate). Synthetic orientation only when the native open does not already greet or introduce; never re-welcome the same speaker. Cross-speaker topic overlap after that open (host intro then company pitch) is allowed.
 2. Know-entering / know-leaving on every beat.
 3. Setup before payoff; unpaid cold-open tease fails.
 4. Chronology default; few thematic jumps.

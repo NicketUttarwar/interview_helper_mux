@@ -234,6 +234,14 @@ def build_flow1_edl(
     clone_adj = CloneAdjacencySession(ctx=ctx, verify_pair=verify_pair)
     air_cfg = listenability_guards_cfg()
     words = [w for w in (transcript_words or []) if isinstance(w, dict)]
+    never_touch_intervals: list[tuple[int, int, str]] = []
+    if ctx is not None:
+        try:
+            from interview_mux.media_ip_cta import never_touch_source_intervals
+
+            never_touch_intervals = never_touch_source_intervals(ctx)
+        except Exception:
+            never_touch_intervals = []
     if max_keeper_ms is None:
         try:
             from interview_mux.ideal_cuts import ideal_cuts_cfg
@@ -529,6 +537,9 @@ def build_flow1_edl(
             if isinstance(nxt_seg, dict) and nxt_seg.get("start_ms") is not None:
                 next_keeper_start = int(nxt_seg["start_ms"])
         if ideal_cuts is not None or words:
+            from interview_mux.media_ip_cta import never_touch_end_cap_ms
+
+            nt_cap = never_touch_end_cap_ms(speech_start, never_touch_intervals)
             speech_start, speech_end = resolve_keeper_air_bounds(
                 source_start_ms=speech_start,
                 source_end_ms=speech_end,
@@ -538,6 +549,7 @@ def build_flow1_edl(
                 max_keep_ms=max_keeper_ms,
                 next_keeper_start_ms=next_keeper_start,
                 prev_keeper_end_ms=prev_speech_end_ms,
+                never_touch_cap_ms=nt_cap,
                 meta_out=air_meta,
                 wav_path=normalized_wav,
             )
@@ -580,6 +592,19 @@ def build_flow1_edl(
                     air_meta["air_bound_reason"] = (
                         str(air_meta.get("air_bound_reason") or "") + "+before_window_hanging_rescue"
                     )
+        if never_touch_intervals:
+            from interview_mux.media_ip_cta import clamp_source_away_from_never_touch
+
+            clamped_s, clamped_e, nt_notes = clamp_source_away_from_never_touch(
+                speech_start, speech_end, never_touch_intervals
+            )
+            if nt_notes:
+                speech_start, speech_end = clamped_s, clamped_e
+                prior = str(air_meta.get("air_bound_reason") or "")
+                air_meta["air_bound_reason"] = (
+                    f"{prior}+never_touch_clamp" if prior else "never_touch_clamp"
+                )
+        speech_dur = max(0, speech_end - speech_start)
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):

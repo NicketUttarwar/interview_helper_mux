@@ -385,10 +385,15 @@ def repair_opening_tape_integrity(
     ctx: RunContext,
     selection: dict[str, Any],
     *,
-    mode: str = "drop_if_guest_first",
+    mode: str = "prepend",
     starts: dict[str, int] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Apply opening-tape sub-rule; return (selection, actions)."""
+    """Apply opening-tape sub-rule; return (selection, actions).
+
+    Default ``prepend`` keeps a strong native host intro on air by moving the
+    late opening-tape family to the front. ``drop_if_guest_first`` remains as an
+    explicit override for callers that still want exclusion.
+    """
     out = dict(selection)
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     if not ordered:
@@ -410,10 +415,17 @@ def repair_opening_tape_integrity(
         family = [str(s) for s in (v.get("segment_ids") or []) if s]
         if mode == "drop_if_guest_first" and guest_first:
             to_drop.extend(family)
-        elif mode == "prepend":
-            # Move family to index 0 in tape order
+        else:
+            # Prefer native host intro at front (default); company-pitch tape may
+            # follow even when topics overlap across speakers.
             rest = [s for s in ordered if s not in set(family)]
-            family_sorted = sorted(family, key=lambda s: (resolved_source_start_ms(s, starts) or 0, ordered.index(s)))
+            family_sorted = sorted(
+                family,
+                key=lambda s: (
+                    resolved_source_start_ms(s, starts) or 0,
+                    ordered.index(s) if s in ordered else 0,
+                ),
+            )
             ordered = family_sorted + rest
             actions.append({"action": "prepend_opening_family", "ids": family_sorted[:12]})
     if to_drop:
@@ -422,6 +434,35 @@ def repair_opening_tape_integrity(
         actions.append({"action": "exclude_opening_cluster", "reason": reason, "ids": to_drop[:12]})
     elif actions:
         out["ordered_segment_ids"] = ordered
+        # Clear stale opening_skipped_duplicate excludes for ids we restored.
+        restored = {
+            sid
+            for act in actions
+            if act.get("action") == "prepend_opening_family"
+            for sid in (act.get("ids") or [])
+        }
+        if restored:
+            excl = []
+            for row in out.get("excluded_segment_ids") or []:
+                sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+                reason = (
+                    str(row.get("reason") or "")
+                    if isinstance(row, dict)
+                    else str((out.get("exclude_rationales") or {}).get(sid) or "")
+                )
+                if sid in restored and reason == "opening_skipped_duplicate":
+                    continue
+                excl.append(row)
+            out["excluded_segment_ids"] = excl
+            rationales = (
+                dict(out.get("exclude_rationales") or {})
+                if isinstance(out.get("exclude_rationales"), dict)
+                else {}
+            )
+            for sid in restored:
+                if rationales.get(sid) == "opening_skipped_duplicate":
+                    rationales.pop(sid, None)
+            out["exclude_rationales"] = rationales
     return out, actions
 
 
@@ -431,14 +472,20 @@ def pull_mid_arc_reverse_jumps(
     *,
     guest_first: bool | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
-    """Scan all adjacent pairs; drop or prepend earlier-tape families on reverse jump."""
+    """Scan all adjacent pairs; prepend earlier-tape families on reverse jump.
+
+    Opening-window host-intro families are prepended (not dropped) even when
+    guest/company tape already opened — prefer the native host intro on air.
+    """
     base = [str(s) for s in ordered if str(s).strip()]
     if len(base) < 2 or not source_start_ms:
         return base, [], []
     if guest_first is None:
         guest_first = _guest_first_open_established(base, source_start_ms)
+    _ = guest_first  # retained for call-site compatibility; no longer drops
     margin = reverse_jump_margin_ms()
     to_drop: list[str] = []
+    moved: list[str] = []
     new_order = list(base)
     changed = True
     while changed:
@@ -450,25 +497,22 @@ def pull_mid_arc_reverse_jumps(
             if gap is None or gap >= -margin:
                 continue
             family = letter_split_family(before_id, new_order)
-            window = opening_window_ms()
-            before_start = resolved_source_start_ms(before_id, source_start_ms) or 0
-            if guest_first and before_start < window:
-                to_drop.extend(family)
-                drop_set = set(family)
-                new_order = [s for s in new_order if s not in drop_set]
-                changed = True
-                break
-            # Prepend family before after_id if no guest-first conflict
+            # Always prepend earlier-tape family before the later clip.
             rest = [s for s in new_order if s not in set(family)]
             insert_at = rest.index(after_id) if after_id in rest else 0
             family_sorted = sorted(
                 family,
-                key=lambda s: (resolved_source_start_ms(s, source_start_ms) or 0, base.index(s)),
+                key=lambda s: (
+                    resolved_source_start_ms(s, source_start_ms) or 0,
+                    base.index(s) if s in base else 0,
+                ),
             )
             new_order = rest[:insert_at] + family_sorted + rest[insert_at:]
+            for sid in family_sorted:
+                if sid not in moved:
+                    moved.append(sid)
             changed = True
             break
-    moved = [s for s in to_drop]
     return new_order, moved, to_drop
 
 
@@ -489,6 +533,30 @@ def repair_air_order_integrity(
         else:
             out["ordered_segment_ids"] = pulled
             actions.append({"action": "mid_arc_pull", "ids": moved[:12]})
+            # Clear stale duplicate excludes for ids we prepended back on air.
+            restored = set(moved)
+            if restored:
+                excl = []
+                for row in out.get("excluded_segment_ids") or []:
+                    sid = str(row.get("segment_id") if isinstance(row, dict) else row)
+                    reason = (
+                        str(row.get("reason") or "")
+                        if isinstance(row, dict)
+                        else str((out.get("exclude_rationales") or {}).get(sid) or "")
+                    )
+                    if sid in restored and reason == "opening_skipped_duplicate":
+                        continue
+                    excl.append(row)
+                out["excluded_segment_ids"] = excl
+                rationales = (
+                    dict(out.get("exclude_rationales") or {})
+                    if isinstance(out.get("exclude_rationales"), dict)
+                    else {}
+                )
+                for sid in restored:
+                    if rationales.get(sid) == "opening_skipped_duplicate":
+                        rationales.pop(sid, None)
+                out["exclude_rationales"] = rationales
     out, opening_actions = repair_opening_tape_integrity(ctx, out, starts=starts)
     actions.extend(opening_actions)
     return out, actions

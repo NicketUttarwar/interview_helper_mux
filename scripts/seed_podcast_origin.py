@@ -50,7 +50,7 @@ def main() -> int:
     base = targets["feed_base_url"]
     region = targets["region"]
 
-    art_rel = str(cfg.get("show_artwork_path") or "config/podcast/the-war-room-cover.png")
+    art_rel = str(cfg.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
     art_src = repo_root() / art_rel
     if not art_src.is_file():
         print(f"Missing show artwork: {art_src}", file=sys.stderr)

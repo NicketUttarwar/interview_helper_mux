@@ -85,6 +85,14 @@ def build_speaker_delivery_plan(ctx: RunContext) -> dict[str, Any]:
     clear_interviewer = bool(interviewer_ids) and count >= 2
     clone_id: str | None = None
     insert_strategy = "dyad_pickup"
+    framing_yes = True
+    try:
+        if ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            if isinstance(meta, dict) and "gap_framing_enabled" in meta:
+                framing_yes = bool(meta.get("gap_framing_enabled"))
+    except Exception:
+        framing_yes = True
 
     if count <= 1:
         clone_id = str(rows[0]["speaker_id"]) if rows else pickup
@@ -93,8 +101,11 @@ def build_speaker_delivery_plan(ctx: RunContext) -> dict[str, Any]:
     elif clear_interviewer:
         clone_id = pickup or interviewer_ids[0]
         insert_strategy = "dyad_pickup"
+    elif framing_yes and count >= 2:
+        # G-Framing Yes: never self-clone the talk-dominant guest as interviewer VO.
+        clone_id = pickup
+        insert_strategy = "dyad_pickup" if pickup else "no_frame_speaker_for_clone"
     else:
-        # No clear interviewer — self-clone primary content speaker (most talk time)
         ranked = sorted(rows, key=_talk_ms, reverse=True)
         clone_id = str(ranked[0]["speaker_id"]) if ranked else pickup
         insert_strategy = "self_clone_no_interviewer" if count == 2 else "panel_dynamic"

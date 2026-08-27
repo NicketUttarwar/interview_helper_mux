@@ -235,3 +235,25 @@ def test_assert_stage_artifacts_complete_requires_interviewer_script(
     assert reason == "understanding/interviewer_script.txt is pending"
     with pytest.raises(StageArtifactsIncompleteError, match="interviewer_script"):
         assert_stage_artifacts_complete(ctx, "optimal_questions")
+
+
+def test_gap_fill_skip_stub_incomplete_when_framing_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {"gap_framing_enabled": True, "gap_fill_mode": "active"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [],
+            "gaps": [],
+            "_meta": {"producer": "gap_fill_skip", "producer_stage": "optimal_questions"},
+        },
+        skip_handoff=True,
+    )
+    reason = stage_artifact_incompleteness(ctx, "gap_framing_compose")
+    assert reason and "skip stub" in reason
+

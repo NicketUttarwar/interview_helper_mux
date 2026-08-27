@@ -558,13 +558,13 @@
     "fail_open": true,
     "request_timeout_sec": 600
   },
-  "_comment_podcast": "The War Room RSS. Non-secret operator values live HERE (bucket, region, project, S3 layout, show meta). Gitignored secrets.env holds AWS credentials + AWS-derived CloudFront ID / feed base URL only (synced by tf-apply). Terraform state remains source of truth for infra inventory. Episode covers: OpenAI gpt-image ×3 + flagship vision pick (see podcast-cover-theme.md).",
+  "_comment_podcast": "Zero Shot Podcast DEMO RSS (legacy S3 bucket name the-war-room-rss-001 unchanged). Non-secret operator values live HERE (bucket, region, project, S3 layout, show meta). Gitignored secrets.env holds AWS credentials + AWS-derived CloudFront ID / feed base URL only (synced by tf-apply). Terraform state remains source of truth for infra inventory. Episode covers: OpenAI gpt-image ×3 + flagship vision pick (see podcast-cover-theme.md).",
   "podcast": {
     "enabled": true,
     "project_name": "the_war_room_001",
     "s3_bucket": "the-war-room-rss-001",
     "aws_region": "us-east-1",
-    "show_title": "The War Room",
+    "show_title": "Zero Shot Podcast DEMO",
     "show_author": "Nicket Uttarwar",
     "show_email": "contact.nicketuttarwar@gmail.com",
     "show_website": "https://nicketuttarwar.com/",
@@ -575,9 +575,9 @@
     "season": 1,
     "explicit": "false",
     "show_subtitle": "Long-form business interviews on building, judgment, and the rooms where decisions get made.",
-    "show_description": "The War Room is a long-form business interview podcast. Each episode sits with founders, operators, and builders for unhurried conversations about entrepreneurship, product, capital, and the hard calls that shape companies.",
+    "show_description": "Zero Shot Podcast DEMO is a long-form business interview podcast. Each episode sits with founders, operators, and builders for unhurried conversations about entrepreneurship, product, capital, and the hard calls that shape companies.",
     "podcast_guid": "62b2d127-c0c7-5c4f-bc0e-a309f2e6de01",
-    "show_artwork_path": "config/podcast/the-war-room-cover.png",
+    "show_artwork_path": "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png",
     "cover_theme_path": "config/podcast/cover_theme.json",
     "cover_image": {
       "provider": "openai",
@@ -591,7 +591,7 @@
       "prompt_max_chars": 32000,
       "style_reference": {
         "enabled": true,
-        "path": "config/podcast/the-war-room-cover.png",
+        "path": "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png",
         "mode": "edits",
         "input_fidelity": "low"
       },
@@ -1130,6 +1130,7 @@
       "succinct_master_default": true,
       "auto_skip_when_ineligible": false,
       "frame_confidence_min": 0.65,
+      "min_synthetic_vo_lines": 3,
       "hide_gui_stages_when_skipped": false
     },
     "refinement_passes": {
@@ -1227,7 +1228,7 @@
     "nugget_layup": {
       "enabled": true,
       "require_layup_per_native": true,
-      "min_layup_coverage": 0.4,
+      "min_layup_coverage": 0.55,
       "min_layup_words": 18,
       "max_layup_words": 90,
       "prefer_excluded_nuggets": true,

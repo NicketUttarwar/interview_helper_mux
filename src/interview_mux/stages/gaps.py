@@ -90,6 +90,30 @@ def ensure_gap_fill_skipped(
     from interview_mux.gap_fill_eligibility import GAP_FILL_SKIP_REL, persist_gap_fill_mode
     from interview_mux.gap_fill_eligibility import GapFillDecision
 
+    framing_key_set = False
+    framing_yes = False
+    if ctx.artifact_exists("run_meta.json"):
+        meta = ctx.read_json("run_meta.json")
+        if isinstance(meta, dict) and "gap_framing_enabled" in meta:
+            framing_key_set = True
+            framing_yes = bool(meta.get("gap_framing_enabled"))
+    skip_signal = str((signals or {}).get("skip_signal") or "")
+    if framing_key_set and framing_yes and skip_signal not in {
+        "gap_framing_no",
+        "operator_skip",
+        "true_monologue",
+        "topology_skip_class",
+        "forced_skipped",
+    }:
+        ctx.log(
+            "Refusing gap-fill skip stub while G-Framing is Yes",
+            level="warning",
+            stage="missing_framing",
+            action_id="gap_fill.skip_refused_framing_yes",
+            detail={"reason": reason},
+        )
+        return
+
     decision = GapFillDecision(eligible=False, reason=reason, signals=dict(signals or {}))
     skip_doc = {
         "status": "skipped",
@@ -944,7 +968,20 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
             merged = seed
         persist(ctx, merged)
         if not ctx.is_done("gap_framing_compose"):
-            ctx.mark_done("gap_framing_compose")
+            try:
+                from interview_mux.stage_completion import (
+                    StageArtifactsIncompleteError,
+                    assert_stage_artifacts_complete,
+                )
+
+                assert_stage_artifacts_complete(ctx, "gap_framing_compose")
+                ctx.mark_done("gap_framing_compose")
+            except StageArtifactsIncompleteError as exc:
+                ctx.log(
+                    f"gap_framing_compose not marked done — {exc.reason}",
+                    level="warning",
+                    stage="gap_framing_compose",
+                )
         ctx.log(
             f"gap_framing_compose batched complete "
             f"({len(merged.get('interviewer_lines') or [])} lines)",

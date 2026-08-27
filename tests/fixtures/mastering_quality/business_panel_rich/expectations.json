@@ -19,7 +19,7 @@
     "legal_skip": ["preclean_outcome"],
     "illegal_gate": {"category": "transcript_integrity", "action": "skip"},
     "expected_implicated": ["mix"],
-    "framing_recommended": "present_operator",
+    "framing_recommended": "auto_resolve",
     "clone_policy": "least_spoken_host"
   }
 }

@@ -314,6 +314,92 @@ def test_air_contract_accepts_native_omitted_orientation_as_replacement():
     assert errors == []
 
 
+def test_air_contract_accepts_opening_orientation_when_gap_framing_off():
+    """Gap framing disabled: native-owned opening slots satisfy suppress→orientation."""
+    ctx = RunContext("exec_omit_gap_off", create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003b", "seg_003c"]},
+        skip_handoff=True,
+    )
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="layup_skip",
+            subject_id="vo_layup_seg_003b",
+            target_segment_id="seg_003b",
+            decision="suppress",
+            reason_code="opening_orientation_owns_target",
+            owner_stage="nugget_layup_compose",
+            compensating_path="opening_orientation",
+            replacement_ref="episode_orientation",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"layup_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    errors = air_contract_errors(
+        ctx,
+        ledger=ledger,
+        gap_report={"interviewer_lines": []},
+        edl={"clips": [{"type": "speech", "segment_id": "seg_003b"}]},
+    )
+    assert errors == []
+
+
+def test_air_contract_accepts_native_self_orients_with_gap_framing_on():
+    """Gap framing on: suppress→orientation is OK when native open already orients."""
+    ctx = RunContext("exec_omit_native_orient", create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_002", "seg_003b"]},
+        skip_handoff=True,
+    )
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="layup_skip",
+            subject_id="vo_layup_seg_002",
+            target_segment_id="seg_002",
+            decision="suppress",
+            reason_code="episode_open_native_self_orients",
+            owner_stage="nugget_layup_compose",
+            compensating_path="native_self_orients",
+            replacement_ref="episode_orientation",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"layup_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    errors = air_contract_errors(
+        ctx,
+        ledger=ledger,
+        gap_report={
+            "interviewer_lines": [],
+            "opening_orientation": {
+                "omitted": True,
+                "required": False,
+                "omit_reason": "native_open_self_orients",
+            },
+        },
+        edl={
+            "clips": [
+                {"type": "speech", "segment_id": "seg_002"},
+                {"type": "speech", "segment_id": "seg_003b"},
+            ]
+        },
+    )
+    assert errors == []
+
+
 def test_build_omit_ledger_native_open_skip_is_omit_not_suppress():
     ctx = RunContext("exec_omit_native_skip", create=True)
     ctx.write_json(
@@ -341,3 +427,66 @@ def test_build_omit_ledger_native_open_skip_is_omit_not_suppress():
     assert active[0]["decision"] == "omit"
     assert active[0].get("replacement_ref") in (None, "")
     assert air_contract_errors(ctx, ledger=ledger, gap_report={"interviewer_lines": []}) == []
+
+
+def test_omit_stamp_refuses_to_drop_hosted_1on1_below_floor():
+    from interview_mux.omit_ledger import stamp_gap_report_omit_skips, write_omit_ledger
+
+    ctx = RunContext("exec_omit_floor", create=True)
+    ctx.write_json(
+        "run_meta.json",
+        {"gap_framing_enabled": True, "gap_fill_mode": "active"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {"topology_class": "one_on_one_balanced"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": [f"seg_{i}" for i in range(10)]},
+        skip_handoff=True,
+    )
+    lines = [
+        {
+            "line_id": f"vo_{i}",
+            "targets_segment_id": f"seg_{i}",
+            "gap_type": "missing_question",
+            "text": "Why this beat?",
+            "placement": "before",
+            "delivery": "synthesize",
+        }
+        for i in range(3)
+    ]
+    ctx.write_json("understanding/gap_report.json", {"interviewer_lines": lines}, skip_handoff=True)
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="gap_line_skip",
+            subject_id=f"vo_{i}",
+            target_segment_id=f"seg_{i}",
+            decision="omit",
+            reason_code="native_self_orients",
+            owner_stage="g1_vo_pickup",
+            compensating_path="native_self_orients",
+            seq=i + 1,
+        )
+        for i in range(3)
+    ]
+    ledger["summary"] = {
+        "active_count": 3,
+        "by_kind": {"gap_line_skip": 3},
+        "compensated_count": 3,
+        "unresolved_high_salience": 0,
+    }
+    write_omit_ledger(ctx, ledger)
+    stamped = stamp_gap_report_omit_skips(ctx)
+    assert stamped == 0
+    report = ctx.read_json("understanding/gap_report.json")
+    active = [
+        ln
+        for ln in report["interviewer_lines"]
+        if isinstance(ln, dict) and not ln.get("skipped_optional")
+    ]
+    assert len(active) == 3

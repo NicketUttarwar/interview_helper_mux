@@ -655,7 +655,7 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
     StageInfo(
         "episode_meta_build",
         "Episode title & description",
-        "LLM episode title + show notes for The War Room RSS.",
+        "LLM episode title + show notes for Zero Shot Podcast DEMO RSS.",
         "delivery",
         ("publish/episode_meta.json",),
         (),

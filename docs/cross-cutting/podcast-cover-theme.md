@@ -1,6 +1,6 @@
 # Podcast cover theme — OpenAI excellence cascade
 
-War Room episode covers are **OpenAI-only**. Show art (`config/podcast/the-war-room-cover.png`) supplies **palette / low-fidelity style reference / fail-open** — never required props (no default map, mic, or emblem).
+War Room episode covers are **OpenAI-only**. Show art (`config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png`; legacy: `config/podcast/the-war-room-cover.legacy.png`) supplies **palette / low-fidelity style reference / fail-open** — never required props (no default map, mic, or emblem).
 
 Authoritative theme: [`config/podcast/cover_theme.json`](../../config/podcast/cover_theme.json).
 

@@ -113,7 +113,7 @@ def test_episode_layout_prefix():
 def test_feed_xml_contains_itunes_and_enclosure():
     channel = channel_meta_from_config(
         {
-            "show_title": "The War Room",
+            "show_title": "Zero Shot Podcast DEMO",
             "show_author": "Nicket Uttarwar",
             "show_email": "contact.nicketuttarwar@gmail.com",
             "show_website": "https://nicketuttarwar.com/",
@@ -147,7 +147,7 @@ def test_feed_xml_contains_itunes_and_enclosure():
             }
         ],
     )
-    assert "The War Room" in xml
+    assert "Zero Shot Podcast DEMO" in xml
     assert 'type="audio/mpeg"' in xml
     assert "itunes:category" in xml
     assert "Business" in xml

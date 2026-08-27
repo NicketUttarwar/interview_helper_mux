@@ -225,6 +225,13 @@ def run_master_finalize(ctx: RunContext) -> Path:
     from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
 
     assert_consumer(ctx, "master_finalize")
+    # Layup VO in the EDL must have gap-report script authority before PMQ.
+    try:
+        from interview_mux.nugget_layup import ensure_layup_gap_authority
+
+        ensure_layup_gap_authority(ctx)
+    except Exception:
+        pass
     # VO text/WAV may have been repaired after EDL build; refresh clip hashes first
     # so post-master audible_script_hash_agreement judges current authority.
     heal = heal_omit_ledger_air_contract(ctx)

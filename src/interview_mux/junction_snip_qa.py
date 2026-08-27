@@ -1266,6 +1266,17 @@ def apply_junction_repairs(
                     new_se = max(ss + 300, se - phrase_max)
                 next_start = _next_speech_source_start(clips, i)
                 new_se = _clamp_end_before_next_speech(new_se, next_start)
+                try:
+                    from interview_mux.media_ip_cta import (
+                        clamp_source_away_from_never_touch,
+                        never_touch_source_intervals,
+                    )
+
+                    _nt_ss, new_se, _nt_notes = clamp_source_away_from_never_touch(
+                        ss, new_se, never_touch_source_intervals(ctx)
+                    )
+                except Exception:
+                    pass
                 if new_se <= ss + 300:
                     applied.append({**f, "status": "skipped_next_clip_clamp"})
                     break
@@ -1471,6 +1482,32 @@ def apply_junction_repairs(
                         "error": str(exc)[:160],
                     }
                 )
+
+    # Never-touch / media-IP CTA source tape must not bleed into speech clips.
+    try:
+        from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
+
+        clamped_edl, nt_rows = clamp_edl_speech_away_from_never_touch(
+            ctx, {"clips": clips}
+        )
+        if nt_rows:
+            clips = [dict(c) for c in (clamped_edl.get("clips") or []) if isinstance(c, dict)]
+            changed = True
+            applied.append(
+                {
+                    "action": "clamp_never_touch_cta_bleed",
+                    "status": "applied",
+                    "clips": nt_rows[:12],
+                }
+            )
+    except Exception as exc:
+        applied.append(
+            {
+                "action": "clamp_never_touch_cta_bleed",
+                "status": "failed",
+                "error": str(exc)[:160],
+            }
+        )
 
     if overrides != (nle.get("segment_overrides") or {}) or nudge_history != (
         nle.get("junction_nudge_history") or {}

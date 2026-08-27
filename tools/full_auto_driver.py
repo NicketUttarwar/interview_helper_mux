@@ -157,21 +157,44 @@ def pause_needs_operator(stage: str, reason: str) -> str:
     return "pause"
 
 
+def _pending_gap_operator_gate(reason: str) -> bool:
+    """True when the halt is an operator gate, not a tape-ineligible invariant."""
+    low = (reason or "").lower()
+    return any(
+        tok in low
+        for tok in (
+            "gap framing gate",
+            "voice reference gate",
+            "pickup speaker",
+            "gap delivery",
+            "voice clone gate",
+            "approve interviewer voice",
+        )
+    )
+
+
 def skip_ineligible_gap_fill(*, reason: str = "") -> bool:
     """Skip interviewer VO when eligibility says this tape cannot host gap-fill.
 
     Product path: ``operator_skip_gap_fill`` / ``ensure_gap_fill_skipped``. Never retry
-    missing_framing for the same ineligible invariant.
+    missing_framing for the same ineligible invariant. Pending G-Framing / voice-ref
+    gates are not ineligibility — auto-accept those instead. Silent skip is opt-in
+    via ``analysis.gap_fill.auto_skip_when_ineligible`` (default false).
     """
+    if _pending_gap_operator_gate(reason):
+        return False
     try:
         from interview_mux.gap_fill_eligibility import (
             assess_gap_fill_eligibility,
+            gap_fill_auto_skip_enabled,
             gap_fill_was_skipped,
             operator_skip_gap_fill,
         )
         from interview_mux.run_context import RunContext
 
         ctx = RunContext(RUN_ID, create=False)
+        if not gap_fill_auto_skip_enabled():
+            return False
         if gap_fill_was_skipped(ctx):
             return True
         decision = assess_gap_fill_eligibility(ctx)
@@ -235,7 +258,7 @@ def _install_mark_done_gate() -> None:
                     action="refuse_force_mark_done",
                     reason=str(reason)[:240],
                 )
-                return orig(self, stage, force=False)
+                return
         return orig(self, stage, force=force)
 
     RunContext.mark_done = _gated  # type: ignore[method-assign]
@@ -688,6 +711,16 @@ def assert_fresh_layer_contract() -> None:
             log(
                 "layer check: no vo_pickup (active lines omitted/suppressed — native_handoff OK)"
             )
+    try:
+        from interview_mux.gap_fill_eligibility import synthetic_vo_incompleteness
+
+        vo_reason = synthetic_vo_incompleteness(ctx, "edl")
+        if vo_reason:
+            raise RuntimeError(f"HARD: {vo_reason}")
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
     # Spot-check VO paths pass speech QA
     failed_vo = 0
     for c in clips:
@@ -1228,6 +1261,27 @@ def accept_gap_framing_defaults() -> None:
     except RuntimeError as exc:
         log(f"gap-framing get: {exc}")
         return
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            assess_gap_fill_eligibility,
+            silent_skip_allowed,
+        )
+        from interview_mux.run_context import RunContext
+
+        ctx_pre = RunContext(RUN_ID, create=False)
+        meta_pre = (
+            ctx_pre.read_json("run_meta.json")
+            if ctx_pre.artifact_exists("run_meta.json")
+            else {}
+        )
+        if isinstance(meta_pre, dict) and meta_pre.get("gap_framing_enabled") is False:
+            log("gap framing already No — not overwriting")
+            return
+        if silent_skip_allowed(assess_gap_fill_eligibility(ctx_pre)):
+            log("true monologue / operator skip — not forcing framing Yes")
+            return
+    except Exception as exc:
+        log(f"gap framing pre-check: {exc}")
     if gate.get("gap_framing_decision_pending"):
         api("POST", f"/api/runs/{RUN_ID}/gap-framing/enable", {"enabled": True})
         log_decision(
@@ -1243,6 +1297,12 @@ def accept_gap_framing_defaults() -> None:
         from interview_mux.gap_fill_eligibility import clear_gap_fill_skip
 
         ctx = RunContext(RUN_ID, create=False)
+        meta_now = (
+            ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        )
+        if isinstance(meta_now, dict) and meta_now.get("gap_framing_enabled") is False:
+            log("gap framing already No — skip force-active patch")
+            return
         if clear_gap_fill_skip:
             clear_gap_fill_skip(ctx, reason="full_auto_gap_framing_enabled")
 
@@ -1622,6 +1682,15 @@ def _first_pending_for_label(label: str) -> str | None:
 
 def _analysis_past_gap_block(ctx: Any) -> bool:
     """True when gap framing + delivery brief already exist — do not rewind to classify."""
+    try:
+        from interview_mux.stage_completion import stage_artifact_incompleteness
+
+        if stage_artifact_incompleteness(ctx, "missing_framing"):
+            return False
+        if stage_artifact_incompleteness(ctx, "gap_framing_compose"):
+            return False
+    except Exception:
+        pass
     return bool(
         ctx.is_done("gap_framing_compose")
         or ctx.is_done("delivery_brief_build")
@@ -2031,9 +2100,19 @@ def heal_stage_done_markers() -> None:
                         "missing_framing",
                         "gap_framing_compose",
                     ):
-                        if not ctx.is_done(sid):
-                            ctx.mark_done(sid, force=True)
-                            healed.append(sid)
+                        if ctx.is_done(sid):
+                            continue
+                        try:
+                            from interview_mux.stage_completion import (
+                                stage_artifact_incompleteness as _inc,
+                            )
+
+                            if _inc(ctx, sid):
+                                continue
+                        except Exception:
+                            pass
+                        ctx.mark_done(sid, force=True)
+                        healed.append(sid)
                 else:
                     # Rewrite scaffolding phrasing so compose artifacts can finalize.
                     from interview_mux.opening_orientation import is_episode_orientation
@@ -2091,9 +2170,19 @@ def heal_stage_done_markers() -> None:
                             "missing_framing",
                             "gap_framing_compose",
                         ):
-                            if not ctx.is_done(sid):
-                                ctx.mark_done(sid, force=True)
-                                healed.append(sid)
+                            if ctx.is_done(sid):
+                                continue
+                            try:
+                                from interview_mux.stage_completion import (
+                                    stage_artifact_incompleteness as _inc2,
+                                )
+
+                                if _inc2(ctx, sid):
+                                    continue
+                            except Exception:
+                                pass
+                            ctx.mark_done(sid, force=True)
+                            healed.append(sid)
                     else:
                         log(f"heal: gap_report still lint-dirty: {lint_errs[:2]}")
     except Exception as exc:
@@ -2108,6 +2197,10 @@ def heal_stage_done_markers() -> None:
         if ctx.is_done(sid):
             reason = stage_artifact_incompleteness(ctx, sid)
             if reason:
+                framing_stub = (
+                    sid in {"missing_framing", "gap_framing_compose", "optimal_questions"}
+                    and "skip stub while framing is enabled" in reason
+                )
                 # Never clear soft-passed pre-edl producers when air order exists.
                 if _edl_ready_artifacts(ctx) and sid in {
                     "nugget_corpus_mine",
@@ -2123,7 +2216,8 @@ def heal_stage_done_markers() -> None:
                 # Never rewind a stage when a later pipeline stage is already done —
                 # clearing content_context after boundary_detection archives the
                 # segment contract and forces a multi-hour LLM redo.
-                if later_done:
+                # Exception: skip-stub gap_report after G-Framing Yes must re-run.
+                if later_done and not framing_stub:
                     continue
                 try:
                     marker = ctx.run_dir / ".stage_done" / sid
@@ -5674,6 +5768,24 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
             "missing_framing",
             "gap_framing_compose",
         }:
+            try:
+                from interview_mux.stage_completion import stage_artifact_incompleteness as _inc
+
+                if _inc(ctx_b, "missing_framing") or _inc(ctx_b, "gap_framing_compose"):
+                    analysis_soft_done = False
+                    log(
+                        "build_bodies: skip-stub gap_report with framing enabled — "
+                        "resume analysis from missing_framing"
+                    )
+            except Exception:
+                pass
+        if analysis_soft_done and analysis_from and analysis_from in {
+            "segment_classification",
+            "content_brief_reanchor",
+            "boundary_topic_resplit",
+            "missing_framing",
+            "gap_framing_compose",
+        }:
             # Markers were wiped by an accidental rewind — rematerialize and skip analysis.
             for sid in (
                 "segment_classification",
@@ -5690,9 +5802,7 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
                 "mastering_shape_agenda",
                 "mastering_shape_candidates",
                 "mastering_plan_synthesize",
-                "missing_framing",
                 "mastering_plan_confirm",
-                "gap_framing_compose",
                 "delivery_brief_build",
                 "soundscape_policy_build",
                 "episode_structure_compose",
@@ -6251,6 +6361,45 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 log(f"lock busy — joining existing worker ({label})")
                 time.sleep(20)
                 continue
+            if "delivery incomplete after conductor" in low_err:
+                try:
+                    from pathlib import Path as _P
+
+                    from interview_mux.nugget_layup import ensure_layup_gap_authority
+                    from interview_mux.omit_ledger import heal_omit_ledger_air_contract
+                    from interview_mux.post_master_quality import evaluate_post_master_quality
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
+                    from interview_mux.write_staging import (
+                        approve_stage_writes,
+                        has_pending_writes,
+                    )
+
+                    ctx = RunContext(RUN_ID, create=False)
+                    root = _P(ctx.run_dir)
+                    ensure_layup_gap_authority(ctx)
+                    heal_omit_ledger_air_contract(ctx)
+                    sync_edl_vo_script_metadata(ctx)
+                    if has_pending_writes(ctx, "master_finalize"):
+                        promoted = approve_stage_writes(ctx, "master_finalize")
+                        log(f"ship heal: committed pending master_finalize {promoted}")
+                    quality = evaluate_post_master_quality(ctx)
+                    if quality.get("publish_allowed"):
+                        def _clear_needs(m: dict) -> None:
+                            m["needs_operator"] = False
+                            m.pop("needs_operator_stage", None)
+                            m.pop("needs_operator_reason", None)
+
+                        ctx.mutate_run_meta(_clear_needs)
+                        log("ship heal: PMQ publishable — resume podcast_encode_mp3")
+                        execute({"mode": "delivery", "from_stage": "podcast_encode_mp3"})
+                        continue
+                    log(
+                        "ship heal: PMQ still blocked "
+                        f"{quality.get('failed_checks')}"
+                    )
+                except Exception as exc:
+                    log(f"ship conductor heal: {exc}")
             # Post-resplit restart: treat as gate, not hard error.
             # After the one-shot cycle, skip back to vernacular instead of
             # burning another 17-shard classification pass.
@@ -7169,7 +7318,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         and not qc.get("ok")
                         and (
                             float(qc.get("layup_coverage") or 0)
-                            < float((qc.get("min_layup_coverage") or 0.4))
+                            < float((qc.get("min_layup_coverage") or 0.55))
                             or qc.get("open_must_keep_talking_point_ids")
                         )
                     ):
@@ -9981,6 +10130,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             if (
                 "publishing is blocked" in low_err
                 or "publish_blocked_bad_master" in low_err
+                or "delivery incomplete after conductor" in low_err
                 or (
                     "post-master quality failed" in low_err
                     and any(
@@ -9991,6 +10141,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "listen_delight_floors",
                             "no_critical_junction_residuals",
                             "seam_commitment",
+                            "omit_ledger_air_contract",
+                            "audible_script_hash_agreement",
                         )
                     )
                 )
@@ -10016,6 +10168,19 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                     ctx = RunContext(RUN_ID, create=False)
                     root = _P(ctx.run_dir)
+                    try:
+                        from interview_mux.nugget_layup import ensure_layup_gap_authority
+                        from interview_mux.omit_ledger import heal_omit_ledger_air_contract
+                        from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
+
+                        ensure_layup_gap_authority(ctx)
+                        heal_omit_ledger_air_contract(ctx)
+                        sync_edl_vo_script_metadata(ctx)
+                        if has_pending_writes(ctx, "master_finalize"):
+                            promoted = approve_stage_writes(ctx, "master_finalize")
+                            log(f"pmq heal: committed pending master_finalize {promoted}")
+                    except Exception as exc:
+                        log(f"pmq gap/omit heal: {exc}")
                     if "listen_delight" in low_err:
                         result = evaluate_listen_delight(ctx)
                         failed_dims = [

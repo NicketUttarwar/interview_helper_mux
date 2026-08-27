@@ -1720,7 +1720,7 @@ def create_app() -> FastAPI:
         return {
             "pending": check_g_publish_pending(ctx),
             "enabled": bool(podcast.get("enabled", True)),
-            "show_title": podcast.get("show_title") or "The War Room",
+            "show_title": podcast.get("show_title") or "Zero Shot Podcast DEMO",
             "feed_base_url": base or None,
             "feed_url": feed_url,
             "apple_podcasts_passthrough_url": apple_podcasts_passthrough_url(feed_url) or None,

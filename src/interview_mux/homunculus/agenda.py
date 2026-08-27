@@ -1146,6 +1146,14 @@ def run_homunculus_phase(
         if pmq_failed:
             pre_ship = [s for s in still if s not in SHIP_AFTER_MASTER]
             if pre_ship:
+                from interview_mux.v2.config import DELIVERY_ORDER
+
+                delivery_only = set(DELIVERY_ORDER)
+                pre_ship = [s for s in pre_ship if s in delivery_only]
+                if ctx.artifact_exists("master/assembly.wav") and "mix" in DELIVERY_ORDER:
+                    mix_idx = DELIVERY_ORDER.index("mix")
+                    pre_ship = [s for s in pre_ship if s in DELIVERY_ORDER[mix_idx:]]
+            if pre_ship:
                 ctx.log(
                     "homunculus delivery remastering after failed post-master quality "
                     f"({len(pre_ship)} stage(s))",

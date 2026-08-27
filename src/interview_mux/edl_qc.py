@@ -248,6 +248,43 @@ def _validate_speech_clips(
     return errors
 
 
+def _validate_no_never_touch_cta_bleed(
+    ctx: RunContext,
+    clips: list[Any],
+) -> list[str]:
+    """Speech source ranges must not invade media-IP CTA / never-touch tape."""
+    errors: list[str] = []
+    try:
+        from interview_mux.media_ip_cta import never_touch_source_intervals
+    except Exception:
+        return errors
+    try:
+        intervals = never_touch_source_intervals(ctx)
+    except Exception:
+        return errors
+    if not intervals:
+        return errors
+    for index, clip in enumerate(clips):
+        if not isinstance(clip, dict) or clip.get("type") != "speech":
+            continue
+        try:
+            ss = int(clip.get("source_start_ms", 0))
+            se = int(clip.get("source_end_ms", ss))
+        except (TypeError, ValueError):
+            continue
+        if se <= ss:
+            continue
+        label = clip.get("segment_id") or f"clips[{index}]"
+        for nt_s, nt_e, nt_sid in intervals:
+            if ss < nt_e and nt_s < se:
+                errors.append(
+                    f"Never-touch CTA bleed: {label} [{ss},{se}ms) intersects "
+                    f"{nt_sid} [{nt_s},{nt_e}ms)"
+                )
+                break
+    return errors
+
+
 def validate_flow1_edl(
     ctx: RunContext,
     edl: dict[str, Any] | None = None,
@@ -272,6 +309,7 @@ def validate_flow1_edl(
     errors.extend(_validate_vo_line_ids(clips, gap_lines))
     errors.extend(_validate_no_overlapping_speech(clips))
     errors.extend(_validate_no_overlapping_source_ranges(clips))
+    errors.extend(_validate_no_never_touch_cta_bleed(ctx, clips))
     errors.extend(_validate_timeline_monotonic(edl, clips))
     errors.extend(
         _validate_speech_clips(edl, clips, valid_segment_ids=valid_segments)

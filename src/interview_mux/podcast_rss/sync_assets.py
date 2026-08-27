@@ -254,7 +254,7 @@ def _prepared_show_artwork() -> Path | None:
     from interview_mux.podcast_rss.openai_cover import ensure_square_cover, resolve_cover_image_settings
 
     cfg = podcast_cfg()
-    rel = str(cfg.get("show_artwork_path") or "config/podcast/the-war-room-cover.png")
+    rel = str(cfg.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
     src = repo_root() / rel
     if not src.is_file():
         return None

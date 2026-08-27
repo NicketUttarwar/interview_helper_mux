@@ -21,7 +21,7 @@
     "legal_skip": ["sfx_asset_catalog"],
     "illegal_gate": {"category": "transcript_integrity", "action": "skip"},
     "expected_implicated": ["listen_delight_audit", "mix"],
-    "framing_recommended": "present_operator",
+    "framing_recommended": "auto_resolve",
     "clone_policy": "least_spoken_host"
   }
 }

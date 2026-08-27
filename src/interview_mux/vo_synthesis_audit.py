@@ -354,6 +354,42 @@ def synthesis_entry_matches_line(
     return True, "match"
 
 
+def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """Gap-report authority first; fall back to nugget_layup_plan for aired layups."""
+    lines: dict[str, dict[str, Any]] = {}
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        report = ctx.read_json("understanding/gap_report.json")
+        lines = {
+            str(row.get("line_id") or ""): row
+            for row in ((report or {}).get("interviewer_lines") or [])
+            if isinstance(row, dict) and row.get("line_id")
+        }
+    if ctx.artifact_exists("understanding/nugget_layup_plan.json"):
+        plan = ctx.read_json("understanding/nugget_layup_plan.json")
+        for row in (plan or {}).get("layups") or []:
+            if not isinstance(row, dict) or row.get("skip"):
+                continue
+            lid = str(row.get("line_id") or "").strip()
+            if not lid:
+                tid = str(row.get("target_segment_id") or "").strip()
+                lid = f"vo_layup_{tid}" if tid else ""
+            if not lid or lid in lines:
+                continue
+            text = str(row.get("text") or "").strip()
+            tid = str(row.get("target_segment_id") or "").strip()
+            if not text or not tid:
+                continue
+            lines[lid] = {
+                "line_id": lid,
+                "gap_type": "nugget_layup",
+                "text": text,
+                "targets_segment_id": tid,
+                "placement": "before",
+                "origin": "nugget_layup",
+            }
+    return lines
+
+
 def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
     """Refresh EDL vo_pickup script_hash / duration_ms from current gap text + WAVs.
 
@@ -375,14 +411,7 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
     if not isinstance(edl, dict):
         return {"updated": 0, "clips": [], "omit_removed": omit_report.get("removed") or []}
     clips = edl.get("clips") if isinstance(edl.get("clips"), list) else []
-    gap_lines: dict[str, dict[str, Any]] = {}
-    if ctx.artifact_exists("understanding/gap_report.json"):
-        report = ctx.read_json("understanding/gap_report.json")
-        gap_lines = {
-            str(row.get("line_id") or ""): row
-            for row in ((report or {}).get("interviewer_lines") or [])
-            if isinstance(row, dict) and row.get("line_id")
-        }
+    gap_lines = _vo_pickup_script_lines(ctx)
     changed: list[str] = []
     for clip in clips:
         if not isinstance(clip, dict) or str(clip.get("type") or "") != "vo_pickup":
@@ -434,14 +463,7 @@ def audible_script_hash_errors(
 
     errors: list[str] = []
     clips = (edl or {}).get("clips") if isinstance(edl, dict) else []
-    gap_lines: dict[str, dict[str, Any]] = {}
-    if ctx.artifact_exists("understanding/gap_report.json"):
-        report = ctx.read_json("understanding/gap_report.json")
-        gap_lines = {
-            str(row.get("line_id") or ""): row
-            for row in ((report or {}).get("interviewer_lines") or [])
-            if isinstance(row, dict) and row.get("line_id")
-        }
+    gap_lines = _vo_pickup_script_lines(ctx)
     transitions: dict[tuple[str, str], dict[str, Any]] = {}
     if ctx.artifact_exists("master/transitions.json"):
         doc = ctx.read_json("master/transitions.json")

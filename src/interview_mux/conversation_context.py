@@ -395,7 +395,7 @@ def load_conversation_context(ctx: RunContext) -> ConversationContext:
     elif any(str(s.get("role", "")).lower() == "co_host" for s in speakers):
         topology_hint = "co_host_frame"
     elif format_class == "fireside":
-        topology_hint = "monologue_heavy"
+        topology_hint = "one_on_one_asymmetric"
 
     return ConversationContext(
         speakers_doc=speakers_doc,

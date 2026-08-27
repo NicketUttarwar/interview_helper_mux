@@ -186,11 +186,16 @@ def build_source_card(ctx: RunContext) -> dict[str, Any]:
 
     circumstances: list[str] = []
     fc = str(format_class or topology or "").lower()
-    if "panel" in fc:
+    topo_l = str(topology or "").lower()
+    if "panel" in fc or topo_l == "panel_multi_guest":
         circumstances.append("panel")
-    elif "monologue" in fc or "fireside" in fc:
+    elif topo_l in {"monologue_heavy", "monologue"} or (
+        "monologue" in fc and "fireside" not in fc
+    ):
         circumstances.append("monologue")
-    elif "sparse" in fc:
+    elif "fireside" in fc:
+        circumstances.append("one_on_one")
+    elif "sparse" in fc or topo_l == "multi_idea_sparse_host":
         circumstances.append("sparse_host")
     elif "guest" in fc:
         circumstances.append("guest_heavy")
@@ -208,7 +213,12 @@ def build_source_card(ctx: RunContext) -> dict[str, Any]:
         circumstances.append("language_islands")
 
     recipe = "thin_source" if "short" in circumstances else ("batch_layup" if "long" in circumstances else "standard")
-    framing = "sparse_omit" if "monologue" in circumstances else "least_spoken_host"
+    framing = (
+        "sparse_omit"
+        if str(topology or "").lower() in {"monologue_heavy", "monologue"}
+        or str(topology or "").lower().startswith("monologue_")
+        else "least_spoken_host"
+    )
 
     card = {
         "schema_version": 1,

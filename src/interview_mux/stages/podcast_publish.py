@@ -37,7 +37,7 @@ from interview_mux.run_context import RunContext
 
 
 def _show_artwork_path() -> Path:
-    rel = str(_podcast_cfg().get("show_artwork_path") or "config/podcast/the-war-room-cover.png")
+    rel = str(_podcast_cfg().get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
     path = repo_root() / rel
     return path
 
@@ -75,7 +75,7 @@ def _build_meta_input(ctx: RunContext) -> dict[str, Any]:
             "chapters": (narrative or {}).get("chapters") if isinstance(narrative, dict) else [],
         },
         "selection_chapters": (selection or {}).get("chapters") if isinstance(selection, dict) else [],
-        "show_title": _podcast_cfg().get("show_title") or "The War Room",
+        "show_title": _podcast_cfg().get("show_title") or "Zero Shot Podcast DEMO",
     }
 
 

@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 
 def channel_meta_from_config(podcast_cfg: dict[str, Any]) -> dict[str, str]:
     return {
-        "title": str(podcast_cfg.get("show_title") or "The War Room"),
+        "title": str(podcast_cfg.get("show_title") or "Zero Shot Podcast DEMO"),
         "author": str(podcast_cfg.get("show_author") or "Nicket Uttarwar"),
         "email": str(podcast_cfg.get("show_email") or "contact.nicketuttarwar@gmail.com"),
         "website": str(podcast_cfg.get("show_website") or "https://nicketuttarwar.com/").rstrip("/")
@@ -25,7 +25,7 @@ def channel_meta_from_config(podcast_cfg: dict[str, Any]) -> dict[str, str]:
         ),
         "description": str(
             podcast_cfg.get("show_description")
-            or "The War Room is a long-form business interview podcast."
+            or "Zero Shot Podcast DEMO is a long-form business interview podcast."
         ),
         "podcast_guid": str(podcast_cfg.get("podcast_guid") or "").strip(),
         "season": str(int(podcast_cfg.get("season") or 1)),

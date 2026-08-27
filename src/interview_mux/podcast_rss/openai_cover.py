@@ -134,7 +134,7 @@ def _style_ref_path(settings: dict[str, Any]) -> Path | None:
     rel = str(ref.get("path") or "")
     if not rel:
         podcast = (merged_config().get("podcast") or {}) if isinstance(merged_config().get("podcast"), dict) else {}
-        rel = str(podcast.get("show_artwork_path") or "config/podcast/the-war-room-cover.png")
+        rel = str(podcast.get("show_artwork_path") or "config/podcast/ZERO_SHOT_PODCAST_LOGO_nicket_uttarwar_demo_DEMO.png")
     p = Path(rel)
     if not p.is_absolute():
         p = repo_root() / p

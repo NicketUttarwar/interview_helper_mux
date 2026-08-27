@@ -103,7 +103,7 @@ def test_missing_framing_hard_stops_when_ineligible_by_default(
     assert any("not eligible" in e.get("message", "").lower() for e in errors)
 
 
-def test_missing_framing_skips_when_full_auto_ineligible(
+def test_missing_framing_full_auto_does_not_skip_hosted_ineligible_signals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = isolated_run_ctx(tmp_path, "gap_full_auto")
@@ -127,6 +127,46 @@ def test_missing_framing_skips_when_full_auto_ineligible(
             eligible=False,
             reason="Frame speaker confidence below 0.65 — skip gap-fill VO",
             signals={"skip_signal": "low_frame_confidence"},
+        ),
+    )
+    llm_called = {"missing": False}
+
+    def _no_missing(_ctx: RunContext) -> None:
+        llm_called["missing"] = True
+
+    monkeypatch.setattr("interview_mux.pipeline.gaps.run_missing_framing", _no_missing)
+
+    with pytest.raises(LoudStageFailure, match="not eligible"):
+        _run_missing_framing_stage(ctx)
+
+    assert not llm_called["missing"]
+    assert not gap_fill_was_skipped(ctx)
+
+
+def test_missing_framing_full_auto_skips_true_monologue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = isolated_run_ctx(tmp_path, "gap_full_auto_mono")
+    ctx.write_json(
+        "run_meta.json",
+        {"run_mode": "full-auto", "full_auto": True, "homunculus_version": "0.1.0"},
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.gap_fill_auto_skip_enabled",
+        lambda cfg=None: False,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_001", "seg_002"),
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.assess_gap_fill_eligibility",
+        lambda _ctx: GapFillDecision(
+            eligible=False,
+            reason="True monologue — no interviewer frame for gap-fill VO",
+            signals={"skip_signal": "true_monologue"},
         ),
     )
     llm_called = {"missing": False}

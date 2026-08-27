@@ -382,6 +382,12 @@ def commit(
     if isinstance(sel_out, dict):
         sel_out = _stamp_gen(sel_out, gen)
     if isinstance(edl_out, dict):
+        try:
+            from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
+
+            edl_out, _ = clamp_edl_speech_away_from_never_touch(ctx, edl_out)
+        except Exception:
+            pass
         edl_out = _stamp_gen(edl_out, gen)
     occupancy = _glue_occupancy(ctx, edl_out)
     from interview_mux.order_hash import edl_speech_clip_ids
@@ -431,10 +437,17 @@ def write_live_edl(
     source: str = "edl",
 ) -> dict[str, Any]:
     """Production EDL persist — bumps generation (or no-ops while already committing)."""
+    edl_out = edl
+    try:
+        from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
+
+        edl_out, _nt_rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
+    except Exception:
+        edl_out = edl
     if _committing(ctx):
-        ctx.write_json(EDL_REL, edl, skip_handoff=True)
+        ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
         return read_live(ctx)
-    return commit(ctx, edl=edl, source=source)
+    return commit(ctx, edl=edl_out, source=source)
 
 
 def write_live_selection(

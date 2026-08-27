@@ -6,8 +6,8 @@ Gap framing adds interviewer audio (questions, summaries, prefaces, story bridge
 
 | Gate | When | Default | Persisted |
 |------|------|---------|-----------|
-| **G-Framing** | After `source_topology_build` | **Yes** (operator must confirm) | `run_meta.gap_framing_enabled` |
-| **G-Speaker** | G-Framing = Yes | Least-spoken speaker | `pickup_speaker_confirmed` |
+| **G-Framing** | After `source_topology_build` | **Yes** (Homunculus 0.1.0 auto-Yes on hosted 1:1; operator **No** is the off-ramp) | `run_meta.gap_framing_enabled` |
+| **G-Speaker** | G-Framing = Yes | Frame-role / question-density host (never guest talk-time) | `pickup_speaker_confirmed` |
 | **G-VoiceRef** | G-Framing = Yes | Auto-extracted clips | `voice_reference_approved_at` |
 | **G-Delivery** | G-Framing = Yes | **Chatterbox** | `run_meta.gap_vo_delivery` |
 | **G1** | After `gap_framing_recompose` (or skip-copy) | Synthesize all / record / edit | `vo_pickup/` |

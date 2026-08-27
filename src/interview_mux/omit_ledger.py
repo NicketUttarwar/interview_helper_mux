@@ -415,6 +415,7 @@ def air_contract_errors(
             elif replacement == "episode_orientation":
                 from interview_mux.opening_orientation import (
                     is_episode_orientation,
+                    native_open_already_orients,
                     orientation_omitted,
                 )
 
@@ -423,7 +424,43 @@ def air_contract_errors(
                 # synthetic preface. That *is* the compensating air — do not fail
                 # QC because the ledger still says suppress→episode_orientation.
                 native_compensates = orientation_omitted(gap_report)
+                compensating = str(entry.get("compensating_path") or "")
+                opening_owned = False
+                if compensating in {"opening_orientation", "native_self_orients"}:
+                    try:
+                        from interview_mux.nugget_layup import _opening_owned_targets
+
+                        tid = str(entry.get("target_segment_id") or "").strip()
+                        opening_owned = bool(tid and tid in _opening_owned_targets(ctx))
+                    except Exception:
+                        opening_owned = False
+                native_open = False
+                try:
+                    ordered = []
+                    if ctx.artifact_exists("master/selection.json"):
+                        sel = ctx.read_json("master/selection.json")
+                        if isinstance(sel, dict):
+                            ordered = [
+                                str(x)
+                                for x in (sel.get("ordered_segment_ids") or [])
+                                if x
+                            ]
+                    tid = str(entry.get("target_segment_id") or "").strip()
+                    native_open = native_open_already_orients(
+                        ctx, ordered, target_segment_id=tid or None
+                    )
+                except Exception:
+                    native_open = False
                 if not has_orientation_line and not native_compensates:
+                    # Native self-orients / opening-owned suppress is satisfied
+                    # without a synthetic orientation line (gap framing on or off).
+                    if compensating in {
+                        "opening_orientation",
+                        "native_self_orients",
+                    } and (opening_owned or native_open):
+                        continue
+                    if native_open:
+                        continue
                     errors.append(
                         f"omit_ledger_orientation_replacement_missing:{subject_id}"
                     )
@@ -442,7 +479,8 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
         return 0
     lines = [row for row in (report.get("interviewer_lines") or []) if isinstance(row, dict)]
     by_id = {str(row.get("line_id") or ""): row for row in lines if row.get("line_id")}
-    stamped = 0
+    candidates: list[dict[str, Any]] = []
+    seen: set[int] = set()
     for entry in active_entries(ledger):
         subject = str(entry.get("subject_id") or "").strip()
         kind = str(entry.get("kind") or "")
@@ -455,10 +493,43 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
                 line = by_id.get(f"vo_layup_{tid}")
         if not isinstance(line, dict) or line.get("skipped_optional"):
             continue
-        line["skipped_optional"] = True
+        marker = id(line)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        candidates.append(line)
         if not line.get("skip_reason_code"):
-            line["skip_reason_code"] = str(entry.get("reason_code") or "omit_ledger")
+            line["_pending_omit_reason"] = str(entry.get("reason_code") or "omit_ledger")
+    if not candidates:
+        return 0
+    require_floor = False
+    need = 0
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+
+        require_floor = hosted_framing_requires_synthetic_vo(ctx)
+        need = min_synthetic_vo_lines(ctx)
+    except Exception:
+        require_floor = False
+    active_now = sum(1 for row in lines if not row.get("skipped_optional"))
+    if require_floor:
+        max_stamp = max(0, active_now - need)
+        candidates = candidates[:max_stamp]
+        if not candidates:
+            return 0
+    stamped = 0
+    for line in candidates:
+        line["skipped_optional"] = True
+        reason = str(line.pop("_pending_omit_reason", None) or "omit_ledger")
+        if not line.get("skip_reason_code"):
+            line["skip_reason_code"] = reason
         stamped += 1
+    for row in lines:
+        if isinstance(row, dict):
+            row.pop("_pending_omit_reason", None)
     if not stamped:
         return 0
     report["interviewer_lines"] = lines
@@ -481,6 +552,7 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
         or e.startswith("omit_ledger_gap_line_not_skipped:")
         or e.startswith("omit_ledger_gap_line_still_in_edl:")
         or e.startswith("omit_ledger_omitted_line_still_in_edl:")
+        or e.startswith("omit_ledger_orientation_replacement_missing:")
     }
     if not healable:
         return {"healed": False, "errors": errors, "notes": []}
@@ -488,6 +560,30 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
     if "omit_ledger_order_lock_stale" in healable:
         rebuild_and_write_omit_ledger(ctx)
         notes.append("rebuilt_stale_order_lock")
+    if any(e.startswith("omit_ledger_orientation_replacement_missing:") for e in healable):
+        try:
+            from interview_mux.nugget_layup import (
+                GAP_REL,
+                PLAN_REL,
+                ensure_layup_gap_authority,
+            )
+
+            if ctx.artifact_exists(PLAN_REL):
+                ensure_layup_gap_authority(ctx)
+                notes.append("republished_layup_gap_authority")
+            elif ctx.artifact_exists(GAP_REL):
+                gap = ctx.read_json(GAP_REL)
+                if isinstance(gap, dict) and not gap.get("opening_orientation"):
+                    from interview_mux.opening_orientation import ensure_episode_orientation
+                    from interview_mux.nugget_layup import _ordered_ids
+
+                    ordered = _ordered_ids(ctx)
+                    updated, orient_notes = ensure_episode_orientation(ctx, gap, ordered)
+                    if orient_notes:
+                        ctx.write_json(GAP_REL, updated)
+                        notes.append("stamped_opening_orientation_meta")
+        except Exception:
+            pass
     stamped = stamp_gap_report_omit_skips(ctx)
     if stamped:
         notes.append(f"stamped_gap_skips:{stamped}")

@@ -59,7 +59,7 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "enabled": bool(block.get("enabled", True)),
         "require_layup_per_native": bool(block.get("require_layup_per_native", True)),
-        "min_layup_coverage": float(block.get("min_layup_coverage", 0.4)),
+        "min_layup_coverage": float(block.get("min_layup_coverage", 0.55)),
         "min_layup_words": int(block.get("min_layup_words", 18)),
         "max_layup_words": int(block.get("max_layup_words", 90)),
         "prefer_excluded_nuggets": bool(block.get("prefer_excluded_nuggets", True)),
@@ -2724,6 +2724,32 @@ def attach_selection_order_lock(ctx: RunContext, plan: dict[str, Any]) -> dict[s
     return out
 
 
+def ensure_layup_gap_authority(ctx: RunContext) -> dict[str, Any] | None:
+    """Republish nugget layup lines into gap_report when EDL VO lacks script authority."""
+    if not ctx.artifact_exists(PLAN_REL):
+        return None
+    gap: dict[str, Any] = {}
+    if ctx.artifact_exists(GAP_REL):
+        loaded = ctx.read_json(GAP_REL)
+        gap = loaded if isinstance(loaded, dict) else {}
+    lines = [ln for ln in (gap.get("interviewer_lines") or []) if isinstance(ln, dict)]
+    needs_publish = not lines
+    if not needs_publish and ctx.artifact_exists("master/edl.json"):
+        edl = ctx.read_json("master/edl.json")
+        aired = {
+            str(c.get("line_id") or "")
+            for c in ((edl or {}).get("clips") or [])
+            if isinstance(c, dict)
+            and str(c.get("type") or "") == "vo_pickup"
+            and c.get("line_id")
+        }
+        gap_ids = {str(ln.get("line_id") or "") for ln in lines if ln.get("line_id")}
+        needs_publish = bool(aired - gap_ids)
+    if not needs_publish:
+        return gap if gap else None
+    return publish_layup_plan_to_gap_report(ctx)
+
+
 def publish_layup_plan_to_gap_report(
     ctx: RunContext,
     plan: dict[str, Any] | None = None,
@@ -3807,7 +3833,6 @@ def materialize_over_skipped_layups(
         unlock = str(row.get("forward_unlock") or "").strip()
         beat = str(row.get("target_beat") or "").strip()
         setup = str(row.get("setup_from_nuggets") or "").strip()
-        listener = str(row.get("listener_need_entering_T") or "").strip()
         assigned_tps = [str(x) for x in (row.get("talking_point_ids") or []) if x]
         if not assigned_tps and open_tps:
             assigned_tps = [open_tps.pop(0)]
@@ -3870,16 +3895,11 @@ def materialize_over_skipped_layups(
                     row["nugget_ids"] = list(dict.fromkeys([*(row.get("nugget_ids") or []), nid]))
                     claimed_nugs.add(nid)
                     break
-        parts = [
-            p
-            for p in (
-                setup,
-                *nug_bits[:2],
-                unlock or beat,
-                listener if len(listener) < 120 else "",
-            )
-            if p
-        ]
+        if not row_nugget_ids(row) and not nug_bits:
+            notes.append(f"skip_no_grounded_nugget:{tid}")
+            continue
+        # Spoken copy from grounded nuggets/setup only — not analysis-field paste.
+        parts = [p for p in (setup, *nug_bits[:2]) if p]
         text = " ".join(parts).strip()
         text = " ".join(text.split())
         if len(text.split()) < int(cfg.get("min_layup_words") or 18):
@@ -3888,6 +3908,13 @@ def materialize_over_skipped_layups(
             text = " ".join(text.split())
         if len(text.split()) < 8:
             notes.append(f"skip_unmaterializable:{tid}")
+            continue
+        probe = dict(row)
+        probe["skip"] = False
+        probe["text"] = text
+        craft = evaluate_layup_craft(ctx, [probe], cfg=cfg)
+        if craft.get("errors"):
+            notes.append(f"skip_craft_fail:{tid}")
             continue
         # Ensure last sentence satisfies has_forward_cue (question / next-beat cue).
         if unlock and not text.rstrip().endswith("?"):

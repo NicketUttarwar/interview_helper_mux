@@ -1,4 +1,4 @@
-Craft a concise podcast **episode title** and **description** for The War Room RSS feed.
+Craft a concise podcast **episode title** and **description** for the Zero Shot Podcast DEMO RSS feed.
 
 Flagship-tier copy: concrete, distinctive, emotionally clear. Downstream cover craft harvests title/description for motifs — prefer vivid nouns over vague podcast adjectives.
 

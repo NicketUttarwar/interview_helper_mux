@@ -73,13 +73,14 @@ def test_classify_one_on_one_balanced():
     assert classify_topology(stats, {"speakers": []}) == "one_on_one_balanced"
 
 
-def test_balanced_recovery_policy_is_sparse_omit():
+def test_balanced_recovery_policy_is_framing_needed():
     policy = recovery_policy_for_class("one_on_one_balanced")
-    assert policy["vo_posture"] == "sparse_omit"
+    assert policy["vo_posture"] == "framing_needed"
     assert policy["contiguous_seam"] == "skip_waive_glue"
     assert policy["reorder_seam"] == "mint_bridge"
     assert policy["synth_ladder"] == "chatterbox_then_mlx_qc"
     assert recovery_policy_for_class("one_on_one_asymmetric")["vo_posture"] == "framing_needed"
+    assert recovery_policy_for_class("monologue_heavy")["vo_posture"] == "sparse_omit"
     assert recovery_policy_for_class("panel_multi_guest")["vo_posture"] == "bridge_only"
 
 
@@ -244,3 +245,86 @@ def test_pickup_speaker_operator_override(tmp_path: Path) -> None:
     confirm_pickup_speaker(ctx, speaker_id="spk_0")
     adapt = ctx.read_json("understanding/flow_adaptation.json")
     assert adapt["operator_overrides"]["pickup_speaker_confirmed"] is True
+
+
+def test_unknown_roles_do_not_clone_most_talk_guest(tmp_path: Path) -> None:
+    from interview_mux.source_topology import (
+        clone_host_auto_approve_allowed,
+        pickup_eligible_speaker_id,
+        resolve_clone_host_speaker_id,
+    )
+
+    run_dir = tmp_path / "run_unknown"
+    run_dir.mkdir()
+    (run_dir / "understanding").mkdir()
+    ctx = RunContext(str(run_dir))
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "unknown", "confidence": 0.4, "talk_time_ms": 90_000},
+                {"speaker_id": "spk_1", "role": "unknown", "confidence": 0.4, "talk_time_ms": 10_000},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {
+            "topology_class": "one_on_one_balanced",
+            "speaker_stats": [
+                {"speaker_id": "spk_0", "talk_ms": 90_000, "role_hint": "unknown"},
+                {"speaker_id": "spk_1", "talk_ms": 10_000, "role_hint": "unknown"},
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("run_meta.json", {"gap_framing_enabled": True}, skip_handoff=True)
+    assert resolve_clone_host_speaker_id(ctx) is None
+    assert pickup_eligible_speaker_id(ctx) in {None, ""}
+    assert not clone_host_auto_approve_allowed(ctx, "spk_0")
+
+
+def test_delivery_plan_does_not_override_host_when_framing_yes(tmp_path: Path) -> None:
+    from interview_mux.source_topology import pickup_eligible_speaker_id
+    from interview_mux.speaker_delivery_plan import build_speaker_delivery_plan
+
+    run_dir = tmp_path / "run_plan"
+    run_dir.mkdir()
+    (run_dir / "understanding").mkdir()
+    ctx = RunContext(str(run_dir))
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewee", "confidence": 0.9},
+                {"speaker_id": "spk_1", "role": "interviewer", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {
+            "topology_class": "one_on_one_asymmetric",
+            "pickup_eligible_speaker_id": "spk_1",
+            "speaker_stats": [
+                {"speaker_id": "spk_0", "talk_ms": 80_000, "role_hint": "interviewee"},
+                {"speaker_id": "spk_1", "talk_ms": 20_000, "role_hint": "interviewer"},
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json("run_meta.json", {"gap_framing_enabled": True}, skip_handoff=True)
+    ctx.write_json(
+        "understanding/speaker_delivery_plan.json",
+        {
+            "clone_speaker_id": "spk_0",
+            "insert_strategy": "self_clone_no_interviewer",
+        },
+        skip_handoff=True,
+    )
+    assert pickup_eligible_speaker_id(ctx) == "spk_1"
+    plan = build_speaker_delivery_plan(ctx)
+    assert plan["clone_speaker_id"] == "spk_1"
+    assert plan["insert_strategy"] != "self_clone_no_interviewer"

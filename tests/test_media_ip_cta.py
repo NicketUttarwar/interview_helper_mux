@@ -1698,3 +1698,119 @@ def test_heal_strips_never_touch_left_on_air() -> None:
     assert "seg_002" in order
     disk = ctx.read_json("master/selection.json")
     assert "seg_001a" not in (disk.get("ordered_segment_ids") or [])
+
+
+def test_clamp_source_stops_cta_bleed_into_keeper() -> None:
+    """Keeper air bounds must not extend through excluded subscribe CTA tape."""
+    from interview_mux.edl_qc import validate_flow1_edl
+    from interview_mux.media_ip_cta import (
+        ARTIFACT_REL,
+        clamp_edl_speech_away_from_never_touch,
+        clamp_source_away_from_never_touch,
+        never_touch_end_cap_ms,
+        never_touch_source_intervals,
+        selection_cta_exclude_ids,
+    )
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_003g",
+                "I want to understand how OneCell works.",
+                start=87210,
+                end=97970,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_003h",
+                "Before we begin, subscribe for the latest episodes.",
+                start=97970,
+                end=105890,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_004",
+                "Mohan, welcome.",
+                start=111310,
+                end=120000,
+                speaker="spk_guest",
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_003g", "seg_004"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_003h", "reason": "media_ip_cta"},
+            ],
+            "exclude_rationales": {"seg_003h": "media_ip_cta"},
+        },
+    )
+    # Thin CTA artifact (exec_370 shape) — selection rationales must still clamp.
+    ctx.write_json(ARTIFACT_REL, {"version": 1, "locked": True})
+
+    assert "seg_003h" in selection_cta_exclude_ids(ctx)
+    intervals = never_touch_source_intervals(ctx)
+    assert intervals == [(97970, 105890, "seg_003h")]
+    assert never_touch_end_cap_ms(87320, intervals) == 97970
+
+    ss, se, notes = clamp_source_away_from_never_touch(
+        87320, 105890, intervals
+    )
+    assert ss == 87320
+    assert se == 97970
+    assert any("clamp_end_before_never_touch:seg_003h" in n for n in notes)
+
+    # Parent CTA exclude must not wipe on-air NLE children of that parent.
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_003g", "seg_004"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_003", "reason": "media_ip_cta"},
+                {"segment_id": "seg_003h", "reason": "media_ip_cta"},
+            ],
+            "exclude_rationales": {
+                "seg_003": "media_ip_cta",
+                "seg_003h": "media_ip_cta",
+            },
+        },
+    )
+    intervals_parent = never_touch_source_intervals(ctx)
+    assert intervals_parent == [(97970, 105890, "seg_003h")]
+    assert all(row[2] != "seg_003" for row in intervals_parent)
+
+    edl = {
+        "ordered_segment_ids": ["seg_003g", "seg_004"],
+        "timeline_duration_ms": 20000,
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_003g",
+                "source_start_ms": 87320,
+                "source_end_ms": 105890,
+                "timeline_start_ms": 0,
+                "duration_ms": 105890 - 87320,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_004",
+                "source_start_ms": 111310,
+                "source_end_ms": 120000,
+                "timeline_start_ms": 105890 - 87320,
+                "duration_ms": 120000 - 111310,
+            },
+        ],
+    }
+    bleed_errors = validate_flow1_edl(ctx, edl)
+    assert any("Never-touch CTA bleed" in e for e in bleed_errors)
+
+    fixed, rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
+    assert rows
+    clip0 = (fixed.get("clips") or [])[0]
+    assert int(clip0["source_end_ms"]) == 97970
+    assert int(clip0["duration_ms"]) == 97970 - 87320
+    assert validate_flow1_edl(ctx, fixed) == []

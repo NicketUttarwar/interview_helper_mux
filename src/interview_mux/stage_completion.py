@@ -33,6 +33,28 @@ def stage_required_artifact_paths(stage_id: str) -> list[str]:
     return paths
 
 
+def _gap_report_skip_stub_while_framing(ctx: RunContext) -> str | None:
+    """Skip-producer gap_report is not complete once G-Framing is Yes."""
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return None
+    try:
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        if not gap_framing_enabled(ctx):
+            return None
+        doc = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    producer = str((doc.get("_meta") or {}).get("producer") or "")
+    if producer == "gap_fill_skip":
+        return (
+            "understanding/gap_report.json is a skip stub while framing is enabled"
+        )
+    return None
+
+
 def stage_artifact_incompleteness(
     ctx: RunContext,
     stage_id: str,
@@ -49,6 +71,18 @@ def stage_artifact_incompleteness(
         st = artifact_status_for_stage(path, ctx, stage_id)
         if st != "complete":
             return f"{path} is {st}"
+    if stage_id in {"missing_framing", "gap_framing_compose", "optimal_questions"}:
+        stub = _gap_report_skip_stub_while_framing(ctx)
+        if stub:
+            return stub
+    try:
+        from interview_mux.gap_fill_eligibility import synthetic_vo_incompleteness
+
+        vo_reason = synthetic_vo_incompleteness(ctx, stage_id)
+    except Exception:
+        vo_reason = None
+    if vo_reason:
+        return vo_reason
     if stage_id == "nugget_layup_compose":
         try:
             from interview_mux.nugget_layup import layup_freshness_errors

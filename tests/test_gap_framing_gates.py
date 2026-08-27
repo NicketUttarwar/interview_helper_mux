@@ -98,6 +98,53 @@ def test_auto_accept_gap_gate_defaults(ctx: RunContext, monkeypatch: pytest.Monk
     assert adapt["operator_overrides"].get("pickup_speaker_confirmed") is True
 
 
+def test_homunculus_auto_resolve_accepts_framing_without_env(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", raising=False)
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    ctx.write_json(
+        "run_meta.json",
+        {
+            **(ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}),
+            "homunculus_version": "0.1.0",
+            "homunculus_kind": "homunculus",
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/speakers.json",
+        {
+            "speakers": [
+                {"speaker_id": "spk_0", "role": "interviewer", "confidence": 0.9},
+                {"speaker_id": "spk_1", "role": "interviewee", "confidence": 0.9},
+            ]
+        },
+        skip_handoff=True,
+    )
+    idx = ANALYSIS_ORDER.index("missing_framing")
+    for sid in ANALYSIS_ORDER[:idx]:
+        ctx.mark_done(sid, force=True)
+    assert check_gap_framing_decision_pending(ctx) is True
+    assert maybe_auto_accept_gap_gate_defaults(ctx) is True
+    assert gap_framing_enabled(ctx) is True
+    assert check_gap_framing_decision_pending(ctx) is False
+
+
+def test_operator_no_not_overwritten_by_auto_accept(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", "1")
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    idx = ANALYSIS_ORDER.index("missing_framing")
+    for sid in ANALYSIS_ORDER[:idx]:
+        ctx.mark_done(sid, force=True)
+    set_gap_framing_enabled(ctx, False)
+    assert gap_framing_enabled(ctx) is False
+    maybe_auto_accept_gap_gate_defaults(ctx)
+    assert gap_framing_enabled(ctx) is False
+
+
 def test_set_gap_framing_no_skips_compose_stage(ctx: RunContext) -> None:
     set_gap_framing_enabled(ctx, False)
     assert gap_framing_enabled(ctx) is False

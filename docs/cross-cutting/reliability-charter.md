@@ -18,7 +18,7 @@ flowchart TD
     SRC --> Master[Continue master from segments]
 ```
 
-Shipped defaults: `gap_vo.fail_open=false`, `gap_vo.fallback_to_manual_on_failure=false`, `gap_fill.auto_skip_when_ineligible=false`. Explicit operator **No** at G-Framing still skips VO intentionally. Opt-in knobs restore the legacy degrade-and-continue ladder.
+Shipped defaults: `gap_vo.fail_open=false`, `gap_vo.fallback_to_manual_on_failure=false`, `gap_fill.auto_skip_when_ineligible=false`. Hosted interviews fail-open into G-Framing Yes + cloned host questions. Explicit operator **No** or a true monologue still skips VO. Opt-in knobs restore the legacy degrade-and-continue ladder.
 
 ## Source-adaptive recovery
 

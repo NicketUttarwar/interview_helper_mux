@@ -28,7 +28,7 @@ interface GPublishPayload {
   sync_job?: Record<string, unknown>;
 }
 
-/** Ship gate: prepare local package + upload this run only to The War Room RSS. */
+/** Ship gate: prepare local package + upload this run only to Zero Shot Podcast DEMO RSS. */
 export function GPublishPanel() {
   const { runId, refreshRun, appendClientLog, showToast } = useApp();
   const [payload, setPayload] = useState<GPublishPayload | null>(null);
@@ -135,10 +135,10 @@ export function GPublishPanel() {
   };
 
   return (
-    <GatePanelShell title="G-Publish — The War Room RSS">
+    <GatePanelShell title="G-Publish — Zero Shot Podcast DEMO RSS">
       <p className="hint">
         Mastering is separate from RSS. Prepare a local package for this run, then upload only this
-        run&apos;s complete package to {payload.show_title ?? "The War Room"} (S3 + CloudFront). Sync
+        run&apos;s complete package to {payload.show_title ?? "Zero Shot Podcast DEMO"} (S3 + CloudFront). Sync
         never deletes remote files, never uploads other executions, and skips if this run is already
         on S3.
       </p>

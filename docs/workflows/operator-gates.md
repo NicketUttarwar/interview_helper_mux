@@ -17,7 +17,7 @@ Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/ru
 | Gate | ID | Behavior |
 |------|-----|----------|
 | **G0** | `transcript_review` | **Mandatory.** Pipeline stops after `transcript_review_build` until STT corrections are complete. Protects idea transmission: every downstream analysis/gap/VO/EDL stage trusts this text. |
-| **G-Framing** | After `source_topology_build` | **Required choice (recommended default Yes).** Add interviewer framing audio (questions, summaries, prefaces, bridges) with voice-cloned least-spoken host? `POST …/gap-framing/enable`. Unattended/E2E may auto-accept via `analysis.gap_fill.auto_accept_defaults` or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`. |
+| **G-Framing** | After `source_topology_build` | **Required choice (recommended default Yes).** Homunculus **0.1.0** auto-resolves **Yes** for hosted 1:1 and multi-speaker tapes (clone = frame / question-density host, never the guest). Skip only true monologue or an explicit operator **No** (sticky — Full-auto must not overwrite). Add interviewer framing audio with voice-cloned host? `POST …/gap-framing/enable`. Unattended/E2E may also auto-accept via `analysis.gap_fill.auto_accept_defaults` or `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`. Min cloned lines (`min_synthetic_vo_lines`, default 3) is a **post-layup / EDL** ship bar, not a compose deadlock. |
 | **G-Speaker** | G-Framing = Yes | Confirm gap pickup speaker — default **least-spoken** (`PickupSpeakerPanel`). |
 | **G-VoiceRef** | G-Framing = Yes | Approve collated voice reference for Chatterbox (`VoiceReferencePanel`). |
 | **G-Delivery** | G-Framing = Yes | Chatterbox clone (default) or record at G1 (`GapDeliveryPanel`). |

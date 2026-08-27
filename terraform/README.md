@@ -73,7 +73,7 @@ Bucket renames alone **do not** change the CloudFront domain. To **delete** the 
 ./scripts/tf-rotate-cloudfront-url.sh          # preview, then type the current CF id
 ```
 
-This rewrites `PODCAST_CLOUDFRONT_DISTRIBUTION_ID` + `PODCAST_FEED_BASE_URL` in `secrets.env`. The app and `./scripts/invalidate_podcast_cf.sh` then invalidate the new URL. **Do not run until you intend to kill the old public feed.** The wrapper prints the Apple Podcasts Connect pass-through (`new-feed?submitfeed=…`) next to the new RSS URL. Apple still requires ≥1 episode.
+CloudFront-only: deletes the live CF RSS URL and creates a new distribution. **Never** empties, deletes, or recreates S3 (plan is refused if `aws_s3_bucket.origin` appears). Syncs secrets, rewrites `feed.xml` public hosts, invalidates the new CF, and prints Apple pass-through + Spotify paste URL. **Do not run until you intend to kill the old public feed.** Apple still requires ≥1 episode.
 
 To stand up a **new bucket + new CloudFront** (archive the old pair, leave it live): `./scripts/tf-podcast-rss-origin.sh`. Details: [`terraform/archives/README.md`](archives/README.md). That script also prints the pass-through for the new feed.
 
