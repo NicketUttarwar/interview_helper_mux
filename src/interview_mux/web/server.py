@@ -194,6 +194,12 @@ class ArtifactTextBody(BaseModel):
     invalidate_from: str | None = None
 
 
+class GPublishReviewBody(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    cover_path: str | None = None
+
+
 class ResetBody(BaseModel):
     from_stage: str | None = None
     new_input_audio_path: str | None = None
@@ -711,6 +717,34 @@ def create_app() -> FastAPI:
 
         return snapshot_status(ctx)
 
+    @app.post("/api/runs/{run_id}/homunculus/skip-stage")
+    def homunculus_skip_stage(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """10C GUI: skip with hollow_done structured payload — no auto-rerun."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            payload = body or {}
+            stage = str(payload.get("stage") or "").strip()
+            if not stage:
+                raise HTTPException(400, "stage required")
+            from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
+
+            try:
+                doc = skip_stage(
+                    ctx,
+                    stage,
+                    reason=str(payload.get("reason") or "operator"),
+                    compensating_fact=(
+                        str(payload["compensating_fact"])
+                        if payload.get("compensating_fact")
+                        else None
+                    ),
+                )
+                return {"ok": True, "skipped": True, "agenda": doc}
+            except HollowSkipBlockedError as exc:
+                return exc.payload
+            except RuntimeError as exc:
+                raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict[str, Any]:
         ctx = _ctx(run_id)
@@ -797,6 +831,11 @@ def create_app() -> FastAPI:
             "snapshot_version": meta.get("snapshot_version", 0),
             "execution_number": meta.get("execution_number"),
             "immediate_previous_run_id": meta.get("immediate_previous_run_id"),
+            "homunculus_plan": (
+                ctx.read_json("mastering/homunculus/plan.json")
+                if ctx.artifact_exists("mastering/homunculus/plan.json")
+                else None
+            ),
             "sfx_generated_assets": _discover_generated_sfx_assets(ctx),
             "flow_adaptation": (
                 ctx.read_json("understanding/flow_adaptation.json")
@@ -1814,6 +1853,51 @@ def create_app() -> FastAPI:
             "sync_job": _read_podcast_sync_job(),
         }
 
+    @app.get("/api/runs/{run_id}/g-publish/review")
+    def get_g_publish_review(run_id: str) -> dict[str, Any]:
+        ctx = _ctx(run_id)
+        from interview_mux.g_publish_review import load_g_publish_review
+
+        return load_g_publish_review(ctx)
+
+    @app.put("/api/runs/{run_id}/g-publish/review")
+    def put_g_publish_review(run_id: str, body: GPublishReviewBody) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.g_publish_review import save_g_publish_review
+
+            try:
+                return save_g_publish_review(
+                    ctx,
+                    title=body.title,
+                    description=body.description,
+                    cover_path=body.cover_path,
+                )
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except FileNotFoundError as exc:
+                raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/runs/{run_id}/g-publish/cover")
+    async def g_publish_cover_upload(run_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.g_publish_review import save_uploaded_cover
+
+            suffix = Path(file.filename or "cover.jpg").suffix.lower()
+            if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                raise HTTPException(400, "Cover must be JPG, PNG, or WebP.")
+            staging = ctx.path(f"publish/_operator_cover_upload{suffix or '.jpg'}")
+            staging.parent.mkdir(parents=True, exist_ok=True)
+            data = await file.read()
+            if not data:
+                raise HTTPException(400, "Empty upload.")
+            staging.write_bytes(data)
+            try:
+                return save_uploaded_cover(ctx, staging)
+            except (ValueError, FileNotFoundError) as exc:
+                raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/runs/{run_id}/g-publish/continue")
     def g_publish_continue(run_id: str) -> dict[str, Any]:
         with _guarded_run(run_id):
@@ -1915,6 +1999,19 @@ def create_app() -> FastAPI:
             from interview_mux.vo_synthesis_audit import record_skipped_vo
             from interview_mux.omit_ledger import record_gap_line_skip
 
+            waived_nuggets: list[str] = []
+            if skipped and force:
+                from interview_mux.nugget_layup import waive_nuggets_for_skipped_vo_lines
+
+                try:
+                    waived_nuggets = waive_nuggets_for_skipped_vo_lines(
+                        ctx,
+                        skipped_line_ids=skipped,
+                        gap_report=report,
+                    )
+                except Exception:
+                    waived_nuggets = []
+
             for lid in skipped:
                 record_skipped_vo(ctx, lid, reason="g1_skip_optional")
                 try:
@@ -1953,9 +2050,14 @@ def create_app() -> FastAPI:
                 level="success" if skipped else "warning",
                 stage="g1_vo_pickup",
                 action_id="gui.g1.skip_optional",
-                detail={"event": "g1_skip_optional", "line_ids": skipped},
+                detail={"event": "g1_skip_optional", "line_ids": skipped, "waived_nugget_ids": waived_nuggets},
             )
-            return {"ok": True, "skipped": skipped, "g1_missing": check_g1_vo(ctx)}
+            return {
+                "ok": True,
+                "skipped": skipped,
+                "g1_missing": check_g1_vo(ctx),
+                "waived_nugget_ids": waived_nuggets,
+            }
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
@@ -2874,6 +2976,15 @@ def create_app() -> FastAPI:
                     f"{pending} clip(s) not marked reviewed. Save each chunk or pass accept_unreviewed=true.",
                 )
             transcript_review.mark_transcript_review_complete(ctx)
+
+            def _resume_partial_auto(meta: dict[str, Any]) -> None:
+                meta.pop("needs_operator", None)
+                meta.pop("needs_operator_stage", None)
+                meta.pop("needs_operator_reason", None)
+                if meta.get("partial_auto") or meta.get("run_mode") == "partially-accelerated":
+                    meta["partial_auto_driver_active"] = True
+
+            ctx.mutate_run_meta(_resume_partial_auto)
             from interview_mux.gui_job_reconcile import reconcile_operator_gate_job
             from interview_mux.write_staging import read_gui_job
 
@@ -3251,6 +3362,62 @@ def create_app() -> FastAPI:
 
         ctx = _ctx(run_id)
         return gap_gate_payload(ctx)
+
+    @app.get("/api/runs/{run_id}/vo-pipeline-status")
+    def get_vo_pipeline_status(run_id: str) -> dict[str, Any]:
+        from interview_mux.pipeline_mode import resolve_effective_mode
+
+        ctx = _ctx(run_id)
+        out: dict[str, Any] = {
+            "pipeline_mode": resolve_effective_mode(ctx),
+            "nugget_coverage": None,
+            "nugget_coverage_target": 0.85,
+            "lines": [],
+        }
+        if ctx.artifact_exists("understanding/nugget_allocation_plan.json"):
+            try:
+                plan = ctx.read_json("understanding/nugget_allocation_plan.json")
+                cov = (plan or {}).get("coverage") if isinstance(plan, dict) else None
+                if isinstance(cov, dict):
+                    out["nugget_coverage"] = cov.get("nugget_air_ratio")
+                    out["nugget_coverage_target"] = cov.get("target") or 0.85
+            except Exception:
+                pass
+        if ctx.artifact_exists("understanding/vo_line_adjudication.json"):
+            try:
+                adj = ctx.read_json("understanding/vo_line_adjudication.json")
+                rows = (adj or {}).get("lines") if isinstance(adj, dict) else []
+                if isinstance(rows, list):
+                    for row in rows[:24]:
+                        if not isinstance(row, dict):
+                            continue
+                        out["lines"].append(
+                            {
+                                "line_id": row.get("line_id"),
+                                "status": row.get("decision") or row.get("status"),
+                                "text_preview": str(row.get("text") or "")[:120],
+                            }
+                        )
+            except Exception:
+                pass
+        if not out["lines"] and ctx.artifact_exists("understanding/gap_report.json"):
+            try:
+                gap = ctx.read_json("understanding/gap_report.json")
+                for row in (gap or {}).get("interviewer_lines") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("delivery") or "") != "synthesize":
+                        continue
+                    out["lines"].append(
+                        {
+                            "line_id": row.get("line_id"),
+                            "status": "pending_adjudicate",
+                            "text_preview": str(row.get("text") or "")[:120],
+                        }
+                    )
+            except Exception:
+                pass
+        return out
 
     @app.get("/api/runs/{run_id}/gap-framing/script")
     def get_gap_framing_script(run_id: str) -> dict[str, Any]:
@@ -3833,13 +4000,6 @@ def _journey_blocking(
             "stage_id": stage_id,
             "message": str(job.get("message") or "Choose reuse or run fresh."),
         }
-    if status == "gate" and stage_id:
-        return {
-            "blocked": True,
-            "reason": "llm_gate",
-            "stage_id": stage_id,
-            "message": str(job.get("message") or job.get("error") or "Operator gate."),
-        }
     if status == "needs_operator" and job.get("needs_api_consent"):
         return {
             "blocked": True,
@@ -3848,12 +4008,21 @@ def _journey_blocking(
             "message": str(job.get("message") or "API consent required."),
         }
 
+    # G0 wins over status=gate — analysis SystemExit often leaves stage unset or wrong.
     if check_transcript_review_pending(ctx):
         return {
             "blocked": True,
             "reason": "transcript_review",
             "stage_id": "transcript_review",
             "message": "G0 transcript review pending — correct STT before continuing.",
+        }
+
+    if status == "gate" and stage_id:
+        return {
+            "blocked": True,
+            "reason": "llm_gate",
+            "stage_id": stage_id,
+            "message": str(job.get("message") or job.get("error") or "Operator gate."),
         }
 
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped

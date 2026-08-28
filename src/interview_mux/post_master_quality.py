@@ -99,7 +99,7 @@ def _pmq_no_late_opening_native(ctx: RunContext) -> bool:
         if not speech:
             return True
         starts = resolved_segment_starts(ctx)
-        window = opening_window_ms()
+        window = opening_window_ms(ctx=ctx)
         opening_ids = {
             sid
             for sid in speech

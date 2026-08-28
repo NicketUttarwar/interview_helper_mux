@@ -458,7 +458,7 @@ def mint_missing_transitions(
 
                 starts = resolved_segment_starts(ctx)
                 gap = pair_source_gap_ms(a, b, starts)
-            if gap is not None and int(gap) < -reverse_jump_margin_ms():
+            if gap is not None and int(gap) < -reverse_jump_margin_ms(ctx=ctx):
                 continue
         except Exception:
             pass

@@ -1,6 +1,8 @@
-Compose **pre-native synthetic VO lay-ups** for kept ordered segments — only when they earn airtime.
+Compose **pre-native synthetic VO lay-ups** for kept ordered segments — **body-first toward 85% nugget air coverage** (body layups + intro combined; config `min_nugget_air_coverage`).
 
 You receive: `nugget_corpus` (canonical claims/evidence by `nugget_id`), plus one `natives[]` row per ordered segment in this call — `text` / `comprehensible_text` (the upcoming native beat **T**), `prior_closing_excerpt` (how the immediately prior native beat ended), `seam_reason` / `handoff_need` (why the listener needs help entering T), `opening_owner` (true when episode orientation owns that before-slot), `open_nuggets_ranked` (still-unaired corpus nuggets ranked for T — often slim id/score pointers; look up claim text in `nugget_corpus`), and `already_aired_nugget_ids` / `already_claimed_facts` (facts already spent earlier in the air order). When `_layup_compose_shard` is present, compose **only** for the natives in this shard. Honor packet-root `opening_owned_segment_ids`.
+
+**Coverage target (G-Framing Yes):** spend eligible corpus nuggets across body layups first — each on the best organic pre-native seam for **T**. Nuggets with no organic body home may be deferred to intro later; do not leave high-salience / excluded-tape claims on the table when a grounded bridge exists. Aim for **≥85%** of eligible nuggets assigned in body rows (intro sink handles the remainder).
 
 Do **not** emit `order_lock` or `order_content_hash` — code stamps them from selection after compose.
 
@@ -19,7 +21,7 @@ Attempt a decision for **every** `ordered_segment_id`, but **prefer typed skip**
 
 **Hard — do not skip high-salience holes.** You may **not** skip with `no_eligible_unspent_nugget`, `no_unrecovered_high_salience`, or `self_explanatory_native` when `open_nuggets_ranked` still contains a high or critical nugget for T. Air that fact, or place the line on the next native that is not the cloned host speaker. Sparse placement is for seams with nothing left to recover — not for leaving corpus claims on the table.
 
-Air a lay-up only when it recovers unaired high-value excluded-tape facts **or** supplies a genuine conversational bridge a first-time listener needs. Sparse strategic placement beats dense coverage.
+Air a lay-up only when it recovers unaired high-value excluded-tape facts **or** supplies a genuine conversational bridge a first-time listener needs. **Body-first nugget allocation** beats sparse seam skipping: assign nuggets to the best pre-native home for **T** before typing skip.
 
 When `degraded_lexicon_island` / `degraded_path` is true (or `transcript_quality` is degraded):
 - Build setup only from `comprehensible_text` / `high_conf_text` + grounded corpus nuggets.
@@ -62,7 +64,7 @@ Also emit ledger fields:
 - `discharged_nugget_ids` / `open_high_salience_nugget_ids`
 - `waived_nugget_ids` only with explicit reasons
 
-Ideal: try every seam; air sparsely. Coverage floors are soft floors for high-value recovery — not a mandate to speak before almost every native.
+Ideal: try every seam; **assign nuggets body-first toward the 85% air floor** — air when a grounded bridge earns it, typed skip only when handoff is truly clear or intro deferral is the honest compensating path. Row-density `min_layup_coverage` is secondary to the nugget metric.
 
 Schema: `artifacts` → `docs/cross-cutting/json-schemas/artifacts/nugget_layup_plan_artifact.schema.json`
 

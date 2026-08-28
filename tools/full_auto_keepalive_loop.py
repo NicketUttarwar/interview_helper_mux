@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Keep Full-auto server + driver alive until podcast_publish completes.
 
+Opt-in only (``MUX_KEEPALIVE=1``, ``--keepalive``, or
+``python tools/full_auto_daemon_launch.py keepalive``). Default Full-auto and
+GUI launches do not start this loop.
+
 When the pointed run reaches the ship bar (master + cover + publish), this
 loop tears down serve + driver and exits — it does not relaunch a finished run.
 When ``MUX_FULL_AUTO_KEEP_SERVER=1`` (in-app GUI launch), the GUI serve process
@@ -77,6 +81,11 @@ def _keep_gui_server() -> bool:
         "true",
         "yes",
     }
+
+
+def should_relaunch_server_on_death() -> bool:
+    """Unattended keepalive may recycle a crashed serve; GUI-attached must not."""
+    return not _keep_gui_server()
 
 
 def latest_run() -> str | None:
@@ -222,6 +231,21 @@ def main() -> None:
             time.sleep(15)
             continue
         if not server_alive():
+            if not should_relaunch_server_on_death():
+                write_status(pointed or run_id)
+                log("server down — GUI serve ended; shutting down stack (not relaunching)")
+                try:
+                    from full_auto_daemon_launch import shutdown_full_auto_stack
+
+                    info = shutdown_full_auto_stack(
+                        kill_keepalive=False,
+                        kill_server=False,
+                        exclude_pid=os.getpid(),
+                    )
+                    log(f"stack shutdown: {info}")
+                except Exception as exc:
+                    log(f"stack shutdown failed: {exc}")
+                return
             log("server down — relaunch")
             launch("server")
             time.sleep(3)

@@ -6,6 +6,7 @@ from interview_mux.opening_orientation import (
     SEQUENCE_COLD_OPEN,
     SEQUENCE_NATIVE_OPEN,
     SEQUENCE_STRAIGHT,
+    embed_orientation_nugget_recovery,
     ensure_episode_orientation,
     validate_opening_orientation,
 )
@@ -497,3 +498,69 @@ def test_meta_question_orientation_rewritten_from_brief(tmp_path) -> None:
     assert "?" not in line["text"].split(".")[0]
     blob = line["text"].lower()
     assert any(tok in blob for tok in ("entrepreneur", "farming", "zydus", "healthy"))
+
+
+def test_orientation_forces_synthetic_vo_for_high_salience_nuggets(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_orientation_nugget_force")
+    from interview_mux.gap_vo_gates import set_gap_framing_enabled, set_gap_vo_delivery
+
+    set_gap_framing_enabled(ctx, True)
+    set_gap_vo_delivery(ctx, "chatterbox")
+    brief_path = ctx.path("understanding", "content_brief.json")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        json.dumps(
+            {
+                "thesis": "Diagnostics and blood-based screening.",
+                "guest_name": "Dr. Chen",
+                "topics": [{"name": "diagnostics", "label": "Diagnostics"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_002"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_002",
+                    "speaker_id": "spk_0",
+                    "speaker_role": "interviewer",
+                    "type": "interviewer_question",
+                    "text": "Welcome, today we talk about diagnostics.",
+                    "topic_tags": [],
+                    "start_ms": 0,
+                    "end_ms": 9000,
+                }
+            ]
+        },
+    )
+    ctx.write_json(
+        "understanding/nugget_corpus.json",
+        {
+            "nuggets": [
+                {
+                    "nugget_id": "nug_004",
+                    "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                    "evidence_quote": "one in a billion",
+                    "in_selection": False,
+                    "salience": "high",
+                }
+            ]
+        },
+    )
+    report, actions = ensure_episode_orientation(
+        ctx,
+        {"interviewer_lines": []},
+        ["seg_002"],
+        orientation_nugget_ids=["nug_004"],
+    )
+    assert any(a.get("action") == "force_synthetic_orientation_for_nuggets" for a in actions)
+    line = report["interviewer_lines"][0]
+    assert line.get("episode_orientation") is True
+    assert "one in a billion" in str(line.get("text") or "").lower()
+    assert "nug_004" in (line.get("nugget_ids") or [])

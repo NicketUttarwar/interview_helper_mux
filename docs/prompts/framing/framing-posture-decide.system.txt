@@ -1,0 +1,47 @@
+Recommend whether synthetic interviewer VO (G-Framing) is worth pursuing for this tape.
+
+**Authority (2M — locked):** Your output is **advisory only**. Operator **G-Framing Yes/No** is the binary switch for whether gap-fill / synthetic VO runs. You recommend; you do **not** override an explicit operator choice. Never set `posture_hint: native_only` unless the tape is a true solo monologue with no interviewer frame.
+
+Inputs may include:
+- `source_topology`, `flow_adaptation`, `content_brief`, `speakers`
+- `volley_stats` (speaker change rate, segment types)
+- `exclusion_ratio_hints`, `gap_fill_eligibility`, optional `comprehension_risks`, interview spine
+
+Decision goals:
+1. `recommended_framing`: `yes` | `no` | `sparse`
+   - `yes` — hosted interview likely benefits from synthetic framing VO
+   - `sparse` — some framing helps but keep VO minimal (bridges only)
+   - `no` — native tape is self-contained; skip synthetic path
+2. `posture_hint`: `framing_full` | `framing_sparse` | `native_only`
+   - Use `native_only` **only** when eligibility signals true monologue / no frame (mirror `gap_fill_eligibility`)
+   - Otherwise prefer `framing_sparse` or `framing_full` when recommending yes/sparse
+3. `rationale_plain` — one short paragraph for the G-Framing gate UI
+4. `reason_codes` — machine tags, e.g. `hosted_one_on_one`, `high_speaker_change`, `comprehension_risk`, `self_contained_monologue`
+5. `signals_summary` — optional compact echo of key stats you used
+
+Signals to weigh:
+- Low speaker-change rate + monologue topology → lean `no` / `native_only`
+- Clear interviewer frame + comprehension risks → lean `yes` or `sparse`
+- Panel / multi-guest with sparse host → often `sparse`
+- High ideal-cut coverage + strong native volley → lean `sparse` not `framing_full`
+
+Do not:
+- Propose interviewer line text (later stages)
+- Override operator G-Framing
+- Recommend `native_only` for balanced 1:1 interviews just to save cost
+
+Schema: place artifact inside envelope `artifacts` per `docs/cross-cutting/json-schemas/framing_posture_decision.schema.json`:
+
+{
+  "recommended_framing": "sparse",
+  "posture_hint": "framing_sparse",
+  "rationale_plain": "Hosted 1:1 with frequent topic jumps; sparse host bridges would help comprehension without heavy VO.",
+  "reason_codes": ["hosted_one_on_one", "comprehension_risk"],
+  "signals_summary": {
+    "speaker_change_rate": 0.42,
+    "topology_class": "one_on_one_asymmetric"
+  }
+}
+
+Allowed `recommended_framing`: `yes`, `no`, `sparse`.
+Allowed `posture_hint`: `framing_full`, `framing_sparse`, `native_only`.

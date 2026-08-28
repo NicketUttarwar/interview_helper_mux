@@ -102,18 +102,30 @@ flowchart LR
   nugget_layup_compose -->|I| gap_framing_recompose
   nugget_layup_compose -->|I| selection_framing_apply
   nugget_layup_compose -->|I| transitions
+  nugget_layup_compose -->|I| vo_line_adjudicate
   nugget_layup_compose -->|I| vo_synthesize
   nugget_layup_compose -->|I| edl
   transitions -->|I| sound_design_plan
+  transitions -->|I| vo_line_adjudicate
   transitions -->|I| vo_synthesize
   transitions -->|I| edl
   sound_design_plan -->|I| sfx_prompt_craft
+  sound_design_plan -->|I| vo_line_adjudicate
   sound_design_plan -->|I| vo_synthesize
   sound_design_plan -->|I| edl
+  sound_design_vo_finalize -->|I| vo_line_adjudicate
+  sound_design_vo_finalize -->|I| vo_synthesize
+  sound_design_vo_finalize -->|I| edl_narrative_audit
+  sound_design_vo_finalize -->|I| edl
+  vo_line_adjudicate -->|I| vo_synthesize
+  vo_line_adjudicate -->|I| edl_narrative_audit
+  vo_line_adjudicate -->|I| edl
   edl_narrative_audit -->|I| vo_synthesize
   edl_narrative_audit -->|I| edl
+  vo_synthesize -->|I| edl_narrative_audit
   vo_synthesize -->|I| edl
   g1_vo_pickup -->|I| sound_design_vo_finalize
+  g1_vo_pickup -->|I| vo_line_adjudicate
   g1_vo_pickup -->|I| vo_synthesize
   g1_vo_pickup -->|I| edl
   g1_vo_pickup -->|I| assembly_preview
@@ -135,7 +147,7 @@ flowchart LR
   delivery_brief_build -->|R| gap_framing_compose
   edl_narrative_audit -->|R| sound_design_plan
   episode_cover_prompt_craft -->|R| episode_meta_build
-  full_master_ranking -->|R| narrative_arc_plan
+  full_master_ranking -->|R| connector_fuse_pass_pre_ranking
   gap_framing_compose -->|R| missing_framing
   information_package_plan -->|R| nugget_corpus_mine
   island_cluster_structure_adjudicate -->|R| low_conf_island_scan

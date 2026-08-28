@@ -67,6 +67,8 @@ export function findPendingFocusStage(
 ): string | null {
   if (!run) return null;
 
+  if (run.transcript_review_pending) return "transcript_review";
+
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
     const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
@@ -84,7 +86,10 @@ export function findPendingFocusStage(
     }
   }
 
-  if (run.job?.status === "gate" && run.job.stage) return gateFocusStageId(run.job);
+  if (run.job?.status === "gate") {
+    const gateStage = gateFocusStageId(run.job);
+    if (gateStage) return gateStage;
+  }
   if (run.job?.needs_stage_reuse && run.job.stage) return run.job.stage;
   if (
     run.job?.status === "needs_operator" &&
@@ -143,6 +148,12 @@ export function continueHintForStage(stageId: string, run?: RunData | null): str
       return "Approve MMAudio prompts and complete listen checks above.";
     case "mmaudio_sfx":
       return "Listen to outputs and pass or fail the sound check above.";
+    case "framing_posture_decide":
+      return "Advisory framing posture LLM runs before G-Framing — operator Yes/No remains authoritative (2M).";
+    case "vo_line_adjudicate":
+      return "Smart per-line VO adjudication before synthesis — review activity log for drops and rewrites.";
+    case "missing_framing":
+      return "Confirm G-Framing choice — LLM recommendation is advisory only.";
     default:
       return "Complete the required steps above before continuing.";
   }

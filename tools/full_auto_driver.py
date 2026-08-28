@@ -150,6 +150,19 @@ def pause_needs_operator(stage: str, reason: str) -> str:
         detail=reason[:240],
     )
     log(f"PAUSE needs_operator {stage}: {reason}")
+    try:
+        from interview_mux.homunculus.plan_snapshot import write_halt_plan
+        from interview_mux.run_context import RunContext
+
+        write_halt_plan(
+            RunContext(RUN_ID, create=False),
+            last_target=stage,
+            blockers=[reason[:240]],
+            reason=reason,
+            recommended_next=stage,
+        )
+    except Exception as exc:
+        log(f"halt plan snapshot failed: {exc}")
     outcome = "halted_identical_failure" if "×3" in reason or "x3" in reason.lower() or "identical" in reason.lower() else "halted_needs_operator"
     if "listen" in reason.lower() or "quality" in reason.lower() or "delight" in reason.lower():
         outcome = "halted_quality"
@@ -173,6 +186,17 @@ def _pending_gap_operator_gate(reason: str) -> bool:
     )
 
 
+def _pipeline_native_only() -> bool:
+    """Layer-1 posture — same authority as homunculus gap gates."""
+    try:
+        from interview_mux.pipeline_mode import is_native_only
+        from interview_mux.run_context import RunContext
+
+        return is_native_only(RunContext(RUN_ID, create=False))
+    except Exception:
+        return False
+
+
 def skip_ineligible_gap_fill(*, reason: str = "") -> bool:
     """Skip interviewer VO when eligibility says this tape cannot host gap-fill.
 
@@ -193,6 +217,10 @@ def skip_ineligible_gap_fill(*, reason: str = "") -> bool:
         from interview_mux.run_context import RunContext
 
         ctx = RunContext(RUN_ID, create=False)
+        if _pipeline_native_only():
+            log("pipeline_mode native_only — skip gap-fill VO path")
+            operator_skip_gap_fill(ctx, reason="pipeline_mode native_only")
+            return True
         if not gap_fill_auto_skip_enabled():
             return False
         if gap_fill_was_skipped(ctx):
@@ -1457,6 +1485,9 @@ def accept_gap_framing_defaults() -> None:
         from interview_mux.run_context import RunContext
 
         ctx_pre = RunContext(RUN_ID, create=False)
+        if _pipeline_native_only():
+            log("pipeline_mode native_only — not auto-enabling gap framing")
+            return
         meta_pre = (
             ctx_pre.read_json("run_meta.json")
             if ctx_pre.artifact_exists("run_meta.json")
@@ -5397,6 +5428,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         return "stuck"
 
     if "transcript review" in low or stage in {"transcript_review", "transcript_review_build"}:
+        if is_partial_auto():
+            if not wait_for_operator_g0():
+                return pause_needs_operator(
+                    "transcript_review",
+                    "partial-auto G0 wait timed out",
+                )
+            return "advance"
         complete_g0()
         # Never re-run analysis_until_g0 — that archives review_queue and rebuilds clips.
         if body.get("mode") == "analysis_until_g0":
@@ -5928,6 +5966,9 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
         prepare_from = first_pending(PREPARE_STAGES)
         if prepare_from:
             steps.append(("prepare", {"mode": "analysis_until_g0", "from_stage": prepare_from}))
+        # Never schedule analysis/delivery while G0 is open — partial-auto waits
+        # for the operator; full-auto auto-accepts in the prepare handler first.
+        return steps
     # Once delivery artifacts exist, never schedule analysis — missing research
     # markers would rewind into mastering_research_waves and wipe progress.
     delivery_ready = False
@@ -10942,6 +10983,11 @@ def main() -> int:
             time.sleep(10)
             continue
         if not bodies:
+            if is_partial_auto() and not g0_complete():
+                log("partial-auto: G0 open — waiting for operator transcript review")
+                if not wait_for_operator_g0():
+                    return 1
+                continue
             log("no pending stages but pipeline incomplete — waiting")
             time.sleep(30)
             continue
@@ -10982,6 +11028,10 @@ def main() -> int:
             if pipeline_complete():
                 return finish_complete_run()
             if job.get("status") == "needs_operator":
+                if is_partial_auto() and not g0_complete():
+                    log("partial-auto: needs_operator while G0 open — waiting for operator")
+                    if wait_for_operator_g0():
+                        continue
                 log("needs_operator — Full-auto halted (see operator/EXECUTION_REPORT.md)")
                 if is_partial_auto():
                     _patch_partial_auto_meta(partial_auto_driver_active=False)

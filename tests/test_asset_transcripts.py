@@ -296,4 +296,4 @@ def test_delivery_order_places_transcript_after_finalize():
     assert "master_transcript_build" in DELIVERY_ORDER
     assert DELIVERY_ORDER.index("master_finalize") < DELIVERY_ORDER.index("master_transcript_build")
     assert DELIVERY_ORDER.index("master_transcript_build") < DELIVERY_ORDER.index("episode_meta_build")
-    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 67
+    assert len(ANALYSIS_ORDER) + len(DELIVERY_ORDER) == 69

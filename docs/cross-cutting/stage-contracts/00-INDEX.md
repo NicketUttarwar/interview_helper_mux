@@ -23,6 +23,7 @@
 | `episode_cover_prompt_craft` | llm_full | publish/cover_prompt.json |
 | `episode_meta_build` | llm_full | publish/episode_meta.json |
 | `episode_structure_compose` | process | — |
+| `framing_posture_decide` | llm_full | understanding/framing_posture_decision.json |
 | `full_master_ranking` | llm_full | master/selection.json |
 | `g1_vo_pickup` | gate | — |
 | `gap_framing_compose` | llm_full | understanding/gap_report.json |
@@ -86,4 +87,5 @@
 | `transitions_refine` | deterministic | — |
 | `vernacular_segment_sanitize` | process | — |
 | `vo_ingest` | process | — |
+| `vo_line_adjudicate` | llm_full | understanding/vo_line_adjudication.json |
 | `vo_synthesize` | process | mastering/vo_synthesize.json |

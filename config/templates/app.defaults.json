@@ -435,6 +435,10 @@
       ],
       "block_mix_without_sfx_when_enabled": true
     },
+    "nugget_layup": {
+      "min_layup_coverage": 0.70,
+      "min_nugget_air_coverage": 0.85
+    },
     "_comment_refinement_passes": "L0 agenda + L1 gate second pass — CFI ledger cap=1, no spend caps, G1 always reachable",
     "refinement_passes": {
       "enabled": true,
@@ -538,9 +542,22 @@
     },
     "air_order_integrity": {
       "opening_window_ms": 180000,
+      "opening_window_ratio": 0.05,
+      "opening_window_min_ms": 90000,
+      "opening_window_max_ms": 300000,
       "opening_air_slots": 6,
+      "opening_air_slots_min": 4,
+      "opening_air_slots_max": 12,
       "opening_body_start_index": 3,
+      "opening_body_start_index_min": 2,
+      "opening_body_start_index_max": 6,
+      "opening_body_start_index_long_tier_bump": 0,
       "reverse_jump_margin_ms": 300000,
+      "reverse_jump_margin_ratio": 0.083,
+      "reverse_jump_margin_min_ms": 120000,
+      "reverse_jump_margin_max_ms": 600000,
+      "count_opening_by_family": true,
+      "fragmentation_extra_slots": 2,
       "block_ranking_on_critical": false,
       "block_publish_on_critical": true,
       "invalidate_edl_on_order_change": true,

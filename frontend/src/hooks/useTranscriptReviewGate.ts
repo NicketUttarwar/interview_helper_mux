@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { guardBusy } from "../utils/guardBusy";
+import { isPartialAcceleratedRun } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 
 export function useTranscriptReviewGate(enabled: boolean) {
@@ -17,6 +18,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
   const [loading, setLoading] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const partialAuto = isPartialAcceleratedRun(run);
 
   const reload = useCallback(async () => {
     if (!enabled || !run) return;
@@ -40,10 +42,16 @@ export function useTranscriptReviewGate(enabled: boolean) {
   const pendingCount = transcriptReview?.pending_count ?? 0;
   const totalCount = chunks.length;
   const reviewedCount = Math.max(0, totalCount - pendingCount);
-  const busy = completing || actionBusy || jobRunning;
+  const busy = completing || actionBusy || (jobRunning && !partialAuto);
 
   const acceptAllAndProceed = useCallback(async () => {
-    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
+    if (
+      !partialAuto &&
+      guardBusy(jobRunning, actionBusy || completing, showToast)
+    ) {
+      return;
+    }
+    if (!run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -55,10 +63,16 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog, partialAuto]);
 
   const completeReview = useCallback(async () => {
-    if (guardBusy(jobRunning, actionBusy || completing, showToast) || !run) return;
+    if (
+      !partialAuto &&
+      guardBusy(jobRunning, actionBusy || completing, showToast)
+    ) {
+      return;
+    }
+    if (!run) return;
     setCompleting(true);
     setError(null);
     try {
@@ -70,7 +84,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog]);
+  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog, partialAuto]);
 
   return {
     loading,

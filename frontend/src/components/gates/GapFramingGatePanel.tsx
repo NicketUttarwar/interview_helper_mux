@@ -9,6 +9,9 @@ interface GapGatePayload {
   gap_framing_enabled?: boolean;
   gap_framing_decision_pending?: boolean;
   gap_fill_mode?: string;
+  llm_recommended_framing?: string | null;
+  llm_framing_rationale?: string | null;
+  pipeline_mode?: { mode?: string; decided_by?: string } | null;
 }
 
 export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
@@ -85,6 +88,23 @@ export function GapFramingGatePanel({ stage }: { stage: StageInfo }) {
   return (
     <section className="gap-framing-panel panel-inset" data-testid="gap-framing-panel">
       <h4>Add interviewer gap framing?</h4>
+      {payload?.llm_recommended_framing ? (
+        <p className="hint sm gap-framing-llm-hint" data-testid="gap-framing-llm-hint">
+          LLM suggests:{" "}
+          <strong>
+            {payload.llm_recommended_framing === "yes"
+              ? "Yes"
+              : payload.llm_recommended_framing === "no"
+                ? "No"
+                : payload.llm_recommended_framing === "sparse"
+                  ? "Yes (sparse)"
+                  : payload.llm_recommended_framing}
+          </strong>
+          {payload.llm_framing_rationale
+            ? ` — ${payload.llm_framing_rationale.slice(0, 160)}`
+            : " — advisory only; your choice below is authoritative (2M)."}
+        </p>
+      ) : null}
       <p className="hint sm">
         Gap framing adds interviewer VO (questions, summaries, prefaces, bridges) — usually via a
         Chatterbox clone of the least-spoken speaker — so the episode can be clearer and shorter.

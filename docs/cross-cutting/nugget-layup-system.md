@@ -32,7 +32,11 @@ flowchart TD
   QC -->|pass| Publish[Publish gap_report before-VO]
 ```
 
-Ideal: attempt a layup decision for every kept native, but **air** only when the line recovers unaired high-value facts or supplies a genuine conversational bridge a first-time listener needs. Prefer typed skips when the native interviewer↔interviewee handoff is already clear. Coverage floor defaults to **55%** of eligible natives — not near-100%.
+Ideal: attempt a layup decision for every kept native, but **air** only when the line recovers unaired high-value facts or supplies a genuine conversational bridge a first-time listener needs. Prefer typed skips when the native interviewer↔interviewee handoff is already clear.
+
+**85% nugget air floor (G-Framing Yes, homunculus 0.1.0+):** body layups plus intro recovery must reach **`analysis.nugget_layup.min_nugget_air_coverage`** (default **0.85**) combined. Compose is **body-first** toward that target; `vo_line_adjudicate` may drop, rewrite, or defer lines; the **intro sink** (flagship `nugget_intro_compose`, position 0) fills the remaining gap. Coverage is persisted on `understanding/nugget_allocation_plan.json` and surfaced in the GUI — warn + ship when unreachable on thin corpus unless the operator opts into a hard block.
+
+Secondary row-density metric **`min_layup_coverage`** default **0.70** (raised from 0.55) — not a substitute for the nugget-air metric.
 
 Low-conf fuse + density must_keep: [low-conf-connector-fuse.md](./low-conf-connector-fuse.md).
 
@@ -50,7 +54,7 @@ Low-conf fuse + density must_keep: [low-conf-connector-fuse.md](./low-conf-conne
 | Guard | Where | Behaviour |
 |-------|-------|-----------|
 | **Freshness** | `assert_layup_fresh_vs_selection` — compose persist, publish, recompose, `edl` | Hard stop when the plan is `_meta.stale` or its `ordered_segment_ids` ≠ `master/selection.json`. Selection owns `order_lock` — compose strips any LLM-invented lock then stamps via `attach_selection_order_lock` **before** freshness. Re-run `nugget_corpus_mine` → `nugget_layup_compose`; never republish a stale plan. |
-| **Body ownership** | `lint_gap_report_layup_authority` + `restore_layup_lines` (`repair_gap_report`, `selection_framing_apply`) | Only the publish path writes body `interviewer_lines`. Any other writer that drops lay-ups has them re-injected; foreign origins and coverage below `min_layup_coverage` (default **0.55**) fail the lint. |
+| **Body ownership** | `lint_gap_report_layup_authority` + `restore_layup_lines` (`repair_gap_report`, `selection_framing_apply`) | Only the publish path writes body `interviewer_lines`. Any other writer that drops lay-ups has them re-injected; foreign origins and coverage below `min_layup_coverage` (default **0.70**) fail the lint. |
 | **Typed skips / omit ledger** | `stamp_typed_skip`, `is_justified_skip_row`, `understanding/omit_ledger.json` | Skips must carry reason + evidence + compensating path. Justified skips leave the coverage denominator; `materialize_over_skipped_layups` must not revive them. G1 / seam / EDL consult the ledger via `effective_air_contract`. Under `recovery_policy.vo_posture=sparse_omit` (monologue / sparse-host — **not** balanced 1:1), compose **must not** call `materialize_over_skipped_layups` — stamp value-less holes instead of force-air. Never lower `min_layup_coverage`. |
 | **Uniqueness** | `evaluate_layup_craft` | A `nugget_id` may be claimed once; near-duplicate lay-up wording fails. Compose receives per-target `already_aired_nugget_ids` / `already_claimed_facts` walked in air order. |
 | **No canned air** | `evaluate_layup_craft`, `seam_glue.mint_missing_transitions` | The hinge menu, `default_bridge_text`, `CANNED_BRIDGE_TEXT`, and generic unlocks (“What changed after that?”) are rejected as air copy. A known native with no composed lay-up and no planned transition fails instead of shipping filler. |
@@ -69,6 +73,7 @@ Compose receives, per ordered native: the prior native's closing **comprehensibl
 - `understanding/nugget_comprehension_index.json`
 - `understanding/nugget_layup_plan.json`
 - `understanding/nugget_layup_qc.json`
+- `understanding/nugget_allocation_plan.json` (body / intro / waived / coverage)
 - `understanding/omit_ledger.json` (append/supersede omit · suppress · defer · waive)
 - `understanding/gap_report.json` (layup lines + orientation)
 

@@ -354,6 +354,56 @@ def synthesis_entry_matches_line(
     return True, "match"
 
 
+def line_vo_wav_path(ctx: RunContext, line: dict[str, Any]) -> Path | None:
+    """Resolved pickup WAV for this line, or None if missing / hash-stale / QC fail."""
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+    path = resolve_vo_pickup_path(ctx, line)
+    if path is None or not path.is_file():
+        return None
+    return path
+
+
+def line_vo_wav_fresh(ctx: RunContext, line: dict[str, Any]) -> tuple[bool, str]:
+    """True when an on-disk WAV matches the line's current script (9C smart gate).
+
+    File existence alone is insufficient — ``stale_script_hash`` means re-adjudicate
+    and re-synth are required even if ``vo_pickup/{id}.wav`` remains on disk.
+    """
+    path = line_vo_wav_path(ctx, line)
+    if path is None:
+        lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
+        entry = synthesis_entry_for_line(ctx, lid) if lid else None
+        if entry:
+            matches, reason = synthesis_entry_matches_line(ctx, line)
+            if not matches:
+                return False, reason or "stale_script_hash"
+        return False, "missing_wav"
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    if not matches:
+        return False, reason or "stale_script_hash"
+    return True, reason or "match"
+
+
+def should_skip_adjudicate_for_line(ctx: RunContext, line: dict[str, Any]) -> tuple[bool, str]:
+    """9C (smart): skip vo_line_adjudicate LLM only when WAV is fresh for current text."""
+    fresh, reason = line_vo_wav_fresh(ctx, line)
+    return fresh, reason
+
+
+def invalidate_synthesis_entries(ctx: RunContext, line_ids: list[str]) -> int:
+    """Drop synthesis_report rows so stale-hash checks fail open for re-synth."""
+    want = {str(x).strip() for x in line_ids if str(x).strip()}
+    if not want:
+        return 0
+    entries = _load_entries(ctx)
+    kept = [e for e in entries if str(e.get("line_id") or "") not in want]
+    removed = len(entries) - len(kept)
+    if removed:
+        _persist(ctx, kept)
+    return removed
+
+
 def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:
     """Gap-report authority first; fall back to nugget_layup_plan for aired layups."""
     lines: dict[str, dict[str, Any]] = {}
@@ -536,3 +586,37 @@ def line_has_approved_vo_backend(ctx: RunContext, line_id: str) -> bool:
     if entry.get("qc_pass") is False:
         return False
     return True
+
+
+def nuke_all_synth_wavs_on_adjudicate_change(ctx: RunContext) -> int:
+    """1A: delete synth WAVs and invalidate synthesis so vo_synthesize must re-run."""
+    from interview_mux.homunculus.agenda import unmark_stage_only
+
+    deleted = 0
+    pickup = ctx.path("vo_pickup")
+    if pickup.is_dir():
+        for sub in ("", "synthesized"):
+            root = pickup if not sub else pickup / sub
+            if not root.is_dir():
+                continue
+            for path in root.glob("*.wav"):
+                try:
+                    path.unlink(missing_ok=True)
+                    deleted += 1
+                except OSError:
+                    pass
+    lines = _vo_pickup_script_lines(ctx)
+    line_ids = list(lines.keys())
+    if line_ids:
+        invalidate_synthesis_entries(ctx, line_ids)
+    for stage in ("vo_synthesize", "edl_narrative_audit"):
+        if ctx.is_done(stage):
+            unmark_stage_only(ctx, stage)
+    if deleted or line_ids:
+        ctx.log(
+            f"Adjudicate mutation: removed {deleted} synth WAV(s); "
+            f"invalidated {len(line_ids)} synthesis row(s)",
+            level="warning",
+            stage="vo_line_adjudicate",
+        )
+    return deleted

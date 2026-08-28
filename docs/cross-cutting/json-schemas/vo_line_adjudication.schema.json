@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VoLineAdjudication",
+  "type": "object",
+  "required": ["lines"],
+  "properties": {
+    "version": { "type": "integer" },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["line_id", "action"],
+        "properties": {
+          "line_id": { "type": "string" },
+          "action": {
+            "type": "string",
+            "enum": ["air", "rewrite", "move_nugget", "defer_to_intro"]
+          },
+          "final_text": { "type": "string" },
+          "target_segment_id": { "type": "string" },
+          "nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "flow_rationale": { "type": "string" },
+          "nugget_disposition": { "type": "string" },
+          "input_hash": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "batch_count": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

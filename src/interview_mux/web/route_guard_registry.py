@@ -75,6 +75,8 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/g-publish/continue"),
         ("POST", "/api/runs/{run_id}/g-publish/skip"),
         ("POST", "/api/runs/{run_id}/g-publish/sync"),
+        ("PUT", "/api/runs/{run_id}/g-publish/review"),
+        ("POST", "/api/runs/{run_id}/g-publish/cover"),
         ("POST", "/api/runs/{run_id}/music-listen/approve"),
         ("POST", "/api/runs/{run_id}/timeline-optimizer/start"),
         ("POST", "/api/runs/{run_id}/timeline-optimizer/stop"),

@@ -17,6 +17,8 @@ from interview_mux.stage_input_checks import collect_stage_input_issues
 from interview_mux.write_staging import record_pending_approval, staging_root
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "prompts" / "stage_artifacts.json"
+PROGRESSION_WALK_FIXTURES = Path(__file__).parent / "fixtures" / "progression_walk"
+PROGRESSION_WALK_HOST_SPEAKER_ID = "spk_001"
 
 # Full P0 spine from content_context (index 9 in ANALYSIS_ORDER).
 PROGRESSION_START_STAGE = "content_context"
@@ -34,6 +36,8 @@ PROGRESSION_FLOW_STAGES = [
     "full_master_ranking",
     "transitions",
     "sound_design_plan",
+    "vo_line_adjudicate",
+    "vo_synthesize",
     "edl_narrative_audit",
 ]
 
@@ -57,6 +61,38 @@ BUILD_STAGE_ARTIFACT_PATHS: dict[str, str] = {
 
 def load_stage_fixtures() -> dict[str, Any]:
     return json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))
+
+
+def _seed_gap_vo_wavs_for_progression(
+    ctx: RunContext, gap_report: dict[str, Any] | None
+) -> None:
+    """Minimal WAV + synthesis audit so EDL vo_pickup clips pass schema validation."""
+    import wave
+
+    from interview_mux.vo_synthesis_audit import record_synthesis
+
+    if not isinstance(gap_report, dict):
+        return
+    pickup = ctx.final_path("vo_pickup")
+    pickup.mkdir(parents=True, exist_ok=True)
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict) or line.get("skipped_optional"):
+            continue
+        lid = str(line.get("line_id") or "").strip()
+        if not lid:
+            continue
+        wav = pickup / f"{lid}.wav"
+        if wav.is_file() and wav.stat().st_size > 1000:
+            continue
+        with wave.open(str(wav), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(48_000)
+            handle.writeframes(b"\x00\x00" * 48_000)
+        try:
+            record_synthesis(ctx, line, backend="record", out_wav=wav)
+        except Exception:
+            pass
 
 
 def _enrich_boundaries(doc: dict[str, Any]) -> dict[str, Any]:
@@ -191,7 +227,20 @@ def _sound_design_plan_doc(stage_id: str, fixtures: dict[str, Any]) -> dict[str,
             coherence=partial.get("coherence") or {},
         )
     if stage_id == "sound_design_plan":
-        return _sound_design_plan_patch(stage_id, fixtures)
+        partial = _sound_design_plan_patch(stage_id, fixtures)
+        palettes_doc = fixtures.get("sound_design_palettes") or {}
+        return sound_design_plan_with(
+            palettes=palettes_doc.get("palettes") or [],
+            coherence=palettes_doc.get("coherence")
+            or {
+                "sonic_identity": "Walk fixture warm documentary bed under spoken word.",
+                "primary_mood": "reflective",
+                "density": "sparse",
+            },
+            assets=partial.get("assets") or [],
+            flow_plans=partial.get("flow_plans") or {},
+            generated=partial.get("generated") or {},
+        )
     return sound_design_plan_with()
 
 
@@ -254,6 +303,15 @@ def write_stage_producer_artifact(
     elif stage_id == "sound_design_vo_finalize":
         rel = "understanding/sound_design_plan.json"
         return rel if ctx.artifact_exists(rel) else None
+    elif stage_id in ("vo_line_adjudicate", "vo_synthesize", "edl_narrative_audit"):
+        rel = STAGE_ARTIFACT_DISK_PATHS.get(stage_id)
+        if not rel:
+            return None
+        doc = fixtures.get(stage_id)
+        if isinstance(doc, dict):
+            write_committed_json(ctx, rel, doc, stage_key=stage_id)
+            return rel
+        return rel if ctx.artifact_exists(rel) else None
     elif stage_id == "edl":
         from interview_mux.stages.assembly import build_flow1_edl
 
@@ -276,11 +334,17 @@ def write_stage_producer_artifact(
             if ctx.artifact_exists("master/transitions.json")
             else None
         )
+        _seed_gap_vo_wavs_for_progression(ctx, gap_report)
+        from interview_mux.stages.assembly import resolve_vo_pickup_path, vo_pickup_relpath
+
         edl = build_flow1_edl(
             selection=selection,
             segments_by_id=by_id,
             gap_report=gap_report,
             transitions=transitions,
+            resolve_vo_path=lambda line: resolve_vo_pickup_path(ctx, line),
+            vo_relpath=lambda p: vo_pickup_relpath(ctx, p),
+            ctx=ctx,
         )
         if edl.get("warnings", {}).get("missing_segment_lookups"):
             raise ValueError(
@@ -312,6 +376,9 @@ def write_stage_producer_artifact(
             if isinstance(raw, dict):
                 existing = raw
         out = merge_artifact(rel, existing, doc, stage_key=stage_id)
+        meta = dict(out.get("_meta") or {})
+        meta["producer_stage"] = "sound_design_plan"
+        out["_meta"] = meta
     out = _prepare_segment_artifact(ctx, rel, out, stage_key=stage_id)
     out = _prepare_for_disk_validation(out, rel_path=rel, stage_key=stage_id)
     errors = validate_artifact_write(rel, out)
@@ -399,6 +466,87 @@ def seed_vo_from_gap_report(ctx: RunContext) -> None:
                 write_fixture_vo_wav(path)
 
 
+def seed_progression_walk_gates(ctx: RunContext) -> None:
+    """Demo operator gate state so the fixture walk can enter delivery without a real GUI.
+
+    Uses a committed walk-only host voice clip (from a historic execution) and
+    stamps the same approvals the product expects before gap/VO delivery stages.
+    """
+    import shutil
+
+    from run_fixtures import write_fixture_vo_wav
+
+    host_id = PROGRESSION_WALK_HOST_SPEAKER_ID
+    approved_at = "1970-01-01T00:00:00+00:00"
+
+    ctx.write_json(
+        "understanding/source_topology.json",
+        {
+            "topology": "one_on_one_asymmetric",
+            "pickup_eligible_speaker_id": host_id,
+            "speaker_stats": [
+                {"speaker_id": host_id, "talk_ratio": 0.25},
+                {"speaker_id": "spk_guest", "talk_ratio": 0.75},
+            ],
+        },
+        skip_handoff=True,
+    )
+    adapt = (
+        ctx.read_json("understanding/flow_adaptation.json")
+        if ctx.artifact_exists("understanding/flow_adaptation.json")
+        else {}
+    )
+    if not isinstance(adapt, dict):
+        adapt = {}
+    overrides = dict(adapt.get("operator_overrides") or {})
+    overrides.update(
+        {
+            "pickup_speaker_confirmed": True,
+            "gap_framing_enabled": True,
+            "pickup_eligible_speaker_id": host_id,
+        }
+    )
+    adapt["operator_overrides"] = overrides
+    adapt["pickup_eligible_speaker_id"] = host_id
+    ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+
+    clip_dir = ctx.final_path("understanding", "voice_reference", "clips", host_id)
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    clip_path = clip_dir / "candidate_00.wav"
+    demo = PROGRESSION_WALK_FIXTURES / "demo_host_voice.wav"
+    if demo.is_file():
+        shutil.copy2(demo, clip_path)
+    else:
+        write_fixture_vo_wav(clip_path)
+
+    ctx.write_json(
+        f"understanding/voice_reference/{host_id}.json",
+        {
+            "speaker_id": host_id,
+            "approved": True,
+            "approved_at": approved_at,
+            "selected_clip": "candidate_00.wav",
+            "clip_relpath": f"understanding/voice_reference/clips/{host_id}/candidate_00.wav",
+            "fixture_source": "progression_walk/demo_host_voice.wav",
+        },
+        skip_handoff=True,
+    )
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.update(
+        {
+            "gap_framing_enabled": True,
+            "gap_vo_delivery": "chatterbox",
+            "gap_fill_mode": "active",
+            "voice_reference_approved_at": approved_at,
+        }
+    )
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    ctx.mark_done("source_topology_build", force=True)
+
+
 def prepare_flow_chain_gates(ctx: RunContext) -> None:
     """Minimal run_meta + gate markers so flow fixture stages can be input-checked."""
     from interview_mux.artifact_writes import write_validated_artifact
@@ -436,6 +584,7 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
         state.setdefault("meta", {})["operator_verified"] = True
         ctx.write_json("understanding/analysis_state.json", state, skip_handoff=True)
     ctx.write_json("analysis_complete.json", {"analysis_ready": True, "blockers": []}, skip_handoff=True)
+    seed_progression_walk_gates(ctx)
     seed_vo_from_gap_report(ctx)
 
 

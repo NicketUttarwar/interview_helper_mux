@@ -167,24 +167,23 @@ def synthesize_line(
             raise FileNotFoundError("source_audio required for DSP timbre match (convert)")
         return match_vo_take(ctx, line, Path(source_audio))
 
-    # Skip re-synth when a resolved pickup already exists for this line.
+    # Skip re-synth when pickup WAV is fresh for the current script (9C smart).
     try:
-        from interview_mux.stages.assembly import resolve_vo_pickup_path
+        from interview_mux.vo_synthesis_audit import line_vo_wav_fresh, line_vo_wav_path
 
-        existing = resolve_vo_pickup_path(ctx, line)
-        if existing is not None and Path(existing).is_file() and Path(existing).stat().st_size > 1000:
-            from interview_mux.vo_synthesis_audit import synthesis_entry_matches_line
-
-            matches, _reason = synthesis_entry_matches_line(ctx, line)
-            # clean/normalized operator takes may lack an audit; generated
-            # pickups only skip when the script hash still matches.
-            if matches or _reason == "missing_synthesis_entry":
-                if matches or existing.parent.name in {"clean", "normalized"}:
-                    return Path(existing)
-            # EDL rebuilds must not Chatterbox-loop every pickup when the take
-            # already passed speech QA. Hash drift is vo_synthesize's job.
-            if existing.parent.name in {"vo_pickup", "synthesized", "matched", "clean", "normalized"}:
+        existing = line_vo_wav_path(ctx, line)
+        if existing is not None and existing.is_file() and existing.stat().st_size > 1000:
+            fresh, reason = line_vo_wav_fresh(ctx, line)
+            if fresh:
                 return Path(existing)
+            # Operator clean/normalized takes may lack synthesis_report audit rows;
+            # resolve_vo_pickup_path already accepted them — do not re-synth.
+            if reason == "missing_synthesis_entry" and existing.parent.name in {
+                "clean",
+                "normalized",
+            }:
+                return Path(existing)
+            # stale_script_hash / missing_wav — fall through to re-synth.
     except Exception:
         pass
 

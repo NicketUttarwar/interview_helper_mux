@@ -18,6 +18,7 @@
 #                                (MUX_INPUT_AUDIO / MUX_FRESH / MUX_RUN_ID honored)
 #   MUX_DETACH_SERVE=1           Start serve in its own session and return
 #                                (unattended e2e: server survives parent shell exit)
+#   MUX_KEEPALIVE=1              Opt-in Full-auto crash watchdog (default off)
 #
 # Fresh launch (default): clears ephemeral ASSETS/ state (.gui session,
 # operator session logs, stale locks inside exec_*). Never deletes any
@@ -84,6 +85,7 @@ Environment:
   MUX_FULL_AUTO=1                Alias for Full-auto (same soft stack)
   MUX_BABA_E2E=1                 Legacy alias for MUX_FULL_AUTO
   MUX_DETACH_SERVE=1             Detach serve into its own session and return
+  MUX_KEEPALIVE=1                Opt-in Full-auto crash watchdog (off by default)
   MUX_FRESH / MUX_RUN_ID         Fresh create vs resume for Full-auto
 EOF
       exit 0
@@ -137,6 +139,12 @@ if command -v ps >/dev/null 2>&1; then
     kill ${orphan_workers} 2>/dev/null || true
     sleep 1
   fi
+  # Stale keepalive will resurrect serve after this launch otherwise.
+  orphan_ka="$(ps -ax -o pid=,command= 2>/dev/null | grep -E 'full_auto_keepalive_loop\.py|baba_keepalive_loop\.py' | grep -v grep | awk '{print $1}' | tr '\n' ' ' || true)"
+  if [[ -n "${orphan_ka// /}" ]]; then
+    kill ${orphan_ka} 2>/dev/null || true
+    sleep 1
+  fi
 fi
 
 if [[ "${MUX_SKIP_ASSETS_CLEANUP:-0}" != "1" ]]; then
@@ -176,6 +184,15 @@ _full_auto_env_set() {
   v="$(printf '%s' "${MUX_FULL_AUTO:-${MUX_BABA_E2E:-0}}" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
     1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_keepalive_requested() {
+  local v
+  v="$(printf '%s' "${MUX_KEEPALIVE:-0}" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    1|true|yes|on) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -303,7 +320,10 @@ if [[ "${MUX_NO_BROWSER:-0}" == "1" ]]; then
   fi
 fi
 
-E2E_ARGS=(e2e keepalive)
+E2E_ARGS=(e2e)
+if _keepalive_requested; then
+  E2E_ARGS+=(keepalive)
+fi
 if [[ -n "${MUX_RUN_ID:-}" ]]; then
   E2E_ARGS+=(--run-id "${MUX_RUN_ID}")
 elif [[ "${MUX_FRESH:-1}" == "1" ]]; then
@@ -320,7 +340,11 @@ if [[ "${MUX_DETACH_SERVE:-0}" == "1" ]]; then
   fi
   echo "Web GUI → http://127.0.0.1:${WEB_PORT} (detached)"
   if _full_auto_env_set; then
-    echo "Full-auto driver + keepalive detached — watch ASSETS/full_auto_console.log"
+    if _keepalive_requested; then
+      echo "Full-auto driver + keepalive detached — watch ASSETS/full_auto_console.log"
+    else
+      echo "Full-auto driver detached — watch ASSETS/full_auto_console.log"
+    fi
   fi
   exit 0
 fi

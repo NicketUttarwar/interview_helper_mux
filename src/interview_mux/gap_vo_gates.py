@@ -93,6 +93,25 @@ def set_gap_framing_enabled(ctx: RunContext, enabled: bool) -> None:
         overrides.pop("gap_fill_skipped", None)
     adapt["operator_overrides"] = overrides
     ctx.write_json("understanding/flow_adaptation.json", adapt, skip_handoff=True)
+    try:
+        from interview_mux.pipeline_mode import persist_pipeline_mode
+
+        if enabled:
+            persist_pipeline_mode(
+                ctx,
+                "framing_full",
+                decided_by="operator_g_framing",
+                reason_codes=["gap_framing_yes"],
+            )
+        else:
+            persist_pipeline_mode(
+                ctx,
+                "native_only",
+                decided_by="operator_g_framing",
+                reason_codes=["gap_framing_no"],
+            )
+    except Exception:
+        pass
     if enabled:
         clear_gap_fill_skip(ctx, reason="operator_enabled_gap_framing")
     else:
@@ -416,6 +435,25 @@ def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
         synthesis_fallback_notice,
     )
 
+    llm_recommended: str | None = None
+    llm_rationale: str | None = None
+    if ctx.artifact_exists("understanding/framing_posture_decision.json"):
+        try:
+            doc = ctx.read_json("understanding/framing_posture_decision.json")
+            if isinstance(doc, dict):
+                llm_recommended = str(doc.get("recommended_framing") or "") or None
+                llm_rationale = str(doc.get("rationale") or doc.get("summary") or "") or None
+        except Exception:
+            pass
+
+    pipeline_mode: dict[str, Any] | None = None
+    try:
+        from interview_mux.pipeline_mode import resolve_effective_mode
+
+        pipeline_mode = resolve_effective_mode(ctx)
+    except Exception:
+        pipeline_mode = None
+
     return {
         **consent_payload(ctx),
         "clone_consent_required": clone_consent_required(ctx),
@@ -423,6 +461,9 @@ def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
         "gap_framing_enabled": gap_framing_enabled(ctx),
         "gap_framing_decision_pending": check_gap_framing_decision_pending(ctx),
         "recommended_gap_framing_enabled": recommended_gap_framing_enabled(),
+        "llm_recommended_framing": llm_recommended,
+        "llm_framing_rationale": llm_rationale,
+        "pipeline_mode": pipeline_mode,
         "gap_vo_delivery": resolve_gap_vo_delivery(ctx) if gap_framing_enabled(ctx) else None,
         "gap_delivery_pending": check_gap_delivery_pending(ctx),
         "voice_reference_pending": check_voice_reference_pending(ctx),

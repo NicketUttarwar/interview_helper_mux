@@ -124,6 +124,20 @@ def ensure_gap_fill_skipped(
     }
     ctx.write_json(GAP_FILL_SKIP_REL, skip_doc, skip_handoff=True)
     persist_gap_fill_mode(ctx, decision, skipped=True)
+    try:
+        from interview_mux.pipeline_mode import persist_pipeline_mode
+
+        decided_by = "deterministic_monologue"
+        if skip_signal in {"gap_framing_no", "operator_skip", "forced_skipped"}:
+            decided_by = "operator_g_framing"
+        persist_pipeline_mode(
+            ctx,
+            "native_only",
+            decided_by=decided_by,  # type: ignore[arg-type]
+            reason_codes=[skip_signal or reason],
+        )
+    except Exception:
+        pass
 
     segments: list[dict[str, Any]] = []
     if ctx.artifact_exists("segments/manifest.json"):

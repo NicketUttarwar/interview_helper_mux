@@ -99,6 +99,85 @@ def _topic_label(brief: dict[str, Any]) -> str:
     return ""
 
 
+def _load_nugget_claims(ctx: RunContext, nugget_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Return (ids present in corpus, spoken claim sentences)."""
+    if not nugget_ids:
+        return [], []
+    try:
+        from interview_mux.nugget_layup import CORPUS_REL, _nugget_claim_text
+    except ImportError:
+        return [], []
+    if not ctx.artifact_exists(CORPUS_REL):
+        return [], []
+    corpus = ctx.read_json(CORPUS_REL)
+    if not isinstance(corpus, dict):
+        return [], []
+    nug_by_id = {
+        str(n.get("nugget_id") or ""): n
+        for n in (corpus.get("nuggets") or [])
+        if isinstance(n, dict) and n.get("nugget_id")
+    }
+    ids: list[str] = []
+    bits: list[str] = []
+    for raw in nugget_ids:
+        nid = str(raw or "").strip()
+        if not nid or nid not in nug_by_id:
+            continue
+        claim = _nugget_claim_text(nug_by_id[nid]).rstrip(".")
+        if not claim:
+            continue
+        ids.append(nid)
+        bits.append(claim + ".")
+        if len(bits) >= 2:
+            break
+    return ids, bits
+
+
+def embed_orientation_nugget_recovery(
+    ctx: RunContext,
+    line: dict[str, Any],
+    nugget_ids: list[str],
+    *,
+    max_nuggets: int = 2,
+) -> tuple[dict[str, Any], list[str]]:
+    """Buried high-salience excluded facts into the first synthetic orientation VO."""
+    out = dict(line)
+    notes: list[str] = []
+    ids, bits = _load_nugget_claims(ctx, [str(x) for x in nugget_ids if x][:max_nuggets])
+    if not ids or not bits:
+        return out, notes
+    core = " ".join(str(out.get("text") or "").split()).strip()
+    insert = " ".join(bits)
+    low = core.lower()
+    if "let's hear" in low or "lets hear" in low:
+        m = re.search(r"(?i)\b(let['’]?s hear\b.*)$", core)
+        if m:
+            prefix = core[: m.start()].rstrip(" ,;:")
+            cue = m.group(1).strip()
+            if prefix:
+                out["text"] = f"{prefix.rstrip('.')}. {insert} {cue}".strip()
+            else:
+                out["text"] = f"{insert} {cue}".strip()
+        else:
+            out["text"] = f"{core.rstrip('.')}. {insert} Let's hear how it unfolds.".strip()
+    elif core:
+        out["text"] = f"{core.rstrip('.')}. {insert} Let's hear how it unfolds.".strip()
+    else:
+        out["text"] = f"{insert} Let's hear how it unfolds.".strip()
+    merged_ids = list(
+        dict.fromkeys([*(str(x) for x in (out.get("nugget_ids") or []) if x), *ids])
+    )
+    out["nugget_ids"] = merged_ids
+    out["selected_nugget_ids"] = merged_ids
+    out["recovered_open_high_salience"] = True
+    out["orientation_nugget_recovery"] = True
+    out["rationale"] = str(
+        out.get("rationale") or "Episode orientation with recovered excluded-tape context."
+    ).strip()
+    notes.append("orientation_embed:" + ",".join(ids))
+    return out, notes
+
+
 def _fallback_orientation_text(ctx: RunContext) -> tuple[str, dict[str, Any]]:
     """Build grounded copy only from already-approved understanding artifacts."""
     brief = (
@@ -291,6 +370,8 @@ def ensure_episode_orientation(
     ctx: RunContext,
     gap_report: dict[str, Any],
     ordered_segment_ids: list[str],
+    *,
+    orientation_nugget_ids: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Ensure orientation when needed; omit when native hosts already intro."""
     if not ordered_segment_ids or not isinstance(gap_report, dict):
@@ -303,13 +384,23 @@ def ensure_episode_orientation(
     except Exception:
         pass
 
+    nugget_recovery_ids = [str(x) for x in (orientation_nugget_ids or []) if x]
+    if not nugget_recovery_ids and isinstance(gap_report.get("orientation_nugget_recovery"), dict):
+        nugget_recovery_ids = [
+            str(x)
+            for x in (gap_report["orientation_nugget_recovery"].get("nugget_ids") or [])
+            if x
+        ]
+    force_synthetic_for_nuggets = bool(nugget_recovery_ids)
+
     ordered = [str(x) for x in ordered_segment_ids if x]
     first = ordered[0]
     hook = native_cold_open_segment_id(ctx, ordered)
     sequence = SEQUENCE_COLD_OPEN if hook else SEQUENCE_STRAIGHT
     # Prefer omit when native hosts already greet/introduce. Operator-pinned
     # orientation still airs if the operator wrote it on purpose.
-    if native_open_already_orients(ctx, ordered, target_segment_id=first):
+    # High-salience excluded nuggets may force the first synthetic VO to carry them.
+    if native_open_already_orients(ctx, ordered, target_segment_id=first) and not force_synthetic_for_nuggets:
         existing = [
             dict(x)
             for x in (gap_report.get("interviewer_lines") or [])
@@ -577,6 +668,27 @@ def ensure_episode_orientation(
     except Exception:
         pass
 
+    if nugget_recovery_ids:
+        chosen, embed_notes = embed_orientation_nugget_recovery(
+            ctx, chosen, nugget_recovery_ids
+        )
+        for note in embed_notes:
+            actions.append(
+                {
+                    "action": "embed_orientation_nugget_recovery",
+                    "line_id": chosen.get("line_id"),
+                    "detail": note,
+                }
+            )
+        if force_synthetic_for_nuggets and not orientations:
+            actions.append(
+                {
+                    "action": "force_synthetic_orientation_for_nuggets",
+                    "line_id": chosen.get("line_id"),
+                    "nugget_ids": nugget_recovery_ids[:2],
+                }
+            )
+
     orientation_ids = {
         str(x.get("line_id") or "") for x in orientations if x.get("line_id")
     }
@@ -588,13 +700,24 @@ def ensure_episode_orientation(
     ]
     out = dict(gap_report)
     out["interviewer_lines"] = [chosen, *non_orientation]
-    out["opening_orientation"] = {
+    opening_payload: dict[str, Any] = {
         "line_id": chosen["line_id"],
         "sequence": sequence,
         "native_cold_open_segment_id": hook,
         "target_segment_id": target,
         "required": True,
     }
+    if nugget_recovery_ids:
+        opening_payload["nugget_recovery"] = True
+        opening_payload["nugget_ids"] = [
+            str(x) for x in (chosen.get("nugget_ids") or nugget_recovery_ids) if x
+        ]
+    out["opening_orientation"] = opening_payload
+    if nugget_recovery_ids:
+        out["orientation_nugget_recovery"] = {
+            "nugget_ids": nugget_recovery_ids,
+            "forced_synthetic": force_synthetic_for_nuggets,
+        }
     return out, actions
 
 

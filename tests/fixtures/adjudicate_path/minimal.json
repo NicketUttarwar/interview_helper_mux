@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Minimal synthetic VO adjudicate path fixture (13B CI)",
+  "run_meta": {
+    "homunculus_version": "0.1.0",
+    "homunculus_kind": "homunculus"
+  },
+  "understanding/gap_report.json": {
+    "interviewer_lines": [
+      {
+        "line_id": "vo_fixture_layup",
+        "gap_type": "nugget_layup",
+        "text": "Before we hear the pivot, one snack insight sets up the buyer pause.",
+        "targets_segment_id": "seg_002",
+        "placement": "before",
+        "delivery": "synthesize",
+        "nugget_ids": ["nug_fixture_001"],
+        "forward_unlock": "Why the buyer paused"
+      }
+    ]
+  },
+  "understanding/nugget_corpus.json": {
+    "nuggets": [
+      {
+        "nugget_id": "nug_fixture_001",
+        "text_claim": "Snack insight",
+        "evidence_quote": "as a snack",
+        "salience": "high",
+        "in_selection": false
+      }
+    ]
+  },
+  "understanding/nugget_layup_plan.json": {
+    "rows": [
+      {
+        "target_segment_id": "seg_002",
+        "selected_nugget_ids": ["nug_fixture_001"],
+        "action": "layup"
+      }
+    ],
+    "coverage": {"nugget_air_ratio": 0.72}
+  }
+}

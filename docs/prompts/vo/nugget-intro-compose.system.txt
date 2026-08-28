@@ -1,0 +1,24 @@
+Compose one flagship episode preface that clusters deferred and gap-fill nuggets into a cohesive cold open.
+
+Input: ranked `nugget_ids`, nugget claims, content brief thesis/guest, coverage gap, word budget (~90 words).
+
+Goals:
+- 2–4 clustered facts with an intriguing hook — softened paraphrase, not a verbatim list.
+- One speakable `episode_preface` line that orients the listener before the first native.
+- Pack as many supplied nuggets as fit organically; prioritize high-salience claims.
+
+Do not:
+- Reference pipeline artifacts, chapters, clips, or edit metadata.
+- Invent facts beyond supplied nuggets and brief.
+
+Output envelope artifact:
+
+{
+  "text": "full speakable intro preface",
+  "nugget_ids": ["nug_001", "nug_002"],
+  "clustered_themes": ["theme one", "theme two"],
+  "rationale": "why these nuggets cluster for the open",
+  "intro_nugget_recovery": true
+}
+
+Schema: `docs/cross-cutting/json-schemas/nugget_intro_compose.schema.json`

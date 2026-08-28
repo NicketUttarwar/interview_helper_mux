@@ -160,6 +160,10 @@ def test_vo_ingest_reads_pickup_from_final_path_during_staging(
         "interview_mux.config.merged_config",
         lambda: {"mix": {"normalize_vo_pickup": False}},
     )
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
     enter_stage_staging("vo_ingest")
     try:
         assert not ctx.path("vo_pickup", "line_001.wav").is_file()

@@ -1,6 +1,7 @@
 import type { OperatorPhase, PipelineSubTab, RunData, StageInfo } from "../types";
 import {
   findPendingFocusStage,
+  gateFocusStageId,
 } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
@@ -126,21 +127,26 @@ export function listAttentionItems(
     }
   }
 
-  if (job?.status === "gate" && job.stage) {
-    const stage = run.stages.find((s) => s.id === job.stage);
+  if (job?.status === "gate") {
+    const gateStage = gateFocusStageId(job) || job.stage;
+    if (!gateStage) {
+      /* fall through */
+    } else {
+    const stage = run.stages.find((s) => s.id === gateStage);
     if (stage) push(gateItem(run, stage, job.message));
     else {
       push({
         kind: "gate",
         priority: 1,
-        stageId: job.stage,
-        stageTitle: job.stage.replace(/_/g, " "),
+        stageId: gateStage,
+        stageTitle: gateStage.replace(/_/g, " "),
         title: "Checkpoint required",
         message: job.message || "Action required before the pipeline can continue.",
-        primaryLabel: checkpointPrimaryLabel(job.stage, "gate"),
+        primaryLabel: checkpointPrimaryLabel(gateStage, "gate"),
         phase: run.journey?.phase ?? "prepare",
         subTab: "stage",
       });
+    }
     }
   }
 

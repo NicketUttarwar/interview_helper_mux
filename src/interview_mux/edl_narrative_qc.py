@@ -852,17 +852,47 @@ def validate_flow1_edl_narrative(
     if ctx.artifact_exists("master/air_order_integrity.json"):
         try:
             integrity = ctx.read_json("master/air_order_integrity.json")
+            stale_critical: list[dict[str, Any]] = []
             if isinstance(integrity, dict) and not integrity.get("ok"):
-                critical = [
+                stale_critical = [
                     v
                     for v in (integrity.get("violations") or [])
                     if isinstance(v, dict) and str(v.get("severity") or "") == "critical"
                 ]
-                if critical:
+            if stale_critical:
+                from interview_mux.air_order_integrity import collect_violations
+                from interview_mux.air_order_policy import resolve_air_order_policy
+
+                selection_live = (
+                    ctx.read_json("master/selection.json")
+                    if ctx.artifact_exists("master/selection.json")
+                    else {}
+                )
+                policy = resolve_air_order_policy(
+                    ctx,
+                    selection=selection_live if isinstance(selection_live, dict) else None,
+                )
+                live_critical = [
+                    v
+                    for v in collect_violations(
+                        ctx,
+                        selection_live if isinstance(selection_live, dict) else {},
+                        policy=policy,
+                    )
+                    if isinstance(v, dict) and str(v.get("severity") or "") == "critical"
+                ]
+                if not live_critical:
+                    ctx.log(
+                        "air_order_integrity stale report ignored — live audit passed",
+                        level="info",
+                        stage="edl_narrative_qc",
+                    )
+                else:
                     errors.append(
                         "air_order_integrity unresolved critical: "
                         + "; ".join(
-                            str(v.get("message") or v.get("code") or "") for v in critical[:3]
+                            str(v.get("message") or v.get("code") or "")
+                            for v in live_critical[:3]
                         )
                     )
         except Exception:

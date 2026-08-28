@@ -215,7 +215,10 @@ def finalize_selection_order(
     )
     ctx.write_json("master/story_health.json", health, stage_key=stage)
 
-    violations = collect_violations(ctx, artifacts)
+    from interview_mux.air_order_policy import resolve_air_order_policy
+
+    policy = resolve_air_order_policy(ctx, selection=artifacts)
+    violations = collect_violations(ctx, artifacts, policy=policy)
     integrity_actions: list[dict[str, Any]] = []
     if write_integrity_report:
         write_air_order_integrity_report(
@@ -224,6 +227,7 @@ def finalize_selection_order(
             actions=integrity_actions,
             stage=stage,
             repaired=True,
+            resolved_policy=policy,
         )
 
     should_block = block_ranking_on_critical() if block_on_critical is None else block_on_critical
@@ -938,8 +942,8 @@ def run_transitions(ctx: RunContext) -> None:
                 sel_order = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
         pos = {sid: idx for idx, sid in enumerate(sel_order)}
         opening_ids = opening_tape_segment_ids(sel_order, starts) if sel_order else set()
-        margin = reverse_jump_margin_ms()
-        body_start = opening_body_start_index()
+        margin = reverse_jump_margin_ms(ctx=c)
+        body_start = opening_body_start_index(ctx=c)
         kept_transitions: list[dict[str, Any]] = []
         for row in artifacts.get("transitions") or []:
             if not isinstance(row, dict):

@@ -58,6 +58,16 @@
       "consumers": [],
       "has_write_validator": false
     },
+    "understanding/framing_posture_decision.json": {
+      "schemas_by_producer": {
+        "framing_posture_decide": "framing_posture_decision.schema.json"
+      },
+      "producers": [
+        "framing_posture_decide"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
     "segments/boundaries.json": {
       "schemas_by_producer": {
         "boundary_detection": "boundaries_artifact.schema.json",
@@ -265,6 +275,16 @@
       "consumers": [
         "edl_narrative_audit"
       ],
+      "has_write_validator": true
+    },
+    "understanding/vo_line_adjudication.json": {
+      "schemas_by_producer": {
+        "vo_line_adjudicate": "vo_line_adjudication_artifact.schema.json"
+      },
+      "producers": [
+        "vo_line_adjudicate"
+      ],
+      "consumers": [],
       "has_write_validator": true
     },
     "mastering/vo_synthesize.json": {

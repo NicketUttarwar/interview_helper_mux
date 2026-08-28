@@ -418,6 +418,34 @@ def stage_tool_specs() -> list[ToolSpec]:
                 identity="invalidate_downstream",
             ),
             ToolSpec(
+                name="resolve_stage_plan",
+                description=(
+                    "ADG-backed plan for a target stage: blockers, prereq_chain, "
+                    "invalidate_set, recommended_next."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {"stage": {"type": "string"}},
+                    "required": ["stage"],
+                },
+                kind="host",
+                identity="resolve_stage_plan",
+            ),
+            ToolSpec(
+                name="rerun_with_impact",
+                description=(
+                    "Invalidate downstream from a stage plus ADG transitive consumers (8A). "
+                    "Prefer over blind invalidate when adjudicate or gap text mutates."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {"stage": {"type": "string"}},
+                    "required": ["stage"],
+                },
+                kind="host",
+                identity="rerun_with_impact",
+            ),
+            ToolSpec(
                 name="axis_select",
                 description="Choose source axes and fact IDs for the next packed volley.",
                 parameters={

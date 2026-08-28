@@ -90,6 +90,12 @@
       "edl_narrative_audit": {
         "tier": "flagship"
       },
+      "vo_line_adjudicate": {
+        "tier": "economy"
+      },
+      "nugget_intro_compose": {
+        "tier": "flagship"
+      },
       "transitions": {
         "tier": "flagship"
       },
@@ -1211,7 +1217,8 @@
     "nugget_layup": {
       "enabled": true,
       "require_layup_per_native": true,
-      "min_layup_coverage": 0.55,
+      "min_layup_coverage": 0.70,
+      "min_nugget_air_coverage": 0.85,
       "min_layup_words": 18,
       "max_layup_words": 90,
       "prefer_excluded_nuggets": true,
@@ -1246,6 +1253,13 @@
       "allowed_delivery": ["chatterbox", "record"],
       "synthesis_backend": "chatterbox",
       "fallback_backend": "mlx_audio",
+      "adjudicate_before_synth": true,
+      "adjudicate_batch_size": 5,
+      "adjudicate_llm_tier": "economy",
+      "adjudicate_fail_open": false,
+      "adjudicate_flow_threshold": 0.55,
+      "full_resynth_on_adjudicate_change": true,
+      "intro_compose_llm_tier": "flagship",
       "max_reference_candidates": 5,
       "target_reference_sec": 10.0,
       "min_reference_sec": 3.0,
@@ -1494,9 +1508,22 @@
     },
     "air_order_integrity": {
       "opening_window_ms": 180000,
+      "opening_window_ratio": 0.05,
+      "opening_window_min_ms": 90000,
+      "opening_window_max_ms": 300000,
       "opening_air_slots": 6,
+      "opening_air_slots_min": 4,
+      "opening_air_slots_max": 12,
       "opening_body_start_index": 3,
+      "opening_body_start_index_min": 2,
+      "opening_body_start_index_max": 6,
+      "opening_body_start_index_long_tier_bump": 0,
       "reverse_jump_margin_ms": 300000,
+      "reverse_jump_margin_ratio": 0.083,
+      "reverse_jump_margin_min_ms": 120000,
+      "reverse_jump_margin_max_ms": 600000,
+      "count_opening_by_family": true,
+      "fragmentation_extra_slots": 2,
       "block_ranking_on_critical": false,
       "block_publish_on_critical": true,
       "invalidate_edl_on_order_change": true,

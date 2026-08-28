@@ -14,8 +14,8 @@ outputs:
   staging: true
 inputs:
   hard:
-  - path: master/narrative_plan.json
-    producer: narrative_arc_plan
+  - path: analysis/connector_fuse_rounds.json
+    producer: connector_fuse_pass_pre_ranking
   soft: []
 sufficiency:
 - path: ranked_segments

@@ -17,6 +17,13 @@ from interview_mux.prompt_validation import validate_edl
 from interview_mux.run_context import RunContext
 
 
+def _commit_edl_gap_report(ctx: RunContext, gap_report: dict) -> None:
+    """Persist gap_report to the committed tree during EDL staging (glue promote contract)."""
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, "understanding/gap_report.json", gap_report, stage_key="edl")
+
+
 def _segment_by_id(ctx: RunContext) -> dict[str, dict]:
     return segments_by_id_with_nle(ctx)
 
@@ -36,7 +43,14 @@ def _wav_duration_ms(path: Path) -> int:
         label=f"ffprobe duration {path.name}",
         capture_output=True,
     )
-    return max(0, int(float(proc.stdout.strip()) * 1000))
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        raise RuntimeError(f"edl: unreadable VO duration: {path}")
+    try:
+        seconds = float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"edl: unreadable VO duration: {path}") from exc
+    return max(0, int(seconds * 1000))
 
 
 def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
@@ -1077,6 +1091,10 @@ def run_edl(ctx: RunContext) -> None:
                 stage="edl",
                 detail=completeness.get("missing", [])[:6],
             )
+
+    from interview_mux.air_order_integrity import audit_and_report
+
+    audit_and_report(ctx, stage="edl", repair=False)
 
     with logged_step("edl/synthesize_transitions", ctx=ctx, stage="edl"):
         from interview_mux.transition_vo import (

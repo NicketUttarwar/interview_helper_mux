@@ -4046,8 +4046,8 @@ def prune_reverse_jump_transitions(
     order = [str(s) for s in (ordered or []) if s]
     pos = {sid: idx for idx, sid in enumerate(order)}
     opening_ids = opening_tape_segment_ids(order, starts)
-    margin = reverse_jump_margin_ms()
-    body_start = opening_body_start_index()
+    margin = reverse_jump_margin_ms(ctx=ctx)
+    body_start = opening_body_start_index(ctx=ctx)
     kept: list[dict[str, Any]] = []
     pruned = 0
     for item in items:

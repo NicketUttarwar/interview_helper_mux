@@ -30,6 +30,7 @@ import type {
   TranscriptReviewState,
   ToastLevel,
 } from "../types";
+import { isPartialAcceleratedRun } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 import { applyLiveJobToStages, isJobActivelyRunning } from "../utils/jobStatus";
 import { preferFresherLogTail } from "../utils/logStreams";
@@ -85,6 +86,8 @@ import {
 } from "../utils/transcriptReuseEditGate";
 import { clampPipelineSubTab } from "../utils/pipelineSubTabAvailability";
 import { navigatePipelineSubTab as navigatePipelineSubTabUtil } from "../utils/navigatePipelineSubTab";
+import { usePartialAutoGPublish } from "../hooks/usePartialAutoGPublish";
+import { usePartialAutoRunWatch } from "../hooks/usePartialAutoRunWatch";
 import { setRunState } from "./runStateStore";
 import { JobProvider } from "./providers/JobProvider";
 import { RunProvider } from "./providers/RunProvider";
@@ -161,7 +164,7 @@ interface AppContextValue {
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
   startRun: (inputPath: string) => Promise<void>;
   startRunMode: "manual" | "full-auto" | "partially-accelerated";
-  setStartRunMode: (mode: "manual" | "full-auto") => void;
+  setStartRunMode: (mode: "manual" | "full-auto" | "partially-accelerated") => void;
   homunculusVersion: string;
   setHomunculusVersion: (version: string) => void;
   homunculusBrains: HomunculusBrainInfo[];
@@ -224,7 +227,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [run, setRun] = useState<RunData | null>(null);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
-  const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto" | "partially-accelerated">("manual");
+  const [startRunMode, setStartRunMode] = useState<"manual" | "full-auto" | "partially-accelerated">(
+    "partially-accelerated",
+  );
   const [homunculusVersion, setHomunculusVersionState] = useState("0.1.0");
   const brainTouchedRef = useRef(false);
   const setHomunculusVersion = useCallback((version: string) => {
@@ -880,8 +885,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ? [
         run.job?.status ?? "",
         run.job?.stage ?? "",
+        run.job?.message ?? "",
+        run.transcript_review_pending ? "g0" : "",
         run.journey?.blocking?.reason ?? "",
         run.journey?.blocking?.stage_id ?? "",
+        run.blocking?.reason ?? "",
+        run.blocking?.stage_id ?? "",
         resolveOperatorFocusStageId(run, apiGrants) ?? "",
         run.stages.map((s) => `${s.id}:${s.status}`).join("|"),
         run.handoff_ack ? Object.keys(run.handoff_ack).sort().join(",") : "",
@@ -1950,8 +1959,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
       });
       showToast("Transcript review complete");
-      await refreshRun();
-      await advanceFromCheckpoint();
+      const refreshed = await refreshRun();
+      // Partial-auto: detached driver resumes analysis — do not launch a competing job.
+      if (!isPartialAcceleratedRun(refreshed)) {
+        await advanceFromCheckpoint();
+      }
     },
     [runId, showToast, refreshRun, advanceFromCheckpoint],
   );
@@ -2202,7 +2214,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apiGrants: mergedApiGrants(),
     }).stageId;
     return Boolean(focusId && selectedStageId !== focusId);
-  }, [pinnedStageId, run, selectedStageId, jobRunning]);
+  }, [refreshRun, navigateToOperatorFocus]);
+
+  const partialAutoGPublish = usePartialAutoGPublish(run);
+  usePartialAutoRunWatch({
+    run,
+    runId,
+    gPublish: partialAutoGPublish,
+    refreshRun,
+    navigateToOperatorFocus,
+    selectStage,
+    setActiveTab,
+    setJobRunning,
+    sessionStale,
+  });
 
   const value: AppContextValue = {
     activeTab,

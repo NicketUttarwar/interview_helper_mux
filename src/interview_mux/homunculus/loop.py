@@ -214,14 +214,17 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
 
         return build_speaker_dossier(ctx)
     if name == "skip_stage":
-        from interview_mux.homunculus.agenda import skip_stage
+        from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
 
-        return skip_stage(
-            ctx,
-            str(args.get("stage") or ""),
-            reason=str(args.get("reason") or "conductor"),
-            compensating_fact=str(args["compensating_fact"]) if args.get("compensating_fact") else None,
-        )
+        try:
+            return skip_stage(
+                ctx,
+                str(args.get("stage") or ""),
+                reason=str(args.get("reason") or "conductor"),
+                compensating_fact=str(args["compensating_fact"]) if args.get("compensating_fact") else None,
+            )
+        except HollowSkipBlockedError as exc:
+            return exc.payload
     if name == "schedule_stage":
         from interview_mux.homunculus.agenda import schedule_stage
 
@@ -247,6 +250,14 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
         from interview_mux.homunculus.agenda import invalidate_downstream
 
         return invalidate_downstream(ctx, str(args.get("stage") or ""))
+    if name == "resolve_stage_plan":
+        from interview_mux.homunculus.agenda import resolve_stage_plan
+
+        return resolve_stage_plan(ctx, str(args.get("stage") or ""))
+    if name == "rerun_with_impact":
+        from interview_mux.homunculus.agenda import rerun_with_impact
+
+        return rerun_with_impact(ctx, str(args.get("stage") or ""))
     if name == "heal_air_order_integrity":
         from interview_mux.homunculus.agenda import heal_air_order_integrity
 
@@ -305,14 +316,19 @@ def run_conductor(
     """Conductor tool loop. Tests inject a stub client."""
     from interview_mux.homunculus.budget import remaining_conductor_turns
     from interview_mux.homunculus.prompts import load_conductor_system
+    from interview_mux.homunculus.packer import pack_conductor_context
 
     specs = [s for s in spec_by_name().values() if s.kind in {"stage", "host", "llm", "operator_action"}]
     # Keep tools array bounded: stages + core host tools.
     core = [s for s in specs if not s.name.startswith("gui_") and s.kind != "prompt"]
     tools = openai_tools_payload(core)
+    context_blob = pack_conductor_context(ctx)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": load_conductor_system()},
-        {"role": "user", "content": user_message},
+        {
+            "role": "user",
+            "content": f"{context_blob}\n\n--- operator task ---\n{user_message}",
+        },
     ]
     turns = 0
     cap = max_turns if max_turns is not None else remaining_conductor_turns(ctx)

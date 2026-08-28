@@ -1,0 +1,103 @@
+import { useEffect, useRef } from "react";
+import type { RunData } from "../types";
+import {
+  isPartialAcceleratedRun,
+  isPartialAutoCheckpoint,
+} from "../utils/partialAcceleratedGuard";
+import { isJobActivelyRunning } from "../utils/jobStatus";
+import type { PartialAutoGPublishState } from "../utils/partialAcceleratedGuard";
+
+const POLL_MS = 2000;
+
+/** Keep run snapshot fresh and auto-open operator checkpoints during partial-auto. */
+export function usePartialAutoRunWatch(opts: {
+  run: RunData | null;
+  runId: string | null;
+  gPublish: PartialAutoGPublishState | null;
+  refreshRun: () => Promise<RunData | null>;
+  navigateToOperatorFocus: (runOverride?: RunData | null) => Promise<boolean>;
+  selectStage: (stageId: string) => void | Promise<void>;
+  setActiveTab: (tab: string) => void;
+  setJobRunning: (running: boolean) => void;
+  sessionStale: boolean;
+}) {
+  const {
+    run,
+    runId,
+    gPublish,
+    refreshRun,
+    navigateToOperatorFocus,
+    selectStage,
+    setActiveTab,
+    setJobRunning,
+    sessionStale,
+  } = opts;
+  const lastCheckpointKeyRef = useRef("");
+
+  const partialActive =
+    Boolean(runId) &&
+    isPartialAcceleratedRun(run) &&
+    run?.meta?.partial_auto_complete !== true;
+
+  useEffect(() => {
+    lastCheckpointKeyRef.current = "";
+  }, [runId]);
+
+  useEffect(() => {
+    if (!partialActive || !runId || sessionStale) return;
+
+    let cancelled = false;
+
+    const tick = async () => {
+      const refreshed = await refreshRun();
+      if (cancelled || !refreshed) return;
+
+      setJobRunning(isJobActivelyRunning(refreshed.job));
+
+      if (isJobActivelyRunning(refreshed.job)) return;
+      if (!isPartialAutoCheckpoint(refreshed, gPublish)) return;
+
+      const key = [
+        refreshed.transcript_review_pending ? "g0" : "",
+        refreshed.journey?.blocking?.reason ?? "",
+        refreshed.job?.status ?? "",
+        refreshed.job?.message ?? "",
+        gPublish?.pending && gPublish.package_ready ? "g_publish" : "",
+      ].join("|");
+      if (key === lastCheckpointKeyRef.current) return;
+      lastCheckpointKeyRef.current = key;
+
+      const gPublishCheckpoint =
+        Boolean(gPublish?.pending && gPublish.package_ready && !gPublish.skipped);
+      if (gPublishCheckpoint) {
+        setActiveTab("pipeline");
+        await selectStage("podcast_publish");
+        return;
+      }
+
+      await navigateToOperatorFocus(refreshed);
+    };
+
+    void tick();
+    const timer = window.setInterval(() => {
+      void tick();
+    }, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    partialActive,
+    runId,
+    sessionStale,
+    refreshRun,
+    navigateToOperatorFocus,
+    selectStage,
+    setActiveTab,
+    setJobRunning,
+    gPublish?.pending,
+    gPublish?.package_ready,
+    gPublish?.skipped,
+  ]);
+}

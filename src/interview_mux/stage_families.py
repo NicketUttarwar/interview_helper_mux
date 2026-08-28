@@ -1,4 +1,4 @@
-"""Stage-family adapters for the resilience runtime (all 67 pipeline stages)."""
+"""Stage-family adapters for the resilience runtime (all 69 pipeline stages)."""
 
 from __future__ import annotations
 
@@ -25,12 +25,14 @@ _PREPARE = frozenset(
 )
 _FRAMING = frozenset(
     {
+        "framing_posture_decide",
         "missing_framing",
         "mastering_plan_confirm",
         "gap_framing_compose",
         "gap_framing_recompose",
         "selection_framing_apply",
         "sound_design_vo_finalize",
+        "vo_line_adjudicate",
     }
 )
 _SELECTION = frozenset(

@@ -442,6 +442,39 @@ def _check_mmaudio_sfx(ctx: RunContext) -> list[StageInputIssue]:
     return issues
 
 
+def _check_edl_narrative_audit(ctx: RunContext) -> list[StageInputIssue]:
+    issues: list[StageInputIssue] = []
+    if not ctx.is_done("vo_synthesize"):
+        issues.append(
+            StageInputIssue(
+                "vo_synthesize not complete — EDL narrative audit requires heard WAV flow (5C).",
+                "Run vo_line_adjudicate then vo_synthesize before edl_narrative_audit.",
+            )
+        )
+    synth_missing = compact_vo_coverage_stale_or_missing(ctx)
+    if synth_missing:
+        issues.append(
+            StageInputIssue(
+                f"VO coverage not rendered: {synth_missing[:4]}",
+                "Re-run vo_synthesize after adjudicate text is final.",
+            )
+        )
+    return issues
+
+
+def compact_vo_coverage_stale_or_missing(ctx: RunContext) -> list[str]:
+    from interview_mux.stages.edl_narrative_audit import compact_vo_coverage
+
+    missing: list[str] = []
+    for row in compact_vo_coverage(ctx):
+        if not isinstance(row, dict):
+            continue
+        cov = str(row.get("coverage") or "")
+        if cov in {"missing", "wav_stale"} and row.get("required"):
+            missing.append(str(row.get("line_id") or ""))
+    return [x for x in missing if x]
+
+
 def _check_edl(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
     for rel, remediation in (
@@ -644,6 +677,7 @@ _LLM_STAGES = frozenset(
         "sound_design_plan_flow2",
         "sfx_prompt_craft",
         "edl_narrative_audit",
+        "vo_line_adjudicate",
         "podcast_show_description",
     }
 )
@@ -666,4 +700,5 @@ _STAGE_CHECKERS: dict[str, Callable[[RunContext], list[StageInputIssue]]] = {
     "master_transcript_build": _check_master_transcript_build,
     "mmaudio_sfx": _check_mmaudio_sfx,
     "edl": _check_edl,
+    "edl_narrative_audit": _check_edl_narrative_audit,
 }

@@ -16,6 +16,7 @@ ideal_cuts_materialize,understand,process,ideal_cuts.py,yes,talking-points-first
 boundary_detection,understand,llm,stages/segmentation.py,yes,skipped when ideal-cuts bound
 segment_classification,understand,llm,stages/segmentation.py,yes,deterministic when ideal-cuts bound
 content_brief_reanchor,understand,llm,stages/understanding.py,yes,
+framing_posture_decide,understand,llm,stages/framing_posture_decide.py,yes,homunculus 0.1.0+ only; advisory Layer-1 posture before G-Framing
 boundary_topic_resplit,understand,llm,stages/segmentation.py,yes,skipped when ideal-cuts bound
 vernacular_segment_sanitize,understand,non_llm,stages/audio_probes.py,yes,N-way vernacular sub-segmentation
 low_conf_island_scan,understand,non_llm,stages/low_conf_fuse_stages.py,yes,Low-conf ladder + density top-decile must_keep
@@ -55,9 +56,9 @@ transitions_refine,plan_rank,non_llm,refinement_passes.py,legacy,removed from DE
 sound_design_plan,sound,llm,stages/sound_design_stages.py,yes,
 sdp_intent_refine,sound,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
 sound_design_vo_finalize,sound,non_llm,stages/sound_design_vo_finalize.py,yes,
-edl_narrative_audit,build,llm,stages/edl_narrative_audit.py,yes,
-edl_narrative_refine,build,non_llm,refinement_passes.py,legacy,removed from DELIVERY_ORDER
+vo_line_adjudicate,sound,llm,stages/vo_line_adjudicate.py,yes,homunculus 0.1.0+ only; smart per-line adjudicate before synth (5C)
 vo_synthesize,build,non_llm,stages/vo_synthesize.py,yes,current-pair transition WAVs + remaining synthesize gap lines
+edl_narrative_audit,build,llm,stages/edl_narrative_audit.py,yes,after vo_synthesize — hears WAV flow (5C)
 edl,build,non_llm,stages/assembly.py,yes,
 assembly_preview,build,non_llm,stages/assembly.py,yes,speech+VO preview
 listen_delight_audit,build,non_llm,listen_delight.py,yes,authoritative ship gate
@@ -73,4 +74,4 @@ episode_cover_prompt_craft,ship,llm,stages/podcast_publish.py,yes,G-Publish prep
 podcast_encode_mp3,ship,non_llm,stages/podcast_publish.py,yes,stereo mp3 + master copy
 episode_cover_generate,ship,non_llm,stages/podcast_publish.py,yes,OpenAI Images + vision pick
 podcast_publish,ship,non_llm,stages/podcast_publish.py,yes,local package_ready.json — no S3
-g_publish,ship,gate,web/server.py,yes,optional prepare/sync/skip (not a pipeline stage). Brains: 0.1.0 homunculus is default (latest registered) and selects the same stage_ids as tools; 0.0.0 remains the linear walk — docs/cross-cutting/mastering-homunculus.md. Terraform/AWS CLI/bootstrap/pytest are not tools.
+g_publish,ship,gate,web/server.py,yes,optional prepare/sync/skip (not a pipeline stage). Brains: 0.1.0 homunculus is default (latest registered) and selects the same stage_ids as tools; 0.0.0 remains the linear walk without framing_posture_decide / vo_line_adjudicate — docs/cross-cutting/mastering-homunculus.md. Terraform/AWS CLI/bootstrap/pytest are not tools.

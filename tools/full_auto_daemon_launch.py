@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Launch long-running Full-auto processes detached from the parent session (macOS-safe)."""
+"""Launch long-running Full-auto processes detached from the parent session (macOS-safe).
+
+Keepalive is opt-in. It is not started by GUI Full-auto, ``run.sh --full-auto``,
+or ``python tools/full_auto_daemon_launch.py`` / ``e2e`` unless requested:
+
+  MUX_KEEPALIVE=1
+  python tools/full_auto_daemon_launch.py keepalive
+  python tools/full_auto_daemon_launch.py e2e --keepalive
+"""
 
 from __future__ import annotations
 
@@ -31,6 +39,12 @@ def web_port() -> int:
             return int(os.environ.get("MUX_WEB_PORT") or 8765)
         except ValueError:
             return 8765
+
+
+def env_keepalive_requested() -> bool:
+    """True when the operator opted into the Full-auto crash-restart watchdog."""
+    raw = str(os.environ.get("MUX_KEEPALIVE") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def health_url() -> str:
@@ -262,7 +276,7 @@ def launch_partial_auto_for_run(
         keep_gui_server=keep_gui_server,
         partial_auto=True,
     )
-    ka_pid = ensure_keepalive(keep_gui_server=keep_gui_server)
+    ka_pid = maybe_ensure_keepalive(keep_gui_server=keep_gui_server)
     return {
         "ok": True,
         "run_id": rid,
@@ -298,8 +312,7 @@ def launch_full_auto_for_run(
         input_audio=audio,
         keep_gui_server=keep_gui_server,
     )
-    # Optional keepalive so a crashed driver is resumed for this run.
-    ka_pid = ensure_keepalive(keep_gui_server=keep_gui_server)
+    ka_pid = maybe_ensure_keepalive(keep_gui_server=keep_gui_server)
     return {
         "ok": True,
         "run_id": rid,
@@ -308,6 +321,13 @@ def launch_full_auto_for_run(
         "console_log": str(E2E_CONSOLE.relative_to(ROOT)),
         "keep_gui_server": keep_gui_server,
     }
+
+
+def maybe_ensure_keepalive(*, keep_gui_server: bool = False) -> int | None:
+    """Start keepalive only when MUX_KEEPALIVE is set. Default is off."""
+    if not env_keepalive_requested():
+        return None
+    return ensure_keepalive(keep_gui_server=keep_gui_server)
 
 
 def ensure_keepalive(*, keep_gui_server: bool = False) -> int | None:
@@ -474,6 +494,40 @@ def shutdown_full_auto_stack(
 shutdown_baba_stack = shutdown_full_auto_stack
 
 
+def resolve_launch_modes(args: list[str], *, keepalive_from_env: bool | None = None) -> set[str]:
+    """Modes to start. Keepalive is never implied by ``all`` / empty argv."""
+    run_id = None
+    input_audio = None
+    for i, arg in enumerate(args):
+        if arg == "--run-id" and i + 1 < len(args):
+            run_id = args[i + 1]
+        if arg == "--input" and i + 1 < len(args):
+            input_audio = args[i + 1]
+    skip = {
+        "--fresh",
+        "--run-id",
+        "--restart-server",
+        "--force-e2e",
+        "--input",
+        "--keepalive",
+        run_id,
+        input_audio,
+    }
+    modes = {a for a in args if a not in skip and not a.startswith("--")}
+    if "stop" in modes or "shutdown" in modes:
+        return modes
+    if not modes or "all" in modes:
+        modes = {"server", "e2e"}
+    want_keepalive = "--keepalive" in args
+    if keepalive_from_env is None:
+        want_keepalive = want_keepalive or env_keepalive_requested()
+    else:
+        want_keepalive = want_keepalive or bool(keepalive_from_env)
+    if want_keepalive:
+        modes.add("keepalive")
+    return modes
+
+
 def main() -> int:
     args = sys.argv[1:]
     run_id = None
@@ -486,22 +540,11 @@ def main() -> int:
     fresh = "--fresh" in args
     restart_server = "--restart-server" in args
     force_e2e = "--force-e2e" in args or restart_server or bool(run_id)
-    skip = {
-        "--fresh",
-        "--run-id",
-        "--restart-server",
-        "--force-e2e",
-        "--input",
-        run_id,
-        input_audio,
-    }
-    modes = {a for a in args if a not in skip and not a.startswith("--")}
+    modes = resolve_launch_modes(args)
     if "stop" in modes or "shutdown" in modes:
         info = shutdown_full_auto_stack()
         print(f"shutdown={info}")
         return 0
-    if not modes or "all" in modes:
-        modes = {"server", "e2e", "keepalive"}
 
     if "server" in modes:
         pid = ensure_server(force_restart=restart_server)

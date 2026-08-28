@@ -352,6 +352,29 @@
       }
     ]
   },
+  "framing_posture_decide": {
+    "recommended_framing": "sparse",
+    "posture_hint": "framing_sparse",
+    "rationale_plain": "Sparse host bridges would help topic jumps without over-framing.",
+    "reason_codes": ["hosted_one_on_one"],
+    "signals_summary": {"speaker_change_rate": 0.5},
+    "decided_by": "llm_advisory",
+    "advisory_only": true
+  },
+  "vo_line_adjudicate": {
+    "lines": [
+      {
+        "line_id": "vo_layup_seg_002",
+        "action": "air",
+        "final_text": "Before we hear how the buyer reacted, one detail sets up the pivot.",
+        "target_segment_id": "seg_002",
+        "nugget_ids": ["nug_001"],
+        "flow_rationale": "Bridge unlocks the native clip without restating it.",
+        "input_hash": "fixture-adj-hash"
+      }
+    ],
+    "batch_count": 1
+  },
   "sfx_brief": {
     "transitions": []
   }

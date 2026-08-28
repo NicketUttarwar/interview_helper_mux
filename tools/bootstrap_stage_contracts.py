@@ -103,6 +103,11 @@ _LLM_DEFAULT_SUFFICIENCY: dict[str, list[dict]] = {
     # nuggets), so the rule is presence of the collection, not a row floor.
     "nugget_corpus_mine": [{"path": "nuggets", "rule": "min_rows", "min_count": 0}],
     "nugget_layup_compose": [{"path": "layups", "rule": "min_rows", "min_count": 0}],
+    "framing_posture_decide": [
+        {"path": "recommended_framing", "rule": "non_empty_string", "blocking": "progression"},
+        {"path": "posture_hint", "rule": "non_empty_string", "blocking": "progression"},
+    ],
+    "vo_line_adjudicate": [{"path": "lines", "rule": "min_rows", "min_count": 0}],
     "air_script_compose": [{"path": "air_script.beats", "rule": "min_rows", "min_count": 0}],
     "air_script_seams": [{"path": "air_script.beats", "rule": "min_rows", "min_count": 0}],
     "episode_meta_build": [{"path": "title", "rule": "non_empty_string", "min_length": 1}],

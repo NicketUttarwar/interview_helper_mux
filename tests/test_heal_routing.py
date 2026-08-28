@@ -10,6 +10,7 @@ from interview_mux.heal_routing import (
     FAMILY_MIX_WAV_SEATED,
     FAMILY_MIX_WITHOUT_ASSEMBLY,
     FAMILY_SPOKEN_COPY,
+    FAMILY_VO_ADJUDICATE_STALE,
     apply_heal_route,
     classify_heal_error,
     heal_is_halted,
@@ -59,7 +60,20 @@ def test_g1_missing_does_not_rewind_compose(tmp_path: Path) -> None:
     assert route is not None
     assert route.family == FAMILY_G1_MISSING
     assert route.from_stage != "nugget_layup_compose"
-    assert route.from_stage == "vo_synthesize"
+    assert route.from_stage == "vo_line_adjudicate"
+
+
+def test_vo_adjudicate_stale_routes_to_adjudicate(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "heal_adj")
+    route = classify_heal_error(
+        "vo_line_adjudication stale_script_hash before synth",
+        ctx,
+        stage="vo_synthesize",
+    )
+    assert route is not None
+    assert route.family == FAMILY_VO_ADJUDICATE_STALE
+    assert route.from_stage == "vo_line_adjudicate"
+    assert route.action == "rerun_adjudicate_synth"
 
 
 def test_g1_missing_skipped_gap_fill_is_not_a_block(tmp_path: Path) -> None:

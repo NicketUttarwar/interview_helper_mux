@@ -224,6 +224,13 @@ def prepare_edl_payload_for_disk(ctx: RunContext, rel: str, data: Any) -> Any:
     if not is_edl_rel(rel) or not isinstance(data, dict):
         return data
     cleaned, _cleared = sanitize_edl_source_paths(ctx, data, log=True)
+    clips = cleaned.get("clips") if isinstance(cleaned.get("clips"), list) else []
+    cleaned["clips"] = [
+        {k: v for k, v in clip.items() if v is not None}
+        if isinstance(clip, dict)
+        else clip
+        for clip in clips
+    ]
     return cleaned
 
 

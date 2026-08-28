@@ -125,7 +125,8 @@ def test_repair_then_commit_not_blocked(tmp_path: Path) -> None:
         ctx, selection, producer="full_master_ranking", mode="repair"
     )
     assert not result.critical_remaining
-    assert "seg_001c" not in (repaired.get("ordered_segment_ids") or [])
+    ordered = repaired.get("ordered_segment_ids") or []
+    assert ordered.index("seg_001c") < ordered.index("seg_003")
 
 
 def test_order_change_clears_transitions_stage_done(tmp_path: Path) -> None:

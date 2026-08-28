@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -68,11 +69,18 @@ def test_010_is_homunculus_run() -> None:
 
 def test_fourth_invoke_refused() -> None:
     ctx = _ctx_010()
+    import os
+    import time
 
     def _ok() -> None:
         dest = ctx.path("master/assembly.wav")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"RIFF")
+        edl = ctx.path("master/edl.json")
+        edl.write_text("{}", encoding="utf-8")
+        now = time.time()
+        os.utime(edl, (now - 10, now - 10))
+        os.utime(dest, (now, now))
         ctx.mark_done("mix", force=True)
 
     for _ in range(3):
@@ -1246,6 +1254,11 @@ def test_skip_source_topology_without_artifact_refused() -> None:
         {"topology_class": "one_on_one_asymmetric", "speaker_stats": [{"speaker_id": "spk_0"}]},
     )
     ctx.write_json("understanding/flow_adaptation.json", {"topology_class": "one_on_one_asymmetric"})
+    with pytest.raises(RuntimeError, match="speaker sample"):
+        skip_stage(ctx, "source_topology_build", reason="missing samples")
+    sample = ctx.path("understanding", "speaker_samples", "spk_0.wav")
+    sample.parent.mkdir(parents=True, exist_ok=True)
+    sample.write_bytes(b"RIFF" + b"\x00" * 64)
     doc = skip_stage(ctx, "source_topology_build", reason="already classified")
     assert "source_topology_build" in doc["skipped"]
     assert not ctx.is_done("source_topology_build")
@@ -2070,4 +2083,133 @@ def test_conductor_cap_uses_remaining_turns() -> None:
     out = run_conductor(ctx, user_message="hi", client=client)
     assert out["ok"] is True
     assert out["turns"] == 1
+
+
+def test_pack_conductor_context_includes_prereqs_and_readiness() -> None:
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_001",
+                    "speaker_role": "interviewee",
+                    "speaker_id": "spk_1",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["guest"],
+                    "start_ms": 0,
+                    "end_ms": 8000,
+                }
+            ]
+        },
+    )
+    from interview_mux.homunculus.packer import pack_conductor_context
+
+    blob = pack_conductor_context(ctx)
+    assert "delivery_analysis_prereqs" in blob
+    assert "resolve_stage_plan" in blob
+    assert "delivery_readiness" in blob
+    assert "source_topology_build" in blob
+
+
+def test_hollow_skip_blocked_returns_structured_payload() -> None:
+    from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
+
+    ctx = _ctx_010()
+    ctx.mark_done("vo_line_adjudicate", force=True)
+    with pytest.raises(HollowSkipBlockedError) as exc_info:
+        skip_stage(ctx, "vo_line_adjudicate", reason="conductor whim")
+    payload = exc_info.value.payload
+    assert payload["ok"] is False
+    assert payload["reason"] == "hollow_done"
+    assert payload["stage"] == "vo_line_adjudicate"
+    assert payload["action"] == "unmark_and_rerun_once"
+    assert "skip_stage" in payload["do_not"]
+    assert not ctx.is_done("vo_line_adjudicate")
+
+
+def test_hollow_skip_escalates_to_needs_operator() -> None:
+    from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
+
+    ctx = _ctx_010()
+    ctx.mark_done("framing_posture_decide", force=True)
+    with pytest.raises(HollowSkipBlockedError) as exc_info:
+        skip_stage(ctx, "framing_posture_decide", reason="first")
+    assert exc_info.value.payload["action"] == "unmark_and_rerun_once"
+    ctx.mark_done("framing_posture_decide", force=True)
+    with pytest.raises(HollowSkipBlockedError) as exc_info:
+        skip_stage(ctx, "framing_posture_decide", reason="second")
+    payload = exc_info.value.payload
+    assert payload["action"] == "needs_operator"
+    assert payload["attempt"] >= 2
+    assert ctx.artifact_exists("mastering/homunculus/plan.json")
+    meta = ctx.read_json("run_meta.json")
+    assert meta.get("needs_operator") is True
+
+
+def test_unmark_hollow_includes_new_stages() -> None:
+    from interview_mux.homunculus.agenda import unmark_hollow_delivery_producers
+
+    ctx = _ctx_010()
+    ctx.mark_done("vo_line_adjudicate", force=True)
+    cleared = unmark_hollow_delivery_producers(ctx, {"vo_line_adjudicate"})
+    assert "vo_line_adjudicate" in cleared
+    assert not ctx.is_done("vo_line_adjudicate")
+
+
+def test_order_change_invalidates_nugget_layup(tmp_path: Path) -> None:
+    from interview_mux.air_order_integrity import on_selection_order_changed
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "hom_order_inv")
+    layup = ctx.path("understanding", "nugget_layup_plan.json")
+    layup.parent.mkdir(parents=True, exist_ok=True)
+    layup.write_text(
+        json.dumps({"version": 1, "layups": [], "ordered_segment_ids": []}),
+        encoding="utf-8",
+    )
+    done = ctx.final_path(".stage_done", "nugget_layup_compose")
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    prev = {"ordered_segment_ids": ["seg_a", "seg_b"]}
+    cur = {"ordered_segment_ids": ["seg_b", "seg_a"]}
+    notes = on_selection_order_changed(ctx, source="test", previous=prev, current=cur)
+    assert "invalidated_downstream:nugget_layup_compose" in notes
+    assert not ctx.is_done("nugget_layup_compose")
+
+
+def test_homunculus_skip_stage_api_hollow_done(tmp_path, monkeypatch) -> None:
+    import shutil
+    from interview_mux.config import repo_root as real_repo_root
+    from interview_mux.web.server import create_app
+
+    shutil.copytree(real_repo_root() / "config", tmp_path / "config")
+    monkeypatch.setenv("INTERVIEW_MUX_ROOT", str(tmp_path))
+    assets = tmp_path / "ASSETS"
+    (assets / "input").mkdir(parents=True)
+    (assets / "executions").mkdir(parents=True)
+    (assets / "input" / "interview.wav").write_bytes(
+        b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00"
+        b"D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+    )
+    client = TestClient(create_app())
+    ok = client.post(
+        "/api/runs",
+        json={"input_audio_path": "ASSETS/input/interview.wav", "run_mode": "manual"},
+    )
+    assert ok.status_code == 200, ok.text
+    run_id = ok.json()["run_id"]
+    run_dir = assets / "executions" / run_id
+    done = run_dir / ".stage_done" / "vo_line_adjudicate"
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text("", encoding="utf-8")
+    resp = client.post(
+        f"/api/runs/{run_id}/homunculus/skip-stage",
+        json={"stage": "vo_line_adjudicate", "reason": "gui probe"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body.get("reason") == "hollow_done"
+    assert body.get("ok") is False
+    assert "operator_card" in body
 

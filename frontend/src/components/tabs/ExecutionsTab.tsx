@@ -52,10 +52,13 @@ function RunRow({
   const showLock = sessionLocked && !isActive;
   const attentionCount = r.attention_count ?? 0;
   const phaseLabel = r.operator_phase ? PHASE_LABELS[r.operator_phase] || r.operator_phase : null;
+  const haltPlan = r.homunculus_halt_plan;
   const blockedHint =
     r.blocking_message || r.next_action
       ? String(r.blocking_message || r.next_action).slice(0, 80)
-      : "";
+      : haltPlan?.recommended_next
+        ? `Halt: ${haltPlan.recommended_next}${haltPlan.blockers?.[0] ? ` — ${haltPlan.blockers[0].slice(0, 48)}` : ""}`
+        : "";
 
   return (
     <div

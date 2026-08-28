@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { usePartialAutoGPublish } from "../hooks/usePartialAutoGPublish";
 import { shouldShowAcceleratedRunOverlay } from "../utils/partialAcceleratedGuard";
@@ -5,8 +6,14 @@ import { shouldShowAcceleratedRunOverlay } from "../utils/partialAcceleratedGuar
 export function AcceleratedRunOverlay() {
   const { run, jobRunning, setActiveTab } = useApp();
   const gPublish = usePartialAutoGPublish(run);
-  const visible = shouldShowAcceleratedRunOverlay(run, gPublish, { jobRunning });
+  const [peeking, setPeeking] = useState(false);
+  const runId = run?.run_id;
 
+  useEffect(() => {
+    setPeeking(false);
+  }, [runId]);
+
+  const visible = shouldShowAcceleratedRunOverlay(run, gPublish, { jobRunning, peeking });
   if (!visible) return null;
 
   return (
@@ -29,7 +36,11 @@ export function AcceleratedRunOverlay() {
         <button
           type="button"
           className="btn ghost sm"
-          onClick={() => setActiveTab("logs")}
+          data-testid="accelerated-run-overlay-view-logs"
+          onClick={() => {
+            setPeeking(true);
+            setActiveTab("logs");
+          }}
         >
           View logs
         </button>

@@ -59,7 +59,8 @@ def nugget_layup_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "enabled": bool(block.get("enabled", True)),
         "require_layup_per_native": bool(block.get("require_layup_per_native", True)),
-        "min_layup_coverage": float(block.get("min_layup_coverage", 0.55)),
+        "min_layup_coverage": float(block.get("min_layup_coverage", 0.70)),
+        "min_nugget_air_coverage": float(block.get("min_nugget_air_coverage", 0.85)),
         "min_layup_words": int(block.get("min_layup_words", 18)),
         "max_layup_words": int(block.get("max_layup_words", 90)),
         "prefer_excluded_nuggets": bool(block.get("prefer_excluded_nuggets", True)),
@@ -1070,6 +1071,107 @@ def aired_nugget_ids(plan: dict[str, Any] | None) -> set[str]:
         if row_is_aired(row):
             ids.update(row_nugget_ids(row))
     return ids
+
+
+def waived_nugget_ids_from_sources(
+    *sources: list[str] | set[str] | dict[str, Any] | None,
+) -> set[str]:
+    """Normalize waived nugget ids from plan rows, omit ledger, or explicit lists."""
+    out: set[str] = set()
+    for src in sources:
+        if src is None:
+            continue
+        if isinstance(src, (list, set, frozenset)):
+            for raw in src:
+                if isinstance(raw, dict):
+                    nid = str(raw.get("nugget_id") or "")
+                else:
+                    nid = str(raw or "")
+                if nid:
+                    out.add(nid)
+            continue
+        if isinstance(src, dict):
+            for raw in src.get("waived_nugget_ids") or []:
+                if isinstance(raw, dict):
+                    nid = str(raw.get("nugget_id") or "")
+                else:
+                    nid = str(raw or "")
+                if nid:
+                    out.add(nid)
+    return out
+
+
+def eligible_nugget_ids(
+    corpus: dict[str, Any] | None,
+    waived: set[str] | None = None,
+) -> set[str]:
+    """Corpus nuggets minus waived and already native in selection."""
+    waived_set = waived or set()
+    eligible: set[str] = set()
+    for nug in (corpus or {}).get("nuggets") or []:
+        if not isinstance(nug, dict):
+            continue
+        nid = str(nug.get("nugget_id") or "")
+        if not nid or nug.get("already_aired_in_selection"):
+            continue
+        if nid in waived_set:
+            continue
+        eligible.add(nid)
+    return eligible
+
+
+def evaluate_nugget_air_coverage(
+    body_plan: dict[str, Any],
+    intro_ids: list[str] | None,
+    waived: list[str] | set[str] | None,
+    corpus: dict[str, Any],
+    *,
+    hard: bool = False,
+    min_coverage: float | None = None,
+) -> dict[str, Any]:
+    """Body + intro nugget air coverage vs eligible corpus.
+
+    Soft warn at compose (``hard=False``); hard fail after adjudicate + intro
+    (``hard=True``) when below ``min_nugget_air_coverage``.
+    """
+    cfg = nugget_layup_cfg()
+    floor = float(
+        min_coverage if min_coverage is not None else cfg.get("min_nugget_air_coverage", 0.85)
+    )
+    plan = body_plan if isinstance(body_plan, dict) else {}
+    doc = corpus if isinstance(corpus, dict) else {}
+    waived_set = waived_nugget_ids_from_sources(waived, plan)
+    eligible = eligible_nugget_ids(doc, waived_set)
+    body_aired = aired_nugget_ids(plan)
+    intro_aired = {str(x) for x in (intro_ids or []) if x}
+    aired = body_aired | intro_aired
+    coverage = (len(aired & eligible) / len(eligible)) if eligible else 1.0
+    open_ids = sorted(eligible - aired)
+    warnings: list[str] = []
+    errors: list[str] = []
+    if eligible and coverage + 1e-9 < floor:
+        msg = (
+            f"nugget_air_coverage={coverage:.3f} below "
+            f"min_nugget_air_coverage={floor}"
+        )
+        if hard:
+            errors.append(msg)
+        else:
+            warnings.append(msg)
+    return {
+        "version": 1,
+        "nugget_air_coverage": round(coverage, 4),
+        "eligible_nugget_count": len(eligible),
+        "aired_nugget_count": len(aired & eligible),
+        "body_aired_nugget_ids": sorted(body_aired & eligible),
+        "intro_aired_nugget_ids": sorted(intro_aired & eligible),
+        "open_nugget_ids": open_ids,
+        "waived_nugget_ids": sorted(waived_set),
+        "min_nugget_air_coverage": floor,
+        "warnings": warnings,
+        "errors": errors,
+        "ok": not errors,
+    }
 
 
 def _corpus_high_salience_ids(corpus: dict[str, Any] | None) -> set[str]:
@@ -2873,7 +2975,12 @@ def publish_layup_plan_to_gap_report(
     }
     report, _dedupe_notes = dedupe_gap_report_nugget_claims(report)
     ordered = _ordered_ids(ctx)
-    report, _notes = ensure_episode_orientation(ctx, report, ordered)
+    orient_nugget_ids = [
+        str(x) for x in (plan.get("orientation_nugget_recovery_ids") or []) if x
+    ]
+    report, _notes = ensure_episode_orientation(
+        ctx, report, ordered, orientation_nugget_ids=orient_nugget_ids or None
+    )
     if orientation_omitted(report):
         for row in plan.get("layups") or []:
             if not isinstance(row, dict):
@@ -2939,6 +3046,72 @@ def publish_layup_plan_to_gap_report(
             stage="nugget_layup_compose",
         )
     return report
+
+
+def waive_nuggets_for_skipped_vo_lines(
+    ctx: RunContext,
+    *,
+    skipped_line_ids: list[str],
+    gap_report: dict[str, Any] | None = None,
+) -> list[str]:
+    """Discharge nuggets tied to operator-skipped VO (G1 skip-optional with force).
+
+    When the operator explicitly skips synthesis, surfaced nuggets on those lines
+    are waived — they will not block layup QC or downstream delivery.
+    """
+    skip_set = {str(x) for x in skipped_line_ids if x}
+    if not skip_set:
+        return []
+    if gap_report is None:
+        gap_report = (
+            ctx.read_json(GAP_REL) if ctx.artifact_exists(GAP_REL) else {}
+        )
+    if not isinstance(gap_report, dict):
+        return []
+    waived: list[str] = []
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        lid = str(line.get("line_id") or line.get("targets_segment_id") or "")
+        if lid not in skip_set:
+            continue
+        for nid in row_nugget_ids(line):
+            if nid and nid not in waived:
+                waived.append(nid)
+    if not waived:
+        return []
+    plan: dict[str, Any] = {}
+    if ctx.artifact_exists(PLAN_REL):
+        raw = ctx.read_json(PLAN_REL)
+        if isinstance(raw, dict):
+            plan = raw
+    prev = [
+        str(x.get("nugget_id") or x)
+        for x in (plan.get("waived_nugget_ids") or [])
+        if x
+    ]
+    merged = list(dict.fromkeys([*prev, *waived]))
+    plan["waived_nugget_ids"] = [{"nugget_id": nid} for nid in merged]
+    open_high = [
+        str(x)
+        for x in (plan.get("open_high_salience_nugget_ids") or [])
+        if str(x) not in set(waived)
+    ]
+    plan["open_high_salience_nugget_ids"] = open_high
+    orient = [
+        str(x)
+        for x in (plan.get("orientation_nugget_recovery_ids") or [])
+        if str(x) not in set(waived)
+    ]
+    plan["orientation_nugget_recovery_ids"] = orient
+    ctx.write_json(PLAN_REL, plan, skip_handoff=True)
+    ctx.log(
+        f"G1 skip: waived {len(waived)} nugget(s) on skipped VO lines",
+        level="info",
+        stage="g1_vo_pickup",
+        detail={"waived_nugget_ids": waived[:12]},
+    )
+    return waived
 
 
 def gap_has_layup_before(gap_report: dict[str, Any] | None, segment_id: str) -> bool:
@@ -3384,12 +3557,30 @@ def recover_open_high_salience_nuggets(
             continue
         notes.append(f"unskipped:{nid}:{tid}")
 
+    orientation_recovery: list[str] = []
+    for nid in remaining:
+        if nid in aired_nugget_ids(out):
+            continue
+        orientation_recovery.append(nid)
+    if orientation_recovery:
+        prev_orient = [
+            str(x) for x in (out.get("orientation_nugget_recovery_ids") or []) if x
+        ]
+        out["orientation_nugget_recovery_ids"] = list(
+            dict.fromkeys([*prev_orient, *orientation_recovery])
+        )
+        for nid in orientation_recovery:
+            notes.append(f"orientation_recovery:{nid}")
+
     out["layups"] = layups
     out["discharged_nugget_ids"] = sorted(aired_nugget_ids(out))
+    orient_assigned = {
+        str(x) for x in (out.get("orientation_nugget_recovery_ids") or []) if x
+    }
     still_open = [
         nid
         for nid in remaining
-        if nid not in aired_nugget_ids(out)
+        if nid not in aired_nugget_ids(out) and nid not in orient_assigned
     ]
     out["open_high_salience_nugget_ids"] = still_open
     return out, notes
@@ -3516,6 +3707,9 @@ def evaluate_layup_qc(
     open_must = [str(x) for x in (plan.get("open_talking_point_ids") or []) if x]
 
     aired = aired_nugget_ids(plan)
+    orient_assigned = {
+        str(x) for x in (plan.get("orientation_nugget_recovery_ids") or []) if x
+    }
     high_in_corpus = _corpus_high_salience_ids(corpus)
     open_high = [
         str(x)
@@ -3548,6 +3742,8 @@ def evaluate_layup_qc(
                 break
         discharged_aired = discharged_n & aired_nugget_ids(plan)
         if not assigned and nid not in discharged_aired and nid not in waived and nid not in open_high:
+            if nid in orient_assigned:
+                continue
             if not nug.get("in_selection"):
                 open_high.append(nid)
 
@@ -3567,11 +3763,17 @@ def evaluate_layup_qc(
     craft = evaluate_layup_craft(ctx, layups, cfg=cfg)
     errors.extend(craft["errors"])
 
+    nugget_cov = evaluate_nugget_air_coverage(plan, [], None, corpus, hard=False)
+    warnings = list(craft.get("warnings") or [])
+    warnings.extend(nugget_cov.get("warnings") or [])
+
     return {
         "version": 1,
         "ordered_count": len(ordered),
         "layup_present_count": present,
         "layup_coverage": round(coverage, 4),
+        "nugget_air_coverage": nugget_cov.get("nugget_air_coverage"),
+        "open_nugget_ids": nugget_cov.get("open_nugget_ids") or [],
         "skips": skips,
         "missing_targets": missing,
         "open_must_keep_talking_point_ids": open_must,
@@ -3579,7 +3781,7 @@ def evaluate_layup_qc(
         "canned_air_lines": craft["canned_air_lines"],
         "insufficient_analysis_targets": craft["insufficient_analysis_targets"],
         "duplicate_nugget_ids": craft["duplicate_nugget_ids"],
-        "warnings": list(craft.get("warnings") or []),
+        "warnings": warnings,
         "errors": errors,
         "ok": not errors,
     }

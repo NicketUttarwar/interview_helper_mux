@@ -544,6 +544,12 @@ class RunContext:
             if ctx.artifact_exists(rel):
                 outputs.append(rel)
         hash_short = meta.get("source_audio_hash_short") or parse_hash_from_run_id(run_id)
+        halt_plan = None
+        if ctx.artifact_exists("mastering/homunculus/plan.json"):
+            try:
+                halt_plan = ctx.read_json("mastering/homunculus/plan.json")
+            except Exception:
+                halt_plan = None
         return {
             "run_id": run_id,
             "execution_number": meta.get("execution_number"),
@@ -557,6 +563,7 @@ class RunContext:
             "analysis_complete": ctx.artifact_exists("analysis_complete.json"),
             "outputs": outputs,
             "homunculus_version": meta.get("homunculus_version") or "0.0.0",
+            "homunculus_halt_plan": halt_plan,
             "podcast_id": meta.get("podcast_id"),
             "podcast_title": meta.get("podcast_title"),
         }

@@ -148,12 +148,21 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
     """Analysis producers topic_coverage_audit needs before a delivery walk."""
     pending: list[str] = []
     gap_skipped = False
+    native_only = False
+    try:
+        from interview_mux.pipeline_mode import is_native_only
+
+        native_only = bool(is_native_only(ctx))
+    except Exception:
+        native_only = False
     try:
         from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
         gap_skipped = bool(gap_fill_was_skipped(ctx))
     except Exception:
         gap_skipped = False
+    if native_only:
+        gap_skipped = True
     if gap_skipped:
         _restore_skipped_gap_prereqs(ctx)
     for stage, rel in DELIVERY_ANALYSIS_PREREQS:
@@ -217,6 +226,7 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
     "boundary_detection": ("segments/boundaries.json",),
     "segment_classification": ("segments/manifest.json",),
     "content_brief_reanchor": ("understanding/content_brief.json",),
+    "framing_posture_decide": ("understanding/framing_posture_decision.json",),
     "episode_structure_compose": (),
     "chapter_close_hitch": ("mastering/chapter_close_hitch.json",),
     "full_master_ranking": ("master/selection.json",),
@@ -232,6 +242,7 @@ PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
     "assembly_preview": ("master/assembly_preview.wav",),
     "listen_delight_audit": ("mastering/listen_delight_audit.json",),
     "nugget_layup_compose": ("understanding/nugget_layup_plan.json",),
+    "vo_line_adjudicate": ("understanding/vo_line_adjudication.json",),
     "music_palette_compose": ("sound_design/music_palette_compose.json",),
     "sfx_prompt_craft": ("sound_design/sfx_prompts.json",),
     "mmaudio_sfx": ("sound_design/mmaudio_qa.json",),
@@ -254,6 +265,126 @@ MUSIC_REQUIRES_ASSEMBLY = frozenset(
 
 IDENTICAL_ERROR_REL = "mastering/homunculus/identical_stage_errors.json"
 IDENTICAL_ERROR_CAP = 3
+HOLLOW_SKIP_FP = "hollow_skip_blocked:{stage}:outputs_missing"
+
+
+class HollowSkipBlockedError(RuntimeError):
+    """10C: structured refuse when skip would hide a hollow .stage_done marker."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        super().__init__(str(payload.get("reason") or "hollow_done"))
+
+
+def _speaker_samples_present(ctx: RunContext) -> bool:
+    """True when topology speaker_stats each have an on-disk sample WAV."""
+    if not ctx.artifact_exists("understanding/source_topology.json"):
+        return False
+    try:
+        topo = ctx.read_json("understanding/source_topology.json")
+    except Exception:
+        return False
+    stats = topo.get("speaker_stats") if isinstance(topo, dict) else []
+    if not isinstance(stats, list) or not stats:
+        return True
+    sample_dir = ctx.path("understanding", "speaker_samples")
+    for row in stats:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("speaker_id") or "")
+        if sid and not (sample_dir / f"{sid}.wav").is_file():
+            return False
+    return True
+
+
+def _refuse_topology_skip_without_samples(ctx: RunContext, stage: str) -> None:
+    """2A: synthetic path needs topology + speaker samples before skip."""
+    if stage != "source_topology_build":
+        return
+    try:
+        from interview_mux.pipeline_mode import is_native_only
+
+        if is_native_only(ctx):
+            return
+    except Exception:
+        pass
+    has_topo = ctx.artifact_exists("understanding/source_topology.json") and ctx.artifact_exists(
+        "understanding/flow_adaptation.json"
+    )
+    if has_topo and _speaker_samples_present(ctx):
+        return
+    raise RuntimeError(
+        "cannot skip source_topology_build: topology and speaker sample WAVs required "
+        "when pipeline_mode is not native_only"
+    )
+
+
+def _block_hollow_skip(ctx: RunContext, stage: str) -> None:
+    """10C: refuse skip when .stage_done lies — unmark once, fingerprint escalation."""
+    if not ctx.is_done(stage) or stage_outputs_present(ctx, stage):
+        return
+    fingerprint = HOLLOW_SKIP_FP.format(stage=stage)
+    hit = note_identical_stage_error(ctx, stage, fingerprint)
+    from interview_mux.homunculus.budget import remaining as budget_remaining
+
+    remaining_budget = budget_remaining(ctx, stage)
+    count = int(hit.get("count") or 0)
+    exhausted = bool(hit.get("exhausted"))
+    if count <= 1:
+        unmark_hollow_delivery_producers(ctx, {stage})
+        if ctx.is_done(stage):
+            unmark_stage_only(ctx, stage)
+    payload: dict[str, Any] = {
+        "ok": False,
+        "reason": "hollow_done",
+        "stage": stage,
+        "action": "unmark_and_rerun_once" if count <= 1 else "needs_operator",
+        "remaining_rerun_budget": remaining_budget,
+        "do_not": ["skip_stage", "invalidate_downstream"],
+        "attempt": count,
+        "exhausted": exhausted,
+        "operator_card": (
+            "Stage marked done but output incomplete — rerun required. "
+            "Do not skip or invalidate downstream."
+        ),
+    }
+    if count >= 2 or exhausted:
+        try:
+            from interview_mux.homunculus.issues import write_homunculus_plan
+
+            plan = resolve_stage_plan(ctx, stage)
+            write_homunculus_plan(
+                ctx,
+                last_target=stage,
+                blockers=[f"hollow_done:{stage}"],
+                attempted_heals=[f"hollow_skip_blocked x{count}"],
+                recommended_next=str(plan.get("recommended_next") or stage),
+                reason="hollow_skip_escalation",
+            )
+        except Exception:
+            pass
+        try:
+
+            def _mark(meta: dict[str, Any]) -> None:
+                meta["needs_operator"] = True
+                meta["needs_operator_stage"] = stage
+                meta["needs_operator_reason"] = fingerprint[:240]
+
+            ctx.mutate_run_meta(_mark)
+        except Exception:
+            pass
+        payload["action"] = "needs_operator"
+    append_ledger(
+        ctx,
+        {
+            "kind": "hollow_skip_blocked",
+            "identity": f"hollow_skip:{stage}",
+            "stage": stage,
+            "attempt": count,
+            "exhausted": exhausted,
+        },
+    )
+    raise HollowSkipBlockedError(payload)
 
 
 def _refuse_music_before_assembly(ctx: RunContext, stage: str, *, action: str) -> None:
@@ -594,6 +725,20 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
             ctx.mutate_run_meta(_mark)
         except Exception:
             pass
+        try:
+            from interview_mux.homunculus.issues import write_homunculus_plan
+
+            plan = resolve_stage_plan(ctx, stage)
+            write_homunculus_plan(
+                ctx,
+                last_target=stage,
+                blockers=[f"identical_error:{fingerprint[:120]}"],
+                attempted_heals=[f"identical_stage_error x{int(row.get('count') or 0)}"],
+                recommended_next=str(plan.get("recommended_next") or stage),
+                reason="identical_error_exhausted",
+            )
+        except Exception:
+            pass
     return {
         "count": int(row.get("count") or 0),
         "exhausted": exhausted,
@@ -694,6 +839,8 @@ def skip_stage(ctx: RunContext, stage: str, *, reason: str, compensating_fact: s
         # output is a hole (exec_087 skipped transitions with fact 67b9d444).
         compensating_fact = None
     _refuse_music_before_assembly(ctx, stage, action="skip")
+    _block_hollow_skip(ctx, stage)
+    _refuse_topology_skip_without_samples(ctx, stage)
     if stage == "chapter_close_hitch":
         from interview_mux.chapter_close_hitch import hitch_latch_committed
 
@@ -889,6 +1036,104 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
         {"kind": "invalidate_downstream", "identity": "invalidate_downstream", "stage": stage},
     )
     return {"ok": True, "cleared_from": stage}
+
+
+def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
+    """ADG-backed plan: blockers, prereqs, invalidation, recommended next stage."""
+    from interview_mux.artifact_dependency_graph import transitive_invalidate, upstream_closure
+
+    stage = str(stage or "").strip()
+    if not stage:
+        raise ValueError("stage required")
+    prereq_chain = upstream_closure(stage)
+    invalidate_set = transitive_invalidate(stage)
+    blockers: list[str] = []
+    native_only = False
+    try:
+        from interview_mux.pipeline_mode import is_native_only
+
+        native_only = bool(is_native_only(ctx))
+    except Exception:
+        native_only = False
+    gap_skipped = native_only
+    if not gap_skipped:
+        try:
+            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+
+            gap_skipped = bool(gap_fill_was_skipped(ctx))
+        except Exception:
+            gap_skipped = False
+    for prereq_stage, rel in DELIVERY_ANALYSIS_PREREQS:
+        if gap_skipped and prereq_stage in _GAP_FILL_ANALYSIS_PREREQS:
+            if ctx.artifact_exists(rel) and not ctx.is_done(prereq_stage):
+                ctx.mark_done(prereq_stage, force=True)
+            continue
+        if not ctx.artifact_exists(rel):
+            blockers.append(f"missing_artifact:{rel}")
+            continue
+        if not ctx.is_done(prereq_stage):
+            blockers.append(f"stage_not_done:{prereq_stage}")
+    skip = skipped_stages(ctx)
+    for up in prereq_chain:
+        if up in skip:
+            continue
+        if not stage_outputs_present(ctx, up):
+            blockers.append(f"upstream_incomplete:{up}")
+    recommended_next = stage
+    for token in blockers:
+        if token.startswith("stage_not_done:"):
+            recommended_next = token.split(":", 1)[1]
+            break
+        if token.startswith("upstream_incomplete:"):
+            recommended_next = token.split(":", 1)[1]
+            break
+        if token.startswith("missing_artifact:"):
+            for ps, rel in DELIVERY_ANALYSIS_PREREQS:
+                if rel == token.split(":", 1)[1]:
+                    recommended_next = ps
+                    break
+            break
+    pipeline_mode_val: str | None = None
+    try:
+        from interview_mux.pipeline_mode import resolve_effective_mode
+
+        pipeline_mode_val = str(resolve_effective_mode(ctx).get("mode") or "") or None
+    except Exception:
+        pipeline_mode_val = None
+    return {
+        "stage": stage,
+        "blockers": blockers,
+        "prereq_chain": prereq_chain,
+        "invalidate_set": invalidate_set,
+        "recommended_next": recommended_next,
+        "pipeline_mode": pipeline_mode_val,
+    }
+
+
+def rerun_with_impact(ctx: RunContext, stage: str) -> dict[str, Any]:
+    """8A: invalidate downstream plus ADG transitive consumer set."""
+    from interview_mux.artifact_dependency_graph import transitive_invalidate
+
+    stage = str(stage or "").strip()
+    if not stage:
+        raise ValueError("stage required")
+    invalidate_set = transitive_invalidate(stage)
+    cleared = invalidate_downstream(ctx, stage)
+    append_ledger(
+        ctx,
+        {
+            "kind": "rerun_with_impact",
+            "identity": "rerun_with_impact",
+            "stage": stage,
+            "invalidate_set": invalidate_set[:40],
+        },
+    )
+    return {
+        "ok": True,
+        "stage": stage,
+        "invalidate_set": invalidate_set,
+        **cleared,
+    }
 
 
 def request_walk_seed_remainder(ctx: RunContext, *, reason: str = "conductor") -> dict[str, Any]:

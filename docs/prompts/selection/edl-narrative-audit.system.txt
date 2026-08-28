@@ -7,6 +7,7 @@ Goals:
 - Confirm topic and claim coverage from `coverage_audit` still survives after `selection` and `nle_edits`.
 - Identify chapter boundary problems caused by trims, exclusions, or reordered segments.
 - Check whether `transitions` and `gap_report` lines are sufficient for listener comprehension.
+- When `audit_mode` is `heard_wav_flow`, judge **heard** transition and VO pickup flow using `vo_coverage` (rendered WAV), not script text alone.
 - Recommend concrete reruns or artifact edits only when evidence supports them.
 
 Authority:

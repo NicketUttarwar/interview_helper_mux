@@ -161,6 +161,28 @@ def silent_skip_allowed(decision: GapFillDecision) -> bool:
 
 def assess_gap_fill_eligibility(ctx: RunContext) -> GapFillDecision:
     """Fail-open: hosted / multi-speaker tapes run G-Framing. Skip only true solo."""
+    try:
+        from interview_mux.pipeline_mode import load_pipeline_mode
+        from interview_mux.gap_vo_gates import gap_framing_enabled
+
+        stored = load_pipeline_mode(ctx)
+        if stored and str(stored.get("mode") or "") == "native_only":
+            codes = list(stored.get("reason_codes") or [])
+            skip_signal = codes[0] if codes else "native_only"
+            return GapFillDecision(
+                eligible=False,
+                reason="pipeline_mode native_only — skip gap-fill VO",
+                signals={"skip_signal": skip_signal, "pipeline_mode": "native_only"},
+            )
+        if not gap_framing_enabled(ctx):
+            return GapFillDecision(
+                eligible=False,
+                reason="G-Framing disabled — skip gap-fill VO",
+                signals={"skip_signal": "gap_framing_no", "pipeline_mode": "native_only"},
+            )
+    except Exception:
+        pass
+
     if not gap_fill_enabled():
         return GapFillDecision(
             eligible=True,

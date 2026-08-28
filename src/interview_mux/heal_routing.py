@@ -20,6 +20,7 @@ FAMILY_HITCH_LISTEN_RESTAGE = "hitch_listen_restage"
 FAMILY_SELECTION_ORDER_DRIFT = "selection_order_drift"
 FAMILY_SPOKEN_COPY = "spoken_copy"
 FAMILY_MIX_WAV_SEATED = "mix_wav_seated"
+FAMILY_VO_ADJUDICATE_STALE = "vo_adjudicate_stale"
 
 HALT_FAMILIES = frozenset(
     {
@@ -28,6 +29,7 @@ HALT_FAMILIES = frozenset(
         FAMILY_G1_MISSING,
         FAMILY_HITCH_LISTEN_RESTAGE,
         FAMILY_SELECTION_ORDER_DRIFT,
+        FAMILY_VO_ADJUDICATE_STALE,
     }
 )
 
@@ -96,6 +98,20 @@ def classify_heal_error(
         )
 
     if (
+        "vo_line_adjudication" in low
+        or "adjudicate_before_synth" in low
+        or "stale_script_hash" in low
+        or ("wav_stale" in low and ("adjudicate" in low or stage_l == "edl_narrative_audit"))
+        or (stage_l in {"vo_synthesize", "edl_narrative_audit", "edl"} and "adjudicate" in low)
+    ):
+        return HealRoute(
+            family=FAMILY_VO_ADJUDICATE_STALE,
+            from_stage="vo_line_adjudicate",
+            action="rerun_adjudicate_synth",
+            detail="adjudicate then synthesize — script/WAV drift before audit",
+        )
+
+    if (
         "g1 vo pickup missing" in low
         or "stale_or_missing_pickup" in low
         or (stage_l in {"g1_vo_pickup", "g1_vo", "edl"} and "pickup" in low and "missing" in low)
@@ -109,9 +125,9 @@ def classify_heal_error(
             )
         return HealRoute(
             family=FAMILY_G1_MISSING,
-            from_stage="vo_synthesize",
+            from_stage="vo_line_adjudicate",
             action="synthesize_g1",
-            detail="synthesize/wait — never rewind nugget_layup_compose",
+            detail="adjudicate then synthesize — never rewind nugget_layup_compose",
         )
 
     if (

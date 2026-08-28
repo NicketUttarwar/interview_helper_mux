@@ -7,6 +7,7 @@ import {
   applePodcastsPassthroughUrl,
   normalizePublicFeedUrl,
 } from "../../utils/applePodcastsPassthrough";
+import { GPublishReviewSection } from "./GPublishReviewSection";
 
 interface GPublishPayload {
   pending: boolean;
@@ -29,11 +30,12 @@ interface GPublishPayload {
   sync_job?: Record<string, unknown>;
 }
 
-/** Ship gate: prepare local package + upload this run only to the selected catalog podcast. */
+/** Ship gate: review package metadata + upload this run only to the selected catalog podcast. */
 export function GPublishPanel() {
   const { runId, refreshRun, appendClientLog, showToast } = useApp();
   const [payload, setPayload] = useState<GPublishPayload | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reviewDirty, setReviewDirty] = useState(false);
 
   const reload = () => {
     if (!runId) return;
@@ -60,15 +62,14 @@ export function GPublishPanel() {
   }
 
   const feedUrl = normalizePublicFeedUrl(payload.feed_url);
-  // Build the href locally so a stale/unexpected API string cannot become a link.
   const passthroughUrl = applePodcastsPassthroughUrl(feedUrl);
-  const result = payload.publish_result || {};
   const syncJob = payload.sync_job || {};
   const syncRunning = syncJob.status === "running";
   const readyCount = Number(payload.ready_package_count || 0);
   const uploadedCount = Number(payload.already_uploaded_count || 0);
   const thisRunReady = readyCount >= 1;
   const thisRunUploaded = uploadedCount >= 1;
+  const showReview = Boolean(payload.package_ready || payload.has_master);
 
   const prepare = async () => {
     setBusy(true);
@@ -99,6 +100,10 @@ export function GPublishPanel() {
   };
 
   const syncThisRun = async () => {
+    if (reviewDirty) {
+      showToast("Save your review changes before uploading to S3.", "warning");
+      return;
+    }
     setBusy(true);
     try {
       await api<{ ok?: boolean; started?: boolean }>(`/api/runs/${runId}/g-publish/sync`, {
@@ -137,94 +142,105 @@ export function GPublishPanel() {
 
   return (
     <div data-partial-auto-checkpoint="g_publish">
-    <GatePanelShell title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}>
-      <p className="hint">
-        Mastering is separate from RSS. Prepare a local package for this run, then upload only this
-        run&apos;s complete package to {payload.show_title ?? "Zero Shot Podcast DEMO"} (S3 + CloudFront). Sync
-        never deletes remote files, never uploads other executions, and skips if this run is already
-        on S3.
-      </p>
-      <p className="hint">
-        This run:{" "}
-        {thisRunUploaded
-          ? "already on S3"
-          : thisRunReady
-            ? "ready to upload"
-            : payload.incomplete_count
-              ? "package incomplete"
-              : "not ready"}
-      </p>
-      {feedUrl ? (
-        <>
-          <p className="hint">
-            Feed URL:{" "}
-            <a href={feedUrl} target="_blank" rel="noreferrer">
-              {feedUrl}
-            </a>
-          </p>
-          {passthroughUrl ? (
-            <p className="hint">
-              Apple Podcasts Connect pass-through (copy this; pre-fills the RSS field):{" "}
-              <a href={passthroughUrl} target="_blank" rel="noreferrer">
-                {passthroughUrl}
-              </a>{" "}
-              <button
-                type="button"
-                className="btn sm ghost"
-                onClick={() => {
-                  void navigator.clipboard.writeText(passthroughUrl).then(
-                    () => showToast("Copied Apple pass-through URL", "success"),
-                    () => showToast("Could not copy URL", "error"),
-                  );
-                }}
-              >
-                Copy
-              </button>
-            </p>
-          ) : null}
-          <p className="hint">{APPLE_PODCASTS_PASSTHROUGH_NOTICE}</p>
-        </>
-      ) : null}
-      {payload.package_ready ? (
-        <p className="hint">This run has a local package ready.</p>
-      ) : null}
-      {typeof result.title === "string" ? (
-        <p className="hint">Package title: {String(result.title)}</p>
-      ) : null}
-      {typeof syncJob.message === "string" && syncJob.message ? (
+      <GatePanelShell title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}>
         <p className="hint">
-          Sync: {String(syncJob.status || "")} — {String(syncJob.message)}
+          Review title, description, and cover below. Listen to the final master, save your edits,
+          then upload this run&apos;s package to {payload.show_title ?? "Zero Shot Podcast DEMO"}{" "}
+          (S3 + CloudFront invalidation). Sync never deletes remote files or other executions.
         </p>
-      ) : null}
-      {typeof result.enclosure_url === "string" ? (
-        <p className="hint">Last enclosure: {String(result.enclosure_url)}</p>
-      ) : null}
-      <div className="gate-actions-row">
-        {payload.pending ? (
+        <p className="hint">
+          This run:{" "}
+          {thisRunUploaded
+            ? "already on S3"
+            : thisRunReady
+              ? "ready to upload"
+              : payload.incomplete_count
+                ? "package incomplete"
+                : "not ready"}
+        </p>
+
+        {showReview ? (
+          <GPublishReviewSection
+            enabled
+            onDirtyChange={setReviewDirty}
+            onSaved={() => {
+              reload();
+              void refreshRun();
+            }}
+          />
+        ) : null}
+
+        {feedUrl ? (
+          <>
+            <p className="hint">
+              Feed URL:{" "}
+              <a href={feedUrl} target="_blank" rel="noreferrer">
+                {feedUrl}
+              </a>
+            </p>
+            {passthroughUrl ? (
+              <p className="hint">
+                Apple Podcasts Connect pass-through:{" "}
+                <a href={passthroughUrl} target="_blank" rel="noreferrer">
+                  {passthroughUrl}
+                </a>{" "}
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(passthroughUrl).then(
+                      () => showToast("Copied Apple pass-through URL", "success"),
+                      () => showToast("Could not copy URL", "error"),
+                    );
+                  }}
+                >
+                  Copy
+                </button>
+              </p>
+            ) : null}
+            <p className="hint">{APPLE_PODCASTS_PASSTHROUGH_NOTICE}</p>
+          </>
+        ) : null}
+
+        {typeof syncJob.message === "string" && syncJob.message ? (
+          <p className="hint">
+            Sync: {String(syncJob.status || "")} — {String(syncJob.message)}
+          </p>
+        ) : null}
+
+        <div className="gate-actions-row">
+          {payload.pending && !payload.package_ready ? (
+            <button
+              type="button"
+              className="btn sm primary"
+              disabled={busy || syncRunning}
+              onClick={() => void prepare()}
+            >
+              Prepare package for this run
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn sm primary"
-            disabled={busy || syncRunning}
-            onClick={() => void prepare()}
+            data-testid="g-publish-upload"
+            disabled={busy || syncRunning || !thisRunReady || reviewDirty}
+            title={reviewDirty ? "Save review changes first" : undefined}
+            onClick={() => void syncThisRun()}
           >
-            Prepare package for this run
+            {syncRunning ? "Uploading…" : "Upload this run to S3"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="btn sm primary"
-          disabled={busy || syncRunning || !thisRunReady}
-          onClick={() => void syncThisRun()}
-        >
-          {syncRunning ? "Uploading…" : "Upload this run to S3"}
-        </button>
-        {payload.pending ? (
-          <button type="button" className="btn sm ghost" disabled={busy || syncRunning} onClick={() => void skip()}>
-            Skip
-          </button>
-        ) : null}
-      </div>
-    </GatePanelShell>
+          {payload.pending ? (
+            <button
+              type="button"
+              className="btn sm ghost"
+              disabled={busy || syncRunning}
+              onClick={() => void skip()}
+            >
+              Skip
+            </button>
+          ) : null}
+        </div>
+      </GatePanelShell>
     </div>
   );
 }

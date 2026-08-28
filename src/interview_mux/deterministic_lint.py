@@ -712,8 +712,8 @@ def _lint_transitions(artifacts: dict[str, Any], ctx: RunContext) -> list[str]:
                 pass
         pos = {sid: idx for idx, sid in enumerate(sel_order)}
         opening_ids = opening_tape_segment_ids(sel_order, starts) if sel_order else set()
-        margin = reverse_jump_margin_ms()
-        body_start = opening_body_start_index()
+        margin = reverse_jump_margin_ms(ctx=ctx)
+        body_start = opening_body_start_index(ctx=ctx)
         for tr in transitions:
             if not isinstance(tr, dict):
                 continue

@@ -8,6 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from interview_mux.air_order_policy import (
+    DEFAULT_OPENING_AIR_SLOTS,
+    DEFAULT_OPENING_BODY_START_INDEX,
+    DEFAULT_OPENING_WINDOW_MS,
+    DEFAULT_REVERSE_JUMP_MARGIN_MS,
+    policy_value,
+    resolve_air_order_policy,
+)
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
 from interview_mux.selection_order_repair import (
@@ -43,20 +51,67 @@ def _cfg_bool(key: str, default: bool) -> bool:
     return default
 
 
-def opening_window_ms() -> int:
-    return _cfg_int("opening_window_ms", 180_000)
+def _resolve_policy(
+    ctx: RunContext | None,
+    policy: dict[str, Any] | None,
+    *,
+    selection: dict[str, Any] | None = None,
+    starts: dict[str, int] | None = None,
+) -> dict[str, Any] | None:
+    if policy is not None:
+        return policy
+    if ctx is not None:
+        return resolve_air_order_policy(ctx, selection=selection, starts=starts)
+    return None
 
 
-def opening_air_slots() -> int:
-    return _cfg_int("opening_air_slots", 6)
+def opening_window_ms(
+    ctx: RunContext | None = None,
+    policy: dict[str, Any] | None = None,
+) -> int:
+    pol = _resolve_policy(ctx, policy)
+    if pol is not None:
+        return policy_value(pol, "opening_window_ms", DEFAULT_OPENING_WINDOW_MS)
+    return _cfg_int("opening_window_ms", DEFAULT_OPENING_WINDOW_MS)
 
 
-def opening_body_start_index() -> int:
-    return _cfg_int("opening_body_start_index", 3)
+def opening_air_slots(
+    ctx: RunContext | None = None,
+    policy: dict[str, Any] | None = None,
+) -> int:
+    pol = _resolve_policy(ctx, policy)
+    if pol is not None:
+        return policy_value(pol, "opening_air_slots", DEFAULT_OPENING_AIR_SLOTS)
+    return _cfg_int("opening_air_slots", DEFAULT_OPENING_AIR_SLOTS)
 
 
-def reverse_jump_margin_ms() -> int:
-    return _cfg_int("reverse_jump_margin_ms", 300_000)
+def opening_body_start_index(
+    ctx: RunContext | None = None,
+    policy: dict[str, Any] | None = None,
+) -> int:
+    pol = _resolve_policy(ctx, policy)
+    if pol is not None:
+        return policy_value(pol, "opening_body_start_index", DEFAULT_OPENING_BODY_START_INDEX)
+    return _cfg_int("opening_body_start_index", DEFAULT_OPENING_BODY_START_INDEX)
+
+
+def reverse_jump_margin_ms(
+    ctx: RunContext | None = None,
+    policy: dict[str, Any] | None = None,
+) -> int:
+    pol = _resolve_policy(ctx, policy)
+    if pol is not None:
+        return policy_value(pol, "reverse_jump_margin_ms", DEFAULT_REVERSE_JUMP_MARGIN_MS)
+    return _cfg_int("reverse_jump_margin_ms", DEFAULT_REVERSE_JUMP_MARGIN_MS)
+
+
+def count_opening_by_family(policy: dict[str, Any] | None) -> bool:
+    if policy is None:
+        return _cfg_bool("count_opening_by_family", True)
+    val = policy.get("count_opening_by_family")
+    if isinstance(val, bool):
+        return val
+    return _cfg_bool("count_opening_by_family", True)
 
 
 def block_ranking_on_critical() -> bool:
@@ -140,8 +195,14 @@ def opening_tape_segment_ids(
     starts: dict[str, int] | None,
     *,
     window_ms: int | None = None,
+    policy: dict[str, Any] | None = None,
+    ctx: RunContext | None = None,
 ) -> set[str]:
-    window = opening_window_ms() if window_ms is None else window_ms
+    window = (
+        window_ms
+        if window_ms is not None
+        else opening_window_ms(ctx=ctx, policy=policy)
+    )
     out: set[str] = set()
     if not starts:
         return out
@@ -152,11 +213,17 @@ def opening_tape_segment_ids(
     return out
 
 
-def _guest_first_open_established(ordered: list[str], starts: dict[str, int]) -> bool:
+def _guest_first_open_established(
+    ordered: list[str],
+    starts: dict[str, int],
+    *,
+    policy: dict[str, Any] | None = None,
+    ctx: RunContext | None = None,
+) -> bool:
     """True when the episode opens with non-host-intro material but host intro airs later."""
     if not ordered or not starts or len(ordered) < 2:
         return False
-    window = opening_window_ms()
+    window = opening_window_ms(ctx=ctx, policy=policy)
     opening_parents: dict[str, int] = {}
     for sid in ordered:
         start = resolved_source_start_ms(sid, starts)
@@ -179,12 +246,13 @@ def reverse_tape_jump_violations(
     *,
     starts: dict[str, int] | None = None,
     reorder_pairs: set[tuple[str, str]] | None = None,
+    policy: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if starts is None and ctx is not None:
         starts = resolved_segment_starts(ctx)
     if not starts:
         return []
-    margin = reverse_jump_margin_ms()
+    margin = reverse_jump_margin_ms(ctx=ctx, policy=policy)
     declared = reorder_pairs or set()
     violations: list[dict[str, Any]] = []
     for i in range(len(ordered) - 1):
@@ -212,23 +280,87 @@ def reverse_tape_jump_violations(
     return violations
 
 
+def _opening_family_first_indices(
+    ordered: list[str],
+    opening_ids: set[str],
+) -> list[tuple[str, int, list[str]]]:
+    """Return [(parent_id, first_air_index, fragment_ids)] sorted by first index."""
+    by_parent: dict[str, list[tuple[int, str]]] = {}
+    for idx, sid in enumerate(ordered):
+        if sid not in opening_ids:
+            continue
+        parent = _parent_seg_id(sid)
+        by_parent.setdefault(parent, []).append((idx, sid))
+    out: list[tuple[str, int, list[str]]] = []
+    for parent, rows in by_parent.items():
+        rows.sort(key=lambda r: r[0])
+        first_idx = rows[0][0]
+        frags = [sid for _, sid in rows]
+        out.append((parent, first_idx, frags))
+    out.sort(key=lambda row: row[1])
+    return out
+
+
 def late_opening_cluster_violations(
     ctx: RunContext | None,
     ordered: list[str],
     *,
     starts: dict[str, int] | None = None,
+    policy: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if starts is None and ctx is not None:
         starts = resolved_segment_starts(ctx)
     if not starts or not ordered:
         return []
-    opening_ids = opening_tape_segment_ids(ordered, starts)
+    pol = _resolve_policy(ctx, policy, starts=starts)
+    opening_ids = opening_tape_segment_ids(
+        ordered, starts, policy=pol, ctx=ctx
+    )
     if not opening_ids:
         return []
-    body_start = opening_body_start_index()
-    early_slots = opening_air_slots()
+    early_slots = opening_air_slots(ctx=ctx, policy=pol)
     violations: list[dict[str, Any]] = []
-    guest_first = _guest_first_open_established(ordered, starts)
+    guest_first = _guest_first_open_established(
+        ordered, starts, policy=pol, ctx=ctx
+    )
+    by_family = count_opening_by_family(pol)
+
+    if by_family:
+        families = _opening_family_first_indices(ordered, opening_ids)
+        for ordinal, (parent, first_idx, frags) in enumerate(families, start=1):
+            if guest_first and first_idx >= 1:
+                violations.append(
+                    {
+                        "code": "late_opening_cluster",
+                        "severity": "critical",
+                        "parent_segment_id": parent,
+                        "segment_ids": frags,
+                        "family_first_index": first_idx,
+                        "family_ordinal": ordinal,
+                        "air_index": first_idx,
+                        "message": (
+                            f"Opening-tape cluster {frags[:4]} after guest-first open "
+                            f"at index {first_idx}"
+                        ),
+                    }
+                )
+            elif not guest_first and ordinal > early_slots:
+                violations.append(
+                    {
+                        "code": "late_opening_cluster",
+                        "severity": "critical",
+                        "parent_segment_id": parent,
+                        "segment_ids": frags,
+                        "family_first_index": first_idx,
+                        "family_ordinal": ordinal,
+                        "air_index": first_idx,
+                        "message": (
+                            f"Opening-tape cluster {frags[:4]} airs late at index {first_idx}"
+                        ),
+                    }
+                )
+        return violations
+
     for idx, sid in enumerate(ordered):
         if sid not in opening_ids:
             continue
@@ -275,14 +407,18 @@ def chapter_opening_mask_violations(
     selection: dict[str, Any],
     *,
     starts: dict[str, int] | None = None,
+    policy: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Flag opening-tape segments assigned to late-body chapters."""
     if starts is None and ctx is not None:
         starts = resolved_segment_starts(ctx)
     if not starts:
         return []
+    pol = _resolve_policy(ctx, policy, selection=selection, starts=starts)
     ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
-    opening_ids = opening_tape_segment_ids(ordered, starts)
+    opening_ids = opening_tape_segment_ids(
+        ordered, starts, policy=pol, ctx=ctx
+    )
     if not opening_ids:
         return []
     chapters = selection.get("chapters") or []
@@ -298,7 +434,7 @@ def chapter_opening_mask_violations(
         if not members:
             continue
         late_member = max(members, key=lambda s: pos.get(s, -1))
-        if pos.get(late_member, 0) >= opening_body_start_index():
+        if pos.get(late_member, 0) >= opening_body_start_index(ctx=ctx, policy=pol):
             violations.append(
                 {
                     "code": "chapter_opening_mask",
@@ -319,10 +455,12 @@ def collect_violations(
     selection: dict[str, Any],
     *,
     starts: dict[str, int] | None = None,
+    policy: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     ordered = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
     if starts is None:
         starts = resolved_segment_starts(ctx)
+    pol = _resolve_policy(ctx, policy, selection=selection, starts=starts)
     reorder_pairs: set[tuple[str, str]] = set()
     if ctx.artifact_exists("understanding/reorder_bridges.json"):
         try:
@@ -337,9 +475,19 @@ def collect_violations(
         except Exception:
             pass
     out: list[dict[str, Any]] = []
-    out.extend(reverse_tape_jump_violations(ctx, ordered, starts=starts, reorder_pairs=reorder_pairs))
-    out.extend(late_opening_cluster_violations(ctx, ordered, starts=starts))
-    out.extend(chapter_opening_mask_violations(ctx, selection, starts=starts))
+    out.extend(
+        reverse_tape_jump_violations(
+            ctx, ordered, starts=starts, reorder_pairs=reorder_pairs, policy=pol
+        )
+    )
+    out.extend(
+        late_opening_cluster_violations(ctx, ordered, starts=starts, policy=pol)
+    )
+    out.extend(
+        chapter_opening_mask_violations(
+            ctx, selection, starts=starts, policy=pol
+        )
+    )
     return out
 
 
@@ -400,10 +548,17 @@ def repair_opening_tape_integrity(
         return out, []
     if starts is None:
         starts = resolved_segment_starts(ctx)
+    pol = _resolve_policy(ctx, None, selection=out, starts=starts)
     actions: list[dict[str, Any]] = []
-    guest_first = _guest_first_open_established(ordered, starts)
-    late = late_opening_cluster_violations(ctx, ordered, starts=starts)
-    opening_ids = opening_tape_segment_ids(ordered, starts)
+    guest_first = _guest_first_open_established(
+        ordered, starts, policy=pol, ctx=ctx
+    )
+    late = late_opening_cluster_violations(
+        ctx, ordered, starts=starts, policy=pol
+    )
+    opening_ids = opening_tape_segment_ids(
+        ordered, starts, policy=pol, ctx=ctx
+    )
     if not late and guest_first:
         for idx, sid in enumerate(ordered):
             if sid in opening_ids and idx >= 1:
@@ -471,6 +626,7 @@ def pull_mid_arc_reverse_jumps(
     source_start_ms: dict[str, int] | None,
     *,
     guest_first: bool | None = None,
+    margin_ms: int | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     """Scan all adjacent pairs; prepend earlier-tape families on reverse jump.
 
@@ -483,7 +639,7 @@ def pull_mid_arc_reverse_jumps(
     if guest_first is None:
         guest_first = _guest_first_open_established(base, source_start_ms)
     _ = guest_first  # retained for call-site compatibility; no longer drops
-    margin = reverse_jump_margin_ms()
+    margin = reverse_jump_margin_ms() if margin_ms is None else margin_ms
     to_drop: list[str] = []
     moved: list[str] = []
     new_order = list(base)
@@ -524,8 +680,12 @@ def repair_air_order_integrity(
     out = dict(selection)
     actions: list[dict[str, Any]] = []
     starts = resolved_segment_starts(ctx)
+    pol = _resolve_policy(ctx, None, selection=out, starts=starts)
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
-    pulled, moved, dropped = pull_mid_arc_reverse_jumps(ordered, starts or None)
+    margin = reverse_jump_margin_ms(ctx=ctx, policy=pol)
+    pulled, moved, dropped = pull_mid_arc_reverse_jumps(
+        ordered, starts or None, margin_ms=margin
+    )
     if moved or dropped or pulled != ordered:
         if dropped:
             out = _exclude_segments(out, dropped, reason="opening_skipped_duplicate")
@@ -573,8 +733,18 @@ def write_air_order_integrity_report(
     actions: list[dict[str, Any]] | None = None,
     stage: str = "full_master_ranking",
     repaired: bool = False,
+    resolved_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     critical = critical_violations(violations)
+    policy = resolved_policy
+    if policy is None and ctx.artifact_exists("master/selection.json"):
+        try:
+            sel = ctx.read_json("master/selection.json")
+            policy = resolve_air_order_policy(
+                ctx, selection=sel if isinstance(sel, dict) else None
+            )
+        except Exception:
+            policy = resolve_air_order_policy(ctx)
     doc: dict[str, Any] = {
         "version": 1,
         "stage": stage,
@@ -586,6 +756,8 @@ def write_air_order_integrity_report(
         "actions": list(actions or [])[:32],
         "ok": len(critical) == 0,
     }
+    if policy:
+        doc["resolved_policy"] = policy
     ctx.write_json(INTEGRITY_REL, doc, stage_key=stage)
     for v in critical:
         ctx.log(
@@ -644,13 +816,15 @@ def audit_and_report(
         if actions:
             on_selection_order_changed(ctx, source=f"audit_and_report:{stage}", previous=previous, current=sel)
             ctx.write_json("master/selection.json", sel, stage_key=stage)
-    violations = collect_violations(ctx, sel)
+    policy = resolve_air_order_policy(ctx, selection=sel)
+    violations = collect_violations(ctx, sel, policy=policy)
     return write_air_order_integrity_report(
         ctx,
         violations=violations,
         actions=actions,
         stage=stage,
         repaired=bool(actions),
+        resolved_policy=policy,
     )
 
 
@@ -712,6 +886,17 @@ def on_selection_order_changed(
             if marker.is_file():
                 marker.unlink()
                 notes.append("cleared_stage_done:mix")
+    if prev_ids != cur_ids:
+        try:
+            if ctx.is_done("nugget_layup_compose") or ctx.artifact_exists(
+                "understanding/nugget_layup_plan.json"
+            ):
+                from interview_mux.homunculus.agenda import invalidate_downstream
+
+                invalidate_downstream(ctx, "nugget_layup_compose")
+                notes.append("invalidated_downstream:nugget_layup_compose")
+        except Exception:
+            pass
     if notes:
         ctx.log(
             f"selection order changed ({source}): " + ", ".join(notes[:6]),
@@ -737,6 +922,7 @@ def lint_hard_keep_family_errors(
         for r in (selection.get("excluded_segment_ids") or [])
     }
     starts = resolved_segment_starts(ctx)
+    pol = _resolve_policy(ctx, None, selection=selection, starts=starts)
     errors: list[str] = []
     pos = {sid: idx for idx, sid in enumerate(ordered)}
     for sid in keeps:
@@ -749,9 +935,9 @@ def lint_hard_keep_family_errors(
             continue
         if len(present) < len([m for m in family if m in set(ordered) | excl]):
             late = max(present, key=lambda s: pos.get(s, 0))
-            if pos.get(late, 0) >= opening_body_start_index():
+            if pos.get(late, 0) >= opening_body_start_index(ctx=ctx, policy=pol):
                 start = resolved_source_start_ms(late, starts)
-                if start is not None and start < opening_window_ms():
+                if start is not None and start < opening_window_ms(ctx=ctx, policy=pol):
                     errors.append(
                         f"hard-keep family partial mid-arc: {sid} -> {present[:4]}"
                     )

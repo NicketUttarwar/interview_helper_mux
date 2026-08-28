@@ -12,6 +12,7 @@ from interview_mux.run_context import RunContext
 
 ISSUES_REL = "mastering/homunculus/issues.jsonl"
 ANALYSES_DIR = "mastering/homunculus/analyses"
+PLAN_REL = "mastering/homunculus/plan.json"
 
 
 def _now() -> str:
@@ -158,6 +159,46 @@ def is_homunculus_meta(ctx: RunContext) -> bool:
     return ver not in {"", "0.0.0"}
 
 
+def write_homunculus_plan(
+    ctx: RunContext,
+    *,
+    last_target: str,
+    blockers: list[str] | list[dict[str, Any]],
+    attempted_heals: list[str] | None = None,
+    recommended_next: str | None = None,
+    pipeline_mode: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """12A: persist operator halt plan for Executions tab."""
+    if pipeline_mode is None:
+        try:
+            from interview_mux.pipeline_mode import resolve_effective_mode
+
+            pipeline_mode = str(resolve_effective_mode(ctx).get("mode") or "") or None
+        except Exception:
+            pipeline_mode = None
+    doc: dict[str, Any] = {
+        "last_target": str(last_target or ""),
+        "blockers": list(blockers or []),
+        "attempted_heals": list(attempted_heals or []),
+        "recommended_next": recommended_next,
+        "pipeline_mode": pipeline_mode,
+        "reason": reason,
+        "written_at": _now(),
+    }
+    ctx.write_json(PLAN_REL, doc, skip_handoff=True)
+    append_ledger(
+        ctx,
+        {
+            "kind": "homunculus_plan",
+            "identity": "homunculus_plan",
+            "last_target": doc["last_target"],
+            "reason": reason,
+        },
+    )
+    return doc
+
+
 def ingest_catch(
     ctx: RunContext,
     *,
@@ -171,11 +212,24 @@ def ingest_catch(
     """0.1.0: record the catch. 0.0.0: no-op."""
     if not is_homunculus_meta(ctx):
         return None
+    ev = dict(evidence or {})
+    msg = str(ev.get("message") or ev.get("error") or "")
+    if msg:
+        try:
+            from interview_mux.heal_routing import classify_heal_error
+
+            route = classify_heal_error(msg, ctx, stage=str(stage_id or ""))
+            if route is not None:
+                ev.setdefault("heal_family", route.family)
+                ev.setdefault("heal_from_stage", route.from_stage)
+                ev.setdefault("heal_action", route.action)
+        except Exception:
+            pass
     return emit_issue(
         ctx,
         kind=kind,
         source=source,
-        evidence=evidence,
+        evidence=ev,
         stage_id=stage_id,
         implicated=implicated,
         speaker_id=speaker_id,

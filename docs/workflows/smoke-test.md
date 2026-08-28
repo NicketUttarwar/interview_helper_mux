@@ -191,7 +191,22 @@ MUX_FULL_AUTO=1 MUX_INPUT_AUDIO=ASSETS/input/mohan_uttarwar_podcast_transforming
 
 # Or explicitly:
 python tools/full_auto_daemon_launch.py e2e --fresh
+# Opt-in crash watchdog (off by default):
+MUX_KEEPALIVE=1 python tools/full_auto_daemon_launch.py e2e --fresh
+# or, after the driver is already running:
 python tools/full_auto_daemon_launch.py keepalive
 ```
 
-`Full-auto` / `MUX_FULL_AUTO=1` (legacy `MUX_BABA_E2E=1`) detaches serve (no browser) for headless launches, then `full_auto_driver.py` + keepalive. Honors `MUX_RUN_ID` / `MUX_FRESH` / `MUX_INPUT_AUDIO`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`, `INTERVIEW_MUX_E2E_SOFT=1`, and soft listenability. Prefer `tools/e2e_pipeline_driver.py` for leaner one-shot headless drivers (stage list may lag Full-auto).
+`Full-auto` / `MUX_FULL_AUTO=1` (legacy `MUX_BABA_E2E=1`) detaches serve (no browser) for headless launches, then `full_auto_driver.py`. Keepalive is **off by default**; set `MUX_KEEPALIVE=1` or pass `--keepalive` / run `python tools/full_auto_daemon_launch.py keepalive` for overnight crash-restart. Honors `MUX_RUN_ID` / `MUX_FRESH` / `MUX_INPUT_AUDIO`. Sets `INTERVIEW_MUX_AUTO_ACCEPT_GATES=1`, `INTERVIEW_MUX_E2E_SOFT=1`, and soft listenability. Prefer `tools/e2e_pipeline_driver.py` for leaner one-shot headless drivers (stage list may lag Full-auto).
+
+## Manual synthetic-VO path (exec_188)
+
+After homunculus VO hardening ships, manually spot-check a **hosted interview with G-Framing Yes** on brain **0.1.0**:
+
+1. Resume or inspect `ASSETS/executions/exec_188_*` (or a fresh run on the same source hash).
+2. Confirm GUI **Synthetic VO path** banner shows `pipeline_mode` and nugget coverage toward **85%**.
+3. Confirm delivery order: `vo_line_adjudicate` → `vo_synthesize` → `edl_narrative_audit` (5C).
+4. Confirm G-Framing panel shows LLM `recommended_framing` hint without overriding operator choice.
+5. Listen to `master/assembly_preview.wav` after adjudicate+synth — audit should judge heard flow, not script-only.
+
+CI uses `tests/fixtures/adjudicate_path/minimal.json` + `tests/test_adjudicate_fixture.py` for a lightweight adjudicate-path regression; exec_188 remains the manual sign-off tape.

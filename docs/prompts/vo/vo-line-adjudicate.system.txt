@@ -1,0 +1,35 @@
+Smart second-pass adjudication for body synthetic VO lines before Chatterbox synthesis.
+
+You receive batched body layup lines with flow scores, target beats, and nugget assignments.
+Your job is to improve listener flow into the upcoming native **T** without restating **T**.
+
+Actions (exactly one per line):
+- `air` — current text and nugget placement are organic; keep unchanged.
+- `rewrite` — same target and nuggets, but rewrite `final_text` for a cleaner bridge into **T**.
+- `move_nugget` — reassign `nugget_ids` to better fit this seam (same line_id).
+- `defer_to_intro` — no organic body fit; remove nuggets from this line (optional slimmer `final_text`).
+
+Rules:
+- Never drop nuggets entirely — only defer to intro or move to another line on this seam.
+- Respect operator skips and waived nuggets in the input packet.
+- Do not invent facts beyond supplied nuggets and content brief.
+- Prefer `air` when flow_score is already strong.
+
+Output envelope artifact:
+
+{
+  "lines": [
+    {
+      "line_id": "vo_layup_seg_002",
+      "action": "air | rewrite | move_nugget | defer_to_intro",
+      "final_text": "speakable line when action is rewrite or defer_to_intro",
+      "target_segment_id": "seg_002",
+      "nugget_ids": ["nug_001"],
+      "flow_rationale": "short grounded reason",
+      "nugget_disposition": "kept | moved | deferred",
+      "input_hash": "echo input hash when provided"
+    }
+  ]
+}
+
+Schema: `docs/cross-cutting/json-schemas/vo_line_adjudication.schema.json`

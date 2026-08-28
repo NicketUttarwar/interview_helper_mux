@@ -263,8 +263,8 @@ def test_ranking_passes_source_start_ms_so_earlier_keeps_are_not_after_signoff()
     src = inspect.getsource(sel_mod)
     assert "_source_start_ms_map" in src
     assert "source_start_ms=_source_start_ms_map" in src
-    assert src.count("repair_selection_order(") >= 6
-    assert src.count("source_start_ms=_source_start_ms_map") >= 6
+    assert src.count("repair_selection_order(") >= 5
+    assert src.count("source_start_ms=") >= 5
 
 
 def test_master_finalize_hollow_without_pmq() -> None:

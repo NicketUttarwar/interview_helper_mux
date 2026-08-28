@@ -89,7 +89,13 @@ _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
 _ACTION_STAGES: dict[str, list[str]] = {
     "rerank": ["full_master_ranking", "edl_narrative_audit"],
     "transitions": ["transitions", "edl_narrative_audit"],
-    "rebase_gap_vo": ["selection_framing_apply", "nugget_layup_compose", "edl_narrative_audit"],
+    "rebase_gap_vo": [
+        "selection_framing_apply",
+        "nugget_layup_compose",
+        "vo_line_adjudicate",
+        "vo_synthesize",
+        "edl_narrative_audit",
+    ],
     "drop_blank": ["full_master_ranking", "edl_narrative_audit"],
     "operator": [],
 }

@@ -182,7 +182,7 @@ def _place_or_omit_restored_for_finale(
         )
 
         starts = resolved_segment_starts(ctx)
-        window = opening_window_ms()
+        window = opening_window_ms(ctx=ctx)
         ordered_list = [str(s) for s in (selection.get("ordered_segment_ids") or []) if s]
         if ordered_list and starts:
             first = starts.get(ordered_list[0])

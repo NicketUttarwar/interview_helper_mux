@@ -92,6 +92,8 @@ def run_edl_narrative_audit(ctx: RunContext) -> None:
             "sound_design_plan": _optional_json(c, "understanding/sound_design_plan.json"),
             "air_script_vo_seats": compact_air_script_vo_seats(c),
             "vo_coverage": compact_vo_coverage(c),
+            "audit_mode": "heard_wav_flow",
+            "vo_synthesis_complete": c.is_done("vo_synthesize"),
         }
         sdp = payload.get("sound_design_plan")
         if isinstance(sdp, dict):

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NuggetAllocationPlan",
+  "type": "object",
+  "required": ["body", "intro", "coverage"],
+  "properties": {
+    "version": { "type": "integer" },
+    "body": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["line_id"],
+        "properties": {
+          "line_id": { "type": "string" },
+          "target_segment_id": { "type": "string" },
+          "nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "intro": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "nugget_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "waived": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+    "eligible_nugget_count": { "type": "integer", "minimum": 0 },
+    "aired_nugget_count": { "type": "integer", "minimum": 0 },
+    "adjudication_rows": { "type": "array" }
+  },
+  "additionalProperties": true
+}

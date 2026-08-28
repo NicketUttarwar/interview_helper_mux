@@ -52,6 +52,10 @@ def _captured_ffmpeg_filters(ctx, monkeypatch) -> list[str]:
     monkeypatch.setattr(
         "interview_mux.operator_subprocess.run_command", fake_run_command
     )
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
     ingest_vo_pickup(ctx)
     return filters
 

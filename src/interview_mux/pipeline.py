@@ -44,6 +44,7 @@ from interview_mux.stages import transcribe_local
 from interview_mux.stages import audio_probes
 from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
+from interview_mux.stages import vo_line_adjudicate
 from interview_mux.stages import vo_synthesize
 from interview_mux.v2.config import (
     ALL_LLM_STAGES_V2,
@@ -65,6 +66,16 @@ ANALYSIS_LLM_STAGES: frozenset[str] = frozenset(
 # Legacy flow orders removed — empty tuples for import compatibility.
 FLOW2_ORDER: tuple[str, ...] = ()
 FLOW3_ORDER: tuple[str, ...] = ()
+
+_STAGE_ID_ALIASES: dict[str, str] = {
+    "selection": "full_master_ranking",
+}
+
+
+def canonical_stage_id(stage: str) -> str:
+    """Normalize legacy GUI/API stage ids to pipeline stage keys."""
+    key = str(stage or "").strip()
+    return _STAGE_ID_ALIASES.get(key, key)
 
 
 def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
@@ -89,6 +100,10 @@ def _analysis_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "boundary_detection": lambda: segmentation.run_boundaries(ctx),
         "segment_classification": lambda: segmentation.run_classification(ctx),
         "content_brief_reanchor": lambda: understanding.run_content_brief_reanchor(ctx),
+        "framing_posture_decide": lambda: __import__(
+            "interview_mux.stages.framing_posture_decide",
+            fromlist=["run_framing_posture_decide"],
+        ).run_framing_posture_decide(ctx),
         "boundary_topic_resplit": lambda: segmentation.run_boundary_topic_resplit(ctx),
         "vernacular_segment_sanitize": lambda: audio_probes.run_vernacular_segment_sanitize(ctx),
         "low_conf_island_scan": lambda: __import__(
@@ -171,9 +186,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "sound_design_plan": lambda: sound_design_stages.run_sound_design_plan(ctx),
         "sdp_intent_refine": lambda: run_sdp_intent_refine(ctx),
         "sound_design_vo_finalize": lambda: sound_design_vo_finalize.run_sound_design_vo_finalize(ctx),
+        "vo_line_adjudicate": lambda: vo_line_adjudicate.run_vo_line_adjudicate(ctx),
+        "vo_synthesize": lambda: vo_synthesize.run_vo_synthesize(ctx),
         "edl_narrative_audit": lambda: edl_narrative_audit.run_edl_narrative_audit(ctx),
         "edl_narrative_refine": lambda: run_edl_narrative_refine(ctx),
-        "vo_synthesize": lambda: vo_synthesize.run_vo_synthesize(ctx),
         "edl": lambda: assembly.run_edl(ctx),
         "assembly_preview": lambda: assembly.run_preview(ctx),
         "listen_delight_audit": lambda: __import__(
@@ -603,6 +619,13 @@ def run_analysis(
     from interview_mux.web.job_progress import notify_stage_start
     from interview_mux.write_staging import run_wrapped_stage
 
+    try:
+        from interview_mux.stage_order_migration import migrate_stale_stage_order_on_resume
+
+        migrate_stale_stage_order_on_resume(ctx)
+    except Exception:
+        pass
+
     analysis_order = effective_analysis_order()
     if (
         not invalidate
@@ -763,6 +786,13 @@ def run_delivery(
     preclean_hook: Callable[[str], None] | None = None,
     invalidate: bool = False,
 ) -> None:
+    try:
+        from interview_mux.stage_order_migration import migrate_stale_stage_order_on_resume
+
+        migrate_stale_stage_order_on_resume(ctx)
+    except Exception:
+        pass
+
     if not v2_g1_optional():
         require_g1_clear(ctx)
     require_analysis_artifacts_complete(ctx)

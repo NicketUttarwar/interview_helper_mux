@@ -21,6 +21,7 @@ from interview_mux.nugget_layup import (
     coverage_exempt_target_ids,
     dedupe_gap_report_nugget_claims,
     evaluate_layup_qc,
+    evaluate_nugget_air_coverage,
     recover_open_high_salience_nuggets,
     recover_open_must_keep_talking_points,
     gap_has_layup_before,
@@ -38,6 +39,7 @@ from interview_mux.nugget_layup import (
     stamp_typed_skip,
     stamp_valueless_skips,
     strip_model_order_lock,
+    waive_nuggets_for_skipped_vo_lines,
 )
 from interview_mux.prompt_validation import (
     STAGE_ARTIFACT_DISK_PATHS,
@@ -499,9 +501,112 @@ def test_thin_target_beat_only_layup_is_skipped_and_not_published():
 def test_cfg_defaults():
     cfg = nugget_layup_cfg({})
     assert cfg["enabled"] is True
-    assert cfg["min_layup_coverage"] == 0.55
+    assert cfg["min_layup_coverage"] == 0.70
+    assert cfg["min_nugget_air_coverage"] == 0.85
     assert cfg["authoritative_gap_report"] is True
     assert cfg["block_on_open_high_salience"] is True
+
+
+def test_evaluate_nugget_air_coverage_body_intro_waived():
+    corpus = {
+        "nuggets": [
+            {"nugget_id": "nug_a", "salience": "high", "in_selection": False},
+            {"nugget_id": "nug_b", "salience": "high", "in_selection": False},
+            {"nugget_id": "nug_c", "salience": "high", "in_selection": False},
+            {"nugget_id": "nug_d", "salience": "high", "in_selection": False},
+            {"nugget_id": "nug_native", "salience": "high", "already_aired_in_selection": True},
+        ]
+    }
+    body_plan = {
+        "layups": [
+            {
+                "target_segment_id": "seg_011",
+                "text": "Setup for the snack pivot.",
+                "nugget_ids": ["nug_a", "nug_b", "nug_c"],
+                "skip": False,
+            }
+        ],
+        "waived_nugget_ids": [{"nugget_id": "nug_d", "reason": "operator_waive"}],
+    }
+    soft = evaluate_nugget_air_coverage(body_plan, ["nug_d"], None, corpus, hard=False)
+    # 3 body + 1 intro on eligible {a,b,c} = 100% (nug_d waived from eligible)
+    assert soft["eligible_nugget_count"] == 3
+    assert soft["aired_nugget_count"] == 3
+    assert soft["nugget_air_coverage"] == 1.0
+    assert soft["ok"] is True
+    assert not soft["errors"]
+
+    sparse_body = {
+        "layups": [
+            {
+                "target_segment_id": "seg_011",
+                "text": "Only one fact lands here.",
+                "nugget_ids": ["nug_a"],
+                "skip": False,
+            }
+        ]
+    }
+    soft_low = evaluate_nugget_air_coverage(sparse_body, [], None, corpus, hard=False)
+    assert soft_low["nugget_air_coverage"] == pytest.approx(0.25, rel=1e-3)
+    assert soft_low["ok"] is True
+    assert any("min_nugget_air_coverage" in w for w in soft_low["warnings"])
+
+    hard_low = evaluate_nugget_air_coverage(sparse_body, [], None, corpus, hard=True)
+    assert hard_low["ok"] is False
+    assert any("min_nugget_air_coverage" in e for e in hard_low["errors"])
+
+    at_floor = evaluate_nugget_air_coverage(
+        {
+            "layups": [
+                {
+                    "target_segment_id": "seg_011",
+                    "text": "Two facts in body.",
+                    "nugget_ids": ["nug_a", "nug_b"],
+                    "skip": False,
+                }
+            ],
+            "waived_nugget_ids": [{"nugget_id": "nug_d"}],
+        },
+        ["nug_c"],
+        None,
+        corpus,
+        hard=True,
+        min_coverage=0.85,
+    )
+    # eligible {a,b,c}: body 2 + intro 1 = 3/3
+    assert at_floor["nugget_air_coverage"] == 1.0
+    assert at_floor["ok"] is True
+
+
+def test_evaluate_nugget_air_coverage_soft_in_qc():
+    ctx = RunContext("exec_nugget_air_qc_soft", create=True)
+    corpus = {
+        "nuggets": [
+            {"nugget_id": f"nug_{i}", "salience": "high", "in_selection": False}
+            for i in range(1, 6)
+        ]
+    }
+    plan = {
+        "ordered_segment_ids": ["seg_011"],
+        "layups": [
+            {
+                "target_segment_id": "seg_011",
+                "text": "One recovered fact before the clip.",
+                "nugget_ids": ["nug_1"],
+                "skip": False,
+                "forward_cue_ok": True,
+                **_ANALYSIS,
+            }
+        ],
+        "discharged_talking_point_ids": [],
+        "open_talking_point_ids": [],
+        "discharged_nugget_ids": ["nug_1"],
+        "open_high_salience_nugget_ids": [],
+    }
+    qc = evaluate_layup_qc(ctx, plan, corpus)
+    assert qc["nugget_air_coverage"] == pytest.approx(0.2, rel=1e-3)
+    assert qc["ok"] is True or not any("nugget_air_coverage" in e for e in (qc.get("errors") or []))
+    assert any("min_nugget_air_coverage" in w for w in (qc.get("warnings") or []))
 
 
 def test_exec_1579_shaped_recovery_mapping():
@@ -2006,3 +2111,142 @@ def test_spoken_copy_rejects_cue_only_when_nuggets_exist(monkeypatch):
         assert "one in a billion" in text.lower()
         assert "story in motion" not in text.lower()
         assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
+
+
+def _enable_gap_framing(ctx: RunContext) -> None:
+    from interview_mux.gap_vo_gates import set_gap_framing_enabled, set_gap_vo_delivery
+
+    set_gap_framing_enabled(ctx, True)
+    set_gap_vo_delivery(ctx, "chatterbox")
+    brief_path = ctx.path("understanding", "content_brief.json")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        json.dumps(
+            {
+                "thesis": "Diagnostics and circulating tumour cells in blood.",
+                "guest_name": "Dr. Chen",
+                "topics": [{"name": "diagnostics", "label": "Diagnostics"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_recover_open_high_salience_routes_to_orientation_when_no_body_target():
+    ctx = RunContext("exec_nugget_orient_recovery", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002"],
+        {"seg_002": "Welcome, today we talk about diagnostics."},
+    )
+    corpus = {
+        "nuggets": [
+            {
+                "nugget_id": "nug_004",
+                "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                "evidence_quote": "one in a billion",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+            }
+        ]
+    }
+    ctx.write_json(CORPUS_REL, corpus)
+    plan = {
+        "ordered_segment_ids": ["seg_002"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_002",
+                    "line_id": "vo_layup_seg_002",
+                    **_ANALYSIS,
+                },
+                reason_code="opening_orientation_owns_target",
+            )
+        ],
+        "open_high_salience_nugget_ids": ["nug_004"],
+        "discharged_nugget_ids": [],
+    }
+    recovered, notes = recover_open_high_salience_nuggets(ctx, plan)
+    assert "nug_004" in (recovered.get("orientation_nugget_recovery_ids") or [])
+    assert any(n.startswith("orientation_recovery:nug_004") for n in notes)
+    assert recovered.get("open_high_salience_nugget_ids") == []
+    qc = evaluate_layup_qc(ctx, recovered, corpus)
+    assert "nug_004" not in qc["open_high_salience_nugget_ids"]
+    assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))
+
+
+def test_publish_embeds_orientation_nugget_recovery():
+    ctx = RunContext("exec_nugget_orient_publish", create=True)
+    _enable_gap_framing(ctx)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {
+            "seg_002": "Welcome, today we talk about diagnostics.",
+            "seg_012": "Guest explains circulating tumour cells in blood.",
+        },
+    )
+    ctx.write_json(CORPUS_REL, {
+        "nuggets": [
+            {
+                "nugget_id": "nug_004",
+                "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                "evidence_quote": "one in a billion",
+                "in_selection": False,
+                "salience": "high",
+            }
+        ]
+    })
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [],
+        "orientation_nugget_recovery_ids": ["nug_004"],
+    }
+    ctx.write_json(PLAN_REL, plan)
+    report = publish_layup_plan_to_gap_report(ctx, plan)
+    orient = next(
+        ln for ln in report["interviewer_lines"] if ln.get("episode_orientation")
+    )
+    assert "one in a billion" in str(orient.get("text") or "").lower()
+    assert "nug_004" in (orient.get("nugget_ids") or [])
+    assert report.get("orientation_nugget_recovery", {}).get("nugget_ids")
+
+
+def test_waive_nuggets_for_g1_skipped_vo_lines():
+    ctx = RunContext("exec_nugget_g1_waive", create=True)
+    _seed_air_order(ctx, ["seg_012"], {"seg_012": "Guest explains CTCs."})
+    ctx.write_json(
+        GAP_REL,
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_012",
+                    "gap_type": "nugget_layup",
+                    "placement": "before",
+                    "targets_segment_id": "seg_012",
+                    "delivery": "synthesize",
+                    "nugget_ids": ["nug_004"],
+                    "selected_nugget_ids": ["nug_004"],
+                    "text": "CTCs occur at roughly one in a billion blood cells.",
+                    "skipped_optional": True,
+                }
+            ]
+        },
+    )
+    ctx.write_json(
+        PLAN_REL,
+        {
+            "ordered_segment_ids": ["seg_012"],
+            "layups": [],
+            "open_high_salience_nugget_ids": ["nug_004"],
+        },
+    )
+    waived = waive_nuggets_for_skipped_vo_lines(
+        ctx, skipped_line_ids=["vo_layup_seg_012"]
+    )
+    assert waived == ["nug_004"]
+    plan = ctx.read_json(PLAN_REL)
+    assert plan["open_high_salience_nugget_ids"] == []
+    waived_ids = {x["nugget_id"] for x in plan.get("waived_nugget_ids") or []}
+    assert "nug_004" in waived_ids

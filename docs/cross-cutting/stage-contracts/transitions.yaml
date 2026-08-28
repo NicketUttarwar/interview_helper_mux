@@ -24,6 +24,7 @@ sufficiency:
 propagation:
   invalidates_stages:
   - sound_design_plan
+  - vo_line_adjudicate
   - vo_synthesize
   - edl
 consumers:

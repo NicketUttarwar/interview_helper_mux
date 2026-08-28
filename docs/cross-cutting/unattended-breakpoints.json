@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "pipeline_stages": 67,
-  "breakpoint_count": 184,
+  "pipeline_stages": 69,
+  "breakpoint_count": 191,
   "breakpoints": [
     {
       "id": "contract:air_script_compose",
@@ -179,6 +179,15 @@
       "stage": "episode_structure_compose",
       "tier": "process",
       "outputs": []
+    },
+    {
+      "id": "contract:framing_posture_decide",
+      "kind": "stage_contract",
+      "stage": "framing_posture_decide",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/framing_posture_decision.json"
+      ]
     },
     {
       "id": "contract:full_master_ranking",
@@ -688,6 +697,15 @@
       "outputs": []
     },
     {
+      "id": "contract:vo_line_adjudicate",
+      "kind": "stage_contract",
+      "stage": "vo_line_adjudicate",
+      "tier": "llm_full",
+      "outputs": [
+        "understanding/vo_line_adjudication.json"
+      ]
+    },
+    {
       "id": "contract:vo_synthesize",
       "kind": "stage_contract",
       "stage": "vo_synthesize",
@@ -826,6 +844,13 @@
       "note": "no dedicated completeness gap rule"
     },
     {
+      "id": "disk_path:framing_posture_decide",
+      "kind": "stage_artifact_path",
+      "stage": "framing_posture_decide",
+      "path": "understanding/framing_posture_decision.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
       "id": "disk_path:chapter_close_hitch",
       "kind": "stage_artifact_path",
       "stage": "chapter_close_hitch",
@@ -886,6 +911,13 @@
       "kind": "stage_artifact_path",
       "stage": "edl_narrative_audit",
       "path": "master/edl_narrative_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:vo_line_adjudicate",
+      "kind": "stage_artifact_path",
+      "stage": "vo_line_adjudicate",
+      "path": "understanding/vo_line_adjudication.json",
       "note": "no dedicated completeness gap rule"
     },
     {
@@ -1210,6 +1242,11 @@
       "layer": "audio"
     },
     {
+      "id": "driver_fail_key:edl_qc:{msg[:160]}",
+      "kind": "driver_fail_key",
+      "fail_key": "edl_qc:{msg[:160]}"
+    },
+    {
       "id": "driver_fail_key:partial_artifact:{stage or",
       "kind": "driver_fail_key",
       "fail_key": "partial_artifact:{stage or"
@@ -1243,6 +1280,16 @@
       "id": "driver_fail_key:full_master_ranking:incomplete_no_persistable",
       "kind": "driver_fail_key",
       "fail_key": "full_master_ranking:incomplete_no_persistable"
+    },
+    {
+      "id": "driver_fail_key:sound_design_plan:delivery_sdp_missing",
+      "kind": "driver_fail_key",
+      "fail_key": "sound_design_plan:delivery_sdp_missing"
+    },
+    {
+      "id": "driver_fail_key:nugget_layup_compose:selection_cta_omit",
+      "kind": "driver_fail_key",
+      "fail_key": "nugget_layup_compose:selection_cta_omit"
     },
     {
       "id": "driver_fail_key:{stage or",

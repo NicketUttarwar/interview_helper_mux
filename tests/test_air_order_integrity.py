@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from interview_mux.air_order_integrity import (
+    critical_violations,
     late_opening_cluster_violations,
     pull_mid_arc_reverse_jumps,
     repair_air_order_integrity,
     repair_opening_tape_integrity,
     reverse_tape_jump_violations,
+    write_air_order_integrity_report,
 )
 
 
@@ -158,3 +160,84 @@ def test_repair_air_order_prefers_host_intro_over_company_pitch():
         "opening_skipped_duplicate"
     )
     assert actions
+
+
+def test_exec_805_letter_split_family_passes():
+    """Eight seg_001 letter-splits + seg_002 + seg_003 should not trip family slot cap."""
+    ordered = [
+        "seg_001c",
+        "seg_001d",
+        "seg_001e",
+        "seg_001f",
+        "seg_001h",
+        "seg_001i",
+        "seg_001j",
+        "seg_001k",
+        "seg_002",
+        "seg_003",
+        "seg_006",
+    ]
+    starts = {
+        "seg_001": 0,
+        "seg_002": 124_840,
+        "seg_003": 151_660,
+        "seg_006": 200_000,
+    }
+    policy = {
+        "opening_window_ms": 180_000,
+        "opening_air_slots": 6,
+        "count_opening_by_family": True,
+    }
+    violations = late_opening_cluster_violations(
+        None, ordered, starts=starts, policy=policy
+    )
+    assert not critical_violations(violations)
+
+
+def test_late_opening_still_flags_true_late_cluster():
+    ordered = ["seg_003", "seg_050", "seg_001c"]
+    starts = {"seg_001": 0, "seg_003": 152_000, "seg_050": 2_416_000, "seg_001c": 0}
+    policy = {"opening_window_ms": 180_000, "opening_air_slots": 6, "count_opening_by_family": True}
+    violations = late_opening_cluster_violations(
+        None, ordered, starts=starts, policy=policy
+    )
+    assert violations
+
+
+def test_resolved_policy_in_report(tmp_path):
+    class _Ctx:
+        def __init__(self):
+            self.run_dir = tmp_path
+            self.logs: list[tuple] = []
+
+        def write_json(self, rel, doc, stage_key=None):
+            path = tmp_path / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            import json
+
+            path.write_text(json.dumps(doc), encoding="utf-8")
+
+        def path(self, *parts):
+            p = tmp_path.joinpath(*parts)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return p
+
+        def log(self, message, level="info", stage=None, detail=None):
+            self.logs.append((message, level, stage))
+
+        def artifact_exists(self, path: str) -> bool:
+            return False
+
+    ctx = _Ctx()
+    policy = {
+        "source_duration_ms": 3_600_000,
+        "opening_air_slots": 6,
+        "count_opening_by_family": True,
+    }
+    doc = write_air_order_integrity_report(
+        ctx,
+        violations=[],
+        stage="test",
+        resolved_policy=policy,
+    )
+    assert doc.get("resolved_policy") == policy

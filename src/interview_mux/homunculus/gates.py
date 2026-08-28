@@ -30,6 +30,13 @@ def _monologue_topology(topo: str) -> bool:
 def recommended_framing_action(ctx: RunContext) -> str:
     """Whether framing is on. Hosted interviews auto-resolve Yes; clone stays least-spoken host."""
     try:
+        from interview_mux.pipeline_mode import is_native_only
+
+        if is_native_only(ctx):
+            return "skip"
+    except Exception:
+        pass
+    try:
         from interview_mux.homunculus.source_card import read_source_card
 
         card = read_source_card(ctx) or {}

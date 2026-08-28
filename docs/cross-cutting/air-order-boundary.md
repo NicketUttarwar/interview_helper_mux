@@ -9,7 +9,7 @@ Federated contract for **`master/selection.json`** air order: stages keep autono
 ## Constitution (shared invariants)
 
 1. **Tape monotonicity** — adjacent air pairs must not reverse source `start_ms` beyond `reverse_jump_margin_ms`, except pairs declared in `understanding/reorder_bridges.json`.
-2. **Opening sub-rule** — host-intro letter-split families (`seg_001*`) air early together or are typed-excluded (`opening_skipped_duplicate`) when guest-first open is established — never mid-episode.
+2. **Opening sub-rule** — host-intro letter-split families (`seg_001*`) air early together as **one opening family** for slot budgeting; violations key on parent first-air index, not each fragment. Typed-exclude (`opening_skipped_duplicate`) when guest-first open is established — never mid-episode.
 3. **Consumer parity** — EDL speech clip order must match selection when EDL is done (`assert_selection_leads_edl`).
 4. **NLE overlay exception** — when the operator applied NLE timeline edits, intentional non-monotonic tape order is **allowed**. Checkpoints **warn** in `master/air_order_integrity.json`; they do **not** block commit.
 
@@ -57,7 +57,7 @@ Default **`mastering.air_order_integrity.block_ranking_on_critical: false`** dur
 
 | Symptom | Check |
 |---------|--------|
-| Run blocked at ranking | `master/air_order_integrity.json` · `operator/air_order_integrity.log.jsonl` |
+| Run blocked at ranking | `master/air_order_integrity.json` · `resolved_policy` · `operator/air_order_integrity.log.jsonl` |
 | Stale transition bridge | Order changed without lifecycle — grep for raw `master/selection.json` writes |
 | Montage episode flagged | Ensure pair is in `understanding/reorder_bridges.json` |
 | NLE timeline reorder | Expected — integrity warns, does not block |

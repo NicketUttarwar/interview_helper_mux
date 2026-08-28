@@ -174,3 +174,99 @@ def test_create_run_full_auto_launches_run_scoped_worker(tmp_path, monkeypatch) 
     meta_text = meta_path.read_text(encoding="utf-8")
     assert '"run_mode": "full-auto"' in meta_text
     assert '"full_auto": true' in meta_text
+
+
+def test_env_keepalive_requested(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.delenv("MUX_KEEPALIVE", raising=False)
+    assert dal.env_keepalive_requested() is False
+    monkeypatch.setenv("MUX_KEEPALIVE", "1")
+    assert dal.env_keepalive_requested() is True
+    monkeypatch.setenv("MUX_KEEPALIVE", "true")
+    assert dal.env_keepalive_requested() is True
+    monkeypatch.setenv("MUX_KEEPALIVE", "0")
+    assert dal.env_keepalive_requested() is False
+
+
+def test_resolve_launch_modes_omits_keepalive_by_default(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.delenv("MUX_KEEPALIVE", raising=False)
+    assert dal.resolve_launch_modes([]) == {"server", "e2e"}
+    assert dal.resolve_launch_modes(["all"]) == {"server", "e2e"}
+    assert dal.resolve_launch_modes(["e2e", "--fresh"]) == {"e2e"}
+    assert dal.resolve_launch_modes(["e2e", "--keepalive"]) == {"e2e", "keepalive"}
+    assert dal.resolve_launch_modes(["keepalive"]) == {"keepalive"}
+    assert "stop" in dal.resolve_launch_modes(["stop"])
+    assert dal.resolve_launch_modes(["e2e"], keepalive_from_env=True) == {"e2e", "keepalive"}
+    assert dal.resolve_launch_modes(["e2e"], keepalive_from_env=False) == {"e2e"}
+
+
+def test_launch_full_auto_skips_keepalive_by_default(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.delenv("MUX_KEEPALIVE", raising=False)
+    ka_calls: list[dict] = []
+    monkeypatch.setattr(dal, "ensure_e2e", lambda **kwargs: 11)
+    monkeypatch.setattr(
+        dal,
+        "ensure_keepalive",
+        lambda **kwargs: ka_calls.append(kwargs) or 22,
+    )
+    out = dal.launch_full_auto_for_run(
+        run_id="exec_test",
+        input_audio="ASSETS/input/interview.wav",
+    )
+    assert ka_calls == []
+    assert out["driver_pid"] == 11
+    assert out["keepalive_pid"] is None
+
+
+def test_launch_full_auto_starts_keepalive_when_flag_set(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.setenv("MUX_KEEPALIVE", "1")
+    ka_calls: list[dict] = []
+    monkeypatch.setattr(dal, "ensure_e2e", lambda **kwargs: 11)
+    monkeypatch.setattr(
+        dal,
+        "ensure_keepalive",
+        lambda **kwargs: ka_calls.append(kwargs) or 22,
+    )
+    out = dal.launch_full_auto_for_run(
+        run_id="exec_test",
+        input_audio="ASSETS/input/interview.wav",
+        keep_gui_server=True,
+    )
+    assert len(ka_calls) == 1
+    assert ka_calls[0]["keep_gui_server"] is True
+    assert out["keepalive_pid"] == 22
+
+
+def test_launch_partial_auto_skips_keepalive_by_default(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.delenv("MUX_KEEPALIVE", raising=False)
+    ka_calls: list[dict] = []
+    monkeypatch.setattr(dal, "ensure_e2e", lambda **kwargs: 11)
+    monkeypatch.setattr(
+        dal,
+        "ensure_keepalive",
+        lambda **kwargs: ka_calls.append(kwargs) or 22,
+    )
+    out = dal.launch_partial_auto_for_run(
+        run_id="exec_test",
+        input_audio="ASSETS/input/interview.wav",
+    )
+    assert ka_calls == []
+    assert out["keepalive_pid"] is None
+
+
+def test_keepalive_does_not_relaunch_gui_attached_serve(monkeypatch) -> None:
+    import full_auto_keepalive_loop as keepalive
+
+    monkeypatch.delenv("MUX_FULL_AUTO_KEEP_SERVER", raising=False)
+    assert keepalive.should_relaunch_server_on_death() is True
+    monkeypatch.setenv("MUX_FULL_AUTO_KEEP_SERVER", "1")
+    assert keepalive.should_relaunch_server_on_death() is False

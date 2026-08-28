@@ -22,7 +22,7 @@ from interview_mux.timbre_match import (
     format_gain_entry,
 )
 from interview_mux.web.server import create_app
-from run_fixtures import init_run_meta_for_test, minimal_gap_line, patch_executions_root, patch_merged_config
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx, minimal_gap_line, patch_executions_root, patch_merged_config
 
 # tools/ is not a package — load s2s_generate by path for argv contract tests.
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -127,7 +127,7 @@ def test_resolve_vo_pickup_precedence_clean_before_normalized(tmp_path: Path, mo
             }
         },
     )
-    ctx = RunContext(f"exec_vo_prec_{tmp_path.name[-12:]}", create=True)
+    ctx = isolated_run_ctx(tmp_path, f"exec_vo_prec_{tmp_path.name[-12:]}")
     init_run_meta_for_test(ctx)
     monkeypatch.setattr(
         "interview_mux.vo_speech_qa.vo_passes_speech_qa",

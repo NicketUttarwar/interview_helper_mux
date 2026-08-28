@@ -19,6 +19,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "talking_points_compose": "talking_points_artifact.schema.json",
     "ideal_cuts_propose": "ideal_cuts_artifact.schema.json",
     "content_brief_reanchor": "content_brief_artifact.schema.json",
+    "framing_posture_decide": "framing_posture_decision.schema.json",
     "boundary_detection": "boundaries_artifact.schema.json",
     "boundary_topic_resplit": "boundaries_artifact.schema.json",
     "segment_classification": "manifest_artifact.schema.json",
@@ -36,6 +37,7 @@ STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "air_script_compose": "mastering_plan.schema.json",
     "air_script_seams": "mastering_plan.schema.json",
     "edl_narrative_audit": "edl_narrative_audit_artifact.schema.json",
+    "vo_line_adjudicate": "vo_line_adjudication_artifact.schema.json",
     "transitions": "transitions_artifact.schema.json",
     "synthetic_framing_plan": "synthetic_framing_plan.schema.json",
     "podcast_sfx_brief": "podcast_sfx_artifact.schema.json",
@@ -72,6 +74,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "ideal_cuts_propose": "understanding/ideal_cuts.json",
     "ideal_cuts_materialize": "understanding/ideal_cuts_materialized.json",
     "content_brief_reanchor": "understanding/content_brief.json",
+    "framing_posture_decide": "understanding/framing_posture_decision.json",
     "boundary_detection": "segments/boundaries.json",
     "boundary_topic_resplit": "segments/boundaries.json",
     "segment_classification": "segments/manifest.json",
@@ -91,6 +94,7 @@ STAGE_ARTIFACT_DISK_PATHS: dict[str, str] = {
     "nugget_corpus_mine": "understanding/nugget_corpus.json",
     "nugget_layup_compose": "understanding/nugget_layup_plan.json",
     "edl_narrative_audit": "master/edl_narrative_audit.json",
+    "vo_line_adjudicate": "understanding/vo_line_adjudication.json",
     "vo_synthesize": "mastering/vo_synthesize.json",
     "edl": "master/edl.json",
     "air_script_compose": "mastering/mastering_plan.json",
@@ -371,6 +375,18 @@ def validate_nugget_layup_plan(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("nugget_layup_plan_artifact.schema.json", data)
 
 
+def validate_vo_line_adjudication(data: dict[str, Any]) -> list[str]:
+    return _validate_dict(data, _load_root_schema("vo_line_adjudication.schema.json"))
+
+
+def validate_nugget_intro_compose(data: dict[str, Any]) -> list[str]:
+    return _validate_dict(data, _load_root_schema("nugget_intro_compose.schema.json"))
+
+
+def validate_nugget_allocation_plan(data: dict[str, Any]) -> list[str]:
+    return _validate_dict(data, _load_root_schema("nugget_allocation_plan.schema.json"))
+
+
 def validate_omit_ledger(data: dict[str, Any]) -> list[str]:
     return _validate_by_artifact_schema("omit_ledger.schema.json", data)
 
@@ -563,6 +579,9 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/gap_report.json": validate_gap_report,
     "understanding/nugget_corpus.json": validate_nugget_corpus,
     "understanding/nugget_layup_plan.json": validate_nugget_layup_plan,
+    "understanding/vo_line_adjudication.json": validate_vo_line_adjudication,
+    "understanding/nugget_intro_compose.json": validate_nugget_intro_compose,
+    "understanding/nugget_allocation_plan.json": validate_nugget_allocation_plan,
     "understanding/omit_ledger.json": validate_omit_ledger,
     "understanding/delivery_brief.json": validate_delivery_brief,
     "understanding/soundscape_policy.json": validate_soundscape_policy,

@@ -125,6 +125,10 @@ def dispatch_stage(
         if needed and not stage_outputs_present(ctx, stage):
             if stage == "vo_synthesize" and ctx.artifact_exists("mastering/vo_synthesize.json"):
                 pass
+            elif stage == "mmaudio_sfx":
+                raise RuntimeError(
+                    "mmaudio_sfx finished without WAV parity in sound_design/mmaudio_qa.json"
+                )
             elif stage == "mix":
                 final_asm = ctx.final_path("master", "assembly.wav")
                 if final_asm.is_file():
@@ -196,6 +200,18 @@ def dispatch_stage(
             implicated=[stage],
             evidence={"error_class": type(exc).__name__, "message": str(exc)[:400]},
         )
+        ev = issue.get("evidence") or {}
+        if ev.get("heal_from_stage"):
+            append_ledger(
+                ctx,
+                {
+                    "kind": "heal_route",
+                    "identity": identity,
+                    "family": ev.get("heal_family"),
+                    "from_stage": ev.get("heal_from_stage"),
+                    "issue_id": issue.get("issue_id"),
+                },
+            )
         append_ledger(
             ctx,
             {
@@ -295,6 +311,11 @@ def snapshot_status(ctx: RunContext) -> dict[str, Any]:
         "active": is_homunculus_run(ctx),
         "budget": budget_snapshot(ctx),
         "issues": read_issues(ctx)[-12:],
+        "homunculus_plan": (
+            ctx.read_json("mastering/homunculus/plan.json")
+            if ctx.artifact_exists("mastering/homunculus/plan.json")
+            else None
+        ),
         "admitted_tail": read_admitted(ctx)[-12:],
         "memory_fact_count": len(read_memory(ctx).get("facts") or []),
         "last_fact_ids": last_fact_ids(ctx),

@@ -477,7 +477,7 @@ def test_catalog_unattended_breakpoints_nonempty():
     import catalog_unattended_breakpoints as cat
 
     catalog = cat.build_catalog()
-    assert catalog["pipeline_stages"] == 67
+    assert catalog["pipeline_stages"] == 69
     assert catalog["breakpoint_count"] > 50
     kinds = {row["kind"] for row in catalog["breakpoints"]}
     assert "completeness_gap_rule" in kinds

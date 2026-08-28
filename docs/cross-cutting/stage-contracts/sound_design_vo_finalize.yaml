@@ -14,7 +14,11 @@ inputs:
   soft: []
 sufficiency: []
 propagation:
-  invalidates_stages: []
+  invalidates_stages:
+  - vo_line_adjudicate
+  - vo_synthesize
+  - edl_narrative_audit
+  - edl
 consumers: []
 remediation:
   strategies:

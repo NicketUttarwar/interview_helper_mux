@@ -33,9 +33,11 @@ def operator_gate_focus_stage(
     job_stage: str | None = None,
 ) -> str | None:
     """Map automated stage gates to the operator checkpoint stage the GUI should open."""
-    if not message or not job_stage:
+    if not message:
         return None
     low = message.lower()
+    if "transcript review" in low:
+        return "transcript_review"
     if job_stage == "transcript_review_build" and "transcript review required" in low:
         return "transcript_review"
     return None

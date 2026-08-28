@@ -13,7 +13,8 @@ def test_analysis_order_includes_content_brief_reanchor():
     sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert reanchor_idx == seg_idx + 1
-    assert resplit_idx == reanchor_idx + 1
+    assert ANALYSIS_ORDER.index("framing_posture_decide") == reanchor_idx + 1
+    assert resplit_idx == ANALYSIS_ORDER.index("framing_posture_decide") + 1
     sanitize_idx = ANALYSIS_ORDER.index("vernacular_segment_sanitize")
     assert sanitize_idx == resplit_idx + 1
     assert sonic_idx > sanitize_idx

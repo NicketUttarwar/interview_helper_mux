@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FramingPostureDecision",
+  "type": "object",
+  "required": [
+    "recommended_framing",
+    "posture_hint",
+    "rationale_plain",
+    "reason_codes"
+  ],
+  "properties": {
+    "recommended_framing": {
+      "type": "string",
+      "enum": ["yes", "no", "sparse"]
+    },
+    "posture_hint": {
+      "type": "string",
+      "enum": ["framing_full", "framing_sparse", "native_only"]
+    },
+    "rationale_plain": {
+      "type": "string",
+      "minLength": 8
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "signals_summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "decided_by": {
+      "type": "string",
+      "enum": [
+        "llm_advisory",
+        "deterministic_monologue",
+        "homunculus_skip",
+        "feature_disabled",
+        "operator_g_framing",
+        "forced_skip"
+      ]
+    },
+    "advisory_only": { "type": "boolean" },
+    "decided_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

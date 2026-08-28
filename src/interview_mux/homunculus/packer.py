@@ -56,6 +56,63 @@ _HOST_PACKET_MARKERS = (
 )
 
 
+def pack_conductor_context(
+    ctx: RunContext,
+    *,
+    target_stage: str = "topic_coverage_audit",
+) -> str:
+    """1B + 11B: delivery prereq checklist, stage plan, readiness for each conductor turn."""
+    from interview_mux.homunculus.agenda import (
+        DELIVERY_ANALYSIS_PREREQS,
+        resolve_stage_plan,
+        stage_outputs_present,
+    )
+
+    prereq_rows: list[dict[str, Any]] = []
+    for prereq_stage, rel in DELIVERY_ANALYSIS_PREREQS:
+        prereq_rows.append(
+            {
+                "stage": prereq_stage,
+                "artifact": rel,
+                "artifact_exists": ctx.artifact_exists(rel),
+                "stage_done": ctx.is_done(prereq_stage),
+                "outputs_present": stage_outputs_present(ctx, prereq_stage),
+            }
+        )
+    try:
+        stage_plan = resolve_stage_plan(ctx, target_stage)
+    except Exception as exc:
+        stage_plan = {"stage": target_stage, "error": str(exc)[:200]}
+    try:
+        from interview_mux.progression_readiness import build_delivery_readiness_report
+
+        readiness = build_delivery_readiness_report(ctx, target_stage=target_stage)
+        readiness = {
+            "ready": readiness.get("ready"),
+            "target_stage": readiness.get("target_stage"),
+            "blockers": (readiness.get("blockers") or [])[:8],
+        }
+    except Exception:
+        readiness = {"ready": None, "blockers": []}
+    try:
+        from interview_mux.pipeline_mode import resolve_effective_mode
+
+        pipeline_mode = resolve_effective_mode(ctx)
+    except Exception:
+        pipeline_mode = None
+    blob = json.dumps(
+        {
+            "delivery_analysis_prereqs": prereq_rows,
+            "resolve_stage_plan": stage_plan,
+            "delivery_readiness": readiness,
+            "pipeline_mode": pipeline_mode,
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+    return blob[:12000]
+
+
 def bootstrap_g0_text(ctx: RunContext) -> str:
     for rel in (
         "transcript/full.json",

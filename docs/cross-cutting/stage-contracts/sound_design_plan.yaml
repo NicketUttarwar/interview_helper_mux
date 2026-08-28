@@ -24,6 +24,7 @@ sufficiency:
 propagation:
   invalidates_stages:
   - sfx_prompt_craft
+  - vo_line_adjudicate
   - vo_synthesize
   - edl
 consumers:

@@ -1,5 +1,8 @@
 import { useCallback, useRef } from "react";
 import { PipelineCompletePanel } from "../pipeline/PipelineCompletePanel";
+import { GPublishPanel } from "../gates/GPublishPanel";
+import { usePartialAutoGPublish } from "../../hooks/usePartialAutoGPublish";
+import { isPartialAcceleratedRun } from "../../utils/partialAcceleratedGuard";
 import { isPipelineComplete } from "../../utils/pipelineAutopilot";
 import { useApp } from "../../context/AppContext";
 import { PipelineStepList } from "../pipeline/PipelineStepList";
@@ -7,6 +10,7 @@ import { PhaseWorkbench } from "../workspace/PhaseWorkbench";
 import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
 import { isV2Enabled } from "../../utils/v2Phases";
 import { JourneyShell } from "../journey/JourneyShell";
+import { PipelineVoStatusPanel } from "../pipeline/PipelineVoStatusPanel";
 import { useOverscrollRetry } from "../../hooks/useOverscrollRetry";
 import {
   clearPendingCheckpointScroll,
@@ -29,6 +33,13 @@ export function PipelineTab() {
     refreshRun,
     config,
   } = useApp();
+
+  const gPublish = usePartialAutoGPublish(run);
+  const partialPublishCheckpoint =
+    Boolean(run) &&
+    isPartialAcceleratedRun(run) &&
+    run?.meta?.partial_auto_complete !== true &&
+    Boolean(gPublish?.pending && gPublish.package_ready && !gPublish.skipped);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleOverscrollRetry = useCallback(async () => {
@@ -82,6 +93,7 @@ export function PipelineTab() {
   return (
     <main className="view workspace-shell pipeline-tab pipeline-v2">
       <JourneyShell>
+        <PipelineVoStatusPanel />
         <div className="workspace-scroll" ref={scrollRef}>
           {overscrollLoading ? (
             <div className="overscroll-retry-indicator" aria-busy="true">
@@ -94,7 +106,10 @@ export function PipelineTab() {
             <PipelineStepList />
             <div className="pipeline-v2-main">
               {isPipelineComplete(run) ? (
-                <PipelineCompletePanel />
+                <>
+                  <PipelineCompletePanel />
+                  {partialPublishCheckpoint ? <GPublishPanel /> : null}
+                </>
               ) : isV2Enabled(config) ? (
                 <PhaseWorkbench />
               ) : (

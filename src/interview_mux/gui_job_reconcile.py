@@ -207,12 +207,22 @@ def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[st
             message=f"{blocked_stage} complete — continue pipeline.",
         )
 
-    if focus == "transcript_review":
+    if focus == "transcript_review" or (
+        not focus and "transcript review" in low
+    ):
         from interview_mux.stages.transcript_review import check_transcript_review_pending
 
         if check_transcript_review_pending(ctx):
-            return job
-        return _resume_after_operator_gate(ctx, job, stage_id=stage, message="Transcript review complete — continue pipeline.")
+            out = dict(job)
+            out["stage"] = "transcript_review"
+            out["current_stage"] = "transcript_review"
+            return out
+        return _resume_after_operator_gate(
+            ctx,
+            job,
+            stage_id="transcript_review",
+            message="Transcript review complete — continue pipeline.",
+        )
 
     if stage == "transcript_review_build" and "transcript review required" in low:
         from interview_mux.stages.transcript_review import check_transcript_review_pending
@@ -418,6 +428,12 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     if write_reconciled is not data:
         ctx.write_json("gui_job.json", write_reconciled)
         data = write_reconciled
+    try:
+        from interview_mux.stage_order_migration import migrate_stale_stage_order_on_resume
+
+        migrate_stale_stage_order_on_resume(ctx)
+    except Exception:
+        pass
     reconciled = reconcile_operator_gate_job(ctx, data)
     if reconciled is not data:
         ctx.write_json("gui_job.json", reconciled)

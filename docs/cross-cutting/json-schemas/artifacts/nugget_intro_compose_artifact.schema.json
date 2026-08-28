@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NuggetIntroComposeArtifact",
+  "type": "object",
+  "required": ["text", "nugget_ids"],
+  "properties": {
+    "text": { "type": "string", "minLength": 1 },
+    "nugget_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "clustered_themes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "rationale": { "type": "string" },
+    "intro_nugget_recovery": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

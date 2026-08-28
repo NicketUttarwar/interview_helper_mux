@@ -20,10 +20,10 @@
       "master/selection.json",
       "master/transitions.json",
       "run_meta.json",
-      "understanding/gap_report.json"
+      "understanding/gap_report.json",
+      "understanding/speaker_delivery_plan.json"
     ],
     "writes": [
-      "master/edl.json",
       "master/selection.json",
       "master/transitions.json",
       "understanding/gap_report.json"
@@ -67,9 +67,14 @@
     ],
     "writes": []
   },
+  "framing_posture_decide": {
+    "reads": [],
+    "writes": []
+  },
   "gaps": {
     "reads": [
       "master/selection.json",
+      "run_meta.json",
       "segments/manifest.json",
       "understanding/content_brief.json",
       "understanding/delivery_brief.json",
@@ -82,7 +87,8 @@
     ],
     "writes": [
       "# Interviewer script \u2014 gap-fill skipped (no pickup lines required)\n",
-      "understanding/gap_framing_plan.json"
+      "understanding/gap_framing_plan.json",
+      "understanding/gap_report.json"
     ]
   },
   "ingest": {
@@ -184,7 +190,6 @@
     ],
     "writes": [
       "master/rank_candidates.json",
-      "master/selection.json",
       "master/story_health.json",
       "understanding/reorder_bridges.json"
     ]
@@ -234,7 +239,9 @@
     ]
   },
   "transcribe_local": {
-    "reads": [],
+    "reads": [
+      "run_meta.json"
+    ],
     "writes": [
       "transcript/full.json",
       "transcript/speakers.json"
@@ -270,6 +277,10 @@
       "understanding/source_acoustic_profile.json",
       "understanding/talking_points.json"
     ]
+  },
+  "vo_line_adjudicate": {
+    "reads": [],
+    "writes": []
   },
   "vo_synthesize": {
     "reads": [

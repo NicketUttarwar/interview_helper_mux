@@ -102,6 +102,14 @@ export interface RunSummary {
   blocking_message?: string | null;
   attention_count?: number;
   homunculus_version?: string;
+  homunculus_halt_plan?: {
+    last_target?: string;
+    blockers?: string[];
+    attempted_heals?: string[];
+    recommended_next?: string;
+    pipeline_mode?: { mode?: string; decided_by?: string };
+    reason?: string;
+  } | null;
   podcast_id?: string;
   podcast_title?: string;
 }
@@ -569,6 +577,9 @@ export interface RunData {
   gap_fill_mode?: "active" | "skipped" | "pending";
   gap_framing_enabled?: boolean;
   gap_framing_decision_pending?: boolean;
+  llm_recommended_framing?: string | null;
+  llm_framing_rationale?: string | null;
+  pipeline_mode?: { mode?: string; decided_by?: string; reason_codes?: string[] } | null;
   gap_vo_delivery?: "chatterbox" | "record" | null;
   gap_delivery_pending?: boolean;
   voice_reference_pending?: boolean;

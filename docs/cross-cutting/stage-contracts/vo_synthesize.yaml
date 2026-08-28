@@ -18,6 +18,7 @@ inputs:
 sufficiency: []
 propagation:
   invalidates_stages:
+  - edl_narrative_audit
   - edl
 consumers: []
 remediation:

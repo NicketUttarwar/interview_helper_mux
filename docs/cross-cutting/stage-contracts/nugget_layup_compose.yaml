@@ -35,6 +35,7 @@ propagation:
   - gap_framing_recompose
   - selection_framing_apply
   - transitions
+  - vo_line_adjudicate
   - vo_synthesize
   - edl
 consumers:

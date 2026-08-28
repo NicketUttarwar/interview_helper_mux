@@ -355,8 +355,8 @@ def test_stale_script_hash_rejects_generated_wav(
     matches, reason = synthesis_entry_matches_line(ctx, changed)
     assert matches is False
     assert reason == "stale_script_hash"
-    # G1 accepts on-disk wav when audit line_id matches even if script_hash is stale.
-    assert resolve_vo_pickup_path(ctx, changed) is not None
+    # 9C: stale script_hash rejects synthesized WAV even when the file remains on disk.
+    assert resolve_vo_pickup_path(ctx, changed) is None
 
     retargeted = {**original, "targets_segment_id": "seg_2"}
     matches, reason = synthesis_entry_matches_line(ctx, retargeted)

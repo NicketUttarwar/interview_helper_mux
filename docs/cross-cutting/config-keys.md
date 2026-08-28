@@ -19,6 +19,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_BABA_E2E` | `0` | legacy | Alias for `MUX_FULL_AUTO` (accepted once during rename transition) |
 | `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
 | `MUX_DETACH_SERVE` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` starts serve in its own session so Full-auto survives shell exit |
+| `MUX_KEEPALIVE` | `0` | `./scripts/run.sh`, GUI Full-auto, `full_auto_daemon_launch.py` | `1` starts the crash-restart watchdog (`full_auto_keepalive_loop.py`). Off by default so killing the GUI cannot resurrect serve. Equivalent: `--keepalive` or `python tools/full_auto_daemon_launch.py keepalive` |
 
 ---
 
@@ -120,7 +121,7 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_framing.vo_value_gate.require_cold_open_layup` | `vo_value_violations` | Preface / first-segment last sentence must cue the actual first native clip (default **true**). Does **not** force a synthetic preface: `ensure_episode_orientation` omits when native hosts already intro. |
 | `analysis.nugget_layup.enabled` | `nugget_layup`, corpus/layup stages | Master switch for Nugget Layup System (default **true**) |
 | `analysis.nugget_layup.require_layup_per_native` | `evaluate_layup_qc` | Require a plan row per ordered native (default **true**) |
-| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Min fraction of natives with non-skip lay-up text (default **0.55** — try every seam; air only when useful) |
+| `analysis.nugget_layup.min_layup_coverage` | `evaluate_layup_qc` | Secondary row-density floor: min fraction of natives with non-skip lay-up text (default **0.70**; authoritative nugget metric is `min_nugget_air_coverage`) |
 | `analysis.nugget_layup.min_layup_words` / `max_layup_words` | layup compose prompt budgets | Word bounds for each before-VO (defaults **18** / **90**) |
 | `analysis.nugget_layup.prefer_excluded_nuggets` | corpus/layup prompts | Prefer recovering off-air facts (default **true**) |
 | `analysis.nugget_layup.segment_text_max_chars` | `build_corpus_mine_input`, `build_layup_compose_input` | Chars of native text handed to the LLM — full upcoming clip, not a stub (default **1500**) |
@@ -176,6 +177,13 @@ Pre-clean offers appear inline via `PrecleanOfferCard` on matching stages and th
 | `analysis.gap_vo.timbre_match.enabled` | `timbre_match`, G1 `/match` endpoint | Enables deterministic spectral/loudness matching of an operator take; never synthesizes replacement words |
 | `analysis.gap_vo.timbre_match.max_eq_db` | `timbre_match` | Clamps the reference-derived EQ correction (default **6 dB**) |
 | `analysis.gap_vo.post_synthesis_qc` | `vo_synthesis_audit.record_synthesis` | Duration QC + speech QA; `max_ms_per_word` / `min_ms_per_word` hard-fail TTS stutter vs script |
+| `analysis.gap_vo.adjudicate_before_synth` | `vo_line_adjudicate` | Require smart adjudicate before `vo_synthesize` on homunculus 0.1.0+ (default **true**) |
+| `analysis.gap_vo.adjudicate_batch_size` | `vo_line_adjudicate` | Lines per economy adjudicate volley (default **5**) |
+| `analysis.gap_vo.adjudicate_llm_tier` | `vo_line_adjudicate` | OpenAI tier for body adjudicate batches (default **economy**) |
+| `analysis.gap_vo.adjudicate_flow_threshold` | `vo_line_adjudicate` | Pre-score below → LLM adjudicate (default **0.55**) |
+| `analysis.gap_vo.full_resynth_on_adjudicate_change` | `vo_line_adjudicate`, `vo_synthesis_audit` | 1A — nuke synth WAVs on adjudicate mutation (default **true**) |
+| `analysis.gap_vo.intro_compose_llm_tier` | `nugget_intro_compose` | Flagship tier for intro preface LLM (default **flagship**) |
+| `analysis.nugget_layup.min_nugget_air_coverage` | `evaluate_nugget_air_coverage`, `nugget_intro_compose`, `vo_line_adjudicate`, `nugget_allocation_plan.json` | Body + intro combined nugget air floor (default **0.85**). Soft warn at `nugget_layup_compose`; hard check after adjudicate + intro persist. Eligible = corpus nuggets − waived − already native in selection. |
 | `analysis.gap_vo.auto_fallback_on_qc_fail` | `vo_synthesis_audit.qc_failed`, `s2s_runner` | Global Chatterbox→mlx retry after QC fail (default **false**). Topology `recovery_policy.synth_ladder=chatterbox_then_mlx_qc` may enable the same retry **per run** without flipping this charter default |
 | `v2.lint_blocking` | — | **Documented only** on v2 simple path; defaults `false` — see [reliability-charter.md](./reliability-charter.md) |
 | `v2.cross_validate_blocking` | — | **Documented only** on v2 simple path; defaults `false` |
@@ -959,10 +967,23 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.air_script.fail_open` | `true` | Compose exceptions log and continue | `false` raises so a broken paper-edit cannot silently concat |
 | `mastering.air_script.bed_coverage_aim_lo` | `0.55` | Low end of abundant underbed aim (Shape band) | Dry exceptions (skip-underscore / overlap) ignore this |
 | `mastering.air_script.bed_coverage_aim_hi` | `0.88` | High end of abundant underbed aim | Compose hunts scene beds rather than every-Nth wallpaper |
-| `mastering.air_order_integrity.opening_window_ms` | `180000` | Source-tape window treated as opening | Segments with earlier `start_ms` subject to opening policy |
-| `mastering.air_order_integrity.opening_air_slots` | `6` | Max early air index for opening cluster when host-first | Guest-first runs use stricter index-0 rule |
+| `mastering.air_order_integrity.opening_window_ms` | `180000` | Source-tape window treated as opening (static fallback) | Segments with earlier `start_ms` subject to opening policy |
+| `mastering.air_order_integrity.opening_window_ratio` | `0.05` | Scale opening window as `ceil(duration * ratio)` | Clamped by min/max below |
+| `mastering.air_order_integrity.opening_window_min_ms` | `90000` | Floor for scaled opening window | — |
+| `mastering.air_order_integrity.opening_window_max_ms` | `300000` | Ceiling for scaled opening window | — |
+| `mastering.air_order_integrity.opening_air_slots` | `6` | Max opening **families** on air when host-first (with `count_opening_by_family`) | Guest-first runs use stricter index-0 rule |
+| `mastering.air_order_integrity.opening_air_slots_min` | `4` | Floor for slot cap | — |
+| `mastering.air_order_integrity.opening_air_slots_max` | `12` | Ceiling for slot cap | — |
 | `mastering.air_order_integrity.opening_body_start_index` | `3` | Body-started threshold for transition/PMQ guards | — |
-| `mastering.air_order_integrity.reverse_jump_margin_ms` | `300000` | Min backward source gap to flag reverse jump | — |
+| `mastering.air_order_integrity.opening_body_start_index_min` | `2` | Floor for body-start index | — |
+| `mastering.air_order_integrity.opening_body_start_index_max` | `6` | Ceiling for body-start index | — |
+| `mastering.air_order_integrity.opening_body_start_index_long_tier_bump` | `0` | Added to body-start on long tier interviews | — |
+| `mastering.air_order_integrity.reverse_jump_margin_ms` | `300000` | Min backward source gap to flag reverse jump (static fallback) | — |
+| `mastering.air_order_integrity.reverse_jump_margin_ratio` | `0.083` | Scale reverse-jump margin as `ceil(duration * ratio)` | Clamped by min/max below |
+| `mastering.air_order_integrity.reverse_jump_margin_min_ms` | `120000` | Floor for scaled reverse-jump margin | — |
+| `mastering.air_order_integrity.reverse_jump_margin_max_ms` | `600000` | Ceiling for scaled reverse-jump margin | — |
+| `mastering.air_order_integrity.count_opening_by_family` | `true` | Letter-split siblings count as one opening family for slot budget | `false` restores per-fragment counting |
+| `mastering.air_order_integrity.fragmentation_extra_slots` | `2` | Extra slot budget when opening fragments exceed families | Junction letter-split blowups |
 | `mastering.air_order_integrity.block_ranking_on_critical` | `false` | Halt ranking/transitions commit on critical integrity (after repair) | `true` after boundary-bus soak |
 | `mastering.air_order_integrity.block_publish_on_critical` | `true` | PMQ backstop on unresolved critical integrity | — |
 | `mastering.air_order_integrity.invalidate_edl_on_order_change` | `true` | Clear `.stage_done/edl` when selection order changes post-transitions | — |

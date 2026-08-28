@@ -33,7 +33,7 @@ def _grep_call_sites(symbol: str) -> list[tuple[str, int, str]]:
 
 def test_registry_has_all_catalog_ids():
     expected = {
-        "OA-01", "OA-02", "OA-03", "OA-04", "OA-05", "OA-06", "OA-07", "OA-08",
+        "OA-01", "OA-02", "OA-03", "OA-04", "OA-05", "OA-06", "OA-07", "OA-08", "OA-09",
         "OF-01", "OF-02", "OF-03", "OF-04", "OF-05", "OF-06", "OF-07",
         "OF-L1", "OF-L3",
         "OM-01", "OM-F01", "OM-SAFE",

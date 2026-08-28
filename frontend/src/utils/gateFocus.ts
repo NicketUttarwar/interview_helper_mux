@@ -6,8 +6,17 @@ export function operatorGateFocusStage(
   message: string | undefined,
   jobStage?: string | null,
 ): string | null {
-  if (!message || !jobStage) return null;
+  if (!message) return null;
   const low = message.toLowerCase();
+  if (low.includes("transcript review")) {
+    return "transcript_review";
+  }
+  if (low.includes("framing posture") || low.includes("framing_posture_decide")) {
+    return "framing_posture_decide";
+  }
+  if (low.includes("vo_line_adjudicate") || low.includes("vo adjudicate")) {
+    return "vo_line_adjudicate";
+  }
   if (jobStage === "transcript_review_build" && low.includes("transcript review required")) {
     return "transcript_review";
   }
@@ -27,11 +36,10 @@ export function upstreamStageFromGateMessage(
 }
 
 export function gateFocusStageId(job: RunData["job"]): string | null {
-  if (!job?.stage) return null;
+  if (!job) return null;
   const msg = job.message || job.error || "";
-  return (
-    upstreamStageFromGateMessage(msg, job.stage) ||
-    operatorGateFocusStage(msg, job.stage) ||
-    job.stage
-  );
+  const operator = operatorGateFocusStage(msg, job.stage);
+  if (operator) return operator;
+  if (!job.stage) return null;
+  return upstreamStageFromGateMessage(msg, job.stage) || job.stage;
 }

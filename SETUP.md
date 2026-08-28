@@ -26,6 +26,6 @@ python scripts/seed_podcast_origin.py
 
 Optional bootstrap flags: `BOOTSTRAP_SKIP_GUI=1`, `BOOTSTRAP_SKIP_VERIFY=1`
 
-Optional run flags: `MUX_PRESERVE_SESSION=1`, `MUX_REBUILD_GUI=1`, `MUX_REFRESH_DEPS=1`, `MUX_SKIP_ASSETS_CLEANUP=1`, `MUX_NO_BROWSER=1`, `MUX_RUN_MODE=manual|full-auto`, `MUX_INPUT_AUDIO=…`, `MUX_FULL_AUTO=1` (Full-auto soft automation + keepalive; legacy `MUX_BABA_E2E=1` still accepted). Prefer the GUI Start-page Manual/Full-auto control when the browser is open.
+Optional run flags: `MUX_PRESERVE_SESSION=1`, `MUX_REBUILD_GUI=1`, `MUX_REFRESH_DEPS=1`, `MUX_SKIP_ASSETS_CLEANUP=1`, `MUX_NO_BROWSER=1`, `MUX_RUN_MODE=manual|full-auto`, `MUX_INPUT_AUDIO=…`, `MUX_FULL_AUTO=1` (Full-auto soft automation; legacy `MUX_BABA_E2E=1` still accepted), `MUX_KEEPALIVE=1` (opt-in Full-auto crash watchdog). Prefer the GUI Start-page Manual/Full-auto control when the browser is open.
 
 Operator journey: [docs/workflows/operator-journey.md](docs/workflows/operator-journey.md)
