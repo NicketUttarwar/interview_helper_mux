@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 import { traceAction } from "../../operator/traceAction";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 /** G1.5 — re-record pickup lines after assembly preview listen (TBIY). */
 export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
@@ -16,7 +17,9 @@ export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
     appendClientLog,
     jobRunning,
     actionBusy,
+    partialAutoGPublish,
   } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const recorderRef = useRef<{ media: MediaRecorder | null; chunks: Blob[] }>({
     media: null,
     chunks: [],
@@ -149,7 +152,7 @@ export function PreviewPickupPanel({ voLines }: { voLines: VoLine[] }) {
           className="btn primary"
           data-testid="g1-5-preview-continue"
           data-action-id="gui.g1_5.preview.continue"
-          disabled={jobRunning || actionBusy}
+          disabled={jobBlocksUi || actionBusy}
           onClick={() => void advanceFromCheckpoint()}
         >
           Post-preview lines done — continue to SFX

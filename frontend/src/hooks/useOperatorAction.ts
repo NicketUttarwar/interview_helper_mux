@@ -12,7 +12,16 @@ export function useGlobalOperatorAction(
 ): OperatorAction {
   return useMemo(
     () => resolveOperatorAction(run, ctx),
-    [run, ctx.selectedStageId, ctx.jobRunning, ctx.apiGrants, ctx.preferStageId, run?.job, run?.journey],
+    [
+      run,
+      ctx.selectedStageId,
+      ctx.jobRunning,
+      ctx.apiGrants,
+      ctx.preferStageId,
+      ctx.gPublish,
+      run?.job,
+      run?.journey,
+    ],
   );
 }
 
@@ -24,5 +33,14 @@ export function useStageOperatorAction(
   return useMemo(() => {
     if (!run || !stageId) return null;
     return resolveOperatorActionForStage(run, stageId, ctx);
-  }, [run, stageId, ctx.selectedStageId, ctx.jobRunning, ctx.apiGrants, run?.job, run?.journey]);
+  }, [
+    run,
+    stageId,
+    ctx.selectedStageId,
+    ctx.jobRunning,
+    ctx.apiGrants,
+    ctx.gPublish,
+    run?.job,
+    run?.journey,
+  ]);
 }

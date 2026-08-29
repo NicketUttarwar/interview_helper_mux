@@ -36,6 +36,12 @@ export interface OperatorActionContext {
   jobRunning?: boolean;
   apiGrants?: Record<string, boolean>;
   preferStageId?: string | null;
+  /** G-Publish poll snapshot — used so a stale running job cannot hide a publish pause. */
+  gPublish?: {
+    pending?: boolean;
+    package_ready?: boolean;
+    skipped?: boolean;
+  } | null;
 }
 
 export interface ServerOperatorAction {

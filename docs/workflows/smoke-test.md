@@ -44,7 +44,7 @@ See [flow1-progression-matrix.md](../cross-cutting/flow1-progression-matrix.md) 
 
 **Refresh check:** with an active run, refresh the browser — same run, Pipeline tab, stage focus, and log tail should return without clicking Resume.
 
-**Fresh launch:** `./scripts/run.sh` clears ephemeral ASSETS state by default (session pointer, `.gui/sessions/*`, stale locks inside exec_*); resume manually from **Executions → Resume**. Use `MUX_PRESERVE_SESSION=1` to keep the pointer across a launch. Directories under `ASSETS/executions/` are never auto-deleted.
+**Fresh launch:** `./scripts/run.sh` (regular Manual GUI, not `--full-auto`) stops leftover Full-auto daemons (`python tools/full_auto_daemon_launch.py stop`) so a prior driver cannot hijack the new session, then clears ephemeral ASSETS state (session pointer, `.gui/sessions/*`, stale locks inside exec_*). Resume manually from **Executions → Resume**. Use `MUX_PRESERVE_SESSION=1` to keep the pointer across a launch. Directories under `ASSETS/executions/` are never auto-deleted. `--full-auto` / `MUX_FULL_AUTO` skip that daemon stop so they can recycle/resume their own stack.
 
 **Reuse check (optional):** start a second execution on the same WAV; confirm **Same audio** on Executions tab; at a pending stage, confirm **Previous execution reuse** offers the first run when that stage completed.
 

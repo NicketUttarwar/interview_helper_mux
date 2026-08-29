@@ -12,6 +12,18 @@ export function formatApiError(reason: unknown, label?: string): string {
   return label ? `${label}: ${base}` : base;
 }
 
+/** Browser `TypeError: Failed to fetch` / dropped connection during a heavy local stage. */
+export function isTransientNetworkError(reason: unknown): boolean {
+  if (!(reason instanceof Error)) return false;
+  const msg = reason.message.toLowerCase();
+  return (
+    msg === "failed to fetch" ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed")
+  );
+}
+
 export function isExpectedEmptyApiError(reason: unknown): boolean {
   if (!(reason instanceof ApiError)) return false;
   if (reason.status === 404) return true;

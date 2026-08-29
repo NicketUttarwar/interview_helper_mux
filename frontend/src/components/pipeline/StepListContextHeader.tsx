@@ -6,12 +6,13 @@ import { useGlobalOperatorAction } from "../../hooks/useOperatorAction";
 import { buildNumberedStages } from "../../utils/pipelineNavigation";
 
 export function StepListContextHeader() {
-  const { run, selectedStageId, jobRunning, apiGrants } = useApp();
+  const { run, selectedStageId, jobRunning, apiGrants, partialAutoGPublish } = useApp();
 
   const action = useGlobalOperatorAction(run, {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   const phaseSummary = useMemo(() => {

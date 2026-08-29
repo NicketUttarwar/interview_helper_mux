@@ -1,4 +1,5 @@
 import type { RunData } from "../types";
+import { isJobActivelyRunning } from "./jobStatus";
 
 /** Mirrors backend DELIVERY_ORDER 5C slice for partial-auto guards. */
 export const DELIVERY_ORDER_5C: readonly string[] = [
@@ -36,6 +37,31 @@ export interface PartialAutoGPublishState {
   already_uploaded_count?: number;
 }
 
+/** Job statuses that mean the operator must act — overlay must unmount. */
+const OPERATOR_JOB_STATUSES = new Set([
+  "gate",
+  "needs_operator",
+  "needs_clarification",
+  "awaiting_write_approval",
+]);
+
+/** Journey blocking reasons that are operator pauses even if job.running is stale. */
+const OPERATOR_BLOCK_REASONS = new Set([
+  "transcript_review",
+  "g1_vo_pickup",
+  "g1_5_preview_pickup",
+  "pickup_speaker",
+  "llm_gate",
+  "stage_reuse",
+  "handoff_review",
+  "write_approval",
+  "operator_decisions",
+  "gap_framing",
+  "missing_framing",
+]);
+
+export type OperatorCoverKind = "none" | "busy" | "accelerated";
+
 export function isPartialAcceleratedRun(run: RunData | null | undefined): boolean {
   if (!run?.meta) return false;
   return (
@@ -61,16 +87,75 @@ export function isTranscriptReviewCheckpoint(run: RunData | null | undefined): b
   return false;
 }
 
-/** Operator checkpoint — overlay lifts so transcript review or G-Publish is interactive. */
+function blockingNeedsOperator(run: RunData): boolean {
+  const blocking = run.journey?.blocking ?? run.blocking;
+  if (!blocking?.blocked) return false;
+  const reason = String(blocking.reason || "");
+  if (OPERATOR_BLOCK_REASONS.has(reason)) return true;
+  return !isJobActivelyRunning(run.job);
+}
+
+/**
+ * Any pause that requires a human click. Overlay unmounts; buttons must work.
+ * After the operator acts, this goes false and the accelerated cover returns.
+ */
 export function isPartialAutoCheckpoint(
   run: RunData | null | undefined,
   gPublish: PartialAutoGPublishState | null | undefined,
 ): boolean {
   if (!run) return false;
   if (isTranscriptReviewCheckpoint(run)) return true;
-  if (run.job?.status === "needs_operator") return true;
+  if (run.gap_framing_decision_pending) return true;
+  if (run.pickup_speaker_pending) return true;
+  const status = run.job?.status || "";
+  if (OPERATOR_JOB_STATUSES.has(status)) return true;
+  if (run.job?.needs_stage_reuse) return true;
   if (gPublish?.pending && gPublish.package_ready && !gPublish.skipped) return true;
+  if (blockingNeedsOperator(run)) return true;
   return false;
+}
+
+/** Stale job.running must not block operator actions at a checkpoint. */
+export function shouldBlockOperatorActionsForJob(
+  run: RunData | null | undefined,
+  jobRunning: boolean,
+  gPublish?: PartialAutoGPublishState | null,
+): boolean {
+  if (!jobRunning) return false;
+  if (isPartialAutoCheckpoint(run, gPublish)) return false;
+  return true;
+}
+
+/** True when the GUI should keep the running-job flag — false at operator pauses. */
+export function shouldHoldJobRunningFlag(
+  run: RunData | null | undefined,
+  job: RunData["job"] | null | undefined,
+  gPublish?: PartialAutoGPublishState | null,
+): boolean {
+  if (!isJobActivelyRunning(job)) return false;
+  const merged = run ? { ...run, job: job ?? run.job } : null;
+  if (merged && isPartialAutoCheckpoint(merged, gPublish)) return false;
+  return true;
+}
+
+export function resolveOperatorCover(
+  run: RunData | null | undefined,
+  gPublish: PartialAutoGPublishState | null | undefined,
+  opts?: { jobRunning?: boolean; peeking?: boolean },
+): OperatorCoverKind {
+  if (opts?.peeking) return "none";
+  if (isPartialAutoCheckpoint(run, gPublish)) return "none";
+
+  const jobRunning = Boolean(opts?.jobRunning);
+  if (isPartialAcceleratedRun(run) && run?.meta?.partial_auto_complete !== true) {
+    const driverActive = run?.meta?.partial_auto_driver_active;
+    if (driverActive === false && !jobRunning) return "none";
+    if (driverActive === true || jobRunning || driverActive == null) {
+      return "accelerated";
+    }
+  }
+  if (jobRunning) return "busy";
+  return "none";
 }
 
 export function shouldShowAcceleratedRunOverlay(
@@ -78,13 +163,5 @@ export function shouldShowAcceleratedRunOverlay(
   gPublish: PartialAutoGPublishState | null | undefined,
   opts?: { jobRunning?: boolean; peeking?: boolean },
 ): boolean {
-  if (!isPartialAcceleratedRun(run)) return false;
-  if (run?.meta?.partial_auto_complete === true) return false;
-  if (opts?.peeking) return false;
-  if (isPartialAutoCheckpoint(run, gPublish)) return false;
-
-  const driverActive = run?.meta?.partial_auto_driver_active;
-  if (driverActive === false && !opts?.jobRunning) return false;
-
-  return driverActive === true || Boolean(opts?.jobRunning) || driverActive == null;
+  return resolveOperatorCover(run, gPublish, opts) === "accelerated";
 }

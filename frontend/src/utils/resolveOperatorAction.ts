@@ -8,6 +8,7 @@ import type { RunData, StageInfo } from "../types";
 import { findPendingFocusStage } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
 import { isJobActivelyRunning } from "./jobStatus";
+import { isPartialAutoCheckpoint } from "./partialAcceleratedGuard";
 import { resolveJobStatusContext } from "./operatorStatus";
 import {
   findNextRunnableStage,
@@ -368,7 +369,8 @@ export function resolveOperatorAction(
     return buildErrorAction(run);
   }
 
-  if (jobCtx.isRunning || isJobActivelyRunning(job)) {
+  const atCheckpoint = isPartialAutoCheckpoint(run, ctx.gPublish);
+  if (!atCheckpoint && (jobCtx.isRunning || isJobActivelyRunning(job))) {
     return buildRunningAction(run, jobRunning);
   }
 
@@ -479,7 +481,9 @@ export function resolveOperatorActionForStage(
     return buildErrorAction(run);
   }
 
+  const atCheckpoint = isPartialAutoCheckpoint(run, ctx.gPublish);
   if (
+    !atCheckpoint &&
     (jobCtx.isRunning || isJobActivelyRunning(job)) &&
     runningStageId === stageId
   ) {

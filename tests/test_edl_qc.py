@@ -7,7 +7,13 @@ from interview_mux.gates import check_edl_qc
 from interview_mux.operator_quality import qc_summary
 from interview_mux.run_context import RunContext
 from interview_mux.stages.assembly import build_flow1_edl
-from run_fixtures import minimal_gap_line, minimal_gap_report, minimal_manifest, minimal_manifest_segment
+from run_fixtures import (
+    isolated_run_ctx,
+    minimal_gap_line,
+    minimal_gap_report,
+    minimal_manifest,
+    minimal_manifest_segment,
+)
 
 
 def _segments() -> dict[str, dict]:
@@ -406,3 +412,202 @@ def test_validate_flow1_edl_speech_clip_order_mismatch() -> None:
     }
     errors = validate_flow1_edl(ctx, edl)
     assert any("speech clip order" in e and "ordered_segment_ids" in e for e in errors)
+
+
+def _overlapping_child_edl() -> dict:
+    return {
+        "version": 1,
+        "ordered_segment_ids": ["seg_003c", "seg_003d", "seg_004"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_003c",
+                "source_start_ms": 62_900,
+                "source_end_ms": 74_760,
+                "timeline_start_ms": 0,
+                "duration_ms": 11_860,
+            },
+            {
+                "type": "transition",
+                "after_segment_id": "seg_003c",
+                "before_segment_id": "seg_003d",
+                "timeline_start_ms": 11_860,
+                "duration_ms": 0,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_003d",
+                "source_start_ms": 71_000,
+                "source_end_ms": 74_810,
+                "timeline_start_ms": 11_860,
+                "duration_ms": 3_810,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_004",
+                "source_start_ms": 80_000,
+                "source_end_ms": 90_000,
+                "timeline_start_ms": 15_670,
+                "duration_ms": 10_000,
+            },
+        ],
+        "timeline_duration_ms": 25_670,
+    }
+
+
+def test_repair_overlapping_source_merges_into_survivor(tmp_path) -> None:
+    from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
+
+    ctx = isolated_run_ctx(tmp_path, "run_edl_overlap_merge")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_003c",
+                start_ms=62_900,
+                end_ms=74_760,
+                text="First child continues.",
+                topic_tags=["origin_story"],
+                speaker_id="spk_0",
+                parent_id="seg_003",
+            ),
+            minimal_manifest_segment(
+                "seg_003d",
+                start_ms=71_000,
+                end_ms=74_810,
+                text="Nested tail.",
+                topic_tags=["origin_story", "turning_point"],
+                speaker_id="spk_0",
+                parent_id="seg_003",
+            ),
+            minimal_manifest_segment(
+                "seg_004",
+                start_ms=80_000,
+                end_ms=90_000,
+                text="Next keep.",
+                speaker_id="spk_0",
+            ),
+        ),
+    )
+    ctx.write_json(
+        "segments/nle_edits.json",
+        {
+            "playhead_ms": 0,
+            "sequence_order": ["seg_003c", "seg_003d", "seg_004"],
+            "segment_overrides": {
+                "seg_003": {"excluded": True, "split_into": ["seg_003c", "seg_003d"]},
+                "seg_003c": {"parent_id": "seg_003", "start_ms": 62_900, "end_ms": 74_760},
+                "seg_003d": {"parent_id": "seg_003", "start_ms": 71_000, "end_ms": 74_810},
+            },
+        },
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003c", "seg_003d", "seg_004"]},
+    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    edl = _overlapping_child_edl()
+    assert any("Overlapping source range" in e for e in validate_flow1_edl(ctx, edl))
+    result = repair_overlapping_source_ranges(ctx, edl)
+    assert result["repaired"] is True
+    assert result["remap"] == {"seg_003d": "seg_003c"}
+    speech = [c for c in edl["clips"] if c.get("type") == "speech"]
+    assert [c["segment_id"] for c in speech] == ["seg_003c", "seg_004"]
+    mega = speech[0]
+    assert mega["source_start_ms"] == 62_900
+    assert mega["source_end_ms"] == 74_810
+    assert mega["duration_ms"] == 11_910
+    assert edl["ordered_segment_ids"] == ["seg_003c", "seg_004"]
+    assert not any(c.get("type") == "transition" for c in edl["clips"])
+    assert validate_flow1_edl(ctx, edl) == []
+    man = ctx.read_json("segments/manifest.json")
+    ids = [s["segment_id"] for s in man["segments"]]
+    assert "seg_003d" not in ids
+    survivor = next(s for s in man["segments"] if s["segment_id"] == "seg_003c")
+    assert survivor["start_ms"] == 62_900
+    assert survivor["end_ms"] == 74_810
+    assert "turning_point" in survivor["topic_tags"]
+    assert "seg_003d" in survivor["fused_from"]
+    sel = ctx.read_json("master/selection.json")
+    assert sel["ordered_segment_ids"] == ["seg_003c", "seg_004"]
+    nle = ctx.read_json("segments/nle_edits.json")
+    assert nle["segment_overrides"]["seg_003d"]["excluded"] is True
+    assert nle["segment_overrides"]["seg_003"]["split_into"] == ["seg_003c"]
+
+
+def test_check_edl_qc_repairs_overlapping_source_instead_of_raising(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_edl_qc_overlap_gate")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_003c",
+                start_ms=62_900,
+                end_ms=74_760,
+                speaker_id="spk_0",
+                parent_id="seg_003",
+            ),
+            minimal_manifest_segment(
+                "seg_003d",
+                start_ms=71_000,
+                end_ms=74_810,
+                speaker_id="spk_0",
+                parent_id="seg_003",
+            ),
+            minimal_manifest_segment("seg_004", start_ms=80_000, end_ms=90_000, speaker_id="spk_0"),
+        ),
+    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003c", "seg_003d", "seg_004"]},
+    )
+    edl = _overlapping_child_edl()
+    check_edl_qc(ctx, stage="edl", edl=edl, strict=True)
+    assert [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"] == [
+        "seg_003c",
+        "seg_004",
+    ]
+    meta = ctx.read_json("run_meta.json")
+    assert qc_summary(meta, "edl_qc")["passed"] is True
+
+
+def test_overlapping_source_does_not_merge_cross_speaker(tmp_path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "run_edl_qc_overlap_xspk")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_a", start_ms=0, end_ms=5000, speaker_id="spk_0"
+            ),
+            minimal_manifest_segment(
+                "seg_b", start_ms=3000, end_ms=8000, speaker_id="spk_1"
+            ),
+        ),
+    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    edl = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_a", "seg_b"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_a",
+                "source_start_ms": 0,
+                "source_end_ms": 5000,
+                "timeline_start_ms": 0,
+                "duration_ms": 5000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_b",
+                "source_start_ms": 3000,
+                "source_end_ms": 8000,
+                "timeline_start_ms": 5000,
+                "duration_ms": 5000,
+            },
+        ],
+        "timeline_duration_ms": 10_000,
+    }
+    with pytest.raises(SystemExit, match="Overlapping source range"):
+        check_edl_qc(ctx, stage="edl", edl=edl, strict=True)

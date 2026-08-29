@@ -704,9 +704,10 @@ def _sync_review_queue_from_word_edits(
             continue
         synced = _text_for_word_range(words, chunk["start_ms"], chunk["end_ms"])
         chunk["corrected_text"] = synced
+        chunk["reviewed"] = True
         entry = corrections.get(chunk_id) or {}
         entry["text"] = synced
-        entry.setdefault("reviewed", False)
+        entry["reviewed"] = True
         corrections[chunk_id] = entry
 
     queue["chunks"] = chunks

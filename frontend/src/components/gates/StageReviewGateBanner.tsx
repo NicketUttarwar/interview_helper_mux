@@ -3,6 +3,7 @@ import { useTranscriptReviewGate } from "../../hooks/useTranscriptReviewGate";
 import type { ReviewGateSpec } from "../../utils/resolveReviewGate";
 import type { StageInfo } from "../../types";
 import { ReviewGateBannerShell } from "./ReviewGateBannerShell";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 interface Props {
   spec: ReviewGateSpec;
@@ -86,24 +87,32 @@ function TranscriptReviewGateContent({
     return (
       <ReviewGateBannerShell
         title="Finish transcript review (G0)"
-        lead="No review clips — run STT review prep first."
+        lead="No review queue — run STT review prep first."
         ariaLabel="Transcript review"
         actions={null}
       />
     );
   }
 
+  const zeroClips = gate.totalCount === 0;
+
   return (
     <ReviewGateBannerShell
       title="Finish transcript review (G0)"
       lead={
-        reused
+        zeroClips
+          ? "No ranked clips flagged — save and complete to sign off G0 and continue analysis."
+          : reused
           ? "Corrected transcript copied from the previous execution — edit any clips or words below, then save and complete."
           : pending > 0
             ? `${pending} of ${gate.totalCount} ranked clip${gate.totalCount === 1 ? "" : "s"} not individually reviewed. Save and complete to commit your transcript and continue the pipeline.`
             : "Review the transcript below, then save and complete to unlock analysis stages."
       }
-      meta={`${gate.reviewedCount}/${gate.totalCount} clips marked reviewed`}
+      meta={
+        zeroClips
+          ? undefined
+          : `${gate.reviewedCount}/${gate.totalCount} clips marked reviewed`
+      }
       error={gate.error}
       testId="transcript-review-gate-banner"
       ariaLabel="Complete transcript review"
@@ -135,8 +144,8 @@ function TranscriptReviewGateContent({
 }
 
 function SfxPromptGateContent() {
-  const { approveSfxPrompts, actionBusy, jobRunning } = useApp();
-  const busy = actionBusy || jobRunning;
+  const { approveSfxPrompts, actionBusy, jobRunning, run, partialAutoGPublish } = useApp();
+  const busy = actionBusy || shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   return (
     <ReviewGateBannerShell
@@ -157,8 +166,8 @@ function SfxPromptGateContent() {
 }
 
 function G1VoGateContent({ missingCount }: { missingCount: number }) {
-  const { advanceFromCheckpoint, actionBusy, jobRunning } = useApp();
-  const busy = actionBusy || jobRunning;
+  const { advanceFromCheckpoint, actionBusy, jobRunning, run, partialAutoGPublish } = useApp();
+  const busy = actionBusy || shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const ready = missingCount === 0;
 
   return (

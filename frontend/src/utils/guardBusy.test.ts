@@ -25,4 +25,25 @@ describe("guardBusy", () => {
     expect(guardBusy(false, false, toast)).toBe(false);
     expect(toast).not.toHaveBeenCalled();
   });
+
+  it("allows action at partial-auto G0 despite stale job.running", () => {
+    const toast = vi.fn();
+    const run = {
+      transcript_review_pending: true,
+      meta: { run_mode: "partially-accelerated" },
+    };
+    expect(guardBusy(true, false, toast, { run: run as never })).toBe(false);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("allows action at a G-Framing gate despite stale job.running", () => {
+    const toast = vi.fn();
+    const run = {
+      gap_framing_decision_pending: true,
+      meta: { run_mode: "partially-accelerated" },
+      job: { status: "gate", message: "Gap framing gate" },
+    };
+    expect(guardBusy(true, false, toast, { run: run as never })).toBe(false);
+    expect(toast).not.toHaveBeenCalled();
+  });
 });

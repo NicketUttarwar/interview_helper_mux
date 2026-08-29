@@ -97,9 +97,9 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         and ("diarization" in msg or "speaker_diarization" in msg)
     ):
         return "mixed_diarization"
-    if stage == "edl" and (
-        "unknown segment_id" in msg or "edl_qc strict" in msg or "edl_qc" in msg
-    ):
+    if stage in {"edl", "mix"} and "overlapping source range" in msg:
+        return "overlapping_source_range"
+    if stage == "edl" and "unknown segment_id" in msg:
         return "unknown_nle_split_child"
     if stage == "nugget_layup_compose" and (
         "cta_omit_applied" in msg
@@ -162,6 +162,7 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "layup_coverage",
         "orientation_target_mismatch",
         "unknown_nle_split_child",
+        "overlapping_source_range",
         "framing_vo_unseated",
         "naked_seam",
         "mmaudio_qa_missing",
@@ -565,6 +566,18 @@ def playbook_materialize_nle_split_children(ctx: RunContext) -> list[str]:
     return ["segments/manifest.json"] if ctx.artifact_exists("segments/manifest.json") else []
 
 
+def playbook_merge_overlapping_source_ranges(ctx: RunContext) -> list[str]:
+    from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
+
+    result = repair_overlapping_source_ranges(ctx)
+    if not result.get("repaired"):
+        return []
+    written = ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
+    if ctx.artifact_exists("segments/manifest.json"):
+        written.append("segments/manifest.json")
+    return written
+
+
 def playbook_host_cta_omit(ctx: RunContext) -> list[str]:
     from interview_mux.media_ip_cta import execute_cta_omit_from_needs, heal_on_air_cta_residue
 
@@ -797,6 +810,11 @@ def handle_stage_failure(
             playbook_id = "materialize_nle_split_children"
             artifacts = playbook_materialize_nle_split_children(ctx)
             recovered = True
+            resume_stage = "edl"
+        elif error_class == "overlapping_source_range":
+            playbook_id = "merge_overlapping_source_ranges"
+            artifacts = playbook_merge_overlapping_source_ranges(ctx)
+            recovered = bool(artifacts)
             resume_stage = "edl"
         elif error_class == "selection_cta_omit":
             playbook_id = "host_cta_omit"

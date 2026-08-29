@@ -1,3 +1,6 @@
+import type { RunData } from "../types";
+import { isPartialAutoCheckpoint, type PartialAutoGPublishState } from "./partialAcceleratedGuard";
+
 export type ShowToastFn = (
   msg: string,
   level?: "info" | "success" | "warning" | "error",
@@ -8,8 +11,16 @@ export function guardBusy(
   jobRunning: boolean,
   actionBusy: boolean,
   showToast: ShowToastFn,
+  opts?: {
+    run?: RunData | null;
+    gPublish?: PartialAutoGPublishState | null;
+  },
 ): boolean {
-  if (jobRunning) {
+  const jobBlocks =
+    opts?.run != null
+      ? jobRunning && !isPartialAutoCheckpoint(opts.run, opts.gPublish)
+      : jobRunning;
+  if (jobBlocks) {
     showToast("A step is already running — watch the activity log.", "warning");
     return true;
   }

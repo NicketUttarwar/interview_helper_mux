@@ -14,6 +14,7 @@ import {
   type WorkflowStepId,
 } from "../utils/workflowSteps";
 import { substepIdToStepId } from "../utils/resolveActiveStep";
+import { shouldBlockOperatorActionsForJob } from "../utils/partialAcceleratedGuard";
 import { SessionBanner } from "./SessionBanner";
 import { PreviewListenPromo } from "./guidance/PreviewListenPromo";
 
@@ -43,6 +44,7 @@ export function LiveStatusBar() {
     jobCompleteAt,
     activeTab,
     actionBusy,
+    partialAutoGPublish,
   } = useApp();
 
   const workflowSteps = useMemo(() => workflowStepsForRun(run), [run]);
@@ -100,6 +102,7 @@ export function LiveStatusBar() {
     onScrollPreview: scrollPreview,
     jobCompleteAt,
     showToast,
+    gPublish: partialAutoGPublish,
   });
 
   const activeStepId = currentWorkflowStep(run);
@@ -139,6 +142,7 @@ export function LiveStatusBar() {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   const precleanWarnings = run?.job?.preclean_warnings;
@@ -216,7 +220,12 @@ export function LiveStatusBar() {
                 type="button"
                 className="btn primary sm"
                 data-testid="live-status-primary"
-                disabled={live.primaryDisabled || !sessionReady || jobRunning || actionBusy}
+                disabled={
+                  live.primaryDisabled ||
+                  !sessionReady ||
+                  shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish) ||
+                  actionBusy
+                }
                 onClick={live.onPrimary}
               >
                 {live.primaryLabel}

@@ -202,12 +202,25 @@ def evaluate_boundary_quality(
         intervals.append((start, end))
 
     sc = segmentation_cfg()
-    max_ms = int(sc.get("max_segment_duration_ms") or 180_000)
-    over_max = [d for d in durs_ms if d > max_ms + 250]
+    raw_max = sc.get("max_segment_duration_ms")
+    max_ms = int(raw_max) if raw_max is not None else None
+    if max_ms is not None:
+        over_max = [d for d in durs_ms if d > max_ms + 250]
+        near_ceiling = sum(1 for d in durs_ms if d >= int(max_ms * 0.92))
+    else:
+        over_max = []
+        near_ceiling = 0
     mean_ms = (sum(durs_ms) / len(durs_ms)) if durs_ms else 0.0
     if duration_ms <= 0:
         duration_ms = last_end
-    expected_min_segments = max(8, int(duration_ms / max(max_ms, 1)) + 1) if duration_ms else 0
+    coarse_heuristic_ms = int(sc.get("boundary_quality_coarse_heuristic_ms") or 120_000)
+    if duration_ms:
+        if max_ms is not None:
+            expected_min_segments = max(8, int(duration_ms / max_ms) + 1)
+        else:
+            expected_min_segments = max(8, int(duration_ms / coarse_heuristic_ms) + 1)
+    else:
+        expected_min_segments = 0
     covered_ms = 0
     if intervals:
         intervals.sort()
@@ -220,10 +233,9 @@ def evaluate_boundary_quality(
                 cur_s, cur_e = s, e
         covered_ms += max(0, cur_e - cur_s)
     coverage_ratio = (covered_ms / duration_ms) if duration_ms > 0 else 1.0
-    near_ceiling = sum(1 for d in durs_ms if d >= int(max_ms * 0.92))
     near_ceiling_ratio = (near_ceiling / len(durs_ms)) if durs_ms else 0.0
     # Do not reject ideal-cut / complete-thought binds solely because there are
-    # fewer rows than duration/max_ms. Near-ceiling slabs still fail.
+    # fewer rows than duration/heuristic. Near-ceiling slabs still fail when capped.
     # Coverage holes alone must not fail fine-grained turn maps (e.g. 1:1 diarization
     # with ~84% covered — silence/gaps, not coarse time-boxing).
     coverage_min = float(sc.get("boundary_quality_min_coverage_ratio") or 0.85)
@@ -231,8 +243,10 @@ def evaluate_boundary_quality(
     fine_grained = bool(
         durs_ms
         and len(durs_ms) >= max(8, expected_min_segments or 8)
-        and mean_ms < max_ms * 0.55
-        and near_ceiling_ratio < 0.20
+        and (
+            max_ms is None
+            or (mean_ms < max_ms * 0.55 and near_ceiling_ratio < 0.20)
+        )
     )
     coverage_fail = bool(
         duration_ms > 0
@@ -241,24 +255,30 @@ def evaluate_boundary_quality(
             or (coverage_ratio < coverage_min and not fine_grained)
         )
     )
-    is_metric_coarse = bool(
-        durs_ms
-        and (
-            (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
-            or coverage_fail
+    if max_ms is not None:
+        is_metric_coarse = bool(
+            durs_ms
+            and (
+                (mean_ms >= max_ms * 0.85 and near_ceiling_ratio >= 0.45)
+                or coverage_fail
+            )
         )
-    )
+    else:
+        is_metric_coarse = bool(durs_ms and coverage_fail)
     warnings = [str(x) for x in (doc.get("warnings") or [])]
     self_labeled = [
         w
         for w in warnings
         if "coarse" in w.lower() or "mid-sentence" in w.lower() or "token limit" in w.lower()
     ]
-    reject = bool(invalid_rows or over_max or is_metric_coarse)
+    # Isolated over-max spans on a fine-grained map are acceptable — downstream VO /
+    # hinge stages may place inserts without forcing a mid-thought split here.
+    reject = bool(invalid_rows or is_metric_coarse)
     return {
         "reject": reject,
         "invalid_segment_ids": invalid_rows,
         "over_max_count": len(over_max),
+        "over_max_warning": bool(over_max) and not reject,
         "segment_count": len(durs_ms),
         "mean_ms": round(mean_ms),
         "coverage_ratio": round(coverage_ratio, 3),
@@ -284,12 +304,13 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
 
     Models often self-label fine-grained long-tape cuts as "coarse" / "token limit"
     even when hundreds of valid edit blocks exist. Keyword-matching those warnings
-    falsely blocked a previously shippable Full-auto run. Fail only on structural defects
-    or metric evidence of time-boxed coarse fallback.
+    falsely blocked a previously shippable Full-auto run. Fail only on structural
+    defects (invalid ranges) or metric evidence of time-boxed coarse fallback — not
+    on isolated over-max spans when the map is otherwise fine-grained. Long beds may
+    carry ``overlong_unsplit`` for downstream VO / hinge placement.
 
-    Before rejecting on over-max spans, attempt a deterministic max-duration split
-    so a raised ``max_segment_duration_ms`` (complete-thought policy) cannot soft-lock
-    the pipeline when the LLM leaves a few long beds.
+    When ``max_segment_duration_ms`` is set, attempt deterministic max-duration split
+    before rejecting on over-max spans.
     """
     if not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
         return
@@ -300,9 +321,12 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
         return
     duration_ms = _transcript_duration_ms(ctx)
     report = evaluate_boundary_quality(doc, duration_ms=duration_ms)
+    sc = segmentation_cfg()
+    raw_max = sc.get("max_segment_duration_ms")
+    max_ms = int(raw_max) if raw_max is not None else None
 
-    # Deterministic repair: split beds that exceed max_segment_duration_ms.
-    if int(report.get("over_max_count") or 0) > 0:
+    # Deterministic repair when max_segment_duration_ms is configured.
+    if max_ms is not None and int(report.get("over_max_count") or 0) > 0:
         try:
             from interview_mux.boundary_collate import normalize_boundary_timeline
             from interview_mux.boundary_enrich import enforce_max_segment_duration
@@ -345,6 +369,16 @@ def _assert_boundary_quality(ctx: RunContext) -> None:
             "Boundary warnings mention coarse/token-limit but metrics look fine "
             f"(n={report.get('segment_count')} mean_ms={report.get('mean_ms')} "
             f"coverage={report.get('coverage_ratio')}) — accepting.",
+            level="warning",
+            stage="boundary_detection",
+        )
+
+    over_max = int(report.get("over_max_count") or 0)
+    if over_max > 0 and not report.get("reject"):
+        ctx.log(
+            f"boundary_detection: {over_max} segment(s) exceed max duration but map looks "
+            f"fine-grained (n={report.get('segment_count')} coverage={report.get('coverage_ratio')}) "
+            "— keeping for downstream VO/hinge placement",
             level="warning",
             stage="boundary_detection",
         )

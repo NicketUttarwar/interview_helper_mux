@@ -12,7 +12,6 @@ import {
 import { ModalHost } from "./modals/ModalHost";
 import { SessionStaleOverlay } from "./SessionStaleOverlay";
 import { ActionOverlay } from "./ActionOverlay";
-import { AcceleratedRunOverlay } from "./AcceleratedRunOverlay";
 import { LiveStatusBar } from "./LiveStatusBar";
 
 function TabLoadingFallback() {
@@ -70,7 +69,6 @@ export function AppShell() {
       <ModalHost />
       <SessionStaleOverlay />
       <ActionOverlay />
-      <AcceleratedRunOverlay />
     </div>
   );
 }

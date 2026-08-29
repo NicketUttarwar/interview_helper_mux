@@ -3,6 +3,7 @@ import { useApp } from "../../context/AppContext";
 import { api } from "../../api/client";
 import { formatApiError } from "../../utils/safeApi";
 import { traceAction } from "../../operator/traceAction";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 interface DeliveryBrief {
   target_duration_sec?: { min?: number; ideal?: number; max?: number };
@@ -14,7 +15,8 @@ interface DeliveryBrief {
 }
 
 export function DeliveryBriefCard() {
-  const { runId, run, refreshRun, showToast, jobRunning, actionBusy } = useApp();
+  const { runId, run, refreshRun, showToast, jobRunning, actionBusy, partialAutoGPublish } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const [brief, setBrief] = useState<DeliveryBrief | null>(null);
   const [idealSec, setIdealSec] = useState("");
   const [qIdeal, setQIdeal] = useState("");
@@ -41,7 +43,7 @@ export function DeliveryBriefCard() {
 
   const save = async () => {
     if (!runId || busy) return;
-    if (jobRunning || actionBusy) {
+    if (jobBlocksUi || actionBusy) {
       showToast("Busy — wait for the current job.", "warning");
       return;
     }
@@ -71,7 +73,7 @@ export function DeliveryBriefCard() {
 
   const rebuild = async () => {
     if (!runId || busy) return;
-    if (jobRunning || actionBusy) {
+    if (jobBlocksUi || actionBusy) {
       showToast("Busy — wait for the current job.", "warning");
       return;
     }

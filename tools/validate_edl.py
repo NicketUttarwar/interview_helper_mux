@@ -14,6 +14,20 @@ from interview_mux.edl_qc import validate_flow1_edl  # noqa: E402
 from interview_mux.run_context import RunContext  # noqa: E402
 
 
+def _validate(ctx: RunContext, *, repair: bool) -> list[str]:
+    errors = validate_flow1_edl(ctx)
+    if not errors or not repair:
+        return errors
+    if not any("Overlapping source range" in e for e in errors):
+        return errors
+    from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
+
+    result = repair_overlapping_source_ranges(ctx)
+    if not result.get("repaired"):
+        return errors
+    return validate_flow1_edl(ctx)
+
+
 def _resolve_run_dir(run_id: str) -> Path:
     cfg = merged_config()
     executions_root = Path(cfg.get("executions_root", "ASSETS/executions"))
@@ -30,6 +44,11 @@ def main() -> None:
         description="Validate Flow 1 EDL timeline QC (VO line_ids, speech overlap, monotonic timeline)."
     )
     parser.add_argument("--run-id", required=True, help="Execution id (e.g. exec_001 or run_206)")
+    parser.add_argument(
+        "--repair",
+        action="store_true",
+        help="Merge overlapping same-speaker source ranges into one survivor span, then re-validate",
+    )
     args = parser.parse_args()
 
     run_dir = _resolve_run_dir(args.run_id)
@@ -38,7 +57,7 @@ def main() -> None:
         sys.exit(1)
 
     ctx = RunContext(args.run_id, create=False)
-    errors = validate_flow1_edl(ctx)
+    errors = _validate(ctx, repair=args.repair)
     if errors:
         print(f"FAIL: {run_dir}")
         for err in errors:

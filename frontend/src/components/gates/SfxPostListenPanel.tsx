@@ -14,6 +14,7 @@ import {
   latestSfxListenByAsset,
 } from "../../utils/profile";
 import type { StageInfo } from "../../types";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 const FAIL_HINTS = [
   "vocals leaked → strengthen negative_prompt",
@@ -70,8 +71,17 @@ function qaFailedAssets(qaMap: Map<string, MmaudioQaRow>): string[] {
 }
 
 export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
-  const { run, config, refreshRun, showToast, advanceFromCheckpoint, jobRunning, actionBusy } =
-    useApp();
+  const {
+    run,
+    config,
+    refreshRun,
+    showToast,
+    advanceFromCheckpoint,
+    jobRunning,
+    actionBusy,
+    partialAutoGPublish,
+  } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const inlineRef = useRef<HTMLAudioElement | null>(null);
   const [listenMode, setListenMode] = useState<"solo" | "under_speech">("solo");
   const [underSpeechSupported, setUnderSpeechSupported] = useState<boolean | null>(null);
@@ -280,7 +290,7 @@ export function SfxPostListenPanel({ stage }: { stage: StageInfo }) {
             type="button"
             className="btn primary sm"
             data-testid="sfx-post-listen-continue"
-            disabled={jobRunning || actionBusy}
+            disabled={jobBlocksUi || actionBusy}
             onClick={() => void advanceFromCheckpoint()}
           >
             Continue pipeline

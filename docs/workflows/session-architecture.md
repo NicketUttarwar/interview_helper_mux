@@ -23,7 +23,7 @@ Legacy files (`active_execution.json`, `server_session.json`) are kept in sync f
 
 ## Bootstrap (`./scripts/run.sh`)
 
-- **Default:** `./scripts/run.sh` runs ephemeral ASSETS cleanup (`assets_ephemeral_cleanup`) before serve — clears `application_state.json` / legacy session files, `.gui/sessions/*`, and stale locks inside product exec dirs (never deletes any directory under `executions/`)
+- **Default:** `./scripts/run.sh` (regular Manual GUI / `--cli`, not `--full-auto`) runs `python tools/full_auto_daemon_launch.py stop` so leftover Full-auto driver/keepalive/serve cannot hijack the new session, then ephemeral ASSETS cleanup (`assets_ephemeral_cleanup`) — clears `application_state.json` / legacy session files, `.gui/sessions/*`, and stale locks inside product exec dirs (never deletes any directory under `executions/`). `--full-auto` / `MUX_FULL_AUTO` skip the daemon stop so they can recycle/resume their own stack.
 - `MUX_PRESERVE_SESSION=1`: keep session pointer files across this launch (still clears operator session logs)
 - `MUX_SKIP_ASSETS_CLEANUP=1`: skip the cleanup entirely (debug)
 

@@ -267,7 +267,8 @@ def recovery_allowed(
             ev = issue.get("evidence") or {}
             msg = str(ev.get("message") or "").lower()
             if issue.get("stage_id") == "edl" and (
-                "unknown segment_id" in msg or "edl_qc" in msg
+                "unknown segment_id" in msg
+                or ("edl_qc" in msg and "overlapping source range" not in msg)
             ):
                 return True
     from interview_mux.homunculus.issues import read_issues

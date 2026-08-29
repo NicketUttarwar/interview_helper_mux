@@ -41,7 +41,8 @@ export async function invokeStepFooterAction(
       (label.includes("complete transcript") || label.includes("save and complete")))
   ) {
     await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush", step.id]);
-    await handlers.completeTranscriptReview(false);
+    // Dock word edits may not mark every ranked clip reviewed; explicit complete signs off G0.
+    await handlers.completeTranscriptReview(true);
     return;
   }
 

@@ -9,6 +9,8 @@ import {
 } from "../../utils/stageStepActions";
 import { useStageOperatorAction } from "../../hooks/useOperatorAction";
 import { guardBusy } from "../../utils/guardBusy";
+import { formatApiError } from "../../utils/safeApi";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 interface Props {
   stage: StageInfo;
@@ -67,6 +69,7 @@ export function StageParentProgressBanner({
     actionBusy,
     apiGrants,
     showToast,
+    partialAutoGPublish,
     executeJob,
     runNextStage,
     advanceFromCheckpoint,
@@ -77,6 +80,8 @@ export function StageParentProgressBanner({
     approveSfxPrompts,
     beginStageExecution,
   } = useApp();
+
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
 
   const [stepBusy, setStepBusy] = useState(false);
 
@@ -89,6 +94,7 @@ export function StageParentProgressBanner({
     selectedStageId: stage.id,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   if (!progress) return null;
@@ -111,7 +117,7 @@ export function StageParentProgressBanner({
   const primaryStep = progress.primaryStep;
   if (!primaryStep || !progress.attentionLabel) return null;
 
-  const busy = stepBusy || jobRunning || actionBusy;
+  const busy = stepBusy || jobBlocksUi || actionBusy;
   const primaryLabel = primaryStep.primary_button || progress.attentionLabel;
 
   const actionHandlers = {
@@ -130,21 +136,25 @@ export function StageParentProgressBanner({
   };
 
   const onPrimary = () => {
-    if (guardBusy(jobRunning, actionBusy, showToast)) return;
+    if (guardBusy(jobRunning, actionBusy, showToast, { run, gPublish: partialAutoGPublish })) return;
     setStepBusy(true);
-    void invokeStepFooterAction(primaryStep, stage, actionHandlers).finally(() =>
-      setStepBusy(false),
-    );
+    void invokeStepFooterAction(primaryStep, stage, actionHandlers)
+      .catch((reason) => {
+        showToast(formatApiError(reason, primaryLabel), "error");
+      })
+      .finally(() => setStepBusy(false));
   };
 
   const onSecondary = () => {
     const secondary = progress.secondaryStep;
     if (!secondary?.secondary_button) return;
-    if (guardBusy(jobRunning, actionBusy, showToast)) return;
+    if (guardBusy(jobRunning, actionBusy, showToast, { run, gPublish: partialAutoGPublish })) return;
     setStepBusy(true);
-    void invokeStepFooterSecondaryAction(secondary, stage, actionHandlers).finally(() =>
-      setStepBusy(false),
-    );
+    void invokeStepFooterSecondaryAction(secondary, stage, actionHandlers)
+      .catch((reason) => {
+        showToast(formatApiError(reason, secondary.secondary_button || "Action"), "error");
+      })
+      .finally(() => setStepBusy(false));
   };
 
   const detailStepId =

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { guardBusy } from "../utils/guardBusy";
-import { isPartialAcceleratedRun } from "../utils/partialAcceleratedGuard";
+import { isPartialAutoCheckpoint } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 
 export function useTranscriptReviewGate(enabled: boolean) {
@@ -14,11 +14,12 @@ export function useTranscriptReviewGate(enabled: boolean) {
     jobRunning,
     showToast,
     appendClientLog,
+    partialAutoGPublish,
   } = useApp();
+  const atCheckpoint = isPartialAutoCheckpoint(run, partialAutoGPublish);
   const [loading, setLoading] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const partialAuto = isPartialAcceleratedRun(run);
 
   const reload = useCallback(async () => {
     if (!enabled || !run) return;
@@ -42,12 +43,12 @@ export function useTranscriptReviewGate(enabled: boolean) {
   const pendingCount = transcriptReview?.pending_count ?? 0;
   const totalCount = chunks.length;
   const reviewedCount = Math.max(0, totalCount - pendingCount);
-  const busy = completing || actionBusy || (jobRunning && !partialAuto);
+  const busy = completing || actionBusy || (jobRunning && !atCheckpoint);
 
   const acceptAllAndProceed = useCallback(async () => {
     if (
-      !partialAuto &&
-      guardBusy(jobRunning, actionBusy || completing, showToast)
+      !atCheckpoint &&
+      guardBusy(jobRunning, actionBusy || completing, showToast, { run, gPublish: partialAutoGPublish })
     ) {
       return;
     }
@@ -63,12 +64,12 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog, partialAuto]);
+  }, [jobRunning, actionBusy, completing, run, partialAutoGPublish, completeTranscriptReview, showToast, appendClientLog, atCheckpoint]);
 
   const completeReview = useCallback(async () => {
     if (
-      !partialAuto &&
-      guardBusy(jobRunning, actionBusy || completing, showToast)
+      !atCheckpoint &&
+      guardBusy(jobRunning, actionBusy || completing, showToast, { run, gPublish: partialAutoGPublish })
     ) {
       return;
     }
@@ -84,7 +85,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
     } finally {
       setCompleting(false);
     }
-  }, [jobRunning, actionBusy, completing, run, completeTranscriptReview, showToast, appendClientLog, partialAuto]);
+  }, [jobRunning, actionBusy, completing, run, partialAutoGPublish, completeTranscriptReview, showToast, appendClientLog, atCheckpoint]);
 
   return {
     loading,
@@ -93,7 +94,7 @@ export function useTranscriptReviewGate(enabled: boolean) {
     pendingCount,
     reviewedCount,
     totalCount,
-    ready: Boolean(transcriptReview?.ready) && totalCount > 0,
+    ready: Boolean(transcriptReview?.ready),
     acceptAllAndProceed,
     completeReview,
     reload,

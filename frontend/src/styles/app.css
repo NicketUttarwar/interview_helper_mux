@@ -2393,7 +2393,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 .action-overlay {
   position: fixed;
   inset: 0;
-  z-index: 950;
+  z-index: 9000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4011,11 +4011,6 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 
 .accelerated-run-overlay-message {
   margin: 0 0 1rem;
-}
-
-[data-partial-auto-checkpoint] {
-  position: relative;
-  z-index: 9100;
 }
 
 .start-brain-slider {

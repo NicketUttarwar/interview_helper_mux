@@ -18,6 +18,7 @@ export function ActivityTeaser() {
     openActionModal,
     selectStage,
     setActiveSubstepId,
+    partialAutoGPublish,
   } = useApp();
   const { activeSubstepGlobal } = useStageProgress();
 
@@ -25,6 +26,7 @@ export function ActivityTeaser() {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   if (activeTab === "pipeline") return null;

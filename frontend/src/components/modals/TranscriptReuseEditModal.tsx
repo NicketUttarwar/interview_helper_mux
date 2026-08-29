@@ -40,6 +40,7 @@ export function TranscriptReuseEditModal() {
     jobRunning,
     actionBusy,
     setCheckpointBusy,
+    partialAutoGPublish,
   } = useApp();
 
   const [saving, setSaving] = useState(false);
@@ -100,7 +101,7 @@ export function TranscriptReuseEditModal() {
   };
 
   const saveAndContinue = async () => {
-    if (!runId || guardBusy(jobRunning, actionBusy || busy, showToast)) return;
+    if (!runId || guardBusy(jobRunning, actionBusy || busy, showToast, { run, gPublish: partialAutoGPublish })) return;
     setSaving(true);
     setCheckpointBusy(true);
     try {
@@ -125,7 +126,7 @@ export function TranscriptReuseEditModal() {
   };
 
   const dismissEdit = async () => {
-    if (!runId || guardBusy(jobRunning, actionBusy || busy, showToast)) return;
+    if (!runId || guardBusy(jobRunning, actionBusy || busy, showToast, { run, gPublish: partialAutoGPublish })) return;
     markTranscriptReuseEditConsumed(runId);
     setDismissing(true);
     setCheckpointBusy(true);

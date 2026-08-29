@@ -1,7 +1,6 @@
 import { useCallback, useRef } from "react";
 import { PipelineCompletePanel } from "../pipeline/PipelineCompletePanel";
 import { GPublishPanel } from "../gates/GPublishPanel";
-import { usePartialAutoGPublish } from "../../hooks/usePartialAutoGPublish";
 import { isPartialAcceleratedRun } from "../../utils/partialAcceleratedGuard";
 import { isPipelineComplete } from "../../utils/pipelineAutopilot";
 import { useApp } from "../../context/AppContext";
@@ -32,14 +31,14 @@ export function PipelineTab() {
     activityLogCollapsed,
     refreshRun,
     config,
+    partialAutoGPublish,
   } = useApp();
 
-  const gPublish = usePartialAutoGPublish(run);
   const partialPublishCheckpoint =
     Boolean(run) &&
     isPartialAcceleratedRun(run) &&
     run?.meta?.partial_auto_complete !== true &&
-    Boolean(gPublish?.pending && gPublish.package_ready && !gPublish.skipped);
+    Boolean(partialAutoGPublish?.pending && partialAutoGPublish.package_ready && !partialAutoGPublish.skipped);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleOverscrollRetry = useCallback(async () => {

@@ -1,20 +1,72 @@
+import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useGlobalOperatorAction } from "../hooks/useOperatorAction";
 import { isJobActivelyRunning } from "../utils/jobStatus";
+import { resolveOperatorCover } from "../utils/partialAcceleratedGuard";
 
 function formatPhaseLabel(phase: string | undefined): string | null {
   if (!phase) return null;
   return phase.replace(/_/g, " ");
 }
 
+/** Single cover: busy spinner (any mode) or accelerated guardrail (partial-auto). Unmounts at operator pauses. */
 export function ActionOverlay() {
-  const { jobRunning, run, selectedStageId, apiGrants } = useApp();
+  const { jobRunning, run, selectedStageId, apiGrants, setActiveTab, activeTab, partialAutoGPublish } =
+    useApp();
+  const [peeking, setPeeking] = useState(false);
+  const runId = run?.run_id;
+
+  useEffect(() => {
+    setPeeking(false);
+  }, [runId]);
+
+  useEffect(() => {
+    if (activeTab !== "logs") setPeeking(false);
+  }, [activeTab]);
+
+  const cover = resolveOperatorCover(run, partialAutoGPublish, { jobRunning, peeking });
   const action = useGlobalOperatorAction(run, {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
-  if (!jobRunning) return null;
+
+  if (cover === "none") return null;
+
+  if (cover === "accelerated") {
+    return (
+      <div
+        className="accelerated-run-overlay"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="accelerated-run-overlay-title"
+        aria-live="polite"
+        data-testid="accelerated-run-overlay"
+      >
+        <div className="accelerated-run-overlay-card">
+          <p id="accelerated-run-overlay-title" className="accelerated-run-overlay-title">
+            Accelerated run in progress
+          </p>
+          <p className="accelerated-run-overlay-message hint">
+            You&apos;ll be prompted when your input is needed — transcript review and S3 upload
+            are the only planned manual steps. Watch Pipeline and Logs for progress.
+          </p>
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-testid="accelerated-run-overlay-view-logs"
+            onClick={() => {
+              setPeeking(true);
+              setActiveTab("logs");
+            }}
+          >
+            View logs
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const job = run?.job;
   const stageTitle = action.stageId

@@ -323,3 +323,44 @@ def test_save_chunk_correction_does_not_write_operator_snapshot(tmp_path, monkey
     assert not ctx.artifact_exists("operator/transcript_corrected.json")
     corrections = ctx.read_json("transcript/corrections.json")
     assert corrections["corrections"]["tr_0001"]["text"] == "Hello the world"
+
+
+def test_patch_transcript_words_marks_affected_review_chunks_reviewed(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    ctx.path("transcript").mkdir(parents=True)
+    ctx.write_json(
+        "transcript/full.json",
+        {
+            "text": "Hello teh world",
+            "words": [
+                {"text": "Hello", "start_ms": 0, "end_ms": 400, "speaker_id": "spk_0"},
+                {"text": "teh", "start_ms": 450, "end_ms": 700, "speaker_id": "spk_0"},
+                {"text": "world", "start_ms": 750, "end_ms": 1100, "speaker_id": "spk_0"},
+            ],
+        },
+    )
+    ctx.write_json(
+        "transcript/review_queue.json",
+        {
+            "version": 1,
+            "chunk_count": 1,
+            "chunks": [
+                {
+                    "chunk_id": "tr_0001",
+                    "rank": 1,
+                    "start_ms": 0,
+                    "end_ms": 1100,
+                    "text": "Hello teh world",
+                    "confidence": 0.7,
+                    "reviewed": False,
+                }
+            ],
+        },
+    )
+    ctx.write_json("transcript/corrections.json", {"corrections": {}})
+
+    patch_transcript_words(ctx, [{"index": 1, "text": "the"}])
+    state = get_review_state(ctx)
+    assert state["pending_count"] == 0
+    assert state["chunks"][0]["reviewed"] is True

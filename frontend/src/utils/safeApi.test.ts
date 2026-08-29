@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import {
   isExpectedEmptyApiError,
+  isTransientNetworkError,
   reportPanelFetchOutcome,
 } from "./safeApi";
 
 describe("safeApi panel fetch policy", () => {
-  it("treats 404 as expected empty", () => {
-    expect(isExpectedEmptyApiError(new ApiError("not found", 404))).toBe(true);
+  it("treats browser Failed to fetch as a transient network drop", () => {
+    expect(isTransientNetworkError(new TypeError("Failed to fetch"))).toBe(true);
+    expect(isTransientNetworkError(new ApiError("server blew up", 500))).toBe(false);
   });
 
   it("treats coherence pre-analysis message as expected empty", () => {

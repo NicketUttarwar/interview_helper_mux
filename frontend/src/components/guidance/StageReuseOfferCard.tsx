@@ -5,6 +5,7 @@ import { ALL_API_CONSENTS, formatTs } from "../../utils";
 import { applyReuseResultAndFocus } from "../../utils/stageAdvance";
 import { SourceAudioHashBadge } from "./SourceAudioHashBadge";
 import type { ReuseCandidate, StageInfo } from "../../types";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 const PREVIEW_PATHS = 4;
 
@@ -31,7 +32,9 @@ export function StageReuseOfferCard({
     setActiveStepId,
     setPipelineSubTab,
     autoContinuePipeline,
+    partialAutoGPublish,
   } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -42,7 +45,7 @@ export function StageReuseOfferCard({
   };
 
   const submit = async (action: "accept" | "decline_and_run", sourceRunId?: string) => {
-    if (!runId || submitting || jobRunning || actionBusy) return;
+    if (!runId || submitting || jobBlocksUi || actionBusy) return;
     setSubmitting(true);
     if (action === "accept") {
       showToast(`Reusing ${stage.title}…`);
@@ -158,7 +161,7 @@ export function StageReuseOfferCard({
                   type="button"
                   className="btn primary sm stage-reuse-accept-btn"
                   data-testid="reuse-accept"
-                  disabled={submitting || jobRunning || actionBusy}
+                  disabled={submitting || jobBlocksUi || actionBusy}
                   onClick={() => void submit("accept", c.run_id)}
                 >
                   Reuse outputs
@@ -210,7 +213,7 @@ export function StageReuseOfferCard({
           type="button"
           className="btn primary sm"
           data-testid="reuse-run-fresh"
-          disabled={submitting || jobRunning || actionBusy}
+          disabled={submitting || jobBlocksUi || actionBusy}
           onClick={() => void submit("decline_and_run")}
         >
           {submitting ? (

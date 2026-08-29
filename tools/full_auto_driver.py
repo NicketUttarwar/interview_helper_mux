@@ -2580,14 +2580,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     )
 
     if "edl_qc strict" in low and "edl_narrative_qc" not in low:
-        # Speech clips citing NLE/CTA split children that were never written
-        # into segments/manifest.json. Hydrate those rows; do not remutate
-        # ranking or loop layup compose.
+        overlap = "overlapping source range" in low
+        unknown = "unknown segment_id" in low
         fail_key = f"edl_qc:{msg[:160]}"
         n = bump_identical(
             fail_key,
             stage=stage or "edl",
-            producer="segments/manifest.json",
+            producer="master/edl.json" if overlap else "segments/manifest.json",
             reason=msg[:240],
             resume="edl",
         )
@@ -2596,28 +2595,45 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 "major",
                 stage=stage or "edl",
                 action="stop",
-                reason="identical_edl_qc_unknown_segment_x3",
+                reason=(
+                    "identical_edl_qc_overlap_x3"
+                    if overlap
+                    else "identical_edl_qc_unknown_segment_x3"
+                ),
                 detail=msg[:240],
             )
-            log(
-                "STOP: edl_qc unknown-segment heal ×3 — hydrate NLE split "
-                "children into the manifest; do not remutate selection"
+            halt = (
+                "HARD: edl_qc looping on overlapping source ranges"
+                if overlap
+                else "HARD: edl_qc looping on unknown NLE split children"
             )
-            return pause_needs_operator(
-                "edl",
-                "HARD: edl_qc looping on unknown NLE split children",
-            )
-        try:
-            from interview_mux.nle_state import materialize_all_nle_split_children
-            from interview_mux.run_context import RunContext
+            log(f"STOP: {halt}")
+            return pause_needs_operator("edl", halt)
+        if overlap or not unknown:
+            try:
+                from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
+                from interview_mux.run_context import RunContext
 
-            n_kids = materialize_all_nle_split_children(RunContext(RUN_ID, create=False))
-            log(f"edl_qc heal: materialized {n_kids} NLE split children into manifest")
-        except Exception as exc:
-            log(f"edl_qc split-child materialize: {exc}")
+                result = repair_overlapping_source_ranges(RunContext(RUN_ID, create=False))
+                log(
+                    "edl_qc overlap merge "
+                    f"repaired={bool(result.get('repaired'))} "
+                    f"remap={result.get('remap') or {}}"
+                )
+            except Exception as exc:
+                log(f"edl_qc overlap merge: {exc}")
+        if unknown:
+            try:
+                from interview_mux.nle_state import materialize_all_nle_split_children
+                from interview_mux.run_context import RunContext
+
+                n_kids = materialize_all_nle_split_children(RunContext(RUN_ID, create=False))
+                log(f"edl_qc heal: materialized {n_kids} NLE split children into manifest")
+            except Exception as exc:
+                log(f"edl_qc split-child materialize: {exc}")
         resume = try_product_recovery(stage or "edl", msg)
         dest = resume or "edl"
-        log(f"edl_qc unknown-segment → hydrate + resume {dest}")
+        log(f"edl_qc → resume {dest} overlap={overlap} unknown={unknown}")
         execute({"mode": "delivery", "from_stage": dest})
         return "continue"
 

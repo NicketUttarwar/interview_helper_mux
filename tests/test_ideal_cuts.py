@@ -144,6 +144,79 @@ def test_evaluate_boundary_quality_accepts_fine_map_with_minor_coverage_hole():
     assert report["reject"] is False
     assert report["segment_count"] >= 100
 
+
+def test_evaluate_boundary_quality_accepts_long_segments_without_duration_cap():
+    """No max_segment_duration_ms — segment length is not a quality gate."""
+    from interview_mux.segment_timeline_standard import segmentation_cfg
+    from interview_mux.stages.segmentation import evaluate_boundary_quality
+
+    max_ms = 180_000
+    boundaries = []
+    t = 0
+    for i in range(57):
+        boundaries.append(
+            {
+                "segment_id": f"seg_{i+1:03d}",
+                "start_ms": t,
+                "end_ms": t + 61_000,
+            }
+        )
+        t += 61_000
+    boundaries.append(
+        {
+            "segment_id": "seg_058",
+            "start_ms": t,
+            "end_ms": t + max_ms + 60_000,
+        }
+    )
+    duration_ms = boundaries[-1]["end_ms"]
+    assert segmentation_cfg().get("max_segment_duration_ms") is None
+    report = evaluate_boundary_quality({"boundaries": boundaries}, duration_ms=duration_ms)
+    assert report["over_max_count"] == 0
+    assert report["reject"] is False
+    assert report["coverage_ratio"] >= 0.95
+
+
+def test_evaluate_boundary_quality_accepts_isolated_over_max_when_cap_configured(monkeypatch):
+    """Legacy cap: isolated over-max on a dense map still must not hard-stop."""
+    from interview_mux.stages.segmentation import evaluate_boundary_quality
+
+    monkeypatch.setattr(
+        "interview_mux.stages.segmentation.segmentation_cfg",
+        lambda: {
+            "max_segment_duration_ms": 180_000,
+            "boundary_quality_min_coverage_ratio": 0.85,
+            "boundary_quality_critical_coverage_ratio": 0.70,
+        },
+    )
+    max_ms = 180_000
+    boundaries = []
+    t = 0
+    for i in range(57):
+        boundaries.append(
+            {
+                "segment_id": f"seg_{i+1:03d}",
+                "start_ms": t,
+                "end_ms": t + 61_000,
+            }
+        )
+        t += 61_000
+    boundaries.append(
+        {
+            "segment_id": "seg_058",
+            "start_ms": t,
+            "end_ms": t + max_ms + 60_000,
+            "overlong_unsplit": True,
+        }
+    )
+    duration_ms = boundaries[-1]["end_ms"]
+    report = evaluate_boundary_quality({"boundaries": boundaries}, duration_ms=duration_ms)
+    assert report["over_max_count"] == 1
+    assert report["metric_coarse"] is False
+    assert report["reject"] is False
+    assert report["over_max_warning"] is True
+
+
 def test_resolve_ideal_cuts_air_order_appends_missing():
     seed = {"ordered_segment_ids": ["seg_001", "seg_003"]}
     bind = resolve_ideal_cuts_air_order(

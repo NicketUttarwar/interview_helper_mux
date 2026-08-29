@@ -451,9 +451,14 @@ export async function tryAutoContinuePipeline(
   if (!refreshed) return false;
   if (isPipelineComplete(refreshed)) return false;
 
-  const autoSurface = { ...opts, navigationIntent: "auto_surface" as const };
+  // Completing a stage is an explicit continue, not a one-shot auto-surface.
+  // G0 must still open after refresh even if transcript_review was already marked guided.
+  const navIntent: NavigationIntent = opts.completedStageId
+    ? "user_continue"
+    : (opts.navigationIntent ?? "auto_surface");
+  const continueOpts = { ...opts, navigationIntent: navIntent };
 
-  const navigated = await syncPipelineStageFocus({ ...autoSurface, run: refreshed });
+  const navigated = await syncPipelineStageFocus({ ...continueOpts, run: refreshed });
   refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
 
   if (!isPipelineAutopilotEnabled(opts.config)) {
@@ -466,7 +471,7 @@ export async function tryAutoContinuePipeline(
       refreshed = opts.runId ? (await opts.refreshRun()) ?? refreshed : refreshed;
       if (!autopilotBlocksAutoRun(refreshed, opts.config)) {
         const started = await advancePipeline({
-          ...autoSurface,
+          ...continueOpts,
           run: refreshed,
           autoRun: true,
         });
@@ -487,7 +492,7 @@ export async function tryAutoContinuePipeline(
   }
 
   const autoRun = true;
-  const started = await advancePipeline({ ...autoSurface, run: refreshed, autoRun });
+  const started = await advancePipeline({ ...continueOpts, run: refreshed, autoRun });
   return started || navigated;
 }
 

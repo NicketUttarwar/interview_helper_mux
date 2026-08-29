@@ -35,6 +35,8 @@ export function StageStepWorkbench() {
     appendClientLog,
     autoContinuePipeline,
     syncPipelineStageFocus,
+    isStagePinned,
+    partialAutoGPublish,
   } = useApp();
 
   const { fullyComplete } = useStageProgress(selectedStageId);
@@ -53,6 +55,7 @@ export function StageStepWorkbench() {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   const activeStep = useActiveStageStep(run, selectedStageId, activeStepId);
@@ -113,14 +116,22 @@ export function StageStepWorkbench() {
 
   useEffect(() => {
     if (!stageReadyToAdvance || !run || !selectedStageId || jobRunning) return;
-    // Execute completion is chained from job poll; avoid a second auto-continue burst.
-    const jobStatus = run.job?.status;
-    if (jobStatus === "complete" || jobStatus === "error") return;
+    if (run.job?.status === "error") return;
+    // Operator pinned this completed stage to inspect outputs — don't yank to G0.
+    if (isStagePinned) return;
     void (async () => {
       await syncPipelineStageFocus();
       await autoContinuePipeline(selectedStageId);
     })();
-  }, [stageReadyToAdvance, run, selectedStageId, jobRunning, syncPipelineStageFocus, autoContinuePipeline]);
+  }, [
+    stageReadyToAdvance,
+    run,
+    selectedStageId,
+    jobRunning,
+    isStagePinned,
+    syncPipelineStageFocus,
+    autoContinuePipeline,
+  ]);
 
   if (!selectedStage || !stageAction) {
     const virtual = selectedStageId ? resolveVirtualPipelineFocus(selectedStageId) : null;
@@ -177,6 +188,23 @@ export function StageStepWorkbench() {
       {showDoneShell ? (
         <div className="stage-detail-done-shell">
           <StepDoneBanner variant="step" />
+          {stageAction.primaryKind === "continue_next" && nav.nextStage ? (
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="stage-done-continue"
+              onClick={() => {
+                const nextId = nav.focusStageId || nav.nextStage?.id;
+                if (!nextId) return;
+                void selectStage(nextId, {
+                  stepId: resolveFocusStepId(run, nextId),
+                  pinned: false,
+                });
+              }}
+            >
+              {stageAction.primaryLabel}
+            </button>
+          ) : null}
           {AUDIO_PROBES_STAGES.has(selectedStage.id) ? <AudioProbesPanel /> : null}
           <StageOutputsPanel stage={selectedStage} />
         </div>

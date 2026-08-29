@@ -551,6 +551,14 @@ def check_edl_qc(
     """Warn or block on EDL timeline QC before mix or after EDL build."""
     errors = validate_flow1_edl(ctx, edl, gap_report=gap_report)
     use_strict = edl_qc_strict_enabled() if strict is None else strict
+    if any("Overlapping source range" in e for e in errors):
+        from interview_mux.edl_overlap_repair import repair_overlapping_source_ranges
+
+        result = repair_overlapping_source_ranges(ctx, edl)
+        if result.get("repaired"):
+            errors = validate_flow1_edl(
+                ctx, result.get("edl") if edl is None else edl, gap_report=gap_report
+            )
     if not errors:
         ctx.log(
             "EDL QC passed",
@@ -580,9 +588,10 @@ def check_edl_qc(
         {"passed": False, "errors": errors[:12], "strict": use_strict, "at_stage": stage},
     )
     if use_strict:
+        head = errors[0] if errors else ""
         raise SystemExit(
             f"edl_qc strict: {len(errors)} issue(s) before {stage}. "
-            f"Fix master/edl.json or re-run edl. "
+            f"{head} Fix master/edl.json or re-run edl. "
             f"Run: python tools/validate_edl.py --run-id {ctx.run_id}"
         )
 

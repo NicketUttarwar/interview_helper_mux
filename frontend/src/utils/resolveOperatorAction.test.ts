@@ -121,6 +121,23 @@ describe("resolveOperatorAction", () => {
     expect(a.substepId).toBe("gate:transcript_review");
   });
 
+  it("G-Framing gate stays needs_you even if jobRunning is stale", () => {
+    const run = baseRun({
+      meta: { run_mode: "partially-accelerated", partial_auto_driver_active: true },
+      gap_framing_decision_pending: true,
+      stages: [stage("missing_framing", "action_required", "Gap framing")],
+      job: {
+        status: "gate",
+        stage: "missing_framing",
+        message: "Gap framing gate: choose whether to add interviewer framing audio in the GUI",
+      },
+    });
+    const a = resolveOperatorAction(run, { jobRunning: true });
+    expect(a.mode).toBe("needs_you");
+    expect(a.primaryDisabled).toBe(false);
+    expect(a.stageId).toBe("missing_framing");
+  });
+
   it("interrupted job shows retry", () => {
     const run = baseRun({
       job: { status: "interrupted", stage: "ingest", message: "Server restarted" },

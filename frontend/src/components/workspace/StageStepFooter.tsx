@@ -1,6 +1,8 @@
 import type { StageInfo, StageStep } from "../../types";
 import { useApp } from "../../context/AppContext";
 import { guardBusy, type ShowToastFn } from "../../utils/guardBusy";
+import { formatApiError } from "../../utils/safeApi";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 import {
   invokeStepFooterAction,
   invokeStepFooterSecondaryAction,
@@ -28,6 +30,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     actionBusy,
     apiGrants,
     showToast,
+    partialAutoGPublish,
     executeJob,
     runNextStage,
     advanceFromCheckpoint,
@@ -39,21 +42,24 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
     approveSfxPrompts,
   } = useApp();
 
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
+
   const stageAction = useStageOperatorAction(run, stage.id, {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   const primaryLabel = step.primary_button;
 
   if (!isActive || !primaryLabel) return null;
 
-  const busy = jobRunning || actionBusy;
+  const busy = jobBlocksUi || actionBusy;
   const isActionableCompleteStep =
     step.kind === "done" && Boolean(step.primary_button);
   const disabled =
-    jobRunning ||
+    jobBlocksUi ||
     actionBusy ||
     (step.status === "done" && !isActionableCompleteStep) ||
     step.status === "waiting" ||
@@ -76,18 +82,22 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
   };
 
   const onPrimary = () => {
-    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn)) {
+    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn, { run, gPublish: partialAutoGPublish })) {
       return;
     }
-    void invokeStepFooterAction(step, stage, actionHandlers);
+    void invokeStepFooterAction(step, stage, actionHandlers).catch((reason) => {
+      showToast(formatApiError(reason, step.primary_button || "Action"), "error");
+    });
   };
 
   const onSecondary = () => {
     if (!step.secondary_button) return;
-    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn)) {
+    if (guardBusy(jobRunning, actionBusy, showToast as ShowToastFn, { run, gPublish: partialAutoGPublish })) {
       return;
     }
-    void invokeStepFooterSecondaryAction(step, stage, actionHandlers);
+    void invokeStepFooterSecondaryAction(step, stage, actionHandlers).catch((reason) => {
+      showToast(formatApiError(reason, step.secondary_button || "Action"), "error");
+    });
   };
 
   return (
@@ -112,7 +122,7 @@ export function StageStepFooter({ step, stage, isActive }: Props) {
         <button
           type="button"
           className="btn ghost sm stage-step-secondary"
-          disabled={jobRunning || actionBusy}
+          disabled={jobBlocksUi || actionBusy}
           onClick={onSecondary}
         >
           {step.secondary_button}

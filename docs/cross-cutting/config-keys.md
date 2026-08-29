@@ -15,7 +15,7 @@ Authoritative defaults live in **`config/app.defaults.json`**. At runtime, `inte
 | `MUX_MIRROR_OPERATOR_ERRORS` | `1` | `run.sh`, pipeline stderr mirror | `0` hides terminal mirror of operator errors |
 | `MUX_RUN_MODE` | interactive / `manual` | `./scripts/run.sh` | `manual` opens GUI (pick Manual/Full-auto on Start); `full-auto` detaches bounded automation (heal/remutate/re-execute, no silent quality waivers, publish + S3, `operator/EXECUTION_REPORT.md`). TTY prompts when unset. `--full-auto` is the same. |
 | `MUX_INPUT_AUDIO` | picker | Full-auto / `full_auto_driver` | Relative path directly under `ASSETS/input/` (e.g. `ASSETS/input/interview.mp3`); required for non-TTY Full-auto. `--input` is the same. Non-WAV files are converted to sibling PCM WAV before stages run. |
-| `MUX_FULL_AUTO` | `0` | `./scripts/run.sh` / GUI Start | `1` enables Full-auto soft stack (heal/remutate/re-execute, soft waivers, publish + S3) |
+| `MUX_FULL_AUTO` | `0` | `./scripts/run.sh` / GUI Start | `1` enables Full-auto soft stack (heal/remutate/re-execute, soft waivers, publish + S3). Regular `./scripts/run.sh` (this unset) stops leftover Full-auto daemons before serve; this flag skips that stop so Full-auto can recycle/resume its stack. |
 | `MUX_BABA_E2E` | `0` | legacy | Alias for `MUX_FULL_AUTO` (accepted once during rename transition) |
 | `MUX_NO_BROWSER` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` passes `--no-browser` to serve |
 | `MUX_DETACH_SERVE` | `0` / auto on Full-auto | `./scripts/run.sh` | `1` starts serve in its own session so Full-auto survives shell exit |
@@ -648,7 +648,7 @@ Timeline authority + boundary/classification hardening — `segment_timeline_sta
 | `drop_orphan_manifest_rows` | `true` | Drop manifest rows not in `segment_contract` on hydrate |
 | `boundary_proactive_decompose_pace_classes` | `["calm","brisk"]` | Pace classes eligible for proactive boundary decompose |
 | `default_granularity` | `"fine"` | Global segmentation granularity (`fine` \| `standard` \| `coarse`) |
-| `max_segment_duration_ms` | `180000` | Force-split spans longer than this (align with `ideal_cuts.max_cut_ms`; unset = no cap) |
+| `max_segment_duration_ms` | `null` | Optional force-split for spans longer than this (unset = no cap) |
 | `min_segment_duration_ms` | `8000` | Floor to prevent word-level slivers / mid-sentence fragments |
 | `split_backchannels` | `true` | Deterministic split of brief interviewer turns during answers |
 | `backchannel_max_words` | `8` | Max words for a splittable backchannel turn |
@@ -656,7 +656,7 @@ Timeline authority + boundary/classification hardening — `segment_timeline_sta
 | `boundary_merge_threshold_ms` | `200` | Micro-boundary merge floor in fine mode (via `boundary_collate_cfg`) |
 | `micro_segment_lint_max` | `400` | Base boundary-count lint ceiling (scales with duration on long interviews) |
 | `min_bed_segment_ms_fine` | `6000` | Minimum segment duration for ambient bed slots in fine mode |
-| `reject_coarse_fallback` | `true` | Hard-stop on coarse/mid-sentence boundary warnings before delivery |
+| `reject_coarse_fallback` | `true` | Hard-stop on invalid boundary ranges or coarse time-boxed fallback maps — not on isolated over-max segments when the timeline is otherwise fine-grained |
 
 ## `analysis.duration_policy`
 

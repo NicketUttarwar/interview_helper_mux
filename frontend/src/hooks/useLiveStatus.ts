@@ -3,8 +3,12 @@ import type { AppTab, LiveStatus, LogEntry, RunData } from "../types";
 import { PHASE_LABELS } from "../constants/phases";
 import { resolveOperatorAction } from "../utils/resolveOperatorAction";
 import { buildNumberedStages, resolvePipelineNav } from "../utils/pipelineNavigation";
-import { isJobActivelyRunning } from "../utils/jobStatus";
 import { useOperatorCommand, type OperatorCommandState } from "./useOperatorCommand";
+import {
+  isPartialAutoCheckpoint,
+  shouldHoldJobRunningFlag,
+  type PartialAutoGPublishState,
+} from "../utils/partialAcceleratedGuard";
 import {
   WORKFLOW_STEPS,
   currentWorkflowStep,
@@ -18,6 +22,7 @@ export interface LiveStatusCopyInput {
   logEntries: LogEntry[];
   apiGrants: Record<string, boolean>;
   jobCompleteAt?: number | null;
+  gPublish?: PartialAutoGPublishState | null;
   cmd: Pick<OperatorCommandState, "kind" | "statusLine" | "primaryLabel" | "onPrimary">;
 }
 
@@ -34,6 +39,7 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     selectedStageId: input.selectedStageId,
     jobRunning: input.jobRunning,
     apiGrants: input.apiGrants,
+    gPublish: input.gPublish,
   });
 
   const job = run.job;
@@ -75,7 +81,10 @@ export function deriveLiveStatusCopy(input: LiveStatusCopyInput): {
     activityKind = "interrupted";
     headline = "Stage stalled";
     subline = job.message || "No progress recently — safe to re-run.";
-  } else if (input.jobRunning || job?.status === "running" || job?.status === "running_with_warnings") {
+  } else if (
+    !isPartialAutoCheckpoint(run, input.gPublish) &&
+    (input.jobRunning || job?.status === "running" || job?.status === "running_with_warnings")
+  ) {
     activityKind = "running";
     headline = action.headline;
     subline = job?.message || action.subline || subline;
@@ -119,6 +128,7 @@ export function useLiveStatus(
     onGoProfile?: () => void;
     onScrollPreview?: () => void;
     showToast?: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
+    gPublish?: PartialAutoGPublishState | null;
   },
 ): LiveStatus {
   const cmd = useOperatorCommand(run, {
@@ -139,6 +149,7 @@ export function useLiveStatus(
     onGoProfile: opts.onGoProfile,
     onScrollPreview: opts.onScrollPreview,
     showToast: opts.showToast,
+    gPublish: opts.gPublish,
   });
 
   return useMemo(() => {
@@ -180,10 +191,9 @@ export function useLiveStatus(
     });
     const numbered = buildNumberedStages(run.stages);
     const job = run.job;
-    const runningStageId =
-      opts.jobRunning || isJobActivelyRunning(job)
-        ? job?.current_stage || job?.stage || null
-        : null;
+    const runningStageId = shouldHoldJobRunningFlag(run, job, opts.gPublish)
+      ? job?.current_stage || job?.stage || null
+      : null;
     const focusStageId = nav.focusStageId;
     const currentNum = nav.currentNumber;
     const currentStage = nav.currentStage;
@@ -213,6 +223,7 @@ export function useLiveStatus(
       logEntries: opts.logEntries,
       apiGrants: opts.apiGrants,
       jobCompleteAt: opts.jobCompleteAt,
+      gPublish: opts.gPublish,
       cmd,
     });
 

@@ -30,7 +30,8 @@ import type {
   TranscriptReviewState,
   ToastLevel,
 } from "../types";
-import { isPartialAcceleratedRun } from "../utils/partialAcceleratedGuard";
+import { isPartialAcceleratedRun, isPartialAutoCheckpoint, shouldHoldJobRunningFlag } from "../utils/partialAcceleratedGuard";
+import type { PartialAutoGPublishState } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 import { applyLiveJobToStages, isJobActivelyRunning } from "../utils/jobStatus";
 import { preferFresherLogTail } from "../utils/logStreams";
@@ -121,6 +122,7 @@ interface AppContextValue {
   alertsMuted: boolean;
   jobRunning: boolean;
   actionBusy: boolean;
+  partialAutoGPublish: PartialAutoGPublishState | null;
   transcriptReview: TranscriptReviewState | null;
   selectedStage: StageInfo | undefined;
   actionModalOpen: boolean;
@@ -173,7 +175,7 @@ interface AppContextValue {
   podcastShows: PodcastShowInfo[];
   openRun: (runId: string, opts?: OpenRunOptions) => Promise<void>;
   retryOpenRun: () => Promise<void>;
-  refreshRun: () => Promise<RunData | null>;
+  refreshRun: (opts?: { quiet?: boolean }) => Promise<RunData | null>;
   selectStage: (stageId: string, opts?: { pinned?: boolean; stepId?: string | null }) => Promise<void>;
   executeJob: (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => Promise<void>;
   beginStageExecution: (opts: {
@@ -282,6 +284,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   >(() => {});
   const jobRunningRef = useRef(false);
   const actionBusyRef = useRef(false);
+  const partialAutoGPublishRef = useRef<PartialAutoGPublishState | null>(null);
+  const runSnapshotRef = useRef<RunData | null>(null);
   const autopilotInFlightRef = useRef(false);
   const autoContinuePipelineRef = useRef<(completedStageId?: string | null) => Promise<boolean>>(
     async () => false,
@@ -407,6 +411,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     actionBusyRef.current = actionBusy;
   }, [actionBusy]);
+  runSnapshotRef.current = run;
 
   useEffect(() => {
     runIdRef.current = runId;
@@ -784,7 +789,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setJobRunning(false);
   }, []);
 
-  const refreshRun = useCallback(async (): Promise<RunData | null> => {
+  const refreshRun = useCallback(async (opts?: { quiet?: boolean }): Promise<RunData | null> => {
     if (!runId) return null;
     try {
       const runData = await api<RunData>(`/api/runs/${runId}`);
@@ -809,7 +814,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       return runData;
     } catch (reason) {
-      showToast(formatApiError(reason, "Refresh run"), "error");
+      if (!opts?.quiet) {
+        showToast(formatApiError(reason, "Refresh run"), "error");
+      }
       return null;
     }
   }, [runId, showToast]);
@@ -942,8 +949,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncJobRunning = useCallback(async (rid: string) => {
     try {
       const job = await api<JobState>(`/api/runs/${rid}/job`);
-      const active = isJobActivelyRunning(job);
-      setJobRunning(active);
+      const hold = shouldHoldJobRunningFlag(
+        runSnapshotRef.current,
+        job,
+        partialAutoGPublishRef.current,
+      );
+      setJobRunning(hold);
       setRun((prev) => {
         if (!prev) return prev;
         return { ...prev, job, stages: applyLiveJobToStages(prev.stages, job) };
@@ -966,7 +977,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!runId) return;
     void (async () => {
       const job = await syncJobRunning(runId);
-      if (!isJobActivelyRunning(job)) return;
+      if (
+        !shouldHoldJobRunningFlag(runSnapshotRef.current, job, partialAutoGPublishRef.current)
+      ) {
+        setJobRunning(false);
+        return;
+      }
       jobPollSawRunningRef.current = true;
       setJobRunning(true);
       runRefreshTickRef.current = 0;
@@ -985,6 +1001,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
           maybeAutoSelectRunningStage(polled);
           if (!isJobActivelyRunning(polled)) {
+            setJobRunning(false);
             const refreshed = await refreshRun();
             const suppressTerminalToast = shouldSuppressJobPollTerminalToast(
               jobPollSawRunningRef.current,
@@ -1061,6 +1078,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                       selectedStageId: selectedStageIdRef.current,
                       jobRunning: false,
                       apiGrants: mergedApiGrants(),
+                      gPublish: partialAutoGPublishRef.current,
                     }).stageId
                   : null;
                 if (focusId) expandStage(focusId);
@@ -1071,6 +1089,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
               void autoContinuePipelineRef.current(completedStage ?? null);
             }
           } else {
+            const snapshot = runSnapshotRef.current
+              ? { ...runSnapshotRef.current, job: polled }
+              : null;
+            if (
+              !shouldHoldJobRunningFlag(
+                snapshot,
+                polled,
+                partialAutoGPublishRef.current,
+              )
+            ) {
+              setJobRunning(false);
+            }
             runRefreshTickRef.current += 1;
             const statusChanged = prevStatus !== polled.status;
             if (statusChanged || runRefreshTickRef.current % 2 === 0) {
@@ -1183,7 +1213,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       body?: ExecuteBody;
     }): Promise<boolean> => {
       if (!runId) return false;
-      if (jobRunningRef.current) {
+      if (
+        jobRunningRef.current &&
+        !isPartialAutoCheckpoint(run, partialAutoGPublishRef.current)
+      ) {
         showToast("A step is already running — watch the activity log.", "warning");
         return false;
       }
@@ -1307,7 +1340,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const executeJob = useCallback(
     async (body: ExecuteBody, opts?: { source?: ExecuteJobSource }) => {
       const fromCheckpoint = opts?.source === "checkpoint_continue";
-      if (jobRunningRef.current) {
+      if (
+        jobRunningRef.current &&
+        !isPartialAutoCheckpoint(run, partialAutoGPublishRef.current)
+      ) {
         showToast("A step is already running — watch the activity log.", "warning");
         return;
       }
@@ -1700,11 +1736,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncPipelineStageFocusCb = useCallback(
     async (runOverride?: RunData | null): Promise<boolean> => {
       if (jobRunningRef.current) return false;
+      const currentRun = runOverride ?? run;
+      const grants = mergedApiGrants();
+      const focusId = currentRun
+        ? resolveOperatorFocusStageId(currentRun, grants)
+        : null;
+      const selectedId = selectedStageIdRef.current;
+      const selected = currentRun?.stages.find((s) => s.id === selectedId);
+      const userBrowsing =
+        Boolean(userPinnedStageIdRef.current) &&
+        userPinnedStageIdRef.current === selectedId;
+      const parkedOnCompleted =
+        Boolean(focusId && selectedId && focusId !== selectedId) &&
+        selected?.status === "done" &&
+        !userBrowsing;
       return syncPipelineStageFocus({
-        run: runOverride ?? run,
+        run: currentRun,
         runId,
-        apiGrants: mergedApiGrants(),
-        selectedStageId: selectedStageIdRef.current,
+        apiGrants: grants,
+        selectedStageId: selectedId,
         executeJob,
         selectStage,
         expandStage,
@@ -1715,6 +1765,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshRun,
         navigateToNextBlocker: runNextStage,
         config,
+        navigationIntent: parkedOnCompleted ? "user_continue" : "auto_surface",
       });
     },
     [
@@ -1919,7 +1970,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const activateSubstep = useCallback(
     (substep: StageSubstep) => {
-      if (guardBusy(jobRunningRef.current, actionBusyRef.current, showToast)) {
+      if (guardBusy(jobRunningRef.current, actionBusyRef.current, showToast, {
+        run,
+        gPublish: partialAutoGPublishRef.current,
+      })) {
         return;
       }
       setActiveTabState("pipeline");
@@ -1928,7 +1982,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       expandStage(substep.stageId);
       if (stepId) scrollToStageStep(stepId);
     },
-    [selectStage, expandStage, showToast],
+    [run, selectStage, expandStage, showToast],
   );
 
   const redoFromStage = useCallback(async () => {
@@ -1949,25 +2003,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedStageId, runId, refreshRun, confirm, appendClientLog]);
 
-  const completeTranscriptReview = useCallback(
-    async (acceptUnreviewed = false) => {
-      if (!runId) return;
-      await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush"]);
-      await api(`/api/runs/${runId}/transcript-review/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accept_unreviewed: acceptUnreviewed }),
-      });
-      showToast("Transcript review complete");
-      const refreshed = await refreshRun();
-      // Partial-auto: detached driver resumes analysis — do not launch a competing job.
-      if (!isPartialAcceleratedRun(refreshed)) {
-        await advanceFromCheckpoint();
-      }
-    },
-    [runId, showToast, refreshRun, advanceFromCheckpoint],
-  );
-
   const loadTranscriptReview = useCallback(async () => {
     if (!runId) return null;
     const data = await api<TranscriptReviewState>(
@@ -1976,6 +2011,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTranscriptReview(data);
     return data;
   }, [runId]);
+
+  const completeTranscriptReview = useCallback(
+    async (acceptUnreviewed = false) => {
+      if (!runId) return;
+      logOperatorAction("Complete transcript review", "transcript_review");
+      setActionBusy(true);
+      actionBusyRef.current = true;
+      try {
+        await runStepPrimaryPreps(["transcript_dock_flush", "transcript_review_flush"]);
+        const pending = transcriptReview?.pending_count ?? 0;
+        const accept = acceptUnreviewed || pending > 0;
+        await api(`/api/runs/${runId}/transcript-review/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accept_unreviewed: accept }),
+        });
+        showToast("Transcript review complete", "success");
+        const refreshed = await refreshRun();
+        await loadTranscriptReview();
+        if (!isPartialAcceleratedRun(refreshed)) {
+          await advanceFromCheckpoint();
+        } else {
+          await syncPipelineStageFocusCb(refreshed);
+        }
+      } catch (reason) {
+        showToast(formatApiError(reason, "Complete transcript review"), "error");
+        throw reason;
+      } finally {
+        setActionBusy(false);
+        actionBusyRef.current = false;
+      }
+    },
+    [
+      runId,
+      transcriptReview?.pending_count,
+      showToast,
+      refreshRun,
+      loadTranscriptReview,
+      advanceFromCheckpoint,
+      syncPipelineStageFocusCb,
+      logOperatorAction,
+    ],
+  );
 
   useEffect(() => {
     const gen = ++bootGenRef.current;
@@ -2187,6 +2265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectedStageId: selectedStageIdRef.current,
       jobRunning: jobRunningRef.current,
       apiGrants: mergedApiGrants(),
+      gPublish: partialAutoGPublishRef.current,
     });
     const substepId = run.journey?.active_substep_id ?? opAction.substepId;
     if (substepId) {
@@ -2212,11 +2291,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectedStageId,
       jobRunning,
       apiGrants: mergedApiGrants(),
+      gPublish: partialAutoGPublishRef.current,
     }).stageId;
     return Boolean(focusId && selectedStageId !== focusId);
   }, [refreshRun, navigateToOperatorFocus]);
 
   const partialAutoGPublish = usePartialAutoGPublish(run);
+  partialAutoGPublishRef.current = partialAutoGPublish;
+  useEffect(() => {
+    if (!run || !jobRunning) return;
+    if (isPartialAutoCheckpoint(run, partialAutoGPublish)) {
+      setJobRunning(false);
+    }
+  }, [run, partialAutoGPublish, jobRunning]);
+
   usePartialAutoRunWatch({
     run,
     runId,
@@ -2249,6 +2337,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     alertsMuted,
     jobRunning,
     actionBusy,
+    partialAutoGPublish,
     transcriptReview,
     selectedStage,
     actionModalOpen,

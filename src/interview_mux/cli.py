@@ -267,9 +267,15 @@ def serve_cmd(
     port: int | None = typer.Option(None, "--port", help="Web GUI port (default from config)"),
     host: str = typer.Option("127.0.0.1", "--host"),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser tab"),
+    run_id: str | None = typer.Option(
+        None,
+        "--run-id",
+        help="Open the GUI deep-linked to an existing execution (/?run=…)",
+    ),
 ) -> None:
     """Launch the web GUI."""
     import webbrowser
+    from urllib.parse import quote
 
     from interview_mux.config import merged_config
 
@@ -278,6 +284,15 @@ def serve_cmd(
     cfg = merged_config()
     chosen_port = port or int(cfg.get("web_port", 8765))
     url = f"http://{host}:{chosen_port}"
+    if run_id:
+        from interview_mux.assets_ephemeral_cleanup import executions_root, is_product_execution_dir
+
+        if not is_product_execution_dir(run_id):
+            raise typer.BadParameter(f"Invalid execution id: {run_id}")
+        run_dir = executions_root(cfg) / run_id
+        if not run_dir.is_dir():
+            raise typer.BadParameter(f"Execution not found: {run_dir}")
+        url = f"{url}/?run={quote(run_id, safe='')}"
     on_server_start(port=chosen_port, host=host)
 
     from interview_mux.gui_job_reconcile import reconcile_stale_jobs

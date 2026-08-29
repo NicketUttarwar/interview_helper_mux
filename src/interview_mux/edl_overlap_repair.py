@@ -1,0 +1,696 @@
+"""Merge overlapping same-speaker EDL speech into one survivor span.
+
+When two or more speech clips share intersecting source ranges, play the union
+once under a surviving segment id (earliest child, or parent if the parent is
+in the component). Remap consumed ids with the shared fuse walker. Do not mint
+a new canonical ``seg_*``.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from interview_mux.run_context import RunContext
+
+STAGE_KEY = "edl_overlap_repair"
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _source_span(clip: dict[str, Any]) -> tuple[int, int] | None:
+    ss = _as_int(clip.get("source_start_ms"))
+    se = _as_int(clip.get("source_end_ms"), ss)
+    if se <= ss:
+        return None
+    return ss, se
+
+
+def _ranges_overlap(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
+
+
+def _speaker_of(seg: dict[str, Any] | None) -> str:
+    if not isinstance(seg, dict):
+        return ""
+    return str(seg.get("speaker_id") or seg.get("speaker") or "").strip()
+
+
+def _parent_id(
+    sid: str,
+    segs: dict[str, dict[str, Any]],
+    overrides: dict[str, Any],
+) -> str:
+    ov = overrides.get(sid) if isinstance(overrides.get(sid), dict) else {}
+    pid = str((ov or {}).get("parent_id") or "").strip()
+    if pid:
+        return pid
+    row = segs.get(sid) or {}
+    return str(row.get("parent_id") or "").strip()
+
+
+def _chapter_by_segment(ctx: RunContext) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not ctx.artifact_exists("master/selection.json"):
+        return out
+    try:
+        selection = ctx.read_json("master/selection.json")
+    except Exception:
+        return out
+    if not isinstance(selection, dict):
+        return out
+    for ch in selection.get("chapters") or []:
+        if not isinstance(ch, dict):
+            continue
+        cid = str(ch.get("chapter_id") or "").strip()
+        if not cid:
+            continue
+        for sid in ch.get("segment_ids") or []:
+            if sid:
+                out[str(sid)] = cid
+    return out
+
+
+def _load_seg_lookup(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    from interview_mux.nle_state import segments_by_id_with_nle
+
+    try:
+        return segments_by_id_with_nle(ctx)
+    except Exception:
+        pass
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return {}
+    try:
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for row in (manifest.get("segments") or []) if isinstance(manifest, dict) else []:
+        if isinstance(row, dict) and row.get("segment_id"):
+            out[str(row["segment_id"])] = row
+    return out
+
+
+def _load_words(ctx: RunContext) -> list[dict[str, Any]]:
+    from interview_mux.segment_fuse import _load_words as fuse_words
+
+    try:
+        return fuse_words(ctx)
+    except Exception:
+        return []
+
+
+def _union_text(
+    words: list[dict[str, Any]],
+    start_ms: int,
+    end_ms: int,
+    members: list[dict[str, Any]],
+) -> str:
+    from interview_mux.segment_fuse import _rebuild_text
+
+    fallback = " ".join(
+        str(row.get("text") or "").strip() for row in members if str(row.get("text") or "").strip()
+    )
+    try:
+        return _rebuild_text(words, start_ms, end_ms, fallback=fallback)
+    except Exception:
+        return fallback.strip()
+
+
+def _union_find_components(
+    items: list[tuple[int, dict[str, Any], tuple[int, int]]],
+    *,
+    segs: dict[str, dict[str, Any]],
+    chapters: dict[str, str],
+) -> list[list[int]]:
+    n = len(items)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i in range(n):
+        _, clip_i, span_i = items[i]
+        sid_i = str(clip_i.get("segment_id") or "")
+        spk_i = _speaker_of(segs.get(sid_i))
+        ch_i = chapters.get(sid_i, "")
+        for j in range(i + 1, n):
+            _, clip_j, span_j = items[j]
+            if not _ranges_overlap(span_i, span_j):
+                continue
+            sid_j = str(clip_j.get("segment_id") or "")
+            spk_j = _speaker_of(segs.get(sid_j))
+            if spk_i and spk_j and spk_i != spk_j:
+                continue
+            ch_j = chapters.get(sid_j, "")
+            if ch_i and ch_j and ch_i != ch_j:
+                continue
+            union(i, j)
+
+    buckets: dict[int, list[int]] = {}
+    for i in range(n):
+        buckets.setdefault(find(i), []).append(i)
+    return [idxs for idxs in buckets.values() if len(idxs) >= 2]
+
+
+def _pick_survivor(
+    member_sids: list[str],
+    *,
+    clip_by_sid: dict[str, dict[str, Any]],
+    segs: dict[str, dict[str, Any]],
+    overrides: dict[str, Any],
+    ordered: list[str],
+) -> str:
+    order_index = {sid: i for i, sid in enumerate(ordered)}
+
+    def sort_key(sid: str) -> tuple[int, int, int, str]:
+        clip = clip_by_sid.get(sid) or {}
+        seg = segs.get(sid) or {}
+        span = _source_span(clip)
+        ss = span[0] if span else _as_int(seg.get("start_ms"))
+        ts = _as_int(clip.get("timeline_start_ms"), 10**12)
+        return (ss, ts, order_index.get(sid, 10**12), sid)
+
+    in_component_parents = [
+        sid
+        for sid in member_sids
+        if sid in { _parent_id(m, segs, overrides) for m in member_sids }
+    ]
+    if in_component_parents:
+        return min(in_component_parents, key=sort_key)
+    return min(member_sids, key=sort_key)
+
+
+def _retime_clips(clips: list[Any]) -> int:
+    cursor = 0
+    max_end = 0
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        dur = max(0, _as_int(clip.get("duration_ms")))
+        overlap = max(0, _as_int(clip.get("mix_overlap_ms")))
+        start = max(0, cursor - overlap) if overlap else cursor
+        clip["timeline_start_ms"] = start
+        end = start + dur
+        max_end = max(max_end, end)
+        if dur > 0:
+            cursor = end
+    return max_end
+
+
+def _rebuild_clips(
+    clips: list[Any],
+    *,
+    members: set[str],
+    survivor: str,
+    union_start: int,
+    union_end: int,
+) -> list[Any]:
+    first_idx = last_idx = None
+    survivor_clip: dict[str, Any] | None = None
+    before_vo: list[dict[str, Any]] = []
+    after_vo: list[dict[str, Any]] = []
+    prefix: list[Any] = []
+    middle: list[Any] = []
+    suffix: list[Any] = []
+
+    for i, clip in enumerate(clips):
+        if not isinstance(clip, dict):
+            continue
+        ctype = str(clip.get("type") or "")
+        sid = str(clip.get("segment_id") or "")
+        if ctype == "speech" and sid in members:
+            if first_idx is None:
+                first_idx = i
+            last_idx = i
+            if sid == survivor and survivor_clip is None:
+                row = dict(clip)
+                row["segment_id"] = survivor
+                row["source_start_ms"] = union_start
+                row["source_end_ms"] = union_end
+                row["duration_ms"] = max(0, union_end - union_start)
+                survivor_clip = row
+            continue
+        if ctype == "transition":
+            after_id = str(clip.get("after_segment_id") or "")
+            before_id = str(clip.get("before_segment_id") or "")
+            if after_id in members and before_id in members:
+                continue
+        target = str(clip.get("targets_segment_id") or "")
+        if ctype == "vo_pickup" and target in members:
+            if str(clip.get("placement") or "").lower() == "after":
+                after_vo.append(dict(clip))
+            else:
+                before_vo.append(dict(clip))
+            continue
+        if first_idx is None:
+            prefix.append(clip)
+        elif last_idx is not None and i > last_idx:
+            suffix.append(clip)
+        else:
+            middle.append(clip)
+
+    if survivor_clip is None:
+        return list(clips)
+
+    return prefix + before_vo + [survivor_clip] + after_vo + middle + suffix
+
+
+def _union_manifest_row(
+    survivor: dict[str, Any],
+    consumed_rows: list[dict[str, Any]],
+    *,
+    union_start: int,
+    union_end: int,
+    consumed_ids: list[str],
+    words: list[dict[str, Any]],
+) -> dict[str, Any]:
+    out = dict(survivor)
+    members = [survivor, *consumed_rows]
+    out["start_ms"] = union_start
+    out["end_ms"] = union_end
+    out["duration_ms"] = max(0, union_end - union_start)
+    out["text"] = _union_text(words, union_start, union_end, members)
+    tags: list[str] = []
+    for row in members:
+        for tag in row.get("topic_tags") or []:
+            token = str(tag).strip()
+            if token and token not in tags:
+                tags.append(token)
+    if tags:
+        out["topic_tags"] = tags
+    fused = list(dict.fromkeys([*(survivor.get("fused_from") or [survivor.get("segment_id")]), *consumed_ids]))
+    out["fused_from"] = [str(x) for x in fused if x]
+    out["fuse_reason"] = "overlapping_source_range"
+    out["fuse_pass_id"] = STAGE_KEY
+    if any(str(row.get("retention") or "") == "must_keep" for row in members):
+        out["retention"] = "must_keep"
+    if any(row.get("high_value_speech") for row in members):
+        out["high_value_speech"] = True
+    return out
+
+
+def _update_manifest(
+    ctx: RunContext,
+    *,
+    survivor: str,
+    consumed: list[str],
+    union_start: int,
+    union_end: int,
+    words: list[dict[str, Any]],
+) -> None:
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return
+    try:
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return
+    if not isinstance(manifest, dict):
+        return
+    segs = [s for s in (manifest.get("segments") or []) if isinstance(s, dict)]
+    by_id = {str(s.get("segment_id") or ""): s for s in segs if s.get("segment_id")}
+    survivor_row = by_id.get(survivor)
+    if survivor_row is None:
+        survivor_row = {
+            "segment_id": survivor,
+            "start_ms": union_start,
+            "end_ms": union_end,
+            "speaker_id": "unknown",
+            "speaker_role": "unknown",
+            "type": "interviewee_answer",
+            "text": "",
+            "topic_tags": [],
+        }
+    consumed_rows = [by_id[cid] for cid in consumed if cid in by_id]
+    merged = _union_manifest_row(
+        survivor_row,
+        consumed_rows,
+        union_start=union_start,
+        union_end=union_end,
+        consumed_ids=consumed,
+        words=words,
+    )
+    drop = set(consumed)
+    next_segs: list[dict[str, Any]] = []
+    wrote_survivor = False
+    for row in segs:
+        sid = str(row.get("segment_id") or "")
+        if sid in drop:
+            continue
+        if sid == survivor:
+            next_segs.append(merged)
+            wrote_survivor = True
+            continue
+        next_segs.append(row)
+    if not wrote_survivor:
+        next_segs.append(merged)
+    manifest = dict(manifest)
+    manifest["segments"] = next_segs
+    ctx.write_json("segments/manifest.json", manifest, stage_key=STAGE_KEY)
+    try:
+        from interview_mux.asset_transcripts import sync_speech_sidecars
+
+        sync_speech_sidecars(ctx)
+    except Exception:
+        pass
+
+
+def _update_boundaries(
+    ctx: RunContext,
+    *,
+    survivor: str,
+    consumed: set[str],
+    union_start: int,
+    union_end: int,
+    fused_from: list[str],
+) -> None:
+    if not ctx.artifact_exists("segments/boundaries.json"):
+        return
+    try:
+        doc = ctx.read_json("segments/boundaries.json")
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    rows: list[dict[str, Any]] = []
+    saw_survivor = False
+    for row in doc.get("boundaries") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("segment_id") or "")
+        if sid in consumed:
+            continue
+        merged = dict(row)
+        if sid == survivor:
+            merged["start_ms"] = union_start
+            merged["end_ms"] = union_end
+            merged["fused_from"] = fused_from
+            merged["fuse_pass_id"] = STAGE_KEY
+            saw_survivor = True
+        rows.append(merged)
+    if not saw_survivor:
+        rows.append(
+            {
+                "segment_id": survivor,
+                "start_ms": union_start,
+                "end_ms": union_end,
+                "fused_from": fused_from,
+                "fuse_pass_id": STAGE_KEY,
+            }
+        )
+    rows.sort(key=lambda r: _as_int(r.get("start_ms")))
+    out = dict(doc)
+    out["boundaries"] = rows
+    ctx.write_json("segments/boundaries.json", out, skip_handoff=True, stage_key=STAGE_KEY)
+
+
+def _update_nle(
+    ctx: RunContext,
+    *,
+    survivor: str,
+    consumed: list[str],
+    union_start: int,
+    union_end: int,
+    segs: dict[str, dict[str, Any]],
+) -> None:
+    from interview_mux.nle_state import load_nle
+
+    nle = load_nle(ctx)
+    overrides = dict(nle.get("segment_overrides") or {})
+    ov_s = dict(overrides.get(survivor) or {})
+    ov_s["start_ms"] = union_start
+    ov_s["end_ms"] = union_end
+    overrides[survivor] = ov_s
+    for cid in consumed:
+        ov_c = dict(overrides.get(cid) or {})
+        ov_c["excluded"] = True
+        ov_c["exclude_reason"] = STAGE_KEY
+        overrides[cid] = ov_c
+    parent = _parent_id(survivor, segs, overrides)
+    if not parent:
+        for cid in consumed:
+            parent = _parent_id(cid, segs, overrides)
+            if parent:
+                break
+    if parent:
+        ov_p = dict(overrides.get(parent) or {})
+        kids = [str(x) for x in (ov_p.get("split_into") or []) if x]
+        next_kids: list[str] = []
+        for kid in kids:
+            mapped = survivor if kid in consumed or kid == survivor else kid
+            if mapped not in next_kids:
+                next_kids.append(mapped)
+        if next_kids:
+            ov_p["split_into"] = next_kids
+            overrides[parent] = ov_p
+    order = [str(x) for x in (nle.get("sequence_order") or []) if x]
+    if order:
+        seen: set[str] = set()
+        next_order: list[str] = []
+        drop = set(consumed)
+        for sid in order:
+            mapped = survivor if sid in drop else sid
+            if mapped in seen:
+                continue
+            seen.add(mapped)
+            next_order.append(mapped)
+        nle["sequence_order"] = next_order
+    nle["segment_overrides"] = overrides
+    ctx.write_json("segments/nle_edits.json", nle, skip_handoff=True, stage_key=STAGE_KEY)
+
+
+def _drop_self_transitions(ctx: RunContext) -> None:
+    if not ctx.artifact_exists("master/transitions.json"):
+        return
+    try:
+        doc = ctx.read_json("master/transitions.json")
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    changed = False
+    for key in ("transitions", "pairs"):
+        rows = doc.get(key)
+        if not isinstance(rows, list):
+            continue
+        kept: list[Any] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                kept.append(row)
+                continue
+            after_id = str(row.get("after_segment_id") or row.get("after_id") or "")
+            before_id = str(row.get("before_segment_id") or row.get("before_id") or "")
+            if after_id and before_id and after_id == before_id:
+                changed = True
+                continue
+            kept.append(row)
+        doc[key] = kept
+    if changed:
+        ctx.write_json("master/transitions.json", doc, skip_handoff=True, stage_key=STAGE_KEY)
+
+
+def overlapping_source_components(
+    ctx: RunContext,
+    edl: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return mergeable overlapping speech components (no mutation)."""
+    clips = edl.get("clips") or []
+    if not isinstance(clips, list):
+        return []
+    segs = _load_seg_lookup(ctx)
+    chapters = _chapter_by_segment(ctx)
+    from interview_mux.nle_state import load_nle
+
+    try:
+        overrides = load_nle(ctx).get("segment_overrides") or {}
+    except Exception:
+        overrides = {}
+    ordered = [str(s) for s in (edl.get("ordered_segment_ids") or [])]
+    items: list[tuple[int, dict[str, Any], tuple[int, int]]] = []
+    for index, clip in enumerate(clips):
+        if not isinstance(clip, dict) or clip.get("type") != "speech":
+            continue
+        span = _source_span(clip)
+        if span is None or not str(clip.get("segment_id") or "").strip():
+            continue
+        items.append((index, clip, span))
+    if len(items) < 2:
+        return []
+    components: list[dict[str, Any]] = []
+    clip_by_sid = {str(c.get("segment_id")): c for _, c, _ in items}
+    for idxs in _union_find_components(items, segs=segs, chapters=chapters):
+        member_clips = [items[i][1] for i in idxs]
+        member_sids = [str(c.get("segment_id")) for c in member_clips]
+        survivor = _pick_survivor(
+            member_sids,
+            clip_by_sid=clip_by_sid,
+            segs=segs,
+            overrides=overrides if isinstance(overrides, dict) else {},
+            ordered=ordered,
+        )
+        spans = [items[i][2] for i in idxs]
+        union_start = min(span[0] for span in spans)
+        union_end = max(span[1] for span in spans)
+        consumed = [sid for sid in dict.fromkeys(member_sids) if sid != survivor]
+        if not consumed:
+            continue
+        components.append(
+            {
+                "survivor": survivor,
+                "consumed": consumed,
+                "members": list(dict.fromkeys(member_sids)),
+                "union_start_ms": union_start,
+                "union_end_ms": union_end,
+            }
+        )
+    return components
+
+
+def repair_overlapping_source_ranges(
+    ctx: RunContext,
+    edl: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Union overlapping same-speaker speech; remap consumed ids onto the survivor.
+
+    Mutates ``edl`` in place when provided. Returns a result dict with
+    ``repaired``, ``remap``, ``components``, and ``edl``.
+    """
+    working = edl
+    loaded_from_disk = False
+    if working is None:
+        if not ctx.artifact_exists("master/edl.json"):
+            return {"repaired": False, "remap": {}, "components": [], "edl": None}
+        loaded = ctx.read_json("master/edl.json")
+        if not isinstance(loaded, dict):
+            return {"repaired": False, "remap": {}, "components": [], "edl": None}
+        working = loaded
+        loaded_from_disk = True
+    if not isinstance(working, dict):
+        return {"repaired": False, "remap": {}, "components": [], "edl": working}
+
+    components = overlapping_source_components(ctx, working)
+    if not components:
+        return {"repaired": False, "remap": {}, "components": [], "edl": working}
+
+    segs = _load_seg_lookup(ctx)
+    words = _load_words(ctx)
+    remap: dict[str, str] = {}
+    clips = list(working.get("clips") or [])
+    applied: list[dict[str, Any]] = []
+
+    for comp in components:
+        survivor = str(comp["survivor"])
+        consumed = [str(x) for x in (comp.get("consumed") or [])]
+        members = set(comp.get("members") or [survivor, *consumed])
+        union_start = int(comp["union_start_ms"])
+        union_end = int(comp["union_end_ms"])
+        clips = _rebuild_clips(
+            clips,
+            members=members,
+            survivor=survivor,
+            union_start=union_start,
+            union_end=union_end,
+        )
+        _update_manifest(
+            ctx,
+            survivor=survivor,
+            consumed=consumed,
+            union_start=union_start,
+            union_end=union_end,
+            words=words,
+        )
+        _update_nle(
+            ctx,
+            survivor=survivor,
+            consumed=consumed,
+            union_start=union_start,
+            union_end=union_end,
+            segs=segs,
+        )
+        fused_from = [survivor, *consumed]
+        _update_boundaries(
+            ctx,
+            survivor=survivor,
+            consumed=set(consumed),
+            union_start=union_start,
+            union_end=union_end,
+            fused_from=fused_from,
+        )
+        for cid in consumed:
+            remap[cid] = survivor
+        applied.append(comp)
+
+    from interview_mux.segment_id_remap import apply_full_segment_id_remap, apply_segment_id_map
+    from interview_mux.segment_fuse import remap_fused_ids
+
+    working["clips"] = apply_segment_id_map(clips, remap)
+    working["ordered_segment_ids"] = remap_fused_ids(
+        list(working.get("ordered_segment_ids") or []), remap
+    )
+    self_drop = []
+    next_clips: list[Any] = []
+    for clip in working.get("clips") or []:
+        if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
+            next_clips.append(clip)
+            continue
+        after_id = str(clip.get("after_segment_id") or "")
+        before_id = str(clip.get("before_segment_id") or "")
+        if after_id and before_id and after_id == before_id:
+            self_drop.append(clip)
+            continue
+        next_clips.append(clip)
+    working["clips"] = next_clips
+    working["timeline_duration_ms"] = _retime_clips(
+        [c for c in working["clips"] if isinstance(c, dict)]
+    )
+    working["vo_pickup_clip_count"] = sum(
+        1
+        for c in working["clips"]
+        if isinstance(c, dict) and c.get("type") == "vo_pickup"
+    )
+
+    persist_edl = loaded_from_disk or ctx.artifact_exists("master/edl.json")
+    if persist_edl:
+        from interview_mux.air_order import write_live_edl
+
+        write_live_edl(ctx, working, source=STAGE_KEY)
+
+    apply_full_segment_id_remap(ctx, remap, stage_key=STAGE_KEY, skip_handoff=True)
+    _drop_self_transitions(ctx)
+
+    labels = ", ".join(
+        f"{','.join(c['consumed'])}→{c['survivor']}" for c in applied
+    )
+    ctx.log(
+        f"EDL overlap merge: {labels}",
+        level="success",
+        stage="edl",
+        detail=STAGE_KEY,
+    )
+    if edl is not None and edl is not working:
+        edl.clear()
+        edl.update(working)
+    elif edl is not None:
+        edl["clips"] = working["clips"]
+        edl["ordered_segment_ids"] = working["ordered_segment_ids"]
+        edl["timeline_duration_ms"] = working["timeline_duration_ms"]
+        edl["vo_pickup_clip_count"] = working.get("vo_pickup_clip_count")
+
+    return {
+        "repaired": True,
+        "remap": remap,
+        "components": applied,
+        "edl": working,
+        "self_transitions_dropped": len(self_drop),
+    }

@@ -4,6 +4,7 @@ import { useApp } from "../../context/AppContext";
 import type { VoLine } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { isV2Enabled } from "../../utils/v2Phases";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   const {
@@ -17,7 +18,9 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     jobRunning,
     actionBusy,
     config,
+    partialAutoGPublish,
   } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const recorderRef = useRef<{ media: MediaRecorder | null; chunks: Blob[] }>({
     media: null,
     chunks: [],
@@ -222,7 +225,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
             className="btn sm"
             data-testid="g1-synthesize-all"
             data-action-id="gui.g1.vo.synthesize_all"
-            disabled={jobRunning || actionBusy || synthLine !== null}
+            disabled={jobBlocksUi || actionBusy || synthLine !== null}
             onClick={() => void synthesizeAll()}
           >
             Synthesize all (Chatterbox)
@@ -235,7 +238,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
             type="button"
             className="btn ghost sm"
             data-action-id="gui.g1.skip_optional"
-            disabled={jobRunning || actionBusy}
+            disabled={jobBlocksUi || actionBusy}
             onClick={async () => {
               if (!runId) return;
               await api(`/api/runs/${runId}/g1/skip-optional`, {
@@ -390,7 +393,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
             className="btn ghost"
             data-testid="g1-skip-optional"
             data-action-id="gui.g1.skip_optional"
-            disabled={jobRunning || actionBusy}
+            disabled={jobBlocksUi || actionBusy}
             onClick={() => void skipAllOptional()}
           >
             Skip — continue without gap VO
@@ -403,7 +406,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           className="btn primary"
           data-testid="vo-continue"
           data-action-id="gui.g1.vo.continue"
-          disabled={jobRunning || actionBusy}
+          disabled={jobBlocksUi || actionBusy}
           onClick={() => void advanceFromCheckpoint()}
         >
           All VO recorded — continue

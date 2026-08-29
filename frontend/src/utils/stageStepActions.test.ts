@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { invokeStepFooterSecondaryAction } from "./stageStepActions";
+import { invokeStepFooterAction, invokeStepFooterSecondaryAction } from "./stageStepActions";
 import type { StageInfo, StageStep } from "../types";
 import { makeStage, makeStep } from "../test/runFixtures";
 
@@ -15,6 +15,31 @@ function precleanSkipStep(): StageStep {
     kind: "preclean",
   });
 }
+
+describe("invokeStepFooterAction", () => {
+  it("complete transcript review accepts unreviewed ranked clips", async () => {
+    const completeTranscriptReview = vi.fn().mockResolvedValue(undefined);
+    const step = makeStep("review_transcript", {
+      label: "Review transcript",
+      primary_button: "Complete transcript review",
+      embed: "transcript_review",
+      kind: "gate",
+    });
+    await invokeStepFooterAction(step, stage("transcript_review"), {
+      executeJob: vi.fn(),
+      runNextStage: vi.fn(),
+      advanceFromCheckpoint: vi.fn(),
+      completeTranscriptReview,
+      approveSfxPrompts: vi.fn(),
+      skipOptional: vi.fn(),
+      declineReuseAndRun: vi.fn(),
+      redoFromStage: vi.fn(),
+      selectStage: vi.fn(),
+      stageAction: null,
+    });
+    expect(completeTranscriptReview).toHaveBeenCalledWith(true);
+  });
+});
 
 describe("invokeStepFooterSecondaryAction", () => {
   it("skip optional preclean calls skipOptional handler", async () => {

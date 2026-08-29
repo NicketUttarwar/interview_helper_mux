@@ -6,7 +6,10 @@
 #   ./scripts/run.sh
 #
 # Options:
+#   ./scripts/run.sh --run-id exec_NNN_…   Open GUI on an existing execution
 #   ./scripts/run.sh --cli …     python -m interview_mux … (no server)
+#   ./scripts/run.sh --cli run --run-id exec_NNN_… --from-stage boundary_detection
+#                              Headless resume (same as python -m interview_mux run …)
 #   MUX_PRESERVE_SESSION=1       Keep last run selected in the GUI
 #   MUX_REBUILD_GUI=1            Rebuild React bundle before serve
 #   MUX_REFRESH_DEPS=1           Re-pip core .venv after git pull
@@ -24,6 +27,11 @@
 # operator session logs, stale locks inside exec_*). Never deletes any
 # directory under ASSETS/executions/ (prior runs always kept). Input WAVs
 # and local_* runtimes are never deleted.
+#
+# Regular GUI/CLI (not --full-auto / MUX_FULL_AUTO / MUX_RUN_MODE=full-auto):
+# also runs `python tools/full_auto_daemon_launch.py stop` so a leftover
+# Full-auto driver/keepalive cannot hijack the new session. Full-auto/e2e
+# launches skip that stop so they can recycle/resume their own stack.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -35,9 +43,37 @@ export MUX_LAUNCHED_VIA=run.sh
 
 CLI_MODE=0
 SERVE_ARGS=()
+GUI_RUN_ID=""
+
+_validate_execution_id() {
+  local rid="$1"
+  MUX_VALIDATE_RUN_ID="$rid" python - <<'PY'
+import os
+import sys
+from interview_mux.assets_ephemeral_cleanup import executions_root, is_product_execution_dir
+
+rid = os.environ.get("MUX_VALIDATE_RUN_ID", "")
+if not is_product_execution_dir(rid):
+    print(f"ERROR: invalid execution id: {rid}", file=sys.stderr)
+    sys.exit(1)
+path = executions_root() / rid
+if not path.is_dir():
+    print(f"ERROR: execution not found: {path}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --run-id)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --run-id requires an execution id (exec_NNN_…)" >&2
+        exit 1
+      fi
+      GUI_RUN_ID="$2"
+      export MUX_RUN_ID="$2"
+      shift 2
+      ;;
     --cli)
       CLI_MODE=1
       shift
@@ -58,10 +94,19 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h | --help)
       cat <<'EOF'
-Usage: ./scripts/run.sh [--cli] [--full-auto] [--input ASSETS/input/file.mp3] [serve args…]
+Usage: ./scripts/run.sh [--run-id exec_NNN_…] [--cli] [--full-auto] [--input ASSETS/input/file.mp3] [serve args…]
 
 Setup once:  ./scripts/bootstrap_venv.sh
 Launch:      ./scripts/run.sh
+
+Resume an existing execution in the GUI:
+
+  ./scripts/run.sh --run-id exec_2512_d19c15b58ab4_20260828T222510Z
+
+Opens the browser at /?run=… so the Pipeline workbench loads that run. Re-run stages
+from the GUI (e.g. boundary_detection) or use headless resume:
+
+  ./scripts/run.sh --cli run --run-id exec_2512_… --from-stage boundary_detection
 
 Interactive (TTY): choose Manual (default) or Full-auto, then pick source audio
 for Full-auto. Flags skip the prompts:
@@ -74,6 +119,7 @@ Prefer the GUI Start-page control for Full-auto when launching Manual.
 
 Environment:
   MUX_RUN_MODE=manual|full-auto  Skip mode prompt
+  --run-id exec_NNN_…            Open GUI on existing execution; sets MUX_RUN_ID
   --full-auto                    Same as MUX_RUN_MODE=full-auto
   --input ASSETS/input/file.mp3  Same as MUX_INPUT_AUDIO (Full-auto)
   MUX_INPUT_AUDIO=ASSETS/input/… Skip audio picker (Full-auto; mp3 is converted to WAV)
@@ -87,6 +133,11 @@ Environment:
   MUX_DETACH_SERVE=1             Detach serve into its own session and return
   MUX_KEEPALIVE=1                Opt-in Full-auto crash watchdog (off by default)
   MUX_FRESH / MUX_RUN_ID         Fresh create vs resume for Full-auto
+
+Regular ./scripts/run.sh (Manual GUI / --cli, not Full-auto) stops leftover
+Full-auto daemons first (driver, keepalive, prior serve) so a previous
+overnight run cannot claim the new session. --full-auto / MUX_FULL_AUTO
+skip that stop and recycle their own stack.
 EOF
       exit 0
       ;;
@@ -97,9 +148,44 @@ EOF
   esac
 done
 
+_normalize_run_mode() {
+  local raw
+  raw="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+  case "$raw" in
+    full-auto|fullauto|auto|e2e|baba) echo "full-auto" ;;
+    manual|gui|"") echo "manual" ;;
+    *) echo "" ;;
+  esac
+}
+
+_full_auto_env_set() {
+  # Prefer MUX_FULL_AUTO; accept legacy MUX_BABA_E2E.
+  local v
+  v="$(printf '%s' "${MUX_FULL_AUTO:-${MUX_BABA_E2E:-0}}" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_is_full_auto_cli_launch() {
+  # True when this invocation is already Full-auto/e2e via flag or env — not
+  # the interactive Manual GUI. Those paths recycle/resume their own driver.
+  if _full_auto_env_set; then
+    return 0
+  fi
+  local preset
+  preset="$(_normalize_run_mode "${MUX_RUN_MODE:-}")"
+  [[ "$preset" == "full-auto" ]]
+}
+
 # shellcheck source=scripts/lib/require_venv.sh
 source "$ROOT/scripts/lib/require_venv.sh"
 require_core_venv "$ROOT"
+
+if [[ -n "$GUI_RUN_ID" ]]; then
+  _validate_execution_id "$GUI_RUN_ID" || exit 1
+fi
 
 if [[ "${MUX_REFRESH_DEPS:-0}" == "1" ]]; then
   bash "$ROOT/scripts/lib/install_core_venv.sh"
@@ -125,6 +211,14 @@ print(int(merged_config().get("web_port", 8765)))
 PY
 )"
 
+# Regular GUI/CLI: this launch is a unique session. Tear down leftover
+# Full-auto driver + keepalive + prior serve so they cannot POST /execute
+# into the new GUI. Skip for --full-auto / e2e (they recycle their stack).
+if ! _is_full_auto_cli_launch; then
+  echo "Stopping leftover Full-auto daemons (prior driver/keepalive/serve)…" >&2
+  python "$ROOT/tools/full_auto_daemon_launch.py" stop || true
+fi
+
 if command -v lsof >/dev/null 2>&1; then
   stale_pids="$(lsof -ti "tcp:${WEB_PORT}" 2>/dev/null || true)"
   if [[ -n "${stale_pids}" ]]; then
@@ -140,6 +234,7 @@ if command -v ps >/dev/null 2>&1; then
     sleep 1
   fi
   # Stale keepalive will resurrect serve after this launch otherwise.
+  # Regular launches already stopped it above; Full-auto still needs this.
   orphan_ka="$(ps -ax -o pid=,command= 2>/dev/null | grep -E 'full_auto_keepalive_loop\.py|baba_keepalive_loop\.py' | grep -v grep | awk '{print $1}' | tr '\n' ' ' || true)"
   if [[ -n "${orphan_ka// /}" ]]; then
     kill ${orphan_ka} 2>/dev/null || true
@@ -167,27 +262,12 @@ if [[ "$CLI_MODE" == "1" ]]; then
   exec python -m interview_mux
 fi
 
+if [[ -n "$GUI_RUN_ID" ]]; then
+  SERVE_ARGS+=("--run-id" "$GUI_RUN_ID")
+  echo "GUI will open execution ${GUI_RUN_ID}" >&2
+fi
+
 # --- Manual / Full-auto mode (default Manual) ---------------------------------
-_normalize_run_mode() {
-  local raw
-  raw="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
-  case "$raw" in
-    full-auto|fullauto|auto|e2e|baba) echo "full-auto" ;;
-    manual|gui|"") echo "manual" ;;
-    *) echo "" ;;
-  esac
-}
-
-_full_auto_env_set() {
-  # Prefer MUX_FULL_AUTO; accept legacy MUX_BABA_E2E.
-  local v
-  v="$(printf '%s' "${MUX_FULL_AUTO:-${MUX_BABA_E2E:-0}}" | tr '[:upper:]' '[:lower:]')"
-  case "$v" in
-    1|true|yes) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 _keepalive_requested() {
   local v
   v="$(printf '%s' "${MUX_KEEPALIVE:-0}" | tr '[:upper:]' '[:lower:]')"

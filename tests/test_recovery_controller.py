@@ -58,7 +58,18 @@ def test_classify_exec_1822_signatures():
             "edl",
             RuntimeError("edl_qc strict: 8 issue(s) before edl. Fix master/edl.json or re-run edl."),
         )
-        == "unknown_nle_split_child"
+        is None
+    )
+    assert (
+        classify_error_class(
+            "edl",
+            RuntimeError(
+                "edl_qc strict: 1 issue(s) before edl. "
+                "Overlapping source range: seg_003c [62900,74760ms) intersects "
+                "seg_003d [71000,74810ms)"
+            ),
+        )
+        == "overlapping_source_range"
     )
     assert (
         classify_error_class(
@@ -610,3 +621,64 @@ def test_mix_missing_theme_wav_resumes_palette(tmp_path: Path, monkeypatch):
     )
     assert second.status == "escalate"
     assert second.resume_stage == "music_palette_compose"
+
+
+def test_overlapping_source_playbook_merges_and_resumes_edl(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx, minimal_gap_report, minimal_manifest, minimal_manifest_segment
+
+    ctx = isolated_run_ctx(tmp_path, "rec_overlap_src")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_003c", start_ms=62_900, end_ms=74_760, speaker_id="spk_0"
+            ),
+            minimal_manifest_segment(
+                "seg_003d", start_ms=71_000, end_ms=74_810, speaker_id="spk_0"
+            ),
+        ),
+    )
+    ctx.write_json("understanding/gap_report.json", minimal_gap_report())
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003c", "seg_003d"]},
+    )
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_003c", "seg_003d"],
+            "timeline_duration_ms": 15_670,
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_003c",
+                    "source_start_ms": 62_900,
+                    "source_end_ms": 74_760,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 11_860,
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_003d",
+                    "source_start_ms": 71_000,
+                    "source_end_ms": 74_810,
+                    "timeline_start_ms": 11_860,
+                    "duration_ms": 3_810,
+                },
+            ],
+        },
+    )
+    exc = RuntimeError(
+        "edl_qc strict: 1 issue(s) before edl. "
+        "Overlapping source range: seg_003c [62900,74760ms) intersects "
+        "seg_003d [71000,74810ms)"
+    )
+    result = handle_stage_failure(ctx, "edl", exc)
+    assert result.status == "recovered"
+    assert result.playbook_id == "merge_overlapping_source_ranges"
+    assert result.resume_stage == "edl"
+    edl = ctx.read_json("master/edl.json")
+    speech = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]
+    assert speech == ["seg_003c"]
+    assert validate_flow1_edl(ctx, edl) == []

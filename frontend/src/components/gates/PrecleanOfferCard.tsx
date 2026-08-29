@@ -6,6 +6,7 @@ import { precleanOfferSettled } from "../../utils/preclean";
 import type { StageInfo } from "../../types";
 
 import { formatApiError } from "../../utils/safeApi";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 interface Offer {
   checkpoint: string;
   scope: string;
@@ -18,7 +19,8 @@ export function PrecleanOfferCard({
   stage: StageInfo;
   offer: Offer;
 }) {
-  const { run, runId, refreshRun, beginStageExecution, showToast, appendClientLog, closeActionModal, jobRunning, actionBusy } = useApp();
+  const { run, runId, refreshRun, beginStageExecution, showToast, appendClientLog, closeActionModal, jobRunning, actionBusy, partialAutoGPublish } = useApp();
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const [submitting, setSubmitting] = useState(false);
   const settled = precleanOfferSettled(run?.meta?.audio_preclean, offer.checkpoint);
   const isBeforeIngest = offer.checkpoint === "before_ingest";
@@ -46,7 +48,7 @@ export function PrecleanOfferCard({
   if (settled) return null;
 
   const runCleaning = async () => {
-    if (!runId || submitting || jobRunning || actionBusy) return;
+    if (!runId || submitting || jobBlocksUi || actionBusy) return;
     setSubmitting(true);
     try {
       await api(`/api/runs/${runId}/preclean-offer`, {
@@ -110,7 +112,7 @@ export function PrecleanOfferCard({
         <button
           type="button"
           className="btn primary"
-          disabled={submitting || jobRunning || actionBusy}
+          disabled={submitting || jobBlocksUi || actionBusy}
           data-testid={`preclean-accept-${offer.checkpoint}`}
           onClick={() => void runCleaning()}
         >

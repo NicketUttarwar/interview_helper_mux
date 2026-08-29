@@ -9,6 +9,7 @@ import {
 } from "../utils/operatorActionHandlers";
 import { resolveNextActionClick, type NextActionHandlers } from "../utils/nextActionHandler";
 import { guardBusy } from "../utils/guardBusy";
+import { shouldBlockOperatorActionsForJob, type PartialAutoGPublishState } from "../utils/partialAcceleratedGuard";
 
 export type CommandKind =
   | "idle"
@@ -62,6 +63,7 @@ export function useOperatorCommand(
     onGoProfile?: () => void;
     onScrollPreview?: () => void;
     showToast?: (msg: string, level?: "info" | "success" | "warning" | "error") => void;
+    gPublish?: PartialAutoGPublishState | null;
   },
 ): OperatorCommandState {
   const {
@@ -94,10 +96,13 @@ export function useOperatorCommand(
 
     if (!run) return empty;
 
+    const jobBlocks = shouldBlockOperatorActionsForJob(run, jobRunning, opts.gPublish);
+
     const action = resolveOperatorAction(run, {
       selectedStageId,
-      jobRunning,
+      jobRunning: jobBlocks,
       apiGrants,
+      gPublish: opts.gPublish,
     });
     const handoffStage = findHandoffStage(run);
     const hint = run.journey?.execute_hint;
@@ -126,17 +131,17 @@ export function useOperatorCommand(
     let onPrimary: (() => void) | null = () => {
       if (
         opts.showToast &&
-        guardBusy(jobRunning, actionBusy, opts.showToast)
+        guardBusy(jobRunning, actionBusy, opts.showToast, { run, gPublish: opts.gPublish })
       ) {
         return;
       }
-      if (jobRunning || actionBusy) return;
+      if (jobBlocks || actionBusy) return;
       invokeOperatorActionPrimary(action, handlers);
     };
 
     let primaryLabel = action.primaryLabel;
     let primaryDisabled =
-      action.primaryDisabled || jobRunning || actionBusy;
+      action.primaryDisabled || jobBlocks || actionBusy;
 
     if (action.mode === "running") {
       onPrimary = onGoLogs;
@@ -200,5 +205,7 @@ export function useOperatorCommand(
     onGoProfile,
     onScrollPreview,
     opts.onApproveWrite,
+    opts.gPublish,
+    opts.showToast,
   ]);
 }

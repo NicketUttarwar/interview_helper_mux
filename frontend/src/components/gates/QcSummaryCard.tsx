@@ -1,5 +1,6 @@
 import { useApp } from "../../context/AppContext";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
 
 export function QcSummaryCard({
   qcKey,
@@ -19,8 +20,10 @@ export function QcSummaryCard({
     showToast,
     jobRunning,
     actionBusy,
+    partialAutoGPublish,
   } = useApp();
   const { busy: redoBusy, run: runRedo } = useAsyncAction("redo");
+  const jobBlocksUi = shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const summary = run?.meta?.qc_summaries?.[qcKey];
   if (!summary) return null;
 
@@ -112,7 +115,7 @@ export function QcSummaryCard({
             <button
               type="button"
               className="btn primary sm"
-              disabled={redoBusy || jobRunning || actionBusy}
+              disabled={redoBusy || jobBlocksUi || actionBusy}
               onClick={redoStep}
             >
               {redoBusy ? (

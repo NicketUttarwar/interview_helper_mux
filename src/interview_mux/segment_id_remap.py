@@ -40,6 +40,8 @@ SEGMENT_ID_LIST_KEYS = frozenset(
         "overlap_segment_ids",
         "source_segment_ids",
         "segment_ids_touched",
+        "split_into",
+        "sequence_order",
     }
 )
 

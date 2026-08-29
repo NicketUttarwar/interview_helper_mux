@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { RunData } from "../types";
+import type { AppTab, RunData } from "../types";
 import {
   isPartialAcceleratedRun,
   isPartialAutoCheckpoint,
@@ -14,10 +14,10 @@ export function usePartialAutoRunWatch(opts: {
   run: RunData | null;
   runId: string | null;
   gPublish: PartialAutoGPublishState | null;
-  refreshRun: () => Promise<RunData | null>;
+  refreshRun: (opts?: { quiet?: boolean }) => Promise<RunData | null>;
   navigateToOperatorFocus: (runOverride?: RunData | null) => Promise<boolean>;
   selectStage: (stageId: string) => void | Promise<void>;
-  setActiveTab: (tab: string) => void;
+  setActiveTab: (tab: AppTab) => void;
   setJobRunning: (running: boolean) => void;
   sessionStale: boolean;
 }) {
@@ -49,12 +49,15 @@ export function usePartialAutoRunWatch(opts: {
     let cancelled = false;
 
     const tick = async () => {
-      const refreshed = await refreshRun();
+      const refreshed = await refreshRun({ quiet: true });
       if (cancelled || !refreshed) return;
 
-      setJobRunning(isJobActivelyRunning(refreshed.job));
+      setJobRunning(
+        isPartialAutoCheckpoint(refreshed, gPublish)
+          ? false
+          : isJobActivelyRunning(refreshed.job),
+      );
 
-      if (isJobActivelyRunning(refreshed.job)) return;
       if (!isPartialAutoCheckpoint(refreshed, gPublish)) return;
 
       const key = [

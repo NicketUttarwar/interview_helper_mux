@@ -30,6 +30,7 @@ export function PipelineStepList() {
     expandStage,
     isStagePinned,
     showToast,
+    partialAutoGPublish,
   } = useApp();
 
   const nav = useMemo(
@@ -46,6 +47,7 @@ export function PipelineStepList() {
     selectedStageId,
     jobRunning,
     apiGrants,
+    gPublish: partialAutoGPublish,
   });
 
   const focusStageId =

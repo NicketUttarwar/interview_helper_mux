@@ -9,8 +9,8 @@ import {
   tryAutopilotCheckpointResolution,
 } from "./checkpointContinuation";
 import type { RunData } from "../types";
-import { makeJourney, makeStage } from "../test/runFixtures";
-import { clearAutoNavLedgerForTests, resetAutoNavLedgerIfServerChanged } from "./autoNavigationLedger";
+import { makeGuidance, makeJourney, makeStage, makeStep } from "../test/runFixtures";
+import { clearAutoNavLedgerForTests, markAutoNavConsumed, resetAutoNavLedgerIfServerChanged } from "./autoNavigationLedger";
 
 afterEach(() => {
   clearAutoNavLedgerForTests();
@@ -480,6 +480,66 @@ describe("tryAutoContinuePipeline", () => {
     });
     expect(started).toBe(true);
     expect(executeJob).toHaveBeenCalled();
+  });
+
+  it("opens G0 after STT review prep even if transcript_review was already auto-surfaced", async () => {
+    markAutoNavConsumed({ stageId: "transcript_review", stepId: "review_transcript" });
+    const selectStage = vi.fn().mockResolvedValue(undefined);
+    const run = runStub({
+      transcript_review_pending: true,
+      stages: [
+        makeStage("transcript_review_build", {
+          title: "STT review prep",
+          status: "done",
+          phase: "prepare",
+        }),
+        makeStage("transcript_review", {
+          title: "Transcript review",
+          status: "action_required",
+          phase: "prepare",
+          guidance: makeGuidance({
+            steps: [
+              makeStep("review_transcript", {
+                embed: "transcript_review",
+                status: "todo",
+              }),
+            ],
+          }),
+        }),
+      ],
+      job: { status: "complete", stage: "transcript_review_build" },
+      journey: makeJourney({
+        phase: "prepare",
+        next_action: "Complete transcript review (GUI)",
+        blocking: {
+          blocked: true,
+          reason: "transcript_review",
+          stage_id: "transcript_review",
+          message: "Transcript review required",
+        },
+      }),
+    });
+    const navigated = await tryAutoContinuePipeline({
+      run,
+      runId: "exec_test",
+      apiGrants: {},
+      selectedStageId: "transcript_review_build",
+      completedStageId: "transcript_review_build",
+      executeJob: vi.fn(),
+      selectStage,
+      expandStage: vi.fn(),
+      setActiveSubstepId: vi.fn(),
+      setPipelineSubTab: vi.fn(),
+      showToast: vi.fn(),
+      refreshRun: vi.fn().mockResolvedValue(run),
+      navigateToNextBlocker: vi.fn(),
+      config: { journey_ui: { enabled: true } },
+    });
+    expect(navigated).toBe(true);
+    expect(selectStage).toHaveBeenCalledWith("transcript_review", {
+      stepId: "review_transcript",
+      pinned: false,
+    });
   });
 });
 
