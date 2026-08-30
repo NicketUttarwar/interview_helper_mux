@@ -1,0 +1,15 @@
+{
+  "line_id": "vo_preface_episode_orientation",
+  "delivery": "synthesize",
+  "gap_type": "opening_orientation",
+  "placement": "before",
+  "targets_segment_id": "seg_003a",
+  "episode_orientation": true,
+  "orientation_missions": [
+    "guest_identity",
+    "conversation_topic",
+    "listener_stakes"
+  ],
+  "text": "Welcome. Today we explore cancer science with Mohan.",
+  "required": true
+}

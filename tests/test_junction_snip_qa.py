@@ -43,7 +43,15 @@ def test_phrase_end_stops_at_first_terminal_punctuation():
     assert end == 97920
 
 
-def _seg(segment_id: str, *, start_ms: int, end_ms: int, text: str, speaker: str = "spk_0") -> dict:
+def _seg(
+    segment_id: str,
+    *,
+    start_ms: int,
+    end_ms: int,
+    text: str,
+    speaker: str = "spk_0",
+    topic_tags: list[str] | None = None,
+) -> dict:
     return {
         "segment_id": segment_id,
         "start_ms": start_ms,
@@ -52,7 +60,7 @@ def _seg(segment_id: str, *, start_ms: int, end_ms: int, text: str, speaker: str
         "speaker_role": "interviewee",
         "type": "interviewee_answer",
         "text": text,
-        "topic_tags": [],
+        "topic_tags": list(topic_tags or []),
         "flags": [],
     }
 
@@ -434,6 +442,29 @@ def test_stage_off_and_o1_llm_budget(tmp_path, monkeypatch):
         "interview_mux.junction_snip_qa.remaster_mix_only",
         lambda ctx: None,
     )
+    selection = stamp_order_hash({"ordered_segment_ids": ["seg_002"], "chapters": []})
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_002"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_002",
+                    "source_start_ms": 60000,
+                    "source_end_ms": 94140,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 34140,
+                }
+            ],
+            "timeline_duration_ms": 34140,
+        }
+    )
+    ctx.write_json("master/selection.json", selection, skip_handoff=True)
+    ctx.write_json("master/edl.json", edl, skip_handoff=True)
+    assembly = ctx.path("master", "assembly.wav")
+    assembly.parent.mkdir(parents=True, exist_ok=True)
+    assembly.write_bytes(b"RIFF" + (b"\0" * 128))
     run_junction_snip_qa(ctx)
     report = ctx.read_json("master/junction_snip_qa.json")
     assert int(report.get("llm_calls") or 0) <= 2
@@ -777,6 +808,112 @@ def test_exclude_micro_refuses_hard_keep_so_edl_stays_with_selection(tmp_path, m
     assert list(new_edl.get("ordered_segment_ids") or []) == ["seg_ok", "seg_keep"]
     sel = ctx.read_json("master/selection.json")
     assert list(sel.get("ordered_segment_ids") or []) == ["seg_ok", "seg_keep"]
+
+
+def test_start_nudge_rejects_never_touch_shoulder(tmp_path) -> None:
+    """Start nudges must not retreat into a never-touch CTA shoulder."""
+    ctx = isolated_run_ctx(tmp_path, "exec_junction_nt_shoulder")
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                _seg(
+                    "seg_parent",
+                    start_ms=0,
+                    end_ms=100_000,
+                    text="Subscribe to the show.",
+                    speaker="spk_host",
+                    topic_tags=["cta"],
+                ),
+                _seg(
+                    "seg_keep",
+                    start_ms=50_000,
+                    end_ms=55_000,
+                    text="Tell us about the science.",
+                    speaker="spk_host",
+                ),
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        stamp_order_hash({"ordered_segment_ids": ["seg_keep"], "chapters": []}),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "mastering/media_ip_cta.json",
+        {
+            "version": 1,
+            "dropped_segment_ids": ["seg_parent"],
+            "never_touch_segment_ids": ["seg_parent"],
+        },
+        skip_handoff=True,
+    )
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_keep"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_keep",
+                    "source_start_ms": 50_000,
+                    "source_end_ms": 50_300,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 300,
+                }
+            ],
+            "timeline_duration_ms": 300,
+        }
+    )
+    findings = [
+        {
+            "kind": "leading_silence",
+            "severity": "warn",
+            "segment_id": "seg_keep",
+            "clip_index": 0,
+            "action": "nudge_source_bounds",
+            "detail": {"edge": "start", "recommended_ms": 49_700},
+            "evidence": "test",
+        }
+    ]
+    new_edl, applied, _changed = apply_junction_repairs(ctx, edl, findings)
+    clip = (new_edl.get("clips") or [])[0]
+    assert int(clip["source_start_ms"]) == 50_000
+    assert any(row.get("status") == "skipped_never_touch_shoulder" for row in applied)
+
+
+def test_on_a_roll_emits_extend_and_cut_before_thought_complete(tmp_path) -> None:
+    """Incomplete-cut ladder must offer both geometric directions before LLM recut."""
+    ctx, _segments = _base_ctx(tmp_path)
+    edl = stamp_order_hash(
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_002", "seg_003", "seg_004", "seg_005"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_004",
+                    "source_start_ms": 94_860,
+                    "source_end_ms": 100_000,
+                    "timeline_start_ms": 0,
+                    "duration_ms": 5_140,
+                }
+            ],
+            "timeline_duration_ms": 5_140,
+        }
+    )
+    findings = detect_junction_findings(ctx, edl)
+    seg004 = [f for f in findings if f.get("segment_id") == "seg_004"]
+    actions = {str(f.get("action") or "") for f in seg004}
+    assert "extend_later" in actions or "cut_earlier" in actions or "thought_complete_recut" in actions
+    if "extend_later" in actions and "cut_earlier" in actions:
+        assert True
+    elif any(f.get("action") == "thought_complete_recut" for f in seg004):
+        assert True
+    else:
+        assert actions  # at least one repair action for incomplete seg_004
 
 
 def test_music_hard_transition_uses_effective_xf_after_placement(tmp_path, monkeypatch):

@@ -97,9 +97,9 @@ def check_dispatch(
     problem_id: str | None = None,
 ) -> None:
     """Refuse before side effects. Ledger is the source of counts."""
-    from interview_mux.chapter_close_hitch import hitch_budget_identity
+    from interview_mux.chapter_close_hitch import hitch_budget_identity, junction_snip_budget_identity
 
-    identity = hitch_budget_identity(ctx, identity)
+    identity = junction_snip_budget_identity(ctx, hitch_budget_identity(ctx, identity))
     try:
         from interview_mux.media_ip_cta import cta_cover_budget_exempt
 

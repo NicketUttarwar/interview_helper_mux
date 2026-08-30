@@ -176,6 +176,65 @@ def test_create_run_full_auto_launches_run_scoped_worker(tmp_path, monkeypatch) 
     assert '"full_auto": true' in meta_text
 
 
+def test_shutdown_automation_stack_passes_keep_driver(monkeypatch) -> None:
+    import interview_mux.full_auto_launch as fal
+
+    calls: list[dict] = []
+
+    def _fake_shutdown(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(fal, "shutdown_full_auto_stack", _fake_shutdown, raising=False)
+    # Patch via tools import path used inside shutdown_automation_stack
+    tools = str(Path(fal._tools_dir()))
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import full_auto_daemon_launch as dal  # noqa: E402
+
+    monkeypatch.setattr(dal, "shutdown_full_auto_stack", _fake_shutdown)
+
+    fal.shutdown_automation_stack(keep_gui_server=True, keep_driver=True)
+    assert calls
+    assert calls[-1]["keep_driver"] is True
+    assert calls[-1]["kill_e2e"] is False
+
+    fal.shutdown_automation_stack(keep_gui_server=True, keep_driver=False)
+    assert calls[-1]["keep_driver"] is False
+    assert calls[-1]["kill_e2e"] is True
+
+
+def test_create_run_skips_launch_when_driver_already_running(tmp_path, monkeypatch) -> None:
+    client = _seed_client(tmp_path, monkeypatch)
+    launched: list[dict] = []
+
+    def _fake_launch(**kwargs):
+        launched.append(kwargs)
+        return {"ok": True, "driver_pid": 42}
+
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.launch_full_auto_for_run",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "interview_mux.full_auto_launch.automation_driver_alive",
+        lambda: True,
+    )
+
+    res = client.post(
+        "/api/runs",
+        json={
+            "input_audio_path": "ASSETS/input/interview.wav",
+            "run_mode": "full-auto",
+            "full_auto": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["full_auto_launch"] == {"driver_already_running": True}
+    assert launched == []
+
+
 def test_env_keepalive_requested(monkeypatch) -> None:
     import full_auto_daemon_launch as dal
 

@@ -270,6 +270,28 @@ def reconcile_edl_with_omit_ledger(
 
     omitted_line_ids: set[str] = set()
     omitted_targets: set[str] = set()
+    protected_line_ids: set[str] = set()
+    gap_report: dict[str, Any] | None = None
+    if ctx.artifact_exists("understanding/gap_report.json"):
+        try:
+            loaded_gap = ctx.read_json("understanding/gap_report.json")
+            gap_report = loaded_gap if isinstance(loaded_gap, dict) else None
+        except Exception:
+            gap_report = None
+    if isinstance(gap_report, dict):
+        try:
+            from interview_mux.opening_orientation import is_episode_orientation
+
+            for line in gap_report.get("interviewer_lines") or []:
+                if not isinstance(line, dict) or line.get("skipped_optional"):
+                    continue
+                if not (is_episode_orientation(line) or bool(line.get("required"))):
+                    continue
+                lid = str(line.get("line_id") or "").strip()
+                if lid:
+                    protected_line_ids.add(lid)
+        except Exception:
+            pass
     for entry in active_entries(ledger):
         if str(entry.get("decision") or "omit") != "omit":
             continue
@@ -291,6 +313,9 @@ def reconcile_edl_with_omit_ledger(
             continue
         lid = str(clip.get("line_id") or clip.get("vo_line_id") or "").strip()
         tid = str(clip.get("targets_segment_id") or "").strip()
+        if lid and lid in protected_line_ids:
+            kept.append(clip)
+            continue
         if (lid and lid in omitted_line_ids) or (tid and tid in omitted_targets):
             removed.append(lid or tid or "vo_pickup")
             continue
@@ -299,11 +324,20 @@ def reconcile_edl_with_omit_ledger(
     if not removed:
         return {"removed": [], "updated": False}
 
+    removed_set = set(removed)
+    gap_placements = [
+        row
+        for row in (edl.get("gap_placements") or [])
+        if isinstance(row, dict)
+        and str(row.get("line_id") or "") not in removed_set
+    ]
+
     from interview_mux.junction_snip_qa import _recompute_timeline
 
     timeline_ms = _recompute_timeline(kept)
     out = dict(edl)
     out["clips"] = kept
+    out["gap_placements"] = gap_placements
     out["timeline_duration_ms"] = timeline_ms
     out["vo_pickup_clip_count"] = sum(1 for c in kept if c.get("type") == "vo_pickup")
     out["transition_clip_count"] = sum(1 for c in kept if c.get("type") == "transition")

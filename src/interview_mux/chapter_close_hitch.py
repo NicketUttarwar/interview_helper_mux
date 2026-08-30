@@ -100,6 +100,13 @@ def hitch_budget_identity(ctx: RunContext, identity: str) -> str:
     return identity
 
 
+def junction_snip_budget_identity(ctx: RunContext, identity: str) -> str:
+    """Feel-audit LLM invokes nest under junction_snip_qa budget identity."""
+    if identity == "junction_feel_audit" and getattr(ctx, "_junction_snip_qa_inner", False):
+        return "junction_snip_qa"
+    return identity
+
+
 def hitch_restage_order() -> list[str]:
     """Stages restaged inside the hitch (boundary_detection → narrative_arc_plan)."""
     analysis = list(ANALYSIS_ORDER)

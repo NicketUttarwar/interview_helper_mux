@@ -99,11 +99,11 @@ def register_session_routes(router: APIRouter, *, ctx_factory: Any) -> None:
             raise HTTPException(400, str(exc)) from exc
 
     @router.delete("/api/session/active")
-    def delete_active() -> dict[str, Any]:
+    def delete_active(keep_driver: bool = False) -> dict[str, Any]:
         try:
             from interview_mux.full_auto_launch import shutdown_automation_stack
 
-            shutdown_automation_stack(keep_gui_server=True)
+            shutdown_automation_stack(keep_gui_server=True, keep_driver=keep_driver)
         except Exception:
             pass
         clear_active_execution()

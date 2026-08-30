@@ -241,6 +241,7 @@ def build_flow1_edl(
     missing_vo: list[str] = []
     missing_targets: list[str] = []
     missing_segments: list[str] = []
+    omitted_unplayable: list[str] = []
     missing_transitions: list[str] = []
     suppressed_clone_adjacency: list[str] = []
     from interview_mux.clone_adjacency_verify import CloneAdjacencySession
@@ -619,6 +620,9 @@ def build_flow1_edl(
                     f"{prior}+never_touch_clamp" if prior else "never_touch_clamp"
                 )
         speech_dur = max(0, speech_end - speech_start)
+        if speech_dur < 400:
+            omitted_unplayable.append(sid)
+            continue
         if clips and str(clips[-1].get("type") or "") == "silence":
             pass
         elif any(c.get("type") == "vo_pickup" for c in clips[-3:]):
@@ -776,9 +780,19 @@ def build_flow1_edl(
                         clone_adjacency_hitch=bool(suppressed_transition),
                     )
 
+    if omitted_unplayable and ctx is not None:
+        try:
+            from interview_mux.media_ip_cta import _omit_unplayable_keeps_from_selection
+
+            drop_reasons = {sid: "never_touch_unplayable" for sid in omitted_unplayable}
+            _omit_unplayable_keeps_from_selection(ctx, omitted_unplayable, drop_reasons)
+        except Exception:
+            pass
+    air_ordered = [s for s in ordered if s not in set(omitted_unplayable)]
+
     return {
         "version": 1,
-        "ordered_segment_ids": ordered,
+        "ordered_segment_ids": air_ordered,
         "clips": clips,
         "gap_placements": gap_placements,
         "timeline_duration_ms": timeline_ms,
@@ -904,6 +918,12 @@ def run_edl(ctx: RunContext) -> None:
 
     soft = False
     with logged_step("edl/load_inputs", ctx=ctx, stage="edl"):
+        try:
+            from interview_mux.media_ip_cta import heal_nle_unplayable_keep_overrides
+
+            heal_nle_unplayable_keep_overrides(ctx)
+        except Exception:
+            pass
         selection = ctx.read_json("master/selection.json")
         from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
 
@@ -1260,6 +1280,31 @@ def run_edl(ctx: RunContext) -> None:
         from interview_mux.air_order import write_live_edl
 
         write_live_edl(ctx, edl, source="edl")
+        try:
+            from interview_mux.gap_vo_gates import gap_framing_enabled
+            from interview_mux.opening_orientation import (
+                orientation_omitted,
+                validate_opening_orientation,
+            )
+
+            if gap_framing_enabled(ctx) and isinstance(gap_report, dict):
+                active_framing_lines = [
+                    line
+                    for line in (gap_report.get("interviewer_lines") or [])
+                    if isinstance(line, dict) and not line.get("skipped_optional")
+                ]
+                if active_framing_lines or orientation_omitted(gap_report):
+                    opening_errors = validate_opening_orientation(
+                        gap_report=gap_report,
+                        edl=edl,
+                    )
+                    if opening_errors:
+                        raise RuntimeError(
+                            "edl: opening orientation contract failed at stage_done: "
+                            + "; ".join(opening_errors)
+                        )
+        except ImportError:
+            pass
 
     with logged_step("edl/assembly_ledger", ctx=ctx, stage="edl"):
         from interview_mux.assembly_ledger import (
@@ -1277,6 +1322,20 @@ def run_edl(ctx: RunContext) -> None:
                 level="warning",
                 stage="edl",
             )
+    try:
+        from interview_mux.publishability_boundary import checkpoint_publishability
+
+        checkpoint_publishability(ctx, checkpoint="post_edl")
+    except Exception as exc:
+        from interview_mux.publishability_boundary import PublishabilityBlocked
+
+        if isinstance(exc, PublishabilityBlocked):
+            raise
+        ctx.log(
+            f"edl: publishability checkpoint skipped: {exc}",
+            level="warning",
+            stage="edl",
+        )
     ctx.mark_done("edl")
 
 
@@ -1288,6 +1347,21 @@ def run_mix(ctx: RunContext) -> Path:
 
     require_spend_artifacts_complete(ctx, "mix")
     assert_consumer(ctx, "mix")
+
+    try:
+        from interview_mux.publishability_boundary import checkpoint_publishability
+
+        checkpoint_publishability(ctx, checkpoint="pre_mix")
+    except Exception as exc:
+        from interview_mux.publishability_boundary import PublishabilityBlocked
+
+        if isinstance(exc, PublishabilityBlocked):
+            raise
+        ctx.log(
+            f"mix: publishability checkpoint skipped: {exc}",
+            level="warning",
+            stage="mix",
+        )
 
     try:
         from interview_mux.listen_quality import place_episode_close_cue

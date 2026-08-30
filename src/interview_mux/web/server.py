@@ -625,14 +625,20 @@ def create_app() -> FastAPI:
             "podcast_id": podcast_id,
         }
         if run_mode == "full-auto":
-            from interview_mux.full_auto_launch import launch_full_auto_for_run
+            from interview_mux.full_auto_launch import (
+                automation_driver_alive,
+                launch_full_auto_for_run,
+            )
 
             try:
-                launch_info = launch_full_auto_for_run(
-                    run_id=ctx.run_id,
-                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
-                    keep_gui_server=True,
-                )
+                if automation_driver_alive():
+                    launch_info = {"driver_already_running": True}
+                else:
+                    launch_info = launch_full_auto_for_run(
+                        run_id=ctx.run_id,
+                        input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                        keep_gui_server=True,
+                    )
                 payload["full_auto_launch"] = launch_info
                 append_log(
                     ctx.run_dir,
@@ -653,14 +659,20 @@ def create_app() -> FastAPI:
                     f"Execution created but Full-auto launch failed: {exc}",
                 ) from exc
         elif run_mode == "partially-accelerated":
-            from interview_mux.full_auto_launch import launch_partial_auto_for_run
+            from interview_mux.full_auto_launch import (
+                automation_driver_alive,
+                launch_partial_auto_for_run,
+            )
 
             try:
-                launch_info = launch_partial_auto_for_run(
-                    run_id=ctx.run_id,
-                    input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
-                    keep_gui_server=True,
-                )
+                if automation_driver_alive():
+                    launch_info = {"driver_already_running": True}
+                else:
+                    launch_info = launch_partial_auto_for_run(
+                        run_id=ctx.run_id,
+                        input_audio=str(meta.get("input_audio_path") or body.input_audio_path),
+                        keep_gui_server=True,
+                    )
                 payload["partial_auto_launch"] = launch_info
 
                 def _mark_driver(meta: dict[str, Any]) -> None:

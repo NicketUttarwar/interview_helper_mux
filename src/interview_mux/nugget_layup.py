@@ -25,7 +25,9 @@ COMPREHENSION_INDEX_REL = "understanding/nugget_comprehension_index.json"
 ANALYSIS_FIELDS = ("target_beat", "listener_need_entering_T", "forward_unlock")
 
 # Body lines that may legitimately survive publish under layup authority.
-AUTHORITY_BODY_ORIGINS = frozenset({"nugget_layup", "operator"})
+AUTHORITY_BODY_ORIGINS = frozenset(
+    {"nugget_layup", "operator", "high_gap_vo_fill", "vo_line_adjudicate"}
+)
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[A-Za-z0-9₹$%]+")
@@ -2958,15 +2960,20 @@ def publish_layup_plan_to_gap_report(
             pass
         body.append(line)
 
-    # Keep non-orientation operator pins that are not superseded by a layup target.
+    # Keep non-orientation operator pins and mix-time high-gap fills that
+    # are not superseded by a layup before-slot on the same target.
     for ln in prior_lines:
         if is_episode_orientation(ln):
             continue
-        if str(ln.get("origin") or "") == "operator":
-            tid = str(ln.get("targets_segment_id") or "")
-            if tid and tid not in seen_targets:
-                body.append(ln)
-                seen_targets.add(tid)
+        origin = str(ln.get("origin") or "")
+        lid = str(ln.get("line_id") or "")
+        keep = origin in {"operator", "high_gap_vo_fill"} or lid.startswith("vo_fill_")
+        if not keep:
+            continue
+        tid = str(ln.get("targets_segment_id") or "")
+        if tid and tid not in seen_targets:
+            body.append(ln)
+            seen_targets.add(tid)
 
     report = {
         **{k: v for k, v in existing.items() if k not in ("interviewer_lines", "_meta")},
@@ -3194,9 +3201,12 @@ def lint_gap_report_layup_authority(
     covered = {
         str(ln.get("targets_segment_id") or "")
         for ln in body
-        if str(ln.get("origin") or "") == "nugget_layup"
-        and str(ln.get("placement") or "") == "before"
+        if str(ln.get("placement") or "") == "before"
         and str(ln.get("text") or "").strip()
+        and (
+            str(ln.get("origin") or "") in AUTHORITY_BODY_ORIGINS
+            or str(ln.get("line_id") or "").startswith("vo_layup_")
+        )
     }
     eligible = [sid for sid in ordered if sid not in exempt]
     if eligible:

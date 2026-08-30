@@ -134,9 +134,11 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     commitment = autopsy.get("commitment") if isinstance(autopsy, dict) else {}
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     meta = meta if isinstance(meta, dict) else {}
-    from interview_mux.e2e_soft import e2e_soft_enabled
+    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
-    soft_junction = e2e_soft_enabled(meta=meta) and bool(meta.get("e2e_soft_junction_residuals"))
+    soft_junction = e2e_quality_waivers_enabled(meta=meta) and bool(
+        meta.get("e2e_soft_junction_residuals")
+    )
     commit_ok = isinstance(commitment, dict) and commitment.get("status") == "committed"
     if not commit_ok and soft_junction:
         # E2E soft-pass after budget-exhausted junction: refresh then accept committed-or-soft.
@@ -247,7 +249,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
 
     # E2E soft ship: waive scorecard floors when soft flags are set and a master exists.
     # Duration / spoken-VO / seam commitment remain hard.
-    soft_pmq = e2e_soft_enabled(meta=meta) and bool(
+    soft_pmq = e2e_quality_waivers_enabled(meta=meta) and bool(
         meta.get("e2e_soft_post_master_quality")
         or meta.get("e2e_soft_listen_delight")
         or meta.get("e2e_soft_listenability")
@@ -759,6 +761,13 @@ def build_listener_scorecard(ctx: RunContext, quality: dict[str, Any]) -> dict[s
     }
 
 
+def persist_post_master_quality(ctx: RunContext, quality: dict[str, Any]) -> None:
+    from interview_mux.write_staging import write_committed_json
+
+    write_committed_json(ctx, QUALITY_REL, quality)
+    write_committed_json(ctx, SCORECARD_REL, build_listener_scorecard(ctx, quality))
+
+
 def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str, Any]:
     from interview_mux.listen_delight import run_authoritative_listen_delight_at_ship
     from interview_mux.seam_autopsy import build_autopsy, enrich_ledger, write_autopsy
@@ -775,8 +784,7 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     write_autopsy(ctx, autopsy)
     enrich_ledger(ctx, autopsy)
     quality = evaluate_post_master_quality(ctx)
-    write_committed_json(ctx, QUALITY_REL, quality)
-    write_committed_json(ctx, SCORECARD_REL, build_listener_scorecard(ctx, quality))
+    persist_post_master_quality(ctx, quality)
 
     meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     if not isinstance(meta, dict):
@@ -821,12 +829,7 @@ def require_publishable(ctx: RunContext, *, stage: str = "podcast_publish") -> N
         try:
             quality = evaluate_post_master_quality(ctx)
             if quality.get("publish_allowed"):
-                from interview_mux.write_staging import write_committed_json
-
-                write_committed_json(ctx, QUALITY_REL, quality)
-                write_committed_json(
-                    ctx, SCORECARD_REL, build_listener_scorecard(ctx, quality)
-                )
+                persist_post_master_quality(ctx, quality)
         except Exception:
             pass
     if not isinstance(quality, dict) or not quality.get("publish_allowed"):

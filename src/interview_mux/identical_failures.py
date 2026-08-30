@@ -92,6 +92,65 @@ def _write(ctx: RunContext, doc: dict[str, Any]) -> None:
     fs_write_json(dest, doc)
 
 
+def failure_signature_by_class(
+    *,
+    failed_stage: str,
+    error_class: str,
+) -> str:
+    key = "|".join(
+        [
+            str(failed_stage or "").strip(),
+            str(error_class or "").strip(),
+        ]
+    )
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def record_class_failure(
+    ctx: RunContext,
+    *,
+    failed_stage: str,
+    error_class: str,
+    resume_attempted: str = "",
+) -> dict[str, Any]:
+    """Increment the persisted counter for a classified (stage, error_class) pair."""
+    sig = failure_signature_by_class(failed_stage=failed_stage, error_class=error_class)
+    doc = read_identical_failures(ctx)
+    signatures = dict(doc.get("signatures") or {})
+    prev = dict(signatures.get(sig) or {})
+    count = int(prev.get("count") or 0) + 1
+    limit = halt_after()
+    row = {
+        "signature": sig,
+        "failed_stage": str(failed_stage or ""),
+        "error_class": str(error_class or ""),
+        "producer": str(error_class or ""),
+        "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
+        "count": count,
+        "halt_after": limit,
+        "halt": count >= limit,
+        "updated_at": _utc_now(),
+        "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
+    }
+    signatures[sig] = row
+    order = [s for s in (doc.get("order") or []) if s != sig]
+    order.append(sig)
+    doc["signatures"] = signatures
+    doc["order"] = order[-200:]
+    doc["updated_at"] = _utc_now()
+    _write(ctx, doc)
+    try:
+        ctx.log(
+            f"class_failure {failed_stage}/{error_class} x{count}/{limit} halt={row['halt']}",
+            level="warning" if row["halt"] else "info",
+            stage=str(failed_stage or None),
+            detail={"signature": sig, "error_class": error_class, "resume": resume_attempted},
+        )
+    except Exception:
+        pass
+    return row
+
+
 def record_identical_failure(
     ctx: RunContext,
     *,
@@ -101,6 +160,30 @@ def record_identical_failure(
     resume_attempted: str = "",
 ) -> dict[str, Any]:
     """Increment the persisted counter for this signature. Returns the row + halt flag."""
+    try:
+        from interview_mux.publishability_boundary import failure_in_active_repair_cascade
+
+        if failure_in_active_repair_cascade(
+            ctx, failed_stage=failed_stage, producer=producer
+        ):
+            sig = failure_signature(
+                failed_stage=failed_stage, producer=producer, reason=reason
+            )
+            doc = read_identical_failures(ctx)
+            prev = dict((doc.get("signatures") or {}).get(sig) or {})
+            return {
+                "signature": sig,
+                "failed_stage": str(failed_stage or ""),
+                "producer": str(producer or ""),
+                "reason": normalize_reason(reason),
+                "count": int(prev.get("count") or 0),
+                "halt_after": halt_after(),
+                "halt": False,
+                "cascade_suppressed": True,
+                "updated_at": _utc_now(),
+            }
+    except Exception:
+        pass
     sig = failure_signature(
         failed_stage=failed_stage, producer=producer, reason=reason
     )
@@ -186,6 +269,8 @@ def upsert_fail_key(
 def is_halted(ctx: RunContext, signature: str) -> bool:
     doc = read_identical_failures(ctx)
     row = (doc.get("signatures") or {}).get(signature) or {}
+    if row.get("cascade_suppressed"):
+        return False
     return bool(row.get("halt")) or int(row.get("count") or 0) >= halt_after()
 
 

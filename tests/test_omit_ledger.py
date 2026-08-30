@@ -490,3 +490,106 @@ def test_omit_stamp_refuses_to_drop_hosted_1on1_below_floor():
         if isinstance(ln, dict) and not ln.get("skipped_optional")
     ]
     assert len(active) == 3
+
+
+def test_reconcile_edl_keeps_required_orientation_vo(tmp_path):
+    from interview_mux.omit_ledger import reconcile_edl_with_omit_ledger, write_omit_ledger
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "exec_omit_keep_orientation")
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="layup_skip",
+            subject_id="vo_layup_seg_005",
+            target_segment_id="seg_005",
+            decision="omit",
+            reason_code="spoken_copy_unhealable",
+            owner_stage="nugget_layup_compose",
+            compensating_path="omit_unsafe_spoken_copy",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"layup_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    write_omit_ledger(ctx, ledger)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "targets_segment_id": "seg_005",
+                    "gap_type": "missing_setup",
+                    "text": "Welcome to the show about science.",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "episode_orientation": True,
+                    "orientation_missions": [
+                        "guest_identity",
+                        "conversation_topic",
+                        "listener_stakes",
+                    ],
+                    "required": True,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_005"],
+            "timeline_duration_ms": 15_000,
+            "gap_placements": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "targets_segment_id": "seg_005",
+                    "placement": "before",
+                    "timeline_start_ms": 0,
+                },
+                {
+                    "line_id": "vo_layup_seg_005",
+                    "targets_segment_id": "seg_005",
+                    "placement": "before",
+                    "timeline_start_ms": 3_000,
+                },
+            ],
+            "clips": [
+                {
+                    "type": "vo_pickup",
+                    "line_id": "vo_preface_episode_orientation",
+                    "targets_segment_id": "seg_005",
+                    "placement": "before",
+                    "timeline_start_ms": 0,
+                    "duration_ms": 3_000,
+                    "source_path": "vo_pickup/vo_preface.wav",
+                },
+                {
+                    "type": "vo_pickup",
+                    "line_id": "vo_layup_seg_005",
+                    "targets_segment_id": "seg_005",
+                    "placement": "before",
+                    "timeline_start_ms": 3_000,
+                    "duration_ms": 5_000,
+                    "source_path": "vo_pickup/vo_layup_seg_005.wav",
+                },
+            ],
+            "vo_pickup_clip_count": 2,
+        },
+        skip_handoff=True,
+    )
+    report = reconcile_edl_with_omit_ledger(ctx)
+    assert report["updated"] is True
+    assert "vo_layup_seg_005" in report["removed"]
+    assert "vo_preface_episode_orientation" not in report["removed"]
+    edl = ctx.read_json("master/edl.json")
+    line_ids = [c.get("line_id") for c in edl["clips"] if c.get("type") == "vo_pickup"]
+    assert line_ids == ["vo_preface_episode_orientation"]
+    placements = [p.get("line_id") for p in edl.get("gap_placements") or []]
+    assert placements == ["vo_preface_episode_orientation"]

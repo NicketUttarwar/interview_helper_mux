@@ -25,6 +25,7 @@ Local pipeline: long-form interview audio → **`master/master.wav`**. Specs in 
 | **Media** | Default **`./ASSETS/`** (gitignored). Runs under **`ASSETS/executions/`**. |
 | **Schemas** | Validate with **`prompt_validation`** + **`docs/cross-cutting/json-schemas/`**. |
 | **LLM packets** | Tape meaning only — [docs/cross-cutting/llm-volley-context.md](../../docs/cross-cutting/llm-volley-context.md). Strip `exists` / `stage_done` / `run_meta`. |
+| **Publishability** | Selection leads EDL; no zero ms keeps; producer heal only; Full-auto = production parity (no MusicGen stub, `e2e_soft` gate-only) — [publishability-contract.md](../../docs/cross-cutting/publishability-contract.md). |
 
 ---
 

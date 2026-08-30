@@ -292,7 +292,7 @@ def _install_mark_done_gate() -> None:
     RunContext.mark_done = _gated  # type: ignore[method-assign]
 
 
-_install_mark_done_gate()
+# Installed from main() only — not at import (avoids polluting unit tests).
 
 
 # Current pipeline orders (keep in sync with interview_mux.v2.config)
@@ -4627,8 +4627,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 }
 
                 def _soft_meta(m: dict) -> None:
-                    from interview_mux.e2e_soft import e2e_soft_enabled as _e2e_soft_on
-                    if _e2e_soft_on():
+                    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                    if e2e_quality_waivers_enabled():
                         m["e2e_soft_junction_residuals"] = True
 
                 ctx.mutate_run_meta(_soft_meta)
@@ -4642,8 +4643,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 write_committed_json(ctx, "master/bridge_completeness.json", doc)
 
                 def _soft_meta2(m: dict) -> None:
-                    from interview_mux.e2e_soft import e2e_soft_enabled as _e2e_soft_on
-                    if _e2e_soft_on():
+                    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                    if e2e_quality_waivers_enabled():
                         m["e2e_soft_junction_residuals"] = True
 
                 ctx.mutate_run_meta(_soft_meta2)
@@ -4685,8 +4687,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 ctx = RunContext(RUN_ID, create=False)
 
                 def _soft_meta_outer(m: dict) -> None:
-                    from interview_mux.e2e_soft import e2e_soft_enabled as _e2e_soft_on
-                    if _e2e_soft_on():
+                    from interview_mux.e2e_soft import e2e_quality_waivers_enabled
+
+                    if e2e_quality_waivers_enabled():
                         m["e2e_soft_junction_residuals"] = True
 
                 ctx.mutate_run_meta(_soft_meta_outer)
@@ -10967,6 +10970,7 @@ def ensure_run() -> bool:
 
 
 def main() -> int:
+    _install_mark_done_gate()
     # Wait for GUI server (restarts mid-run are common while fixing bugs).
     for i in range(60):
         try:

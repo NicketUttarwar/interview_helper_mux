@@ -22,10 +22,10 @@ def nested_chat_create(ctx: RunContext, identity: str, client: Any, kwargs: dict
     """
     if not is_homunculus_run(ctx):
         return client.chat.completions.create(**kwargs)
-    from interview_mux.chapter_close_hitch import hitch_budget_identity
+    from interview_mux.chapter_close_hitch import hitch_budget_identity, junction_snip_budget_identity
     from interview_mux.homunculus.ledger import read_ledger
 
-    budget_identity = hitch_budget_identity(ctx, identity)
+    budget_identity = junction_snip_budget_identity(ctx, hitch_budget_identity(ctx, identity))
     try:
         from interview_mux.media_ip_cta import cta_cover_budget_exempt
 

@@ -847,6 +847,15 @@ def _stop_client():
     return SimpleNamespace(chat=SimpleNamespace(completions=_C()))
 
 
+def _passing_pmq(ctx) -> None:
+    pmq = ctx.path("master/post_master_quality.json")
+    pmq.parent.mkdir(parents=True, exist_ok=True)
+    pmq.write_text(
+        '{"version": 1, "status": "pass", "publish_allowed": true, "failed_checks": []}',
+        encoding="utf-8",
+    )
+
+
 def test_delivery_walks_ship_remainder_when_master_exists(monkeypatch) -> None:
     from interview_mux.homunculus.agenda import run_homunculus_phase
 
@@ -854,6 +863,7 @@ def test_delivery_walks_ship_remainder_when_master_exists(monkeypatch) -> None:
     master = ctx.path("master/master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
     master.write_bytes(b"RIFF" + b"\0" * 40)
+    _passing_pmq(ctx)
     walked: list[tuple[str, tuple[str, ...]]] = []
 
     def _walk(_ctx, stages, *, reason: str) -> None:
@@ -902,6 +912,34 @@ def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
         client=_stop_client(),
     )
     assert walked == ["delivery_walk_to_master"]
+
+
+def test_delivery_does_not_walk_ship_when_pmq_missing(monkeypatch) -> None:
+    from interview_mux.homunculus.agenda import run_homunculus_phase
+
+    ctx = _ctx_010()
+    master = ctx.path("master/master.wav")
+    master.parent.mkdir(parents=True, exist_ok=True)
+    master.write_bytes(b"RIFF" + b"\0" * 40)
+    walked: list[tuple[str, tuple[str, ...]]] = []
+
+    def _walk(_ctx, stages, *, reason: str) -> None:
+        walked.append((reason, tuple(stages)))
+
+    monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
+        lambda _c: [],
+    )
+    run_homunculus_phase(
+        ctx,
+        "delivery",
+        ["master_finalize", "podcast_publish"],
+        client=_stop_client(),
+    )
+    assert walked
+    assert walked[0][0] == "delivery_walk_unpublishable_master"
+    assert "podcast_publish" not in walked[0][1]
 
 
 def test_delivery_does_not_walk_ship_when_post_master_quality_failed(monkeypatch) -> None:
@@ -966,6 +1004,7 @@ def test_delivery_does_not_walk_pre_master_when_master_exists(monkeypatch) -> No
         "podcast_publish",
     ):
         ctx.mark_done(sid, force=True)
+    _passing_pmq(ctx)
     walked: list[str] = []
 
     def _walk(_ctx, stages, *, reason: str) -> None:

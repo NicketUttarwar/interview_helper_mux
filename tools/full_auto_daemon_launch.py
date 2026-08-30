@@ -141,6 +141,9 @@ def e2e_alive() -> bool:
         return False
 
 
+automation_driver_alive = e2e_alive
+
+
 def ensure_server(*, force_restart: bool = False) -> int | None:
     """Start GUI serve if down. With force_restart, recycle to load current code."""
     port = web_port()
@@ -162,10 +165,6 @@ def ensure_server(*, force_restart: bool = False) -> int | None:
         [str(VENV_PY), "-m", "interview_mux", "serve", "--no-browser", "--port", str(port)],
         ASSETS / "full_auto_server.log",
         env={
-            # Soft last-resort after the full MusicGen ladder (+ MMAudio) fails —
-            # never skip MusicGen itself. Full-auto parity.
-            "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
-            "MUX_E2E_SOFT_LISTENABILITY": "1",
             "INTERVIEW_MUX_E2E_SOFT": "1",
             "MUX_WEB_PORT": str(port),
             "MUX_HOMUNCULUS_VERSION": os.environ.get("MUX_HOMUNCULUS_VERSION", "0.1.0"),
@@ -191,8 +190,6 @@ def _driver_env(
         "INTERVIEW_MUX_AUTO_ACCEPT_GATES": "1",
         "MUX_POLL_SEC": "20",
         "MUX_INPUT_AUDIO": audio,
-        "MUX_E2E_MUSICGEN_ALLOW_STUB": "1",
-        "MUX_E2E_SOFT_LISTENABILITY": "1",
         "INTERVIEW_MUX_E2E_SOFT": "1",
         "MUX_RUN_MODE": run_mode,
         "MUX_BASE": os.environ.get("MUX_BASE", f"http://127.0.0.1:{port}"),
@@ -448,6 +445,7 @@ def shutdown_full_auto_stack(
     *,
     kill_server: bool = True,
     kill_e2e: bool = True,
+    keep_driver: bool = False,
     kill_keepalive: bool = True,
     exclude_pid: int | None = None,
     port: int | None = None,
@@ -463,7 +461,7 @@ def shutdown_full_auto_stack(
     killed_port: list[int] = []
     if kill_keepalive:
         _pkill_pattern(_KEEPALIVE_PGREP, exclude_pid=exclude_pid)
-    if kill_e2e:
+    if kill_e2e and not keep_driver:
         _pkill_pattern(_DRIVER_PGREP, exclude_pid=exclude_pid)
     if kill_server:
         _pkill_pattern("interview_mux serve", exclude_pid=exclude_pid)

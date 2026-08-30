@@ -49,13 +49,21 @@ def _manifest(*rows: dict) -> dict:
     return {"segments": list(rows)}
 
 
-def _seg(sid: str, text: str, *, start: int = 0, end: int = 8000, speaker: str = "spk_0") -> dict:
+def _seg(
+    sid: str,
+    text: str,
+    *,
+    start: int = 0,
+    end: int = 8000,
+    speaker: str = "spk_0",
+    topic_tags: list[str] | None = None,
+) -> dict:
     return {
         "segment_id": sid,
         "speaker_id": speaker,
         "speaker_role": "interviewee",
         "type": "interviewee_answer",
-        "topic_tags": [],
+        "topic_tags": list(topic_tags or []),
         "text": text,
         "start_ms": start,
         "end_ms": end,
@@ -1814,3 +1822,221 @@ def test_clamp_source_stops_cta_bleed_into_keeper() -> None:
     assert int(clip0["source_end_ms"]) == 97970
     assert int(clip0["duration_ms"]) == 97970 - 87320
     assert validate_flow1_edl(ctx, fixed) == []
+
+
+def test_never_touch_punches_packaging_keep_inside_dropped_parent() -> None:
+    """Dropped parent mega-range must not zero an on-air keep that is not an NLE child."""
+    from interview_mux.media_ip_cta import (
+        ARTIFACT_REL,
+        clamp_edl_speech_away_from_never_touch,
+        clamp_source_away_from_never_touch,
+        never_touch_source_intervals,
+    )
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_002",
+                "Before we start, subscribe and share this show.",
+                start=23240,
+                end=121660,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_003a",
+                "And what are you hoping to hear from Mohan today?",
+                start=83020,
+                end=87160,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_004",
+                "Mohan, thanks for joining.",
+                start=121660,
+                end=130000,
+                speaker="spk_guest",
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_003a", "seg_004"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_002", "reason": "media_ip_cta"},
+            ],
+            "exclude_rationales": {"seg_002": "media_ip_cta"},
+        },
+    )
+    ctx.write_json(
+        ARTIFACT_REL,
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_002"],
+            "never_touch_segment_ids": ["seg_002"],
+        },
+    )
+
+    intervals = never_touch_source_intervals(ctx)
+    assert all(not (a < 83020 and b > 87160) for a, b, _ in intervals)
+    assert any(b == 83020 for a, b, _ in intervals)
+    assert any(a == 87160 for a, b, _ in intervals)
+
+    ss, se, notes = clamp_source_away_from_never_touch(83020, 87160, intervals)
+    assert ss == 83020
+    assert se == 87160
+    assert not any("zeroed_inside_never_touch" in n for n in notes)
+
+    edl = {
+        "ordered_segment_ids": ["seg_003a", "seg_004"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_003a",
+                "source_start_ms": 83020,
+                "source_end_ms": 87160,
+                "timeline_start_ms": 0,
+                "duration_ms": 87160 - 83020,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_004",
+                "source_start_ms": 121660,
+                "source_end_ms": 130000,
+                "timeline_start_ms": 87160 - 83020,
+                "duration_ms": 130000 - 121660,
+            },
+        ],
+    }
+    fixed, rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
+    ids = [c.get("segment_id") for c in (fixed.get("clips") or []) if c.get("type") == "speech"]
+    assert "seg_003a" in ids
+    clip_a = next(c for c in fixed["clips"] if c.get("segment_id") == "seg_003a")
+    assert int(clip_a["duration_ms"]) == 87160 - 83020
+    assert not any("never_touch_unplayable" in (r.get("notes") or []) for r in rows)
+
+
+def test_clamp_drops_zero_duration_never_touch_clip() -> None:
+    """A speech clip fully inside never-touch must be omitted, not aired at 0 ms."""
+    from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_cta", "Subscribe now.", start=0, end=8000, speaker="spk_host", topic_tags=["cta"]),
+            _seg("seg_keep", "Let's talk science.", start=9000, end=16000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_cta", "seg_keep"],
+            "excluded_segment_ids": [],
+        },
+    )
+    edl = {
+        "ordered_segment_ids": ["seg_cta", "seg_keep"],
+        "clips": [
+            {
+                "type": "speech",
+                "segment_id": "seg_cta",
+                "source_start_ms": 0,
+                "source_end_ms": 8000,
+                "timeline_start_ms": 0,
+                "duration_ms": 8000,
+            },
+            {
+                "type": "speech",
+                "segment_id": "seg_keep",
+                "source_start_ms": 9000,
+                "source_end_ms": 16000,
+                "timeline_start_ms": 8000,
+                "duration_ms": 7000,
+            },
+        ],
+    }
+    fixed, rows = clamp_edl_speech_away_from_never_touch(
+        ctx, edl, intervals=[(0, 8000, "seg_cta")]
+    )
+    speech_ids = [
+        c.get("segment_id")
+        for c in (fixed.get("clips") or [])
+        if c.get("type") == "speech"
+    ]
+    assert speech_ids == ["seg_keep"]
+    assert "seg_cta" not in (fixed.get("ordered_segment_ids") or [])
+    assert any("never_touch_unplayable" in (r.get("notes") or []) for r in rows)
+    sel = ctx.read_json("master/selection.json")
+    assert "seg_cta" not in (sel.get("ordered_segment_ids") or [])
+    assert "seg_keep" in (sel.get("ordered_segment_ids") or [])
+
+
+def test_nle_collapse_does_not_zero_manifest_keep_inside_dropped_parent() -> None:
+    """NLE never-touch stubs must not shrink the punch hole or leave a 0 ms clip."""
+    from interview_mux.media_ip_cta import (
+        ARTIFACT_REL,
+        clamp_source_away_from_never_touch,
+        heal_nle_unplayable_keep_overrides,
+        never_touch_source_intervals,
+    )
+    from interview_mux.nle_state import load_nle, save_nle, segments_by_id_with_nle
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg(
+                "seg_002",
+                "Before we start, subscribe and share this show.",
+                start=23240,
+                end=121660,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_003a",
+                "And what are you hoping to hear from Mohan today?",
+                start=83020,
+                end=87160,
+                speaker="spk_host",
+            ),
+            _seg(
+                "seg_004",
+                "Mohan, thanks for joining.",
+                start=121660,
+                end=130000,
+                speaker="spk_guest",
+            ),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_003a", "seg_004"], "excluded_segment_ids": []},
+    )
+    ctx.write_json(
+        ARTIFACT_REL,
+        {
+            "version": 1,
+            "locked": True,
+            "dropped_segment_ids": ["seg_002"],
+            "never_touch_segment_ids": ["seg_002"],
+        },
+    )
+    nle = load_nle(ctx)
+    nle["segment_overrides"] = {"seg_003a": {"start_ms": 82720, "end_ms": 83020}}
+    save_nle(ctx, nle)
+    assert int(segments_by_id_with_nle(ctx)["seg_003a"]["end_ms"]) == 83020
+
+    restored = heal_nle_unplayable_keep_overrides(ctx)
+    assert restored == ["seg_003a"]
+    assert "start_ms" not in (load_nle(ctx).get("segment_overrides") or {}).get("seg_003a", {})
+    assert int(segments_by_id_with_nle(ctx)["seg_003a"]["start_ms"]) == 83020
+    assert int(segments_by_id_with_nle(ctx)["seg_003a"]["end_ms"]) == 87160
+
+    intervals = never_touch_source_intervals(ctx)
+    ss, se, notes = clamp_source_away_from_never_touch(83020, 87160, intervals)
+    assert (ss, se) == (83020, 87160)
+    assert not any("zeroed_inside_never_touch" in n for n in notes)

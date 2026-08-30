@@ -443,6 +443,133 @@ def _phrase_action_for_incomplete(
     return "cut_earlier"  # keep critical path; apply will skip without recommendation
 
 
+def _start_inside_never_touch(
+    source_ms: int,
+    intervals: list[tuple[int, int, str]] | None,
+) -> bool:
+    """True when ``source_ms`` sits inside a never-touch slab (not punched hole)."""
+    if not intervals:
+        return False
+    pos = int(source_ms)
+    for nt_s, nt_e, _sid in intervals:
+        if nt_s <= pos < nt_e:
+            return True
+    return False
+
+
+def _add_incomplete_repair_ladder(
+    add: Any,
+    *,
+    kind: str,
+    sid: str,
+    clip_index: int,
+    end_text: str,
+    extend_rec: int | None,
+    cut_rec: int | None,
+    can_complete: bool,
+    is_micro: bool,
+    evidence: str,
+    extra_detail: dict[str, Any] | None = None,
+) -> None:
+    """Emit extend + cut geometric repairs before thought-complete escalation."""
+    base_detail = dict(extra_detail or {})
+    base_detail.setdefault("end_text", end_text[-80:])
+    if extend_rec is not None:
+        add(
+            kind,
+            severity="critical",
+            segment_id=sid,
+            clip_index=clip_index,
+            action="extend_later",
+            detail={**base_detail, "recommended_ms": int(extend_rec)},
+            evidence=evidence,
+        )
+    if cut_rec is not None:
+        add(
+            kind,
+            severity="critical",
+            segment_id=sid,
+            clip_index=clip_index,
+            action="cut_earlier",
+            detail={**base_detail, "recommended_ms": int(cut_rec)},
+            evidence=evidence,
+        )
+    if can_complete:
+        add(
+            kind,
+            severity="critical",
+            segment_id=sid,
+            clip_index=clip_index,
+            action="thought_complete_recut",
+            detail={
+                **base_detail,
+                "unrecoverable_within_clip": (
+                    extend_rec is None and cut_rec is None and not is_micro
+                ),
+            },
+            evidence=evidence,
+        )
+    elif extend_rec is None and cut_rec is None and not is_micro:
+        add(
+            kind,
+            severity="critical",
+            segment_id=sid,
+            clip_index=clip_index,
+            action="cut_earlier",
+            detail={
+                **base_detail,
+                "recommended_ms": None,
+                "unrecoverable_within_clip": True,
+            },
+            evidence=evidence,
+        )
+
+
+def arm_incomplete_cut_producer_heals(
+    ctx: RunContext,
+    *,
+    report: dict[str, Any],
+    residual_findings: list[dict[str, Any]],
+    commitment: dict[str, Any],
+) -> bool:
+    """Arm producer heals for incomplete-cut residuals even when commitment diverged."""
+    incomplete = [
+        f
+        for f in residual_findings
+        if isinstance(f, dict)
+        and str(f.get("severity") or "") == "critical"
+        and str(f.get("kind") or "")
+        in {"on_a_roll", "incomplete_clause", "chapter_bleed_incomplete"}
+    ]
+    if not incomplete:
+        return False
+    diverged = str(commitment.get("status") or "") != "committed"
+    unresolved = bool(commitment.get("unresolved_repair_keys"))
+    if not diverged and not unresolved:
+        return False
+    report["incomplete_cut_producer_heals_armed"] = True
+    armed = False
+    try:
+        from interview_mux.stages.low_conf_fuse_stages import (
+            run_connector_fuse_pass_junction_heal,
+        )
+
+        run_connector_fuse_pass_junction_heal(ctx)
+        report["connector_fuse_junction_heal"] = True
+        armed = True
+    except Exception as fuse_exc:  # noqa: BLE001
+        report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
+    try:
+        from interview_mux.chapter_close_hitch import arm_hitch_listen_restage
+
+        if arm_hitch_listen_restage(ctx):
+            report["hitch_listen_restage"] = True
+            armed = True
+    except Exception as hitch_exc:  # noqa: BLE001
+        report["hitch_listen_restage_error"] = str(hitch_exc)[:300]
+    return armed
+
+
 def _merge_candidate_for_clip(
     *,
     clips: list[dict[str, Any]],
@@ -763,43 +890,24 @@ def detect_junction_findings(
                     and can_cut
                 ):
                     extended = None
-                action = _phrase_action_for_incomplete(
-                    can_extend=extended is not None,
-                    can_cut=can_cut,
+                extend_rec = None
+                if extended is not None:
+                    extend_rec = _clamp_end_before_next_speech(
+                        int(extended), next_src_start
+                    )
+                    if extend_rec <= src_end + 20:
+                        extend_rec = None
+                cut_rec = int(earlier) if can_cut and earlier is not None else None
+                _add_incomplete_repair_ladder(
+                    add,
+                    kind="on_a_roll",
+                    sid=sid,
+                    clip_index=i,
+                    end_text=end_text,
+                    extend_rec=extend_rec,
+                    cut_rec=cut_rec,
                     can_complete=can_complete,
                     is_micro=is_micro,
-                )
-                recommended = extended if extended is not None else earlier
-                if recommended is not None and action == "extend_later":
-                    recommended = _clamp_end_before_next_speech(
-                        int(recommended), next_src_start
-                    )
-                    if recommended <= src_end + 20:
-                        recommended = None
-                        action = _phrase_action_for_incomplete(
-                            can_extend=False,
-                            can_cut=can_cut,
-                            can_complete=can_complete,
-                            is_micro=is_micro,
-                        )
-                        recommended = earlier if can_cut else None
-                detail: dict[str, Any] = {
-                    "recommended_ms": recommended,
-                    "end_text": end_text[-80:],
-                    "unrecoverable_within_clip": (
-                        recommended is None
-                        and not can_complete
-                        and not is_micro
-                        and action != "thought_complete_recut"
-                    ),
-                }
-                add(
-                    "on_a_roll",
-                    severity="critical",
-                    segment_id=sid,
-                    clip_index=i,
-                    action=action,
-                    detail=detail,
                     evidence=f"incomplete end {end_text[-40:]!r}; same-speaker continuum",
                 )
             elif incomplete and chapter_bleed:
@@ -901,42 +1009,24 @@ def detect_junction_findings(
                     and can_cut
                 ):
                     extended = None
-                action = _phrase_action_for_incomplete(
-                    can_extend=extended is not None,
-                    can_cut=can_cut,
+                extend_rec = None
+                if extended is not None:
+                    extend_rec = _clamp_end_before_next_speech(
+                        int(extended), next_src_start
+                    )
+                    if extend_rec <= src_end + 20:
+                        extend_rec = None
+                cut_rec = int(earlier) if can_cut and earlier is not None else None
+                _add_incomplete_repair_ladder(
+                    add,
+                    kind="incomplete_clause",
+                    sid=sid,
+                    clip_index=i,
+                    end_text=end_text,
+                    extend_rec=extend_rec,
+                    cut_rec=cut_rec,
                     can_complete=can_complete,
                     is_micro=is_micro,
-                )
-                recommended = extended if extended is not None else earlier
-                if recommended is not None and action == "extend_later":
-                    recommended = _clamp_end_before_next_speech(
-                        int(recommended), next_src_start
-                    )
-                    if recommended <= src_end + 20:
-                        recommended = earlier if can_cut else None
-                        action = _phrase_action_for_incomplete(
-                            can_extend=False,
-                            can_cut=can_cut,
-                            can_complete=can_complete,
-                            is_micro=is_micro,
-                        )
-                detail = {
-                    "recommended_ms": recommended,
-                    "end_text": end_text[-80:],
-                    "unrecoverable_within_clip": (
-                        recommended is None
-                        and not can_complete
-                        and not is_micro
-                        and action != "thought_complete_recut"
-                    ),
-                }
-                add(
-                    "incomplete_clause",
-                    severity="critical",
-                    segment_id=sid,
-                    clip_index=i,
-                    action=action,
-                    detail=detail,
                     evidence=f"incomplete clause: {end_text[-40:]!r}",
                 )
 
@@ -1247,6 +1337,17 @@ def apply_junction_repairs(
             if edge == "start":
                 # Allow small retreat for continuum; don't cross end
                 new_ss = max(0, min(rec, se - 300))
+                try:
+                    from interview_mux.media_ip_cta import never_touch_source_intervals
+
+                    nt_intervals = never_touch_source_intervals(ctx)
+                    if _start_inside_never_touch(new_ss, nt_intervals):
+                        applied.append(
+                            {**f, "status": "skipped_never_touch_shoulder", "edge": edge}
+                        )
+                        continue
+                except Exception:
+                    pass
                 if abs(new_ss - ss) < 20:
                     continue
                 c["source_start_ms"] = new_ss
@@ -1276,10 +1377,15 @@ def apply_junction_repairs(
                         ss, new_se, never_touch_source_intervals(ctx)
                     )
                 except Exception:
-                    pass
+                    _nt_notes = []
                 if new_se <= ss + 300:
-                    applied.append({**f, "status": "skipped_next_clip_clamp"})
-                    break
+                    status = (
+                        "skipped_never_touch_clamp"
+                        if _nt_notes
+                        else "skipped_next_clip_clamp"
+                    )
+                    applied.append({**f, "status": status, "edge": edge})
+                    continue
                 if abs(new_se - se) < 20:
                     continue
                 c["source_end_ms"] = new_se
@@ -1869,6 +1975,29 @@ def run_junction_feel_audit(
 ) -> dict[str, Any]:
     """One LLM call judging final master feel. Retry once on schema/unavailable."""
     conf = cfg or junction_snip_cfg()
+    from interview_mux.seam_autopsy import _canonical_hash
+
+    edl_doc = (
+        ctx.read_json("master/edl.json")
+        if ctx.artifact_exists("master/edl.json")
+        else {}
+    )
+    edl_hash = _canonical_hash(edl_doc if isinstance(edl_doc, dict) else {})
+    if ctx.artifact_exists(FEEL_REL):
+        try:
+            prior = ctx.read_json(FEEL_REL)
+        except Exception:
+            prior = None
+        if isinstance(prior, dict):
+            prior_hash = str(prior.get("edl_hash") or "")
+            prior_verdict = str(prior.get("verdict") or "")
+            if (
+                prior_hash
+                and prior_hash == edl_hash
+                and prior_verdict
+                and prior_verdict not in {"", "unavailable"}
+            ):
+                return prior
     if not bool(conf.get("feel_audit_enabled", True)):
         audit = {
             "version": 1,
@@ -1877,11 +2006,13 @@ def run_junction_feel_audit(
             "directives": [],
             "findings": [],
             "llm_calls": 0,
+            "edl_hash": edl_hash,
             "generated_at": _now(),
         }
         ctx.write_json(FEEL_REL, audit)
         return audit
 
+    setattr(ctx, "_junction_snip_qa_inner", True)
     packet = build_feel_audit_context(ctx, snip_report)
     directives: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
@@ -1989,8 +2120,11 @@ def run_junction_feel_audit(
         "llm_calls": llm_calls,
         "error": error,
         "remaster_round": 0,
+        "edl_hash": edl_hash,
         "generated_at": _now(),
     }
+    if hasattr(ctx, "_junction_snip_qa_inner"):
+        delattr(ctx, "_junction_snip_qa_inner")
     ctx.write_json(FEEL_REL, audit)
     return audit
 
@@ -2153,6 +2287,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     from interview_mux.air_order import assert_consumer
 
     assert_consumer(ctx, STAGE_ID)
+    setattr(ctx, "_junction_snip_qa_inner", True)
     edl = ctx.read_json("master/edl.json")
     if not isinstance(edl, dict):
         raise ValueError("master/edl.json is not an object")
@@ -2162,7 +2297,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
 
     thought_llm_calls = 0
     findings, thought_llm_calls = enrich_thought_complete_findings(
-        ctx, edl, findings, cfg=conf
+        ctx, edl, findings, cfg=conf, allow_llm=False
     )
     remaster_rounds = 0
     applied: list[dict[str, Any]] = []
@@ -2198,9 +2333,13 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             run_index=run_index,
         )
         plan_all_fixes(ctx, review)
+        from interview_mux.seam_autopsy import _canonical_hash
+
+        pre_repair_hash = _canonical_hash(current_edl)
         next_edl, run_applied, needs = apply_junction_repairs(
             ctx, current_edl, residual_findings, cfg=conf
         )
+        post_repair_hash = _canonical_hash(next_edl if isinstance(next_edl, dict) else {})
         applied.extend(run_applied)
         applied_sig = {
             (
@@ -2219,7 +2358,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             )
             residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
             residual_findings, extra_llm = enrich_thought_complete_findings(
-                ctx, current_edl, residual_findings, cfg=conf, allow_llm=False
+                ctx, current_edl, residual_findings, cfg=conf, allow_llm=(run_index >= 2)
             )
             thought_llm_calls += extra_llm
             break
@@ -2248,7 +2387,7 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         )
         residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
         residual_findings, extra_llm = enrich_thought_complete_findings(
-            ctx, current_edl, residual_findings, cfg=conf, allow_llm=False
+            ctx, current_edl, residual_findings, cfg=conf, allow_llm=(run_index >= 2)
         )
         thought_llm_calls += extra_llm
         critical_residuals = [
@@ -2268,6 +2407,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
             "actions_executed": actions_executed,
             "residual_after": len(residual_findings),
             "critical_residual_after": len(critical_residuals),
+            "edl_hash_before": pre_repair_hash,
+            "edl_hash_after": post_repair_hash,
+            "edl_hash_unchanged": pre_repair_hash == post_repair_hash,
             "completed_at": _now(),
         }
         remediation_runs.append(row)
@@ -2468,6 +2610,14 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         f for f in residual_findings if str(f.get("severity") or "") == "critical"
     ]
     blocking_reasons = list(commitment.get("reasons") or [])
+    if str(commitment.get("status") or "") == "diverged":
+        blocking_reasons.append("junction_commitment_diverged")
+    from interview_mux.seam_autopsy import _canonical_hash
+
+    live_edl_hash = _canonical_hash(current_edl if isinstance(current_edl, dict) else {})
+    commit_edl_hash = str(commitment.get("edl_hash") or "")
+    if critical_left and commit_edl_hash and live_edl_hash != commit_edl_hash:
+        blocking_reasons.append("junction_edl_hash_mismatch")
     # When autopsy commitment is already committed and the feel audit soft-passed,
     # residual "critical" labels after the remaster budget are observational —
     # re-running junction forever does not improve ship readiness.
@@ -2518,27 +2668,32 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         ]
         if critical_left:
             blocking_reasons.append("critical_incomplete_cut_residuals")
-            hitch_armed = False
-            try:
-                from interview_mux.chapter_close_hitch import arm_hitch_listen_restage
-
-                hitch_armed = arm_hitch_listen_restage(ctx)
-            except Exception as hitch_exc:  # noqa: BLE001
-                report["hitch_listen_restage_error"] = str(hitch_exc)[:300]
-            if hitch_armed:
-                blocking_reasons.append("hitch_listen_restage")
-                report["hitch_listen_restage"] = True
-            else:
-                # Prefer seam re-fuse when incomplete residuals remain between selected natives.
+            if not arm_incomplete_cut_producer_heals(
+                ctx,
+                report=report,
+                residual_findings=residual_findings,
+                commitment=commitment,
+            ):
+                hitch_armed = False
                 try:
-                    from interview_mux.stages.low_conf_fuse_stages import (
-                        run_connector_fuse_pass_junction_heal,
-                    )
+                    from interview_mux.chapter_close_hitch import arm_hitch_listen_restage
 
-                    run_connector_fuse_pass_junction_heal(ctx)
-                    report["connector_fuse_junction_heal"] = True
-                except Exception as fuse_exc:  # noqa: BLE001
-                    report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
+                    hitch_armed = arm_hitch_listen_restage(ctx)
+                except Exception as hitch_exc:  # noqa: BLE001
+                    report["hitch_listen_restage_error"] = str(hitch_exc)[:300]
+                if hitch_armed:
+                    blocking_reasons.append("hitch_listen_restage")
+                    report["hitch_listen_restage"] = True
+                else:
+                    try:
+                        from interview_mux.stages.low_conf_fuse_stages import (
+                            run_connector_fuse_pass_junction_heal,
+                        )
+
+                        run_connector_fuse_pass_junction_heal(ctx)
+                        report["connector_fuse_junction_heal"] = True
+                    except Exception as fuse_exc:  # noqa: BLE001
+                        report["connector_fuse_junction_heal_error"] = str(fuse_exc)[:300]
     # unavailable after retry is a blocking quality signal unless mechanical
     # commitment already passed with no critical residuals (LLM outage must not
     # discard a remastered assembly).
@@ -2589,6 +2744,9 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
     meta["qc_summaries"] = qc
     ctx.write_json("run_meta.json", meta)
 
+    if hasattr(ctx, "_junction_snip_qa_inner"):
+        delattr(ctx, "_junction_snip_qa_inner")
+
     if blocking_reasons and enforce_block:
         from interview_mux.loud_fail import raise_loud_failure
 
@@ -2603,4 +2761,19 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 "critical_residuals": len(critical_left),
                 "blocking_reasons": sorted(set(blocking_reasons)),
             },
+        )
+
+    try:
+        from interview_mux.publishability_boundary import checkpoint_publishability
+
+        checkpoint_publishability(ctx, checkpoint="post_junction")
+    except Exception as exc:
+        from interview_mux.publishability_boundary import PublishabilityBlocked
+
+        if isinstance(exc, PublishabilityBlocked):
+            raise
+        ctx.log(
+            f"junction_snip_qa: publishability checkpoint skipped: {exc}",
+            level="warning",
+            stage=STAGE_ID,
         )

@@ -43,6 +43,54 @@ class HealRoute:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class PlaybookSpec:
+    resume_stage: str
+    action: str = ""
+
+
+PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
+    "never_touch_zeroed_keep": PlaybookSpec(
+        resume_stage="edl", action="punch_or_omit_rebuild_edl"
+    ),
+    "vo_audibility_drift": PlaybookSpec(resume_stage="edl", action="rebuild_edl"),
+    "opening_orientation_inaudible": PlaybookSpec(
+        resume_stage="edl", action="retarget_rebuild_edl"
+    ),
+    "omit_collateral_vo_strip": PlaybookSpec(
+        resume_stage="edl", action="exempt_rebuild_edl"
+    ),
+    "selection_edl_order_drift": PlaybookSpec(
+        resume_stage="edl", action="rebuild_edl"
+    ),
+    "incomplete_cut_unresolved": PlaybookSpec(
+        resume_stage="junction_snip_qa", action="junction_ladder"
+    ),
+    "pending_write_barrier": PlaybookSpec(
+        resume_stage="junction_snip_qa", action="approve_or_rerun_producer"
+    ),
+    "musicgen_theme_failed": PlaybookSpec(
+        resume_stage="music_palette_compose", action="generate_or_omit_bed"
+    ),
+    "post_master_quality_missing": PlaybookSpec(
+        resume_stage="master_finalize", action="run_pmq"
+    ),
+    "pmq_incomplete_ship_walk": PlaybookSpec(
+        resume_stage="mix", action="listen_delight_remutate"
+    ),
+    "layup_stale": PlaybookSpec(resume_stage="edl", action="adopt_layup"),
+    "opening_slot_conflict": PlaybookSpec(
+        resume_stage="edl", action="opening_slot_repair"
+    ),
+    "missing_g1_pickup": PlaybookSpec(
+        resume_stage="vo_synthesize", action="ensure_g1"
+    ),
+    "assembly_not_rendered_from_current_edl": PlaybookSpec(
+        resume_stage="mix", action="clear_mix_junction"
+    ),
+}
+
+
 def mix_assembly_seated(ctx: RunContext) -> bool:
     """Final assembly exists and is not stale vs the live EDL."""
     try:

@@ -16,6 +16,7 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 RECOVERY_LOG_REL = "operator/recovery_actions.jsonl"
+REMEDIATION_LOG_REL = "operator/remediation_log.jsonl"
 FRAMING_VO_MAX_OBSERVATIONS = 3
 
 # Explicit consumer → producer for fingerprint restamp (never guess).
@@ -86,9 +87,7 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         "g1 vo pickup missing" in msg or "stale_or_missing_pickup" in msg
     ):
         return "missing_g1_pickup"
-    if stage == "listen_delight_audit" and (
-        "listen delight floors" in msg or "listen_delight_floors" in msg
-    ):
+    if "listen delight floors" in msg or "listen_delight_floors" in msg:
         return "listen_delight_floors"
     if "fingerprint mismatch" in msg:
         return "fingerprint_mismatch"
@@ -152,6 +151,10 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         "high gap segment" in msg and "no interviewer line" in msg
     ):
         return "high_gap_unframed"
+    if type(exc).__name__ == "PublishabilityBlocked":
+        blocked_class = str(getattr(exc, "error_class", "") or "").strip()
+        if blocked_class:
+            return blocked_class
     return None
 
 
@@ -180,6 +183,13 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "opening_slot_conflict",
         "post_master_quality_missing",
         "high_gap_unframed",
+        "never_touch_zeroed_keep",
+        "vo_audibility_drift",
+        "opening_orientation_inaudible",
+        "pending_write_barrier",
+        "musicgen_theme_failed",
+        "incomplete_cut_unresolved",
+        "pmq_incomplete_ship_walk",
     }
 )
 
@@ -220,6 +230,29 @@ def _append_action(ctx: RunContext, row: dict[str, Any]) -> None:
     path = _log_path(ctx)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def append_remediation_log(ctx: RunContext, action: str, detail: str = "") -> None:
+    """Append an operator-visible remediation row (omit/heal actions)."""
+    path = Path(ctx.run_dir) / REMEDIATION_LOG_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": str(action or ""),
+        "detail": str(detail or "")[:400],
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+_OMIT_PLAYBOOKS = frozenset(
+    {
+        "stamp_air_script_omits",
+        "host_cta_omit",
+        "stamp_valueless_skips",
+        "skip_never_touch_cta_layups",
+    }
+)
 
 
 def already_attempted(ctx: RunContext, signature: str) -> bool:
@@ -597,6 +630,54 @@ def playbook_host_cta_omit(ctx: RunContext) -> list[str]:
     return ["master/selection.json"] if ctx.artifact_exists("master/selection.json") else []
 
 
+def playbook_rebuild_edl(ctx: RunContext) -> list[str]:
+    from interview_mux.homunculus.agenda import invalidate_downstream
+
+    invalidate_downstream(ctx, "edl")
+    return ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
+
+
+def playbook_never_touch_zeroed_keep(ctx: RunContext) -> list[str]:
+    try:
+        from interview_mux.media_ip_cta import heal_nle_unplayable_keep_overrides
+
+        heal_nle_unplayable_keep_overrides(ctx)
+    except Exception:
+        pass
+    return playbook_rebuild_edl(ctx)
+
+
+def playbook_vo_audibility_drift(ctx: RunContext) -> list[str]:
+    from interview_mux.opening_orientation import retarget_orientation_to_open
+
+    retarget_orientation_to_open(ctx)
+    return playbook_rebuild_edl(ctx)
+
+
+def playbook_opening_orientation_inaudible(ctx: RunContext) -> list[str]:
+    return playbook_vo_audibility_drift(ctx)
+
+
+def playbook_pending_write_barrier(ctx: RunContext) -> list[str]:
+    from interview_mux.write_staging import stages_with_pending_writes
+
+    pending = stages_with_pending_writes(ctx)
+    return [f"pending:{s}" for s in pending]
+
+
+def playbook_musicgen_theme_failed(ctx: RunContext) -> list[str]:
+    from interview_mux.delivery_recovery import resume_theme_generation
+
+    resume_theme_generation(ctx)
+    return ["sound_design/assets/"]
+
+
+def playbook_incomplete_cut_unresolved(ctx: RunContext) -> list[str]:
+    from interview_mux.junction_snip_qa import QA_REL
+
+    return [QA_REL] if ctx.artifact_exists(QA_REL) else []
+
+
 def handle_stage_failure(
     ctx: RunContext,
     stage_id: str,
@@ -639,15 +720,23 @@ def handle_stage_failure(
         )
     from interview_mux.identical_failures import (
         failure_signature,
+        failure_signature_by_class,
         is_halted,
+        record_class_failure,
         record_identical_failure,
     )
 
-    halt_sig = failure_signature(
-        failed_stage=stage_id,
-        producer=error_class,
-        reason=str(exc)[:400],
-    )
+    if has_classified_playbook(error_class):
+        halt_sig = failure_signature_by_class(
+            failed_stage=stage_id,
+            error_class=error_class,
+        )
+    else:
+        halt_sig = failure_signature(
+            failed_stage=stage_id,
+            producer=error_class,
+            reason=str(exc)[:400],
+        )
     if is_halted(ctx, halt_sig):
         return _result(
             status="escalate",
@@ -702,13 +791,21 @@ def handle_stage_failure(
                 "detail": result.detail,
             },
         )
-        record_identical_failure(
-            ctx,
-            failed_stage=stage_id,
-            producer=error_class,
-            reason=str(exc)[:400],
-            resume_attempted=resume_on_budget,
-        )
+        if has_classified_playbook(error_class):
+            record_class_failure(
+                ctx,
+                failed_stage=stage_id,
+                error_class=error_class,
+                resume_attempted=resume_on_budget,
+            )
+        else:
+            record_identical_failure(
+                ctx,
+                failed_stage=stage_id,
+                producer=error_class,
+                reason=str(exc)[:400],
+                resume_attempted=resume_on_budget,
+            )
         return result
 
     playbook_id = error_class
@@ -861,6 +958,48 @@ def handle_stage_failure(
             artifacts = playbook_high_gap_unframed(ctx)
             recovered = bool(artifacts)
             resume_stage = "gap_framing_compose"
+        elif error_class == "never_touch_zeroed_keep":
+            playbook_id = "never_touch_zeroed_keep"
+            artifacts = playbook_never_touch_zeroed_keep(ctx)
+            recovered = True
+            resume_stage = "edl"
+        elif error_class == "vo_audibility_drift":
+            playbook_id = "vo_audibility_drift"
+            artifacts = playbook_vo_audibility_drift(ctx)
+            recovered = True
+            resume_stage = "edl"
+        elif error_class == "opening_orientation_inaudible":
+            playbook_id = "opening_orientation_inaudible"
+            artifacts = playbook_opening_orientation_inaudible(ctx)
+            recovered = True
+            resume_stage = "edl"
+        elif error_class == "pending_write_barrier":
+            playbook_id = "pending_write_barrier"
+            artifacts = playbook_pending_write_barrier(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "junction_snip_qa"
+        elif error_class == "musicgen_theme_failed":
+            playbook_id = "musicgen_theme_failed"
+            artifacts = playbook_musicgen_theme_failed(ctx)
+            recovered = True
+            resume_stage = "music_palette_compose"
+        elif error_class == "incomplete_cut_unresolved":
+            playbook_id = "incomplete_cut_unresolved"
+            artifacts = playbook_incomplete_cut_unresolved(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "junction_snip_qa"
+        elif error_class == "pmq_incomplete_ship_walk":
+            playbook_id = "listen_delight_remutate"
+            artifacts = playbook_listen_delight_remutate(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "mix"
+            try:
+                if ctx.artifact_exists("mastering/listen_delight_remutate.json"):
+                    plan = ctx.read_json("mastering/listen_delight_remutate.json")
+                    if isinstance(plan, dict) and plan.get("from_stage"):
+                        resume_stage = str(plan.get("from_stage") or "mix")
+            except Exception:
+                pass
         else:
             recovered = False
             detail = "unhandled_class"
@@ -889,15 +1028,25 @@ def handle_stage_failure(
         },
     )
     if result.status != "recovered":
-        row = record_identical_failure(
-            ctx,
-            failed_stage=stage_id,
-            producer=error_class,
-            reason=str(exc)[:400],
-            resume_attempted=result.resume_stage,
-        )
+        if has_classified_playbook(error_class):
+            row = record_class_failure(
+                ctx,
+                failed_stage=stage_id,
+                error_class=error_class,
+                resume_attempted=result.resume_stage,
+            )
+        else:
+            row = record_identical_failure(
+                ctx,
+                failed_stage=stage_id,
+                producer=error_class,
+                reason=str(exc)[:400],
+                resume_attempted=result.resume_stage,
+            )
         if row.get("halt"):
             result.status = "escalate"
             result.playbook_id = "identical_failure_halt"
             result.detail = (result.detail + " identical_failures_halted").strip()
+    elif recovered and playbook_id in _OMIT_PLAYBOOKS:
+        append_remediation_log(ctx, action=playbook_id, detail=error_class or detail)
     return result

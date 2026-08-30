@@ -45,9 +45,10 @@ def plan_listen_delight_remutate(
             if sid not in stages:
                 stages.append(sid)
     assembly_ready = ctx.artifact_exists("master/assembly_preview.wav") or ctx.is_done("edl")
-    if assembly_ready:
+    failed_set = {str(x) for x in (failed_dimensions or [])}
+    if assembly_ready and "cut_integrity" not in failed_set:
         # Ranking/layup rewind cannot raise retention without destroying seated air.
-        # Finish MusicGen/SFX + mix, then re-audit.
+        # Finish MusicGen/SFX + mix, then re-audit. cut_integrity must rewind EDL.
         skip = {
             "full_master_ranking",
             "nugget_layup_compose",
@@ -59,6 +60,9 @@ def plan_listen_delight_remutate(
             lead = ["mmaudio_sfx", "mix", "listen_delight_audit"]
         else:
             lead = ["mix", "listen_delight_audit"]
+        stages = lead + [s for s in stages if s not in lead]
+    elif assembly_ready and "cut_integrity" in failed_set:
+        lead = ["edl", "junction_snip_qa", "mix", "listen_delight_audit"]
         stages = lead + [s for s in stages if s not in lead]
     plan = {
         "version": 1,
@@ -124,9 +128,10 @@ def apply_listen_delight_remutate(
 
     cleared: list[str] = []
     from_stage = str(doc.get("from_stage") or "")
-    preserve_edl = from_stage in {"mmaudio_sfx", "mix", "listen_delight_audit"} or (
-        assembly_ready and "nugget_retention" in failed
-    )
+    preserve_edl = (
+        from_stage in {"mmaudio_sfx", "mix", "listen_delight_audit"}
+        or (assembly_ready and "nugget_retention" in failed)
+    ) and "cut_integrity" not in failed
     for sid in doc.get("from_stages") or []:
         if preserve_edl and sid in {
             "full_master_ranking",

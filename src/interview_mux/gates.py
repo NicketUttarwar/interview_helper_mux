@@ -210,6 +210,11 @@ def check_transcript_review_pending(ctx: RunContext) -> bool:
     return ctx.artifact_exists("transcript/review_queue.json")
 
 
+def g0_blocks_analysis(ctx: RunContext) -> bool:
+    """True when G0 blocks analysis stages (alias for transcript review pending)."""
+    return check_transcript_review_pending(ctx)
+
+
 def require_transcript_review_clear(ctx: RunContext) -> None:
     if check_transcript_review_pending(ctx):
         _gate_exit(

@@ -1,0 +1,34 @@
+{
+  "segments": [
+    {
+      "segment_id": "seg_002",
+      "speaker_id": "spk_host",
+      "speaker_role": "interviewer",
+      "type": "interviewer_question",
+      "topic_tags": ["cta", "subscribe"],
+      "text": "Before we start, subscribe and share this show.",
+      "start_ms": 23240,
+      "end_ms": 121660
+    },
+    {
+      "segment_id": "seg_003a",
+      "speaker_id": "spk_host",
+      "speaker_role": "interviewer",
+      "type": "interviewer_question",
+      "topic_tags": [],
+      "text": "And what are you hoping to hear from Mohan today?",
+      "start_ms": 83020,
+      "end_ms": 87160
+    },
+    {
+      "segment_id": "seg_004",
+      "speaker_id": "spk_guest",
+      "speaker_role": "interviewee",
+      "type": "interviewee_answer",
+      "topic_tags": [],
+      "text": "Mohan, thanks for joining.",
+      "start_ms": 121660,
+      "end_ms": 130000
+    }
+  ]
+}

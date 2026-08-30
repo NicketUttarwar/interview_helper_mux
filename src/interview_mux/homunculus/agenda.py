@@ -1160,20 +1160,31 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
         level="warning",
         stage="homunculus",
     )
-    from interview_mux.gates import check_transcript_review_pending
+    from interview_mux.gates import g0_blocks_analysis
     from interview_mux.pipeline import run_single_stage
 
     setattr(ctx, "_homunculus_seed_walk", True)
     try:
         from interview_mux.web.job_progress import notify_batch_plan
 
+        walk_stages = list(stages)
+        if g0_blocks_analysis(ctx) and ctx.artifact_exists("ingest/transcript.json"):
+            from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+            stage_order = {sid: idx for idx, sid in enumerate(ANALYSIS_ORDER + DELIVERY_ORDER)}
+            g0_idx = stage_order.get("transcript_review_build")
+            if g0_idx is not None:
+                walk_stages = [
+                    s for s in walk_stages if stage_order.get(s, 10**9) <= g0_idx
+                ]
+
         notify_batch_plan(
             ctx.run_id,
-            stages,
-            message=f"Walking {len(stages)} remaining stage(s) ({reason})",
+            walk_stages,
+            message=f"Walking {len(walk_stages)} remaining stage(s) ({reason})",
         )
-        prepare_delivery_guardrails(ctx, stages)
-        for stage in stages:
+        prepare_delivery_guardrails(ctx, walk_stages)
+        for stage in walk_stages:
             if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
                 continue
             if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
@@ -1201,7 +1212,7 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                     )
                     break
                 raise
-            if stage == "transcript_review_build" and check_transcript_review_pending(ctx):
+            if stage == "transcript_review_build" and g0_blocks_analysis(ctx):
                 break
     finally:
         if hasattr(ctx, "_homunculus_seed_walk"):
@@ -1378,10 +1389,11 @@ def run_homunculus_phase(
         walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
     elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
         pmq: dict[str, Any] | None = None
-        if ctx.artifact_exists("master/post_master_quality.json"):
+        pmq_missing = not ctx.artifact_exists("master/post_master_quality.json")
+        if not pmq_missing:
             loaded = ctx.read_json("master/post_master_quality.json")
             pmq = loaded if isinstance(loaded, dict) else None
-        pmq_failed = bool(
+        pmq_failed = pmq_missing or bool(
             pmq
             and (
                 pmq.get("status") == "fail"

@@ -53,6 +53,10 @@ REASON = "media_ip_cta"
 ARTIFACT_REL = "mastering/media_ip_cta.json"
 SKIP_HOLE = "media_ip_cta_hole"
 MIN_CHILD_MS = 1500
+MIN_PLAYABLE_KEEP_MS = 400
+_CTA_CLASS_LABELS = frozenset(
+    {"cta", "sponsor", "subscribe", "monetize", "outro", "credits"}
+)
 _LETS_HEAR_RE = (
     "let's hear",
     "lets hear",
@@ -143,7 +147,8 @@ def never_touch_source_intervals(ctx: RunContext) -> list[tuple[int, int, str]]:
 
     Parent CTA slabs are skipped when NLE children of that parent are still on
     the air order — those children (and leaf CTA siblings) own the tape map.
-    Otherwise a dropped parent range would zero every packaging keep inside it.
+    Remaining dropped-parent slabs punch holes for on-air keeps (manifest bounds)
+    so packaging speech is not zeroed inside a mega parent range.
     """
     by_id = _segments_by_id(ctx)
     ordered: list[str] = []
@@ -155,6 +160,7 @@ def never_touch_source_intervals(ctx: RunContext) -> list[tuple[int, int, str]]:
         if isinstance(sel, dict):
             ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
     out: list[tuple[int, int, str]] = []
+    heal_nle_unplayable_keep_overrides(ctx)
     for sid in sorted(selection_cta_exclude_ids(ctx)):
         if ordered and any(_is_nle_child(child, sid) for child in ordered):
             continue
@@ -168,7 +174,88 @@ def never_touch_source_intervals(ctx: RunContext) -> list[tuple[int, int, str]]:
             continue
         if end > start:
             out.append((start, end, sid))
-    return out
+    return _punch_ordered_keeps_from_never_touch(
+        out, _manifest_segments_by_id(ctx), ordered
+    )
+
+
+def _is_cta_class_keep(seg: dict[str, Any] | None) -> bool:
+    """True when segment tags/roles mark sponsor/CTA/promo — do not punch onto air."""
+    if not isinstance(seg, dict):
+        return False
+    role = str(seg.get("speaker_role") or seg.get("role") or "").casefold()
+    if any(label in role for label in _CTA_CLASS_LABELS):
+        return True
+    tags = seg.get("topic_tags") or seg.get("tags") or []
+    if isinstance(tags, list):
+        for tag in tags:
+            key = str(tag or "").casefold().replace("-", "_")
+            if key in _CTA_CLASS_LABELS or any(lbl in key for lbl in _CTA_CLASS_LABELS):
+                return True
+    seg_type = str(seg.get("type") or "").casefold()
+    if any(label in seg_type for label in ("cta", "sponsor", "promo", "outro")):
+        return True
+    flags = seg.get("flags") or []
+    if isinstance(flags, list):
+        for flag in flags:
+            key = str(flag or "").casefold().replace("-", "_")
+            if key in _CTA_CLASS_LABELS or any(lbl in key for lbl in _CTA_CLASS_LABELS):
+                return True
+    return False
+
+
+def _punch_ordered_keeps_from_never_touch(
+    intervals: list[tuple[int, int, str]],
+    by_id: dict[str, dict[str, Any]],
+    ordered: list[str],
+) -> list[tuple[int, int, str]]:
+    """Carve on-air keep tape out of never-touch slabs using manifest bounds.
+
+    Skips CTA-class keeps (sponsor/subscribe/promo labels) — those omit instead
+    of punching a hole. Unrelated packaging keeps inside a dropped parent (e.g.
+    seg_003a inside seg_002) must not clamp to zero duration.
+    """
+    if not intervals or not ordered:
+        return intervals
+    keep_spans: list[tuple[int, int]] = []
+    for kid in ordered:
+        seg = by_id.get(kid) or {}
+        if not isinstance(seg, dict) or _is_cta_class_keep(seg):
+            continue
+        try:
+            ks = int(seg.get("start_ms") or 0)
+            ke = int(seg.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ke > ks:
+            keep_spans.append((ks, ke))
+    if not keep_spans:
+        return intervals
+    punched: list[tuple[int, int, str]] = []
+    for nt_s, nt_e, sid in intervals:
+        holes: list[tuple[int, int]] = []
+        for ks, ke in keep_spans:
+            if ke <= nt_s or ks >= nt_e:
+                continue
+            holes.append((max(ks, nt_s), min(ke, nt_e)))
+        if not holes:
+            punched.append((nt_s, nt_e, sid))
+            continue
+        holes.sort()
+        merged: list[tuple[int, int]] = []
+        for hs, he in holes:
+            if merged and hs <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], he))
+            else:
+                merged.append((hs, he))
+        cursor = nt_s
+        for hs, he in merged:
+            if hs > cursor:
+                punched.append((cursor, hs, sid))
+            cursor = max(cursor, he)
+        if cursor < nt_e:
+            punched.append((cursor, nt_e, sid))
+    return punched
 
 
 def never_touch_end_cap_ms(
@@ -238,6 +325,7 @@ def clamp_edl_speech_away_from_never_touch(
     """Clamp every speech clip's source range away from never-touch CTA intervals."""
     if not isinstance(edl, dict):
         return {}, []
+    heal_nle_unplayable_keep_overrides(ctx)
     out = dict(edl)
     clips = [dict(c) for c in (out.get("clips") or []) if isinstance(c, dict)]
     ranges = (
@@ -277,14 +365,121 @@ def clamp_edl_speech_away_from_never_touch(
             }
         )
         clips[index] = clip
+    min_keep_ms = MIN_PLAYABLE_KEEP_MS
+    kept: list[dict[str, Any]] = []
+    dropped_ids: list[str] = []
+    drop_reasons: dict[str, str] = {}
+    man_by_id = _manifest_segments_by_id(ctx)
+    for clip in clips:
+        if str(clip.get("type") or "") != "speech":
+            kept.append(clip)
+            continue
+        try:
+            dur = int(clip.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            dur = 0
+        if dur >= min_keep_ms:
+            kept.append(clip)
+            continue
+        sid = str(clip.get("segment_id") or "")
+        seg = man_by_id.get(sid) or {}
+        reason = (
+            "never_touch_unplayable"
+            if _is_cta_class_keep(seg if isinstance(seg, dict) else None)
+            else "dropped_unplayable_never_touch"
+        )
+        dropped_ids.append(sid)
+        drop_reasons[sid] = reason
+        changed_rows.append(
+            {
+                "clip_index": len(kept),
+                "segment_id": sid,
+                "before": [
+                    clip.get("source_start_ms"),
+                    clip.get("source_end_ms"),
+                ],
+                "after": None,
+                "notes": [reason],
+            }
+        )
+    if dropped_ids:
+        ordered = [
+            str(s)
+            for s in (out.get("ordered_segment_ids") or [])
+            if str(s) not in set(dropped_ids)
+        ]
+        out["ordered_segment_ids"] = ordered
+        _omit_unplayable_keeps_from_selection(ctx, dropped_ids, drop_reasons)
     if changed_rows:
         from interview_mux.listenability_guards import reindex_clip_timeline
 
-        out["clips"] = clips
-        out["timeline_duration_ms"] = reindex_clip_timeline(clips)
+        out["clips"] = kept
+        out["timeline_duration_ms"] = reindex_clip_timeline(kept)
     else:
-        out["clips"] = clips
+        out["clips"] = kept
     return out, changed_rows
+
+
+def _omit_unplayable_keeps_from_selection(
+    ctx: RunContext,
+    dropped_ids: list[str],
+    drop_reasons: dict[str, str] | None = None,
+) -> None:
+    """Selection leads: drop keeps that never-touch clamp made unplayable."""
+    ids = [str(s) for s in dropped_ids if s]
+    if not ids or not ctx.artifact_exists("master/selection.json"):
+        return
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return
+    if not isinstance(sel, dict):
+        return
+    reasons = drop_reasons if isinstance(drop_reasons, dict) else {}
+    drop = set(ids)
+    ordered = [str(s) for s in (sel.get("ordered_segment_ids") or []) if s]
+    kept = [s for s in ordered if s not in drop]
+    if kept == ordered and not drop:
+        return
+    sel["ordered_segment_ids"] = kept
+    have = {
+        str(r.get("segment_id") if isinstance(r, dict) else r)
+        for r in (sel.get("excluded_segment_ids") or [])
+    }
+    excl = list(sel.get("excluded_segment_ids") or [])
+    rationales = (
+        dict(sel.get("exclude_rationales") or {})
+        if isinstance(sel.get("exclude_rationales"), dict)
+        else {}
+    )
+    for sid in ids:
+        reason = reasons.get(sid) or "never_touch_unplayable"
+        if sid not in have:
+            excl.append({"segment_id": sid, "reason": reason})
+            have.add(sid)
+        rationales.setdefault(sid, reason)
+    sel["excluded_segment_ids"] = excl
+    sel["exclude_rationales"] = rationales
+    keep_set = set(kept)
+    for ch in sel.get("chapters") or []:
+        if isinstance(ch, dict):
+            ch["segment_ids"] = [
+                str(x) for x in (ch.get("segment_ids") or []) if str(x) in keep_set
+            ]
+    try:
+        from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+        from interview_mux.order_hash import stamp_order_hash
+
+        sel = reconcile_ordered_vs_excluded(sel)
+        sel = stamp_order_hash(sel)
+    except Exception:
+        pass
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, "master/selection.json", sel, stage_key="edl")
+    except Exception:
+        ctx.write_json("master/selection.json", sel)
 
 
 def release_false_cta_never_touch(ctx: RunContext) -> list[str]:
@@ -1824,14 +2019,99 @@ def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
         by_id = {}
     if by_id:
         return by_id
+    return _manifest_segments_by_id(ctx)
+
+
+def _manifest_segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    """Manifest bounds only — NLE trims must not shrink never-touch keep holes."""
     if not ctx.artifact_exists("segments/manifest.json"):
         return {}
-    man = ctx.read_json("segments/manifest.json")
+    try:
+        man = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return {}
     return {
         str(s.get("segment_id")): s
         for s in ((man or {}).get("segments") or [])
         if isinstance(s, dict) and s.get("segment_id")
     }
+
+
+def heal_nle_unplayable_keep_overrides(ctx: RunContext) -> list[str]:
+    """Drop NLE trims that collapsed a selected keep below a listenable span.
+
+    Never-touch caps write sub-400 ms overrides that then zero on clamp. Restore
+    manifest keep bounds so punch-holes and EDL air bounds use real tape.
+    Persists via write_committed_json (not pending-only write_json).
+    """
+    restored: list[str] = []
+    if not ctx.artifact_exists("master/selection.json"):
+        return restored
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return restored
+    if not isinstance(sel, dict):
+        return restored
+    ordered = {str(s) for s in (sel.get("ordered_segment_ids") or []) if s}
+    if not ordered:
+        return restored
+    man = _manifest_segments_by_id(ctx)
+    try:
+        from interview_mux.nle_state import NLE_REL, load_nle
+
+        nle = load_nle(ctx)
+    except Exception:
+        return restored
+    overrides = nle.get("segment_overrides") or {}
+    if not isinstance(overrides, dict):
+        return restored
+    changed = False
+    for sid in list(overrides):
+        if sid not in ordered:
+            continue
+        ov = overrides.get(sid)
+        if not isinstance(ov, dict):
+            continue
+        if ov.get("excluded"):
+            continue
+        if "start_ms" not in ov and "end_ms" not in ov:
+            continue
+        man_seg = man.get(sid) or {}
+        try:
+            man_s = int(man_seg.get("start_ms") or 0)
+            man_e = int(man_seg.get("end_ms") or 0)
+            ov_s = int(ov["start_ms"]) if "start_ms" in ov else man_s
+            ov_e = int(ov["end_ms"]) if "end_ms" in ov else man_e
+        except (TypeError, ValueError):
+            continue
+        if man_e - man_s < MIN_PLAYABLE_KEEP_MS:
+            continue
+        if ov_e - ov_s >= MIN_PLAYABLE_KEEP_MS:
+            continue
+        ov.pop("start_ms", None)
+        ov.pop("end_ms", None)
+        if not ov:
+            overrides.pop(sid, None)
+        else:
+            overrides[sid] = ov
+        restored.append(sid)
+        changed = True
+    if not changed:
+        return restored
+    nle["segment_overrides"] = overrides
+    try:
+        from interview_mux.write_staging import write_committed_json
+
+        write_committed_json(ctx, NLE_REL, nle, stage_key="edl")
+    except Exception:
+        try:
+            from interview_mux.nle_state import save_nle
+
+            save_nle(ctx, nle)
+        except Exception:
+            return restored
+    return restored
 
 
 def _exclude_nle_ids(ctx: RunContext, segment_ids: list[str]) -> None:

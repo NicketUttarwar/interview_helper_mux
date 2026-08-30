@@ -1,0 +1,7 @@
+{
+  "ordered_segment_ids": ["seg_003a", "seg_004"],
+  "excluded_segment_ids": [
+    {"segment_id": "seg_002", "reason": "media_ip_cta"}
+  ],
+  "exclude_rationales": {"seg_002": "media_ip_cta"}
+}

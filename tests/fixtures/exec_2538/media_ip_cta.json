@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "locked": true,
+  "dropped_segment_ids": ["seg_002"],
+  "never_touch_segment_ids": ["seg_002"]
+}

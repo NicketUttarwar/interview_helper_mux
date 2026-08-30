@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "ordered_segment_ids": ["seg_003a", "seg_004"],
+  "timeline_duration_ms": 87160,
+  "gap_placements": [
+    {
+      "line_id": "vo_preface_episode_orientation",
+      "targets_segment_id": "seg_003a",
+      "placement": "before",
+      "timeline_start_ms": 0
+    },
+    {
+      "line_id": "vo_layup_seg_003a",
+      "targets_segment_id": "seg_003a",
+      "placement": "before",
+      "timeline_start_ms": 3000
+    }
+  ],
+  "clips": [
+    {
+      "type": "vo_pickup",
+      "line_id": "vo_preface_episode_orientation",
+      "targets_segment_id": "seg_003a",
+      "placement": "before",
+      "timeline_start_ms": 0,
+      "duration_ms": 3000,
+      "source_path": "vo_pickup/synthesized/vo_preface_episode_orientation.wav"
+    },
+    {
+      "type": "vo_pickup",
+      "line_id": "vo_layup_seg_003a",
+      "targets_segment_id": "seg_003a",
+      "placement": "before",
+      "timeline_start_ms": 3000,
+      "duration_ms": 5000,
+      "source_path": "vo_pickup/synthesized/vo_layup_seg_003a.wav"
+    },
+    {
+      "type": "speech",
+      "segment_id": "seg_003a",
+      "source_start_ms": 82720,
+      "source_end_ms": 83020,
+      "timeline_start_ms": 8000,
+      "duration_ms": 300,
+      "notes": ["zeroed_inside_never_touch:seg_003a"]
+    },
+    {
+      "type": "speech",
+      "segment_id": "seg_004",
+      "source_start_ms": 121660,
+      "source_end_ms": 130000,
+      "timeline_start_ms": 8300,
+      "duration_ms": 8340
+    }
+  ],
+  "vo_pickup_clip_count": 2
+}

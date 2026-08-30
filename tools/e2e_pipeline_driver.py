@@ -18,8 +18,9 @@ INPUT_AUDIO = os.environ.get(
 )
 POLL_SEC = 15
 MAX_WAIT_SEC = 7200
-# Soft last-resort after the full MusicGen ladder fails — never skip MusicGen.
-os.environ.setdefault("MUX_E2E_MUSICGEN_ALLOW_STUB", "1")
+if os.environ.get("MUX_E2E_PIPELINE_TEST", "").strip().lower() in {"1", "true", "yes"}:
+    # Opt-in only for explicit e2e pipeline driver tests — not production Full-auto.
+    os.environ.setdefault("MUX_E2E_MUSICGEN_ALLOW_STUB", "1")
 os.environ.pop("MUX_E2E_MUSICGEN_FAST_STUB", None)
 os.environ.pop("MUX_E2E_MUSICGEN_FORCE_STUB", None)
 

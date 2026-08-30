@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "segment_overrides": {
+    "seg_003a": {
+      "start_ms": 82720,
+      "end_ms": 83020,
+      "reason": "junction_nudge_into_never_touch_shoulder"
+    }
+  }
+}

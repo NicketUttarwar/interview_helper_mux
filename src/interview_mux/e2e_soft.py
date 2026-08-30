@@ -1,4 +1,12 @@
-"""Product e2e-soft waivers — off unless INTERVIEW_MUX_E2E_SOFT=1."""
+"""Product e2e-soft flags — gate auto-progress vs quality waivers.
+
+``INTERVIEW_MUX_E2E_SOFT=1`` enables Full-auto gate auto-progress only (G0,
+G-Framing, G-Publish). It does **not** waive listen-delight floors, junction
+residuals, or listenability checks.
+
+Quality ship waivers require a separate opt-in via
+``INTERVIEW_MUX_E2E_QUALITY_WAIVERS=1`` (or run_meta ``e2e_quality_waivers``).
+"""
 
 from __future__ import annotations
 

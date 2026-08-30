@@ -36,7 +36,21 @@ def launch_partial_auto_for_run(
     )
 
 
-def shutdown_automation_stack(*, keep_gui_server: bool = True) -> dict[str, Any]:
+def automation_driver_alive() -> bool:
+    """True when a detached Full-auto / partially-accelerated driver is running."""
+    tools = str(_tools_dir())
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from full_auto_daemon_launch import automation_driver_alive as _alive  # type: ignore[import-not-found]
+
+    return bool(_alive())
+
+
+def shutdown_automation_stack(
+    *,
+    keep_gui_server: bool = True,
+    keep_driver: bool = False,
+) -> dict[str, Any]:
     """Stop detached Full-auto / partially-accelerated driver + keepalive; optional serve."""
     tools = str(_tools_dir())
     if tools not in sys.path:
@@ -45,8 +59,9 @@ def shutdown_automation_stack(*, keep_gui_server: bool = True) -> dict[str, Any]
 
     return dict(
         shutdown_full_auto_stack(
-            kill_e2e=True,
+            kill_e2e=not keep_driver,
             kill_server=not keep_gui_server,
+            keep_driver=keep_driver,
         )
     )
 
