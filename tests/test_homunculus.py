@@ -1220,6 +1220,34 @@ def test_pending_analysis_for_delivery_restores_skipped_gap_artifacts() -> None:
     assert "delivery_brief_build" in pending
 
 
+def test_constrain_conductor_to_seed_front_blocks_missing_framing_skip() -> None:
+    from interview_mux.homunculus.agenda import constrain_conductor_to_seed_front
+
+    ctx = _ctx_010()
+    done = ctx.run_dir / ".stage_done"
+    done.mkdir(parents=True, exist_ok=True)
+    (done / "content_brief_reanchor").write_text("", encoding="utf-8")
+    remaining = [
+        "framing_posture_decide",
+        "boundary_topic_resplit",
+        "missing_framing",
+    ]
+    assert constrain_conductor_to_seed_front(ctx, "analysis", remaining) == [
+        "framing_posture_decide"
+    ]
+
+
+def test_seed_prereq_block_missing_framing_waits_on_framing_posture() -> None:
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    ctx = _ctx_010()
+    upto = ANALYSIS_ORDER.index("framing_posture_decide")
+    for sid in ANALYSIS_ORDER[:upto]:
+        ctx.mark_done(sid, force=True)
+    assert _seed_prereq_block(ctx, "missing_framing") == "framing_posture_decide"
+
+
 def test_remaining_stages_uses_seed_order_not_scheduled_reorder() -> None:
     from interview_mux.homunculus.agenda import remaining_stages, write_agenda
 

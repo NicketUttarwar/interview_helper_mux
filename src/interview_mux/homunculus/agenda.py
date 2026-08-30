@@ -46,6 +46,7 @@ DELIVERY_ANALYSIS_PREREQS: tuple[tuple[str, str], ...] = (
     ("boundary_detection", "segments/boundaries.json"),
     ("segment_classification", "segments/manifest.json"),
     ("content_brief_reanchor", "understanding/content_brief.json"),
+    ("framing_posture_decide", "understanding/framing_posture_decision.json"),
     ("missing_framing", "understanding/gap_evaluations.json"),
     ("gap_framing_compose", "understanding/gap_report.json"),
     ("delivery_brief_build", "understanding/delivery_brief.json"),
@@ -404,6 +405,31 @@ def _refuse_music_before_assembly(ctx: RunContext, stage: str, *, action: str) -
 
 def _order_for(phase: str) -> list[str]:
     return list(ANALYSIS_ORDER if phase == "analysis" else DELIVERY_ORDER)
+
+
+def earliest_incomplete_seed_stage(
+    ctx: RunContext, phase: str, candidates: set[str]
+) -> str | None:
+    """First incomplete (or hollow-done) stage in seed order within candidates."""
+    for sid in _order_for(phase):
+        if sid not in candidates:
+            continue
+        if ctx.is_done(sid) and stage_outputs_present(ctx, sid):
+            continue
+        return sid
+    return None
+
+
+def constrain_conductor_to_seed_front(
+    ctx: RunContext, phase: str, remaining: list[str]
+) -> list[str]:
+    """Conductor must not skip ahead of the earliest incomplete seed stage."""
+    if not remaining:
+        return remaining
+    front = earliest_incomplete_seed_stage(ctx, phase, set(remaining))
+    if front:
+        return [front]
+    return remaining
 
 
 def _read_agenda(ctx: RunContext) -> dict[str, Any]:
@@ -1242,6 +1268,15 @@ def run_homunculus_phase(
         holes = prepare_delivery_guardrails(ctx, set(prior) | set(seed))
         allow = set(prior) | set(holes)
     remaining = [s for s in remaining_stages(ctx, phase) if s in allow]
+    pinned = constrain_conductor_to_seed_front(ctx, phase, remaining)
+    if pinned != remaining:
+        ctx.log(
+            f"homunculus {phase}: pinning conductor to seed front {pinned[0]} "
+            f"(was {len(remaining)} stage(s))",
+            level="info",
+            stage=pinned[0],
+        )
+        remaining = pinned
     write_agenda(ctx, phase, remaining, source="conductor")
     if phase == "delivery":
         if ctx.artifact_exists("master/master.wav") and ctx.is_done("master_finalize"):

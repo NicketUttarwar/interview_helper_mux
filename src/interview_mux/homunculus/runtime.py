@@ -25,6 +25,19 @@ def is_homunculus_run(ctx: RunContext) -> bool:
     return is_homunculus_brain(homunculus_version(ctx))
 
 
+def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
+    """Earliest incomplete seed-order stage that must run before ``stage``."""
+    from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+    from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+    if stage not in ANALYSIS_ORDER and stage not in DELIVERY_ORDER:
+        return None
+    earliest = _earliest_incomplete_seed_stage(ctx, stage)
+    if earliest and earliest != stage:
+        return earliest
+    return None
+
+
 def dispatch_stage(
     ctx: RunContext,
     stage: str,
@@ -80,6 +93,11 @@ def dispatch_stage(
             unmark_stage_only(ctx, stage)
         raise
     _refuse_music_before_assembly(ctx, stage, action="run")
+    blocked = _seed_prereq_block(ctx, stage)
+    if blocked:
+        raise RuntimeError(
+            f"seed order: complete {blocked} before running {stage}"
+        )
     try:
         from interview_mux.web.job_progress import notify_stage_start
 

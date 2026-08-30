@@ -16,6 +16,20 @@ def _optional_json(ctx: RunContext, rel_path: str) -> dict:
     return ctx.read_json(rel_path) if ctx.artifact_exists(rel_path) else {}
 
 
+def _vo_coverage_line_rank(line: dict) -> int:
+    """Prefer adjudicated / guarded gap rows over legacy layup duplicates."""
+    score = 0
+    if line.get("required"):
+        score += 4
+    if line.get("spoken_copy_guard"):
+        score += 4
+    if str(line.get("origin") or "") == "vo_line_adjudicate":
+        score += 2
+    if line.get("text"):
+        score += 1
+    return score
+
+
 def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
     """Seated/omitted/rendered status for gap VO — not pipeline exists flags."""
     from interview_mux.air_script import omitted_vo_line_ids, seated_vo_line_ids
@@ -27,13 +41,18 @@ def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
     omitted = omitted_vo_line_ids(plan)
     gap = _optional_json(ctx, "understanding/gap_report.json")
     pickup = ctx.final_path("vo_pickup")
-    rows: list[dict[str, Any]] = []
+    by_line: dict[str, dict] = {}
     for line in gap.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
         lid = str(line.get("line_id") or "").strip()
         if not lid:
             continue
+        prev = by_line.get(lid)
+        if prev is None or _vo_coverage_line_rank(line) > _vo_coverage_line_rank(prev):
+            by_line[lid] = line
+    rows: list[dict[str, Any]] = []
+    for lid, line in by_line.items():
         wav = pickup / f"{lid}.wav"
         syn = pickup / "synthesized" / f"{lid}.wav"
         present = wav.is_file() or syn.is_file()

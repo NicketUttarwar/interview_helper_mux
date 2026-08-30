@@ -6371,9 +6371,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             if missing_g1:
                                 log(
                                     "premature EDL complete with G1 missing "
-                                    f"{missing_g1[:8]} — resume edl (do not skip mix)"
+                                    f"{missing_g1[:8]} — resume vo_synthesize (not edl)"
                                 )
-                                resume = "edl"
+                                resume = "vo_synthesize"
                             elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
                                 resume = "edl"

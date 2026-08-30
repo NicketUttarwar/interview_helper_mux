@@ -144,6 +144,62 @@ def test_check_g1_vo_stale_synthesize_wav_still_missing(tmp_path, monkeypatch):
     assert check_g1_vo(ctx) == ["vo_ori_001"]
 
 
+def test_check_g1_vo_duplicate_line_id_one_resolved(tmp_path, monkeypatch):
+    import wave
+
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "run_g1_dup")
+    pickup = ctx.path("vo_pickup") / "synthesized"
+    pickup.mkdir(parents=True, exist_ok=True)
+    out = pickup / "vo_layup_seg_007.wav"
+    with wave.open(str(out), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48_000)
+        handle.writeframes(b"\x00\x00" * 4800)
+    good = {
+        "line_id": "vo_layup_seg_007",
+        "targets_segment_id": "seg_007",
+        "delivery": "synthesize",
+        "gap_type": "nugget_layup",
+        "placement": "before",
+        "severity": "high",
+        "required": True,
+        "text": "Authoritative layup copy.",
+        "origin": "vo_line_adjudicate",
+    }
+    ghost = {
+        "line_id": "vo_layup_seg_007",
+        "targets_segment_id": "seg_007",
+        "delivery": "synthesize",
+        "gap_type": "nugget_layup",
+        "placement": "before",
+        "severity": "high",
+        "text": "Stale layup duplicate without synthesis entry.",
+        "origin": "nugget_layup",
+    }
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [good, ghost]},
+        skip_handoff=True,
+    )
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+    def _resolve(_ctx, line):
+        if str(line.get("origin") or "") == "vo_line_adjudicate":
+            return out
+        return None
+
+    monkeypatch.setattr(
+        "interview_mux.stages.assembly.resolve_vo_pickup_path",
+        _resolve,
+    )
+    assert check_g1_vo(ctx) == []
+
+
 def test_require_analysis_artifacts_complete_noop_in_v2(tmp_path, monkeypatch):
     ctx = isolated_run_ctx(tmp_path, "run_artifacts_gate")
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})

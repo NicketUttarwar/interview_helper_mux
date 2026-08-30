@@ -338,17 +338,21 @@ def check_g1_vo(ctx: RunContext) -> list[str]:
     except Exception:
         omitted = set()
     missing: list[str] = []
+    by_line: dict[str, list[dict]] = {}
     for line in report.get("interviewer_lines") or []:
         if not isinstance(line, dict) or not _line_requires_vo(line):
             continue
-        lid = str(line.get("line_id") or "")
-        if lid and lid in omitted:
+        lid = str(line.get("line_id") or "").strip()
+        if not lid or lid in omitted:
             continue
-        seg = line.get("targets_segment_id", "")
-        from interview_mux.stages.assembly import resolve_vo_pickup_path
+        by_line.setdefault(lid, []).append(line)
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
 
-        if resolve_vo_pickup_path(ctx, line) is None:
-            missing.append(lid or seg)
+    for lid, rows in by_line.items():
+        if any(resolve_vo_pickup_path(ctx, row) is not None for row in rows):
+            continue
+        seg = rows[0].get("targets_segment_id", "")
+        missing.append(lid or str(seg))
     return missing
 
 
