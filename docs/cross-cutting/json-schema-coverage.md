@@ -61,6 +61,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | [refinement_agenda.schema.json](./json-schemas/refinement_agenda.schema.json) | `understanding/refinement_agenda.json` — L0 eligible-class agenda ([refinement-passes.md](./refinement-passes.md)) |
 | [refinement_ledger.schema.json](./json-schemas/refinement_ledger.schema.json) | `understanding/refinement_ledger.json` — CFI call ledger, second-run cap |
 | [refinement_plan.schema.json](./json-schemas/refinement_plan.schema.json) | `understanding/refinement_plan.json` — L1 activate/skip gate decisions |
+| [delivery_checkpoint.schema.json](./json-schemas/delivery_checkpoint.schema.json) | `operator/delivery_checkpoint.json` — Phase A seal (G5) |
+| [wasted_work.schema.json](./json-schemas/wasted_work.schema.json) | `operator/wasted_work.json` — expensive-stage ledger (D1) |
 
 **On-disk SDP validation (BUILD-060):** `prompt_validation.validate_sound_design_plan` runs when `ensure_analysis_workspace` writes the empty scaffold and when Wave 5 stages persist into `understanding/sound_design_plan.json` (`sound_design_stages._validate_sound_design_plan`).
 
@@ -105,6 +107,8 @@ These support docs, optional tooling, or future gates; they are **not** automati
 | `validate_refinement_ledger` | `understanding/refinement_ledger.json` | Yes |
 | `validate_refinement_plan` | `understanding/refinement_plan.json` | Yes |
 | `validate_run_meta` | `run_meta.json` | Yes |
+| `validate_delivery_checkpoint` | `operator/delivery_checkpoint.json` | Yes |
+| `validate_wasted_work` | `operator/wasted_work.json` | Yes |
 | `validate_transcript_corrections` | `transcript/corrections.json` | Yes |
 | `validate_disfluencies` | `transcript/disfluencies.json` | Yes |
 | `validate_ingest_checksums` | `ingest/checksums.json` | Yes |

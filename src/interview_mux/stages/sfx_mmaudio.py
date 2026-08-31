@@ -1331,10 +1331,37 @@ def _collect_generation_items(
         if not aid or aid not in assets_by_id or aid in ordered_asset_ids:
             continue
         ordered_asset_ids.append(aid)
-    # Generate ALL planned assets (not only cue-referenced) so SDP density is audible.
-    for aid in assets_by_id:
-        if aid not in ordered_asset_ids:
-            ordered_asset_ids.append(aid)
+    referenced = set(ordered_asset_ids)
+    try:
+        from interview_mux.delivery_guardrails import (
+            record_wasted_work,
+            referenced_musicgen_asset_ids,
+        )
+
+        mix_refs = referenced_musicgen_asset_ids(ctx)
+        if mix_refs:
+            referenced |= mix_refs
+    except Exception:
+        mix_refs = set()
+    skipped_unused: list[str] = []
+    # E3: generate cue-referenced + mix-referenced slots only (lazy MusicGen).
+    for aid in list(assets_by_id):
+        if aid in ordered_asset_ids:
+            continue
+        if referenced and aid not in referenced:
+            skipped_unused.append(aid)
+            continue
+        ordered_asset_ids.append(aid)
+    if skipped_unused:
+        try:
+            record_wasted_work(
+                ctx,
+                event="avoided_musicgen",
+                stage="mmaudio_sfx",
+                detail={"skipped_asset_ids": skipped_unused[:40]},
+            )
+        except Exception:
+            pass
 
     if not ordered_asset_ids:
         return _dedupe_fallback_cues(fallback_cues)

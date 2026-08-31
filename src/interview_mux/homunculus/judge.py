@@ -104,12 +104,34 @@ def after_complete_master(ctx: RunContext) -> dict[str, Any]:
         except Exception:
             delight = {}
     failed = list((delight.get("failed_dimensions") or []) if isinstance(delight, dict) else [])
-    verdict = "reject" if failed else "accept"
+    aspirational = False
+    try:
+        from interview_mux.aspirational_quality import (
+            is_aspirational_enabled,
+            record_quality_advisories,
+        )
+
+        aspirational = is_aspirational_enabled(ctx) and bool(failed)
+    except Exception:
+        aspirational = False
+    verdict = "reject" if failed and not aspirational else "accept"
     reason = (
         f"listen_delight floors failed: {failed}"
-        if failed
-        else "ears + delight allowed accept"
+        if failed and not aspirational
+        else (
+            f"aspirational accept with delight advisories: {failed}"
+            if failed
+            else "ears + delight allowed accept"
+        )
     )
+    if aspirational and failed:
+        record_quality_advisories(
+            ctx,
+            gate_id="homunculus_delight_reject",
+            failed_checks=failed,
+            detail={"deferred_verdict": "accept"},
+            aspirational_proceeded=True,
+        )
     if verdict == "accept" and not has_wav:
         return {
             "verdict": "pending",

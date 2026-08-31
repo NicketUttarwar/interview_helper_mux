@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,11 @@ from interview_mux.run_context import RunContext
 
 IDENTICAL_FAILURES_REL = "operator/identical_failures.json"
 DEFAULT_HALT_AFTER = 3
+# Stages where identical-failure ×3 means "product incomplete" during forensics — not stop.
+EDL_REPAIR_STAGES: frozenset[str] = frozenset(
+    {"edl", "edl_narrative_audit", "delivery", "g1_vo_pickup", "g1"}
+)
+PRODUCT_FINGERPRINT_META_KEY = "identical_halts_product_fingerprint"
 
 _COUNT_SUFFIX_RE = re.compile(r"\sx\d+\b", flags=re.IGNORECASE)
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
@@ -28,6 +35,12 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def forensics_mode() -> bool:
+    """Forensics runs patch product code and re-run EDL — ×3 halt is telemetry only."""
+    raw = str(os.environ.get("MUX_FORENSICS") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def halt_after(*, cfg: dict[str, Any] | None = None) -> int:
     root = cfg if isinstance(cfg, dict) else merged_config()
     raw = (root.get("resilience") or {}) if isinstance(root, dict) else {}
@@ -36,6 +49,53 @@ def halt_after(*, cfg: dict[str, Any] | None = None) -> int:
     except (TypeError, ValueError):
         n = DEFAULT_HALT_AFTER
     return max(1, n)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def product_code_fingerprint(*, repo_root: Path | None = None) -> str:
+    """Short fingerprint of the installed product — changes when code changes."""
+    root = repo_root or _repo_root()
+    try:
+        cp = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if cp.returncode == 0:
+            head = cp.stdout.strip()
+            if head:
+                dirty = subprocess.run(
+                    ["git", "-C", str(root), "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                suffix = ""
+                if dirty.returncode == 0 and dirty.stdout.strip():
+                    suffix = "+" + hashlib.sha256(dirty.stdout.encode()).hexdigest()[:8]
+                return (head + suffix)[:48]
+    except Exception:
+        pass
+    h = hashlib.sha256()
+    for base in (root / "src" / "interview_mux", root / "tools" / "full_auto_driver.py"):
+        if base.is_file():
+            st = base.stat()
+            h.update(f"{base.name}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+        elif base.is_dir():
+            for path in sorted(base.rglob("*.py")):
+                try:
+                    st = path.stat()
+                except OSError:
+                    continue
+                rel = path.relative_to(root)
+                h.update(f"{rel}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+    return h.hexdigest()[:16]
 
 
 def normalize_reason(reason: str) -> str:
@@ -267,6 +327,8 @@ def upsert_fail_key(
 
 
 def is_halted(ctx: RunContext, signature: str) -> bool:
+    if forensics_mode():
+        return False
     doc = read_identical_failures(ctx)
     row = (doc.get("signatures") or {}).get(signature) or {}
     if row.get("cascade_suppressed"):
@@ -282,6 +344,59 @@ def halted_rows(ctx: RunContext) -> list[dict[str, Any]]:
         if isinstance(row, dict) and row.get("halt"):
             out.append(row)
     return out
+
+
+def clear_all_halts(ctx: RunContext) -> int:
+    """Reset every persisted identical-failure counter (forensics / post-patch resume)."""
+    doc = read_identical_failures(ctx)
+    signatures = dict(doc.get("signatures") or {})
+    cleared = 0
+    for sig, row in list(signatures.items()):
+        if not isinstance(row, dict):
+            continue
+        row = dict(row)
+        row["count"] = 0
+        row["halt"] = False
+        row["cleared_at"] = _utc_now()
+        signatures[sig] = row
+        cleared += 1
+    if not cleared:
+        return 0
+    doc["signatures"] = signatures
+    doc["updated_at"] = _utc_now()
+    _write(ctx, doc)
+    return cleared
+
+
+def clear_halts_for_stages(ctx: RunContext, stages: frozenset[str] | set[str]) -> int:
+    """Reset all halt counters for the given stages (any reason / fail_key)."""
+    stage_set = {str(s or "").strip().lower() for s in stages if s}
+    if not stage_set:
+        return 0
+    doc = read_identical_failures(ctx)
+    signatures = dict(doc.get("signatures") or {})
+    cleared = 0
+    for sig, row in list(signatures.items()):
+        if not isinstance(row, dict):
+            continue
+        stage = str(row.get("failed_stage") or "").strip().lower()
+        fail_key = str(row.get("fail_key") or "")
+        if stage not in stage_set and not any(
+            fail_key.startswith(f"{s}:") for s in stage_set
+        ):
+            continue
+        row = dict(row)
+        row["count"] = 0
+        row["halt"] = False
+        row["cleared_at"] = _utc_now()
+        signatures[sig] = row
+        cleared += 1
+    if not cleared:
+        return 0
+    doc["signatures"] = signatures
+    doc["updated_at"] = _utc_now()
+    _write(ctx, doc)
+    return cleared
 
 
 def clear_halts_matching(
@@ -321,3 +436,52 @@ def clear_halts_matching(
     doc["updated_at"] = _utc_now()
     _write(ctx, doc)
     return cleared
+
+
+def clear_edl_repair_halts(ctx: RunContext) -> int:
+    """Clear identical-failure halts for the EDL repair chain."""
+    return clear_halts_for_stages(ctx, EDL_REPAIR_STAGES)
+
+
+def sync_identical_halts_with_product(
+    ctx: RunContext,
+    *,
+    forensics: bool = False,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Reset identical-failure counters when product code changes or forensics restarts.
+
+    Forensics: clear **all** stage signatures on every driver start and when the product
+    fingerprint changes — patch-and-resume must never inherit a prior ×3 halt.
+
+    Production full-auto: product fingerprint change clears EDL repair chain only.
+    """
+    fp = product_code_fingerprint()
+    meta: dict[str, Any] = {}
+    try:
+        if ctx.artifact_exists("run_meta.json"):
+            raw = ctx.read_json("run_meta.json")
+            if isinstance(raw, dict):
+                meta = raw
+    except Exception:
+        meta = {}
+    prev = str(meta.get(PRODUCT_FINGERPRINT_META_KEY) or "")
+    product_changed = bool(prev and prev != fp)
+    if forensics or force:
+        cleared = clear_all_halts(ctx)
+    elif product_changed:
+        cleared = clear_edl_repair_halts(ctx)
+    else:
+        cleared = 0
+    if forensics or force or product_changed:
+        meta[PRODUCT_FINGERPRINT_META_KEY] = fp
+        ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    return {
+        "cleared": cleared,
+        "fingerprint": fp,
+        "previous_fingerprint": prev,
+        "product_changed": product_changed,
+        "forensics": forensics,
+        "force": force,
+        "scope": "all" if (forensics or force) else ("edl" if product_changed else "none"),
+    }

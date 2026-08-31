@@ -94,6 +94,8 @@ See [analysis-memory.md](./analysis-memory.md). Edit in GUI **Interview profile*
 | `operator/sfx_prompts.json` | MMAudio SFX prompt review edits |
 | `operator/sfx_listen_results.json` | Post-listen pass/fail results |
 | `operator/investigation_queue.json` | Investigation status edits |
+| `operator/delivery_checkpoint.json` | Phase A seal (G5) — fingerprints + assembly path ([delivery-phases.md](./delivery-phases.md), [delivery_checkpoint.schema.json](./json-schemas/delivery_checkpoint.schema.json)) |
+| `operator/wasted_work.json` | Expensive-stage ledger (`orphan`, `music_deferred`, `avoided_musicgen`) ([wasted_work.schema.json](./json-schemas/wasted_work.schema.json)) |
 | `operator/artifacts/*.json` | Mirrors of other GUI-edited artifacts |
 | `understanding/analysis_orchestration.json` | orchestrator config / attempts |
 | `understanding/context_index.json` | Volley memory index v2 (`stage_plans`, `volley_entries`, `padding_rules`, `artifacts_registry`) — [`analysis.context_index.*`](./config-keys.md#analysiscontext_index) |

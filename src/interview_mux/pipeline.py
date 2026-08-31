@@ -464,9 +464,9 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     )
     try:
         from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
-        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+        from interview_mux.delivery_guardrails import music_skip_allowed
 
-        if stage in MUSIC_BEFORE_MIX and not missing_sdp_asset_wavs(ctx):
+        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
             if not ctx.is_done(stage):
                 ctx.mark_done(stage, force=True)
             ctx.log(

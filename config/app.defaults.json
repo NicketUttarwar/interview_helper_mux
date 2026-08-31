@@ -1629,7 +1629,7 @@
       "next_keeper_eps_ms": 80
     },
     "junction_snip_qa": {
-      "mode": "authoritative",
+      "mode": "advisory",
       "micro_nudge_ms": 2500,
       "phrase_extend_max_ms": 24000,
       "impact_hold_ms_min": 1200,
@@ -1668,7 +1668,7 @@
     },
     "post_master_quality": {
       "never_skip": true,
-      "block_publish": true,
+      "block_publish": false,
       "listener_scorecard": true,
       "block_on_feel_unavailable": true,
       "overall_min": 0.90,
@@ -1680,8 +1680,26 @@
         "native_respect": 0.90
       }
     },
+    "aspirational_quality": {
+      "enabled": true,
+      "max_attempts_per_family": 3,
+      "always_produce_master": true,
+      "record_advisories_in_pmq": true,
+      "require_operator_publish_when_advisory": true,
+      "catastrophic_floors": {
+        "cut_integrity": 0.70,
+        "listen_delight_overall": 0.65
+      },
+      "pick_best_weights": {
+        "listen_delight_overall": 0.5,
+        "cut_integrity": 0.2,
+        "nugget_retention": 0.15,
+        "conversation_fit": 0.075,
+        "story_followability": 0.075
+      }
+    },
     "listen_delight": {
-      "mode": "authoritative",
+      "mode": "advisory",
       "overall_min": 0.90,
       "dimension_floors": {
         "nugget_retention": 0.80,

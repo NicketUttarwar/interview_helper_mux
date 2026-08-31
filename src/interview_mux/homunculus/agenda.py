@@ -411,10 +411,18 @@ def earliest_incomplete_seed_stage(
     ctx: RunContext, phase: str, candidates: set[str]
 ) -> str | None:
     """First incomplete (or hollow-done) stage in seed order within candidates."""
+    from interview_mux.delivery_guardrails import seed_stage_complete
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
     for sid in _order_for(phase):
         if sid not in candidates:
             continue
-        if ctx.is_done(sid) and stage_outputs_present(ctx, sid):
+        if phase == "delivery":
+            if seed_stage_complete(ctx, sid):
+                continue
+            if stage_outputs_present(ctx, sid) and stage_artifact_incompleteness(ctx, sid) is None:
+                continue
+        elif ctx.is_done(sid) and stage_outputs_present(ctx, sid):
             continue
         return sid
     return None
@@ -426,6 +434,15 @@ def constrain_conductor_to_seed_front(
     """Conductor must not skip ahead of the earliest incomplete seed stage."""
     if not remaining:
         return remaining
+    if phase == "delivery":
+        try:
+            from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+            remaining = filter_delivery_candidates(ctx, remaining)
+        except Exception:
+            pass
+        if not remaining:
+            return remaining
     front = earliest_incomplete_seed_stage(ctx, phase, set(remaining))
     if front:
         return [front]
@@ -714,6 +731,13 @@ def prepare_delivery_guardrails(ctx: RunContext, stages: list[str] | set[str] | 
     holes = unmark_hollow_prepare_stages(ctx)
     holes.extend(unmark_hollow_delivery_producers(ctx, want))
     holes.extend(unskip_hollow_stages(ctx, want))
+    try:
+        from interview_mux.delivery_guardrails import reconcile_delivery_batch, seal_phase_a_if_stable
+
+        holes.extend(reconcile_delivery_batch(ctx))
+        seal_phase_a_if_stable(ctx)
+    except Exception:
+        pass
     return list(dict.fromkeys(holes))
 
 
@@ -773,12 +797,19 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
 
 
 def remaining_stages(ctx: RunContext, phase: str) -> list[str]:
-    # Analysis remainder is .stage_done (shared brief/manifest paths are not
-    # unique producers). Delivery remainder is on-disk producer output so a
-    # palettes SDP or skip marker cannot hide sound_design_plan / mix / ship.
+    # Analysis remainder is .stage_done. Delivery remainder is seated outputs,
+    # plus G1 incompleteness so hollow VO / music cannot drop off the agenda.
     if phase != "delivery":
         return [s for s in _order_for(phase) if not ctx.is_done(s)]
-    return [s for s in _order_for(phase) if not stage_outputs_present(ctx, s)]
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    out: list[str] = []
+    for sid in _order_for(phase):
+        if stage_outputs_present(ctx, sid):
+            if stage_artifact_incompleteness(ctx, sid) is None:
+                continue
+        out.append(sid)
+    return out
 
 
 def ship_after_master_remaining(ctx: RunContext) -> list[str]:
@@ -1055,6 +1086,30 @@ def heal_air_order_integrity(ctx: RunContext) -> dict[str, Any]:
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")
+    try:
+        from interview_mux.delivery_guardrails import (
+            invalidation_is_structural,
+            maybe_restore_master_bundle,
+            record_wasted_work,
+        )
+
+        if not invalidation_is_structural(ctx, stage):
+            unmark_stage_only(ctx, stage)
+            restored = maybe_restore_master_bundle(ctx, stage=stage)
+            append_ledger(
+                ctx,
+                {
+                    "kind": "invalidate_downstream",
+                    "identity": "invalidate_downstream",
+                    "stage": stage,
+                    "mode": "heal_only",
+                    "restored": list(restored)[:20],
+                },
+            )
+            return {"ok": True, "cleared_from": stage, "mode": "heal_only"}
+        record_wasted_work(ctx, event="orphan", stage=stage, detail={"mode": "structural"})
+    except Exception:
+        pass
     order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     ctx.clear_from(stage, order)
     append_ledger(
@@ -1105,6 +1160,27 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             continue
         if not stage_outputs_present(ctx, up):
             blockers.append(f"upstream_incomplete:{up}")
+    try:
+        from interview_mux.delivery_guardrails import (
+            current_delivery_phase,
+            mix_epoch_block,
+            upstream_stale_blockers,
+            vo_synthesize_stability_block,
+        )
+
+        for token in upstream_stale_blockers(ctx, stage):
+            blockers.append(f"stale_upstream:{token}")
+        if stage == "vo_synthesize":
+            vo_b = vo_synthesize_stability_block(ctx)
+            if vo_b:
+                blockers.append(f"vo_synth_unstable:{vo_b}")
+        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+            mix_b = mix_epoch_block(ctx)
+            if mix_b:
+                blockers.append(f"mix_epoch:{mix_b}")
+        phase_name = current_delivery_phase(ctx)
+    except Exception:
+        phase_name = None
     recommended_next = stage
     for token in blockers:
         if token.startswith("stage_not_done:"):
@@ -1133,6 +1209,7 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
         "invalidate_set": invalidate_set,
         "recommended_next": recommended_next,
         "pipeline_mode": pipeline_mode_val,
+        "delivery_phase": phase_name,
     }
 
 
@@ -1210,6 +1287,12 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
             message=f"Walking {len(walk_stages)} remaining stage(s) ({reason})",
         )
         prepare_delivery_guardrails(ctx, walk_stages)
+        try:
+            from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+            walk_stages = filter_delivery_candidates(ctx, walk_stages)
+        except Exception:
+            pass
         for stage in walk_stages:
             if ctx.is_done(stage) and stage_outputs_present(ctx, stage):
                 continue
@@ -1221,9 +1304,15 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 _refuse_g0_locked_rerun(ctx, stage, action="walk")
                 _refuse_delivery_timeline_rewind(ctx, stage, action="walk")
                 _refuse_music_before_assembly(ctx, stage, action="walk")
-            except RuntimeError:
+            except RuntimeError as exc:
                 if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
                     ctx.mark_done(stage, force=True)
+                if "assembly audio missing" in str(exc):
+                    ctx.log(
+                        f"music_deferred: {stage} — pin assembly_preview",
+                        level="warning",
+                        stage="assembly_preview",
+                    )
                 continue
             try:
                 run_single_stage(ctx, stage)
@@ -1269,7 +1358,7 @@ def run_homunculus_phase(
         allow = set(prior) | set(holes)
     remaining = [s for s in remaining_stages(ctx, phase) if s in allow]
     pinned = constrain_conductor_to_seed_front(ctx, phase, remaining)
-    if pinned != remaining:
+    if pinned and pinned != remaining:
         ctx.log(
             f"homunculus {phase}: pinning conductor to seed front {pinned[0]} "
             f"(was {len(remaining)} stage(s))",

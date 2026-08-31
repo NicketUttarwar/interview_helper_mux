@@ -683,3 +683,46 @@ def test_vo_synthesize_defer_done_fail_open(tmp_path) -> None:
     assert reason is not None
     assert "seg_055->seg_058" in reason
     assert vo_synthesize_should_defer_done(ctx, "edl") is None
+
+
+def test_vo_synthesize_incomplete_when_g1_pickups_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.vo_speech_qa.vo_passes_speech_qa",
+        lambda *_a, **_k: True,
+    )
+    ctx = isolated_run_ctx(tmp_path, "vo_g1_open")
+    text = "Meanwhile the trial enrolled."
+    ctx.write_json(
+        "master/transitions.json",
+        _transitions_doc(("seg_055", "seg_058", text)),
+        skip_handoff=True,
+    )
+    wav = transition_wav_path(ctx, "seg_055", "seg_058")
+    _write_wav(wav)
+    ctx.write_json(
+        "mastering/vo_synthesize.json",
+        {"still_missing_pairs": [], "last_source": "test"},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_037",
+                    "targets_segment_id": "seg_037",
+                    "delivery": "synthesize",
+                    "gap_type": "context",
+                    "required": True,
+                    "text": "Layup line still needs synthesis.",
+                    "placement": "before",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert current_transition_pairs_missing(ctx) == []
+    reason = stage_artifact_incompleteness(ctx, "vo_synthesize")
+    assert reason is not None
+    assert "G1 VO pickups missing" in reason
+    assert "vo_layup_seg_037" in reason

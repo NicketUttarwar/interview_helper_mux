@@ -267,9 +267,9 @@ def test_listen_delight_fail_early_default_is_false() -> None:
     from interview_mux.junction_snip_qa import junction_snip_cfg
 
     delight = listen_delight_cfg()
-    assert str(delight.get("mode") or "") == "authoritative"
+    assert str(delight.get("mode") or "") == "advisory"
     assert delight.get("fail_early_at_audit_stage") is False
-    assert str(junction_snip_cfg().get("mode") or "") == "authoritative"
+    assert str(junction_snip_cfg().get("mode") or "") == "advisory"
 
 
 def test_g1_wavs_clear_edl_vo_gate_but_not_transitions(

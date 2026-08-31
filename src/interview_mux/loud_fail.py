@@ -79,3 +79,64 @@ def raise_loud_failure(
     if cause is not None:
         raise exc from cause
     raise exc
+
+
+def raise_loud_failure_unless_aspirational(
+    ctx: RunContext,
+    message: str,
+    *,
+    stage: str,
+    reason: str,
+    gate_id: str,
+    detail: dict[str, Any] | None = None,
+    action_id: str | None = None,
+    cause: BaseException | None = None,
+) -> None:
+    """Raise unless aspirational policy treats this rubric gate as advisory."""
+    from interview_mux.aspirational_quality import (
+        is_aspirational_enabled,
+        is_rubric_gate,
+        is_structural_pmq_check,
+        record_quality_advisories,
+    )
+
+    if is_aspirational_enabled(ctx) and is_rubric_gate(gate_id):
+        failed = [gate_id]
+        if detail and detail.get("failed_checks"):
+            raw = detail.get("failed_checks")
+            if isinstance(raw, list):
+                failed = [str(x) for x in raw if x]
+        record_quality_advisories(
+            ctx,
+            gate_id=gate_id,
+            failed_checks=failed,
+            detail=detail,
+            aspirational_proceeded=False,
+        )
+        ctx.log(
+            f"aspirational advisory (no hard stop): {message[:240]}",
+            level="warning",
+            stage=stage,
+            action_id=action_id or "aspirational.advisory",
+            detail={"gate_id": gate_id, "reason": reason},
+        )
+        return
+    if is_aspirational_enabled(ctx) and is_structural_pmq_check(gate_id):
+        raise_loud_failure(
+            ctx,
+            message,
+            stage=stage,
+            reason=reason,
+            detail=detail,
+            action_id=action_id,
+            cause=cause,
+        )
+    raise_loud_failure(
+        ctx,
+        message,
+        stage=stage,
+        reason=reason,
+        detail=detail,
+        action_id=action_id,
+        cause=cause,
+    )

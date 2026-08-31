@@ -715,12 +715,44 @@ class JobRunner:
                 else:
                     raise ValueError(f"Unknown mode: {mode}")
                 done_msg = f"Finished: {info.title if info else label}"
-                ctx.log(done_msg, level="success", stage=label)
-                refresh_journey_meta(ctx)
-                self._write_job(
-                    ctx,
-                    {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
-                )
+                vo_incomplete = False
+                try:
+                    from interview_mux.gates import check_g1_vo
+                    from interview_mux.stage_completion import vo_synthesize_should_defer_done
+
+                    missing_g1 = check_g1_vo(ctx)
+                    vo_open = bool(
+                        vo_synthesize_should_defer_done(ctx, "vo_synthesize") or missing_g1
+                    )
+                    vo_job = stage == "vo_synthesize"
+                    if vo_job and vo_open:
+                        vo_incomplete = True
+                        done_msg = (
+                            "VO synthesize incomplete — G1 missing "
+                            + ", ".join((missing_g1 or ["pickups"])[:6])
+                        )
+                except Exception:
+                    vo_incomplete = False
+                if vo_incomplete:
+                    ctx.log(done_msg, level="warning", stage="vo_synthesize")
+                    refresh_journey_meta(ctx)
+                    self._write_job(
+                        ctx,
+                        {
+                            "status": "running",
+                            "mode": mode,
+                            "stage": "vo_synthesize",
+                            "flow": flow,
+                            "message": done_msg,
+                        },
+                    )
+                else:
+                    ctx.log(done_msg, level="success", stage=label)
+                    refresh_journey_meta(ctx)
+                    self._write_job(
+                        ctx,
+                        {"status": "complete", "mode": mode, "stage": stage, "flow": flow, "message": done_msg},
+                    )
             except StageInputError as exc:
                 # Soft operator/gate pause — warning note only, never ERROR+traceback.
                 gate_msg = str(exc)
@@ -1250,6 +1282,31 @@ class JobRunner:
             )
             return
         detail = "; ".join(result.failures)
+        from interview_mux.aspirational_quality import is_aspirational_enabled
+
+        aspirational = is_aspirational_enabled(ctx)
+        lufs_failures = [
+            f for f in result.failures if "Integrated LUFS" in f or "LUFS" in f
+        ]
+        if aspirational and lufs_failures and len(lufs_failures) == len(result.failures):
+            ctx.log(
+                f"Master QA LUFS advisory ({flow}): {detail}",
+                level="warning",
+                stage="verify_master",
+                detail="; ".join(result.checks),
+            )
+            try:
+                from interview_mux.aspirational_quality import record_quality_advisories
+
+                record_quality_advisories(
+                    ctx,
+                    gate_id="verify_master_lufs",
+                    failed_checks=lufs_failures,
+                    detail={"flow": flow, "checks": result.checks},
+                )
+            except Exception:
+                pass
+            return
         # True-peak-only misses after loudnorm are usually measurement noise — warn, don't poison Activity.
         # Borderline integrated LUFS (SOFT: prefix) same treatment for long sparse podcasts.
         soft_only = bool(result.failures) and all(

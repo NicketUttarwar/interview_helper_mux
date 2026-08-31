@@ -22,17 +22,17 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_authoritative_mode_is_default(tmp_path):
+def test_advisory_mode_is_default(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "exec_delight_default_mode")
     from interview_mux.listen_delight import listen_delight_cfg
 
     cfg = listen_delight_cfg()
-    assert cfg.get("mode") == "authoritative"
+    assert cfg.get("mode") == "advisory"
     assert cfg.get("overall_min") == 0.90
 
 
-def test_authoritative_fails_below_floors_and_hard_stops(tmp_path):
-    """Forbidden-for-mode glue hard-stops ship at master_finalize (not pre-mix)."""
+def test_aspirational_ship_does_not_hard_stop(tmp_path):
+    """With aspirational policy, below-floor delight is advisory at ship."""
     ctx = isolated_run_ctx(tmp_path, "exec_delight_fail")
     _write_raw(
         ctx,
@@ -59,15 +59,54 @@ def test_authoritative_fails_below_floors_and_hard_stops(tmp_path):
     assert audit["passed"] is False
 
     (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF" + b"x" * 1100)
+
+    ship_audit = run_authoritative_listen_delight_at_ship(ctx)
+    assert ship_audit["pass"] == "post_master"
+    assert ship_audit["blocking"] is False
+    assert ship_audit.get("aspirational_fail") is True
+    assert ship_audit["passed"] is False
+
+
+def test_authoritative_fails_below_floors_when_aspirational_disabled(tmp_path, monkeypatch):
+    """When aspirational is off and mode authoritative, ship still hard-stops."""
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {
+            "mode": "authoritative",
+            "overall_min": 0.90,
+            "dimension_floors": {},
+            "fail_early_at_audit_stage": False,
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "exec_delight_fail_hard")
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_summary_x",
+                    "line_category": "segment_summary",
+                    "text": "In this chapter we recap the deal.",
+                }
+            ]
+        },
+    )
+    _write_raw(
+        ctx,
+        "mastering/mastering_plan.json",
+        {"narrative_mode": "sparse_source", "plan_status": "complete"},
+    )
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF")
 
     with pytest.raises(LoudStageFailure, match="Listen delight floors failed at ship"):
         run_authoritative_listen_delight_at_ship(ctx)
-
-    audit = ctx.read_json("mastering/listen_delight_audit.json")
-    assert audit["pass"] == "post_master"
-    assert audit["blocking"] is True
-    assert audit["passed"] is False
 
 
 def test_authoritative_passes_when_floors_are_cleared(tmp_path):
@@ -110,7 +149,7 @@ def test_authoritative_passes_when_floors_are_cleared(tmp_path):
 
     audit = run_listen_delight_audit(ctx)
 
-    assert audit["mode"] == "authoritative"
+    assert audit["mode"] == "advisory"
     assert audit["pass"] == "pre_mix"
     assert audit["blocking"] is False
     assert audit["passed"] is True
@@ -207,6 +246,10 @@ def test_authoritative_fail_early_legacy_blocks_at_audit_stage(tmp_path, monkeyp
     from interview_mux.listen_delight_remutate import REMUTATE_REL
 
     ctx = isolated_run_ctx(tmp_path, "exec_delight_remutate")
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: False,
+    )
     monkeypatch.setattr(
         "interview_mux.listen_delight.listen_delight_cfg",
         lambda: {

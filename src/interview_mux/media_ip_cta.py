@@ -1849,7 +1849,17 @@ def execute_cta_omit_from_needs(
         sel["exclude_rationales"] = rationales
         sel["excluded_segment_ids"] = excl
         out = apply_editorial_omits(ctx, sel) if extra else sel
-    healed = heal_on_air_cta_residue(ctx, out)
+    if out is None and ctx.artifact_exists("master/selection.json"):
+        loaded = ctx.read_json("master/selection.json")
+        out = dict(loaded) if isinstance(loaded, dict) else {}
+    healed = heal_on_air_cta_residue(ctx, out) if out else {}
+    if not extra and healed:
+        try:
+            from interview_mux.artifact_repairs import reconcile_ordered_vs_excluded
+
+            healed = reconcile_ordered_vs_excluded(healed)
+        except Exception:
+            pass
     after = [str(s) for s in (healed.get("ordered_segment_ids") or []) if s]
     if ctx.artifact_exists("master/selection.json") and healed and (
         (after and after != before) or released

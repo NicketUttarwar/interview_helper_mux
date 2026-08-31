@@ -18,6 +18,10 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
 
 
 def test_feel_unavailable_blocks_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: False,
+    )
     ctx = isolated_run_ctx(tmp_path, "exec_pmq_feel")
     master = ctx.path("master", "master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
@@ -232,7 +236,15 @@ _GOOD_PMQ_CFG = {
 
 
 def test_listen_delight_floors_block_publish_when_audit_missing(tmp_path, monkeypatch):
-    """mastering.listen_delight defaults to authoritative — no audit artifact must not silently pass."""
+    """Authoritative listen_delight without audit artifact must not silently pass."""
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.is_aspirational_enabled",
+        lambda ctx=None: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {"mode": "authoritative", "overall_min": 0.90},
+    )
     ctx = isolated_run_ctx(tmp_path, "exec_pmq_delight_missing")
     _write_good_pmq_fixture(ctx)
     monkeypatch.setattr(
@@ -288,6 +300,46 @@ def test_listen_delight_floors_pass_when_audit_clears_floors(tmp_path, monkeypat
     quality = evaluate_post_master_quality(ctx)
     assert "listen_delight_floors" not in quality["failed_checks"]
     assert quality["status"] == "pass"
+
+
+def test_advisory_rubric_fail_allows_publish_with_advisories(tmp_path, monkeypatch):
+    ctx = isolated_run_ctx(tmp_path, "exec_pmq_advisory_fail")
+    _write_good_pmq_fixture(ctx)
+    monkeypatch.setattr(
+        "interview_mux.post_master_quality.post_master_quality_cfg",
+        lambda: _GOOD_PMQ_CFG,
+    )
+    _write_raw(
+        ctx,
+        "master/junction_snip_qa.json",
+        {
+            "residual_findings": [],
+            "feel_audit_unavailable": True,
+            "blocking_reasons": ["junction_feel_audit_unavailable"],
+        },
+    )
+    _write_raw(
+        ctx,
+        "master/seam_autopsy.json",
+        {
+            "version": 1,
+            "phase": "post_master",
+            "commitment": {"status": "diverged", "reasons": ["claimed_repairs_missing_from_edl"]},
+            "scores": {
+                "continuity": 0.95,
+                "finishability": 0.95,
+                "information_clarity": 0.95,
+                "music_completeness": 0.95,
+                "sonic_density_fit": 0.9,
+            },
+            "seams": [],
+            "blocking_reasons": [],
+        },
+    )
+    quality = evaluate_post_master_quality(ctx)
+    assert quality["status"] == "advisory_fail"
+    assert quality["publish_allowed"] is True
+    assert "feel_audit_available" in quality["rubric_failed_checks"]
 
 
 def test_listen_delight_advisory_mode_does_not_block_publish(tmp_path, monkeypatch):

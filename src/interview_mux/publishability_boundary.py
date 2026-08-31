@@ -133,6 +133,23 @@ def _load_gap_report(ctx: RunContext) -> dict[str, Any] | None:
     return dict(doc) if isinstance(doc, dict) else None
 
 
+def _gap_report_aligned_with_edl(
+    ctx: RunContext,
+    gap_report: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Apply the same air_script VO filter ``run_edl`` uses before building clips."""
+    if not isinstance(gap_report, dict):
+        return gap_report
+    try:
+        from interview_mux.air_script import filter_gap_lines_for_air_script
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        filtered = filter_gap_lines_for_air_script(gap_report, load_plan_raw(ctx))
+        return filtered if isinstance(filtered, dict) else gap_report
+    except Exception:
+        return gap_report
+
+
 def _check_zero_keeps(ctx: RunContext, edl: dict[str, Any] | None) -> list[PublishabilityViolation]:
     if not isinstance(edl, dict):
         return []
@@ -186,7 +203,7 @@ def _check_phantom_vo(
         delivery = str(line.get("delivery") or "").lower()
         if delivery not in {"record", "synthesize"}:
             continue
-        if line.get("skipped_optional"):
+        if line.get("skipped_optional") or line.get("air_script_omit"):
             continue
         lid = str(line.get("line_id") or "")
         if not lid or lid in edl_line_ids:
@@ -360,6 +377,19 @@ def _check_pmq_envelope(ctx: RunContext) -> list[PublishabilityViolation]:
                 detail=detail,
             )
         ]
+    if doc.get("status") == "advisory_fail":
+        from interview_mux.aspirational_quality import is_aspirational_enabled
+
+        if is_aspirational_enabled(ctx):
+            failed = list(doc.get("rubric_failed_checks") or doc.get("failed_checks") or [])
+            if failed:
+                return [
+                    PublishabilityViolation(
+                        error_class="quality_advisory",
+                        code="pmq_advisory",
+                        detail="advisory_fail: " + ",".join(str(x) for x in failed[:6]),
+                    )
+                ]
     return []
 
 
@@ -398,13 +428,14 @@ def validate_publishability(
     selection = _load_selection(ctx)
     edl = _load_edl(ctx)
     gap_report = _load_gap_report(ctx)
+    edl_gap_report = _gap_report_aligned_with_edl(ctx, gap_report)
     violations: list[PublishabilityViolation] = []
 
     for name in checks:
         if name == "zero_keeps":
             violations.extend(_check_zero_keeps(ctx, edl))
         elif name == "phantom_vo":
-            violations.extend(_check_phantom_vo(ctx, edl, gap_report))
+            violations.extend(_check_phantom_vo(ctx, edl, edl_gap_report))
         elif name == "order_drift":
             violations.extend(_check_order_drift(selection, edl))
         elif name == "opening_orientation":
@@ -535,6 +566,24 @@ def commit_or_block(
     playbook = violation_playbook(primary)
     write_publishability_repair_plan(ctx, report, playbook=playbook)
     should_block = publishability_enforce(ctx) if enforce is None else bool(enforce)
+    advisory_only = (
+        report.violations
+        and all(v.error_class == "quality_advisory" for v in report.violations)
+    )
+    if advisory_only:
+        try:
+            from interview_mux.aspirational_quality import is_aspirational_enabled
+
+            if is_aspirational_enabled(ctx):
+                ctx.log(
+                    f"publishability {report.checkpoint}: quality advisory only "
+                    f"({len(report.violations)}) — not blocking",
+                    level="warning",
+                    stage=playbook.resume_stage,
+                )
+                return
+        except Exception:
+            pass
     if not should_block:
         try:
             ctx.log(

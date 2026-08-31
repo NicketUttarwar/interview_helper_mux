@@ -648,8 +648,10 @@ def playbook_never_touch_zeroed_keep(ctx: RunContext) -> list[str]:
 
 
 def playbook_vo_audibility_drift(ctx: RunContext) -> list[str]:
+    from interview_mux.air_script import persist_air_script_omits_on_gap_report
     from interview_mux.opening_orientation import retarget_orientation_to_open
 
+    persist_air_script_omits_on_gap_report(ctx)
     retarget_orientation_to_open(ctx)
     return playbook_rebuild_edl(ctx)
 

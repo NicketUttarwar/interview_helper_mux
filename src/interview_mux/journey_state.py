@@ -199,6 +199,9 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         if key not in computed:
             computed[key] = stored_val
             continue
+        # G6: g1_complete must track live check_g1_vo — never sticky-OR true.
+        if key == "g1_complete":
+            continue
         if isinstance(stored_val, bool) and isinstance(computed.get(key), bool):
             computed[key] = bool(computed[key] or stored_val)
     return computed

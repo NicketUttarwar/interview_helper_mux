@@ -1078,9 +1078,34 @@ def mix(ctx: RunContext, *, remux_cycle: int = 0) -> Path:
             ctx.log(f"listen_critic skipped: {exc}", level="warning", stage="mix")
         if listen_report.get("verdict") == "fail":
             from interview_mux.creative_delivery import creative_delivery_required
+            from interview_mux.aspirational_quality import (
+                apply_best_quality_candidate,
+                family_attempts_exhausted,
+                increment_family_attempt,
+                is_aspirational_enabled,
+                record_quality_advisories,
+                register_quality_candidate,
+            )
 
             msg = "listenability_contract: " + "; ".join(listen_report.get("failures") or [])
-            if listen_report.get("fail_closed") and creative_delivery_required():
+            if is_aspirational_enabled(ctx):
+                register_quality_candidate(ctx, family="listenability")
+                increment_family_attempt(ctx, "listenability")
+                if family_attempts_exhausted(ctx, "listenability"):
+                    apply_best_quality_candidate(ctx, family="listenability")
+                listen_report["verdict"] = "warning"
+                listen_report["aspirational_fail"] = True
+                listen_report["blocking"] = False
+                write_listenability_contract(ctx, listen_report)
+                record_quality_advisories(
+                    ctx,
+                    gate_id="listenability_contract",
+                    failed_checks=list(listen_report.get("failures") or []),
+                    detail={"stage": "mix"},
+                    aspirational_proceeded=family_attempts_exhausted(ctx, "listenability"),
+                )
+                ctx.log(msg + " (aspirational advisory)", level="warning", stage="mix")
+            elif listen_report.get("fail_closed") and creative_delivery_required():
                 import os
 
                 soft = os.environ.get("MUX_E2E_SOFT_LISTENABILITY", "").strip().lower() in {

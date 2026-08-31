@@ -2040,3 +2040,29 @@ def test_nle_collapse_does_not_zero_manifest_keep_inside_dropped_parent() -> Non
     ss, se, notes = clamp_source_away_from_never_touch(83020, 87160, intervals)
     assert (ss, se) == (83020, 87160)
     assert not any("zeroed_inside_never_touch" in n for n in notes)
+
+
+def test_cta_omit_excluded_in_order() -> None:
+    from interview_mux.media_ip_cta import execute_cta_omit_from_needs
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_054", "Subscribe to the Life Sciences DNA podcast now.", start=0, end=4000),
+            _seg("seg_010", "Early detection of the tumor changing.", start=4000, end=8000),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_054", "seg_010"],
+            "excluded_segment_ids": [{"segment_id": "seg_054", "reason": "media_ip_cta"}],
+            "exclude_rationales": {"seg_054": "media_ip_cta sponsor bumper"},
+        },
+    )
+    execute_cta_omit_from_needs(ctx, [])
+    sel = ctx.read_json("master/selection.json")
+    order = [str(s) for s in (sel.get("ordered_segment_ids") or [])]
+    assert "seg_054" not in order
+    assert "seg_010" in order

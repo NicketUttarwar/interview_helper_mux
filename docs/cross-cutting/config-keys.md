@@ -1052,11 +1052,17 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.junction_snip_qa.dead_air_clamp_ms` | `2500` | Clamp non-impact silence pads | Does not steal `impact_hold` |
 | `mastering.junction_snip_qa.pace_multipliers` | sparse/fireside/… | Scales holds/nudges per source pace | Keeps policy dynamic across source types |
 | `mastering.post_master_quality.never_skip` | `true` | Always write post-master quality after finalize | `false` would skip publish gate |
-| `mastering.post_master_quality.block_publish` | `true` | `require_publishable` / finalize | Softens publish gate when false |
+| `mastering.post_master_quality.block_publish` | `false` | `require_publishable` / finalize | `true` blocks publish on rubric PMQ failures |
 | `mastering.post_master_quality.block_on_feel_unavailable` | `true` | Fail publish when feel audit verdict is unavailable after retry | `false` ignores missing feel judgment |
 | `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
 | `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
-| `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | **Product flip (locked):** authoritative floor failures hard-stop `listen_delight_audit` and re-block at `post_master_quality`/publish; `advisory` writes the same scored artifact but never blocks |
+| `mastering.listen_delight.mode` | `advisory` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | With `mastering.aspirational_quality.enabled` (default), floors are aspiration signals; `authoritative` + aspirational off restores hard-stop ship gate |
+| `mastering.aspirational_quality.enabled` | `true` | Rubric gates (delight, PMQ scorecard, listenability, junction feel) | `false` restores authoritative blocking on rubrics |
+| `mastering.aspirational_quality.max_attempts_per_family` | `3` | Remutate / heal budget per rubric family before pick-best | Lower = faster fallback to best candidate |
+| `mastering.aspirational_quality.always_produce_master` | `true` | `master_finalize` completes with best structurally sound candidate | `false` not recommended |
+| `mastering.aspirational_quality.require_operator_publish_when_advisory` | `true` | `podcast_publish` / S3 when `quality_advisories` present | `false` allows unattended RSS with advisories |
+| `mastering.aspirational_quality.catastrophic_floors.*` | cut_integrity `0.70`; listen_delight_overall `0.65` | Hard stop even under aspirational policy | Below these = no master |
+| `mastering.aspirational_quality.pick_best_weights.*` | delight overall `0.5`; cut_integrity `0.2`; … | `select_best_quality_candidate` ranking | Tune pick-best tie-breaks |
 | `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
 | `mastering.listen_delight.require_mode_consistency` | `true` | Gates `mode_coherence`/`finishability`/`recommendability` on `mode_consistency_report.ok` | `false` treats mode consistency as always-ok (softer scores) |

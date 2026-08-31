@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveryCheckpoint",
+  "type": "object",
+  "properties": {
+    "phase": { "type": "string" },
+    "sealed_at": { "type": "string" },
+    "selection_fingerprint": { "type": "string" },
+    "order_fingerprint": { "type": "string" },
+    "g1_line_ids": { "type": "array", "items": { "type": "string" } },
+    "assembly_path": { "type": "string" },
+    "listen_delight_waiver": { "type": "boolean" },
+    "reason": { "type": "string" }
+  },
+  "additionalProperties": true
+}

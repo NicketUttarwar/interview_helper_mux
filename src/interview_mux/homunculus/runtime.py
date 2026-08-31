@@ -25,6 +25,30 @@ def is_homunculus_run(ctx: RunContext) -> bool:
     return is_homunculus_brain(homunculus_version(ctx))
 
 
+def _mastering_plan_stale_from_gap_pass(ctx: RunContext) -> bool:
+    """True when Pass-2 gap work invalidated the plan before selection_framing_apply."""
+    path = ctx.final_path("mastering", "mastering_plan.json")
+    if not path.is_file():
+        return False
+    try:
+        import json
+
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    meta = doc.get("_meta") or {}
+    if not meta.get("stale"):
+        return False
+    reason = str(meta.get("stale_reason") or "")
+    return reason in {
+        "invalidated_by:gap_framing_recompose",
+        "invalidated_by:nugget_layup_compose",
+        "invalidated_by:refinement_agenda",
+    }
+
+
 def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
     """Earliest incomplete seed-order stage that must run before ``stage``."""
     from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
@@ -34,6 +58,34 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
         return None
     earliest = _earliest_incomplete_seed_stage(ctx, stage)
     if earliest and earliest != stage:
+        if (
+            stage == "air_script_seams"
+            and earliest == "selection_framing_apply"
+            and _mastering_plan_stale_from_gap_pass(ctx)
+        ):
+            (ctx.run_dir / ".stage_done" / "selection_framing_apply").unlink(
+                missing_ok=True
+            )
+            return None
+        try:
+            from interview_mux.homunculus.agenda import (
+                G0_LOCKED_RERUN_STAGES,
+                prepare_outputs_present,
+            )
+
+            if (
+                stage in G0_LOCKED_RERUN_STAGES
+                and earliest in G0_LOCKED_RERUN_STAGES
+                and not prepare_outputs_present(ctx, earliest)
+            ):
+                return None
+        except Exception:
+            pass
+        order = ANALYSIS_ORDER if stage in ANALYSIS_ORDER else DELIVERY_ORDER
+        if stage in order:
+            earlier_list = list(order[: order.index(stage)])
+            if not any(ctx.is_done(s) for s in earlier_list):
+                return None
         return earliest
     return None
 
@@ -58,20 +110,49 @@ def dispatch_stage(
     unmark_hollow_prepare_stages(ctx)
     try:
         from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
-        from interview_mux.homunculus.agenda import (
-            delivery_sdp_present,
-            stage_outputs_present,
+        from interview_mux.delivery_guardrails import (
+            music_skip_allowed,
+            prepare_fingerprint_blocks_rerun,
         )
-        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
-        if (
-            stage in MUSIC_BEFORE_MIX
-            and delivery_sdp_present(ctx)
-            and not missing_sdp_asset_wavs(ctx)
-            and stage_outputs_present(ctx, stage)
-        ):
+        blocked_prep = prepare_fingerprint_blocks_rerun(ctx, stage)
+        if blocked_prep == "g0_locked":
+            pass
+        elif blocked_prep and ctx.is_done(stage):
+            ctx.log(
+                f"homunculus skip-run {stage} — {blocked_prep}",
+                level="info",
+                stage=stage,
+            )
+            admit(
+                ctx,
+                identity=stage,
+                action="keep",
+                payload={"stage": stage, "source": source, "prepare_fingerprint": blocked_prep},
+            )
+            append_ledger(
+                ctx,
+                {
+                    "kind": "stage",
+                    "identity": stage,
+                    "status": "done",
+                    "source": source,
+                    "prepare_fingerprint": blocked_prep,
+                },
+            )
+            return
+
+        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
             if not ctx.is_done(stage):
                 ctx.mark_done(stage, force=True)
+            if stage == "mmaudio_sfx":
+                from datetime import datetime, timezone
+
+                from interview_mux.delivery_guardrails import stamp_delivery_epoch
+
+                stamp_delivery_epoch(
+                    ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
+                )
             ctx.log(
                 f"homunculus skip-run {stage} — SDP theme WAVs already on disk",
                 level="info",
@@ -93,6 +174,45 @@ def dispatch_stage(
             unmark_stage_only(ctx, stage)
         raise
     _refuse_music_before_assembly(ctx, stage, action="run")
+    try:
+        from datetime import datetime, timezone
+
+        from interview_mux.delivery_guardrails import (
+            mix_epoch_block,
+            record_wasted_work,
+            stamp_delivery_epoch,
+            upstream_stale_blockers,
+            vo_synthesize_stability_block,
+        )
+
+        if stage == "vo_synthesize":
+            vo_b = vo_synthesize_stability_block(ctx)
+            if vo_b:
+                raise RuntimeError(
+                    f"seed order: complete {vo_b} before running vo_synthesize"
+                )
+        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+            mix_b = mix_epoch_block(ctx)
+            if mix_b:
+                raise RuntimeError(
+                    f"cannot run {stage}: delivery epoch {mix_b} (wait for mmaudio_sfx)"
+                )
+        stale = upstream_stale_blockers(ctx, stage)
+        if stale:
+            raise RuntimeError(
+                f"cannot run {stage}: stale upstream {', '.join(stale[:4])}"
+            )
+        if stage in {"mmaudio_sfx", "vo_synthesize", "mix"}:
+            record_wasted_work(ctx, event="expensive_start", stage=stage)
+            now = datetime.now(timezone.utc).isoformat()
+            if stage == "mmaudio_sfx":
+                stamp_delivery_epoch(ctx, music_started_at=now)
+            if stage == "mix":
+                stamp_delivery_epoch(ctx, mix_started_at=now)
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
     blocked = _seed_prereq_block(ctx, stage)
     if blocked:
         raise RuntimeError(
@@ -165,13 +285,21 @@ def dispatch_stage(
         if protected and needed and not ctx.is_done(stage):
             defer_done = False
             if stage == "vo_synthesize":
-                from interview_mux.transition_vo import current_transition_pairs_missing
+                from interview_mux.stage_completion import vo_synthesize_should_defer_done
 
-                defer_done = bool(current_transition_pairs_missing(ctx))
+                defer_done = bool(vo_synthesize_should_defer_done(ctx, stage))
             if not defer_done:
                 ctx.mark_done(stage, force=True)
                 if not ctx.is_done(stage):
                     raise RuntimeError(f"{stage} finished without a done marker")
+                if stage == "mmaudio_sfx":
+                    from datetime import datetime, timezone
+
+                    from interview_mux.delivery_guardrails import stamp_delivery_epoch
+
+                    stamp_delivery_epoch(
+                        ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
+                    )
     except Exception as exc:
         inflight.discard(identity)
         if stage == "speaker_roles":

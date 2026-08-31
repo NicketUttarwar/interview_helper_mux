@@ -388,6 +388,16 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                 s for s in earlier_list if s in SHIP_AFTER_MASTER or s == "master_finalize"
             ]
         for earlier in earlier_list:
+            if earlier in DELIVERY_ORDER:
+                try:
+                    from interview_mux.delivery_guardrails import seed_stage_complete
+
+                    if seed_stage_complete(ctx, earlier):
+                        continue
+                except Exception:
+                    if ctx.is_done(earlier):
+                        continue
+                return earlier
             if not ctx.is_done(earlier):
                 return earlier
         return None

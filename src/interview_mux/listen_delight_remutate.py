@@ -7,7 +7,7 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 REMUTATE_REL = "mastering/listen_delight_remutate.json"
-MAX_ATTEMPTS = 2
+MAX_ATTEMPTS = 3
 
 _DIM_STAGES: dict[str, list[str]] = {
     "nugget_retention": [
@@ -19,6 +19,13 @@ _DIM_STAGES: dict[str, list[str]] = {
     ],
     "cut_integrity": ["edl", "junction_snip_qa", "mix", "listen_delight_audit"],
     "conversation_fit": ["edl", "mix", "listen_delight_audit"],
+    "story_followability": [
+        "air_script_seams",
+        "transitions",
+        "edl",
+        "mix",
+        "listen_delight_audit",
+    ],
     "sonic_weave": ["mix", "listen_delight_audit"],
     "mode_coherence": ["gap_framing_compose", "edl", "mix", "listen_delight_audit"],
     "finishability": ["full_master_ranking", "edl", "mix", "listen_delight_audit"],

@@ -9,9 +9,11 @@ import pytest
 from interview_mux.run_context import RunContext
 from interview_mux.vo_synthesis_audit import (
     SYNTHESIS_REPORT_REL,
+    backfill_missing_synthesis_entries,
     record_recorded_vo,
     record_skipped_vo,
     record_synthesis,
+    synthesis_entry_for_line,
 )
 from run_fixtures import patch_executions_root
 
@@ -50,3 +52,31 @@ def test_record_skipped_and_recorded(ctx: RunContext) -> None:
     backends = {e["line_id"]: e["backend"] for e in entries}
     assert backends["line_skip"] == "skipped"
     assert backends["line_001"] == "upload"
+
+
+def test_backfill_missing_synthesis_entries(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.vo_synthesis_audit.analyze_vo_wav",
+        lambda *_a, **_k: {"pass": True},
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "line_001",
+                    "text": "Hello world.",
+                    "targets_segment_id": "seg_001",
+                    "required": True,
+                    "gap_type": "nugget_layup",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert synthesis_entry_for_line(ctx, "line_001") is None
+    filled = backfill_missing_synthesis_entries(ctx)
+    assert filled == ["line_001"]
+    assert synthesis_entry_for_line(ctx, "line_001") is not None

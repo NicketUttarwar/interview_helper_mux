@@ -398,6 +398,8 @@ def _update_boundaries(
             merged["fused_from"] = fused_from
             merged["fuse_pass_id"] = STAGE_KEY
             saw_survivor = True
+        if not str(merged.get("proposed_split_reason") or "").strip():
+            merged["proposed_split_reason"] = "topic_shift"
         rows.append(merged)
     if not saw_survivor:
         rows.append(
@@ -407,6 +409,7 @@ def _update_boundaries(
                 "end_ms": union_end,
                 "fused_from": fused_from,
                 "fuse_pass_id": STAGE_KEY,
+                "proposed_split_reason": "topic_shift",
             }
         )
     rows.sort(key=lambda r: _as_int(r.get("start_ms")))

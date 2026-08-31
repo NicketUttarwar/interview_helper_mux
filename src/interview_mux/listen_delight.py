@@ -1,12 +1,10 @@
-"""Listen delight audit — authoritative ship gate (config: mastering.listen_delight).
+"""Listen delight audit — ship aspiration rubric (config: mastering.listen_delight).
 
-Computes per-dimension scores from on-disk artifacts at call time. When
-``mastering.listen_delight.mode`` is ``authoritative`` (default), floor failures
-**block ship at master_finalize** after ``master/master.wav`` exists.
-
-The ``listen_delight_audit`` stage (after assembly_preview) is an **early,
-non-blocking** pass when ``fail_early_at_audit_stage`` is false (default):
-scores and logs failures, but hard stop waits for the post-master re-eval.
+Computes per-dimension scores from on-disk artifacts at call time. With default
+``mastering.aspirational_quality.enabled``, floor failures are advisory: register
+candidates, remutate up to three times, pick-best, and continue to ``master.wav``.
+Set ``aspirational_quality.enabled: false`` and ``listen_delight.mode: authoritative``
+to restore hard ship blocks.
 """
 
 from __future__ import annotations
@@ -562,13 +560,90 @@ def _write_listen_delight_qc_meta(ctx: RunContext, result: dict[str, Any], dims:
     ctx.write_json("run_meta.json", meta)
 
 
+def _handle_listen_delight_failure(
+    ctx: RunContext,
+    result: dict[str, Any],
+    dims: dict[str, float],
+    *,
+    pass_phase: str,
+    stage_id: str,
+) -> bool:
+    """Aspirational path: register candidate, remutate or pick-best, record advisories."""
+    from interview_mux.aspirational_quality import (
+        apply_best_quality_candidate,
+        family_attempts_exhausted,
+        increment_family_attempt,
+        is_aspirational_enabled,
+        passes_catastrophic_floors,
+        record_quality_advisories,
+        register_quality_candidate,
+    )
+    from interview_mux.listen_delight_remutate import (
+        apply_listen_delight_remutate,
+        plan_listen_delight_remutate,
+    )
+
+    if not is_aspirational_enabled(ctx):
+        return False
+    cata_ok, cata_reasons = passes_catastrophic_floors(ctx)
+    if not cata_ok:
+        return False
+    register_quality_candidate(ctx, family="listen_delight")
+    increment_family_attempt(ctx, "listen_delight")
+    remutate = plan_listen_delight_remutate(
+        ctx, failed_dimensions=list(result.get("failed_dimensions") or [])
+    )
+    audit_patch: dict[str, Any] = {
+        "aspirational_fail": True,
+        "blocking": False,
+        "advisory": True,
+        "remutate": remutate,
+    }
+    if not remutate.get("exhausted"):
+        applied = apply_listen_delight_remutate(ctx, remutate)
+        audit_patch["remutate_applied"] = applied
+    elif family_attempts_exhausted(ctx, "listen_delight"):
+        audit_patch["pick_best"] = apply_best_quality_candidate(
+            ctx, family="listen_delight"
+        )
+    if ctx.artifact_exists(AUDIT_REL):
+        try:
+            loaded = ctx.read_json(AUDIT_REL)
+            if isinstance(loaded, dict):
+                loaded.update(audit_patch)
+                ctx.write_json(AUDIT_REL, loaded)
+        except Exception:
+            pass
+    record_quality_advisories(
+        ctx,
+        gate_id="listen_delight_floors",
+        failed_checks=list(result.get("failed_dimensions") or []),
+        detail={
+            "overall": result.get("overall"),
+            "pass": pass_phase,
+            "remutate": remutate,
+        },
+        aspirational_proceeded=bool(audit_patch.get("pick_best", {}).get("ok")),
+    )
+    ctx.log(
+        "listen_delight floors below aspiration (advisory — no hard stop): "
+        f"overall={result.get('overall')} dims={result.get('failed_dimensions')}",
+        level="warning",
+        stage=stage_id,
+    )
+    return True
+
+
 def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     conf = listen_delight_cfg()
+    from interview_mux.aspirational_quality import is_aspirational_enabled
+
+    aspirational = is_aspirational_enabled(ctx)
     result = evaluate_listen_delight(ctx, cfg=conf)
     dims = result["dimensions"]
     authoritative = bool(result["authoritative"])
     fail_early = _fail_early_at_audit_stage(conf)
-    blocking = authoritative and fail_early
+    blocking = authoritative and fail_early and not aspirational
     advisory = not blocking
 
     audit = _build_audit_doc(
@@ -582,6 +657,13 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=advisory)
 
     if blocking and not result["passed"]:
+        from interview_mux.aspirational_quality import is_aspirational_enabled
+
+        if is_aspirational_enabled(ctx) and _handle_listen_delight_failure(
+            ctx, result, dims, pass_phase="pre_mix", stage_id="listen_delight_audit"
+        ):
+            audit = ctx.read_json(AUDIT_REL)
+            return audit if isinstance(audit, dict) else {}
         try:
             from interview_mux.homunculus.issues import ingest_catch
 
@@ -651,10 +733,13 @@ def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
 
 
 def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
-    """Fresh authoritative delight after master.wav — hard ship gate."""
+    """Fresh authoritative delight after master.wav — ship gate when not aspirational."""
     conf = listen_delight_cfg()
+    from interview_mux.aspirational_quality import is_aspirational_enabled
+
+    aspirational = is_aspirational_enabled(ctx)
     mode_str = str(conf.get("mode") or "authoritative")
-    if mode_str != "authoritative":
+    if mode_str != "authoritative" and not aspirational:
         if ctx.artifact_exists(AUDIT_REL):
             try:
                 loaded = ctx.read_json(AUDIT_REL)
@@ -665,7 +750,7 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
 
     result = evaluate_listen_delight(ctx, cfg=conf)
     dims = result["dimensions"]
-    blocking = True
+    blocking = not aspirational
     prior: dict[str, Any] = {}
     if ctx.artifact_exists(AUDIT_REL):
         try:
@@ -679,13 +764,27 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
         dims,
         pass_phase="post_master",
         blocking=blocking,
-        advisory=False,
-        extra_notes=list(prior.get("notes") or [])[:4],
+        advisory=aspirational or not blocking,
     )
     ctx.write_json(AUDIT_REL, audit)
-    _write_listen_delight_qc_meta(ctx, result, dims, blocking=blocking, advisory=False)
+    _write_listen_delight_qc_meta(
+        ctx,
+        result,
+        dims,
+        blocking=blocking,
+        advisory=aspirational or not blocking,
+    )
 
     if not result["passed"]:
+        if aspirational and _handle_listen_delight_failure(
+            ctx,
+            result,
+            dims,
+            pass_phase="post_master",
+            stage_id="master_finalize",
+        ):
+            audit = ctx.read_json(AUDIT_REL)
+            return audit if isinstance(audit, dict) else {}
         try:
             from interview_mux.homunculus.issues import ingest_catch
 

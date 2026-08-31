@@ -400,6 +400,12 @@ if [[ "${MUX_NO_BROWSER:-0}" == "1" ]]; then
   fi
 fi
 
+# Fresh Full-auto must not inherit a stale keepalive/driver (pointer cleared on --fresh).
+if _full_auto_env_set && [[ -z "${MUX_RUN_ID:-}" && "${MUX_FRESH:-1}" == "1" ]]; then
+  echo "Fresh Full-auto — stopping prior driver + keepalive…" >&2
+  python "$ROOT/tools/full_auto_daemon_launch.py" stop || true
+fi
+
 E2E_ARGS=(e2e)
 if _keepalive_requested; then
   E2E_ARGS+=(keepalive)

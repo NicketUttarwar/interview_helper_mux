@@ -85,7 +85,21 @@
       "type": "string",
       "description": "Catalog show selected at Start. Locked for the run; selects S3 bucket + CloudFront invalidation. Omit → config/podcast/catalog.json default_podcast_id."
     },
-    "podcast_title": { "type": "string" }
+    "podcast_title": { "type": "string" },
+    "delivery_epoch": {
+      "type": "object",
+      "description": "Phase A–D stamps and last stable checkpoint (forensics D2).",
+      "properties": {
+        "phase_a_sealed_at": { "type": "string" },
+        "music_started_at": { "type": "string" },
+        "music_complete_at": { "type": "string" },
+        "mix_started_at": { "type": "string" },
+        "last_stable_checkpoint": { "type": ["string", "null"] },
+        "orphaned_spend": { "type": "boolean" },
+        "updated_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

@@ -113,6 +113,14 @@ def stage_artifact_incompleteness(
             missing_pairs = []
         if missing_pairs:
             return f"current transition pairs missing WAV: {', '.join(missing_pairs[:4])}"
+        try:
+            from interview_mux.gates import check_g1_vo
+
+            missing_g1 = check_g1_vo(ctx)
+            if missing_g1:
+                return f"G1 VO pickups missing: {', '.join(missing_g1[:4])}"
+        except Exception:
+            pass
     if stage_id in {
         "music_palette_compose",
         "sfx_prompt_craft",
@@ -164,6 +172,13 @@ def reconcile_stage_done_marker(ctx: RunContext, stage_id: str) -> bool:
             detail={"reason": reason},
         )
     return False
+
+
+def seed_stage_complete(ctx: RunContext, stage: str) -> bool:
+    """G1: is_done ∧ outputs present ∧ no artifact incompleteness."""
+    from interview_mux.delivery_guardrails import seed_stage_complete as _complete
+
+    return _complete(ctx, stage)
 
 
 def assert_stage_artifacts_complete(ctx: RunContext, stage_id: str) -> None:

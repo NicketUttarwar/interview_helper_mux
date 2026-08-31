@@ -661,13 +661,68 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                 c["detail"] = {**detail, "e2e_softened": True}
 
     passed = all(bool(c["passed"]) for c in checks)
+    failed_checks = [str(c["check_id"]) for c in checks if not c["passed"]]
+    from interview_mux.aspirational_quality import (
+        aspirational_quality_cfg,
+        is_aspirational_enabled,
+        is_rubric_pmq_check,
+        is_structural_pmq_check,
+        record_quality_advisories,
+    )
+
+    aspirational = is_aspirational_enabled(ctx)
+    structural_failed: list[str] = []
+    rubric_failed: list[str] = []
+    for c in checks:
+        if c.get("passed"):
+            continue
+        cid = str(c.get("check_id") or "")
+        if is_structural_pmq_check(cid) or cid == "master_exists_nonempty":
+            structural_failed.append(cid)
+            continue
+        if cid == "no_critical_junction_residuals":
+            detail = c.get("detail") if isinstance(c.get("detail"), dict) else {}
+            if int((detail or {}).get("count") or 0) > 0:
+                structural_failed.append(cid)
+                continue
+        if aspirational and is_rubric_pmq_check(cid):
+            rubric_failed.append(cid)
+        else:
+            structural_failed.append(cid)
+
+    if structural_failed:
+        status = "fail"
+        publish_allowed = False
+    elif rubric_failed and aspirational:
+        status = "advisory_fail"
+        publish_allowed = True
+    else:
+        status = "pass" if passed else "fail"
+        publish_allowed = passed and not bool(conf.get("block_publish", False))
+
+    advisories: list[dict[str, Any]] = []
+    if rubric_failed and aspirational:
+        advisories = [{"gate_id": "post_master_quality", "failed_checks": rubric_failed}]
+        if bool(aspirational_quality_cfg().get("record_advisories_in_pmq", True)):
+            record_quality_advisories(
+                ctx,
+                gate_id="post_master_quality",
+                failed_checks=rubric_failed,
+                detail={"status": status},
+                aspirational_proceeded=not structural_failed,
+            )
+
     return {
         "version": 1,
         "generated_at": _now(),
-        "status": "pass" if passed else "fail",
-        "publish_allowed": passed,
+        "status": status,
+        "publish_allowed": publish_allowed,
         "checks": checks,
-        "failed_checks": [str(c["check_id"]) for c in checks if not c["passed"]],
+        "failed_checks": failed_checks,
+        "structural_failed_checks": structural_failed,
+        "rubric_failed_checks": rubric_failed,
+        "advisories": advisories,
+        "aspirational": aspirational,
         "never_skipped": True,
         "scorecard_preview": {
             "overall": overall,
@@ -800,20 +855,40 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
     meta["qc_summaries"] = qc
     write_committed_json(ctx, "run_meta.json", meta)
 
-    if block and quality["status"] != "pass":
-        from interview_mux.loud_fail import raise_loud_failure
+    if block:
+        structural = list(quality.get("structural_failed_checks") or [])
+        if structural or quality.get("status") == "fail":
+            from interview_mux.aspirational_quality import is_aspirational_enabled
 
-        raise_loud_failure(
-            ctx,
-            "Post-master quality failed: " + ", ".join(quality["failed_checks"]),
-            stage="master_finalize",
-            reason="post_master_quality_failed",
-            detail={"failed_checks": quality["failed_checks"]},
-        )
+            if not (is_aspirational_enabled(ctx) and not structural):
+                from interview_mux.loud_fail import raise_loud_failure
+
+                raise_loud_failure(
+                    ctx,
+                    "Post-master quality failed: " + ", ".join(quality["failed_checks"]),
+                    stage="master_finalize",
+                    reason="post_master_quality_failed",
+                    detail={
+                        "failed_checks": quality["failed_checks"],
+                        "structural_failed_checks": structural,
+                    },
+                )
     return quality
 
 
 def require_publishable(ctx: RunContext, *, stage: str = "podcast_publish") -> None:
+    from interview_mux.aspirational_quality import publish_blocked_by_advisories
+
+    if publish_blocked_by_advisories(ctx):
+        from interview_mux.loud_fail import raise_loud_failure
+
+        raise_loud_failure(
+            ctx,
+            "Publishing blocked: quality advisories require operator G-Publish consent.",
+            stage=stage,
+            reason="publish_blocked_quality_advisories",
+            detail={"require_operator_publish_when_advisory": True},
+        )
     if not ctx.artifact_exists(QUALITY_REL):
         from interview_mux.loud_fail import raise_loud_failure
 

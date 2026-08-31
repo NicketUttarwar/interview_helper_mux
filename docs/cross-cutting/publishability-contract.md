@@ -48,9 +48,23 @@ Wiring: `stages/assembly.py` (`post_edl`, `pre_mix`), `junction_snip_qa.py` (`po
 | Stage | Gate | Notes |
 |-------|------|-------|
 | `mix` → `master.wav` | Tier 1 `pre_mix` must pass (when enforced) | Mix does not repair EDL geometry |
-| `post_master_quality` | `publish_allowed: true` | Feel-audit missing is **fail-open** when seams are clean (`commit_ok`, zero critical junction residuals) |
-| `master_finalize` / G-Publish | `pre_finalize` PMQ envelope | PMQ missing ≠ ship-ready |
-| Cover / package / S3 | Operator G-Publish (optional) | Reaching finalize implies delight passed in authoritative mode |
+
+### Aspirational rubrics (default)
+
+When `mastering.aspirational_quality.enabled` is true (default), **Tier 0** remains blocking. **Rubric gates** (listen delight floors, PMQ scorecard, listenability contract, non-critical junction feel, LUFS band) are recommendations: up to three attempts per family, then `select_best_quality_candidate` restores the best-scored `master.wav` and writes `run_meta.quality_advisories`. Catastrophic floors (`catastrophic_floors`) and never-soft PMQ checks still hard-stop. Roll back with `aspirational_quality.enabled: false` and `listen_delight.mode: authoritative`.
+
+| Rubric | Artifact | Structural exceptions |
+|--------|----------|----------------------|
+| Listen delight | `mastering/listen_delight_audit.json` | Below catastrophic floors; air-script **errors** |
+| PMQ scorecard | `master/post_master_quality.json` | `spoken_vo_speakable`, hash agreement, omit ledger, duration floor |
+| Listenability | `master/listenability_contract.json` | — |
+| Junction | `master/junction_snip_qa.json` | **Critical** residuals |
+
+| Stage | Gate | Notes |
+|-------|------|-------|
+| `post_master_quality` | `publish_allowed: true` on master completion | `advisory_fail` rubric-only status is normal under aspirational policy |
+| `master_finalize` / G-Publish | `pre_finalize` PMQ envelope | Tier-0 PMQ failures still block; rubric advisories logged only |
+| Cover / package / S3 | Operator G-Publish (optional) | S3 requires operator consent when `quality_advisories` non-empty |
 
 ---
 

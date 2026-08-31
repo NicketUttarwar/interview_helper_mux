@@ -53,8 +53,10 @@ def launch(mode: str, *extra: str) -> None:
     import subprocess
 
     py = ROOT / ".venv" / "bin" / "python"
-    cmd = [str(py), str(ROOT / "tools" / "full_auto_daemon_launch.py"), mode, *extra]
-    subprocess.run(cmd, cwd=str(ROOT), check=False)
+    cmd = [str(py), str(ROOT / "tools" / "full_auto_daemon_launch.py"), mode, *extra, "--no-keepalive"]
+    env = os.environ.copy()
+    env["MUX_KEEPALIVE"] = "0"
+    subprocess.run(cmd, cwd=str(ROOT), check=False, env=env)
 
 
 def server_alive() -> bool:
@@ -191,6 +193,15 @@ def pointed_run() -> str | None:
     return None
 
 
+def fresh_bind_in_progress() -> bool:
+    """True while a fresh launch is binding and the run pointer is still cleared."""
+    try:
+        from full_auto_daemon_launch import fresh_pending_active
+    except ImportError:
+        return False
+    return fresh_pending_active() and pointed_run() is None
+
+
 def main() -> None:
     log("keepalive loop start")
     while True:
@@ -250,6 +261,7 @@ def main() -> None:
             launch("server")
             time.sleep(3)
         if not e2e_alive():
+            pointed = pointed_run()
             halt_id = pointed or run_id
             if halt_id and remutate_exhausted(halt_id):
                 write_status(halt_id)
@@ -268,13 +280,15 @@ def main() -> None:
                 except Exception as exc:
                     log(f"stack shutdown failed: {exc}")
                 return
+            if fresh_bind_in_progress():
+                log("fresh bind in progress — waiting")
+                write_status(None)
+                time.sleep(15)
+                continue
             if pointed and not pipeline_complete(pointed):
                 log(f"e2e down — resume {pointed}")
                 launch("e2e", "--run-id", pointed)
-            elif run_id and not pipeline_complete(run_id):
-                log(f"e2e down — resume {run_id}")
-                launch("e2e", "--run-id", run_id)
-            elif not run_id:
+            elif not pointed:
                 log("e2e down — fresh")
                 launch("e2e", "--fresh")
             elif run_id and pipeline_complete(run_id):

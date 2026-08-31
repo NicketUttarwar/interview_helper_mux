@@ -1003,16 +1003,25 @@ def run_edl(ctx: RunContext) -> None:
                     stage="edl",
                 )
             try:
-                from interview_mux.air_script import filter_gap_lines_for_air_script
+                from interview_mux.air_script import (
+                    filter_gap_lines_for_air_script,
+                    persist_air_script_omits_on_gap_report,
+                )
                 from interview_mux.mastering_plan_loader import load_plan_raw
 
+                omitted = persist_air_script_omits_on_gap_report(ctx)
+                if omitted:
+                    ctx.log(
+                        f"edl: persisted {omitted} air_script VO omit(s) on gap_report",
+                        level="info",
+                        stage="edl",
+                    )
                 filtered = filter_gap_lines_for_air_script(
                     gap_report if isinstance(gap_report, dict) else None,
                     load_plan_raw(ctx),
                 )
-                if isinstance(filtered, dict) and filtered is not gap_report:
+                if isinstance(filtered, dict):
                     gap_report = filtered
-                    ctx.write_json("understanding/gap_report.json", gap_report)
             except Exception as exc:
                 ctx.log(f"edl: air_script VO filter skipped: {exc}", level="warning", stage="edl")
             resynced = resync_required_synthesize_wavs(ctx, gap_report)

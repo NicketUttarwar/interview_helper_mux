@@ -12,11 +12,16 @@ from interview_mux.execution_report import (
     write_execution_report,
 )
 from interview_mux.identical_failures import (
+    clear_all_halts,
+    clear_edl_repair_halts,
     clear_halts_matching,
     failure_signature,
+    forensics_mode,
     halt_after,
+    is_halted,
     normalize_reason,
     record_identical_failure,
+    sync_identical_halts_with_product,
     upsert_fail_key,
 )
 from interview_mux.opening_adjacency_repair import (
@@ -116,6 +121,108 @@ def test_clear_halts_matching_resets_g1_edl_signature(tmp_path: Path):
     row = stored["signatures"][last["signature"]]
     assert row["halt"] is False
     assert row["count"] == 0
+
+
+def test_clear_edl_repair_halts_resets_edl_narrative_fail_key(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("MUX_FORENSICS", raising=False)
+    ctx = isolated_run_ctx(tmp_path, "exec_clear_edl_chain")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    upsert_fail_key(
+        ctx,
+        "edl_narrative:opening orientation",
+        3,
+        failed_stage="edl_narrative_audit",
+        producer="understanding/gap_report.json",
+    )
+    sig = failure_signature(
+        failed_stage="edl_narrative_audit",
+        producer="understanding/gap_report.json",
+        reason="chapter references segments missing from edl speech clips",
+    )
+    for _ in range(3):
+        record_identical_failure(
+            ctx,
+            failed_stage="edl_narrative_audit",
+            producer="understanding/gap_report.json",
+            reason="chapter references segments missing from edl speech clips",
+        )
+    assert is_halted(ctx, sig)
+    n = clear_edl_repair_halts(ctx)
+    assert n >= 2
+    assert not is_halted(ctx, sig)
+
+
+def test_forensics_mode_suppresses_all_stage_halts(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MUX_FORENSICS", "1")
+    ctx = isolated_run_ctx(tmp_path, "exec_forensics_no_halt")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    for stage in ("edl_narrative_audit", "topic_coverage_audit", "nugget_layup_compose"):
+        sig = failure_signature(
+            failed_stage=stage,
+            producer="understanding/gap_report.json",
+            reason=f"blocked at {stage}",
+        )
+        for _ in range(3):
+            record_identical_failure(
+                ctx,
+                failed_stage=stage,
+                producer="understanding/gap_report.json",
+                reason=f"blocked at {stage}",
+            )
+        assert forensics_mode() is True
+        assert not is_halted(ctx, sig)
+
+
+def test_clear_all_halts_resets_every_signature(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("MUX_FORENSICS", raising=False)
+    ctx = isolated_run_ctx(tmp_path, "exec_clear_all")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    sig_a = failure_signature(failed_stage="edl", reason="a")
+    sig_b = failure_signature(failed_stage="topic_coverage_audit", reason="b")
+    for _ in range(3):
+        record_identical_failure(ctx, failed_stage="edl", reason="a")
+        record_identical_failure(ctx, failed_stage="topic_coverage_audit", reason="b")
+    assert is_halted(ctx, sig_a)
+    assert is_halted(ctx, sig_b)
+    from interview_mux.identical_failures import clear_all_halts
+
+    n = clear_all_halts(ctx)
+    assert n == 2
+    assert not is_halted(ctx, sig_a)
+    assert not is_halted(ctx, sig_b)
+
+
+def test_sync_identical_halts_with_product_on_forensics_restart(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MUX_FORENSICS", "1")
+    ctx = isolated_run_ctx(tmp_path, "exec_sync_forensics")
+    (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
+    sig = failure_signature(
+        failed_stage="edl",
+        producer="master/assembly_ledger.json",
+        reason="naked seam(s): seg_001 → seg_002",
+    )
+    for _ in range(3):
+        record_identical_failure(
+            ctx,
+            failed_stage="edl",
+            producer="master/assembly_ledger.json",
+            reason="naked seam(s): seg_001 → seg_002",
+        )
+    assert is_halted(ctx, sig) is False  # forensics suppresses is_halted
+    stored = json.loads(
+        (ctx.run_dir / "operator" / "identical_failures.json").read_text(encoding="utf-8")
+    )
+    assert stored["signatures"][sig]["halt"] is True
+    result = sync_identical_halts_with_product(ctx, forensics=True)
+    assert result["cleared"] >= 1
+    assert result["scope"] == "all"
+    stored = json.loads(
+        (ctx.run_dir / "operator" / "identical_failures.json").read_text(encoding="utf-8")
+    )
+    assert stored["signatures"][sig]["halt"] is False
+    assert stored["signatures"][sig]["count"] == 0
+    meta = json.loads((ctx.run_dir / "run_meta.json").read_text(encoding="utf-8"))
+    assert meta.get("identical_halts_product_fingerprint")
 
 
 def test_upsert_fail_key_survives_absolute_counts(tmp_path: Path):

@@ -11,7 +11,9 @@ or ``python tools/full_auto_daemon_launch.py`` / ``e2e`` unless requested:
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -21,6 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ASSETS"
 VENV_PY = ROOT / ".venv" / "bin" / "python"
 E2E_CONSOLE = ASSETS / "full_auto_console.log"
+RUN_POINTER = ASSETS / "full_auto_current_run.txt"
+FRESH_PENDING = ASSETS / "full_auto_fresh_pending.json"
+_DRIVER_BIND_POLL_SEC = 1.0
+_DRIVER_BIND_TIMEOUT_SEC = 120.0
 
 # Legacy process patterns (pre-rename) — still matched for stop/status during transition.
 _DRIVER_PGREP = r"full_auto_driver\.py|_baba_e2e_driver\.py"
@@ -75,9 +81,60 @@ def newest_incomplete_run() -> str | None:
     return execs[0].name if execs else None
 
 
+def write_fresh_pending(*, input_audio: str = "") -> None:
+    """Mark an in-flight fresh launch so keepalive does not resume a stale run."""
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    FRESH_PENDING.write_text(
+        json.dumps({"started_at": time.time(), "input_audio": input_audio}),
+        encoding="utf-8",
+    )
+
+
+def clear_fresh_pending() -> None:
+    FRESH_PENDING.unlink(missing_ok=True)
+
+
+def fresh_pending_active() -> bool:
+    return FRESH_PENDING.is_file()
+
+
+def driver_run_bound() -> str | None:
+    """Return run_id when the driver has bound (pointer file or console line)."""
+    for pointer in (RUN_POINTER, ASSETS / "baba_current_run.txt"):
+        if pointer.is_file():
+            rid = pointer.read_text(encoding="utf-8").strip()
+            if rid and (ASSETS / "executions" / rid).is_dir():
+                return rid
+    if not E2E_CONSOLE.is_file():
+        return None
+    for line in reversed(E2E_CONSOLE.read_text(errors="ignore").splitlines()):
+        if "created fresh run=" in line or "resuming existing run=" in line:
+            m = re.search(r"exec_\d+_[a-f0-9]+_\d{8}T\d{6}Z", line)
+            if m:
+                return m.group(0)
+    return None
+
+
+def wait_for_driver_bind(
+    *,
+    timeout_sec: float = _DRIVER_BIND_TIMEOUT_SEC,
+    poll_sec: float = _DRIVER_BIND_POLL_SEC,
+) -> str | None:
+    """Block until the driver binds a run or fresh launch fails."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        rid = driver_run_bound()
+        if rid:
+            return rid
+        if not fresh_pending_active() and not e2e_alive():
+            return None
+        time.sleep(poll_sec)
+    return driver_run_bound()
+
+
 def rotate_e2e_console() -> None:
     """Archive the driver console log so run discovery never latches a stale run."""
-    (ASSETS / "full_auto_current_run.txt").unlink(missing_ok=True)
+    RUN_POINTER.unlink(missing_ok=True)
     # Also clear legacy pointer if present.
     (ASSETS / "baba_current_run.txt").unlink(missing_ok=True)
     if not E2E_CONSOLE.is_file() or E2E_CONSOLE.stat().st_size == 0:
@@ -224,6 +281,8 @@ def ensure_e2e(
     # Never inherit a MusicGen skip flag into the driver process.
     for key in _MUSICGEN_SKIP_ENV:
         os.environ.pop(key, None)
+    if fresh:
+        _pkill_pattern(_KEEPALIVE_PGREP)
     _pkill_pattern(_DRIVER_PGREP)
     time.sleep(1)
     port = web_port()
@@ -235,6 +294,7 @@ def ensure_e2e(
     env = _driver_env(port=port, audio=audio, keep_gui_server=keep_gui_server, partial_auto=partial_auto)
     if fresh:
         rotate_e2e_console()
+        write_fresh_pending(input_audio=audio)
         env["MUX_FRESH"] = "1"
         env["MUX_RUN_ID"] = ""
     else:
@@ -327,13 +387,17 @@ def maybe_ensure_keepalive(*, keep_gui_server: bool = False) -> int | None:
     return ensure_keepalive(keep_gui_server=keep_gui_server)
 
 
-def ensure_keepalive(*, keep_gui_server: bool = False) -> int | None:
-    try:
-        out = subprocess.check_output(["pgrep", "-f", _KEEPALIVE_PGREP], text=True)
-        if out.strip():
-            return None
-    except subprocess.CalledProcessError:
-        pass
+def ensure_keepalive(*, keep_gui_server: bool = False, force_restart: bool = False) -> int | None:
+    if force_restart:
+        _pkill_pattern(_KEEPALIVE_PGREP)
+        time.sleep(0.3)
+    else:
+        try:
+            out = subprocess.check_output(["pgrep", "-f", _KEEPALIVE_PGREP], text=True)
+            if out.strip():
+                return None
+        except subprocess.CalledProcessError:
+            pass
     port = web_port()
     env = {"MUX_WEB_PORT": str(port)}
     if keep_gui_server or str(os.environ.get("MUX_FULL_AUTO_KEEP_SERVER") or "").strip().lower() in {
@@ -458,6 +522,7 @@ def shutdown_full_auto_stack(
     if port is None:
         port = web_port()
     ASSETS.mkdir(parents=True, exist_ok=True)
+    clear_fresh_pending()
     killed_port: list[int] = []
     if kill_keepalive:
         _pkill_pattern(_KEEPALIVE_PGREP, exclude_pid=exclude_pid)
@@ -508,6 +573,7 @@ def resolve_launch_modes(args: list[str], *, keepalive_from_env: bool | None = N
         "--force-e2e",
         "--input",
         "--keepalive",
+        "--no-keepalive",
         run_id,
         input_audio,
     }
@@ -516,12 +582,13 @@ def resolve_launch_modes(args: list[str], *, keepalive_from_env: bool | None = N
         return modes
     if not modes or "all" in modes:
         modes = {"server", "e2e"}
+    no_keepalive = "--no-keepalive" in args
     want_keepalive = "--keepalive" in args
     if keepalive_from_env is None:
         want_keepalive = want_keepalive or env_keepalive_requested()
     else:
         want_keepalive = want_keepalive or bool(keepalive_from_env)
-    if want_keepalive:
+    if want_keepalive and not no_keepalive:
         modes.add("keepalive")
     return modes
 
@@ -557,7 +624,11 @@ def main() -> int:
         )
         print(f"e2e pid={pid or 'already-up'}")
     if "keepalive" in modes:
-        pid = ensure_keepalive()
+        if fresh:
+            bound = wait_for_driver_bind()
+            if bound:
+                print(f"driver bound run={bound}", flush=True)
+        pid = ensure_keepalive(force_restart=fresh)
         print(f"keepalive pid={pid or 'already-up'}")
     if "g1-resynth" in modes:
         pid = ensure_g1_resynth(run_id=run_id, force=force_e2e or fresh)

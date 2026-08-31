@@ -115,6 +115,43 @@ def test_phantom_vo_detected(tmp_path: Path) -> None:
     assert "vo_audibility_drift" in classes
 
 
+def test_phantom_vo_ignores_air_script_omitted_layup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = isolated_run_ctx(tmp_path, "pub_phantom_air_omit")
+    line = {
+        "line_id": "vo_layup_seg_002",
+        "delivery": "synthesize",
+        "gap_type": "nugget_layup",
+        "placement": "before",
+        "targets_segment_id": "seg_002",
+        "text": "Bridge line for the next beat.",
+    }
+    _write_raw(ctx, "understanding/gap_report.json", {"interviewer_lines": [line]})
+    write_fixture_vo_wav(ctx.final_path("vo_pickup", "clean", "vo_layup_seg_002.wav"))
+    _write_edl(
+        ctx,
+        ordered=["seg_002"],
+        clips=[_speech_clip("seg_002", duration_ms=5000)],
+    )
+
+    def _filter(gap, _plan):
+        omitted = dict(line)
+        omitted["skipped_optional"] = True
+        omitted["air_script_omit"] = True
+        out = dict(gap) if isinstance(gap, dict) else {"interviewer_lines": []}
+        out["interviewer_lines"] = [omitted]
+        return out
+
+    monkeypatch.setattr(
+        "interview_mux.air_script.filter_gap_lines_for_air_script",
+        _filter,
+    )
+    report = validate_publishability(ctx, checkpoint="post_edl")
+    classes = {v.error_class for v in report.violations}
+    assert "vo_audibility_drift" not in classes
+
+
 def test_order_drift_detected(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "pub_order_drift")
     _write_raw(

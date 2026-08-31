@@ -2708,6 +2708,36 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 stage=STAGE_ID,
             )
     enforce_block = mode == "authoritative"
+    critical_blocking = {
+        "critical_incomplete_cut_residuals",
+        "critical_junction_residuals_after_two_runs",
+        "junction_feel_audit_unavailable",
+    }
+    try:
+        from interview_mux.aspirational_quality import (
+            is_aspirational_enabled,
+            record_quality_advisories,
+            register_quality_candidate,
+        )
+
+        if is_aspirational_enabled(ctx):
+            non_critical = [
+                r for r in blocking_reasons if r not in critical_blocking
+            ]
+            if non_critical:
+                register_quality_candidate(ctx, family="junction")
+                record_quality_advisories(
+                    ctx,
+                    gate_id="junction_snip_qa",
+                    failed_checks=non_critical,
+                    detail={"residual": len(residual_findings)},
+                )
+            blocking_reasons = [
+                r for r in blocking_reasons if r in critical_blocking
+            ]
+            enforce_block = bool(blocking_reasons)
+    except Exception:
+        pass
     report["commitment"] = commitment
     report["blocking_reasons"] = sorted(set(blocking_reasons))
     ctx.write_json(QA_REL, report)

@@ -537,3 +537,113 @@ def test_fill_uncovered_high_gaps_stops_on_limit_exhausted(
     evals = ctx.read_json("understanding/gap_evaluations.json")
     assert all(row["severity"] == "medium" for row in evals["evaluations"])
 
+
+def test_demote_uncovered_high_gaps_clears_listenability_ratio(ctx: RunContext) -> None:
+    """Demoting stale high evals must flip uncovered_high_gap_ratio to zero."""
+    from interview_mux.high_gap_vo import demote_uncovered_high_gaps
+    from interview_mux.listenability_guards import uncovered_high_gap_ratio
+
+    ctx.write_json(
+        "understanding/gap_evaluations.json",
+        {
+            "evaluations": [
+                {"segment_id": "seg_009", "severity": "high", "self_explanatory": False},
+                {"segment_id": "seg_011", "severity": "high", "self_explanatory": False},
+                {"segment_id": "seg_029", "severity": "high", "self_explanatory": False},
+                {"segment_id": "seg_037", "severity": "high", "self_explanatory": False},
+                {"segment_id": "seg_048", "severity": "high", "self_explanatory": False},
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_032",
+                    "targets_segment_id": "seg_032",
+                    "text": "Bridge to the next topic?",
+                    "gap_type": "missing_setup",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_009", "seg_011", "seg_029", "seg_032", "seg_037", "seg_048"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "before_segment_id": "seg_037",
+                    "after_segment_id": "seg_038",
+                    "type": "bridge",
+                    "text": "Transition bridge",
+                },
+                {
+                    "before_segment_id": "seg_048",
+                    "after_segment_id": "seg_049",
+                    "type": "bridge",
+                    "text": "Another bridge",
+                },
+            ]
+        },
+        skip_handoff=True,
+    )
+    assert uncovered_high_gap_ratio(ctx) == 0.6  # 3/5 selected highs uncovered
+    demoted = demote_uncovered_high_gaps(ctx, origin="listenability_heal")
+    assert demoted >= 3
+    assert uncovered_high_gap_ratio(ctx) == 0.0
+
+
+def test_preface_forward_cue_heal(ctx: RunContext) -> None:
+    from interview_mux.artifact_repairs import repair_gap_report
+    from interview_mux.gap_vo_prior_context import has_forward_cue
+
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_010"]},
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                {
+                    "segment_id": "seg_010",
+                    "text": "Circulating tumour cells are rare in blood.",
+                    "speaker_id": "spk_1",
+                    "speaker_role": "interviewee",
+                    "type": "interviewee_answer",
+                    "topic_tags": ["science"],
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                }
+            ]
+        },
+    )
+    doc = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_open",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "targets_segment_id": "seg_010",
+                "text": "Precision oncology is reshaping how we detect cancer.",
+                "delivery": "synthesize",
+            }
+        ]
+    }
+    repaired, notes = repair_gap_report(ctx, doc)
+    line = (repaired.get("interviewer_lines") or [doc["interviewer_lines"][0]])[0]
+    assert has_forward_cue(str(line.get("text") or ""))
+    assert any(n.get("action") == "preface_forward_cue_heal" for n in notes) or has_forward_cue(
+        str(line.get("text") or "")
+    )
+

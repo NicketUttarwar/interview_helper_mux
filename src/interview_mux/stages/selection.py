@@ -265,6 +265,9 @@ def persist_full_master_ranking(ctx: RunContext, artifacts: dict) -> None:
     artifacts = finalize_selection_order(
         ctx, artifacts, stage="full_master_ranking", skip_lifecycle=True
     )
+    from interview_mux.hard_keep import enforce_hard_keeps
+
+    artifacts = enforce_hard_keeps(ctx, artifacts)
     from interview_mux.air_order_boundary import commit_selection_mutation
 
     commit_selection_mutation(

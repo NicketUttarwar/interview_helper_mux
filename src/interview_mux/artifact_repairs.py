@@ -413,6 +413,16 @@ def repair_boundaries(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                         "segment_id": normalized.get("segment_id"),
                     }
                 )
+        if not str(normalized.get("proposed_split_reason") or "").strip():
+            normalized["proposed_split_reason"] = "topic_shift"
+            applied.append(
+                {
+                    "action": "default_value",
+                    "path": "proposed_split_reason",
+                    "value": "topic_shift",
+                    "segment_id": normalized.get("segment_id"),
+                }
+            )
         hydrated.append(normalized)
 
     transcript = ctx.read_json("transcript/full.json") if ctx.artifact_exists("transcript/full.json") else None
@@ -2456,7 +2466,36 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
             line = dict(row)
             # Episode orientation is selection-independent setup copy — never
             # collapse it into a courtesy seam hinge after impact beats.
+            # Still heal a missing forward cue so post-commit lint does not loop.
             if is_episode_orientation(line):
+                text_now = str(line.get("text") or "").strip()
+                if text_now and not has_forward_cue(text_now):
+                    tid_now = str(line.get("targets_segment_id") or "").strip()
+                    cat = str(line.get("line_category") or "episode_preface")
+                    target_row = by_id.get(tid_now) or {}
+                    target_text = str(
+                        target_row.get("text") or target_row.get("text_excerpt") or ""
+                    )
+                    prior = build_prior_native_context(
+                        target_segment_id=tid_now,
+                        ordered_ids=ordered,
+                        segments_by_id=by_id,
+                        chapters=chapters,
+                        cfg=settings,
+                    )
+                    line["text"] = repair_last_sentence_layup(
+                        text_now,
+                        prior=prior,
+                        category=cat,
+                        target_text=target_text,
+                        target_segment_id=tid_now or None,
+                    )
+                    applied.append(
+                        {
+                            "action": "preface_forward_cue_heal",
+                            "line_id": line.get("line_id"),
+                        }
+                    )
                 fixed_lines.append(line)
                 continue
             # Authoritative layups own their recovery copy — courtesy rewrites

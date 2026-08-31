@@ -404,6 +404,39 @@ def invalidate_synthesis_entries(ctx: RunContext, line_ids: list[str]) -> int:
     return removed
 
 
+def _pickup_wav_without_audit(ctx: RunContext, line_id: str) -> Path | None:
+    pickup = ctx.final_path("vo_pickup")
+    for sub in ("matched", "synthesized", "clean", "normalized", ""):
+        base = pickup / sub if sub else pickup
+        candidate = base / f"{line_id}.wav"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def backfill_missing_synthesis_entries(ctx: RunContext) -> list[str]:
+    """Create synthesis_report rows for on-disk pickup WAVs lacking audit entries.
+
+    G1 promote copies synthesized WAVs to vo_pickup/ without always recording
+    synthesis_report — edl_narrative_audit then flags wav_stale even though the
+    take is present and script-current.
+    """
+    backfilled: list[str] = []
+    for lid, line in _vo_pickup_script_lines(ctx).items():
+        if synthesis_entry_for_line(ctx, lid):
+            continue
+        path = _pickup_wav_without_audit(ctx, lid)
+        if path is None:
+            continue
+        _matches, reason = synthesis_entry_matches_line(ctx, line)
+        if reason != "missing_synthesis_entry":
+            continue
+        backend = "chatterbox" if path.parent.name == "synthesized" else "record"
+        record_synthesis(ctx, line, backend=backend, out_wav=path)
+        backfilled.append(lid)
+    return backfilled
+
+
 def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:
     """Gap-report authority first; fall back to nugget_layup_plan for aired layups."""
     lines: dict[str, dict[str, Any]] = {}

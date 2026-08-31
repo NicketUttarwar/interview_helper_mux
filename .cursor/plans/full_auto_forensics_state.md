@@ -1,0 +1,19 @@
+# Forensics loop state
+- **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
+- **run_id:** exec_3751_d19c15b58ab4_20260831T141013Z
+- **started_at:** 2026-08-31T07:10:37-07:00
+- **stopped_at:** 2026-08-31T10:52:00-07:00 (operator stop)
+- **driver_alive:** false
+- **stages_done:** ~55/69 (last known)
+- **current_stage:** vo_synthesize (last known)
+- **g1_complete:** false (check_g1_vo was clear before stop)
+- **intervention_count:** 0 (driver self-healed nugget_layup loop)
+- **last_predicate:** seed-order stall at edl_narrative_audit (count 2/3)
+- **open_blockers:** []
+- **patches_this_session:** []
+- **hard_blocker:** null (operator stopped)
+- **delivery_phase:** A
+- **phase_a_sealed:** false
+- **last_expensive_stage:** mmaudio_sfx
+- **orphaned_spend:** true
+- **rerun_gate:** Wave 0–2 code complete; do not `MUX_FRESH=1` until operator confirms §20

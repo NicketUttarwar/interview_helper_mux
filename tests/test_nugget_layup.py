@@ -2250,3 +2250,55 @@ def test_waive_nuggets_for_g1_skipped_vo_lines():
     assert plan["open_high_salience_nugget_ids"] == []
     waived_ids = {x["nugget_id"] for x in plan.get("waived_nugget_ids") or []}
     assert "nug_004" in waived_ids
+
+
+def test_layup_qc_spoken_copy_no_invalidate():
+    """Recover + spoken-copy heal must close high-salience without a new mine refresh."""
+    ctx = RunContext("exec_layup_spoken_copy_heal", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_002", "seg_012"],
+        {
+            "seg_002": "Welcome, today we talk about diagnostics.",
+            "seg_012": "Guest explains circulating tumour cells in blood.",
+        },
+    )
+    corpus = {
+        "nuggets": [
+            {
+                "nugget_id": "nug_003",
+                "text_claim": "CTCs occur at roughly one in a billion blood cells.",
+                "evidence_quote": "one in a billion",
+                "in_selection": False,
+                "salience": "high",
+                "already_aired_in_selection": False,
+                "source_segment_ids": ["seg_cut"],
+            }
+        ]
+    }
+    ctx.write_json(CORPUS_REL, corpus)
+    plan = {
+        "ordered_segment_ids": ["seg_002", "seg_012"],
+        "layups": [
+            stamp_typed_skip(
+                {
+                    "target_segment_id": "seg_012",
+                    "line_id": "vo_layup_seg_012",
+                    "nugget_ids": ["nug_003"],
+                    "value_forgone": ["nug_003"],
+                    **_ANALYSIS,
+                },
+                reason_code="no_eligible_unspent_nugget",
+            )
+        ],
+        "open_high_salience_nugget_ids": ["nug_003"],
+        "discharged_nugget_ids": [],
+    }
+    recovered, notes = recover_open_high_salience_nuggets(ctx, plan)
+    assert notes
+    from interview_mux.nugget_layup import repair_or_skip_spoken_copy_layups
+
+    healed, _repairs = repair_or_skip_spoken_copy_layups(ctx, recovered)
+    qc = evaluate_layup_qc(ctx, healed, corpus)
+    assert "nug_003" not in (qc.get("open_high_salience_nugget_ids") or [])
+    assert not any("open_high_salience_nuggets" in e for e in (qc.get("errors") or []))

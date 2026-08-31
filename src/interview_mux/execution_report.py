@@ -208,6 +208,7 @@ def build_execution_report(
     if token not in OUTCOMES:
         token = "incomplete_artifacts"
     meta = _read_meta(ctx)
+    quality_advisories = list(meta.get("quality_advisories") or [])
     run_dir = Path(ctx.run_dir)
     master = _file_info(run_dir / "master" / "master.wav")
     cover = _cover_info(run_dir)
@@ -249,6 +250,8 @@ def build_execution_report(
         "decisions": list(decisions or [])[-80:],
         "homunculus_issues": homunculus,
         "needs_operator": bool(meta.get("needs_operator")),
+        "aspirational_proceeded": bool(meta.get("aspirational_proceeded")),
+        "quality_advisories": quality_advisories[-12:],
         "research_next": _research_next(
             outcome=token,
             halt_stage=str(halt_stage or ""),
@@ -300,6 +303,19 @@ def render_execution_report_md(report: dict[str, Any]) -> str:
     for hint in g0.get("stt_poison_hints") or []:
         lines.append(f"- STT poison hint: {hint}")
     lines.extend(["", "## Identical failures", ""])
+    adv = report.get("quality_advisories") or []
+    if adv or report.get("aspirational_proceeded"):
+        lines.extend(["", "## Quality advisories", ""])
+        lines.append(
+            f"- aspirational_proceeded: {report.get('aspirational_proceeded')}"
+        )
+        for entry in adv[-8:]:
+            if not isinstance(entry, dict):
+                continue
+            gates = entry.get("failed_checks") or []
+            lines.append(
+                f"- `{entry.get('gate_id')}` — {', '.join(str(g) for g in gates[:6])}"
+            )
     rows = report.get("identical_failures") or []
     if not rows:
         lines.append("(none)")

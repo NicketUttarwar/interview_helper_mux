@@ -338,6 +338,16 @@ def validate_disfluencies(data: dict[str, Any]) -> list[str]:
     """Validate `transcript/disfluencies.json`."""
     return _validate_dict(data, _load_root_schema("disfluencies.schema.json"))
 
+
+def validate_delivery_checkpoint(data: dict[str, Any]) -> list[str]:
+    """Validate `operator/delivery_checkpoint.json`."""
+    return _validate_dict(data, _load_root_schema("delivery_checkpoint.schema.json"))
+
+
+def validate_wasted_work(data: dict[str, Any]) -> list[str]:
+    """Validate `operator/wasted_work.json`."""
+    return _validate_dict(data, _load_root_schema("wasted_work.schema.json"))
+
 def _validate_by_artifact_schema(filename: str, data: dict[str, Any]) -> list[str]:
     schema = _load_schema(filename)
     if schema:
@@ -608,6 +618,8 @@ ARTIFACT_WRITE_VALIDATORS: dict[str, Any] = {
     "understanding/refinement_plan.json": validate_refinement_plan,
     "understanding/synthetic_context_packet.json": validate_synthetic_context_packet,
     "understanding/synthetic_framing_plan.json": validate_synthetic_framing_plan,
+    "operator/delivery_checkpoint.json": validate_delivery_checkpoint,
+    "operator/wasted_work.json": validate_wasted_work,
 }
 
 def validate_artifact_write(rel_path: str, data: dict[str, Any]) -> list[str]:

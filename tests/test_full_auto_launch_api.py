@@ -329,3 +329,189 @@ def test_keepalive_does_not_relaunch_gui_attached_serve(monkeypatch) -> None:
     assert keepalive.should_relaunch_server_on_death() is True
     monkeypatch.setenv("MUX_FULL_AUTO_KEEP_SERVER", "1")
     assert keepalive.should_relaunch_server_on_death() is False
+
+
+def test_fresh_pending_roundtrip(tmp_path, monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    assets = tmp_path / "ASSETS"
+    assets.mkdir()
+    monkeypatch.setattr(dal, "ASSETS", assets)
+    monkeypatch.setattr(dal, "FRESH_PENDING", assets / "full_auto_fresh_pending.json")
+
+    assert dal.fresh_pending_active() is False
+    dal.write_fresh_pending(input_audio="ASSETS/input/x.wav")
+    assert dal.fresh_pending_active() is True
+    dal.clear_fresh_pending()
+    assert dal.fresh_pending_active() is False
+
+
+def test_driver_run_bound_reads_pointer(tmp_path, monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    assets = tmp_path / "ASSETS"
+    execs = assets / "executions" / "exec_1_abcd_20260831T120000Z"
+    execs.mkdir(parents=True)
+    pointer = assets / "full_auto_current_run.txt"
+    pointer.write_text("exec_1_abcd_20260831T120000Z\n", encoding="utf-8")
+    monkeypatch.setattr(dal, "ASSETS", assets)
+    monkeypatch.setattr(dal, "RUN_POINTER", pointer)
+    monkeypatch.setattr(dal, "E2E_CONSOLE", assets / "full_auto_console.log")
+
+    assert dal.driver_run_bound() == "exec_1_abcd_20260831T120000Z"
+
+
+def test_ensure_e2e_fresh_kills_keepalive_and_writes_pending(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    killed: list[str] = []
+    pending_writes: list[str] = []
+
+    monkeypatch.setattr(dal, "e2e_alive", lambda: False)
+    monkeypatch.setattr(dal, "_pkill_pattern", lambda pattern, **kwargs: killed.append(pattern))
+    import time as time_mod
+
+    monkeypatch.setattr(time_mod, "sleep", lambda _s: None)
+    monkeypatch.setattr(dal, "rotate_e2e_console", lambda: None)
+    monkeypatch.setattr(
+        dal,
+        "write_fresh_pending",
+        lambda **kwargs: pending_writes.append(kwargs.get("input_audio", "")),
+    )
+    monkeypatch.setattr(dal, "_popen", lambda *_args, **_kwargs: 99)
+    monkeypatch.setattr(dal, "web_port", lambda: 8765)
+    monkeypatch.setenv("MUX_INPUT_AUDIO", "ASSETS/input/interview.wav")
+
+    pid = dal.ensure_e2e(fresh=True, force=True)
+
+    assert pid == 99
+    assert dal._KEEPALIVE_PGREP in killed
+    assert dal._DRIVER_PGREP in killed
+    assert pending_writes == ["ASSETS/input/interview.wav"]
+
+
+def test_wait_for_driver_bind_returns_pointer(tmp_path, monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    assets = tmp_path / "ASSETS"
+    execs = assets / "executions" / "exec_2_abcd_20260831T120000Z"
+    execs.mkdir(parents=True)
+    pointer = assets / "full_auto_current_run.txt"
+    monkeypatch.setattr(dal, "ASSETS", assets)
+    monkeypatch.setattr(dal, "RUN_POINTER", pointer)
+    monkeypatch.setattr(dal, "E2E_CONSOLE", assets / "full_auto_console.log")
+    monkeypatch.setattr(dal, "fresh_pending_active", lambda: True)
+    monkeypatch.setattr(dal, "e2e_alive", lambda: True)
+    calls = {"n": 0}
+
+    def _bound() -> str | None:
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            pointer.write_text("exec_2_abcd_20260831T120000Z\n", encoding="utf-8")
+            return "exec_2_abcd_20260831T120000Z"
+        return None
+
+    monkeypatch.setattr(dal, "driver_run_bound", _bound)
+    import time as time_mod
+
+    monkeypatch.setattr(time_mod, "sleep", lambda _s: None)
+
+    assert dal.wait_for_driver_bind(timeout_sec=5) == "exec_2_abcd_20260831T120000Z"
+
+
+def test_keepalive_launch_disables_nested_keepalive(monkeypatch) -> None:
+    import full_auto_keepalive_loop as keepalive
+
+    captured: dict = {}
+
+    def _run(cmd, cwd, check, env):  # type: ignore[no-untyped-def]
+        captured["cmd"] = cmd
+        captured["env"] = env
+
+    monkeypatch.setattr("subprocess.run", _run)
+    keepalive.launch("e2e", "--run-id", "exec_test")
+
+    assert "--no-keepalive" in captured["cmd"]
+    assert captured["env"]["MUX_KEEPALIVE"] == "0"
+
+
+def test_keepalive_fresh_bind_in_progress(tmp_path, monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+    import full_auto_keepalive_loop as keepalive
+
+    assets = tmp_path / "ASSETS"
+    assets.mkdir()
+    monkeypatch.setattr(dal, "ASSETS", assets)
+    monkeypatch.setattr(dal, "FRESH_PENDING", assets / "full_auto_fresh_pending.json")
+    monkeypatch.setattr(keepalive, "ASSETS", assets)
+    monkeypatch.setattr(keepalive, "RUN_POINTER", assets / "full_auto_current_run.txt")
+
+    assert keepalive.fresh_bind_in_progress() is False
+    dal.write_fresh_pending()
+    assert keepalive.fresh_bind_in_progress() is True
+    (assets / "full_auto_current_run.txt").write_text("exec_bound\n", encoding="utf-8")
+    (assets / "executions" / "exec_bound").mkdir(parents=True)
+    assert keepalive.fresh_bind_in_progress() is False
+
+
+def test_keepalive_resume_requires_pointer(monkeypatch) -> None:
+    import full_auto_keepalive_loop as keepalive
+
+    launches: list[tuple[str, tuple[str, ...]]] = []
+
+    monkeypatch.setattr(keepalive, "server_alive", lambda: True)
+    monkeypatch.setattr(keepalive, "e2e_alive", lambda: False)
+    monkeypatch.setattr(keepalive, "latest_run", lambda: "exec_stale_incomplete")
+    monkeypatch.setattr(keepalive, "pointed_run", lambda: None)
+    monkeypatch.setattr(keepalive, "fresh_bind_in_progress", lambda: False)
+    monkeypatch.setattr(keepalive, "remutate_exhausted", lambda _rid: False)
+    monkeypatch.setattr(keepalive, "write_status", lambda _rid: None)
+    monkeypatch.setattr(
+        keepalive,
+        "launch",
+        lambda mode, *extra: launches.append((mode, extra)),
+    )
+
+    pointed = keepalive.pointed_run()
+    run_id = keepalive.latest_run()
+    if not keepalive.e2e_alive():
+        if keepalive.fresh_bind_in_progress():
+            pass
+        elif pointed and not keepalive.pipeline_complete(pointed):
+            keepalive.launch("e2e", "--run-id", pointed)
+        elif not pointed:
+            keepalive.launch("e2e", "--fresh")
+
+    assert launches == [("e2e", ("--fresh",))]
+
+
+def test_resolve_launch_modes_honors_no_keepalive(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    monkeypatch.setenv("MUX_KEEPALIVE", "1")
+    assert dal.resolve_launch_modes(["e2e", "--no-keepalive"]) == {"e2e"}
+    assert dal.resolve_launch_modes(["e2e", "--keepalive", "--no-keepalive"]) == {"e2e"}
+
+
+def test_main_fresh_waits_for_bind_before_keepalive(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    waits: list[float] = []
+    ka_calls: list[bool] = []
+
+    monkeypatch.setattr(dal, "ensure_e2e", lambda **kwargs: 11)
+    monkeypatch.setattr(dal, "wait_for_driver_bind", lambda **kwargs: waits.append(1) or "exec_new")
+    monkeypatch.setattr(
+        dal,
+        "ensure_keepalive",
+        lambda **kwargs: ka_calls.append(kwargs.get("force_restart", False)) or 22,
+    )
+    monkeypatch.setattr(dal, "server_alive", lambda: True)
+    monkeypatch.setattr(dal, "e2e_alive", lambda: True)
+    monkeypatch.setattr(dal, "g1_resynth_alive", lambda: False)
+    monkeypatch.setattr(dal, "web_port", lambda: 8765)
+    monkeypatch.setattr(sys, "argv", ["full_auto_daemon_launch.py", "e2e", "--fresh", "--keepalive"])
+
+    assert dal.main() == 0
+    assert waits == [1]
+    assert ka_calls == [True]

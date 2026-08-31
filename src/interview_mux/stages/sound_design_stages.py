@@ -396,8 +396,7 @@ def _repair_sdp_asset_durations(ctx: RunContext) -> bool:
                 "full_bed",
                 "motif",
             }:
-                # Soft guidance — allow modest stretch, not a hard global ceiling.
-                clamped = min(val, hi * 1.5)
+                clamped = hi
             else:
                 clamped = val
         else:

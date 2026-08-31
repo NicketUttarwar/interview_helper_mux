@@ -253,3 +253,18 @@ def test_llm_simple_fail_open_edl_narrative_audit_as_warn() -> None:
     assert persisted[-1]["verdict"] == "warn"
     assert ctx.mark_done.call_count == 1
     assert out["artifacts"]["verdict"] == "warn"
+
+
+def test_hard_keep_in_ordered_ids(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "ranking_hard_keep")
+    monkeypatch.setattr(
+        "interview_mux.hard_keep.hard_keep_segment_ids",
+        lambda _ctx: {"seg_001"},
+    )
+    from interview_mux.hard_keep import enforce_hard_keeps
+
+    healed = enforce_hard_keeps(
+        ctx, {"ordered_segment_ids": ["seg_045"], "excluded_segment_ids": ["seg_001"]}
+    )
+    assert "seg_001" in [str(s) for s in (healed.get("ordered_segment_ids") or [])]
