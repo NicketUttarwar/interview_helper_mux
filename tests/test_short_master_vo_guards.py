@@ -188,6 +188,26 @@ def test_spoken_internal_segment_references_are_blocked():
     ) == []
 
 
+def test_topic_forward_register_lint():
+    from interview_mux.spoken_meta_lint import spoken_structure_hits
+
+    assert "spoken_speaker_role_label" in spoken_structure_hits(
+        "The host now explains the limitations of ctDNA-only analysis?"
+    )
+    assert "spoken_name_attribution" in spoken_structure_hits(
+        "Utawar explains why OneCell is pursuing a different route."
+    )
+    assert "spoken_gendered_pronoun" in spoken_structure_hits(
+        "Utawar says imaging may not detect a tumour. He closes with the access goal."
+    )
+    assert "spoken_name_attribution" not in spoken_structure_hits(
+        "OneCell reports a 99.8 percent equivalency in an independent comparison."
+    )
+    assert spoken_structure_hits(
+        "The next piece is cell biopsy — CTCs, not fragments alone."
+    ) == []
+
+
 def test_high_gap_seed_does_not_paste_confusion(tmp_path, monkeypatch):
     from interview_mux.artifact_repairs import _seed_missing_high_gap_interviewer_lines
 

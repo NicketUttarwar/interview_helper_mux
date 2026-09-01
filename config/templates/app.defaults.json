@@ -417,7 +417,8 @@
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
       "question_budget_max": 6,
-      "enforce_duration": false
+      "enforce_duration": false,
+      "selection_brief_min_ratio": 0.65
     },
     "flow_hardening": {
       "enabled": true,

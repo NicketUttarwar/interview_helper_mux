@@ -157,6 +157,7 @@ def run_runtime_script(
     from interview_mux.gpu_exclusive import gpu_exclusive
 
     consumer = _canonical_runtime_id(runtime_id)
+    proc: subprocess.CompletedProcess[str] | None = None
     try:
         with gpu_exclusive(consumer, ctx=run, stage=sid):
             if stdin_data is not None:
@@ -189,29 +190,40 @@ def run_runtime_script(
                                 )
                     if proc.returncode == 0:
                         run.log(f"Done: {label}", level="success", stage=sid)
-                    return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
-                return subprocess.run(
+                    proc = subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
+                else:
+                    proc = subprocess.run(
+                        cmd,
+                        input=stdin_data,
+                        cwd=str(cwd or repo_root()),
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        env=env,
+                        check=False,
+                    )
+                    proc = subprocess.CompletedProcess(
+                        cmd, proc.returncode, proc.stdout or "", proc.stderr or ""
+                    )
+            else:
+                proc = run_command(
                     cmd,
-                    input=stdin_data,
+                    ctx=run,
+                    stage=sid,
+                    label=label,
                     cwd=str(cwd or repo_root()),
-                    capture_output=True,
-                    text=True,
                     timeout=timeout,
-                    env=env,
+                    capture_output=True,
                     check=False,
                 )
-            return run_command(
-                cmd,
-                ctx=run,
-                stage=sid,
-                label=label,
-                cwd=str(cwd or repo_root()),
-                timeout=timeout,
-                capture_output=True,
-                check=False,
-            )
     except subprocess.TimeoutExpired as exc:
         raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} timed out after {timeout}s") from exc
+    if proc is not None:
+        from interview_mux.heavy_task_policy import record_heavy_abort
+
+        record_heavy_abort(consumer, proc.returncode, ctx=run, stage=sid)
+        return proc
+    raise LocalRuntimeUnavailable(f"Local runtime {runtime_id} produced no result")
 
 
 def parse_runtime_json_stdout(raw: str) -> dict[str, Any] | None:
@@ -251,7 +263,19 @@ def parse_runtime_json_stdout(raw: str) -> dict[str, Any] | None:
     return None
 
 
-def classify_runtime_error(stderr: str, stdout: str = "") -> str:
+def classify_runtime_error(stderr: str, stdout: str = "", *, returncode: int | None = None) -> str:
+    from interview_mux.heavy_task_policy import is_heavy_kill_returncode
+
+    if returncode is not None:
+        rc = int(returncode)
+        if rc == -9:
+            return "sigkill"
+        if is_heavy_kill_returncode(rc):
+            if rc in {-15, 143}:
+                return "sigterm"
+            if rc in {-6, 134, 6}:
+                return "sigabrt"
+            return "sigkill"
     blob = f"{stderr}\n{stdout}".lower()
     if "out of memory" in blob or "oom" in blob or "mps backend out of memory" in blob:
         return "oom"
@@ -305,7 +329,7 @@ def run_runtime_json(
     parsed = parse_runtime_json_stdout(proc.stdout or "") or parse_runtime_json_stdout(
         proc.stderr or ""
     )
-    likely = classify_runtime_error(proc.stderr or "", proc.stdout or "")
+    likely = classify_runtime_error(proc.stderr or "", proc.stdout or "", returncode=proc.returncode)
     event = {
         "runtime_id": runtime_id,
         "script": script_rel,

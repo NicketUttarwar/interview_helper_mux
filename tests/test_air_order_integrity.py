@@ -241,3 +241,48 @@ def test_resolved_policy_in_report(tmp_path):
         resolved_policy=policy,
     )
     assert doc.get("resolved_policy") == policy
+
+
+def test_junction_source_skips_layup_invalidate(tmp_path, monkeypatch):
+    """Junction remaster must not archive mix via layup invalidate."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    from interview_mux.run_context import RunContext
+    from interview_mux.air_order_integrity import on_selection_order_changed
+
+    ctx = RunContext(create=True)
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_a", "seg_b"], "order_lock": {"revision": 1}},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/nugget_layup_plan.json",
+        {"ordered_segment_ids": ["seg_a", "seg_b"], "layups": []},
+        skip_handoff=True,
+    )
+    ctx.mark_done("nugget_layup_compose", force=True)
+    calls: list[str] = []
+
+    def _fake_invalidate(_ctx, stage: str) -> None:
+        calls.append(stage)
+
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.invalidate_downstream",
+        _fake_invalidate,
+    )
+    notes = on_selection_order_changed(
+        ctx,
+        source="junction_snip_qa",
+        previous={"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]},
+        current={"ordered_segment_ids": ["seg_a", "seg_b"]},
+    )
+    assert "skipped_layup_invalidate:junction_source" in notes
+    assert calls == []
+    notes2 = on_selection_order_changed(
+        ctx,
+        source="full_master_ranking",
+        previous={"ordered_segment_ids": ["seg_a", "seg_b", "seg_c"]},
+        current={"ordered_segment_ids": ["seg_a", "seg_b"]},
+    )
+    assert "invalidated_downstream:nugget_layup_compose" in notes2
+    assert calls == ["nugget_layup_compose"]

@@ -2457,8 +2457,17 @@ def repair_or_skip_spoken_copy_layups(
             continue
 
         unlock = str(row.get("forward_unlock") or "").strip()
+        from interview_mux.spoken_copy_guard import (
+            _strip_name_attribution_clause,
+            is_register_violation,
+            topic_forward_recovery_candidates,
+        )
+
+        setup = _strip_name_attribution_clause(str(row.get("setup_from_nuggets") or "").strip())
         nugget_bits = [
-            str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
+            _strip_name_attribution_clause(
+                str((nuggets.get(nid) or {}).get("text_claim") or "").strip()
+            )
             for nid in row_nugget_ids(row)
         ]
         nugget_grounded = bool(row_nugget_ids(row) or any(nugget_bits))
@@ -2499,6 +2508,9 @@ def repair_or_skip_spoken_copy_layups(
                         category=str(row.get("line_category") or "extracted_context"),
                     )
                 )
+        if any(is_register_violation(v) for v in violations):
+            reg_candidates = topic_forward_recovery_candidates(setup, unlock)
+            candidates = reg_candidates + [c for c in candidates if c not in reg_candidates]
         recovered = ""
         for candidate in candidates:
             candidate = " ".join(candidate.split()).strip()

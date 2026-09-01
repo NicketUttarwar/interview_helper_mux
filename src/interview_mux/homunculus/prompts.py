@@ -27,6 +27,7 @@ RANKING_AIR_SHAPE = frozenset(
         "nugget_corpus_mine",
         "nugget_layup_compose",
         "gap_framing_compose",
+        "vo_line_adjudicate",
     }
 )
 

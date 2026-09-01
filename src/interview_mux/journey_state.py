@@ -165,6 +165,25 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
         g1_complete = ctx.artifact_exists("analysis_complete.json")
     else:
         g1_complete = not g1_missing and ctx.artifact_exists("analysis_complete.json")
+        if g1_complete:
+            try:
+                from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+                gap = ctx.read_json("understanding/gap_report.json") if ctx.artifact_exists(
+                    "understanding/gap_report.json"
+                ) else {}
+                from interview_mux.air_script import gap_line_air_eligible
+
+                for row in (gap.get("interviewer_lines") or []):
+                    if not isinstance(row, dict) or not gap_line_air_eligible(row):
+                        continue
+                    if str(row.get("delivery") or "") != "synthesize":
+                        continue
+                    if resolve_vo_pickup_path(ctx, row) is None:
+                        g1_complete = False
+                        break
+            except Exception:
+                pass
 
     preview_ready = ctx.artifact_exists("master/assembly_preview.wav")
     preview_listened = bool(meta.get("preview_listened_at"))

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 from pathlib import Path
 import sys
 
@@ -515,3 +517,121 @@ def test_main_fresh_waits_for_bind_before_keepalive(monkeypatch) -> None:
     assert dal.main() == 0
     assert waits == [1]
     assert ka_calls == [True]
+
+
+def test_env_fresh_requested() -> None:
+    import full_auto_daemon_launch as dal
+
+    assert dal.env_fresh_requested() is False
+    os.environ["MUX_FRESH"] = "1"
+    assert dal.env_fresh_requested() is True
+    os.environ["MUX_FRESH"] = "0"
+    assert dal.env_fresh_requested() is False
+    del os.environ["MUX_FRESH"]
+
+
+def test_main_mux_fresh_env_wins_over_run_id(monkeypatch) -> None:
+    import full_auto_daemon_launch as dal
+
+    captured: dict = {}
+
+    def _ensure_e2e(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return 11
+
+    monkeypatch.setattr(dal, "ensure_e2e", _ensure_e2e)
+    monkeypatch.setattr(dal, "server_alive", lambda: True)
+    monkeypatch.setattr(dal, "e2e_alive", lambda: True)
+    monkeypatch.setattr(dal, "g1_resynth_alive", lambda: False)
+    monkeypatch.setattr(dal, "web_port", lambda: 8765)
+    monkeypatch.setenv("MUX_FRESH", "1")
+    monkeypatch.setenv("MUX_RUN_ID", "exec_stale_d19c15b58ab4_20260831T120000Z")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "full_auto_daemon_launch.py",
+            "e2e",
+            "--run-id",
+            "exec_stale_d19c15b58ab4_20260831T120000Z",
+        ],
+    )
+
+    assert dal.main() == 0
+    assert captured["fresh"] is True
+    assert captured.get("run_id") is None
+
+
+def test_popen_strips_empty_mux_run_id(monkeypatch, tmp_path) -> None:
+    import full_auto_daemon_launch as dal
+
+    captured: dict[str, str] = {}
+    real_popen = subprocess.Popen
+
+    def _spy_popen(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        env = kwargs.get("env") or {}
+        for key in ("MUX_FRESH", "MUX_RUN_ID"):
+            if key in env:
+                captured[key] = env[key]
+        proc = real_popen(cmd, **kwargs)
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", _spy_popen)
+    monkeypatch.setenv("MUX_RUN_ID", "exec_stale_d19c15b58ab4_20260831T120000Z")
+
+    dal._popen(
+        [sys.executable, "-c", "pass"],
+        tmp_path / "log.txt",
+        env={"MUX_FRESH": "1", "MUX_RUN_ID": ""},
+    )
+
+    assert captured.get("MUX_FRESH") == "1"
+    assert "MUX_RUN_ID" not in captured
+
+
+def test_driver_fresh_env_wins_over_run_id(monkeypatch) -> None:
+    monkeypatch.setenv("MUX_FRESH", "1")
+    monkeypatch.setenv("MUX_RUN_ID", "exec_stale_d19c15b58ab4_20260831T120000Z")
+    assert full_auto_driver._driver_fresh_from_env() is True
+
+
+def test_ensure_run_clears_session_with_keep_driver(monkeypatch) -> None:
+    """CLI fresh create must not suicide via DELETE /api/session/active."""
+    calls: list[tuple[str, str]] = []
+
+    def _fake_api(method: str, path: str, body=None, timeout: int = 180):
+        calls.append((method, path))
+        if method == "DELETE":
+            return {"ok": True, "active": None}
+        if method == "POST" and path == "/api/runs":
+            return {"run_id": "exec_keep_driver_d19c15b58ab4_20260831T000000Z"}
+        if method == "PUT":
+            return {"ok": True}
+        return {}
+
+    bound: list[str] = []
+
+    def _fake_bind(run_id: str) -> None:
+        bound.append(run_id)
+        full_auto_driver.RUN_ID = run_id
+
+    monkeypatch.setattr(full_auto_driver, "api", _fake_api)
+    monkeypatch.setattr(full_auto_driver, "bind_run", _fake_bind)
+    monkeypatch.setattr(full_auto_driver, "RUN_ID", "")
+    monkeypatch.setattr(full_auto_driver, "FRESH", True)
+    monkeypatch.setattr(
+        full_auto_driver,
+        "INPUT_AUDIO",
+        "ASSETS/input/mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3",
+    )
+
+    assert full_auto_driver.ensure_run() is True
+    assert any(
+        m == "DELETE" and "keep_driver=true" in p for m, p in calls
+    ), calls
+    assert bound == ["exec_keep_driver_d19c15b58ab4_20260831T000000Z"]

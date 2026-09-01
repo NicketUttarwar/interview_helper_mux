@@ -53,6 +53,12 @@ def env_keepalive_requested() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def env_fresh_requested() -> bool:
+    """True when the operator asked for a brand-new exec_* (MUX_FRESH=1)."""
+    raw = str(os.environ.get("MUX_FRESH") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def health_url() -> str:
     return f"http://127.0.0.1:{web_port()}/api/health"
 
@@ -165,6 +171,9 @@ def _popen(cmd: list[str], log_path: Path, env: dict[str, str] | None = None) ->
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
+        # Empty MUX_RUN_ID means fresh create — do not inherit a stale id from the parent shell.
+        if not str(env.get("MUX_RUN_ID") or "").strip():
+            full_env.pop("MUX_RUN_ID", None)
     for key in _MUSICGEN_SKIP_ENV:
         full_env.pop(key, None)
     proc = subprocess.Popen(
@@ -602,9 +611,15 @@ def main() -> int:
             run_id = args[i + 1]
         if arg == "--input" and i + 1 < len(args):
             input_audio = args[i + 1]
-    fresh = "--fresh" in args
+    fresh = "--fresh" in args or env_fresh_requested()
+    if fresh:
+        run_id = None
     restart_server = "--restart-server" in args
-    force_e2e = "--force-e2e" in args or restart_server or bool(run_id)
+    force_e2e = (
+        "--force-e2e" in args
+        or restart_server
+        or (bool(run_id) and not fresh)
+    )
     modes = resolve_launch_modes(args)
     if "stop" in modes or "shutdown" in modes:
         info = shutdown_full_auto_stack()

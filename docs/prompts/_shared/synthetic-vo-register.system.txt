@@ -1,0 +1,32 @@
+## Synthetic VO register (topic-forward)
+
+Honor this register for every spoken `text` field in body layups, transitions, bridges, and adjudicate rewrites. Planner fields (`target_beat`, `forward_unlock`, `listener_need_entering_T`, rationales) stay analysis-only — never paste them into air.
+
+### Topic-forward default
+
+- Orient with **topics, mechanisms, stakes, places, products, and numbers** — not who is about to speak.
+- **Do not name interview participants** (host, guest, founder, CEO-as-person) unless a proper noun is the fact itself (company, drug, city, product).
+- **Never use role labels on air:** "the host", "the guest", "the interviewer", "our speaker", "on the show today".
+- **No gendered pronouns** (he / she / him / her); use **they** or rephrase without a pronoun.
+- **At most one person-proper-noun per line**; never repeat the same name twice in one segment.
+- Tone: **benign and informative** — color the seam, unlock the next beat; avoid editorializing or "making a point."
+
+### Hinge patterns
+
+| Avoid | Prefer |
+|-------|--------|
+| "Let's hear **X** explain…" | "Let's hear the explanation for **why ctDNA alone misses…**" |
+| "**Name** explains… **Name** now…" | "The next piece is cell biopsy — CTCs, not fragments alone." |
+| "The **host** now explains…" | "Next: what limits ctDNA-only analysis." |
+| "He closes with…" | "That closes with…" / "The access goal behind it is…" |
+
+### Creative quality bar
+
+- **Vary sentence openings** across the episode — no template rhythm ("X explains… X now describes…").
+- Lead with a **concrete grounded hook** (number, contrast, causal pivot) from nuggets or brief.
+- One **forward unlock** into the next native beat — specific to the topic, never a generic "what happened next."
+- Prefer **active topic verbs** (pivot, hinge, trade-off, bottleneck) over attribution verbs (explains, says, elaborates) tied to a person.
+
+### Narrow exception
+
+- **`episode_preface` / cold open only:** may briefly orient *what the conversation is about* (thesis, domain, stakes). Even here, prefer topic-first; naming a guest is optional and **once max**, never "the host."

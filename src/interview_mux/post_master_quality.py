@@ -34,6 +34,7 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
         delivery_brief_cfg,
         estimated_selection_duration_sec,
         load_delivery_brief,
+        selection_duration_brief_min_ratio,
     )
     from interview_mux.interview_duration_policy import transcript_duration_ms
 
@@ -50,10 +51,12 @@ def selection_duration_ship_ok(ctx: RunContext) -> dict[str, Any]:
     detail["brief_min"] = bmin
     detail["brief_ideal"] = bideal
     enforce = bool(delivery_brief_cfg().get("enforce_duration", True))
-    if enforce and est is not None and bmin > 0 and est < bmin * 0.85:
+    brief_min_ratio = selection_duration_brief_min_ratio()
+    brief_min_floor = bmin * brief_min_ratio
+    if enforce and est is not None and bmin > 0 and est < brief_min_floor:
         detail["ok"] = False
         detail["reasons"].append(
-            f"selection ~{est:.0f}s below brief.min*{0.85:.2f} ({bmin * 0.85:.0f}s)"
+            f"selection ~{est:.0f}s below brief.min*{brief_min_ratio:.2f} ({brief_min_floor:.0f}s)"
         )
     source_ms = int(transcript_duration_ms(ctx) or 0)
     min_ratio = float(delivery_output_min_ratio() or 0.1)
@@ -325,6 +328,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
                         else None
                     ),
                     synthetic_framing=synthetic if isinstance(synthetic, dict) else None,
+                    ctx=ctx,
                 )
             )
             vo_errs = list(dict.fromkeys(vo_errs))
@@ -510,6 +514,7 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
     add("episode_close_outro_present", outro_ok, outro_detail)
     opening_theme_ok = True
     opening_theme_detail: dict[str, Any] = {"required": False}
+    opening_assets: set[str] = set()
     try:
         gr = (
             ctx.read_json("understanding/gap_report.json")
@@ -577,6 +582,34 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         opening_theme_ok = False
         opening_theme_detail = {"required": True, "error": str(exc)[:160]}
     add("opening_music_preserved", opening_theme_ok, opening_theme_detail)
+
+    opening_quality_ok = True
+    opening_quality_detail: dict[str, Any] = {"required": True}
+    try:
+        if opening_assets:
+            assets_dir = ctx.final_path("sound_design", "assets")
+            stub_ids: list[str] = []
+            for aid in sorted(opening_assets):
+                gen_path = assets_dir / f"{aid}.gen.json"
+                backend = ""
+                if gen_path.is_file():
+                    try:
+                        gmeta = ctx.read_json(f"sound_design/assets/{aid}.gen.json")
+                        backend = str((gmeta or {}).get("backend") or "").strip().lower()
+                    except Exception:
+                        backend = ""
+                if backend == "musical_stub":
+                    stub_ids.append(aid)
+            opening_quality_ok = not stub_ids
+            opening_quality_detail = {
+                "required": True,
+                "opening_asset_ids": sorted(opening_assets),
+                "musical_stub_ids": stub_ids,
+            }
+    except Exception as exc:
+        opening_quality_ok = False
+        opening_quality_detail = {"required": True, "error": str(exc)[:160]}
+    add("opening_music_quality", opening_quality_ok, opening_quality_detail)
 
     # Listen delight (mastering.listen_delight) — authoritative by default: the master
     # must clear its overall + per-dimension floors before it is publishable, even if
@@ -877,18 +910,12 @@ def run_post_master_quality(ctx: RunContext, *, block: bool = True) -> dict[str,
 
 
 def require_publishable(ctx: RunContext, *, stage: str = "podcast_publish") -> None:
-    from interview_mux.aspirational_quality import publish_blocked_by_advisories
+    """Block local encode/package when Tier-0 PMQ fails.
 
-    if publish_blocked_by_advisories(ctx):
-        from interview_mux.loud_fail import raise_loud_failure
-
-        raise_loud_failure(
-            ctx,
-            "Publishing blocked: quality advisories require operator G-Publish consent.",
-            stage=stage,
-            reason="publish_blocked_quality_advisories",
-            detail={"require_operator_publish_when_advisory": True},
-        )
+    Quality advisories do **not** block local packaging (encode / cover /
+    ``podcast_publish``). They require operator consent only for S3 sync —
+    see ``publish_blocked_by_advisories`` / G-Publish sync.
+    """
     if not ctx.artifact_exists(QUALITY_REL):
         from interview_mux.loud_fail import raise_loud_failure
 

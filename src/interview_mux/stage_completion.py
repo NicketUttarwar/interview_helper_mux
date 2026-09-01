@@ -68,6 +68,16 @@ def stage_artifact_incompleteness(
             continue
         if not ctx.artifact_exists(path):
             return f"{path} is pending"
+        # Stale stamps mean the producer must re-run / restamp — do not treat as
+        # complete for seed-front (else conductor skips to the next consumer).
+        try:
+            raw = ctx.read_json(path)
+            meta = (raw.get("_meta") or {}) if isinstance(raw, dict) else {}
+            if meta.get("stale"):
+                reason = str(meta.get("stale_reason") or "upstream fix")
+                return f"{path} is marked stale ({reason})"
+        except Exception:
+            pass
         st = artifact_status_for_stage(path, ctx, stage_id)
         if st != "complete":
             return f"{path} is {st}"
@@ -130,6 +140,18 @@ def stage_artifact_incompleteness(
             "master/assembly_preview.wav"
         ):
             return "assembly audio missing — theme/SFX wait for assembly_preview"
+    if stage_id == "mmaudio_sfx":
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            missing_wavs = missing_sdp_asset_wavs(ctx)
+        except Exception:
+            missing_wavs = []
+        if missing_wavs:
+            return (
+                "SDP theme WAVs missing: "
+                + ", ".join(str(a) for a in missing_wavs[:4])
+            )
     if stage_id == "edl":
         try:
             from interview_mux.transition_vo import seated_vo_paths_missing

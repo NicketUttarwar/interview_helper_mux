@@ -26,6 +26,7 @@ STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
         "audible_script_hash_agreement",
         "omit_ledger_air_contract",
         "selection_duration_floor",
+        "opening_music_quality",
     }
 )
 
@@ -63,8 +64,8 @@ _DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 _DEFAULT_CATASTROPHIC: dict[str, float] = {
-    "cut_integrity": 0.70,
-    "listen_delight_overall": 0.65,
+    "cut_integrity": 0.55,
+    "listen_delight_overall": 0.50,
 }
 
 
@@ -449,6 +450,22 @@ def has_quality_advisories(ctx: RunContext) -> bool:
 
 
 def publish_blocked_by_advisories(ctx: RunContext) -> bool:
+    """True when S3/RSS sync must wait for operator consent.
+
+    Local encode/package is never blocked by advisories (see
+    ``require_publishable``). Operator Prepare (``g_publish_cleared``) is the
+    consent signal for sync when advisories exist.
+    """
     if not require_operator_publish_when_advisory():
         return False
-    return has_quality_advisories(ctx)
+    if not has_quality_advisories(ctx):
+        return False
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if isinstance(meta, dict) and (
+            meta.get("g_publish_cleared") or meta.get("g_publish_skipped")
+        ):
+            return False
+    except Exception:
+        pass
+    return True

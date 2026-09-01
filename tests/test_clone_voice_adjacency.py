@@ -267,6 +267,45 @@ def _transition(*, after: str, before: str, voice: str = "spk_host") -> dict:
     }
 
 
+def test_edl_suppresses_clone_adjacent_auto_minted_transition() -> None:
+    """Synth-stamped host voice next to host native must hitch, not ship a transition clip."""
+    segs = {
+        "seg_023": {
+            "segment_id": "seg_023",
+            "speaker_id": "spk_0",
+            "start_ms": 0,
+            "end_ms": 3000,
+            "text": "guest prior",
+        },
+        "seg_024": {
+            "segment_id": "seg_024",
+            "speaker_id": "spk_1",
+            "start_ms": 4000,
+            "end_ms": 7000,
+            "text": "host native",
+        },
+    }
+    edl = build_flow1_edl(
+        selection={"ordered_segment_ids": ["seg_023", "seg_024"]},
+        segments_by_id=segs,
+        transitions={
+            "transitions": [
+                {
+                    "after_segment_id": "seg_023",
+                    "before_segment_id": "seg_024",
+                    "text": "Moving from tumor cells to the next beat.",
+                    "voice_speaker_id": "spk_1",
+                    "auto_minted": True,
+                    "type": "bridge",
+                }
+            ]
+        },
+        verify_pair=lambda _a, _b: None,
+    )
+    assert not [c for c in edl["clips"] if c.get("type") == "transition"]
+    assert "transition:seg_023->seg_024" in edl["warnings"]["suppressed_clone_adjacency"]
+
+
 def test_edl_verify_yes_still_suppresses_clone_adjacent_vo(tmp_path: Path) -> None:
     path = tmp_path / "vo.wav"
     path.write_bytes(b"x")

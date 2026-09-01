@@ -15,6 +15,7 @@ from interview_mux.run_context import RunContext
 
 DELIVERY_BRIEF_PATH = "understanding/delivery_brief.json"
 HIGH_SEVERITY = frozenset({"high", "critical", "blocking"})
+_DEFAULT_SELECTION_BRIEF_MIN_RATIO = 0.65
 
 
 def delivery_brief_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -24,6 +25,17 @@ def delivery_brief_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def delivery_brief_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(delivery_brief_cfg(cfg).get("enabled", True))
+
+
+def selection_duration_brief_min_ratio(cfg: dict[str, Any] | None = None) -> float:
+    """Hard ship envelope: selection below brief.min × this ratio is catastrophic."""
+    try:
+        return float(
+            delivery_brief_cfg(cfg).get("selection_brief_min_ratio")
+            or _DEFAULT_SELECTION_BRIEF_MIN_RATIO
+        )
+    except (TypeError, ValueError):
+        return _DEFAULT_SELECTION_BRIEF_MIN_RATIO
 
 
 def load_delivery_brief(ctx: RunContext) -> dict[str, Any] | None:

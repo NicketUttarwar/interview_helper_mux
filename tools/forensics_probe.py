@@ -107,6 +107,19 @@ def build_probe(run_id: str) -> dict[str, Any]:
     identical = read_identical_failures(ctx)
     lies = _stage_done_lies(ctx)
     drift = _order_drift(ctx)
+    wasted: list[dict[str, Any]] = []
+    try:
+        from interview_mux.delivery_guardrails import WASTED_WORK_REL
+
+        if ctx.artifact_exists(WASTED_WORK_REL):
+            doc = ctx.read_json(WASTED_WORK_REL)
+            if isinstance(doc, dict):
+                wasted = list(doc.get("events") or [])[-12:]
+    except Exception:
+        pass
+    intervene = bool(lies) or bool(
+        e for e in wasted if str(e.get("event") or "") in {"orphan", "music_deferred"}
+    )
 
     producer_hint = ""
     if drift and drift.get("heal_action") == "rebuild":
@@ -132,6 +145,8 @@ def build_probe(run_id: str) -> dict[str, Any]:
         "stage_done_lies": lies,
         "pending_writes": _pending_writes(ctx),
         "order_drift": drift,
+        "wasted_work_recent": wasted,
+        "intervene_recommended": intervene,
         "identical_failures_halted": [
             row
             for row in (identical.get("signatures") or {}).values()

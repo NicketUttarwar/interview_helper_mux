@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 # After G0, diarization is locked inside transcribe — there is no standalone
@@ -114,6 +115,71 @@ def build_speaker_role_evidence(stage_input: dict[str, Any]) -> dict[str, Any]:
         "diarized_speaker_ids": speaker_ids,
         "diarization_pair_verdicts": pair_verdicts,
     }
+
+
+def enrich_content_brief_from_evidence(ctx: Any) -> bool:
+    """Populate guest_name/host_name on content_brief when speakers lack display names."""
+    if not getattr(ctx, "artifact_exists", lambda _p: False)("understanding/content_brief.json"):
+        return False
+    try:
+        brief = ctx.read_json("understanding/content_brief.json")
+    except Exception:
+        return False
+    if not isinstance(brief, dict):
+        return False
+    changed = False
+    guest = str(brief.get("guest_name") or "").strip()
+    host = str(brief.get("host_name") or "").strip()
+    if guest and host:
+        return False
+    roles: list[dict[str, Any]] = []
+    if getattr(ctx, "artifact_exists", lambda _p: False)("understanding/speakers.json"):
+        try:
+            sp = ctx.read_json("understanding/speakers.json")
+            roles = [
+                r
+                for r in ((sp or {}).get("speakers") or [])
+                if isinstance(r, dict)
+            ]
+        except Exception:
+            roles = []
+    for row in roles:
+        role = str(row.get("role") or row.get("speaker_role") or "").lower()
+        name = str(
+            row.get("display_name")
+            or row.get("canonical_name")
+            or row.get("name")
+            or row.get("label")
+            or ""
+        ).strip()
+        if not name:
+            continue
+        if "interviewee" in role or "guest" in role:
+            if not guest:
+                brief["guest_name"] = name
+                guest = name
+                changed = True
+        if "interviewer" in role or "host" in role:
+            if not host:
+                brief["host_name"] = name
+                host = name
+                changed = True
+    if not guest:
+        try:
+            meta = ctx.read_json("run_meta.json") if getattr(ctx, "artifact_exists", lambda _p: False)(
+                "run_meta.json"
+            ) else {}
+            src = str((meta or {}).get("source_audio") or (meta or {}).get("input_audio") or "")
+            stem = Path(src).stem.replace("_", " ").replace("-", " ")
+            tokens = [t for t in stem.split() if t and t[0].isupper()]
+            if len(tokens) >= 2:
+                brief["guest_name"] = tokens[0]
+                changed = True
+        except Exception:
+            pass
+    if changed:
+        ctx.write_json("understanding/content_brief.json", brief)
+    return changed
 
 
 def is_unfulfillable_diarization_need(need: Any) -> bool:

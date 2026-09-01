@@ -1391,6 +1391,78 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 }
             )
             new_chapters = nonempty
+        # Merge duplicate chapter titles (audit: max 8 + no split-title reuse).
+        merged_by_title: list[dict[str, Any]] = []
+        title_index: dict[str, int] = {}
+        for ch in new_chapters:
+            title = str(ch.get("title") or ch.get("chapter_title") or "").strip()
+            key = title.casefold() if title else f"__anon_{len(merged_by_title)}"
+            ids = [str(s) for s in (ch.get("segment_ids") or []) if s]
+            if key in title_index and title:
+                idx = title_index[key]
+                prev = merged_by_title[idx]
+                prev_ids = [str(s) for s in (prev.get("segment_ids") or []) if s]
+                combined = list(dict.fromkeys([*prev_ids, *ids]))
+                combined.sort(key=lambda sid: pos.get(sid, 10**9))
+                prev["segment_ids"] = combined
+                changed = True
+                applied.append(
+                    {
+                        "action": "merge_duplicate_chapter_titles",
+                        "title": title,
+                        "count": len(combined),
+                    }
+                )
+            else:
+                title_index[key] = len(merged_by_title)
+                merged_by_title.append(dict(ch))
+        new_chapters = merged_by_title
+        # Clamp to delivery_brief chapter_budget.max (default 8).
+        max_chapters = 8
+        try:
+            if ctx.artifact_exists("understanding/delivery_brief.json"):
+                brief = ctx.read_json("understanding/delivery_brief.json")
+                budget = (brief or {}).get("chapter_budget") if isinstance(brief, dict) else {}
+                if isinstance(budget, dict) and budget.get("max") is not None:
+                    max_chapters = max(1, int(budget["max"]))
+        except Exception:
+            pass
+        while len(new_chapters) > max_chapters:
+            # Merge the adjacent pair with fewest combined segments (preserve arc ends).
+            best_i = 0
+            best_cost = 10**9
+            for i in range(len(new_chapters) - 1):
+                a = new_chapters[i].get("segment_ids") or []
+                b = new_chapters[i + 1].get("segment_ids") or []
+                cost = len(a) + len(b)
+                # Prefer interior merges over collapsing cold-open/finale.
+                if i == 0 or i + 1 == len(new_chapters) - 1:
+                    cost += 3
+                if cost < best_cost:
+                    best_cost = cost
+                    best_i = i
+            left = dict(new_chapters[best_i])
+            right = new_chapters[best_i + 1]
+            left_ids = [str(s) for s in (left.get("segment_ids") or []) if s]
+            right_ids = [str(s) for s in (right.get("segment_ids") or []) if s]
+            combined = list(dict.fromkeys([*left_ids, *right_ids]))
+            combined.sort(key=lambda sid: pos.get(sid, 10**9))
+            left["segment_ids"] = combined
+            if not str(left.get("title") or "").strip():
+                left["title"] = str(right.get("title") or right.get("chapter_title") or "")
+            new_chapters = [
+                *new_chapters[:best_i],
+                left,
+                *new_chapters[best_i + 2 :],
+            ]
+            changed = True
+            applied.append(
+                {
+                    "action": "clamp_chapters_to_budget",
+                    "max": max_chapters,
+                    "remaining": len(new_chapters),
+                }
+            )
         if changed:
             out["chapters"] = new_chapters
             applied.append(

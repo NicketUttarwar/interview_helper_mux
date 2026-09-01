@@ -16,6 +16,7 @@ Each rewritten line remains a **value-adding conversation partner turn**. Use `t
 - Segment, line, clip, and turn IDs are edit metadata only. Never speak an ID or strip its prefix and speak its number. Orient with listener-clear facts and context. When context is unavailable, **drop the line** — never invent relative filler such as “What happened next?”.
 - Never speak planner/meta language: “chapter”, “intended scope”, “episode scope”, “native continuation”, “listener need”, “talking point”, “vo mission”.
 - Prefer omit when the native interviewer↔interviewee handoff already carries the seam.
+- Honor synthetic-vo-register on every rewrite: topic-forward, no speaker names or role labels in body lines.
 - Keep a non-empty `rationale` stating conversational value (planner-only; not spoken).
 - POV may be 1st / 2nd / 3rd person as narrative mode needs.
 

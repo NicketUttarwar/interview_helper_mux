@@ -33,6 +33,26 @@ HOST_REPAIR_PROGRESS_NOTES = frozenset(
     }
 )
 
+# Orientation-only notes must not short-circuit remutate when the audit fail is
+# chapter-cap / duplicate-title overflow (selection.chapters still broken).
+CHAPTER_OVERFLOW_MARKERS: tuple[str, ...] = (
+    "nine chapters",
+    "maximum of eight",
+    "authoritative maximum",
+    "duplicate chapter title",
+    "chapter assignment is not aligned",
+    "exceeding the authoritative",
+    "unsupported duplicate chapter",
+)
+CHAPTER_FIX_PROGRESS_NOTES = frozenset(
+    {
+        "align_selection_chapters",
+        "align_narrative_plan",
+        "merge_duplicate_chapter_titles",
+        "clamp_chapters_to_budget",
+    }
+)
+
 # Allowlisted issue → action classifiers (substring match on lowered text).
 _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
     (
@@ -48,6 +68,12 @@ _CLASSIFIERS: list[tuple[str, tuple[str, ...]]] = [
             "appear after",
             "early-chapter",
             "early-story",
+            "nine chapters",
+            "maximum of eight",
+            "authoritative maximum",
+            "duplicate chapter title",
+            "chapter assignment is not aligned",
+            "exceeding the authoritative",
         ),
     ),
     (
@@ -516,6 +542,9 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                 repaired_sel, sel_notes = repair_master_selection(ctx, sel_c)
                 from interview_mux.air_order_boundary import commit_selection_mutation
 
+                # write_committed: chapter merge/clamp must land on disk even when
+                # another stage (e.g. edl) holds pending staging that still has the
+                # overflow chapter list.
                 repaired_sel = commit_selection_mutation(
                     ctx,
                     repaired_sel,
@@ -523,6 +552,7 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     stage_key="full_master_ranking",
                     checkpoint_mode="detect",
                     merge_from_disk=False,
+                    write_committed=True,
                 )
                 after_order = [
                     str(x)
@@ -542,6 +572,8 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                         in {
                             "drop_empty_selection_chapters",
                             "sort_chapter_air_order_by_source_time",
+                            "merge_duplicate_chapter_titles",
+                            "clamp_chapters_to_budget",
                         }
                         for n in sel_notes
                     )

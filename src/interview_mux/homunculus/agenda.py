@@ -584,9 +584,18 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
             try:
                 from interview_mux.artifact_completeness import artifact_status
 
-                return artifact_status("sound_design/mmaudio_qa.json", ctx) == "complete"
+                if artifact_status("sound_design/mmaudio_qa.json", ctx) != "complete":
+                    return False
             except Exception:
                 return False
+            try:
+                from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+                if missing_sdp_asset_wavs(ctx):
+                    return False
+            except Exception:
+                return False
+            return True
         return True
     if stage == "edl":
         if not ctx.artifact_exists("master/edl.json"):
@@ -1189,12 +1198,31 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
         if token.startswith("upstream_incomplete:"):
             recommended_next = token.split(":", 1)[1]
             break
+        if token.startswith("vo_synth_unstable:"):
+            try:
+                from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
+
+                recommended_next = (
+                    resolve_vo_synth_seed_resume(token.split(":", 1)[1]) or stage
+                )
+            except Exception:
+                recommended_next = "vo_line_adjudicate"
+            break
         if token.startswith("missing_artifact:"):
             for ps, rel in DELIVERY_ANALYSIS_PREREQS:
                 if rel == token.split(":", 1)[1]:
                     recommended_next = ps
                     break
             break
+    try:
+        from interview_mux.delivery_guardrails import ship_path_ready
+
+        ready, ready_reason = ship_path_ready(ctx)
+        if ready and stage == "junction_snip_qa":
+            recommended_next = "master_finalize"
+            blockers.append(f"ship_path_ready:{ready_reason or 'pin_finalize'}")
+    except Exception:
+        pass
     pipeline_mode_val: str | None = None
     try:
         from interview_mux.pipeline_mode import resolve_effective_mode

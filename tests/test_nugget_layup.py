@@ -1591,6 +1591,50 @@ def test_exec_1822_planner_leak_skips_unhealable_layup():
     assert any(n.get("action") == "skip_unhealable_spoken_copy_layup" for n in notes)
 
 
+def test_exec_4741_host_role_label_repaired_to_topic_forward():
+    """Role-label / name-attribution layup recovers from setup + forward_unlock."""
+    ctx = RunContext("exec_nugget_host_role", create=True)
+    _seed_air_order(
+        ctx,
+        ["seg_008", "seg_009"],
+        {
+            "seg_008": "We moved from tissue biopsy to liquid biopsy approaches.",
+            "seg_009": (
+                "The ctDNA panel maps mutations but cannot isolate a single cell "
+                "for full multi-omic work."
+            ),
+        },
+    )
+    plan = {
+        "ordered_segment_ids": ["seg_008", "seg_009"],
+        "layups": [
+            {
+                "target_segment_id": "seg_009",
+                "line_id": "vo_layup_seg_009",
+                "text": (
+                    "The next step is cell biopsy: circulating tumour cells, not blood-borne "
+                    "DNA fragments alone. The host now explains the limitations of ctDNA-only analysis?"
+                ),
+                "target_beat": "Limits of ctDNA-only analysis",
+                "listener_need_entering_T": "CTC track vs fragment-only liquid biopsy",
+                "forward_unlock": "Why ctDNA-only analysis has limits",
+                "setup_from_nuggets": (
+                    "Cell biopsy uses circulating tumour cells rather than blood-borne DNA fragments alone."
+                ),
+                "nugget_ids": ["nug_ctc"],
+                "skip": False,
+            },
+        ],
+    }
+    fixed, notes = repair_or_skip_spoken_copy_layups(ctx, plan)
+    row = next(r for r in fixed["layups"] if r.get("line_id") == "vo_layup_seg_009")
+    assert row.get("skip") is not True
+    text = str(row.get("text") or "")
+    assert "host" not in text.casefold()
+    assert "Utawar" not in text
+    assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
+
+
 def test_sparse_coverage_floor_allows_many_typed_skips():
     """Default 40% floor: mostly typed skips still pass QC when a few air."""
     ctx = RunContext("exec_nugget_sparse_floor", create=True)
@@ -2043,6 +2087,7 @@ def test_spoken_copy_keeps_nugget_body_and_appends_cue(monkeypatch):
     assert row.get("skip") is not True
     assert "cell biopsy" in text.lower()
     assert "?" in text
+    assert "mohan" not in text.lower()
     assert "story in motion" not in text.lower()
     assert any(n.get("action") == "repair_spoken_copy_layup" for n in notes)
 

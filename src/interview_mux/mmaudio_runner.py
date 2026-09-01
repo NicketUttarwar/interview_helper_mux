@@ -31,6 +31,12 @@ class MMAudioUnavailable(LocalRuntimeUnavailable):
     """Raised when MMAudio local stack is missing or generation fails."""
 
 
+class HeavyTaskKilled(MMAudioUnavailable):
+    """MMAudio subprocess was killed (SIGTERM/OOM); retry after abort backoff."""
+
+    retry_after_backoff = True
+
+
 def mmaudio_cfg() -> dict[str, Any]:
     return merged_config().get("mmaudio") or {}
 
@@ -254,6 +260,12 @@ def generate_text_to_audio(
         )
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()[:500]
+            from interview_mux.heavy_task_policy import is_heavy_kill_returncode
+
+            if is_heavy_kill_returncode(proc.returncode):
+                raise HeavyTaskKilled(
+                    f"MMAudio generation killed (rc={proc.returncode}): {err}"
+                )
             raise MMAudioUnavailable(f"MMAudio generation failed: {err}")
 
     meta = {

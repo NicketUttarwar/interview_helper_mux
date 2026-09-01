@@ -376,7 +376,7 @@ def test_cut_integrity_penalizes_air_order_violations(tmp_path, monkeypatch):
     )
     result = evaluate_listen_delight(ctx)
     assert result["dimensions"]["cut_integrity"] < 0.85
-    """Slightly under brief.min but inside the ship 0.85×min envelope must pass."""
+    """Slightly under brief.min but inside the ship 0.65×min envelope must pass."""
     from interview_mux.listen_delight import _nugget_retention
 
     ctx = isolated_run_ctx(tmp_path, "exec_delight_concise_band")

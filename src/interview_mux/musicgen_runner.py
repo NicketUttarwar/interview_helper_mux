@@ -6,9 +6,10 @@ import hashlib
 import json
 import math
 import os
-import signal
+import shutil
 import struct
 import subprocess
+import time
 import wave
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,81 @@ def musicgen_enabled() -> bool:
 
 def _env_truthy(name: str) -> bool:
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes"}
+
+
+def fail_closed_on_stub_roles() -> set[str]:
+    raw = musicgen_cfg().get("fail_closed_on_stub_roles")
+    if isinstance(raw, list) and raw:
+        return {str(x).strip() for x in raw if str(x).strip()}
+    return {"theme_cold_open", "theme_outro"}
+
+
+def keep_prior_stem_on_fail() -> bool:
+    return bool(musicgen_cfg().get("keep_prior_stem_on_fail", True))
+
+
+def backup_prior_stem(out_wav: Path) -> bool:
+    """Copy good on-disk stem to ``<wav>.prior.bak`` before regen."""
+    if not keep_prior_stem_on_fail():
+        return False
+    out_wav = Path(out_wav)
+    if not out_wav.is_file() or out_wav.stat().st_size < 1000:
+        return False
+    gen_path = out_wav.with_suffix(".gen.json")
+    backend = ""
+    if gen_path.is_file():
+        try:
+            gmeta = json.loads(gen_path.read_text(encoding="utf-8"))
+            backend = str((gmeta or {}).get("backend") or "").strip().lower()
+        except (OSError, json.JSONDecodeError):
+            backend = ""
+    if backend and backend not in {"musicgen", "mmaudio_backup"}:
+        return False
+    bak = Path(str(out_wav) + ".prior.bak")
+    try:
+        shutil.copy2(out_wav, bak)
+        if gen_path.is_file():
+            shutil.copy2(gen_path, Path(str(gen_path) + ".prior.bak"))
+        return True
+    except OSError:
+        return False
+
+
+def restore_prior_stem(out_wav: Path) -> dict[str, Any] | None:
+    """Restore ``<wav>.prior.bak`` after failed regen; return meta patch or None."""
+    out_wav = Path(out_wav)
+    bak = Path(str(out_wav) + ".prior.bak")
+    if not bak.is_file():
+        return None
+    try:
+        shutil.copy2(bak, out_wav)
+        gen_bak = Path(str(out_wav.with_suffix(".gen.json")) + ".prior.bak")
+        gen_path = out_wav.with_suffix(".gen.json")
+        if gen_bak.is_file():
+            shutil.copy2(gen_bak, gen_path)
+            try:
+                gmeta = json.loads(gen_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                gmeta = {}
+        else:
+            gmeta = {}
+        gmeta = dict(gmeta)
+        gmeta["fallback"] = "kept_prior_stem"
+        gmeta["prior_stem_kept"] = True
+        _write_generation_meta(out_wav, gmeta)
+        return gmeta
+    except OSError:
+        return None
+
+
+def stub_allowed_for_role(role: str | None) -> bool:
+    role_s = str(role or "").strip()
+    if role_s in fail_closed_on_stub_roles():
+        return False
+    allowed = musicgen_cfg().get("stub_allowed_roles")
+    if isinstance(allowed, list) and allowed:
+        return role_s in {str(x).strip() for x in allowed}
+    return True
 
 
 def fail_closed_on_stub() -> bool:
@@ -96,14 +172,10 @@ def cli_python_executable(py: Path) -> Path:
 
 
 def is_abort_returncode(code: int | None) -> bool:
-    if code is None:
-        return False
-    n = int(code)
-    try:
-        sigabrt = int(signal.SIGABRT)
-    except Exception:
-        sigabrt = 6
-    return n in {-sigabrt, 128 + sigabrt, sigabrt}
+    """Delegate to heavy_task_policy (SIGABRT + SIGTERM + SIGKILL)."""
+    from interview_mux.heavy_task_policy import is_heavy_kill_returncode
+
+    return is_heavy_kill_returncode(code)
 
 
 def mps_banned(*, run_ctx: Any | None = None) -> bool:
@@ -344,7 +416,18 @@ def _spawn_musicgen(
                 pass
             return subprocess.CompletedProcess(proc_h.args, -9, "", f"timeout after {timeout}s")
         stdout, stderr = proc_h.communicate()
-        return subprocess.CompletedProcess(proc_h.args, proc_h.returncode, stdout or "", stderr or "")
+        result = subprocess.CompletedProcess(
+            proc_h.args, proc_h.returncode, stdout or "", stderr or ""
+        )
+        from interview_mux.heavy_task_policy import record_heavy_abort
+
+        record_heavy_abort(
+            "musicgen",
+            result.returncode,
+            ctx=run_ctx,
+            stage="musicgen",
+        )
+        return result
 
 
 def generate_music_clip(
@@ -363,6 +446,7 @@ def generate_music_clip(
     dur = clamp_music_duration(duration_sec, role=role)
     out_wav = Path(out_wav)
     out_wav.parent.mkdir(parents=True, exist_ok=True)
+    backup_prior_stem(out_wav)
     py = musicgen_venv_python()
     script = repo_root() / "tools" / "musicgen_generate.py"
     model_id = str(musicgen_cfg().get("model_id") or "facebook/musicgen-large")
@@ -398,6 +482,8 @@ def generate_music_clip(
         step_down_timeout = int(
             cfg_block.get("step_down_timeout_sec") or min(480, timeout)
         )
+        step_ratio = float(cfg_block.get("step_down_duration_ratio") or 0.85)
+        pause_between = float(cfg_block.get("pause_between_ladder_steps_sec") or 0)
         # Ladder: configured primary (default large) → medium → small.
         # prefer_medium_on_cpu can skip large→medium when primary is still large on CPU.
         if (
@@ -455,6 +541,7 @@ def generate_music_clip(
             )
             meta["musicgen_returncode"] = proc.returncode
             meta["fidelity_step"] = step
+            meta["ladder_step"] = step
             meta["model_id"] = mid
             meta["duration_sec"] = seconds
             if proc.returncode == 0 and out_wav.is_file() and out_wav.stat().st_size > 1000:
@@ -486,6 +573,10 @@ def generate_music_clip(
             if i > 0 and not _hub_has(mid):
                 continue
             step_name = "large" if "large" in mid else ("medium" if "medium" in mid else "small")
+            step_seconds = dur if i == 0 else max(
+                float(musicgen_cfg().get("min_duration_sec") or 4.0),
+                dur * (step_ratio ** i),
+            )
             # Keep step-downs on the same accelerator (MPS/CUDA). Forcing CPU here
             # recreated the exec_1765 thrash path on 16GB Apple Silicon after a
             # primary timeout. CPU is only used when device resolved to cpu, or via
@@ -494,33 +585,53 @@ def generate_music_clip(
                 {
                     "dev": device,
                     "mid": mid,
-                    "seconds": dur,
+                    "seconds": step_seconds,
                     "text": prompt,
                     "melody": i == 0,
                     "step": f"ladder_{step_name}",
                     "step_timeout": timeout if i == 0 else step_down_timeout,
+                    "attempt": i + 1,
                 }
             )
         meta["model_ladder"] = [s["mid"] for s in steps]
 
+        from interview_mux.heavy_task_policy import is_heavy_kill_returncode, wait_abort_backoff
+
         try:
             ok = False
-            for spec in steps:
-                ok = _attempt(**spec)
+            for idx, spec in enumerate(steps):
+                meta["attempt"] = spec.get("attempt")
+                ok = _attempt(**{k: v for k, v in spec.items() if k != "attempt"})
                 if ok:
                     break
                 if meta.get("musicgen_abort") and spec.get("dev") != "cpu":
                     retry = dict(spec)
                     retry["dev"] = "cpu"
                     retry["step"] = str(spec.get("step") or "") + "_cpu"
-                    ok = _attempt(**retry)
+                    ok = _attempt(**{k: v for k, v in retry.items() if k != "attempt"})
                     if ok:
                         break
+                rc = meta.get("musicgen_returncode")
+                if is_heavy_kill_returncode(rc) and idx + 1 < len(steps):
+                    wait_abort_backoff(run_ctx, "musicgen")
+                elif pause_between > 0 and idx + 1 < len(steps):
+                    time.sleep(pause_between)
             if ok:
                 _write_generation_meta(out_wav, meta)
                 return meta
         except Exception as exc:
             meta["musicgen_error"] = str(exc)[:400]
+
+    if not stub_allowed_for_role(role):
+        prior = restore_prior_stem(out_wav)
+        if prior:
+            meta.update(prior)
+            return meta
+        meta["backend"] = "musicgen_failed"
+        meta["warning"] = "MusicGen failed; musical_stub blocked for role"
+        meta["mmaudio_backup_suggested"] = bool(musicgen_cfg().get("mmaudio_backup_on_stub", True))
+        _write_generation_meta(out_wav, meta)
+        return meta
 
     # Always emit listenable notes if MusicGen timed out or failed — never silent mix.
     # Callers (sfx_mmaudio) may still try MMAudio when backend=musical_stub.

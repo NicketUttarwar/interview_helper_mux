@@ -90,6 +90,30 @@ def restore_master_bundle(
         path = restore_master_artifact(ctx, rel)
         if path is not None and not before and path.is_file():
             restored.append(rel)
+    # vo_pickup synthesis companions (C2)
+    for rel_suffix in ("vo_pickup/synthesis_report.json",):
+        rel = rel_suffix
+        before = ctx.final_path(*rel.split("/")).is_file()
+        path = restore_master_artifact(ctx, rel)
+        if path is not None and not before and path.is_file():
+            restored.append(rel)
+    arch = Path(ctx.run_dir) / ".archived"
+    if arch.is_dir():
+        for pattern in ("*/vo_pickup/synthesized/*.wav", "*/master/transitions/synthesized/*.wav"):
+            for src in sorted(arch.glob(pattern)):
+                try:
+                    parts = src.parts
+                    idx = parts.index(".archived")
+                    rel_parts = parts[idx + 2 :]
+                    rel = "/".join(rel_parts)
+                    dest = ctx.final_path(*rel.split("/"))
+                    if dest.is_file():
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+                    restored.append(rel)
+                except (ValueError, OSError):
+                    continue
     return restored
 
 

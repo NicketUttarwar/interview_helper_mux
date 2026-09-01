@@ -264,9 +264,16 @@ def run_sfx_generation(ctx: RunContext, *, profile: str) -> None:
 
     with logged_step(f"{stage}/qa_and_finalize", ctx=ctx, stage=stage):
         run_mmaudio_asset_qa(ctx)
-        from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+        from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity, load_mmaudio_qa
 
         heal_mmaudio_qa_wav_parity(ctx)
+        qa_doc = load_mmaudio_qa(ctx)
+        for row in qa_doc.get("assets") or []:
+            if not isinstance(row, dict):
+                continue
+            aid = str(row.get("asset_id") or "")
+            if aid and str(row.get("verdict") or "").lower() == "pass":
+                _pin_sfx_asset(ctx, aid)
         _log_sfx_event(ctx, "MMAudio QA completed", stage=stage, event="qa")
         from interview_mux.gates import sync_post_listen_gate_state
         from interview_mux.operator_snapshots import persist_operator_mmaudio_snapshots
@@ -827,6 +834,228 @@ def _persist_musicgen_candidate_record(ctx: RunContext, record: dict[str, Any]) 
     )
 
 
+def _pin_sfx_asset(ctx: RunContext, asset_id: str) -> None:
+    def patch(m: dict[str, Any]) -> None:
+        pinned = list(m.get("sfx_pinned_asset_ids") or [])
+        if asset_id not in pinned:
+            pinned.append(asset_id)
+        m["sfx_pinned_asset_ids"] = sorted(pinned)
+
+    ctx.mutate_run_meta(patch)
+
+
+def _try_mmaudio_backup_temp(
+    *,
+    ctx: RunContext,
+    stage: str,
+    asset_id: str,
+    params: dict[str, Any],
+    out_file: Path,
+) -> dict[str, Any] | None:
+    """Write MMAudio to a temp WAV, QA, commit only on pass."""
+    import shutil
+
+    from interview_mux.mmaudio_asset_qa import analyze_asset_wav
+
+    temp = out_file.with_suffix(".mmaudio_tmp.wav")
+    try:
+        mm = generate_text_to_audio(
+            prompt=params["prompt"],
+            negative_prompt=params.get("negative_prompt") or "",
+            duration_seconds=params.get("duration_seconds") or 12.0,
+            output_wav=temp,
+            prompt_influence=params.get("prompt_influence"),
+            cfg_strength=params.get("cfg_strength"),
+            num_steps=params.get("num_steps"),
+            seed=params.get("seed"),
+            variant=params.get("variant"),
+            role=params.get("role"),
+        )
+        if not temp.is_file() or temp.stat().st_size < 1000:
+            return None
+        qa = analyze_asset_wav(
+            asset_id=asset_id,
+            path=temp,
+            plan_row={
+                "role": params.get("role"),
+                "duration_seconds": params.get("duration_seconds"),
+            },
+        )
+        if str(qa.get("verdict") or "").lower() == "fail":
+            return None
+        shutil.copy2(temp, out_file)
+        meta = {
+            **(mm if isinstance(mm, dict) else {}),
+            "backend": "mmaudio_backup",
+            "fallback_from": "musicgen_failed",
+            "fallback_used": "mmaudio_backup",
+        }
+        out_file.with_suffix(".gen.json").write_text(
+            json.dumps(meta, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return meta
+    except Exception as exc:
+        ctx.log(
+            f"MMAudio temp-QA backup failed for {asset_id}: {exc}",
+            level="warning",
+            stage=stage,
+        )
+        return None
+    finally:
+        if temp.is_file():
+            try:
+                temp.unlink()
+            except OSError:
+                pass
+
+
+def _skip_cold_open_on_failure(
+    *,
+    ctx: RunContext,
+    stage: str,
+    asset_id: str,
+    role: str,
+    out_file: Path,
+    duration_sec: float,
+) -> dict[str, Any] | None:
+    from interview_mux.musicgen_runner import musicgen_cfg
+
+    if role != "theme_cold_open":
+        return None
+    if not bool(musicgen_cfg().get("skip_cold_open_on_total_failure", True)):
+        return None
+    try:
+        from pydub import AudioSegment
+
+        ms = max(100, int(float(duration_sec) * 1000))
+        AudioSegment.silent(duration=ms, frame_rate=48000).export(out_file, format="wav")
+    except Exception:
+        out_file.write_bytes(b"")
+    meta = {
+        "backend": "skipped_cold_open",
+        "fallback": "cold_open_skipped",
+        "fallback_used": "cold_open_skipped",
+        "role": role,
+        "asset_id": asset_id,
+    }
+    out_file.with_suffix(".gen.json").write_text(
+        json.dumps(meta, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        from interview_mux.delivery_guardrails import record_wasted_work
+
+        record_wasted_work(
+            ctx,
+            event="cold_open_skipped",
+            stage=stage,
+            detail={"asset_id": asset_id},
+        )
+    except Exception:
+        pass
+    ctx.log(
+        f"Skipped cold-open bed for {asset_id} after total music failure",
+        level="warning",
+        stage=stage,
+    )
+    return meta
+
+
+def _resolve_music_fallbacks(
+    *,
+    ctx: RunContext,
+    stage: str,
+    asset_id: str,
+    params: dict[str, Any],
+    out_file: Path,
+    meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Quality-first ladder after MusicGen: MMAudio → motif-family → prior stem → skip."""
+    from interview_mux.delivery_guardrails import record_wasted_work
+    from interview_mux.musicgen_runner import restore_prior_stem, stub_allowed_for_role
+
+    role = str(params.get("role") or "")
+    backend = str(meta.get("backend") or "").strip().lower()
+    if backend == "musicgen":
+        return meta
+
+    needs_fallback = backend in {"musical_stub", "musicgen_failed", ""} or bool(
+        meta.get("mmaudio_backup_suggested")
+    )
+    if not needs_fallback:
+        return meta
+
+    if backend in {"musical_stub", "musicgen_failed", ""} or meta.get("mmaudio_backup_suggested"):
+        ctx.log(
+            f"MusicGen did not produce stem for {asset_id} — trying MMAudio backup",
+            level="warning",
+            stage=stage,
+        )
+        mm_meta = _try_mmaudio_backup_temp(
+            ctx=ctx,
+            stage=stage,
+            asset_id=asset_id,
+            params=params,
+            out_file=out_file,
+        )
+        if mm_meta:
+            return mm_meta
+
+    rescued = _fallback_to_motif_family_stems(ctx, [asset_id], stage=stage)
+    if asset_id in rescued:
+        try:
+            record_wasted_work(
+                ctx,
+                event="motif_family_fallback",
+                stage=stage,
+                detail={"asset_id": asset_id},
+            )
+        except Exception:
+            pass
+        gen_path = out_file.with_suffix(".gen.json")
+        if gen_path.is_file():
+            try:
+                gmeta = json.loads(gen_path.read_text(encoding="utf-8"))
+                gmeta["fallback_used"] = "motif_family"
+                return gmeta
+            except (OSError, json.JSONDecodeError):
+                pass
+        return {"backend": "motif_family", "fallback_used": "motif_family"}
+
+    prior = restore_prior_stem(out_file)
+    if prior:
+        try:
+            record_wasted_work(
+                ctx,
+                event="kept_prior_stem",
+                stage=stage,
+                detail={"asset_id": asset_id},
+            )
+        except Exception:
+            pass
+        return prior
+
+    skipped = _skip_cold_open_on_failure(
+        ctx=ctx,
+        stage=stage,
+        asset_id=asset_id,
+        role=role,
+        out_file=out_file,
+        duration_sec=float(params.get("duration_seconds") or 12.0),
+    )
+    if skipped:
+        return skipped
+
+    if backend == "musical_stub" and stub_allowed_for_role(role):
+        return meta
+
+    if not stub_allowed_for_role(role):
+        meta["backend"] = "musicgen_failed"
+        meta["warning"] = "All music fallbacks exhausted; stub blocked for role"
+    return meta
+
+
 def _generate_with_retry(
     *,
     ctx: RunContext,
@@ -891,42 +1120,14 @@ def _generate_with_retry(
                 seed=int(seed) if seed is not None else None,
                 melody_wav=melody,
             )
-            # MusicGen hang/timeout path ends in musical_stub — try MMAudio before shipping stub.
-            if (
-                str(meta.get("backend") or "") == "musical_stub"
-                and bool(meta.get("mmaudio_backup_suggested", True))
-            ):
-                try:
-                    ctx.log(
-                        f"MusicGen stub for {asset_id} — trying MMAudio backup",
-                        level="warning",
-                        stage=stage,
-                    )
-                    mm = generate_text_to_audio(
-                        prompt=params["prompt"],
-                        negative_prompt=params.get("negative_prompt") or "",
-                        duration_seconds=params.get("duration_seconds") or 12.0,
-                        output_wav=out_file,
-                        prompt_influence=params.get("prompt_influence"),
-                        cfg_strength=params.get("cfg_strength"),
-                        num_steps=params.get("num_steps"),
-                        seed=params.get("seed"),
-                        variant=params.get("variant"),
-                        role=params.get("role"),
-                    )
-                    if out_file.is_file() and out_file.stat().st_size > 1000:
-                        return {
-                            **(mm if isinstance(mm, dict) else {}),
-                            "backend": "mmaudio_backup",
-                            "fallback_from": "musicgen_stub",
-                        }
-                except Exception as mm_exc:
-                    ctx.log(
-                        f"MMAudio backup failed for {asset_id}: {mm_exc}",
-                        level="warning",
-                        stage=stage,
-                    )
-            return meta
+            return _resolve_music_fallbacks(
+                ctx=ctx,
+                stage=stage,
+                asset_id=asset_id,
+                params=params,
+                out_file=out_file,
+                meta=meta,
+            )
 
         from interview_mux.mmaudio_asset_qa import analyze_asset_wav
         from interview_mux.config import merged_config
@@ -1154,6 +1355,10 @@ def _should_skip_generation(
         return False
     if asset_id in regen_ids:
         return False
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    pinned = set(meta.get("sfx_pinned_asset_ids") or [])
+    if asset_id in pinned:
+        return True
     # Never skip when the on-disk stem is a stub / e2e soft-stub — MusicGen must run.
     gen_side = out_file.with_suffix(".gen.json")
     if gen_side.is_file():
@@ -1166,7 +1371,6 @@ def _should_skip_generation(
             "e2e_fast_stub"
         ) or (gmeta or {}).get("e2e_soft_stub"):
             return False
-    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     hashes = meta.get("sfx_generation_plan_hashes") or {}
     if not isinstance(hashes, dict):
         return False

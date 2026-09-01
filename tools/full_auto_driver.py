@@ -371,9 +371,28 @@ BASE = os.environ.get(
     f"http://127.0.0.1:{os.environ.get('MUX_WEB_PORT', '8765')}",
 )
 INPUT_AUDIO = os.environ.get("MUX_INPUT_AUDIO", "")
-# Fresh by default when MUX_RUN_ID unset; set MUX_FRESH=0 + MUX_RUN_ID to resume.
-FRESH = os.environ.get("MUX_FRESH", "1" if not os.environ.get("MUX_RUN_ID") else "0") == "1"
-RUN_ID = os.environ.get("MUX_RUN_ID", "")
+
+
+def _env_flag(name: str) -> bool | None:
+    raw = str(os.environ.get(name) or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _driver_fresh_from_env() -> bool:
+    """MUX_FRESH=1 always wins — never resume when operator asked for a new exec_*."""
+    explicit = _env_flag("MUX_FRESH")
+    if explicit is not None:
+        return explicit
+    return not str(os.environ.get("MUX_RUN_ID") or "").strip()
+
+
+# Fresh by default when MUX_RUN_ID unset; MUX_FRESH=0 + MUX_RUN_ID to resume.
+FRESH = _driver_fresh_from_env()
+RUN_ID = str(os.environ.get("MUX_RUN_ID") or "").strip() if not FRESH else ""
 
 
 def try_product_recovery(stage_id: str, err: str) -> str | None:
@@ -600,6 +619,8 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
     """Typed remutate instead of flipping edl_narrative_audit verdict to pass."""
     global _NARRATIVE_REMUTATE_DRIVES
     from interview_mux.edl_narrative_remutate import (
+        CHAPTER_FIX_PROGRESS_NOTES,
+        CHAPTER_OVERFLOW_MARKERS,
         HOST_REPAIR_PROGRESS_NOTES,
         apply_edl_narrative_host_repair,
         apply_edl_narrative_remutate,
@@ -613,8 +634,13 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
             for item in (audit.get("blocking_issues") or [])
             if isinstance(item, dict)
         ]
+    issue_blob = (" ".join(issues) + " " + str(label or "")).lower()
+    overflow = any(m in issue_blob for m in CHAPTER_OVERFLOW_MARKERS)
     host = apply_edl_narrative_host_repair(ctx)
-    if HOST_REPAIR_PROGRESS_NOTES.intersection(host.get("notes") or []):
+    host_notes = set(host.get("notes") or [])
+    progress = HOST_REPAIR_PROGRESS_NOTES.intersection(host_notes)
+    chapter_fixed = bool(CHAPTER_FIX_PROGRESS_NOTES.intersection(host_notes))
+    if progress and (not overflow or chapter_fixed):
         log(
             f"edl_narrative host repair ({label}): notes={host.get('notes')} "
             "→ G1 synth then edl_narrative_audit (not transitions)"
@@ -633,6 +659,11 @@ def _drive_edl_narrative_remutate(ctx, audit, *, label: str) -> str:
             }
         )
         return "continue"
+    if overflow and progress and not chapter_fixed:
+        log(
+            f"edl_narrative host repair ({label}): orientation notes only "
+            f"{sorted(progress)} — chapter overflow still open; continue remutate"
+        )
     if _trip_edl_narrative_heal_loop(issues or [label]):
         log_decision(
             "major",
@@ -1087,6 +1118,19 @@ def execute(body: dict[str, Any]) -> None:
     if mapped != from_stage:
         body = {**body, "from_stage": mapped}
         from_stage = mapped
+    # Stability-block sentinels must never reach the runner as from_stage.
+    try:
+        from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
+
+        resolved_sentinel = resolve_vo_synth_seed_resume(from_stage)
+        if resolved_sentinel and resolved_sentinel != from_stage:
+            log(
+                f"execute: sentinel from_stage {from_stage!r} → {resolved_sentinel!r}"
+            )
+            body = {**body, "from_stage": resolved_sentinel}
+            from_stage = resolved_sentinel
+    except Exception:
+        pass
     if from_stage == "mix":
         resolved_mix = _resolve_mix_from_stage("mix")
         if resolved_mix != from_stage:
@@ -2157,14 +2201,31 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
 
         path_m = _re_stale.search(r"([a-z0-9_./-]+\.json)", err, flags=_re_stale.I)
         if path_m:
-            stale_path = path_m.group(1).lower()
+            stale_path = path_m.group(1).lower().lstrip("./")
             if "sound_design_plan" in stale_path:
                 return "sound_design_plan"
             if "mastering_plan" in stale_path:
                 return "mastering_plan_synthesize"
             if "content_brief" in stale_path:
                 return "content_brief_reanchor"
-    # "VO-ingest" / "vo_ingest" must not resolve to audio `ingest` (hyphen/underscore).
+            if stale_path.endswith("transitions.json") or "master/transitions" in stale_path:
+                return "transitions"
+            if "nugget_layup_plan" in stale_path:
+                return "nugget_layup_compose"
+            # Generic: map disk path → producer stage (never the invalidated_by token).
+            try:
+                from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                for sid, rel in STAGE_ARTIFACT_DISK_PATHS.items():
+                    if str(rel).lower() == stale_path or stale_path.endswith(
+                        str(rel).lower()
+                    ):
+                        return sid
+            except Exception:
+                pass
+        # Strip invalidated_by:<stage> so the later name scan does not rewind to
+        # the invalidator (e.g. transitions stale from layup → must re-run transitions).
+        low = _re_stale.sub(r"invalidated_by:[a-z0-9_]+", "invalidated_by", low)    # "VO-ingest" / "vo_ingest" must not resolve to audio `ingest` (hyphen/underscore).
     if (
         "edl_narrative_audit" in low
         or "edl narrative audit" in low
@@ -2204,6 +2265,12 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
         return "gap_framing_compose"
     if "unknown from_stage" in low or "unknown stage:" in low:
         # e.g. "Unknown from_stage: synthetic_framing_plan" — remap nested LLM ids.
+        if "g1_vo_open" in low:
+            return "vo_line_adjudicate"
+        if "transitions_stale_from_layup" in low:
+            return "transitions"
+        if "gap_report_stale_from_layup" in low:
+            return "nugget_layup_compose"
         if "synthetic_framing" in low:
             return "transitions"
         if "content_brief" in low:
@@ -2216,6 +2283,14 @@ def parse_failed_stage(job: dict[str, Any]) -> str:
                 raw = err.split("Unknown from_stage:", 1)[1].strip().split()[0].strip(".:")
             elif "Unknown stage:" in err:
                 raw = err.split("Unknown stage:", 1)[1].strip().split()[0].strip(".:")
+            try:
+                from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
+
+                mapped_sentinel = resolve_vo_synth_seed_resume(raw)
+                if mapped_sentinel and mapped_sentinel != raw:
+                    return mapped_sentinel
+            except Exception:
+                pass
             mapped = _canonicalize(raw)
             if mapped:
                 return mapped
@@ -4296,6 +4371,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         if ctx.artifact_exists("understanding/nugget_corpus.json")
                         else {}
                     )
+                    clone_spk = str(pickup_eligible_speaker_id(ctx) or "").strip()
                     cleaned, notes = avoid_clone_voice_adjacency(
                         gr if isinstance(gr, dict) else {},
                         segs,
@@ -4305,7 +4381,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             )
                             or []
                         ),
-                        clone_speaker_id=pickup_eligible_speaker_id(ctx),
+                        clone_speaker_id=clone_spk,
                         nugget_corpus=corpus if isinstance(corpus, dict) else {},
                     )
                     if notes and isinstance(cleaned, dict):
@@ -4314,6 +4390,54 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             "clone-adjacency: retargeted/dropped "
                             f"{len(notes)} generic clone-adjacent VO line(s)"
                         )
+                    # Auto-minted spoken hinges next to the clone source must
+                    # become hitch air — gap heal alone cannot clear transition clips.
+                    if clone_spk and ctx.artifact_exists("master/transitions.json"):
+                        tr_doc = ctx.read_json("master/transitions.json")
+                        if isinstance(tr_doc, dict):
+                            kept_tr: list[dict] = []
+                            dropped_tr: list[str] = []
+                            for row in tr_doc.get("transitions") or []:
+                                if not isinstance(row, dict):
+                                    continue
+                                a = str(row.get("after_segment_id") or "")
+                                b = str(row.get("before_segment_id") or "")
+                                voice = str(
+                                    row.get("voice_speaker_id") or clone_spk
+                                ).strip()
+                                after_spk = str(
+                                    (segs.get(a) or {}).get("speaker_id") or ""
+                                ).strip()
+                                before_spk = str(
+                                    (segs.get(b) or {}).get("speaker_id") or ""
+                                ).strip()
+                                auto = bool(
+                                    row.get("auto_minted")
+                                    or row.get("default_bridge_fallback")
+                                    or row.get("canned_bridge_fallback")
+                                )
+                                if (
+                                    auto
+                                    and voice
+                                    and voice == clone_spk
+                                    and clone_spk in {after_spk, before_spk}
+                                ):
+                                    dropped_tr.append(f"{a}->{b}")
+                                    continue
+                                kept_tr.append(row)
+                            if dropped_tr:
+                                tr_doc = dict(tr_doc)
+                                tr_doc["transitions"] = kept_tr
+                                ctx.write_json(
+                                    "master/transitions.json",
+                                    tr_doc,
+                                    stage_key="transitions",
+                                    skip_handoff=True,
+                                )
+                                log(
+                                    "clone-adjacency: dropped auto-minted "
+                                    f"clone-adjacent transition(s) {dropped_tr[:6]}"
+                                )
                 except Exception as exc:
                     log(f"clone-adjacency persist: {exc}")
                 log("edl_narrative_qc: clone-adjacent generic VO — resume edl")
@@ -4446,12 +4570,72 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         final.write_text(_json.dumps(qa, indent=2) + "\n")
                         log(f"mix gate heal: demote theme CLAP fails to warn {recoverable}")
                     if hard:
-                        log(
-                            f"mix gate heal: refusing soft-pass for {len(hard)} failing music assets — "
-                            "retry mmaudio_sfx with motif-family fallback"
+                        from interview_mux.delivery_guardrails import (
+                            music_epoch_complete,
+                            record_wasted_work,
                         )
-                        execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
-                        return "continue"
+
+                        stub_cold_open: list[str] = []
+                        sigterm_assets: list[str] = []
+                        for aid in hard:
+                            gen_path = assets_dir / f"{aid}.gen.json"
+                            role = ""
+                            for r in fails:
+                                if str(r.get("asset_id") or "") == aid:
+                                    role = str(r.get("role") or "")
+                                    break
+                            if gen_path.is_file():
+                                try:
+                                    gmeta = _json.loads(gen_path.read_text())
+                                    backend = str((gmeta or {}).get("backend") or "")
+                                    rc = (gmeta or {}).get("musicgen_returncode")
+                                    if backend == "musical_stub" and role == "theme_cold_open":
+                                        stub_cold_open.append(aid)
+                                    from interview_mux.heavy_task_policy import (
+                                        is_heavy_kill_returncode,
+                                    )
+
+                                    if is_heavy_kill_returncode(rc):
+                                        sigterm_assets.append(aid)
+                                        record_wasted_work(
+                                            ctx,
+                                            event="musicgen_sigterm",
+                                            stage="mmaudio_sfx",
+                                            detail={
+                                                "asset_id": aid,
+                                                "returncode": rc,
+                                            },
+                                        )
+                                except Exception:
+                                    pass
+                        if music_epoch_complete(ctx) and not stub_cold_open and not sigterm_assets:
+                            log(
+                                "mix gate heal: music epoch complete — skip blind mmaudio_sfx rerun"
+                            )
+                        else:
+                            if stub_cold_open:
+                                log(
+                                    f"mix gate heal: musical_stub on cold-open {stub_cold_open} — "
+                                    "targeted mmaudio_sfx regen"
+                                )
+                                try:
+                                    from interview_mux.stages.sfx_mmaudio import (
+                                        _read_regen_asset_ids,
+                                        _set_regen_asset_ids,
+                                    )
+
+                                    ids = sorted(
+                                        _read_regen_asset_ids(ctx) | set(stub_cold_open)
+                                    )
+                                    _set_regen_asset_ids(ctx, ids)
+                                except Exception:
+                                    pass
+                            log(
+                                f"mix gate heal: refusing soft-pass for {len(hard)} failing music assets — "
+                                "retry mmaudio_sfx with motif-family fallback"
+                            )
+                            execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
+                            return "continue"
             for sid in ("assembly_preview", "listen_delight_audit", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
                 ctx.mark_done(sid, force=True)
             log(f"mix gate heal: mmaudio_qa assets={len((doc or {}).get('assets') or [])}")
@@ -4805,7 +4989,12 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 from interview_mux.seam_glue import mint_missing_transitions
                 from interview_mux.transition_vo import synthesize_spoken_transitions
 
-                tr = mint_missing_transitions(ctx, miss, transitions=tr)
+                tr = mint_missing_transitions(
+                    ctx,
+                    miss,
+                    transitions=tr,
+                    gap_report=gap if isinstance(gap, dict) else None,
+                )
                 log(f"bridge heal: minted spoken bridge(s) for {len(miss)} pair(s)")
                 try:
                     rows = synthesize_spoken_transitions(ctx)
@@ -6953,19 +7142,60 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     r"complete ([a-z0-9_]+) before running", low_err
                 )
                 if seed_m:
-                    resume_seed = seed_m.group(1)
+                    from interview_mux.delivery_guardrails import (
+                        maybe_restore_master_bundle,
+                        resolve_vo_synth_seed_resume,
+                    )
+                    from interview_mux.run_context import RunContext as _RC
+
+                    raw_seed = seed_m.group(1)
+                    resume_seed = resolve_vo_synth_seed_resume(raw_seed) or raw_seed
+                    # G1-open sentinel: synthesize pickups, do not --from-stage a fake id.
+                    if raw_seed == "g1_vo_open" or (
+                        resume_seed == "vo_line_adjudicate" and "g1_vo_open" in low_err
+                    ):
+                        log(
+                            f"seed order heal → G1 synthesize "
+                            f"(token={raw_seed} → {resume_seed})"
+                        )
+                        if synthesize_g1():
+                            execute(
+                                {"mode": "delivery", "from_stage": "vo_synthesize"}
+                            )
+                            continue
+                        log(
+                            "G1 synthesize incomplete — resume vo_line_adjudicate"
+                        )
                     mode_seed = (
                         "delivery"
                         if resume_seed in DELIVERY_ORDER
                         else "analysis"
                     )
-                    log(f"seed order heal → resume {resume_seed}")
+                    if resume_seed not in DELIVERY_ORDER and resume_seed not in ANALYSIS_ORDER:
+                        log(
+                            f"seed order heal: unknown stage token {resume_seed!r} "
+                            f"(from {raw_seed!r}) — skip execute"
+                        )
+                        continue
+                    log(
+                        f"seed order heal → resume {resume_seed}"
+                        + (f" (from {raw_seed})" if raw_seed != resume_seed else "")
+                    )
                     try:
-                        from interview_mux.delivery_guardrails import maybe_restore_master_bundle
-                        from interview_mux.run_context import RunContext as _RC
-
                         ctx_seed = _RC(RUN_ID, create=False)
                         maybe_restore_master_bundle(ctx_seed, stage=resume_seed)
+                        # Hollow-done: stage marked complete but artifacts incomplete
+                        # (e.g. layup plan order ≠ selection after chapter clamp).
+                        # Unmark so --from-stage actually re-runs instead of skipping to edl.
+                        from interview_mux.delivery_guardrails import seed_stage_complete
+                        from interview_mux.homunculus.agenda import unmark_stage_only
+
+                        if not seed_stage_complete(ctx_seed, resume_seed):
+                            unmark_stage_only(ctx_seed, resume_seed)
+                            log(
+                                f"seed order heal: unmarked hollow {resume_seed} "
+                                "before resume"
+                            )
                     except Exception:
                         pass
                     execute({"mode": mode_seed, "from_stage": resume_seed})
@@ -7221,6 +7451,41 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     execute({"mode": "delivery", "from_stage": resume})
                     continue
             if (
+                "vo coverage not rendered" in low_err
+                or (
+                    stage == "edl_narrative_audit"
+                    and "stage input check blocked" in low_err
+                    and "vo" in low_err
+                )
+            ):
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.stage_input_checks import (
+                        compact_vo_coverage_stale_or_missing,
+                    )
+                    from interview_mux.vo_synthesis_audit import (
+                        backfill_missing_synthesis_entries,
+                    )
+
+                    ctx_vo = RunContext(RUN_ID, create=False)
+                    backfilled = backfill_missing_synthesis_entries(ctx_vo)
+                    still = compact_vo_coverage_stale_or_missing(ctx_vo)
+                    log(
+                        "edl_narrative VO coverage heal (error): "
+                        f"backfilled={backfilled[:6]} still={still[:4]}"
+                    )
+                    if still:
+                        execute({"mode": "delivery", "from_stage": "vo_synthesize"})
+                    else:
+                        if backfilled and not ctx_vo.is_done("vo_synthesize"):
+                            ctx_vo.mark_done("vo_synthesize", force=True)
+                        execute(
+                            {"mode": "delivery", "from_stage": "edl_narrative_audit"}
+                        )
+                    continue
+                except Exception as exc:
+                    log(f"edl VO coverage error heal: {exc}")
+            if (
                 stage == "edl_narrative_audit"
                 or "opening-orientation" in low_err
                 or "meta-question" in low_err
@@ -7228,15 +7493,38 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             ):
                 try:
                     from interview_mux.edl_narrative_remutate import (
+                        CHAPTER_FIX_PROGRESS_NOTES,
+                        CHAPTER_OVERFLOW_MARKERS,
                         HOST_REPAIR_PROGRESS_NOTES,
                         apply_edl_narrative_host_repair,
                     )
                     from interview_mux.run_context import RunContext
 
                     ctx_h = RunContext(RUN_ID, create=False)
+                    overflow = any(m in low_err for m in CHAPTER_OVERFLOW_MARKERS)
                     applied = apply_edl_narrative_host_repair(ctx_h)
+                    notes = set(applied.get("notes") or [])
                     log(f"edl_narrative host repair (error): {applied.get('notes')}")
-                    if not HOST_REPAIR_PROGRESS_NOTES.intersection(applied.get("notes") or []):
+                    progress = HOST_REPAIR_PROGRESS_NOTES.intersection(notes)
+                    chapter_fixed = bool(CHAPTER_FIX_PROGRESS_NOTES.intersection(notes))
+                    if overflow and progress and not chapter_fixed:
+                        log(
+                            "edl_narrative host repair (error): orientation-only notes "
+                            f"{sorted(progress)} — chapter overflow open; remutate"
+                        )
+                        audit = (
+                            ctx_h.read_json("master/edl_narrative_audit.json")
+                            if ctx_h.artifact_exists("master/edl_narrative_audit.json")
+                            else {
+                                "verdict": "fail",
+                                "blocking_issues": [{"issue": err[:240]}],
+                            }
+                        )
+                        _drive_edl_narrative_remutate(
+                            ctx_h, audit, label="chapter_overflow"
+                        )
+                        continue
+                    if not progress:
                         if _trip_edl_narrative_heal_loop([err[:160]]):
                             log("STOP: edl_narrative_audit host-repair repeated ≥3")
                             pause_needs_operator(
@@ -8434,6 +8722,21 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                     ctx = RunContext(RUN_ID, create=False)
                     root = _P(ctx.run_dir)
+                    try:
+                        from interview_mux.delivery_guardrails import ship_path_ready
+
+                        ready, ready_reason = ship_path_ready(ctx)
+                        if ready:
+                            _log(
+                                f"[DECISION major] ship_path_ready — skip junction remaster "
+                                f"({ready_reason}); pin master_finalize"
+                            )
+                            for sid in ("junction_snip_qa",):
+                                (root / ".stage_done" / sid).unlink(missing_ok=True)
+                            execute({"mode": "delivery", "from_stage": "master_finalize"})
+                            continue
+                    except Exception:
+                        pass
                     asm = root / "master" / "assembly.wav"
                     # Recut EDL + remaster mix. Do not remint seams (MusicGen loop)
                     # and do not fake-pass junction while hanging-clause recuts exist.
@@ -11313,9 +11616,12 @@ def ensure_run() -> bool:
     if not INPUT_AUDIO:
         raise RuntimeError("MUX_INPUT_AUDIO is required (path under ASSETS/input/)")
     # Clear active session so POST /api/runs is allowed.
+    # keep_driver=true is mandatory on this CLI path — default DELETE shuts down
+    # the automation stack and would SIGKILL this process mid-ensure_run (fresh
+    # launch suicide). GUI/menu clear may omit the flag; the driver must not.
     try:
-        api("DELETE", "/api/session/active")
-        print("cleared active session for fresh run", flush=True)
+        api("DELETE", "/api/session/active?keep_driver=true")
+        print("cleared active session for fresh run (keep_driver=true)", flush=True)
     except Exception as exc:
         print(f"session clear note: {exc}", flush=True)
     created = api(

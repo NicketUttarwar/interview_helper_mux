@@ -33,6 +33,12 @@ def block_outbound_network(monkeypatch: pytest.MonkeyPatch, request: pytest.Fixt
 
 
 @pytest.fixture(autouse=True)
+def fast_gpu_abort_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must not pay the real 30s abort backoff between mocked runtimes."""
+    monkeypatch.setenv("INTERVIEW_MUX_GPU_ABORT_BACKOFF_SEC", "0")
+
+
+@pytest.fixture(autouse=True)
 def fast_gpu_exclusive_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unit tests must not pay the real 5s local_gpu settle between mocked runtimes."""
     monkeypatch.setenv("INTERVIEW_MUX_GPU_COOLDOWN_SEC", "0")

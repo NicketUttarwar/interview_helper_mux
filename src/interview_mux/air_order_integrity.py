@@ -888,9 +888,17 @@ def on_selection_order_changed(
                 notes.append("cleared_stage_done:mix")
     if prev_ids != cur_ids:
         try:
-            if ctx.is_done("nugget_layup_compose") or ctx.artifact_exists(
+            from interview_mux.delivery_guardrails import fingerprints_match_checkpoint
+
+            fp_unchanged = fingerprints_match_checkpoint(ctx)
+            src_l = str(source or "").lower()
+            if "junction_snip_qa" in src_l:
+                notes.append("skipped_layup_invalidate:junction_source")
+            elif fp_unchanged and ctx.is_done("mix"):
+                notes.append("skipped_layup_invalidate:fingerprint_unchanged")
+            elif ctx.is_done("nugget_layup_compose") or ctx.artifact_exists(
                 "understanding/nugget_layup_plan.json"
-            ):
+            ) or ctx.artifact_exists("mastering/nugget_layup_plan.json"):
                 from interview_mux.homunculus.agenda import invalidate_downstream
 
                 invalidate_downstream(ctx, "nugget_layup_compose")

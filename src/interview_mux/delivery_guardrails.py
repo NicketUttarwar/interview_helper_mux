@@ -196,11 +196,16 @@ def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
     if _layup_escalation_blocking(ctx):
         return False, "layup_escalation_blocking"
     epoch = read_delivery_epoch(ctx)
-    if not epoch.get("phase_a_sealed_at") and not read_checkpoint(ctx):
-        # Seal writes the checkpoint; caller should seal after this check passes
-        # except for the seal itself which sets the stamp.
-        pass
+    if not read_checkpoint(ctx) and not epoch.get("phase_a_sealed_at"):
+        return False, "phase_a_unsealed"
     return True, ""
+
+
+def phase_a_sealed(ctx: RunContext) -> bool:
+    """True when Phase A checkpoint or delivery_epoch seal exists."""
+    if read_checkpoint(ctx):
+        return True
+    return bool(read_delivery_epoch(ctx).get("phase_a_sealed_at"))
 
 
 def music_epoch_complete(ctx: RunContext) -> bool:
@@ -229,15 +234,44 @@ def mix_epoch_block(ctx: RunContext) -> str | None:
     if music_epoch_complete(ctx):
         stamp_delivery_epoch(ctx, music_complete_at=_utc_now())
         return None
-    # Gate whenever delivery is stable enough that mix could otherwise be scheduled.
     stable, _ = delivery_stable_for_music(ctx)
-    if not stable and not read_checkpoint(ctx) and not epoch.get("phase_a_sealed_at"):
+    if not stable and not phase_a_sealed(ctx):
         return None
+    try:
+        from interview_mux.homunculus.agenda import assembly_stale_versus_edl
+
+        if assembly_stale_versus_edl(ctx):
+            return "assembly_stale_versus_edl"
+    except Exception:
+        pass
     return "music_incomplete"
 
 
+# Stability-block tokens that are NOT pipeline stages. Seed-order heal must
+# resolve these before --from-stage / execute, or the runner raises
+# Unknown from_stage (forensics: g1_vo_open suicide loop).
+VO_SYNTH_SEED_SENTINELS: dict[str, str] = {
+    "g1_vo_open": "vo_line_adjudicate",
+    "transitions_stale_from_layup": "transitions",
+    "gap_report_stale_from_layup": "nugget_layup_compose",
+    "sound_design_plan_stale": "sound_design_plan",
+}
+
+
+def resolve_vo_synth_seed_resume(block: str | None) -> str | None:
+    """Map vo_synthesize stability tokens to a real ANALYSIS/DELIVERY stage id."""
+    token = str(block or "").strip()
+    if not token:
+        return None
+    return VO_SYNTH_SEED_SENTINELS.get(token, token)
+
+
 def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
-    """G8: Chatterbox batch waits for layup/transitions stability and closed G1."""
+    """G8: Chatterbox batch waits for layup/transitions stability and closed G1.
+
+    Returns a blocker token (may be a sentinel such as ``g1_vo_open``). Callers
+    that need ``--from-stage`` must run :func:`resolve_vo_synth_seed_resume`.
+    """
     if _g1_open(ctx):
         return "g1_vo_open"
     if _layup_escalation_blocking(ctx):
@@ -249,6 +283,8 @@ def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
         if not ctx.artifact_exists("mastering/nugget_layup_plan.json"):
             return "nugget_layup_compose"
     if not ctx.artifact_exists("master/transitions.json"):
+        return "transitions"
+    if not seed_stage_complete(ctx, "transitions"):
         return "transitions"
     try:
         trans = ctx.read_json("master/transitions.json")
@@ -267,6 +303,14 @@ def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
                 return "gap_report_stale_from_layup"
     except Exception:
         pass
+    if ctx.artifact_exists("understanding/sound_design_plan.json"):
+        try:
+            sdp = ctx.read_json("understanding/sound_design_plan.json")
+            meta = sdp.get("_meta") if isinstance(sdp, dict) else {}
+            if (meta or {}).get("stale"):
+                return "sound_design_plan_stale"
+        except Exception:
+            pass
     return None
 
 
@@ -342,10 +386,23 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
     if not stable:
         ensure_listen_delight_waiver_unattended(ctx)
         stable, stable_reason = delivery_stable_for_music(ctx)
-    sealed = bool(read_checkpoint(ctx)) or stable
+    sealed = phase_a_sealed(ctx)
+    ship_ready, ship_reason = ship_path_ready(ctx)
     out: list[str] = []
     deferred: list[str] = []
     for sid in remaining:
+        if ship_ready and sid == "junction_snip_qa":
+            record_wasted_work(
+                ctx,
+                event="avoided_junction_remaster",
+                stage=sid,
+                detail={"reason": ship_reason or "ship_path_ready"},
+            )
+            deferred.append(sid)
+            continue
+        if ship_ready and sid in {"master_finalize", *SHIP_AFTER_MASTER}:
+            out.append(sid)
+            continue
         if g1_missing and sid in G1_CONSUMERS:
             deferred.append(sid)
             continue
@@ -507,12 +564,22 @@ def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
         for sid in MUSIC_BEFORE_MIX:
             if not seed_stage_complete(ctx, sid):
                 return sid
-        return "music_palette_compose"
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            if missing_sdp_asset_wavs(ctx):
+                return "mmaudio_sfx"
+        except Exception:
+            pass
+        return "mmaudio_sfx"
     if resume == "vo_synthesize" and _g1_open(ctx):
         if not seed_stage_complete(ctx, "nugget_layup_compose"):
             return "nugget_layup_compose"
-        if vo_synthesize_stability_block(ctx) == "nugget_layup_compose":
+        block = vo_synthesize_stability_block(ctx)
+        if block == "nugget_layup_compose":
             return "nugget_layup_compose"
+        # G1 open with layup present — pin adjudicate (never fake stage g1_vo_open).
+        return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
     if resume and not seed_stage_complete(ctx, resume):
         return resume
     try:
@@ -538,6 +605,15 @@ def safe_mix_resume_stage(ctx: RunContext) -> str:
         for sid in MUSIC_BEFORE_MIX:
             if not seed_stage_complete(ctx, sid):
                 return sid
+        # Seed markers present but SDP still lacks WAVs — regenerate assets,
+        # do not bounce mix ↔ music_palette_compose forever.
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            if missing_sdp_asset_wavs(ctx):
+                return "mmaudio_sfx"
+        except Exception:
+            pass
     try:
         from interview_mux.delivery_recovery import resume_theme_generation
 
@@ -557,23 +633,64 @@ def read_checkpoint(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
-    """Write operator/delivery_checkpoint.json when G5 passes."""
+    """Write operator/delivery_checkpoint.json when G5 stability predicates pass."""
     existing = read_checkpoint(ctx)
     ok, reason = delivery_stable_for_music(ctx)
-    if not ok:
+    # Allow sealing when stable except the seal itself is the only missing piece.
+    if not ok and reason != "phase_a_unsealed":
         return existing
-    fps = selection_order_fingerprints(ctx)
-    g1_ids = []
-    if ctx.artifact_exists("understanding/gap_report.json"):
-        try:
-            from interview_mux.gates import check_g1_vo
-
-            # Sealed only when G1 is clear — store the line ids that were required.
-            missing = check_g1_vo(ctx)
-            if missing:
+    if not ok and reason == "phase_a_unsealed":
+        # Re-check stability without seal requirement for the write path.
+        if not seed_stage_complete(ctx, "nugget_layup_compose"):
+            return existing
+        if _g1_open(ctx):
+            return existing
+        if not seed_stage_complete(ctx, "vo_line_adjudicate"):
+            if not ctx.is_done("vo_line_adjudicate") and not ctx.artifact_exists(
+                "mastering/vo_line_adjudication.json"
+            ):
                 return existing
-        except Exception:
-            pass
+            if not ctx.is_done("vo_line_adjudicate"):
+                return existing
+        if not seed_stage_complete(ctx, "edl"):
+            return existing
+        if not seed_stage_complete(ctx, "assembly_preview") and not assembly_wav_present(ctx):
+            return existing
+        delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
+            ctx
+        )
+        if not delight_ok:
+            if ensure_listen_delight_waiver_unattended(ctx):
+                delight_ok = True
+        if not delight_ok:
+            return existing
+        if upstream_stale_blockers(ctx, "mmaudio_sfx"):
+            return existing
+        if _layup_escalation_blocking(ctx):
+            return existing
+    fps = selection_order_fingerprints(ctx)
+    g1_ids: list[str] = []
+    try:
+        from interview_mux.gates import check_g1_vo
+
+        missing = check_g1_vo(ctx)
+        if missing:
+            return existing
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap = ctx.read_json("understanding/gap_report.json")
+            from interview_mux.air_script import gap_line_air_eligible
+
+            for row in (gap.get("interviewer_lines") or []):
+                if not isinstance(row, dict):
+                    continue
+                if not gap_line_air_eligible(row):
+                    continue
+                if str(row.get("delivery") or "") == "synthesize":
+                    lid = str(row.get("line_id") or "")
+                    if lid:
+                        g1_ids.append(lid)
+    except Exception:
+        pass
     assembly = "master/assembly_preview.wav" if ctx.artifact_exists(
         "master/assembly_preview.wav"
     ) else ("master/assembly.wav" if ctx.artifact_exists("master/assembly.wav") else "")
@@ -613,6 +730,8 @@ def stamp_delivery_epoch(ctx: RunContext, **fields: Any) -> dict[str, Any]:
             epoch[key] = epoch.get(key) or val
         elif val is not None:
             epoch[key] = val
+    if fields.get("structural_invalidation"):
+        epoch["structural_bump_at"] = _utc_now()
     epoch["updated_at"] = _utc_now()
     if read_checkpoint(ctx):
         epoch["last_stable_checkpoint"] = CHECKPOINT_REL
@@ -730,6 +849,86 @@ def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
+# C1: sources that must not structurally invalidate downstream when fingerprint unchanged.
+INVALIDATION_BLAST_RADIUS: dict[str, frozenset[str]] = {
+    "junction_snip_qa": frozenset(
+        {"mix", "junction_snip_qa", "master_finalize", "master/transitions.json"}
+    ),
+    "nugget_layup_compose": frozenset(
+        {
+            "vo_synthesize",
+            "edl_narrative_audit",
+            "edl",
+            "assembly_preview",
+            "listen_delight_audit",
+        }
+    ),
+}
+
+
+def invalidation_allowed_downstream(source: str, target: str) -> bool:
+    """Whether ``source`` may clear/invalidate ``target`` when structural."""
+    allowed = INVALIDATION_BLAST_RADIUS.get(source)
+    if allowed is None:
+        return True
+    return target in allowed or target.split("/")[0] in {t.split("/")[0] for t in allowed}
+
+
+def delivery_epoch_matches(ctx: RunContext, epoch_at_start: dict[str, Any] | None) -> bool:
+    """D2: expensive stages must not run after a structural epoch bump."""
+    if not epoch_at_start:
+        return True
+    live = read_delivery_epoch(ctx)
+    for key in ("phase_a_sealed_at", "music_complete_at", "structural_bump_at"):
+        if epoch_at_start.get(key) != live.get(key):
+            return False
+    return True
+
+
+def read_delivery_epoch_at_dispatch(ctx: RunContext) -> dict[str, Any]:
+    return dict(read_delivery_epoch(ctx))
+
+
+def ship_path_ready(ctx: RunContext) -> tuple[bool, str]:
+    """Late-phase pin: mix sealed, assembly fresh, delight ok, no critical junction residuals."""
+    if not ctx.artifact_exists("master/assembly.wav"):
+        return False, "assembly_missing"
+    try:
+        from interview_mux.homunculus.agenda import assembly_stale_versus_edl
+
+        if assembly_stale_versus_edl(ctx):
+            return False, "assembly_stale_versus_edl"
+    except Exception:
+        pass
+    if not seed_stage_complete(ctx, "mix"):
+        return False, "mix_incomplete"
+    delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
+        ctx
+    )
+    if not delight_ok:
+        return False, "listen_delight_incomplete"
+    if ctx.artifact_exists("master/junction_snip_qa.json"):
+        try:
+            doc = ctx.read_json("master/junction_snip_qa.json")
+            if isinstance(doc, dict):
+                crit = int(doc.get("critical_residual_count") or doc.get("critical_count") or 0)
+                if crit > 0:
+                    return False, "critical_junction_residuals"
+                residuals = doc.get("residuals") or doc.get("critical_residuals") or []
+                if isinstance(residuals, list) and residuals:
+                    return False, "junction_residuals"
+        except Exception:
+            pass
+    if ctx.artifact_exists("master/post_master_quality.json"):
+        try:
+            pmq = ctx.read_json("master/post_master_quality.json")
+            if isinstance(pmq, dict) and pmq.get("publish_allowed") is False:
+                return False, "pmq_not_publishable"
+        except Exception:
+            pass
+    return True, ""
+
+
 def prepare_fingerprint_blocks_rerun(ctx: RunContext, stage: str) -> str | None:
     """G10: prepare-phase stages re-run only on ingest/G0/probe change."""
     if stage not in {"audio_preclean", "transcribe", "audio_probe_build", "ingest"}:
@@ -741,6 +940,22 @@ def prepare_fingerprint_blocks_rerun(ctx: RunContext, stage: str) -> str | None:
         if stage in G0_LOCKED_RERUN_STAGES and g0_closed(ctx) and prepare_outputs_present(ctx, stage):
             return "g0_locked"
         if stage == "audio_probe_build" and g0_closed(ctx) and prepare_outputs_present(ctx, stage):
+            return "g0_locked"
+    except Exception:
+        pass
+    if stage == "audio_preclean" and ctx.artifact_exists("ingest/ingest_checksums.json"):
+        try:
+            from interview_mux.homunculus.agenda import prepare_outputs_present
+
+            if ctx.is_done("audio_preclean") and prepare_outputs_present(ctx, "audio_preclean"):
+                return "ingest_unchanged"
+        except Exception:
+            pass
+    try:
+        from interview_mux.homunculus.packer import g0_closed
+        from interview_mux.homunculus.agenda import prepare_outputs_present
+
+        if stage == "transcribe" and g0_closed(ctx) and prepare_outputs_present(ctx, "transcribe"):
             return "g0_locked"
     except Exception:
         pass

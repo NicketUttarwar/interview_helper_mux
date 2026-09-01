@@ -21,6 +21,19 @@ from interview_mux.prompt_examples import (
 )
 
 PREAMBLE_REL = "_shared/analysis-preamble.system.txt"
+VO_REGISTER_REL = "_shared/synthetic-vo-register.system.txt"
+VO_REGISTER_STAGES = frozenset(
+    {
+        "nugget_layup_compose",
+        "gap_framing_compose",
+        "gap_framing_recompose",
+        "optimal_questions",
+        "transitions",
+        "vo_line_adjudicate",
+        "high_gap_vo_fill",
+        "synthetic_framing_plan",
+    }
+)
 ENVELOPE_KEYS = frozenset(
     {
         "status",
@@ -32,6 +45,14 @@ ENVELOPE_KEYS = frozenset(
         "reasoning_summary",
     }
 )
+
+
+def _synthetic_vo_register_block() -> str:
+    """Topic-forward synthetic VO register (shared across compose/adjudicate stages)."""
+    path = prompt_path(*VO_REGISTER_REL.split("/"))
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    return ""
 
 
 def _prompt_thresholds_block() -> str:
@@ -77,6 +98,10 @@ def load_system_prompt_for_stage(
     from interview_mux.required_response_format import build_required_response_block
 
     system = load_system_prompt(rel_path, include_preamble=include_preamble)
+    if stage_key in VO_REGISTER_STAGES:
+        register = _synthetic_vo_register_block()
+        if register:
+            system = f"{system}\n\n---\n\n{register}"
     try:
         from interview_mux.homunculus.prompts import perspective_block_for_stage
         from interview_mux.homunculus.runtime import is_homunculus_run

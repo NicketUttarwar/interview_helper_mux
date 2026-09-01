@@ -154,6 +154,27 @@ _PLANNER_META = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_SPEAKER_ROLE_LABEL = re.compile(
+    r"\b(?:"
+    r"the\s+host|"
+    r"the\s+guest|"
+    r"the\s+interviewer|"
+    r"our\s+speaker|"
+    r"on\s+the\s+show\s+today"
+    r")\b",
+    re.IGNORECASE,
+)
+_NAME_ATTRIBUTION_VERB = re.compile(
+    r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+"
+    r"(?:explains?|says?|elaborates?|describes?|notes?|adds?|closes?|traces?|discusses?)\b",
+)
+_NAME_ATTRIBUTION_HEAR = re.compile(
+    r"\blet(?:'|')?s\s+hear\s+[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\b",
+)
+_GENDERED_PRONOUN = re.compile(
+    r"\b(?:he|she|him|her)\b",
+    re.IGNORECASE,
+)
 
 
 def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[str]:
@@ -178,6 +199,12 @@ def spoken_structure_hits(text: str, *, allow_scaffold: bool = False) -> list[st
         hits.append("spoken_editorial_qc_prose")
     if _PLANNER_META.search(t):
         hits.append("spoken_planner_meta")
+    if _SPEAKER_ROLE_LABEL.search(t):
+        hits.append("spoken_speaker_role_label")
+    if _NAME_ATTRIBUTION_VERB.search(t) or _NAME_ATTRIBUTION_HEAR.search(t):
+        hits.append("spoken_name_attribution")
+    if _GENDERED_PRONOUN.search(t):
+        hits.append("spoken_gendered_pronoun")
     return list(dict.fromkeys(hits))
 
 

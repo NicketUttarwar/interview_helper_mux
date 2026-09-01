@@ -473,6 +473,54 @@ def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:
     return lines
 
 
+def assert_script_authority_chain(ctx: RunContext, line_id: str) -> list[str]:
+    """Verify gap_report → synthesis_report → vo transcript → EDL clip hash alignment."""
+    from interview_mux.spoken_copy_guard import script_hash
+
+    errors: list[str] = []
+    lid = str(line_id or "").strip()
+    if not lid:
+        return ["empty_line_id"]
+    gap_lines = _vo_pickup_script_lines(ctx)
+    line = gap_lines.get(lid)
+    if not isinstance(line, dict):
+        return [f"{lid}:missing_gap_line"]
+    gap_text = str(line.get("text") or "")
+    expected = script_hash(gap_text)
+    entry = synthesis_entry_for_line(ctx, lid)
+    if entry:
+        if str(entry.get("script_hash") or "") != expected:
+            errors.append(f"{lid}:synthesis_hash_mismatch")
+    else:
+        errors.append(f"{lid}:missing_synthesis_entry")
+    vo_rel = f"transcripts/vo/{lid}.json"
+    if ctx.artifact_exists(vo_rel):
+        try:
+            vo_doc = ctx.read_json(vo_rel)
+            vo_hash = script_hash(str((vo_doc or {}).get("text") or ""))
+            if vo_hash != expected:
+                errors.append(f"{lid}:transcript_hash_mismatch")
+        except Exception:
+            errors.append(f"{lid}:transcript_read_failed")
+    if ctx.artifact_exists("master/edl.json"):
+        try:
+            edl = ctx.read_json("master/edl.json")
+            for clip in (edl.get("clips") or []):
+                if not isinstance(clip, dict):
+                    continue
+                if str(clip.get("line_id") or "") != lid:
+                    continue
+                if str(clip.get("script_hash") or "") != expected:
+                    errors.append(f"{lid}:edl_hash_mismatch")
+                break
+        except Exception:
+            pass
+    fresh, reason = line_vo_wav_fresh(ctx, line)
+    if not fresh and reason:
+        errors.append(f"{lid}:{reason}")
+    return errors
+
+
 def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
     """Refresh EDL vo_pickup script_hash / duration_ms from current gap text + WAVs.
 
@@ -502,6 +550,9 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
         lid = str(clip.get("line_id") or "")
         line = gap_lines.get(lid)
         if not isinstance(line, dict):
+            continue
+        fresh, fresh_reason = line_vo_wav_fresh(ctx, line)
+        if not fresh and fresh_reason in {"stale_script_hash", "missing_synthesis_entry"}:
             continue
         expected_script = script_hash(str(line.get("text") or ""))
         expected_context = context_hash(evidence_for_line(line))

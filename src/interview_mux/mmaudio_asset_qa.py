@@ -238,10 +238,13 @@ def analyze_asset_wav(
             row["generation_seed"] = gmeta.get("seed")
             row["prompt_hash"] = gmeta.get("prompt_hash")
             if gmeta.get("backend") == "musical_stub":
-                from interview_mux.musicgen_runner import fail_closed_on_stub
+                from interview_mux.musicgen_runner import (
+                    fail_closed_on_stub,
+                    fail_closed_on_stub_roles,
+                )
 
                 row["reasons"].append("musical_stub_last_resort")
-                if fail_closed_on_stub():
+                if role in fail_closed_on_stub_roles() or fail_closed_on_stub():
                     row["verdict"] = "fail"
                     row["reasons"].append("musical_stub_backend")
                     row["action"] = "regenerate"

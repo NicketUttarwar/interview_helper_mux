@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from interview_mux.artifact_writes import write_validated_artifact
@@ -256,4 +258,65 @@ def test_gap_fill_skip_stub_incomplete_when_framing_enabled(tmp_path, monkeypatc
     )
     reason = stage_artifact_incompleteness(ctx, "gap_framing_compose")
     assert reason and "skip stub" in reason
+
+
+def test_stale_required_artifact_is_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    path = ctx.final_path("understanding", "sound_design_plan.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "_meta": {
+                    "producer_stage": "sound_design_plan",
+                    "stale": True,
+                    "stale_reason": "invalidated_by:nugget_layup_compose",
+                },
+            }
+        )
+        + "\n"
+    )
+    reason = stage_artifact_incompleteness(ctx, "sound_design_plan")
+    assert reason and "marked stale" in reason
+
+
+def test_mmaudio_incomplete_when_sdp_wavs_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    wav = ctx.final_path("master", "assembly_preview.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF")
+    qa = ctx.final_path("sound_design", "mmaudio_qa.json")
+    qa.parent.mkdir(parents=True, exist_ok=True)
+    qa.write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "assets": [
+                    {
+                        "asset_id": "a",
+                        "path": "sound_design/assets/a.wav",
+                        "verdict": "pass",
+                        "duration_s": 1.0,
+                    }
+                ],
+            }
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.artifact_status_for_stage",
+        lambda path, _ctx, _sid: "complete" if "mmaudio_qa" in path else "pending",
+    )
+    monkeypatch.setattr(
+        "interview_mux.sdp_cross_validate.missing_sdp_asset_wavs",
+        lambda _ctx: ["theme_missing_bed"],
+    )
+    reason = stage_artifact_incompleteness(ctx, "mmaudio_sfx")
+    assert reason and "theme_missing_bed" in reason
+    ctx.mark_done("mmaudio_sfx", force=True)
+    assert not reconcile_stage_done_marker(ctx, "mmaudio_sfx")
+    assert not ctx.is_done("mmaudio_sfx")
 

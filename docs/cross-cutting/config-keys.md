@@ -893,7 +893,8 @@ Deterministic adaptive soft targets after `optimal_questions` — [delivery-qual
 | `min_duration_sec` | `600` | clamp | Floor too aggressive for short interviews |
 | `max_duration_sec` | `7200` | clamp | Cap blocks long masters |
 | `question_budget_max` | `0` (uncapped) | soft guidance only when >0 | Prefer `creative_delivery.listenability_guards` host_vo coverage ratios |
-| `enforce_duration` | `true` | ranking cross-validate + post-master | Soft duration band becomes hard fail; selection below brief.min×0.85, below source min-ratio, or above source max-ratio blocks ship |
+| `enforce_duration` | `true` | ranking cross-validate + post-master | Soft duration band becomes hard fail; selection below brief.min×`selection_brief_min_ratio` (default `0.65`), below source min-ratio, or above source max-ratio blocks ship |
+| `selection_brief_min_ratio` | `0.65` | `selection_duration_ship_ok`, ranking cross-validate, nugget_retention scoring | Hard ship envelope vs `brief.target_duration_sec.min` |
 
 ---
 
@@ -1061,7 +1062,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.aspirational_quality.max_attempts_per_family` | `3` | Remutate / heal budget per rubric family before pick-best | Lower = faster fallback to best candidate |
 | `mastering.aspirational_quality.always_produce_master` | `true` | `master_finalize` completes with best structurally sound candidate | `false` not recommended |
 | `mastering.aspirational_quality.require_operator_publish_when_advisory` | `true` | `podcast_publish` / S3 when `quality_advisories` present | `false` allows unattended RSS with advisories |
-| `mastering.aspirational_quality.catastrophic_floors.*` | cut_integrity `0.70`; listen_delight_overall `0.65` | Hard stop even under aspirational policy | Below these = no master |
+| `mastering.aspirational_quality.catastrophic_floors.*` | cut_integrity `0.55`; listen_delight_overall `0.50` | Hard stop even under aspirational policy | Below these = no master |
 | `mastering.aspirational_quality.pick_best_weights.*` | delight overall `0.5`; cut_integrity `0.2`; … | `select_best_quality_candidate` ranking | Tune pick-best tie-breaks |
 | `mastering.listen_delight.overall_min` | `0.90` | Mean of the eight delight dimensions | Lower allows a weaker overall listen to ship |
 | `mastering.listen_delight.dimension_floors.*` | nugget_retention `0.80`; cut_integrity `0.85`; conversation_fit `0.85`; sonic_weave `0.85`; mode_coherence `0.80`; finishability `0.80`; recommendability `0.75`; story_followability `0.85` | Per-dimension ship floors | Missing floors skip that dimension. `story_followability` defaults high when `air_script` is absent |
@@ -1175,8 +1176,13 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `request_timeout_sec` | `900` | Hang budget for primary attempt on GPU (large needs several minutes per stem) |
 | `cpu_request_timeout_sec` | `300` | Tighter hang budget when resolved device is CPU (step down instead of thrash) |
 | `step_down_timeout_sec` | `480` | Hang budget for medium/small ladder steps |
+| `step_down_duration_ratio` | `0.85` | Shorten clip duration on each ladder step-down |
+| `pause_between_ladder_steps_sec` | `0` | Optional extra pause between ladder rungs (abort backoff handles kills) |
 | `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after ladder + MMAudio backup so mix always has music |
-| `best_of_n_speech_free` | `1` | Candidates for cold open / outro / accents |
+| `fail_closed_on_stub_roles` | `theme_cold_open`, `theme_outro` | QA fails (and stub is blocked) for these roles regardless of global `fail_closed_on_stub` |
+| `keep_prior_stem_on_fail` | `true` | On regen failure, restore `.prior.bak` instead of overwriting a good stem |
+| `skip_cold_open_on_total_failure` | `true` | After all fallbacks fail, emit silence for cold-open rather than stub |
+| `best_of_n_speech_free` | `2` | Candidates for cold open / outro / accents |
 | `best_of_n_underscore` | `3` | Candidates generated for each underscore loop before automatic musical/loop-safe selection |
 | `max_best_of_n` | `3` | Hard cap (also clamps production-profile overrides) |
 | `use_melody_conditioning` | `false` | Condition later stems on motif/cold-open melody |
@@ -1316,6 +1322,7 @@ Machine-wide exclusive gate for heavy local AI subprocesses (MusicGen, Chatterbo
 |-----|---------|----------|
 | `local_gpu.serialize` | `true` | Overlapping GPU jobs thrash unified memory / Metal abort; set `INTERVIEW_MUX_GPU_SERIALIZE=0` only for debug |
 | `local_gpu.cooldown_sec` | `5` | After each consumer exits, wait before next may start; override with `INTERVIEW_MUX_GPU_COOLDOWN_SEC` |
+| `local_gpu.abort_backoff_sec` | `30` | After SIGTERM/SIGKILL/SIGABRT on a heavy subprocess, wait before the next GPU job; override with `INTERVIEW_MUX_GPU_ABORT_BACKOFF_SEC` |
 | `local_gpu.lock_timeout_sec` | `7200` | Gate wait times out while another job still holds GPU |
 | `local_gpu.consumers` | musicgen, mmaudio, chatterbox, speech, mlx, llm, deepfilter, image | Listed runtime ids must take the gate |
 

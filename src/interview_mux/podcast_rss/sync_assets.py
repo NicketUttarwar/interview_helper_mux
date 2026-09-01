@@ -310,6 +310,32 @@ def sync_ready_packages(
         result.errors.append({"error": "podcast.enabled is false"})
         return result
 
+    if eid:
+        try:
+            from interview_mux.aspirational_quality import publish_blocked_by_advisories
+            from interview_mux.run_context import RunContext
+
+            if publish_blocked_by_advisories(RunContext(eid)):
+                result.errors.append(
+                    {
+                        "error": (
+                            "S3 sync blocked: quality advisories require operator "
+                            "G-Publish consent (Prepare), then retry sync"
+                        ),
+                        "execution_id": eid,
+                        "reason": "publish_blocked_quality_advisories",
+                    }
+                )
+                return result
+        except Exception as exc:
+            result.errors.append(
+                {
+                    "error": f"advisory consent check failed: {exc}",
+                    "execution_id": eid,
+                }
+            )
+            return result
+
     layout = s3_layout(cfg)
     files = layout["episode_files"]
     catalog_prefix = layout["catalog_prefix"]

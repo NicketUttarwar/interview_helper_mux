@@ -719,6 +719,17 @@ def build_flow1_edl(
                             ).strip()
                     except Exception:
                         clone_voice = ""
+                if not clone_voice and ctx is not None:
+                    try:
+                        from interview_mux.source_topology import (
+                            pickup_eligible_speaker_id,
+                        )
+
+                        clone_voice = str(
+                            pickup_eligible_speaker_id(ctx) or ""
+                        ).strip()
+                    except Exception:
+                        clone_voice = ""
                 if clone_voice and clone_adj.decide(
                     kind="transition",
                     key=f"transition:{sid}->{nxt}",
@@ -1155,6 +1166,14 @@ def run_edl(ctx: RunContext) -> None:
                     detail={"failed": failed[:6]},
                 )
             assert_required_bridge_synth_ok(ctx, synth_rows)
+
+        # Synth stamps voice_speaker_id on disk; build must see that voice so
+        # clone-adjacency suppress can hitch-replace instead of shipping a
+        # clone-next-to-native transition clip (edl_narrative_qc thrash).
+        if ctx.artifact_exists("master/transitions.json"):
+            refreshed = ctx.read_json("master/transitions.json")
+            if isinstance(refreshed, dict):
+                transitions = refreshed
 
     with logged_step("edl/build_edl", ctx=ctx, stage="edl"):
         from interview_mux.order_hash import copy_order_lock, stamp_order_hash

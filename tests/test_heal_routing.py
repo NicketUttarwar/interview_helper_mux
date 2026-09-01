@@ -63,6 +63,19 @@ def test_g1_missing_does_not_rewind_compose(tmp_path: Path) -> None:
     assert route.from_stage == "vo_line_adjudicate"
 
 
+def test_g1_vo_open_seed_order_routes_to_adjudicate(tmp_path: Path) -> None:
+    ctx = isolated_run_ctx(tmp_path, "heal_g1_seed")
+    route = classify_heal_error(
+        "seed order: complete g1_vo_open before running vo_synthesize",
+        ctx,
+        stage="vo_synthesize",
+    )
+    assert route is not None
+    assert route.family == FAMILY_G1_MISSING
+    assert route.from_stage == "vo_line_adjudicate"
+    assert route.action == "synthesize_g1"
+
+
 def test_vo_adjudicate_stale_routes_to_adjudicate(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "heal_adj")
     route = classify_heal_error(

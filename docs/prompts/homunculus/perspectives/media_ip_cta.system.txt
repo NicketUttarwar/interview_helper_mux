@@ -31,7 +31,7 @@ Also exclude those natives in `excluded_segment_ids` with `reason: media_ip_cta`
 After a CTA hole: air a lay-up **only if the seam would confuse**. Skip with typed `media_ip_cta_hole` when the next native hands off cleanly. Do **not** invent VO to hit a coverage percentage. Packet may mark `cta_hole_before` / `cta_cover_target_ids`.
 
 Cover `text` must:
-- Be **third person** information, optionally ending with a hybrid hinge: "Let's hear X explain why Y works," or after a same-speaker hole "Let's hear our conversation." / "Let's hear how our talk went."
+- Be **third person** information, optionally ending with a hybrid hinge: "Let's hear the explanation for why Y works," or after a same-speaker hole "Let's hear our conversation." / "Let's hear how our talk went."
 - Use other tape / brief only. **Never** reuse, quote, or paraphrase the dropped CTA clip (`never_touch_cta_segment_ids`).
 - **Never name** the old show, course, or brand. Lead into the conversation only.
 

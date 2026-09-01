@@ -227,6 +227,63 @@ def _check_phantom_vo(
     return out
 
 
+def _check_unseated_required_vo(
+    ctx: RunContext,
+    edl: dict[str, Any] | None,
+    gap_report: dict[str, Any] | None,
+) -> list[PublishabilityViolation]:
+    """Required synthesize lines must appear on EDL or have omit-ledger compensation."""
+    if not isinstance(gap_report, dict):
+        return []
+    edl_line_ids = {
+        str(c.get("line_id") or "")
+        for c in ((edl or {}).get("clips") or [])
+        if isinstance(c, dict) and c.get("type") == "vo_pickup" and c.get("line_id")
+    }
+    out: list[PublishabilityViolation] = []
+    try:
+        from interview_mux.air_script import gap_line_air_eligible
+        from interview_mux.omit_ledger import active_entries, line_is_omitted
+
+        ledger = ctx.read_json("master/omit_ledger.json") if ctx.artifact_exists(
+            "master/omit_ledger.json"
+        ) else {}
+    except Exception:
+        gap_line_air_eligible = None  # type: ignore[assignment,misc]
+        active_entries = None  # type: ignore[assignment,misc]
+        line_is_omitted = None  # type: ignore[assignment,misc]
+        ledger = {}
+    compensated: set[str] = set()
+    if active_entries is not None and isinstance(ledger, dict):
+        try:
+            for row in active_entries(ledger):
+                if isinstance(row, dict) and row.get("line_id"):
+                    compensated.add(str(row["line_id"]))
+        except Exception:
+            pass
+    for line in gap_report.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        if gap_line_air_eligible is not None and not gap_line_air_eligible(line):
+            continue
+        if str(line.get("delivery") or "").lower() != "synthesize":
+            continue
+        if not line.get("required", True):
+            continue
+        lid = str(line.get("line_id") or "")
+        if not lid or lid in edl_line_ids or lid in compensated:
+            continue
+        out.append(
+            PublishabilityViolation(
+                error_class="omit_collateral_vo_strip",
+                code="unseated_required_vo",
+                detail=f"required synthesize line not seated on EDL: {lid}",
+                line_id=lid,
+            )
+        )
+    return out
+
+
 def _check_order_drift(
     selection: dict[str, Any] | None,
     edl: dict[str, Any] | None,
@@ -409,6 +466,7 @@ _CHECKPOINT_CHECKS: dict[str, tuple[str, ...]] = {
     "pre_mix": (
         "zero_keeps",
         "phantom_vo",
+        "unseated_required_vo",
         "order_drift",
         "opening_orientation",
         "pending_writes",
@@ -436,6 +494,8 @@ def validate_publishability(
             violations.extend(_check_zero_keeps(ctx, edl))
         elif name == "phantom_vo":
             violations.extend(_check_phantom_vo(ctx, edl, edl_gap_report))
+        elif name == "unseated_required_vo":
+            violations.extend(_check_unseated_required_vo(ctx, edl, edl_gap_report))
         elif name == "order_drift":
             violations.extend(_check_order_drift(selection, edl))
         elif name == "opening_orientation":

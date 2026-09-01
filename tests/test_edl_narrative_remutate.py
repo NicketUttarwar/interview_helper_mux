@@ -29,6 +29,77 @@ def test_classify_issue_needles() -> None:
         )
         == "rebase_gap_vo"
     )
+    assert (
+        classify_edl_narrative_issue(
+            "The selected timeline defines nine chapters, exceeding the "
+            "authoritative maximum of eight, and splits one continuous "
+            "narrative-plan body chapter into an unsupported duplicate chapter title."
+        )
+        == "rerank"
+    )
+
+
+def test_repair_master_selection_merges_duplicate_titles_and_clamps(tmp_path) -> None:
+    from interview_mux.artifact_repairs import repair_master_selection
+
+    ctx = isolated_run_ctx(tmp_path, "ch_cap")
+    ctx.write_json(
+        "understanding/delivery_brief.json",
+        {
+            "version": 1,
+            "source_duration_ms": 60_000,
+            "target_duration_sec": {"min": 30, "ideal": 45, "max": 60},
+            "question_budget": {"min": 0, "ideal": 1, "max": 2},
+            "chapter_budget": {"min": 1, "ideal": 4, "max": 8},
+            "selection_mode": "coverage_first",
+            "sfx_density": {"max_beds": 1, "max_punctuators": 1, "max_foley": 0},
+            "ranking_weights": {},
+            "rationale": ["fixture"],
+            "operator_overrides": {},
+            "generated": {"at": "1970-01-01T00:00:00+00:00", "by": "test_fixture"},
+        },
+        skip_handoff=True,
+    )
+    # 9 chapters with a duplicate title — same shape as exec_4741.
+    ordered = [f"seg_{i:03d}" for i in range(1, 10)]
+    chapters = [
+        {"title": "A", "segment_ids": ["seg_001"]},
+        {"title": "The Needle in the Haystack", "segment_ids": ["seg_002"]},
+        {"title": "C", "segment_ids": ["seg_003"]},
+        {"title": "D", "segment_ids": ["seg_004"]},
+        {"title": "The Needle in the Haystack", "segment_ids": ["seg_005", "seg_006"]},
+        {"title": "F", "segment_ids": ["seg_007"]},
+        {"title": "G", "segment_ids": ["seg_008"]},
+        {"title": "H", "segment_ids": ["seg_009"]},
+        {"title": "I", "segment_ids": ["seg_009"]},  # will share — still 9 rows
+    ]
+    # Make I unique so we have 9 nonempty chapters before merge.
+    chapters[-1] = {"title": "I", "segment_ids": ["seg_009"]}
+    chapters[7] = {"title": "H", "segment_ids": ["seg_008"]}
+    # Need distinct segs for H vs I — expand to 10 segs with 9 chapters
+    ordered = [f"seg_{i:03d}" for i in range(1, 11)]
+    chapters = [
+        {"title": "A", "segment_ids": ["seg_001"]},
+        {"title": "The Needle in the Haystack", "segment_ids": ["seg_002"]},
+        {"title": "C", "segment_ids": ["seg_003"]},
+        {"title": "D", "segment_ids": ["seg_004"]},
+        {"title": "The Needle in the Haystack", "segment_ids": ["seg_005", "seg_006"]},
+        {"title": "F", "segment_ids": ["seg_007"]},
+        {"title": "G", "segment_ids": ["seg_008"]},
+        {"title": "H", "segment_ids": ["seg_009"]},
+        {"title": "I", "segment_ids": ["seg_010"]},
+    ]
+    selection = {
+        "ordered_segment_ids": ordered,
+        "chapters": chapters,
+        "excluded_segment_ids": [],
+    }
+    repaired, actions = repair_master_selection(ctx, selection)
+    titles = [str(c.get("title") or "") for c in (repaired.get("chapters") or [])]
+    assert titles.count("The Needle in the Haystack") == 1
+    assert len(repaired.get("chapters") or []) <= 8
+    action_names = {a.get("action") for a in actions if isinstance(a, dict)}
+    assert "merge_duplicate_chapter_titles" in action_names
 
 
 def test_classify_audit_unique_actions() -> None:

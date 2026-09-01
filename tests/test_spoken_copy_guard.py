@@ -286,6 +286,22 @@ def test_sentence_initial_gerund_is_not_unsupported_entity() -> None:
     assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
 
 
+def test_sentence_initial_determiners_are_not_unsupported_entities() -> None:
+    """Sentence-start Each/Every/These/Those are discourse, not guest names."""
+    violations = spoken_copy_violations(
+        "For the cell-based track, Mohan says a sample yields circulating tumour cells. "
+        "Each can then undergo whole-genome analysis.",
+        evidence={
+            "strict_grounding": True,
+            "target_excerpt": "circulating tumour cells from a blood sample",
+            "known_entities": "Mohan",
+            "before_topic": "cell-based track",
+            "after_topic": "genome analysis",
+        },
+    )
+    assert not any(v.startswith("spoken_unsupported_entity") for v in violations)
+
+
 def test_required_orientation_keeps_preface_despite_unsupported_entities() -> None:
     preface = (
         "In this conversation, a founder explains how consumer insight, "
@@ -473,6 +489,49 @@ def test_early_stage_is_not_production_jargon() -> None:
     assert "spoken_production_jargon" in spoken_copy_violations(
         "The pipeline stage failed QC", evidence={}
     )
+
+
+def test_repeated_proper_noun_violation():
+    bad = (
+        "Mohan Utawar explains why OneCell is pursuing a different route. "
+        "Utawar now describes the company's approach."
+    )
+    violations = spoken_copy_violations(bad, evidence={})
+    assert "spoken_repeated_proper_noun" in violations
+    assert "spoken_name_attribution" in violations
+
+
+def test_register_only_violations_and_topic_recovery():
+    from interview_mux.spoken_copy_guard import (
+        register_only_violations,
+        topic_forward_recovery_candidates,
+    )
+
+    violations = spoken_copy_violations(
+        "The host now explains the limitations of ctDNA-only analysis?",
+        evidence={},
+    )
+    assert register_only_violations(violations)
+    candidates = topic_forward_recovery_candidates(
+        "Cell biopsy uses circulating tumour cells, not DNA fragments alone.",
+        "Why ctDNA-only analysis has limits",
+    )
+    assert candidates
+    assert "Let's hear" in candidates[0]
+    assert "Utawar" not in candidates[0]
+    assert "host" not in candidates[0].casefold()
+    for candidate in candidates:
+        assert not register_only_violations(
+            spoken_copy_violations(candidate, evidence={})
+        )
+
+
+def test_host_role_label_blocked():
+    violations = spoken_copy_violations(
+        "The host now explains the limitations of ctDNA-only analysis?",
+        evidence={},
+    )
+    assert "spoken_speaker_role_label" in violations
 
 
 def test_edl_raises_on_duplicate_spoken_sentence(tmp_path) -> None:

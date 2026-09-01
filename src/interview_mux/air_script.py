@@ -1108,6 +1108,19 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
     return len(newly) + len(revived)
 
 
+def gap_line_air_eligible(row: dict[str, Any] | None) -> bool:
+    """True when a gap VO line may be seated on air (not skipped/omitted)."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("skipped_optional"):
+        return False
+    if row.get("air_script_omit"):
+        return False
+    if row.get("omit"):
+        return False
+    return True
+
+
 def filter_gap_lines_for_air_script(
     gap_report: dict[str, Any] | None,
     plan: dict[str, Any] | None,

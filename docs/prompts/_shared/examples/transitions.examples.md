@@ -4,6 +4,10 @@
 
 - `{ "after_segment_id": "seg_005", "before_segment_id": "seg_012", "text": "So when the product finally shipped, what broke first?", "type": "topic_shift" }` — tees up without summarizing the answer.
 
+**Good — topic-forward pivot (no speaker names)**
+
+- `{ "after_segment_id": "seg_018", "before_segment_id": "seg_024", "text": "On the supply-chain bottleneck — what changed next?", "type": "topic_shift" }`
+
 **Good — empty when adjacent works**
 
 - `transitions: []` when two segments need no bridge.
@@ -19,3 +23,11 @@
 **Bad — meta cliché**
 
 - “In this next segment we’ll hear about…” — avoid unless truly necessary.
+
+**Bad — name attribution**
+
+- “Back to Mohan on the biopsy question” — use a thematic pivot instead (“On the biopsy question…”).
+
+**Bad — role label**
+
+- “The host picks up the funding thread” — never use role labels on air.

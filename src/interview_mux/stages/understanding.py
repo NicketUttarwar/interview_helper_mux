@@ -79,6 +79,12 @@ def run_speaker_roles(ctx: RunContext) -> None:
 
     def persist(c: RunContext, artifacts: dict) -> None:
         base_persist(c, enrich_speakers_artifact(c, artifacts))
+        try:
+            from interview_mux.speaker_role_evidence import enrich_content_brief_from_evidence
+
+            enrich_content_brief_from_evidence(c)
+        except Exception:
+            pass
 
     def _sync_full(c: RunContext, artifacts: dict) -> None:
         sync_speakers_to_state(c, artifacts)

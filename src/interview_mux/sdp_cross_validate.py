@@ -345,17 +345,34 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
 
 
 def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
-    """SDP asset_ids that do not yet have sound_design/assets/<id>.wav.
+    """Referenced SDP asset_ids that do not yet have sound_design/assets/<id>.wav.
+
+    E3 lazy MusicGen only generates cue/mix-referenced theme slots. Epoch and
+    pre-mix gates must match that set — unreferenced palette rows are recorded
+    as ``avoided_musicgen`` and must not block mix. When no references exist
+    yet, fall back to every SDP asset (early / empty-cue plans).
 
     Checks the committed run dir as well as the active read path so mix
     staging cannot hide already-generated theme WAVs.
     """
+    required: set[str] | None = None
+    try:
+        from interview_mux.delivery_guardrails import referenced_musicgen_asset_ids
+
+        refs = referenced_musicgen_asset_ids(ctx)
+        if refs:
+            required = {str(a) for a in refs if a}
+    except Exception:
+        required = None
+
     missing: list[str] = []
     for asset in _sdp(ctx).get("assets") or []:
         if not isinstance(asset, dict):
             continue
         aid = str(asset.get("asset_id") or "")
         if not aid:
+            continue
+        if required is not None and aid not in required:
             continue
         wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
         if wav.is_file():

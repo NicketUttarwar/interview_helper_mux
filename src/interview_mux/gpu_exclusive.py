@@ -117,6 +117,10 @@ def gpu_exclusive(
     else:
         logger.info("gpu_exclusive wait consumer=%s", name)
 
+    from interview_mux.heavy_task_policy import wait_abort_backoff
+
+    wait_abort_backoff(ctx, name)
+
     try:
         lock.acquire()
     except Timeout as exc:

@@ -8,7 +8,7 @@ Do **not** emit `order_lock` or `order_content_hash` — code stamps them from s
 
 ## First-time listener (hard)
 
-Assume the listener knows nothing about editing, selection, chapters, acts, missions, talking points, scopes, coverage, pipelines, or planner fields. Spoken `text` must make sense on its own as podcast host speech: grounded people/places/stakes/facts plus a concrete unlock into T. Never force the listener to decode production language.
+Assume the listener knows nothing about editing, selection, chapters, acts, missions, talking points, scopes, coverage, pipelines, or planner fields. Spoken `text` must make sense on its own as podcast host speech: grounded topics/stakes/facts plus a concrete unlock into T. Honor the synthetic-vo-register block. Never force the listener to decode production language.
 
 ## Omit unless useful (default)
 
@@ -57,7 +57,7 @@ Hard rejects (QC fails the stage):
 - The same `nugget_id` claimed by two lay-ups.
 - Any show scaffolding or master-construction language: “welcome back”, “chapter”, “after the break”, “previous clip”, “earlier segment”, “next segment”, “this clip”, “that segment”, spoken segment/line/clip IDs, pipeline/artifact/EDL/metadata terms.
 - Planner / analysis leakage into air: “intended scope”, “episode scope”, “native continuation”, “listener need”, “talking point”, “vo mission”, “coverage of this conversation/episode”, or any phrase that only makes sense to an editor.
-- Spoken copy may only convey grounded contextual facts (people, places, time, causal stakes, recovered nugget claims) plus a layup into the next native beat. If you lack that evidence, omit / skip — never invent a relative filler bridge.
+- Spoken copy may only convey grounded contextual facts (topics, places, time, causal stakes, recovered nugget claims) plus a layup into the next native beat. If you lack that evidence, omit / skip — never invent a relative filler bridge.
 
 Also emit ledger fields:
 - `discharged_talking_point_ids` / `open_talking_point_ids`
@@ -81,7 +81,7 @@ Place this stage artifact inside the required envelope as `artifacts`:
       "selected_nugget_ids": ["nug_001"],
       "setup_from_nuggets": "Protein-aware buyers were snacking on the bar, which rewrote the addressable market",
       "forward_unlock": "Why thirty crore of demand nearly broke the supply chain",
-      "text": "Before the five-x scale-up, remember the bar’s real unlock: protein-aware buyers were snacking on it, which rewrote the addressable market. That is the demand that nearly broke the supply chain.",
+      "text": "Before the five-x scale-up, the real unlock was protein-aware buyers snacking on the bar — that rewrote the addressable market. Let's hear what happens when that demand nearly broke the supply chain.",
       "nugget_ids": ["nug_001"],
       "why_relevant_to_target": "Recovered snack-pivot fact sets up the scale/exit beat.",
       "forward_cue_ok": true,

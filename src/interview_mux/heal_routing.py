@@ -162,7 +162,9 @@ def classify_heal_error(
     if (
         "g1 vo pickup missing" in low
         or "stale_or_missing_pickup" in low
-        or (stage_l in {"g1_vo_pickup", "g1_vo", "edl"} and "pickup" in low and "missing" in low)
+        or "g1_vo_open" in low
+        or "complete g1_vo_open" in low
+        or (stage_l in {"g1_vo_pickup", "g1_vo", "g1_vo_open", "edl"} and "pickup" in low and "missing" in low)
     ):
         if ctx is not None and gap_fill_skipped(ctx):
             return HealRoute(

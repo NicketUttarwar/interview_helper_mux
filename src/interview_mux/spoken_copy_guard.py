@@ -86,8 +86,11 @@ _ENTITY_IGNORE = {
     "Building",
     "But",
     "Choosing",
+    "Each",
+    "Every",
     "Facing",
     "Finding",
+    "For",
     "Getting",
     "How",
     "In",
@@ -105,7 +108,9 @@ _ENTITY_IGNORE = {
     "Taking",
     "That",
     "The",
+    "These",
     "This",
+    "Those",
     "Turning",
     "Well",
     "What",
@@ -332,6 +337,87 @@ def _restates_target(text: str, target: str) -> bool:
     return len(a & b) / max(1, min(len(a), len(b))) >= 0.72
 
 
+def _repeated_proper_noun(text: str) -> bool:
+    """True when the same person-name token appears more than once in one line."""
+    counts: dict[str, int] = {}
+    for entity in _PROPER_NAME.findall(text):
+        if entity in _ENTITY_IGNORE or entity in _IMPERATIVE_IGNORE:
+            continue
+        for part in entity.split():
+            if part in _ENTITY_IGNORE or part in _IMPERATIVE_IGNORE:
+                continue
+            key = part.casefold()
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] >= 2:
+                return True
+    return False
+
+
+REGISTER_VIOLATION_CODES = frozenset(
+    {
+        "spoken_speaker_role_label",
+        "spoken_name_attribution",
+        "spoken_gendered_pronoun",
+        "spoken_repeated_proper_noun",
+    }
+)
+
+
+def violation_code(violation: str) -> str:
+    return str(violation or "").split(":", 1)[0]
+
+
+def is_register_violation(violation: str) -> bool:
+    return violation_code(violation) in REGISTER_VIOLATION_CODES
+
+
+def register_only_violations(violations: list[str]) -> bool:
+    return bool(violations) and all(is_register_violation(v) for v in violations)
+
+
+def _strip_name_attribution_clause(text: str) -> str:
+    """Drop leading person-attribution from a setup clause."""
+    stripped = re.sub(
+        r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\s+"
+        r"(?:explains?|says?|elaborates?|describes?|notes?|adds?|closes?|traces?|discusses?)\s+",
+        "",
+        normalize_script(text),
+        count=1,
+    )
+    return normalize_script(stripped) or normalize_script(text)
+
+
+def topic_forward_recovery_candidates(setup: str, unlock: str) -> list[str]:
+    """Build topic-forward recovery lines from planner fields (no speaker attribution)."""
+    setup_clean = _strip_name_attribution_clause(setup)
+    unlock_clean = normalize_script(unlock)
+    candidates: list[str] = []
+    if setup_clean and unlock_clean:
+        unlock_body = unlock_clean.rstrip(".!?")
+        if unlock_body.casefold().startswith(("why ", "how ", "what ")):
+            hinge = (
+                f"Let's hear the explanation for "
+                f"{unlock_body[0].lower()}{unlock_body[1:].rstrip('.!?')}?"
+            )
+        else:
+            hinge = f"Let's hear what comes next on {unlock_body.lower()}."
+        if unlock_body.casefold() not in setup_clean.casefold():
+            candidates.append(f"{setup_clean.rstrip('.!?')}. {hinge}")
+        candidates.append(f"{setup_clean.rstrip('.!?')}. {unlock_body}?")
+    elif unlock_clean:
+        unlock_body = unlock_clean.rstrip(".!?")
+        if unlock_body.casefold().startswith(("why ", "how ", "what ")):
+            candidates.append(
+                f"Let's hear the explanation for "
+                f"{unlock_body[0].lower()}{unlock_body[1:].rstrip('.!?')}?"
+            )
+        else:
+            candidates.append(f"Let's hear what comes next on {unlock_body.lower()}.")
+    elif setup_clean:
+        candidates.append(setup_clean if setup_clean[-1:] in ".!?" else f"{setup_clean}.")
+    return [normalize_script(c) for c in candidates if normalize_script(c)]
+
+
 def spoken_copy_violations(
     text: str,
     *,
@@ -402,6 +488,8 @@ def spoken_copy_violations(
     )
     if target and _restates_target(clean, target):
         errors.append("spoken_next_clip_restatement")
+    if _repeated_proper_noun(clean):
+        errors.append("spoken_repeated_proper_noun")
 
     if bool(ev.get("strict_grounding")):
         corpus = _evidence_text(ev)
@@ -589,12 +677,17 @@ def guard_spoken_copy(
         else ["no_grounded_fallback"]
     )
     hard = any(is_hard_structure_violation(v.split(":", 1)[0]) for v in violations)
+    orientation_tolerated = {
+        v
+        for v in violations
+        if v.startswith("spoken_unsupported_entity") or is_register_violation(v)
+    }
     keep_orientation = (
         required
         and len(original.split()) >= 6
         and _is_orientation_purpose(purpose, ev)
         and not hard
-        and entity_only
+        and orientation_tolerated == set(violations)
     )
     if keep_orientation:
         return {
@@ -668,13 +761,16 @@ def artifact_spoken_copy_errors(
     segments_by_id: dict[str, dict[str, Any]] | None = None,
     grounding_context: Any = None,
     synthetic_framing: dict[str, Any] | None = None,
+    ctx: Any = None,
 ) -> list[str]:
     """Validate all persisted listener-facing copy with target-aware evidence."""
     errors: list[str] = []
     by_id = segments_by_id or {}
     seen: list[str] = []
     for row in ((gap_report or {}).get("interviewer_lines") or []):
-        if not isinstance(row, dict) or row.get("skipped_optional"):
+        if not isinstance(row, dict) or row.get("skipped_optional") or row.get(
+            "air_script_omit"
+        ):
             continue
         target = str(row.get("targets_segment_id") or "")
         evidence = {
@@ -684,6 +780,11 @@ def artifact_spoken_copy_errors(
             "grounding_context": grounding_context,
             "strict_grounding": bool(grounding_context or by_id.get(target)),
         }
+        if ctx is not None:
+            try:
+                evidence = enrich_evidence_from_run(ctx, evidence)
+            except Exception:
+                pass
         violations = spoken_copy_violations(
             str(row.get("text") or ""), evidence=evidence, seen_texts=seen
         )
@@ -703,6 +804,11 @@ def artifact_spoken_copy_errors(
             "source_gap_ms": row.get("source_gap_ms"),
             "strict_grounding": True,
         }
+        if ctx is not None:
+            try:
+                evidence = enrich_evidence_from_run(ctx, evidence)
+            except Exception:
+                pass
         violations = spoken_copy_violations(
             str(row.get("text") or ""), evidence=evidence, seen_texts=seen
         )
@@ -751,6 +857,11 @@ def artifact_spoken_copy_errors(
             "source_gap_ms": row.get("source_gap_ms"),
             "strict_grounding": True,
         }
+        if ctx is not None:
+            try:
+                evidence = enrich_evidence_from_run(ctx, evidence)
+            except Exception:
+                pass
         seen_for_row = (
             [s for s in seen if s.strip().casefold() != text.strip().casefold()]
             if same_seam_echo

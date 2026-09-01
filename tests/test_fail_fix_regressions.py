@@ -52,3 +52,38 @@ def test_parse_failed_stage_prefers_llm_stage_over_needs_rerun() -> None:
         ),
     }
     assert full_auto_driver.parse_failed_stage(job) == "topic_coverage_audit"
+
+
+def test_parse_failed_stage_maps_g1_vo_open_sentinel() -> None:
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "tools"))
+    import full_auto_driver
+
+    job = {
+        "stage": "vo_synthesize",
+        "error": "Unknown from_stage: g1_vo_open",
+        "message": "Unknown from_stage: g1_vo_open",
+    }
+    assert full_auto_driver.parse_failed_stage(job) == "vo_line_adjudicate"
+
+
+def test_parse_failed_stage_stale_transitions_not_invalidator() -> None:
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "tools"))
+    import full_auto_driver
+
+    job = {
+        "stage": "sound_design_plan",
+        "error": (
+            "master/transitions.json is marked stale "
+            "(invalidated_by:nugget_layup_compose)"
+        ),
+        "message": "master/transitions.json is marked stale",
+    }
+    assert full_auto_driver.parse_failed_stage(job) == "transitions"

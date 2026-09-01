@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -60,3 +62,47 @@ def test_gpu_exclusive_serializes_two_consumers(monkeypatch: pytest.MonkeyPatch,
     with ge.gpu_exclusive("chatterbox"):
         order.append("chatterbox_start")
     assert order == ["musicgen_start", "chatterbox_start"]
+
+
+def test_abort_backoff_waits_before_next_acquire(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import interview_mux.gpu_exclusive as ge
+    import interview_mux.heavy_task_policy as htp
+
+    backoff_sleeps: list[float] = []
+    monkeypatch.setattr(ge, "gpu_cooldown_sec", lambda: 0.0)
+    monkeypatch.setattr(ge, "_lock_path", lambda: tmp_path / "gpu.lock")
+    monkeypatch.setenv("INTERVIEW_MUX_GPU_ABORT_BACKOFF_SEC", "12")
+    monkeypatch.setattr(htp.time, "sleep", lambda s: backoff_sleeps.append(float(s)))
+
+    recent = datetime.now(timezone.utc) - timedelta(seconds=2)
+    state = {
+        "last_abort_at": recent.isoformat(),
+        "last_consumer": "musicgen",
+        "last_returncode": -15,
+    }
+    (tmp_path / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr(htp, "_state_path", lambda: tmp_path / "state.json")
+
+    with ge.gpu_exclusive("mmaudio"):
+        pass
+    assert backoff_sleeps
+    assert 8.0 <= backoff_sleeps[0] <= 12.0
+
+
+def test_normal_exit_no_extra_backoff(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import interview_mux.gpu_exclusive as ge
+    import interview_mux.heavy_task_policy as htp
+
+    monkeypatch.setattr(ge, "gpu_cooldown_sec", lambda: 0.0)
+    monkeypatch.setattr(ge, "_lock_path", lambda: tmp_path / "gpu.lock")
+    monkeypatch.setattr(htp, "_state_path", lambda: tmp_path / "missing.json")
+    monkeypatch.setattr(
+        htp.time,
+        "sleep",
+        lambda s: (_ for _ in ()).throw(AssertionError("no abort — should not sleep")),
+    )
+
+    with ge.gpu_exclusive("musicgen"):
+        pass

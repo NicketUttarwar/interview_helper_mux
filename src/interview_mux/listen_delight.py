@@ -124,7 +124,7 @@ def _nugget_retention(ctx: RunContext) -> float:
     Scoring selected/ideal linearly treated a valid min-band cut as a
     retention miss and remutated ranking after EDL was already seated.
     Over-ideal tapers because 1.5× source is a ceiling, not a goal.
-    Catastrophic shorts use the same 0.85×min envelope as
+    Catastrophic shorts use the same brief.min ratio envelope as
     ``selection_duration_ship_ok``.
     """
     floor = float(_DEFAULT_DIMENSION_FLOORS["nugget_retention"])
@@ -132,6 +132,7 @@ def _nugget_retention(ctx: RunContext) -> float:
         from interview_mux.delivery_brief import (
             estimated_selection_duration_sec,
             load_delivery_brief,
+            selection_duration_brief_min_ratio,
         )
 
         brief = load_delivery_brief(ctx)
@@ -146,16 +147,18 @@ def _nugget_retention(ctx: RunContext) -> float:
         if ideal_sec <= 0 or selected_sec <= 0:
             return 0.85
         ratio = selected_sec / max(ideal_sec, 1.0)
+        brief_min_ratio = selection_duration_brief_min_ratio()
+        brief_min_floor = min_sec * brief_min_ratio
         if selected_sec >= ideal_sec:
             score = 1.0 - min(0.25, (ratio - 1.0) * 0.2)
         elif min_sec > 0 and selected_sec >= min_sec:
             span = max(ideal_sec - min_sec, 1.0)
             t = (selected_sec - min_sec) / span
             score = floor + (1.0 - floor) * t
-        elif min_sec > 0 and selected_sec >= min_sec * 0.85:
+        elif min_sec > 0 and selected_sec >= brief_min_floor:
             score = floor
         elif min_sec > 0:
-            score = floor * (selected_sec / max(min_sec * 0.85, 1.0))
+            score = floor * (selected_sec / max(brief_min_floor, 1.0))
         else:
             score = ratio
         return round(_clamp(score, 0.0, 1.0), 4)

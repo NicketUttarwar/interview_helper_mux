@@ -46,9 +46,9 @@ Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
 
 ### Panel (`format_class: panel`)
 
-- Shorter bridges — assume listeners met guests in chapter openers; use names, not full titles every time.
-- Handoffs: "Back to [Name]" or thematic pivot, not re-read of entire panel intro.
-- When ranking reorders guests non-chronologically, `type: callback` with explicit guest name beats generic `topic_shift`.
+- Shorter bridges — assume listeners met guests in chapter openers; use thematic pivots, not full re-intros.
+- Handoffs: thematic callback to the prior thread ("On the supply-chain question…"), not "Back to [Name]".
+- When ranking reorders guests non-chronologically, `type: callback` with a **topic** thread beats generic `topic_shift`.
 - Do not bridge between two segments from the same guest if their answers flow — return empty for that adjacency.
 
 ### gap_report deduplication
@@ -61,7 +61,7 @@ Allowed `type` values: `topic_shift`, `callback`, `chapter`, `light_bridge`.
 ### English editorial tone
 
 - Match `style.tone_class`: `journalistic` = crisp; `conversational` = contractions OK; `investor` = outcome-forward; `technical` = precise nouns; `human_interest` = warm but not saccharine.
-- Prefer known guest names; if unknown, use context-appropriate group terms (“friends”, “the founders”, “speakers”) — never invent names.
-- Third-person orientation is allowed when `suggested_pov` / documentary mode needs a short place/time reset; otherwise host may speak second-person questions.
+- Topic-forward bridges only — orient with mechanism, stakes, or place; do not name interview participants (honor synthetic-vo-register).
+- Third-person topic orientation is allowed when `suggested_pov` / documentary mode needs a short place/time reset.
 
 **Quality bar:** 3–20 words (hinge max 30); no answer summary; no spoken chapter/clip/segment construction language; empty array when flow is natural or evidence is insufficient.

@@ -21,6 +21,7 @@ STAGE_EXAMPLE_FILES: dict[str, str] = {
     "full_master_ranking": "_shared/examples/full-master-ranking.examples.md",
     "edl_narrative_audit": "_shared/examples/edl-narrative-audit.examples.md",
     "transitions": "_shared/examples/transitions.examples.md",
+    "nugget_layup_compose": "_shared/examples/nugget-layup-compose.examples.md",
     "sound_design_plan": "_shared/examples/sound-design-plan-flow1.examples.md",
     "sfx_prompt_craft": "_shared/examples/sfx-prompt-regression.md",
     "podcast_sfx_brief": "_shared/examples/sfx-briefs.examples.md",
@@ -36,6 +37,7 @@ COMPACT_EXAMPLE_MAX_CHARS_BY_STAGE: dict[str, int] = {
     "missing_framing": 900,
     "topic_coverage_audit": 900,
     "transitions": 800,
+    "nugget_layup_compose": 900,
 }
 COMPACT_EXAMPLE_MAX_CHARS = 600
 

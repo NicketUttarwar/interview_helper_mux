@@ -13,7 +13,9 @@ Rules:
 - Never drop nuggets entirely — only defer to intro or move to another line on this seam.
 - Respect operator skips and waived nuggets in the input packet.
 - Do not invent facts beyond supplied nuggets and content brief.
-- Prefer `air` when flow_score is already strong.
+- On `rewrite`, enforce synthetic-vo-register: topic-forward, no speaker names, no role labels, no gendered pronouns.
+- Rewrite lines that attribute speech to a person ("X explains…", "the host now…") even when flow_score is strong.
+- Prefer `air` when flow_score is already strong and text honors the register.
 
 Output envelope artifact:
 

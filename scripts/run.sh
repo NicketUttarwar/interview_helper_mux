@@ -132,7 +132,7 @@ Environment:
   MUX_BABA_E2E=1                 Legacy alias for MUX_FULL_AUTO
   MUX_DETACH_SERVE=1             Detach serve into its own session and return
   MUX_KEEPALIVE=1                Opt-in Full-auto crash watchdog (off by default)
-  MUX_FRESH / MUX_RUN_ID         Fresh create vs resume for Full-auto
+  MUX_FRESH / MUX_RUN_ID         Fresh create vs resume (MUX_FRESH=1 wins over MUX_RUN_ID)
 
 Regular ./scripts/run.sh (Manual GUI / --cli, not Full-auto) stops leftover
 Full-auto daemons first (driver, keepalive, prior serve) so a previous
@@ -400,8 +400,10 @@ if [[ "${MUX_NO_BROWSER:-0}" == "1" ]]; then
   fi
 fi
 
-# Fresh Full-auto must not inherit a stale keepalive/driver (pointer cleared on --fresh).
-if _full_auto_env_set && [[ -z "${MUX_RUN_ID:-}" && "${MUX_FRESH:-1}" == "1" ]]; then
+# MUX_FRESH=1 always wins — never resume a stale exec when operator asked for fresh.
+if _full_auto_env_set && [[ "${MUX_FRESH:-1}" == "1" ]]; then
+  unset MUX_RUN_ID
+  export MUX_FRESH=1
   echo "Fresh Full-auto — stopping prior driver + keepalive…" >&2
   python "$ROOT/tools/full_auto_daemon_launch.py" stop || true
 fi
@@ -410,10 +412,10 @@ E2E_ARGS=(e2e)
 if _keepalive_requested; then
   E2E_ARGS+=(keepalive)
 fi
-if [[ -n "${MUX_RUN_ID:-}" ]]; then
-  E2E_ARGS+=(--run-id "${MUX_RUN_ID}")
-elif [[ "${MUX_FRESH:-1}" == "1" ]]; then
+if [[ "${MUX_FRESH:-1}" == "1" ]]; then
   E2E_ARGS+=(--fresh)
+elif [[ -n "${MUX_RUN_ID:-}" ]]; then
+  E2E_ARGS+=(--run-id "${MUX_RUN_ID}")
 fi
 
 # Unattended mode: serve runs in its own session so it outlives this shell.

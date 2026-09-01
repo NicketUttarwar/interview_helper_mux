@@ -577,7 +577,12 @@ def _validate_post_ranking(ctx: RunContext) -> list[str]:
             for sid in ch.get("segment_ids") or []:
                 if ordered and str(sid) not in ordered_set:
                     errors.append(f"narrative chapter segment {sid} missing from selection")
-    from interview_mux.delivery_brief import delivery_brief_cfg, estimated_selection_duration_sec, load_delivery_brief
+    from interview_mux.delivery_brief import (
+        delivery_brief_cfg,
+        estimated_selection_duration_sec,
+        load_delivery_brief,
+        selection_duration_brief_min_ratio,
+    )
 
     brief = load_delivery_brief(ctx)
     est = estimated_selection_duration_sec(ctx)
@@ -594,7 +599,7 @@ def _validate_post_ranking(ctx: RunContext) -> list[str]:
                 errors.append(msg)
             else:
                 ctx.log(msg, level="warning", stage="full_master_ranking")
-        if bmin and est < bmin * 0.85 and ordered:
+        if bmin and est < bmin * selection_duration_brief_min_ratio() and ordered:
             msg = f"selection duration ~{est:.0f}s below brief min {bmin}s"
             if bool(delivery_brief_cfg().get("enforce_duration")):
                 errors.append(msg)

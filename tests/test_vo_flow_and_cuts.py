@@ -321,6 +321,96 @@ def test_transition_skipped_when_before_vo_exists(tmp_path, monkeypatch) -> None
     assert "limited resources" not in text.lower()
 
 
+def test_mint_uses_passed_gap_when_disk_layup_would_suppress(tmp_path, monkeypatch) -> None:
+    """Disk layup still active must not suppress mint when in-memory gap skipped it.
+
+    EDL repair marks overlap VO ``skipped_optional`` in memory; mint used to
+    re-read committed gap (unskipped) and skip minting while assert still saw
+    the seam as uncovered — bridge_completeness thrash.
+    """
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "mint_gap_mismatch")
+    import json
+
+    disk_gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_layup_seg_024",
+                "targets_segment_id": "seg_024",
+                "prior_segment_id": "seg_023",
+                "placement": "before",
+                "delivery": "synthesize",
+                "text": "The proposed answer to that clinical dilemma is sequencing.",
+            }
+        ]
+    }
+    memory_gap = {
+        "interviewer_lines": [
+            {
+                **disk_gap["interviewer_lines"][0],
+                "skipped_optional": True,
+            }
+        ]
+    }
+    gr_path = ctx.path("understanding", "gap_report.json")
+    gr_path.parent.mkdir(parents=True, exist_ok=True)
+    gr_path.write_text(json.dumps(disk_gap), encoding="utf-8")
+    man = ctx.path("segments", "manifest.json")
+    man.parent.mkdir(parents=True, exist_ok=True)
+    man.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "seg_023",
+                        "text": "Clinicians face an impossible sampling tradeoff.",
+                        "start_ms": 0,
+                        "end_ms": 4000,
+                    },
+                    {
+                        "segment_id": "seg_024",
+                        "text": "Single-cell sequencing plus AI can close that gap.",
+                        "start_ms": 5000,
+                        "end_ms": 9000,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    missing = [
+        {
+            "after_segment_id": "seg_023",
+            "before_segment_id": "seg_024",
+            "kind": "reorder",
+            "source_gap_ms": 1000,
+            "before_excerpt": "Single-cell sequencing plus AI can close that gap.",
+            "after_excerpt": "Clinicians face an impossible sampling tradeoff.",
+        }
+    ]
+    # Disk-only path still suppresses (layup present).
+    suppressed = mint_missing_transitions(
+        ctx, missing, transitions={"transitions": []}
+    )
+    assert suppressed["transitions"] == []
+    # Same missing list with repaired in-memory gap must mint.
+    minted = mint_missing_transitions(
+        ctx,
+        missing,
+        transitions={"transitions": []},
+        gap_report=memory_gap,
+    )
+    keys = {
+        (
+            str(t.get("after_segment_id") or ""),
+            str(t.get("before_segment_id") or ""),
+        )
+        for t in minted.get("transitions") or []
+    }
+    assert ("seg_023", "seg_024") in keys
+    assert any(str(t.get("text") or "").strip() for t in minted["transitions"])
+
+
 def test_default_bridge_never_speaks_internal_segment_ids() -> None:
     pair = {
         "after_segment_id": "seg_152",

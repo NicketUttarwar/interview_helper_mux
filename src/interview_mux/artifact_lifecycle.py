@@ -52,6 +52,7 @@ def fingerprint_artifact(artifact: dict[str, Any], stage_key: str) -> dict[str, 
             "stale": False,
         }
     )
+    meta.pop("stale_reason", None)
     out["_meta"] = meta
     return out
 

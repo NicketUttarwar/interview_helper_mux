@@ -1007,6 +1007,17 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
 
         deferred = vo_synthesize_should_defer_done(ctx, stage_id)
         if deferred:
+            full_auto = False
+            try:
+                meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+                full_auto = bool(isinstance(meta, dict) and meta.get("full_auto"))
+            except Exception:
+                pass
+            if full_auto:
+                raise ValueError(
+                    f"vo_synthesize blocked in full-auto: {deferred} — "
+                    "complete G1/layup stability before commit"
+                )
             ctx.log(
                 f"vo_synthesize fail-open: {deferred} — continuing to edl/mix last-chance",
                 level="warning",

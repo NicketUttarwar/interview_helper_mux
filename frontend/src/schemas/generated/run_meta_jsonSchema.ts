@@ -45,4 +45,13 @@ export const run_meta_jsonSchema = z.object({
   "homunculus_kind": z.enum(["original_pipeline", "homunculus"]).optional(),
   "podcast_id": z.string().optional(),
   "podcast_title": z.string().optional(),
+  "delivery_epoch": z.object({
+  "phase_a_sealed_at": z.string().optional(),
+  "music_started_at": z.string().optional(),
+  "music_complete_at": z.string().optional(),
+  "mix_started_at": z.string().optional(),
+  "last_stable_checkpoint": z.string().nullable().optional(),
+  "orphaned_spend": z.boolean().optional(),
+  "updated_at": z.string().optional(),
+}).optional(),
 });

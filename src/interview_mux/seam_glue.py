@@ -315,10 +315,16 @@ def mint_missing_transitions(
     missing: list[dict[str, Any]],
     *,
     transitions: dict[str, Any] | None = None,
+    gap_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Append pair-bound transition entries for every missing reorder seam.
 
     Returns the updated transitions document (also written to disk).
+
+    ``gap_report`` must be the same document used for ``missing_reorder_bridges`` /
+    ``assert_bridges_complete``. Re-reading disk alone can disagree with an
+    in-memory repair (e.g. ``skipped_optional`` overlap marks) and suppress
+    minting while completeness still sees the seam as uncovered.
     """
     from interview_mux.spoken_copy_guard import assert_guarded_spoken_copy
 
@@ -344,15 +350,20 @@ def mint_missing_transitions(
         for t in items
         if str(t.get("text") or "").strip()
     }
-    if ctx.artifact_exists("understanding/gap_report.json"):
-        gr_early = ctx.read_json("understanding/gap_report.json")
-        if isinstance(gr_early, dict):
-            for ln in gr_early.get("interviewer_lines") or []:
-                if not isinstance(ln, dict) or ln.get("skipped_optional"):
-                    continue
-                txt = str(ln.get("text") or "").strip()
-                if txt:
-                    used_bridge_texts.add(txt)
+    if isinstance(gap_report, dict):
+        gr_early = gap_report
+    elif ctx.artifact_exists("understanding/gap_report.json"):
+        loaded_gap = ctx.read_json("understanding/gap_report.json")
+        gr_early = loaded_gap if isinstance(loaded_gap, dict) else None
+    else:
+        gr_early = None
+    if isinstance(gr_early, dict):
+        for ln in gr_early.get("interviewer_lines") or []:
+            if not isinstance(ln, dict) or ln.get("skipped_optional"):
+                continue
+            txt = str(ln.get("text") or "").strip()
+            if txt:
+                used_bridge_texts.add(txt)
 
     synthetic_plan = (
         ctx.read_json("understanding/synthetic_framing_plan.json")
@@ -385,11 +396,12 @@ def mint_missing_transitions(
     allow_canned = bool(
         synthetic_framing_cfg().get("allow_canned_bridge_fallback", False)
     )
-    gap_report = (
-        ctx.read_json("understanding/gap_report.json")
-        if ctx.artifact_exists("understanding/gap_report.json")
-        else None
-    )
+    if not isinstance(gap_report, dict):
+        gap_report = (
+            ctx.read_json("understanding/gap_report.json")
+            if ctx.artifact_exists("understanding/gap_report.json")
+            else None
+        )
     from interview_mux.gap_framing import transition_redundant_with_framing
     from interview_mux.nugget_layup import (
         PLAN_REL,
@@ -686,7 +698,10 @@ def ensure_seam_glue(
     transitions_doc = transitions if isinstance(transitions, dict) else {"transitions": []}
     if missing:
         transitions_doc = mint_missing_transitions(
-            ctx, missing, transitions=transitions_doc
+            ctx,
+            missing,
+            transitions=transitions_doc,
+            gap_report=gap_report if isinstance(gap_report, dict) else None,
         )
     completeness = assert_bridges_complete(
         bridges,

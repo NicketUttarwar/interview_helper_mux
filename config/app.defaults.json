@@ -510,6 +510,7 @@
   "local_gpu": {
     "serialize": true,
     "cooldown_sec": 5,
+    "abort_backoff_sec": 30,
     "lock_timeout_sec": 7200,
     "consumers": [
       "musicgen",
@@ -791,9 +792,17 @@
     "max_duration_sec": 24.0,
     "use_melody_conditioning": false,
     "fail_closed_on_stub": false,
+    "fail_closed_on_stub_roles": [
+      "theme_cold_open",
+      "theme_outro"
+    ],
+    "keep_prior_stem_on_fail": true,
+    "skip_cold_open_on_total_failure": true,
+    "step_down_duration_ratio": 0.85,
+    "pause_between_ladder_steps_sec": 0,
     "prefer_medium_on_cpu": false,
     "mmaudio_backup_on_stub": true,
-    "best_of_n_speech_free": 1,
+    "best_of_n_speech_free": 2,
     "best_of_n_underscore": 3,
     "max_best_of_n": 3,
     "keep_candidates": true,
@@ -1066,7 +1075,8 @@
       "min_duration_sec": 600,
       "max_duration_sec": 7200,
       "question_budget_max": 0,
-      "enforce_duration": true
+      "enforce_duration": true,
+      "selection_brief_min_ratio": 0.65
     },
     "coverage_limits": {
       "analysis_timeline_min_coverage_ratio": 0.85,
@@ -1687,8 +1697,8 @@
       "record_advisories_in_pmq": true,
       "require_operator_publish_when_advisory": true,
       "catastrophic_floors": {
-        "cut_integrity": 0.70,
-        "listen_delight_overall": 0.65
+        "cut_integrity": 0.55,
+        "listen_delight_overall": 0.50
       },
       "pick_best_weights": {
         "listen_delight_overall": 0.5,

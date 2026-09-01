@@ -19,6 +19,7 @@ from interview_mux.musicgen_runner import (
 
 def test_is_abort_returncode() -> None:
     assert is_abort_returncode(-6)
+    assert is_abort_returncode(-15)
     assert is_abort_returncode(134)
     assert not is_abort_returncode(0)
     assert not is_abort_returncode(1)
@@ -77,7 +78,11 @@ def test_cli_python_passthrough_venv(tmp_path: Path) -> None:
     assert cli_python_executable(py) == py
 
 
-def test_best_of_n_capped_at_one() -> None:
+def test_best_of_n_capped_at_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.musicgen_runner.musicgen_cfg",
+        lambda: {"best_of_n_speech_free": 1, "best_of_n_underscore": 1, "max_best_of_n": 1},
+    )
     assert best_of_n_for_role("theme_cold_open") == 1
     assert best_of_n_for_role("theme_underscore") == 1
 

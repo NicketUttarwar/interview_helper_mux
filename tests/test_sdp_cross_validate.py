@@ -35,6 +35,47 @@ def test_validate_pre_mix_missing_assets(tmp_path, monkeypatch):
     assert "bed_001" in missing_sdp_asset_wavs(ctx)
 
 
+def test_missing_sdp_wavs_ignores_unreferenced_lazy_slots(tmp_path, monkeypatch):
+    """E3: cue-unreferenced palette rows must not block music epoch / pre-mix."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "run_sdp_lazy")
+    seed_analysis_ready_artifacts(ctx)
+    plan = sound_design_plan_with(
+        assets=[
+            {
+                "asset_id": "theme_used",
+                "role": "theme_cold_open",
+                "description": "Used motif",
+                "duration_seconds": 8,
+            },
+            {
+                "asset_id": "theme_unused",
+                "role": "theme_outro",
+                "description": "Palette-only outro",
+                "duration_seconds": 10,
+            },
+        ]
+    )
+    flow = (plan.get("flow_plans") or {}).setdefault("podcast", {})
+    flow["cues"] = [
+        {
+            "cue_id": "c_used",
+            "asset_id": "theme_used",
+            "role": "theme_cold_open",
+            "placement": "before_segment",
+            "description": "open",
+            "duration_seconds": 8,
+        }
+    ]
+    ctx.write_json("understanding/sound_design_plan.json", plan, skip_handoff=True)
+    assets = ctx.final_path("sound_design", "assets")
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "theme_used.wav").write_bytes(b"RIFF")
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    assert missing_sdp_asset_wavs(ctx) == []
+
+
 def test_validate_post_sound_plan_flow2_over_cap(tmp_path, monkeypatch):
     """Unique-asset caps are soft by default — many role assets must not hard-fail."""
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
