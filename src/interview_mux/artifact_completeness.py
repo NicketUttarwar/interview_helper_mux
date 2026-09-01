@@ -23,7 +23,18 @@ def _binary_artifact_status(ctx: RunContext, rel_path: str) -> str:
     from interview_mux.write_staging import resolve_read_path
 
     path = resolve_read_path(ctx, rel_path)
-    return "complete" if path.is_file() and path.stat().st_size > 1024 else "partial"
+    try:
+        return "complete" if path.is_file() and path.stat().st_size > 1024 else "partial"
+    except OSError:
+        return "pending"
+
+
+def _safe_read_json_for_status(ctx: RunContext, rel_path: str) -> Any | None:
+    """Read artifact JSON for status checks; None when the file vanished mid-read."""
+    try:
+        return ctx.read_json(rel_path)
+    except (FileNotFoundError, OSError):
+        return None
 
 @dataclass(frozen=True)
 class Gap:
@@ -301,9 +312,14 @@ def artifact_status_for_stage(
 
         if rel_path.endswith(".txt"):
             p = resolve_read_path(ctx, rel_path)
-            return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+            try:
+                return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+            except OSError:
+                return "pending"
         return _binary_artifact_status(ctx, rel_path)
-    raw = ctx.read_json(rel_path)
+    raw = _safe_read_json_for_status(ctx, rel_path)
+    if raw is None:
+        return "pending"
     data = raw if isinstance(raw, dict) else None
     from interview_mux.llm_output_resilience import artifact_resilience_partial
 
@@ -327,9 +343,14 @@ def artifact_status(rel_path: str, ctx: RunContext) -> str:
 
         if rel_path.endswith(".txt"):
             p = resolve_read_path(ctx, rel_path)
-            return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+            try:
+                return "complete" if p.is_file() and p.stat().st_size > 0 else "partial"
+            except OSError:
+                return "pending"
         return _binary_artifact_status(ctx, rel_path)
-    raw = ctx.read_json(rel_path)
+    raw = _safe_read_json_for_status(ctx, rel_path)
+    if raw is None:
+        return "pending"
     data = raw if isinstance(raw, dict) else None
     from interview_mux.llm_output_resilience import artifact_resilience_partial
 

@@ -122,3 +122,66 @@ def test_g_publish_operator_done_detects_upload() -> None:
     assert driver._g_publish_operator_done({"skipped": True}) is True
     assert driver._g_publish_operator_done({"already_uploaded_count": 1}) is True
     assert driver._g_publish_operator_done({"pending": True}) is False
+
+
+def test_automation_driver_run_includes_partial_and_full() -> None:
+    from interview_mux.automation_run import (
+        automation_driver_run,
+        is_full_auto_run,
+        is_partially_accelerated_run,
+    )
+
+    assert is_partially_accelerated_run(
+        {"run_mode": "partially-accelerated", "partial_auto": True}
+    )
+    assert is_full_auto_run({"run_mode": "full-auto", "full_auto": True})
+    assert automation_driver_run({"run_mode": "partially-accelerated", "partial_auto": True})
+    assert automation_driver_run({"run_mode": "full-auto", "full_auto": True})
+    assert not automation_driver_run({"run_mode": "manual"})
+
+
+def test_unattended_defaults_enabled_for_partial_run_meta(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from interview_mux.stage_resilience import unattended_defaults_enabled
+    from run_fixtures import isolated_run_ctx
+
+    for key in (
+        "MUX_FULL_AUTO",
+        "MUX_PARTIAL_AUTO",
+        "MUX_RUN_MODE",
+        "INTERVIEW_MUX_AUTO_ACCEPT_GATES",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    ctx = isolated_run_ctx(tmp_path, "exec_partial_unattended")
+    ctx.write_json(
+        "run_meta.json",
+        {"run_mode": "partially-accelerated", "partial_auto": True},
+    )
+    assert unattended_defaults_enabled(ctx) is True
+
+
+def test_listen_delight_waiver_unattended_partial_auto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.delivery_guardrails import (
+        ensure_listen_delight_waiver_unattended,
+        listen_delight_waived_unattended,
+    )
+    from run_fixtures import isolated_run_ctx
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "ld_waiver_partial")
+    ctx.write_json(
+        "run_meta.json",
+        {"run_mode": "partially-accelerated", "partial_auto": True},
+    )
+    audit_path = ctx.path("mastering/listen_delight_audit.json")
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(
+        '{"status":"complete","scores":{}}',
+        encoding="utf-8",
+    )
+    assert ensure_listen_delight_waiver_unattended(ctx) is True
+    assert listen_delight_waived_unattended(ctx) is True
+

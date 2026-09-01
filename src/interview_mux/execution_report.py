@@ -411,9 +411,6 @@ def report_paths(ctx: RunContext) -> tuple[Path, Path]:
 
 
 def env_is_full_auto() -> bool:
-    for key in ("MUX_FULL_AUTO", "MUX_BABA_E2E", "INTERVIEW_MUX_AUTO_ACCEPT_GATES"):
-        raw = str(os.environ.get(key) or "").strip().lower()
-        if raw in {"1", "true", "yes"}:
-            return True
-    mode = str(os.environ.get("MUX_RUN_MODE") or "").strip().lower().replace("_", "-")
-    return mode in {"full-auto", "fullauto", "auto", "e2e"}
+    from interview_mux.automation_run import automation_driver_env_enabled
+
+    return automation_driver_env_enabled()

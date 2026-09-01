@@ -4,6 +4,7 @@ import pytest
 
 from interview_mux.artifact_completeness import (
     artifact_status,
+    artifact_status_for_stage,
     compute_gaps,
     compute_staged_write_gaps,
     merge_artifact,
@@ -93,6 +94,23 @@ def test_artifact_status_pending_and_complete(tmp_path, monkeypatch):
         stage_key="content_context",
     )
     assert artifact_status("understanding/content_brief.json", ctx) == "complete"
+
+
+def test_artifact_status_pending_when_json_vanishes_mid_read(tmp_path, monkeypatch):
+    """Invalidation can delete an artifact between exists() and read_json()."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = RunContext(create=True)
+    rel = "understanding/sound_design_plan.json"
+
+    monkeypatch.setattr(ctx, "artifact_exists", lambda _rel: True)
+    monkeypatch.setattr(
+        ctx,
+        "read_json",
+        lambda _rel: (_ for _ in ()).throw(FileNotFoundError(rel)),
+    )
+
+    assert artifact_status(rel, ctx) == "pending"
+    assert artifact_status_for_stage(rel, ctx, "sound_design_plan") == "pending"
 
 
 def test_preferred_fill_stage_uses_reanchor_after_manifest(tmp_path, monkeypatch):

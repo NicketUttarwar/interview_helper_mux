@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from interview_mux.artifact_lifecycle import (
     LifecyclePhase,
+    _artifact_lifecycle_phase,
     fingerprint_artifact,
     run_phase_checks,
     split_artifact_lists,
@@ -43,6 +44,17 @@ def test_split_artifact_lists_pending(monkeypatch):
     )
     assert lifecycle["understanding/content_brief.json"] == "pending"
     assert not committed
+
+
+def test_artifact_lifecycle_phase_pending_when_read_races_invalidation():
+    class _RaceCtx:
+        def artifact_exists(self, rel: str) -> bool:
+            return True
+
+        def read_json(self, rel: str):
+            raise FileNotFoundError(rel)
+
+    assert _artifact_lifecycle_phase(_RaceCtx(), "understanding/sound_design_plan.json", stage_id="sound_design_plan") == "pending"
 
 
 def test_run_phase_checks_pre_call_schema():

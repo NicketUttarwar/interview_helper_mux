@@ -44,27 +44,20 @@ def stage_resilience_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def unattended_defaults_enabled(ctx: RunContext | None = None) -> bool:
-    """True for Full-auto / explicit config — never force_publish."""
-    import os
+    """True for Full-auto / partially-accelerated / explicit config — never force_publish."""
+    from interview_mux.automation_run import automation_driver_env_enabled, automation_driver_run
 
     cfg = stage_resilience_cfg().get("unattended_defaults") or {}
     if isinstance(cfg, dict) and cfg.get("enabled"):
         return True
-    for key in ("MUX_FULL_AUTO", "MUX_BABA_E2E", "INTERVIEW_MUX_AUTO_ACCEPT_GATES"):
-        raw = str(os.environ.get(key) or "").strip().lower()
-        if raw in {"1", "true", "yes"}:
-            return True
-    mode = str(os.environ.get("MUX_RUN_MODE") or "").strip().lower().replace("_", "-")
-    if mode in {"full-auto", "fullauto", "auto", "e2e"}:
+    if automation_driver_env_enabled():
         return True
     if ctx is not None and ctx.artifact_exists("run_meta.json"):
         try:
             meta = ctx.read_json("run_meta.json") or {}
         except Exception:
             meta = {}
-        if isinstance(meta, dict) and (
-            meta.get("full_auto") or str(meta.get("run_mode") or "") == "full-auto"
-        ):
+        if automation_driver_run(meta if isinstance(meta, dict) else None):
             return True
     return False
 

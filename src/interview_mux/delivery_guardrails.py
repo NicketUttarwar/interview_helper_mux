@@ -119,14 +119,16 @@ def listen_delight_waived_unattended(ctx: RunContext) -> bool:
 
 
 def ensure_listen_delight_waiver_unattended(ctx: RunContext) -> bool:
-    """Full-auto: write waived_unattended after an audit artifact exists but is not complete."""
+    """Automation driver: write waived_unattended after an audit artifact exists but is not complete."""
+    from interview_mux.automation_run import automation_driver_run
+
     if listen_delight_waived_unattended(ctx):
         return True
     try:
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
     except Exception:
         meta = {}
-    if not isinstance(meta, dict) or not meta.get("full_auto"):
+    if not automation_driver_run(meta if isinstance(meta, dict) else None):
         return False
     if seed_stage_complete(ctx, "listen_delight_audit"):
         return False

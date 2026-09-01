@@ -566,12 +566,16 @@ def test_unattended_defaults_follow_full_auto_env(monkeypatch, tmp_path: Path):
     from interview_mux.stage_resilience import unattended_defaults_enabled
 
     monkeypatch.delenv("MUX_FULL_AUTO", raising=False)
+    monkeypatch.delenv("MUX_PARTIAL_AUTO", raising=False)
     monkeypatch.delenv("MUX_RUN_MODE", raising=False)
     monkeypatch.delenv("INTERVIEW_MUX_AUTO_ACCEPT_GATES", raising=False)
     ctx = isolated_run_ctx(tmp_path, "exec_unattended_off")
     (ctx.run_dir / "run_meta.json").write_text("{}", encoding="utf-8")
     assert unattended_defaults_enabled(ctx) is False
     monkeypatch.setenv("MUX_FULL_AUTO", "1")
+    assert unattended_defaults_enabled(ctx) is True
+    monkeypatch.delenv("MUX_FULL_AUTO", raising=False)
+    monkeypatch.setenv("MUX_PARTIAL_AUTO", "1")
     assert unattended_defaults_enabled(ctx) is True
 
 

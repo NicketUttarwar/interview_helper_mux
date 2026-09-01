@@ -353,6 +353,8 @@ def _artifact_lifecycle_phase(ctx: Any, rel: str, *, stage_id: str) -> str:
         meta = (doc.get("_meta") or {}) if isinstance(doc, dict) else {}
         if meta.get("stale"):
             return "invalidated"
+    except (FileNotFoundError, OSError):
+        return "pending"
     except Exception:
         pass
     if has_pending_writes(ctx, stage_id):

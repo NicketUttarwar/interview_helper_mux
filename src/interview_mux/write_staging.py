@@ -1007,15 +1007,17 @@ def approve_stage_writes(ctx: RunContext, stage_id: str) -> list[str]:
 
         deferred = vo_synthesize_should_defer_done(ctx, stage_id)
         if deferred:
-            full_auto = False
+            automation_run = False
             try:
+                from interview_mux.automation_run import automation_driver_run
+
                 meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-                full_auto = bool(isinstance(meta, dict) and meta.get("full_auto"))
+                automation_run = automation_driver_run(meta if isinstance(meta, dict) else None)
             except Exception:
                 pass
-            if full_auto:
+            if automation_run:
                 raise ValueError(
-                    f"vo_synthesize blocked in full-auto: {deferred} — "
+                    f"vo_synthesize blocked in automation run: {deferred} — "
                     "complete G1/layup stability before commit"
                 )
             ctx.log(
