@@ -464,17 +464,31 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
     )
     try:
         from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
-        from interview_mux.delivery_guardrails import music_skip_allowed
+        from interview_mux.delivery_guardrails import music_epoch_complete, music_skip_allowed
 
-        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
+        if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage) and music_epoch_complete(ctx):
             if not ctx.is_done(stage):
                 ctx.mark_done(stage, force=True)
             ctx.log(
-                f"{stage}: SDP theme WAVs already on disk — skip regenerate",
+                f"{stage}: music epoch complete — skip regenerate",
                 level="info",
                 stage=stage,
             )
             return
+    except Exception:
+        pass
+    try:
+        from interview_mux.delivery_guardrails import mix_epoch_block, upstream_stale_blockers
+
+        if stage in {"mix", "junction_snip_qa", "master_finalize"}:
+            mix_b = mix_epoch_block(ctx)
+            if mix_b:
+                raise ValueError(f"cannot run {stage}: delivery epoch {mix_b}")
+        stale = upstream_stale_blockers(ctx, stage)
+        if stale:
+            raise ValueError(f"cannot run {stage}: stale upstream {', '.join(stale[:4])}")
+    except ValueError:
+        raise
     except Exception:
         pass
     ctx.log(

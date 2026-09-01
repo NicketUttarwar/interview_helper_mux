@@ -143,24 +143,27 @@ def dispatch_stage(
             return
 
         if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
-            if not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
-            if stage == "mmaudio_sfx":
-                from datetime import datetime, timezone
+            from interview_mux.delivery_guardrails import music_epoch_complete
 
-                from interview_mux.delivery_guardrails import stamp_delivery_epoch
+            if music_epoch_complete(ctx):
+                if not ctx.is_done(stage):
+                    ctx.mark_done(stage, force=True)
+                if stage == "mmaudio_sfx":
+                    from datetime import datetime, timezone
 
-                stamp_delivery_epoch(
-                    ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
+                    from interview_mux.delivery_guardrails import stamp_delivery_epoch
+
+                    stamp_delivery_epoch(
+                        ctx, music_complete_at=datetime.now(timezone.utc).isoformat()
+                    )
+                ctx.log(
+                    f"homunculus skip-run {stage} — music epoch complete",
+                    level="info",
+                    stage=stage,
                 )
-            ctx.log(
-                f"homunculus skip-run {stage} — SDP theme WAVs already on disk",
-                level="info",
-                stage=stage,
-            )
-            admit(ctx, identity=stage, action="keep", payload={"stage": stage, "source": source, "skipped_existing_wavs": True})
-            append_ledger(ctx, {"kind": "stage", "identity": stage, "status": "done", "source": source, "skipped_existing_wavs": True})
-            return
+                admit(ctx, identity=stage, action="keep", payload={"stage": stage, "source": source, "skipped_existing_wavs": True})
+                append_ledger(ctx, {"kind": "stage", "identity": stage, "status": "done", "source": source, "skipped_existing_wavs": True})
+                return
     except Exception:
         pass
     try:

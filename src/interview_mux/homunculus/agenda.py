@@ -1374,9 +1374,10 @@ def run_homunculus_phase(
                 remaining = [s for s in remaining if s not in filled and not ctx.is_done(s)]
                 write_agenda(ctx, phase, remaining, source="conductor")
         try:
+            from interview_mux.delivery_guardrails import music_epoch_complete
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
-            if delivery_sdp_present(ctx) and not missing_sdp_asset_wavs(ctx):
+            if delivery_sdp_present(ctx) and music_epoch_complete(ctx):
                 from interview_mux.delivery_recovery import MUSIC_BEFORE_MIX
 
                 kept: list[str] = []
@@ -1388,15 +1389,11 @@ def run_homunculus_phase(
                             heal_mmaudio_qa_wav_parity(ctx)
                         except Exception:
                             pass
-                    if sid in MUSIC_BEFORE_MIX and stage_outputs_present(ctx, sid):
+                    if sid in MUSIC_BEFORE_MIX and music_epoch_complete(ctx):
                         if not ctx.is_done(sid):
                             ctx.mark_done(sid, force=True)
-                        if not ctx.is_done(sid):
-                            # Hollow QA/palette files must not drop the generator.
-                            kept.append(sid)
-                            continue
                         ctx.log(
-                            f"homunculus keeping {sid} — SDP theme WAVs already on disk",
+                            f"homunculus keeping {sid} — music epoch complete",
                             level="info",
                             stage=sid,
                         )
@@ -1504,13 +1501,20 @@ def run_homunculus_phase(
         and phase == "delivery"
         and not ctx.artifact_exists("master/master.wav")
     ):
-        ctx.log(
-            "homunculus delivery walking remaining seed to master "
-            f"({len(still)} stage(s))",
-            level="warning",
-            stage=still[0],
-        )
-        walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
+        try:
+            from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+            still = filter_delivery_candidates(ctx, still)
+        except Exception:
+            pass
+        if still:
+            ctx.log(
+                "homunculus delivery walking remaining seed to master "
+                f"({len(still)} stage(s))",
+                level="warning",
+                stage=still[0],
+            )
+            walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
     elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
         pmq: dict[str, Any] | None = None
         pmq_missing = not ctx.artifact_exists("master/post_master_quality.json")

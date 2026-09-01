@@ -914,7 +914,8 @@ def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
         ["mix", "master_finalize"],
         client=_stop_client(),
     )
-    assert walked == ["delivery_walk_to_master"]
+    # mix/master_finalize deferred until music epoch complete — no hollow walk.
+    assert walked == []
 
 
 def test_delivery_does_not_walk_ship_when_pmq_missing(monkeypatch) -> None:

@@ -408,6 +408,19 @@ def try_product_recovery(stage_id: str, err: str) -> str | None:
     return None
 
 
+def _resolve_mix_from_stage(stage: str) -> str:
+    """Route mix requests through music_epoch_complete guard."""
+    if stage != "mix":
+        return stage
+    try:
+        from interview_mux.delivery_guardrails import safe_mix_resume_stage
+        from interview_mux.run_context import RunContext
+
+        return safe_mix_resume_stage(RunContext(RUN_ID, create=False))
+    except Exception:
+        return stage
+
+
 def _mode_for_stage(sid: str) -> str:
     if sid in DELIVERY_ORDER:
         return "delivery"
@@ -1074,6 +1087,12 @@ def execute(body: dict[str, Any]) -> None:
     if mapped != from_stage:
         body = {**body, "from_stage": mapped}
         from_stage = mapped
+    if from_stage == "mix":
+        resolved_mix = _resolve_mix_from_stage("mix")
+        if resolved_mix != from_stage:
+            body = {**body, "from_stage": resolved_mix}
+            from_stage = resolved_mix
+            log(f"execute: mix deferred → resume {resolved_mix} (music epoch)")
     mode = str(body.get("mode") or "")
     if from_stage or mode:
         log_decision(
@@ -4374,8 +4393,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             except Exception as exc:
                 log(f"mix gate heal: parity heal {exc}")
             if artifact_status("sound_design/mmaudio_qa.json", ctx) == "complete":
-                log("mix gate heal: mmaudio_qa complete after parity — resume mix")
-                execute({"mode": "delivery", "from_stage": "mix"})
+                mix_target = _resolve_mix_from_stage("mix")
+                log(f"mix gate heal: mmaudio_qa complete after parity — resume {mix_target}")
+                execute({"mode": "delivery", "from_stage": mix_target})
                 return "continue"
             doc = run_mmaudio_asset_qa(ctx)
             pending = _P(ctx.run_dir) / ".pending_writes" / "mmaudio_sfx" / "sound_design" / "mmaudio_qa.json"
@@ -6142,35 +6162,31 @@ def delivery_resume_stage() -> str | None:
                     (root / ".stage_done" / "mix").unlink(missing_ok=True)
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
-                    return "edl" if drift == "rebuild" else "mix"
+                    return "edl" if drift == "rebuild" else _resolve_mix_from_stage("mix")
                 if not mix_outputs_seated(ctx):
                     (root / ".stage_done" / "mix").unlink(missing_ok=True)
                     (root / ".stage_done" / "junction_snip_qa").unlink(missing_ok=True)
                     (root / ".stage_done" / "master_finalize").unlink(missing_ok=True)
-                    return "mix"
+                    return _resolve_mix_from_stage("mix")
             except Exception:
                 pass
             # Wav flushed for live EDL — may advance past mix (junction keeps commitment).
         theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
-        qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
-        if edl and qa_ok and len(theme_wavs) >= 3:
-            for sid in ("sfx_prompt_craft", "sfx_prompt_refine", "mmaudio_sfx"):
-                try:
-                    ctx.mark_done(sid, force=True)
-                except Exception:
-                    pass
+        from interview_mux.delivery_guardrails import music_epoch_complete
+
+        if edl and music_epoch_complete(ctx):
             if not asm:
                 if _g1_vo_missing(ctx):
                     return "vo_synthesize"
                 if not ctx.is_done("edl_narrative_audit"):
                     return "edl_narrative_audit"
-                return "mix"
-        if edl and ctx.is_done("mmaudio_sfx"):
+                return _resolve_mix_from_stage("mix")
+        if edl and ctx.is_done("mmaudio_sfx") and theme_wavs and music_epoch_complete(ctx):
             if _g1_vo_missing(ctx):
                 return "vo_synthesize"
             if not ctx.is_done("edl_narrative_audit"):
                 return "edl_narrative_audit"
-            return "mix"
+            return _resolve_mix_from_stage("mix")
         if edl:
             return first_pending(
                 [
@@ -6312,17 +6328,15 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
         except Exception:
             soft = False
         want_mix = (body.get("from_stage") or "") == "mix"
-        music_ready = False
+        music_epoch_ok = False
         try:
-            from pathlib import Path as _Pjoin
-
+            from interview_mux.delivery_guardrails import music_epoch_complete
             from interview_mux.run_context import RunContext as _RCjoin
 
-            _root = _Pjoin(_RCjoin(RUN_ID, create=False).run_dir)
-            music_ready = len(list((_root / "sound_design" / "assets").glob("*.wav"))) >= 3
+            music_epoch_ok = music_epoch_complete(_RCjoin(RUN_ID, create=False))
         except Exception:
-            music_ready = False
-        skip_stale_mmaudio = want_mix and cur_stage == "mmaudio_sfx" and music_ready
+            music_epoch_ok = False
+        skip_stale_mmaudio = want_mix and cur_stage == "mmaudio_sfx" and music_epoch_ok
         join_ok = cur_status == "running" and not skip_stale_mmaudio and not (
             soft
             and want_finalize
@@ -6619,7 +6633,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 elif mix_assembly_seated(ctx_p):
                                     resume = "junction_snip_qa"
                                 else:
-                                    resume = "mix"
+                                    from interview_mux.delivery_guardrails import (
+                                        safe_mix_resume_stage,
+                                    )
+
+                                    resume = safe_mix_resume_stage(ctx_p)
                                 log(
                                     f"premature EDL complete with mix unseated "
                                     f"(drift={drift}) — resume {resume}"
@@ -8952,8 +8970,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             repair_speakers,
                         )
                         from interview_mux.run_context import RunContext
+                        from interview_mux.speaker_role_evidence import (
+                            repair_role_tape_segment_types,
+                        )
 
                         ctx_s = RunContext(RUN_ID, create=False)
+                        tape_applied = repair_role_tape_segment_types(ctx_s)
                         spk = (
                             ctx_s.read_json("understanding/speakers.json")
                             if ctx_s.artifact_exists("understanding/speakers.json")
@@ -8970,7 +8992,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         man_applied = realign_manifest_roles_from_speakers(ctx_s)
                         log(
                             f"missing_framing speaker-role host repair "
-                            f"speakers={len(sp_applied)} manifest={len(man_applied)} "
+                            f"tape={len(tape_applied)} speakers={len(sp_applied)} "
+                            f"manifest={len(man_applied)} "
                             f"x{_IDENTICAL_STAGE_FAILURES[fail_key]}"
                         )
                     except Exception as exc:

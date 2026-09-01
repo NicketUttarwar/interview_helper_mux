@@ -197,6 +197,11 @@ def _preflight_missing_framing(ctx: RunContext) -> list[str]:
 
             lint = lint_role_tape_conflicts(manifest if isinstance(manifest, dict) else {})
             if lint.get("blocking"):
+                from interview_mux.speaker_role_evidence import repair_role_tape_segment_types
+
+                repair_role_tape_segment_types(ctx)
+                lint = lint_role_tape_conflicts(manifest if isinstance(manifest, dict) else {})
+            if lint.get("blocking"):
                 stamp_role_tape_conflict(ctx, lint)
                 errors.append(
                     "speakers.json role_tape_conflict: interviewer/guest labels contradict tape"

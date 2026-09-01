@@ -375,6 +375,73 @@ def lint_role_tape_conflicts(manifest: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def repair_role_tape_segment_types(ctx: Any) -> list[dict[str, Any]]:
+    """Retype obvious QA label mismatches so missing_framing preflight can proceed."""
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return []
+    try:
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return []
+    if not isinstance(manifest, dict):
+        return []
+    segs = manifest.get("segments")
+    if not isinstance(segs, list):
+        return []
+    applied: list[dict[str, Any]] = []
+    for row in segs:
+        if not isinstance(row, dict):
+            continue
+        stype = str(row.get("type") or "").strip()
+        text = str(row.get("text") or "")
+        sid = str(row.get("segment_id") or "")
+        if stype == "interviewer_question" and _is_guest_explanation(text):
+            row["type"] = "interviewer_reaction"
+            applied.append(
+                {
+                    "segment_id": sid,
+                    "from": "interviewer_question",
+                    "to": "interviewer_reaction",
+                    "reason": "long_explanation_labeled_question",
+                }
+            )
+        elif stype == "interviewee_answer" and _is_host_question(text):
+            row["type"] = "interviewer_question"
+            applied.append(
+                {
+                    "segment_id": sid,
+                    "from": "interviewee_answer",
+                    "to": "interviewer_question",
+                    "reason": "short_question_labeled_answer",
+                }
+            )
+    if not applied:
+        return []
+    try:
+        from interview_mux.artifact_lifecycle import restamp_committed_artifact
+
+        restamp_committed_artifact(
+            ctx,
+            "segments/manifest.json",
+            producer_stage="segment_classification",
+            doc=manifest,
+        )
+    except Exception:
+        ctx.write_json("segments/manifest.json", manifest, stage_key="segment_classification")
+    lint = lint_role_tape_conflicts(manifest)
+    if not lint.get("blocking"):
+        stamp_role_tape_conflict(ctx, lint)
+        if ctx.artifact_exists("understanding/speakers.json"):
+            try:
+                spk = ctx.read_json("understanding/speakers.json")
+                if isinstance(spk, dict):
+                    spk.pop("role_tape_conflict", None)
+                    ctx.write_json("understanding/speakers.json", spk, skip_handoff=True)
+            except Exception:
+                pass
+    return applied
+
+
 def stamp_role_tape_conflict(ctx: Any, lint: dict[str, Any]) -> None:
     if not ctx.artifact_exists("understanding/speakers.json"):
         return

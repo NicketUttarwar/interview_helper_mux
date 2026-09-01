@@ -373,34 +373,47 @@ def first_pending_delivery(
 
 
 def resume_theme_generation(ctx: RunContext) -> str:
-    """Resume palette/prompt/MusicGen only when SDP theme WAVs are actually missing.
+    """Resume palette/prompt/MusicGen when epoch incomplete; mix only when music_epoch_complete."""
+    from interview_mux.delivery_guardrails import music_epoch_complete
 
-    If committed theme WAVs exist, keep music stages done and resume mix — do not
-    unmark MusicGen and regenerate (junction remaster loop).
-    """
-    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
-
-    missing = missing_sdp_asset_wavs(ctx)
-    if not missing:
+    if music_epoch_complete(ctx):
         for sid in MUSIC_BEFORE_MIX:
             marker = Path(ctx.run_dir) / ".stage_done" / sid
             if not marker.is_file():
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text("", encoding="utf-8")
         return "mix"
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    missing = missing_sdp_asset_wavs(ctx)
+    if missing:
+        for sid in MUSIC_BEFORE_MIX:
+            if not _seed_stage_complete(ctx, sid):
+                marker = Path(ctx.run_dir) / ".stage_done" / sid
+                if marker.is_file():
+                    marker.unlink()
+                    try:
+                        ctx.log(
+                            f"unmarked {sid} — SDP theme WAVs missing; generate before mix",
+                            level="warning",
+                            stage=sid,
+                        )
+                    except Exception:
+                        pass
+        return "music_palette_compose"
     for sid in MUSIC_BEFORE_MIX:
-        marker = Path(ctx.run_dir) / ".stage_done" / sid
-        if marker.is_file():
-            marker.unlink()
-            try:
-                ctx.log(
-                    f"unmarked {sid} — SDP theme WAVs missing; generate before mix",
-                    level="warning",
-                    stage=sid,
-                )
-            except Exception:
-                pass
+        if not _seed_stage_complete(ctx, sid):
+            marker = Path(ctx.run_dir) / ".stage_done" / sid
+            if marker.is_file():
+                marker.unlink()
+            return sid
     return "music_palette_compose"
+
+
+def _seed_stage_complete(ctx: RunContext, stage: str) -> bool:
+    from interview_mux.delivery_guardrails import seed_stage_complete as _ssc
+
+    return _ssc(ctx, stage)
 
 
 def suggest_delivery_resume(ctx: RunContext) -> str | None:
@@ -435,6 +448,8 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
 
     theme_wavs = list((root / "sound_design" / "assets").glob("*.wav"))
     qa_ok = (root / "sound_design" / "mmaudio_qa.json").is_file()
+    from interview_mux.delivery_guardrails import music_epoch_complete, safe_mix_resume_stage
+
     if edl:
         try:
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
@@ -442,11 +457,11 @@ def suggest_delivery_resume(ctx: RunContext) -> str | None:
             missing_theme = missing_sdp_asset_wavs(ctx)
         except Exception:
             missing_theme = []
-        if missing_theme:
+        if missing_theme or not music_epoch_complete(ctx):
             return resume_theme_generation(ctx)
-    if edl and qa_ok and len(theme_wavs) >= 3 and not asm:
-        return "mix"
-    if edl and ctx.is_done("mmaudio_sfx") and theme_wavs:
+    if edl and music_epoch_complete(ctx):
+        return safe_mix_resume_stage(ctx)
+    if edl and ctx.is_done("mmaudio_sfx") and theme_wavs and music_epoch_complete(ctx):
         return "mix"
     if edl:
         return first_pending_delivery(

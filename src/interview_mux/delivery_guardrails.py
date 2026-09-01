@@ -26,6 +26,14 @@ PHASE_C_STAGES: frozenset[str] = frozenset({"mmaudio_sfx"})
 MUSIC_REQUIRES_ASSEMBLY: frozenset[str] = frozenset(
     {"music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"}
 )
+MUSIC_BEFORE_MIX: tuple[str, ...] = (
+    "music_palette_compose",
+    "sfx_prompt_craft",
+    "mmaudio_sfx",
+)
+MIX_EPOCH_CONSUMERS: frozenset[str] = frozenset(
+    {"mix", "junction_snip_qa", "master_finalize", *SHIP_AFTER_MASTER}
+)
 G3_RECONCILE_CHAIN: tuple[str, ...] = (
     "vo_synthesize",
     "edl_narrative_audit",
@@ -195,28 +203,45 @@ def delivery_stable_for_music(ctx: RunContext) -> tuple[bool, str]:
     return True, ""
 
 
-def mix_epoch_block(ctx: RunContext) -> str | None:
-    """B3: after Phase A seal, mix/master wait until this epoch's music completed.
+def music_epoch_complete(ctx: RunContext) -> bool:
+    """Canonical predicate: Phase A stable + music chain sealed + SDP WAV parity."""
+    stable, _ = delivery_stable_for_music(ctx)
+    if not stable:
+        return False
+    for sid in MUSIC_BEFORE_MIX:
+        if not seed_stage_complete(ctx, sid):
+            return False
+    try:
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
-    Isolated unit dispatch (no checkpoint / no ``phase_a_sealed_at``) is not gated.
-    """
+        if missing_sdp_asset_wavs(ctx):
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def mix_epoch_block(ctx: RunContext) -> str | None:
+    """B3: mix/master/ship wait until music_epoch_complete (no hollow QA bypass)."""
     epoch = read_delivery_epoch(ctx)
-    sealed = bool(read_checkpoint(ctx) or epoch.get("phase_a_sealed_at"))
-    if not sealed:
+    if epoch.get("music_complete_at") and music_epoch_complete(ctx):
         return None
-    if epoch.get("music_complete_at"):
-        return None
-    if seed_stage_complete(ctx, "mmaudio_sfx"):
+    if music_epoch_complete(ctx):
         stamp_delivery_epoch(ctx, music_complete_at=_utc_now())
         return None
-    if ctx.artifact_exists("sound_design/mmaudio_qa.json"):
-        stamp_delivery_epoch(ctx, music_complete_at=_utc_now())
+    # Gate whenever delivery is stable enough that mix could otherwise be scheduled.
+    stable, _ = delivery_stable_for_music(ctx)
+    if not stable and not read_checkpoint(ctx) and not epoch.get("phase_a_sealed_at"):
         return None
     return "music_incomplete"
 
 
 def vo_synthesize_stability_block(ctx: RunContext) -> str | None:
-    """G8: Chatterbox batch waits for layup/transitions stability, not for G1 WAVs."""
+    """G8: Chatterbox batch waits for layup/transitions stability and closed G1."""
+    if _g1_open(ctx):
+        return "g1_vo_open"
+    if _layup_escalation_blocking(ctx):
+        return "nugget_layup_compose"
     if not seed_stage_complete(ctx, "nugget_layup_compose") and not (
         ctx.is_done("nugget_layup_compose")
         and ctx.artifact_exists("mastering/nugget_layup_plan.json")
@@ -336,6 +361,9 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             )
             deferred.append(sid)
             continue
+        if sid in SHIP_AFTER_MASTER and not ctx.artifact_exists("master/master.wav"):
+            deferred.append(sid)
+            continue
         if sid in (*PHASE_B_STAGES, *PHASE_C_STAGES, "mix", "junction_snip_qa", "master_finalize") or sid in SHIP_AFTER_MASTER:
             if not sealed:
                 if sid in MUSIC_REQUIRES_ASSEMBLY:
@@ -347,9 +375,15 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                     )
                 deferred.append(sid)
                 continue
-        if sid in {"mix", "junction_snip_qa", "master_finalize"}:
-            mix_b = mix_epoch_block(ctx)
-            if mix_b:
+        if sid in MIX_EPOCH_CONSUMERS:
+            if not music_epoch_complete(ctx):
+                mix_b = mix_epoch_block(ctx) or "music_incomplete"
+                record_wasted_work(
+                    ctx,
+                    event="music_deferred",
+                    stage=sid,
+                    detail={"reason": mix_b, "predicate": "music_epoch_complete"},
+                )
                 deferred.append(sid)
                 continue
         if sid in STALE_PREFLIGHT_CONSUMERS:
@@ -469,6 +503,16 @@ def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
     """G7: stay on the incomplete producer; never advance to a consumer."""
     if ctx is None:
         return resume
+    if resume in MIX_EPOCH_CONSUMERS and not music_epoch_complete(ctx):
+        for sid in MUSIC_BEFORE_MIX:
+            if not seed_stage_complete(ctx, sid):
+                return sid
+        return "music_palette_compose"
+    if resume == "vo_synthesize" and _g1_open(ctx):
+        if not seed_stage_complete(ctx, "nugget_layup_compose"):
+            return "nugget_layup_compose"
+        if vo_synthesize_stability_block(ctx) == "nugget_layup_compose":
+            return "nugget_layup_compose"
     if resume and not seed_stage_complete(ctx, resume):
         return resume
     try:
@@ -483,6 +527,23 @@ def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
         if not seed_stage_complete(ctx, sid):
             return sid
     return resume
+
+
+def safe_mix_resume_stage(ctx: RunContext) -> str:
+    """Return mix only when music epoch complete; else earliest music producer."""
+    if music_epoch_complete(ctx):
+        return "mix"
+    block = mix_epoch_block(ctx)
+    if block:
+        for sid in MUSIC_BEFORE_MIX:
+            if not seed_stage_complete(ctx, sid):
+                return sid
+    try:
+        from interview_mux.delivery_recovery import resume_theme_generation
+
+        return resume_theme_generation(ctx)
+    except Exception:
+        return "music_palette_compose"
 
 
 def read_checkpoint(ctx: RunContext) -> dict[str, Any] | None:

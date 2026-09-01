@@ -10,8 +10,9 @@ from interview_mux.speaker_role_evidence import (
     is_unfulfillable_diarization_need,
     lint_role_tape_conflicts,
     persist_mixed_diarization_fallback,
+    repair_role_tape_segment_types,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, minimal_manifest_segment
 
 
 def _words(n: int) -> str:
@@ -172,3 +173,33 @@ def test_persist_mixed_diarization_fallback_writes_speakers(tmp_path) -> None:
     by_id = {s["speaker_id"]: s["role"] for s in doc["speakers"]}
     assert by_id["spk_0"] == "interviewee"
     assert by_id["spk_1"] == "interviewer"
+
+
+def test_repair_role_tape_segment_types_clears_dense_conflicts(tmp_path) -> None:
+    guest = _words(45)
+    segs = [
+        minimal_manifest_segment(
+            f"seg_{i:03d}",
+            start_ms=i * 5000,
+            end_ms=(i + 1) * 5000,
+            type="interviewer_question",
+            text=guest,
+        )
+        for i in range(4)
+    ]
+    segs.append(
+        minimal_manifest_segment(
+            "seg_004",
+            start_ms=20_000,
+            end_ms=25_000,
+            type="interviewee_answer",
+            text=_words(50),
+        )
+    )
+    ctx = isolated_run_ctx(tmp_path, "role_tape_repair")
+    ctx.write_json("segments/manifest.json", {"segments": segs}, stage_key="segment_classification")
+    applied = repair_role_tape_segment_types(ctx)
+    assert len(applied) == 4
+    manifest = ctx.read_json("segments/manifest.json")
+    lint = lint_role_tape_conflicts(manifest)
+    assert lint["blocking"] is False

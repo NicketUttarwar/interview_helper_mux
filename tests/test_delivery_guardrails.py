@@ -17,6 +17,7 @@ from interview_mux.delivery_guardrails import (
     listen_delight_waived_unattended,
     maybe_restore_master_bundle,
     mix_epoch_block,
+    music_epoch_complete,
     music_skip_allowed,
     premature_cap_hard_pin,
     reconcile_delivery_batch,
@@ -173,7 +174,7 @@ def test_vo_synth_blocked_when_g1_open(tmp_path: Path, monkeypatch: pytest.Monke
     assert "edl" not in filtered
     assert "edl_narrative_audit" not in filtered
     block = vo_synthesize_stability_block(ctx)
-    assert block in {"nugget_layup_compose", "transitions", "nugget_layup_compose"}
+    assert block in {"g1_vo_open", "nugget_layup_compose", "transitions", "gap_report_stale_from_layup"}
 
 
 def test_mmaudio_blocked_on_stale_sound_design(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -350,7 +351,36 @@ def test_mix_blocked_until_music_complete(tmp_path: Path, monkeypatch: pytest.Mo
     filtered = filter_delivery_candidates(ctx, ["mix", "nugget_layup_compose"])
     assert "mix" not in filtered
     stamp_delivery_epoch(ctx, music_complete_at="2026-08-31T01:00:00+00:00")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (True, ""),
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.music_epoch_complete",
+        lambda _ctx: True,
+    )
     assert mix_epoch_block(ctx) is None
+
+
+def test_hollow_mmaudio_qa_does_not_complete_music_epoch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "hollow_qa")
+    ctx.write_json(
+        CHECKPOINT_REL,
+        {"phase": "A_sealed", "order_fingerprint": "abc", "selection_fingerprint": "abc"},
+    )
+    stamp_delivery_epoch(ctx, phase_a_sealed_at="2026-08-31T00:00:00+00:00")
+    _write_raw(ctx, "sound_design/mmaudio_qa.json", {"assets": [], "status": "complete"})
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (True, ""),
+    )
+    for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
+        ctx.mark_done(sid, force=True)
+    assert music_epoch_complete(ctx) is False
+    assert mix_epoch_block(ctx) == "music_incomplete"
 
 
 def test_listen_delight_waiver_unattended(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

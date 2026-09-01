@@ -387,10 +387,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
 
             doc, rec_notes = recover_open_high_salience_nuggets(c, doc)
             if rec_notes:
-                from interview_mux.nugget_layup import (
-                    prepare_layup_plan_for_persist,
-                    repair_or_skip_spoken_copy_layups,
-                )
+                from interview_mux.nugget_layup import prepare_layup_plan_for_persist
 
                 doc, copy_repairs = repair_or_skip_spoken_copy_layups(c, doc)
                 if copy_repairs:

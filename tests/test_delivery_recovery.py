@@ -194,6 +194,10 @@ def test_suggest_resume_unmarks_hollow_music_when_theme_wavs_missing(tmp_path, m
     done.mkdir(exist_ok=True)
     for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
         (done / sid).write_text("1", encoding="utf-8")
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.music_epoch_complete",
+        lambda _ctx: False,
+    )
     assert suggest_delivery_resume(ctx) == "music_palette_compose"
     assert not ctx.is_done("mmaudio_sfx")
     assert not ctx.is_done("sfx_prompt_craft")
@@ -223,5 +227,9 @@ def test_resume_theme_generation_keeps_mix_when_wavs_exist(tmp_path, monkeypatch
     wav = ctx.run_dir / "sound_design" / "assets" / "show_theme_v1_motif.wav"
     wav.parent.mkdir(parents=True, exist_ok=True)
     wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.music_epoch_complete",
+        lambda _ctx: True,
+    )
     assert resume_theme_generation(ctx) == "mix"
     assert ctx.is_done("mmaudio_sfx")
