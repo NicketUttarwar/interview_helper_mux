@@ -828,7 +828,7 @@
     "phase_sidebar": true,
     "journey_log_filter": false,
     "require_preview_listen": false,
-    "enable_stage_reuse_offers": true,
+    "enable_stage_reuse_offers": false,
     "stage_reuse_lookback_executions": 5,
     "auto_advance_pipeline": true,
     "preclean_auto_dismiss_when_green": true

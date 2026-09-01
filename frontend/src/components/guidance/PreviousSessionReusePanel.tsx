@@ -25,22 +25,29 @@ interface Props {
 }
 
 export function PreviousSessionReusePanel({ stageId, compact = false }: Props) {
-  const { runId, run, refreshRun, showToast } = useApp();
+  const { runId, run, refreshRun, showToast, config } = useApp();
+  const reuseOffersEnabled = config?.journey_ui?.enable_stage_reuse_offers !== false;
   const [lineage, setLineage] = useState<LineageResponse | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
+    if (!reuseOffersEnabled) {
+      setLineage(null);
+      return;
+    }
     try {
       const data = await api<LineageResponse>("/api/session/lineage");
       setLineage(data);
     } catch {
       setLineage(null);
     }
-  }, []);
+  }, [reuseOffersEnabled]);
 
   useEffect(() => {
     void load();
   }, [load, runId]);
+
+  if (!reuseOffersEnabled) return null;
 
   if (!lineage?.hash_match_with_previous) return null;
   if (run?.meta?.stage_reuse?.[stageId]?.action) return null;

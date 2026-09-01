@@ -105,6 +105,38 @@ def test_synthesize_line_hard_stops_when_mlx_fails(
     assert any("synthesis" in e.get("message", "").lower() for e in errors)
 
 
+def test_chatterbox_runtime_cache_is_process_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pathlib import Path
+
+    from interview_mux.synthesis_fallback import (
+        chatterbox_runtime_available,
+        clear_chatterbox_runtime_cache,
+    )
+
+    clear_chatterbox_runtime_cache()
+    calls = {"n": 0}
+
+    monkeypatch.setattr(
+        "interview_mux.local_runtime.runtime_python",
+        lambda _name: Path("/fake/python"),
+    )
+
+    def _fake_run(*_a, **_k):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr("interview_mux.synthesis_fallback.subprocess.run", _fake_run)
+
+    assert chatterbox_runtime_available() is True
+    assert chatterbox_runtime_available() is True
+    assert calls["n"] == 1
+    clear_chatterbox_runtime_cache()
+    assert chatterbox_runtime_available() is True
+    assert calls["n"] == 2
+
+
 def test_synthesize_line_falls_back_when_enabled(
     ctx: RunContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

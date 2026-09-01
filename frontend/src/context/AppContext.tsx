@@ -164,6 +164,8 @@ interface AppContextValue {
   closeTranscriptReuseEdit: () => void;
   clearSession: () => Promise<void>;
   refreshHome: (opts?: { enrichRuns?: boolean }) => Promise<void>;
+  refreshStartHome: () => Promise<void>;
+  refreshExecutionsHome: () => Promise<void>;
   startRun: (inputPath: string) => Promise<void>;
   startRunMode: "manual" | "full-auto" | "partially-accelerated";
   setStartRunMode: (mode: "manual" | "full-auto" | "partially-accelerated") => void;
@@ -591,8 +593,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logLastTsRef.current = entries.length ? String(entries[entries.length - 1]?.ts ?? "") : "";
   }, []);
 
-  const refreshHome = useCallback(async (opts: { enrichRuns?: boolean } = {}) => {
-    const enrichRuns = opts.enrichRuns !== false;
+  const refreshStartHome = useCallback(async () => {
     setHomeRefreshing(true);
     const errors: string[] = [];
     const track = <T,>(
@@ -609,10 +610,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
               : `${errorLabel}: request failed`,
           );
         });
-
-    const runsPath = enrichRuns
-      ? "/api/runs?enrich=1&enrich_limit=50"
-      : "/api/runs";
 
     await Promise.allSettled([
       track(
@@ -641,14 +638,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         "Podcasts",
       ),
       track(
-        api<{ runs?: RunSummary[] }>(runsPath),
-        (data) => setRuns(data.runs ?? []),
-        "Executions",
-      ),
-      track(
-        api<{ log?: LogEntry[]; active?: { run_id?: string } | null }>(
-          "/api/session",
-        ),
+        api<{ log?: LogEntry[]; active?: { run_id?: string } | null }>("/api/session"),
         (session) => {
           setHomeLog(session.log?.slice(-5) || []);
           setServerActiveRunId(session.active?.run_id ?? null);
@@ -660,6 +650,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setHomeRefreshing(false);
     if (errors.length) showToast(errors.join(" · "), "error");
   }, [showToast]);
+
+  const refreshExecutionsHome = useCallback(async () => {
+    setHomeRefreshing(true);
+    const errors: string[] = [];
+    try {
+      const data = await api<{
+        active_run_id?: string | null;
+        immediate_previous_run_id?: string | null;
+        runs?: RunSummary[];
+      }>("/api/runs/session-scope");
+      setRuns(data.runs ?? []);
+      if (data.active_run_id) {
+        setServerActiveRunId(data.active_run_id);
+      }
+    } catch (reason) {
+      errors.push(
+        reason instanceof ApiError
+          ? `Executions: ${reason.message}`
+          : "Executions: request failed",
+      );
+    }
+    setHomeRefreshing(false);
+    if (errors.length) showToast(errors.join(" · "), "error");
+  }, [showToast]);
+
+  const refreshHome = useCallback(
+    async (opts: { enrichRuns?: boolean } = {}) => {
+      if (opts.enrichRuns === false) {
+        await refreshStartHome();
+        return;
+      }
+      await Promise.all([refreshStartHome(), refreshExecutionsHome()]);
+    },
+    [refreshStartHome, refreshExecutionsHome],
+  );
 
   const pollLog = useCallback(async (force?: boolean) => {
     if (!runId) return;
@@ -1594,8 +1619,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSessionLoadError(null);
     setActiveTabState("start");
     activeTabRef.current = "start";
-    await refreshHome();
-  }, [stopJobPoll, refreshHome, sessionReady]);
+    await refreshStartHome();
+  }, [stopJobPoll, refreshStartHome, sessionReady]);
 
   const runNextStage = useCallback(async () => {
     const current = runId ? await refreshRun() : run;
@@ -2080,7 +2105,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setServerActiveRunId(session.active?.run_id ?? null);
         // Fast boot path: assets + lightweight runs list — do not block on enrich=50.
-        await refreshHome({ enrichRuns: false });
+        await refreshStartHome();
         if (gen !== bootGenRef.current) return;
         if (session.log?.length) renderLogWithAlerts(session.log);
         active = session.active;
@@ -2145,17 +2170,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const runData = await api<RunData>(`/api/runs/${rid}`);
             setRun(runData);
             setRunState(runData);
-            renderLogWithAlerts(runData.log_tail || []);
+            await pollLog(true);
           }
         } catch {
           /* enrich/restore failures surface via toasts from openRun/refreshHome */
         } finally {
           if (gen === bootGenRef.current) {
             setSessionReady(true);
-            // Enriched runs list only feeds the Executions tab. Awaiting it here stalls
-            // the active-run restore for as long as /api/runs?enrich takes, which grows
-            // with the number of executions on disk.
-            void refreshHome({ enrichRuns: true });
           }
         }
       })();
@@ -2280,8 +2301,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
-    if (activeTab === "executions") void refreshHome();
-  }, [activeTab, refreshHome]);
+    if (activeTab === "executions") void refreshExecutionsHome();
+  }, [activeTab, refreshExecutionsHome]);
 
   const isStagePinned = useMemo(() => {
     if (!pinnedStageId || !run || !selectedStageId || pinnedStageId !== selectedStageId) {
@@ -2381,6 +2402,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     closeTranscriptReuseEdit,
     clearSession,
     refreshHome,
+    refreshStartHome,
+    refreshExecutionsHome,
     startRun,
     startRunMode,
     setStartRunMode,

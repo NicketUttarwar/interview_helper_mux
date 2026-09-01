@@ -2,13 +2,44 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from interview_mux.application_session import get_lineage, set_lineage
 from interview_mux.config import merged_config
 from interview_mux.journey_state import read_run_meta
 from interview_mux.run_context import RunContext
-from interview_mux.stage_execution_reuse import source_audio_hashes_match
+from interview_mux.stage_execution_reuse import source_audio_hashes_match, stage_reuse_offers_enabled
+
+
+def _executions_root() -> Path:
+    cfg = merged_config()
+    return RunContext._executions_root(cfg)
+
+
+def _read_execution_counter() -> int | None:
+    counter_path = _executions_root() / ".execution_counter"
+    if not counter_path.is_file():
+        return None
+    try:
+        return int(counter_path.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return None
+
+
+def find_run_by_execution_number(n: int) -> str | None:
+    """Resolve run id by execution number without scanning all runs."""
+    executions = _executions_root()
+    if not executions.is_dir():
+        return None
+    prefix = f"exec_{int(n):03d}_"
+    matches = sorted(
+        p.name for p in executions.iterdir() if p.is_dir() and p.name.startswith(prefix)
+    )
+    for run_id in reversed(matches):
+        if RunContext.exists(run_id):
+            return run_id
+    return None
 
 
 def execution_number_for_run_id(run_id: str) -> int | None:
@@ -43,54 +74,45 @@ def recent_prior_execution_run_ids(
     limit: int | None = None,
 ) -> list[str]:
     """Up to *limit* prior execution ids with lower execution_number, newest first."""
+    if not stage_reuse_offers_enabled():
+        return []
     lookback = limit if limit is not None else stage_reuse_lookback_limit()
     current_n = execution_number_for_run(current)
     if current_n is None:
         return []
 
     candidates: list[tuple[int, str]] = []
-    for run_id in RunContext.list_runs():
-        if run_id == current.run_id or not RunContext.exists(run_id):
-            continue
-        n = execution_number_for_run_id(run_id)
-        if n is None:
-            ctx = RunContext(run_id, create=False)
-            n = execution_number_for_run(ctx)
-        if n is None or n >= current_n:
-            continue
-        candidates.append((n, run_id))
+    for n in range(current_n - 1, max(0, current_n - lookback - 1), -1):
+        run_id = find_run_by_execution_number(n)
+        if run_id and run_id != current.run_id:
+            candidates.append((n, run_id))
 
     candidates.sort(key=lambda item: item[0], reverse=True)
     return [run_id for _, run_id in candidates[:lookback]]
 
 
-def find_run_by_execution_number(n: int) -> str | None:
-    for run_id in RunContext.list_runs():
-        if not RunContext.exists(run_id):
-            continue
-        ctx = RunContext(run_id, create=False)
-        meta = read_run_meta(ctx)
-        num = meta.get("execution_number")
-        if num is not None and int(num) == int(n):
-            return run_id
-    return None
-
-
 def latest_execution_run_id(*, exclude: str | None = None) -> str | None:
+    counter_n = _read_execution_counter()
+    if counter_n is not None:
+        rid = find_run_by_execution_number(counter_n)
+        if rid and rid != exclude:
+            return rid
+    # Fallback: bounded scan by highest exec number prefix only
+    executions = _executions_root()
+    if not executions.is_dir():
+        return None
     best_id: str | None = None
     best_n = -1
-    for run_id in RunContext.list_runs():
+    for p in executions.iterdir():
+        if not p.is_dir():
+            continue
+        run_id = p.name
         if exclude and run_id == exclude:
             continue
-        if not RunContext.exists(run_id):
+        n = execution_number_for_run_id(run_id)
+        if n is None or n <= best_n:
             continue
-        ctx = RunContext(run_id, create=False)
-        meta = read_run_meta(ctx)
-        num = meta.get("execution_number")
-        if num is None:
-            continue
-        n = int(num)
-        if n > best_n:
+        if RunContext.exists(run_id):
             best_n = n
             best_id = run_id
     return best_id
@@ -121,6 +143,8 @@ def resolve_previous_execution(current: RunContext) -> RunContext | None:
 
 
 def hash_match_with_previous(current: RunContext) -> bool:
+    if not stage_reuse_offers_enabled():
+        return False
     for run_id in recent_prior_execution_run_ids(current):
         source = RunContext(run_id, create=False)
         if source_audio_hashes_match(current, source):

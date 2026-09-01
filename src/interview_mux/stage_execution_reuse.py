@@ -456,6 +456,8 @@ def _sdp_source_conflict(ctx: RunContext, source_run_id: str, stage_id: str) -> 
 
 
 def find_reuse_candidates(ctx: RunContext, stage_id: str) -> list[ReuseCandidate]:
+    if not stage_reuse_offers_enabled():
+        return []
     from interview_mux.session_lineage import recent_prior_execution_run_ids
 
     current_hash = _stored_source_audio_hash(ctx)

@@ -53,6 +53,30 @@ def append_log(
     return entry
 
 
+def _read_tail_lines(path: Path, tail: int) -> list[str]:
+    """Read last *tail* non-empty lines without loading the whole file."""
+    if tail <= 0:
+        return []
+    chunk_size = 64 * 1024
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        if size == 0:
+            return []
+        data = b""
+        pos = size
+        while pos > 0 and data.count(b"\n") < tail:
+            read_size = min(chunk_size, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size) + data
+        lines = data.splitlines()
+        if not lines:
+            return []
+        selected = lines[-tail:] if len(lines) >= tail else lines
+    return [ln.decode("utf-8", errors="replace").strip() for ln in selected if ln.strip()]
+
+
 def read_log(
     run_dir: Path,
     *,
@@ -64,12 +88,12 @@ def read_log(
     if not path.is_file():
         return []
     with FileLock(lock_path_for(path)):
-        lines = path.read_text(encoding="utf-8").splitlines()
+        if tail is not None and tail > 0 and not stage and not since_ts:
+            raw_lines = _read_tail_lines(path, tail)
+        else:
+            raw_lines = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     entries: list[dict[str, Any]] = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    for line in raw_lines:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
@@ -79,6 +103,6 @@ def read_log(
         if since_ts and str(entry.get("ts", "")) <= since_ts:
             continue
         entries.append(entry)
-    if tail is not None and tail > 0:
+    if tail is not None and tail > 0 and (stage or since_ts):
         return entries[-tail:]
     return entries

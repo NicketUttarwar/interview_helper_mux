@@ -8,7 +8,8 @@ import { sourceHashShort } from "../../utils/sourceAudioHash";
 import { StepDoneBanner } from "../pipeline/StepDoneBanner";
 
 export function StageReuseSection({ stage }: { stage: StageInfo }) {
-  const { run, runId, refreshRun } = useApp();
+  const { run, runId, refreshRun, config } = useApp();
+  const reuseOffersEnabled = config?.journey_ui?.enable_stage_reuse_offers !== false;
   const reuseDecision = run?.meta?.stage_reuse?.[stage.id];
   const activeHash = sourceHashShort(run?.meta);
   const reuseCheck = resolveStageReuseCheck(run, stage.id, stage.status, run?.job);
@@ -20,12 +21,14 @@ export function StageReuseSection({ stage }: { stage: StageInfo }) {
     run?.job,
     undefined,
     {
-      skip: Boolean(reuseDecision?.action),
+      skip: !reuseOffersEnabled || Boolean(reuseDecision?.action),
       hashShort: activeHash,
       run,
       onRefresh: () => void refreshRun(),
     },
   );
+
+  if (!reuseOffersEnabled) return null;
 
   const hasCandidates = candidates.length > 0;
   const reusePending =

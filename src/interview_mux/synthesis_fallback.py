@@ -7,6 +7,8 @@ break in Activity, terminal, and gui_log — they do not silently continue.
 
 from __future__ import annotations
 
+import functools
+import subprocess
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,15 +38,23 @@ def manual_fallback_enabled(cfg: dict[str, Any] | None = None) -> bool:
     return bool(gap_vo_cfg(cfg).get("fallback_to_manual_on_failure", False))
 
 
+def clear_chatterbox_runtime_cache() -> None:
+    _probe_chatterbox_runtime.cache_clear()
+
+
 def chatterbox_runtime_available() -> bool:
-    """True when local Chatterbox venv imports cleanly."""
+    """True when local Chatterbox venv imports cleanly (cached per serve process)."""
+    return _probe_chatterbox_runtime()
+
+
+@functools.lru_cache(maxsize=1)
+def _probe_chatterbox_runtime() -> bool:
     try:
         from interview_mux.local_runtime import LocalRuntimeUnavailable, runtime_python
 
         py = runtime_python("chatterbox")
     except LocalRuntimeUnavailable:
         return False
-    import subprocess
 
     try:
         subprocess.run(

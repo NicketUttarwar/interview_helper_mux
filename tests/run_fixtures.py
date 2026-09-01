@@ -51,6 +51,7 @@ _MERGED_CONFIG_MODULES = (
     "interview_mux.llm_call_record",
     "interview_mux.llm_calls_gui",
     "interview_mux.journey_state",
+    "interview_mux.session_lineage",
     "interview_mux.llm_flow_hardening",
     "interview_mux.llm_preflight",
     "interview_mux.gates",

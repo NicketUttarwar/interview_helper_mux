@@ -23,7 +23,7 @@ def test_unhandled_api_error_appends_gui_log(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(server, "read_log", _boom)
 
     client = TestClient(create_app(), raise_server_exceptions=False)
-    res = client.get(f"/api/runs/{ctx.run_id}")
+    res = client.get(f"/api/runs/{ctx.run_id}?include_log_tail=1")
     assert res.status_code == 500
 
     entries = read_log(ctx.run_dir, tail=10)
@@ -83,3 +83,17 @@ def test_get_run_synthesizes_last_error_when_missing(tmp_path, monkeypatch) -> N
     assert last_error["message"] == "Normalize failed"
     assert last_error["stage"] == "ingest"
     assert last_error["traceback_excerpt"] == "Traceback…"
+
+
+def test_get_run_omits_log_tail_by_default(tmp_path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    ctx = RunContext("exec_903_20260101T000903Z", create=True)
+    init_run_meta_for_test(ctx)
+    patch_server_ctx(monkeypatch, ctx)
+
+    client = TestClient(create_app())
+    payload = client.get(f"/api/runs/{ctx.run_id}").json()
+    assert "log_tail" not in payload
+
+    with_tail = client.get(f"/api/runs/{ctx.run_id}?include_log_tail=1").json()
+    assert "log_tail" in with_tail

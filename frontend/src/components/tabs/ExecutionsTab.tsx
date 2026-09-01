@@ -74,7 +74,7 @@ function RunRow({
         isDisabled
           ? "Clear session to open a different execution"
           : isImmediatePrevious
-            ? "Immediate previous execution (reuse source)"
+            ? "Immediate previous execution"
             : hashMatchesActive
               ? "Same source audio as active session"
               : undefined
@@ -172,7 +172,7 @@ export function ExecutionsTab() {
     runs,
     runId,
     run,
-    refreshHome,
+    refreshExecutionsHome,
     openRun,
     showToast,
     sessionReady,
@@ -183,25 +183,18 @@ export function ExecutionsTab() {
     selectedStageId,
   } = useApp();
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
-  const [olderExpanded, setOlderExpanded] = useState(false);
   const sessionLocked = Boolean(runId);
   const activeHash = sourceHashShort(run?.meta);
   const activeJobStatus = run?.job?.status;
-  const immediatePreviousId =
-    run?.immediate_previous_run_id ??
-    (run?.execution_number != null
-      ? runs.find((r) => r.execution_number === (run.execution_number ?? 0) - 1)?.run_id
-      : null);
+  const immediatePreviousId = run?.immediate_previous_run_id ?? null;
 
-  const { featured, older } = useMemo(() => {
+  const sessionRuns = useMemo(() => {
     const featuredIds = new Set(
       [runId, immediatePreviousId].filter(Boolean) as string[],
     );
     const featuredRuns = runs.filter((r) => featuredIds.has(r.run_id));
-    const olderRuns = runs.filter((r) => !featuredIds.has(r.run_id));
     featuredRuns.sort((a, b) => (b.execution_number ?? 0) - (a.execution_number ?? 0));
-    olderRuns.sort((a, b) => (b.execution_number ?? 0) - (a.execution_number ?? 0));
-    return { featured: featuredRuns, older: olderRuns };
+    return featuredRuns;
   }, [runs, runId, immediatePreviousId]);
 
   const activeOperatorHeadline = run
@@ -263,8 +256,8 @@ export function ExecutionsTab() {
           <div>
             <h2>Executions</h2>
             <p className="hint panel-head-sub">
-              Current and immediate-previous runs are highlighted. Reuse copies outputs only from
-              the previous execution when source audio matches.
+              Active session and immediate previous execution only. Use Refresh to reload from the
+              server.
             </p>
           </div>
           <button
@@ -272,7 +265,7 @@ export function ExecutionsTab() {
             className="btn ghost sm"
             disabled={homeRefreshing}
             onClick={() => {
-              void refreshHome().catch((e) => {
+              void refreshExecutionsHome().catch((e) => {
                 showToast(e instanceof Error ? e.message : "Refresh failed");
               });
             }}
@@ -296,28 +289,16 @@ export function ExecutionsTab() {
           </div>
         ) : null}
         <div className="runs-list">
-          {!runs.length ? (
-            <p className="empty-state">No runs yet.</p>
+          {!sessionRuns.length ? (
+            <p className="empty-state">
+              {runs.length
+                ? "No prior execution in session scope."
+                : "No runs yet."}
+            </p>
           ) : (
-            <>
-              {featured.length ? (
-                <div className="runs-featured" data-testid="runs-featured">
-                  {featured.map(renderRun)}
-                </div>
-              ) : null}
-              {older.length ? (
-                <details
-                  className="runs-older-collapse"
-                  open={olderExpanded}
-                  onToggle={(e) => setOlderExpanded((e.target as HTMLDetailsElement).open)}
-                >
-                  <summary className="hint">
-                    {older.length} older execution{older.length === 1 ? "" : "s"}
-                  </summary>
-                  <div className="runs-list-older">{older.map(renderRun)}</div>
-                </details>
-              ) : null}
-            </>
+            <div className="runs-featured" data-testid="runs-featured">
+              {sessionRuns.map(renderRun)}
+            </div>
           )}
         </div>
       </section>

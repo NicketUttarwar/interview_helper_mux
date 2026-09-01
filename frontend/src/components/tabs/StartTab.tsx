@@ -10,7 +10,7 @@ export function StartTab() {
     assets,
     selectedAsset,
     setSelectedAsset,
-    refreshHome,
+    refreshStartHome,
     startRun,
     run,
     runId,
@@ -412,7 +412,7 @@ export function StartTab() {
             className="btn ghost sm"
             disabled={homeRefreshing}
             onClick={() => {
-              void refreshHome().catch((e) => {
+              void refreshStartHome().catch((e) => {
                 showToast(e instanceof Error ? e.message : "Refresh failed");
               });
             }}

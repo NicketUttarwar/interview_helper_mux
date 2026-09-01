@@ -5,6 +5,7 @@ import shutil
 from fastapi.testclient import TestClient
 
 from interview_mux.config import repo_root as real_repo_root
+from interview_mux.gui_session import set_active_execution
 from interview_mux.web.server import create_app
 
 
@@ -63,6 +64,7 @@ def test_list_runs_default_skips_stage_enrichment(tmp_path, monkeypatch) -> None
         '{"execution_number": 100, "created_at": "2026-01-01T00:00:00Z"}',
         encoding="utf-8",
     )
+    set_active_execution("exec_100_20260101T000100Z")
 
     res = client.get("/api/runs")
     assert res.status_code == 200
@@ -70,6 +72,35 @@ def test_list_runs_default_skips_stage_enrichment(tmp_path, monkeypatch) -> None
     assert len(runs) == 1
     assert runs[0]["run_id"] == "exec_100_20260101T000100Z"
     assert "progress" not in runs[0]
+
+
+def test_list_runs_session_scope_excludes_unscoped_runs(tmp_path, monkeypatch) -> None:
+    client = _seed_assets(tmp_path, monkeypatch)
+    run_dir = tmp_path / "ASSETS" / "executions" / "exec_100_20260101T000100Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_meta.json").write_text(
+        '{"execution_number": 100, "created_at": "2026-01-01T00:00:00Z"}',
+        encoding="utf-8",
+    )
+
+    res = client.get("/api/runs")
+    assert res.status_code == 200
+    assert res.json()["runs"] == []
+
+
+def test_list_runs_all_runs_escape_hatch(tmp_path, monkeypatch) -> None:
+    client = _seed_assets(tmp_path, monkeypatch)
+    run_dir = tmp_path / "ASSETS" / "executions" / "exec_100_20260101T000100Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_meta.json").write_text(
+        '{"execution_number": 100, "created_at": "2026-01-01T00:00:00Z"}',
+        encoding="utf-8",
+    )
+
+    res = client.get("/api/runs?all_runs=1")
+    assert res.status_code == 200
+    run_ids = {r["run_id"] for r in res.json()["runs"]}
+    assert "exec_100_20260101T000100Z" in run_ids
 
 
 def test_list_runs_enrich_includes_journey_fields(tmp_path, monkeypatch) -> None:
@@ -80,6 +111,7 @@ def test_list_runs_enrich_includes_journey_fields(tmp_path, monkeypatch) -> None
         '{"execution_number": 101, "created_at": "2026-01-01T00:02:00Z", "operator_phase": "prepare"}',
         encoding="utf-8",
     )
+    set_active_execution("exec_101_20260101T000200Z")
 
     res = client.get("/api/runs?enrich=1")
     assert res.status_code == 200
@@ -99,7 +131,7 @@ def test_list_assets_survives_corrupt_run_summary(tmp_path, monkeypatch) -> None
     (bad_run / "run_meta.json").write_text("{not json", encoding="utf-8")
 
     assets_res = client.get("/api/assets")
-    runs_res = client.get("/api/runs")
+    runs_res = client.get("/api/runs?all_runs=1")
     assert assets_res.status_code == 200
     assert runs_res.status_code == 200
     assert len(assets_res.json()["files"]) == 2

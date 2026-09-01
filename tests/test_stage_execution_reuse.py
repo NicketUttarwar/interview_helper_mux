@@ -34,8 +34,11 @@ def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
     executions.mkdir(parents=True)
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: repo)
+    journey = dict(merged_config().get("journey_ui") or {})
+    journey["enable_stage_reuse_offers"] = True
     cfg = {
         **merged_config(),
+        "journey_ui": journey,
         "assets_root": "ASSETS",
         "executions_root": "ASSETS/executions",
         "data_root": "data",
@@ -43,6 +46,7 @@ def _patch_executions_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
     monkeypatch.setattr("interview_mux.config.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.run_context.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.stage_execution_reuse.merged_config", lambda: cfg)
+    monkeypatch.setattr("interview_mux.session_lineage.merged_config", lambda: cfg)
     monkeypatch.setattr("interview_mux.write_staging.merged_config", lambda: cfg)
     monkeypatch.setattr(
         "interview_mux.write_staging.write_approval_enabled",
@@ -319,6 +323,7 @@ def test_decline_runs_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
             "sample_rate": 48000,
         },
     )
+    fs_write_json(prior.path("ingest/loudness.json"), {"integrated_lufs": -16.0})
     prior.mark_done("ingest")
 
     record_reuse_decision(current, "ingest", action="decline")
@@ -340,6 +345,7 @@ def test_resolve_raises_when_offer_needed(tmp_path: Path, monkeypatch: pytest.Mo
             "sample_rate": 48000,
         },
     )
+    fs_write_json(prior.path("ingest/loudness.json"), {"integrated_lufs": -16.0})
     prior.mark_done("ingest")
 
     with pytest.raises(StageReuseOfferPending) as exc:

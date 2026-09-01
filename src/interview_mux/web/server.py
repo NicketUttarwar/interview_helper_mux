@@ -495,60 +495,72 @@ def create_app() -> FastAPI:
             )
         return {"assets_root": input_dir.relative_to(repo_root()).as_posix(), "files": files}
 
+    @app.get("/api/runs/session-scope")
+    def list_runs_session_scope() -> dict[str, Any]:
+        from interview_mux.web.runs_session_scope import build_session_scope_payload
+
+        def _enrich(rid: str) -> dict[str, Any]:
+            from interview_mux.web.runs_session_scope import enrich_run_summary
+
+            return enrich_run_summary(
+                rid,
+                summarize_fn=RunContext.summarize_run,
+                build_stage_list_fn=_build_stage_list,
+                build_journey_fn=build_journey_snapshot,
+                get_job_fn=runner.get_job,
+                read_log_fn=read_log,
+                check_g1_vo=check_g1_vo,
+                check_transcript_review_pending=check_transcript_review_pending,
+                is_operator_profile_verified=is_operator_profile_verified,
+                check_profile_gate_pending=check_profile_gate_pending,
+            )
+
+        return build_session_scope_payload(
+            summarize_fn=RunContext.summarize_run,
+            enrich_fn=_enrich,
+        )
+
     @app.get("/api/runs")
-    def list_runs(enrich: bool = False, enrich_limit: int = 50) -> dict[str, Any]:
+    def list_runs(
+        enrich: bool = False,
+        enrich_limit: int = 50,
+        all_runs: bool = False,
+    ) -> dict[str, Any]:
+        from interview_mux.web.runs_session_scope import (
+            enrich_run_summary,
+            session_scoped_run_ids,
+        )
+
+        if all_runs:
+            run_ids = RunContext.list_runs()
+        else:
+            run_ids = session_scoped_run_ids()
+
         runs: list[dict[str, Any]] = []
-        for rid in RunContext.list_runs():
+        for rid in run_ids:
             try:
                 runs.append(RunContext.summarize_run(rid))
             except Exception:
                 runs.append({"run_id": rid, "progress": {"done": 0, "total": 0}})
         runs.sort(key=lambda r: r.get("execution_number") or 0, reverse=True)
         if enrich:
+            enriched: list[dict[str, Any]] = []
             for r in runs[: max(enrich_limit, 0)]:
-                try:
-                    ctx = RunContext(r["run_id"], create=False)
-                    job = runner.get_job(r["run_id"])
-                    stages = _build_stage_list(
-                        ctx,
-                        check_g1_vo(ctx),
-                        check_transcript_review_pending(ctx),
-                        is_operator_profile_verified(ctx),
-                        check_profile_gate_pending(ctx),
-                        job=job,
+                enriched.append(
+                    enrich_run_summary(
+                        r["run_id"],
+                        summarize_fn=RunContext.summarize_run,
+                        build_stage_list_fn=_build_stage_list,
+                        build_journey_fn=build_journey_snapshot,
+                        get_job_fn=runner.get_job,
+                        read_log_fn=read_log,
+                        check_g1_vo=check_g1_vo,
+                        check_transcript_review_pending=check_transcript_review_pending,
+                        is_operator_profile_verified=is_operator_profile_verified,
+                        check_profile_gate_pending=check_profile_gate_pending,
                     )
-                    done = sum(1 for s in stages if s["status"] == "done")
-                    r["progress"] = {"done": done, "total": len(stages)}
-                    r["last_stage"] = next(
-                        (s["title"] for s in reversed(stages) if s["status"] == "done"),
-                        None,
-                    )
-                    log_entries = read_log(ctx.run_dir, tail=1)
-                    if log_entries:
-                        r["last_log"] = log_entries[-1]
-                    if job.get("status"):
-                        r["job_status"] = job.get("status")
-                    journey = build_journey_snapshot(ctx, job=job, stages=stages)
-                    r["operator_phase"] = journey.get("phase")
-                    next_action = str(journey.get("next_action") or "")
-                    r["next_action"] = next_action[:80] if next_action else None
-                    blocking = journey.get("blocking") or {}
-                    r["blocking_message"] = (
-                        blocking.get("message") if blocking.get("blocked") else None
-                    )
-                    attention = sum(
-                        1 for s in stages if s.get("status") == "action_required"
-                    )
-                    if job.get("status") in (
-                        "gate",
-                        "needs_operator",
-                    ) or job.get("needs_stage_reuse"):
-                        attention += 1
-                    if blocking.get("blocked"):
-                        attention = max(attention, 1)
-                    r["attention_count"] = attention
-                except Exception:
-                    r["progress"] = {"done": 0, "total": 0}
+                )
+            runs = enriched
         return {"runs": runs}
 
     @app.post("/api/runs")
@@ -763,7 +775,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/runs/{run_id}")
-    def get_run(run_id: str) -> dict[str, Any]:
+    def get_run(run_id: str, include_log_tail: bool = False) -> dict[str, Any]:
+        from interview_mux.web.gap_fields_for_run import gap_fields_for_get_run
+        from interview_mux.web.run_snapshot_cache import get_or_build_run_snapshot
+
         ctx = _ctx(run_id)
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         g1_missing = check_g1_vo(ctx)
@@ -798,13 +813,25 @@ def create_app() -> FastAPI:
         from interview_mux.v2.config import v2_g1_optional
 
         operator_gates = build_operator_gates(ctx, job, meta if isinstance(meta, dict) else {})
-        stages = _build_stage_list(
+
+        def _build_stages() -> list[dict[str, Any]]:
+            return _build_stage_list(
+                ctx,
+                g1_missing,
+                tr_pending,
+                profile_verified,
+                profile_gate_pending,
+                job=job,
+            )
+
+        def _build_journey(stages: list[dict[str, Any]]) -> dict[str, Any]:
+            return build_journey_snapshot(ctx, job=job, stages=stages)
+
+        stages, journey = get_or_build_run_snapshot(
             ctx,
-            g1_missing,
-            tr_pending,
-            profile_verified,
-            profile_gate_pending,
             job=job,
+            build_stages=_build_stages,
+            build_journey=_build_journey,
         )
         if job.get("status") == "error":
             tb = job.get("traceback") or ""
@@ -824,7 +851,6 @@ def create_app() -> FastAPI:
                     or (str(tb)[:2000] if tb else None),
                 },
             }
-        journey = build_journey_snapshot(ctx, job=job, stages=stages)
         llm_verification_alerts: list[dict[str, Any]] = []
         try:
             from interview_mux.llm_calls_gui import list_verification_alerts
@@ -841,11 +867,13 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
-        from interview_mux.gap_vo_gates import gap_gate_payload
+        gap_gates = gap_fields_for_get_run(
+            ctx,
+            job=job,
+            operator_phase=str(journey.get("phase") or ""),
+        )
 
-        gap_gates = gap_gate_payload(ctx)
-
-        return {
+        payload: dict[str, Any] = {
             "run_id": run_id,
             "meta": meta,
             "working_dir": str(ctx.run_dir),
@@ -905,11 +933,13 @@ def create_app() -> FastAPI:
             "journey": journey,
             "blocking": journey.get("blocking"),
             "stages": stages,
-            "log_tail": read_log(ctx.run_dir, tail=100),
             "llm_verification_alerts": llm_verification_alerts,
             "segment_lineage_warnings": segment_lineage_warnings,
             "resilience": _resilience_payload(ctx),
         }
+        if include_log_tail:
+            payload["log_tail"] = read_log(ctx.run_dir, tail=100)
+        return payload
 
     @app.get("/api/runs/{run_id}/delivery-readiness")
     def get_delivery_readiness(
@@ -2084,6 +2114,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}/reuse-offers")
     def get_stage_reuse_offers(run_id: str, stage_id: str) -> dict[str, Any]:
+        from interview_mux.stage_execution_reuse import stage_reuse_offers_enabled
+
+        if not stage_reuse_offers_enabled():
+            raise HTTPException(400, "Stage reuse offers are disabled.")
         ctx = _ctx(run_id)
         if stage_id not in STAGE_BY_ID:
             raise HTTPException(404, f"Unknown stage: {stage_id}")
@@ -2093,6 +2127,10 @@ def create_app() -> FastAPI:
 
     @app.post("/api/runs/{run_id}/stages/{stage_id}/reuse")
     def post_stage_reuse(run_id: str, stage_id: str, body: StageReuseBody) -> dict[str, Any]:
+        from interview_mux.stage_execution_reuse import stage_reuse_offers_enabled
+
+        if not stage_reuse_offers_enabled():
+            raise HTTPException(400, "Stage reuse offers are disabled.")
         ctx = _ctx(run_id)
         if stage_id not in STAGE_BY_ID:
             raise HTTPException(404, f"Unknown stage: {stage_id}")

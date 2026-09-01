@@ -15,6 +15,7 @@ from run_fixtures import init_run_meta_for_test, patch_executions_root, patch_se
 def _patch_executions_root(monkeypatch, tmp_path: Path) -> None:
     journey = dict(merged_config().get("journey_ui") or {})
     journey["require_write_approval_per_stage"] = False
+    journey["enable_stage_reuse_offers"] = True
     patch_executions_root(monkeypatch, tmp_path, journey_ui=journey)
 
 
@@ -27,6 +28,29 @@ def _setup_pair(tmp_path: Path) -> tuple:
     prior.write_json("transcript/speakers.json", {"speakers": []})
     prior.mark_done("transcribe")
     return prior, current
+
+
+def test_reuse_offers_disabled_by_default(tmp_path: Path, monkeypatch) -> None:
+    patch_executions_root(monkeypatch, tmp_path)
+    _, current = _setup_pair(tmp_path)
+    patch_server_ctx(monkeypatch, current)
+    client = TestClient(create_app())
+    res = client.get("/api/runs/exec_101_20260101T000101Z/stages/transcribe/reuse-offers")
+    assert res.status_code == 400
+    assert "disabled" in res.json()["detail"].lower()
+
+
+def test_find_reuse_candidates_no_list_runs_when_disabled(tmp_path: Path, monkeypatch) -> None:
+    from interview_mux import stage_execution_reuse as reuse_mod
+
+    patch_executions_root(monkeypatch, tmp_path)
+    _, current = _setup_pair(tmp_path)
+
+    def _boom() -> list[str]:
+        raise AssertionError("list_runs should not be called when reuse is disabled")
+
+    monkeypatch.setattr(reuse_mod.RunContext, "list_runs", staticmethod(_boom))
+    assert reuse_mod.find_reuse_candidates(current, "transcribe") == []
 
 
 def test_reuse_offers_api(tmp_path: Path, monkeypatch) -> None:

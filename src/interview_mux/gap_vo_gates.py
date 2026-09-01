@@ -428,12 +428,20 @@ def maybe_auto_accept_gap_gate_defaults(ctx: RunContext) -> bool:
     return applied
 
 
-def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
+def global_gap_runtime_fields() -> dict[str, Any]:
+    """Machine-global gap/VO runtime probes — cached; safe to call rarely."""
+    from interview_mux.synthesis_fallback import chatterbox_runtime_available
+
+    return {
+        "chatterbox_runtime_available": chatterbox_runtime_available(),
+        "auto_accept_defaults": auto_accept_gap_gate_defaults_enabled(),
+    }
+
+
+def gap_gate_payload_for_run(ctx: RunContext) -> dict[str, Any]:
+    """Per-run gap gate fields (no subprocess probes)."""
     from interview_mux.mastering_voice_clone import consent_payload
-    from interview_mux.synthesis_fallback import (
-        chatterbox_runtime_available,
-        synthesis_fallback_notice,
-    )
+    from interview_mux.synthesis_fallback import synthesis_fallback_notice
 
     llm_recommended: str | None = None
     llm_rationale: str | None = None
@@ -470,7 +478,10 @@ def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
         "voice_reference_approved": voice_reference_approved(ctx),
         "pickup_speaker_confirmed": pickup_speaker_confirmed(ctx),
         "pickup_eligible_speaker_id": pickup_eligible_speaker_id(ctx),
-        "chatterbox_runtime_available": chatterbox_runtime_available(),
         "synthesis_fallback_notice": synthesis_fallback_notice(ctx),
-        "auto_accept_defaults": auto_accept_gap_gate_defaults_enabled(),
     }
+
+
+def gap_gate_payload(ctx: RunContext) -> dict[str, Any]:
+    """Full gap gate payload for dedicated gap-framing API routes."""
+    return {**gap_gate_payload_for_run(ctx), **global_gap_runtime_fields()}

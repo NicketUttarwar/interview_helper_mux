@@ -420,9 +420,18 @@ def reconcile_stale_job(run_id: str) -> bool:
 
 
 def reconcile_stale_jobs() -> int:
-    """Scan all executions and interrupt stale running gui_job.json files."""
+    """Reconcile stale gui_job.json for the active session run (or all when forensics)."""
+    from interview_mux.application_session import active_run_id
+    from interview_mux.config import merged_config
+
+    cfg = merged_config().get("journey_ui") or {}
+    if isinstance(cfg, dict) and cfg.get("reconcile_all_runs_on_shutdown"):
+        run_ids = RunContext.list_runs()
+    else:
+        active = active_run_id()
+        run_ids = [active] if active and RunContext.exists(active) else []
     count = 0
-    for run_id in RunContext.list_runs():
+    for run_id in run_ids:
         try:
             if reconcile_stale_job(run_id):
                 count += 1

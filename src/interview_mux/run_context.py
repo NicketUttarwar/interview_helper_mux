@@ -411,6 +411,9 @@ class RunContext:
         info = STAGE_BY_ID.get(stage)
         paths = list(info.artifacts) if info else []
         self.log_handoff(stage, paths, audit_path=self._latest_stage_audit(stage))
+        from interview_mux.web.run_snapshot_cache import invalidate_run_snapshot
+
+        invalidate_run_snapshot(self.run_id)
         self.bump_snapshot_version()
 
     def bump_snapshot_version(self) -> int:
@@ -421,6 +424,9 @@ class RunContext:
             meta["snapshot_version"] = int(meta.get("snapshot_version") or 0) + 1
 
         meta = self.mutate_run_meta(_patch)
+        from interview_mux.web.run_snapshot_cache import invalidate_run_snapshot
+
+        invalidate_run_snapshot(self.run_id)
         return int(meta.get("snapshot_version") or 0)
 
     def is_done(self, stage: str) -> bool:
