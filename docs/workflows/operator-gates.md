@@ -23,7 +23,9 @@ Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/ru
 | **G-Speaker** | G-Framing = Yes | Confirm gap pickup speaker — default **least-spoken** (`PickupSpeakerPanel`). |
 | **G-VoiceRef** | G-Framing = Yes | Approve collated voice reference for Chatterbox (`VoiceReferencePanel`). |
 | **G-Delivery** | G-Framing = Yes | Chatterbox clone (default) or record at G1 (`GapDeliveryPanel`). |
-| **G1** | `g1_vo_pickup` | **Optional.** Reachable after nugget layups publish `gap_report` and/or `gap_framing_recompose` accepts/skip-copies — [flow integrity](../cross-cutting/refinement-passes.md) guarantees `understanding/gap_report.json` is authoritative. Expect **more/longer before-VO lay-ups** recovering excluded-tape facts ([nugget-layup-system.md](../cross-cutting/nugget-layup-system.md)). Record or synthesize gap lines, or **Skip — continue without gap VO** (`POST …/g1/skip-optional`). Batch synthesize: `POST …/g1/synthesize-all`. |
+| **G1** | `g1_vo_pickup` | **Optional.** Reachable after nugget layups publish `gap_report` and/or `gap_framing_recompose` accepts/skip-copies — [flow integrity](../cross-cutting/refinement-passes.md) guarantees `understanding/gap_report.json` is authoritative. Expect **more/longer before-VO lay-ups** recovering excluded-tape facts ([nugget-layup-system.md](../cross-cutting/nugget-layup-system.md)). Record or synthesize gap lines, or **Skip — continue without gap VO** (`POST …/g1/skip-optional`). Batch synthesize: `POST …/g1/synthesize-all`. **GUI:** `GET /api/runs/{id}` exposes `operator_gates.g1_vo_pickup` — when `operator_must_act` is false (optional or `automation_pending` under partial-auto + Chatterbox), the journey does not block and the NEEDS YOU banner is suppressed. `g1_clear` follows journey semantics (not raw WAV presence). |
+
+**Partially accelerated G0 timing:** prepare-until-G0 runs `ingest → transcribe → transcript_review_build` only (defers `audio_preclean` until after operator review). Full-auto and manual runs keep preclean-before-ingest.
 
 ## Non-gates (optional offers)
 

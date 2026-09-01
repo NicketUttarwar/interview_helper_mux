@@ -11,7 +11,7 @@ import {
 } from "../workspace/TranscriptDockViewer";
 import { ArtifactAudio } from "../shared/ArtifactAudio";
 import { emptyCorrectionStats } from "../../utils/transcriptCorrectionStats";
-import { formatApiError } from "../../utils/safeApi";
+import { formatApiError, isTransientNetworkError } from "../../utils/safeApi";
 import {
   chunkClipUrl,
   chunkFocusRange,
@@ -62,13 +62,26 @@ export function TranscriptReviewPanel() {
   const chunk = chunks[idx];
 
   useEffect(() => {
-    setLoading(true);
-    void loadTranscriptReview()
-      .then(() => setLoading(false))
-      .catch((reason) => {
+    let cancelled = false;
+    const load = async (attempt = 0) => {
+      setLoading(true);
+      try {
+        await loadTranscriptReview();
+        if (!cancelled) setError(null);
+      } catch (reason) {
+        if (!cancelled && attempt < 2 && isTransientNetworkError(reason)) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          return load(attempt + 1);
+        }
         reportError(reason, "Transcript review");
-        setLoading(false);
-      });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [loadTranscriptReview]);
 
   useEffect(() => {
@@ -148,7 +161,29 @@ export function TranscriptReviewPanel() {
     );
   }
 
-  if (error) return <p className="empty-state">{error}</p>;
+  if (error) {
+    return (
+      <div className="empty-state">
+        <p>{error}</p>
+        <p className="hint sm">
+          The review queue may still be loading — try{" "}
+          <button
+            type="button"
+            className="btn sm ghost"
+            onClick={() => {
+              setError(null);
+              void loadTranscriptReview().catch((reason) =>
+                reportError(reason, "Transcript review"),
+              );
+            }}
+          >
+            Reload review queue
+          </button>{" "}
+          or refresh the page.
+        </p>
+      </div>
+    );
+  }
 
   if (!chunks.length) {
     return <p className="empty-state">No review clips — run STT review prep first.</p>;

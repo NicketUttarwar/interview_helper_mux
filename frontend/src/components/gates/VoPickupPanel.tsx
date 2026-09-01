@@ -5,6 +5,7 @@ import type { VoLine } from "../../types";
 import { formatApiError } from "../../utils/safeApi";
 import { isV2Enabled } from "../../utils/v2Phases";
 import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
+import { gateOperatorMustAct, g1AutomationPending } from "../../utils/operatorGates";
 
 export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
   const {
@@ -198,6 +199,12 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
     }
   };
 
+  const automationPending = g1AutomationPending(run);
+  const operatorMustAct = gateOperatorMustAct(run, "g1_vo_pickup");
+  const synthOnly =
+    activeLines.length > 0 &&
+    activeLines.every((l) => l.delivery === "synthesize");
+  const hideManualCapture = synthOnly && automationPending && !operatorMustAct;
   const missing = activeLines.filter((l) => !l.recorded_file).length;
   const recorded = activeLines.length - missing;
 
@@ -213,12 +220,24 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
           ? `${recorded}/${activeLines.length} pickup line(s) ready`
           : "No pickup lines required."}
       </p>
+      {automationPending && !operatorMustAct ? (
+        <p className="hint callout info" data-testid="g1-synth-pending">
+          Chatterbox is synthesizing gap VO lines in the background — no recording needed.
+        </p>
+      ) : null}
       <p className="hint">
-        Record, upload, or synthesize pickup lines as the <strong>gap pickup speaker</strong>
-        {pickupVoice ? ` (${pickupVoice})` : ""}. Saved to{" "}
-        <code>ASSETS/executions/…/vo_pickup/</code>
+        {hideManualCapture
+          ? "Review synthesized gap lines below."
+          : "Record, upload, or synthesize pickup lines as the"}{" "}
+        {!hideManualCapture ? (
+          <>
+            <strong>gap pickup speaker</strong>
+            {pickupVoice ? ` (${pickupVoice})` : ""}. Saved to{" "}
+            <code>ASSETS/executions/…/vo_pickup/</code>
+          </>
+        ) : null}
       </p>
-      {activeLines.some((l) => l.delivery === "synthesize") ? (
+      {activeLines.some((l) => l.delivery === "synthesize") && operatorMustAct ? (
         <p className="hint">
           <button
             type="button"
@@ -294,6 +313,11 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
               {boundary[line.line_id].trim_out_ms} ms
             </p>
           ) : null}
+          {hideManualCapture ? (
+            <p className="hint sm">
+              {line.recorded_file ? `Ready: ${line.recorded_file}` : "Awaiting synthesis…"}
+            </p>
+          ) : (
           <div className="vo-actions">
             {uploadingLine === line.line_id || synthLine === line.line_id ? (
               <span className="hint sm">
@@ -383,6 +407,7 @@ export function VoPickupPanel({ voLines }: { voLines: VoLine[] }) {
               </>
             ) : null}
           </div>
+          )}
         </div>
         );
       })}

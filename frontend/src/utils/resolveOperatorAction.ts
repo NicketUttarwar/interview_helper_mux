@@ -7,6 +7,7 @@ import type {
 import type { RunData, StageInfo } from "../types";
 import { findPendingFocusStage } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
+import { gateOperatorMustAct, g1AutomationPending } from "./operatorGates";
 import { isJobActivelyRunning } from "./jobStatus";
 import { isPartialAutoCheckpoint } from "./partialAcceleratedGuard";
 import { resolveJobStatusContext } from "./operatorStatus";
@@ -50,6 +51,7 @@ function gateHeadline(run: RunData, stageId: string): string {
     case "transcript_review":
       return "Review speech-to-text clips";
     case "g1_vo_pickup":
+      if (g1AutomationPending(run)) return "Gap VO synthesizing";
       return "Record pickup lines";
     case "g1_5_preview_pickup":
       return "Re-record post-preview pickup lines";
@@ -182,9 +184,18 @@ const GATE_BLOCKING_REASONS = new Set([
   "gate",
 ]);
 
+/** Workbench step ids for gate stages (stage id may differ from step id). */
+const GATE_STAGE_TO_STEP: Record<string, string> = {
+  transcript_review: "review_transcript",
+};
+
 function gateSubstepId(stageId: string, blockingReason?: string | null): string {
-  if (!blockingReason) return `gate:${stageId}`;
-  if (GATE_BLOCKING_REASONS.has(blockingReason)) return `gate:${stageId}`;
+  const gateStage = GATE_STAGE_TO_STEP[stageId] ?? stageId;
+  if (!blockingReason) return `gate:${gateStage}`;
+  if (GATE_BLOCKING_REASONS.has(blockingReason)) {
+    const gateReason = GATE_STAGE_TO_STEP[blockingReason] ?? blockingReason;
+    return `gate:${gateReason}`;
+  }
   return `blocked:${stageId}`;
 }
 
@@ -395,7 +406,12 @@ export function resolveOperatorAction(
 
   if (focusStageId) {
     const stage = stageById(run, focusStageId);
-    if (stage?.status === "action_required" || job?.status === "gate") {
+    if (
+      stage?.id === "g1_vo_pickup" &&
+      !gateOperatorMustAct(run, "g1_vo_pickup")
+    ) {
+      /* automation or optional G1 — not a needs_you gate */
+    } else if (stage?.status === "action_required" || job?.status === "gate") {
       return buildGateAction(
         run,
         focusStageId,
@@ -406,12 +422,19 @@ export function resolveOperatorAction(
   }
 
   if (blocking?.blocked && blocking.stage_id) {
+    if (
+      blocking.reason === "g1_vo_pickup" &&
+      !gateOperatorMustAct(run, "g1_vo_pickup")
+    ) {
+      /* optional/automation G1 — do not surface as gate */
+    } else {
     return buildGateAction(
       run,
       blocking.stage_id,
       blocking.reason,
       blocking.message,
     );
+    }
   }
 
   const nav = resolvePipelineNav(run, {

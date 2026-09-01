@@ -18,7 +18,7 @@ def test_analysis_order_includes_audio_probe_stages() -> None:
     assert "audio_probe_build" in ANALYSIS_ORDER
     assert "vernacular_segment_sanitize" in ANALYSIS_ORDER
     assert ANALYSIS_ORDER.index("transcribe") < ANALYSIS_ORDER.index("audio_probe_build")
-    assert ANALYSIS_ORDER.index("audio_probe_build") < ANALYSIS_ORDER.index("transcript_review_build")
+    assert ANALYSIS_ORDER.index("transcript_review_build") < ANALYSIS_ORDER.index("audio_probe_build")
     assert ANALYSIS_ORDER.index("boundary_topic_resplit") < ANALYSIS_ORDER.index(
         "vernacular_segment_sanitize"
     )

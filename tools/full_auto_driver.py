@@ -362,7 +362,6 @@ PREPARE_STAGES = (
     "audio_preclean",
     "ingest",
     "transcribe",
-    "audio_probe_build",
     "transcript_review_build",
 )
 
@@ -1334,8 +1333,31 @@ def accept_preclean() -> None:
 
 
 def dismiss_preclean() -> None:
+    # Partial-auto: defer preclean until after G0 so operator can review STT sooner.
+    if is_partial_auto() and not g0_complete():
+        log("partial-auto: defer preclean until after G0 transcript review")
+        return
     # Happy path: run DeepFilterNet before ingest (PREPARE_STAGES starts with audio_preclean).
     # If ingest already finished, accept_preclean heals by skipping.
+    accept_preclean()
+
+
+def _preclean_settled() -> bool:
+    try:
+        from interview_mux.run_context import RunContext
+        from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+        ctx = RunContext(RUN_ID, create=False)
+        return ctx.is_done("audio_preclean") or preclean_was_skipped(ctx)
+    except Exception:
+        return True
+
+
+def finalize_deferred_preclean() -> None:
+    """Partial-auto post-G0: accept or skip preclean (ingest without preclean skips automatically)."""
+    if not is_partial_auto() or _preclean_settled():
+        return
+    log("partial-auto: finalizing deferred preclean after G0")
     accept_preclean()
 
 
@@ -1997,6 +2019,50 @@ def synthesize_g1() -> bool:
         return bool(result.get("ok", True)) and not (result.get("errors") or [])
     except RuntimeError as exc:
         log(f"G1 synth: {exc}")
+        return False
+
+
+def _patch_g1_automation_state(state: str) -> None:
+    def patch(meta: dict) -> None:
+        meta["g1_automation_state"] = state
+
+    try:
+        from interview_mux.run_context import RunContext
+
+        RunContext(RUN_ID, create=False).mutate_run_meta(patch)
+    except Exception as exc:
+        log(f"g1_automation_state patch failed: {exc}")
+
+
+def maybe_proactive_g1_synthesize() -> bool:
+    """Auto-synthesize gap VO when Chatterbox is ready and operator need not act."""
+    try:
+        from interview_mux.gates import check_g1_vo
+        from interview_mux.operator_gate_view import resolve_g1_vo_gate
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        view = resolve_g1_vo_gate(ctx, None, meta)
+        if view.operator_must_act or not view.open:
+            return True
+        if view.severity != "automation_pending":
+            return True
+        if not check_g1_vo(ctx):
+            _patch_g1_automation_state("complete")
+            return True
+        state = str(meta.get("g1_automation_state") or "")
+        if state in {"running", "failed"}:
+            return state != "failed"
+        _patch_g1_automation_state("running")
+        ok = synthesize_g1()
+        _patch_g1_automation_state("complete" if ok else "failed")
+        return ok
+    except Exception as exc:
+        log(f"maybe_proactive_g1_synthesize: {exc}")
+        _patch_g1_automation_state("failed")
         return False
 
 
@@ -5859,11 +5925,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
 
     if "transcript review" in low or stage in {"transcript_review", "transcript_review_build"}:
         if is_partial_auto():
+            if _transcript_review_needs_operator():
+                _focus_pipeline_transcript_review()
             if not wait_for_operator_g0():
                 return pause_needs_operator(
                     "transcript_review",
                     "partial-auto G0 wait timed out",
                 )
+            _patch_partial_auto_meta(partial_auto_driver_active=True)
             return "advance"
         complete_g0()
         # Never re-run analysis_until_g0 — that archives review_queue and rebuilds clips.
@@ -6397,12 +6466,18 @@ def delivery_resume_stage() -> str | None:
 def build_bodies() -> list[tuple[str, dict[str, Any]]]:
     steps: list[tuple[str, dict[str, Any]]] = []
     if not g0_complete():
-        prepare_from = first_pending(PREPARE_STAGES)
+        from interview_mux.automation_run import PARTIAL_AUTO_PREPARE_UNTIL_G0
+
+        prepare_stages = (
+            PARTIAL_AUTO_PREPARE_UNTIL_G0 if is_partial_auto() else PREPARE_STAGES
+        )
+        prepare_from = first_pending(prepare_stages)
         if prepare_from:
             steps.append(("prepare", {"mode": "analysis_until_g0", "from_stage": prepare_from}))
         # Never schedule analysis/delivery while G0 is open — partial-auto waits
         # for the operator; full-auto auto-accepts in the prepare handler first.
         return steps
+    finalize_deferred_preclean()
     # Once delivery artifacts exist, never schedule analysis — missing research
     # markers would rewind into mastering_research_waves and wipe progress.
     delivery_ready = False
@@ -11691,6 +11766,7 @@ def main() -> int:
             return finish_complete_run()
         try:
             heal_stage_done_markers()
+            maybe_proactive_g1_synthesize()
             bodies = build_bodies()
         except Exception as exc:
             log(f"build_bodies failed (will retry): {exc}")

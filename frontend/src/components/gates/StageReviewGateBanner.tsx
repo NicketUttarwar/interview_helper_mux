@@ -4,6 +4,7 @@ import type { ReviewGateSpec } from "../../utils/resolveReviewGate";
 import type { StageInfo } from "../../types";
 import { ReviewGateBannerShell } from "./ReviewGateBannerShell";
 import { shouldBlockOperatorActionsForJob } from "../../utils/partialAcceleratedGuard";
+import { g1AutomationPending } from "../../utils/operatorGates";
 
 interface Props {
   spec: ReviewGateSpec;
@@ -18,6 +19,7 @@ function BusyButton({
   testId,
   actionId,
   disabled,
+  disabledTitle,
 }: {
   busy: boolean;
   label: string;
@@ -25,14 +27,17 @@ function BusyButton({
   testId?: string;
   actionId?: string;
   disabled?: boolean;
+  disabledTitle?: string;
 }) {
+  const isDisabled = busy || disabled;
   return (
     <button
       type="button"
       className="btn primary"
       data-testid={testId}
       data-action-id={actionId}
-      disabled={busy || disabled}
+      disabled={isDisabled}
+      title={isDisabled ? disabledTitle : undefined}
       aria-busy={busy || undefined}
       onClick={onClick}
     >
@@ -123,6 +128,8 @@ function TranscriptReviewGateContent({
             label={primaryLabel}
             testId="accept-all-transcript-review"
             actionId="gui.transcript_review.complete"
+            disabled={gate.busy}
+            disabledTitle={gate.busyReason ?? undefined}
             onClick={() =>
               void (pending > 0 ? gate.acceptAllAndProceed() : gate.completeReview())
             }
@@ -169,6 +176,7 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
   const { advanceFromCheckpoint, actionBusy, jobRunning, run, partialAutoGPublish } = useApp();
   const busy = actionBusy || shouldBlockOperatorActionsForJob(run, jobRunning, partialAutoGPublish);
   const ready = missingCount === 0;
+  const synthPending = g1AutomationPending(run);
 
   return (
     <ReviewGateBannerShell
@@ -176,18 +184,30 @@ function G1VoGateContent({ missingCount }: { missingCount: number }) {
       lead={
         ready
           ? "All pickup lines are recorded — continue to delivery."
-          : `${missingCount} pickup line${missingCount === 1 ? "" : "s"} still need recordings before you can continue.`
+          : synthPending
+            ? `Synthesizing ${missingCount} gap VO line${missingCount === 1 ? "" : "s"} (Chatterbox) — no action needed.`
+            : `${missingCount} pickup line${missingCount === 1 ? "" : "s"} still need recordings before you can continue.`
       }
       ariaLabel="VO pickup"
       testId="g1-vo-gate-banner"
       actions={
+        ready ? (
         <BusyButton
           busy={busy}
-          label={ready ? "Continue to delivery" : "Record lines below first"}
+          label="Continue to delivery"
           testId="g1-vo-continue-banner"
           disabled={!ready}
           onClick={() => void advanceFromCheckpoint()}
         />
+        ) : synthPending ? null : (
+        <BusyButton
+          busy={busy}
+          label="Record lines below first"
+          testId="g1-vo-continue-banner"
+          disabled={!ready}
+          onClick={() => void advanceFromCheckpoint()}
+        />
+        )
       }
     />
   );

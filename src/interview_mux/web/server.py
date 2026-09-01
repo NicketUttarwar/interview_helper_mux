@@ -438,7 +438,12 @@ def create_app() -> FastAPI:
             "value_analysis_enabled": value_analysis_enabled(cfg),
             "api_consent_persist": (cfg.get("web") or {}).get("api_consent_persist", True),
             "journey_ui": (cfg.get("journey_ui") or {"enabled": True}),
-            "v2": (cfg.get("v2") or {"enabled": True}),
+            "v2": {
+                **(cfg.get("v2") or {"enabled": True}),
+                "g1_optional": __import__(
+                    "interview_mux.v2.config", fromlist=["v2_g1_optional"]
+                ).v2_g1_optional(),
+            },
             "v2_phases": __import__(
                 "interview_mux.v2.phases", fromlist=["PHASES"]
             ).PHASES,
@@ -789,6 +794,10 @@ def create_app() -> FastAPI:
             if isinstance(skip_doc, dict):
                 gap_skip_reason = skip_doc.get("reason")
         job = _sanitize_job(runner.get_job(run_id))
+        from interview_mux.operator_gate_view import build_operator_gates, g1_journey_clear
+        from interview_mux.v2.config import v2_g1_optional
+
+        operator_gates = build_operator_gates(ctx, job, meta if isinstance(meta, dict) else {})
         stages = _build_stage_list(
             ctx,
             g1_missing,
@@ -872,7 +881,9 @@ def create_app() -> FastAPI:
             "story_board_ready": story_board_ready,
             "timeline_ready": timeline_ready,
             "g1_missing": g1_missing,
-            "g1_clear": not g1_missing,
+            "g1_clear": g1_journey_clear(ctx, meta),
+            "g1_optional": v2_g1_optional(),
+            "operator_gates": operator_gates,
             "g1_5_preview_pickup_pending": g1_5_pending,
             "g1_5_preview_pickup_clear": not g1_5_pending,
             "pickup_speaker_pending": pickup_speaker_pending,
@@ -4040,13 +4051,16 @@ def _journey_blocking(
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
 
     if not gap_fill_was_skipped(ctx):
-        missing = check_g1_vo(ctx)
-        if missing:
+        from interview_mux.operator_gate_view import resolve_g1_vo_gate
+
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        g1_view = resolve_g1_vo_gate(ctx, job, meta if isinstance(meta, dict) else {})
+        if g1_view.blocks_journey and g1_view.open:
             return {
                 "blocked": True,
                 "reason": "g1_vo_pickup",
                 "stage_id": "g1_vo_pickup",
-                "message": f"G1 VO pickup missing for line(s): {', '.join(missing[:6])}.",
+                "message": g1_view.message or "G1 VO pickup needs operator action.",
             }
 
     for stage in stages or []:
@@ -4414,14 +4428,16 @@ def _build_stage_list(
                 s["status"] = "done"
         elif sid == "missing_framing":
             from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-            from interview_mux.source_topology import check_pickup_speaker_pending
+            from interview_mux.operator_gate_view import resolve_framing_gate
 
+            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            fr_view = resolve_framing_gate(ctx, run_meta if isinstance(run_meta, dict) else {})
             if gap_fill_was_skipped(ctx) or ctx.is_done(sid):
                 s["status"] = "done"
-            elif check_pickup_speaker_pending(ctx):
-                s["status"] = "action_required"
             else:
-                s["status"] = "pending" if not ctx.is_done(sid) else "done"
+                s["status"] = fr_view.stage_status if fr_view.open else (
+                    "done" if ctx.is_done(sid) else "pending"
+                )
         elif sid == "analysis_profile":
             ensure_analysis_workspace(ctx)
             from interview_mux.artifact_completeness import analysis_profile_ready_for_review
@@ -4434,13 +4450,16 @@ def _build_stage_list(
                 s["status"] = "action_required"
         elif sid == "g1_vo_pickup":
             from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+            from interview_mux.operator_gate_view import resolve_g1_vo_gate
 
+            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            g1_view = resolve_g1_vo_gate(ctx, job, run_meta if isinstance(run_meta, dict) else {})
             if gap_fill_was_skipped(ctx):
                 s["status"] = "done"
             elif not ctx.artifact_exists("understanding/gap_report.json"):
                 s["status"] = "locked"
-            elif g1_missing:
-                s["status"] = "action_required"
+            elif g1_view.open:
+                s["status"] = g1_view.stage_status
             else:
                 s["status"] = "done"
         elif sid == "g1_5_preview_pickup":
@@ -4464,8 +4483,11 @@ def _build_stage_list(
                 s["status"] = "done"
         elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase == "delivery":
             from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+            from interview_mux.operator_gate_view import resolve_g1_vo_gate
 
-            g1_blocks = bool(g1_missing) and not gap_fill_was_skipped(ctx)
+            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            g1_view = resolve_g1_vo_gate(ctx, job, run_meta if isinstance(run_meta, dict) else {})
+            g1_blocks = g1_view.blocks_delivery_sidebar and not gap_fill_was_skipped(ctx)
             if g1_blocks or not ctx.artifact_exists("analysis_complete.json"):
                 s["status"] = "locked"
             elif profile_gate_pending:

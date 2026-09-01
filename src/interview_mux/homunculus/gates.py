@@ -70,19 +70,27 @@ def recommended_framing_action(ctx: RunContext) -> str:
 
 
 def category_status(ctx: RunContext) -> dict[str, Any]:
-    from interview_mux.gates import check_g1_vo, check_transcript_review_pending
+    from interview_mux.gates import check_transcript_review_pending
 
     g0_open = False
     try:
         g0_open = bool(check_transcript_review_pending(ctx))
     except Exception:
         g0_open = False
-    g1: dict[str, Any] = {}
+    g1_open = False
+    g1_must_act = False
     try:
-        raw = check_g1_vo(ctx)
-        g1 = raw if isinstance(raw, dict) else {"pending": bool(raw)}
+        from interview_mux.operator_gate_view import resolve_g1_vo_gate
+
+        meta_doc = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if not isinstance(meta_doc, dict):
+            meta_doc = {}
+        g1_view = resolve_g1_vo_gate(ctx, None, meta_doc)
+        g1_open = bool(g1_view.open)
+        g1_must_act = bool(g1_view.operator_must_act)
     except Exception:
-        g1 = {}
+        g1_open = False
+        g1_must_act = False
     decisions = {}
     if ctx.artifact_exists(DECISIONS_REL):
         raw_d = ctx.read_json(DECISIONS_REL)
@@ -108,7 +116,10 @@ def category_status(ctx: RunContext) -> dict[str, Any]:
             "recommended": recommended_framing_action(ctx),
             "clone_policy": "least_spoken_host",
         },
-        "vo_pickup": {"open": bool(g1.get("pending") if isinstance(g1, dict) else g1)},
+        "vo_pickup": {
+            "open": g1_open,
+            "operator_must_act": g1_must_act,
+        },
         "source_preclean": {"open": False, "never_auto": True},
         "nle_optional": {"open": False},
         "listen_borderline": {"open": False},

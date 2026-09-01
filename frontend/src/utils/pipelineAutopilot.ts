@@ -42,7 +42,7 @@ export function canAutoRunStage(stageId: string, run?: RunData, config?: Journey
     }
     if (stageId === "g1_vo_pickup") {
       if (gapFillSkipped(run)) return true;
-      return (run.g1_missing || []).length === 0;
+      return Boolean(run.g1_clear);
     }
     return false;
   }

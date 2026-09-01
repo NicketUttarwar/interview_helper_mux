@@ -68,6 +68,7 @@ export function findPendingFocusStage(
   if (!run) return null;
 
   if (run.transcript_review_pending) return "transcript_review";
+  if (run.gap_framing_decision_pending) return "missing_framing";
 
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
@@ -223,6 +224,9 @@ export function checkpointContinueEnabled(
   }
   if (stage.status === "action_required") {
     if (stage.id === "g1_vo_pickup") return Boolean(run.g1_clear);
+    return false;
+  }
+  if (stage.status === "automation_pending") {
     return false;
   }
   return false;

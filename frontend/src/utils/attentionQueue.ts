@@ -4,6 +4,7 @@ import {
   gateFocusStageId,
 } from "./checkpoint";
 import { checkpointPrimaryLabel } from "./checkpointLabels";
+import { gateOperatorMustAct } from "./operatorGates";
 import { isJobActivelyRunning } from "./jobStatus";
 import { resolveJobStatusContext } from "./operatorStatus";
 import { resolvePrecleanOffer } from "./preclean";
@@ -123,6 +124,23 @@ export function listAttentionItems(
 
   for (const stage of run.stages) {
     if (stage.status === "action_required") {
+      if (stage.id === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
+        push({
+          kind: "optional",
+          priority: 7,
+          stageId: stage.id,
+          stageTitle: stage.title,
+          title: "Gap VO (optional)",
+          message:
+            run.operator_gates?.g1_vo_pickup?.message ||
+            "Gap VO lines can be recorded, synthesized, or skipped.",
+          primaryLabel: "View gap VO",
+          phase: stagePhase(stage),
+          subTab: subTabForStage(stage.id, "optional"),
+          optional: true,
+        });
+        continue;
+      }
       push(gateItem(run, stage));
     }
   }
@@ -201,7 +219,9 @@ export function listAttentionItems(
       reason === "g1_vo_pickup" ||
       reason === "llm_gate"
     ) {
-      if (stage && stage.status === "action_required") {
+      if (reason === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
+        /* optional/automation G1 */
+      } else if (stage && stage.status === "action_required") {
         push(gateItem(run, stage, blocking.message));
       } else if (stage) {
         push({

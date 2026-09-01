@@ -1,6 +1,7 @@
 import type { JourneyUiConfig, RunData, StageInfo } from "../types";
 import { isPipelineAutopilotEnabled } from "./pipelineAutopilot";
 import { autopilotHidesReviewGate } from "./autopilotResolution";
+import { gateOperatorMustAct } from "./operatorGates";
 
 export type ReviewGateKind =
   | "transcript_review"
@@ -32,20 +33,27 @@ export function resolveReviewGateSpec(
     return null;
   }
 
+  if (stage.id === "transcript_review" && stage.status === "action_required") {
+    return { kind: "transcript_review" };
+  }
+
   if (
     (run.journey?.blocking?.reason === "llm_gate" &&
       run.journey?.blocking?.stage_id === stage.id) ||
-    (run.job?.status === "gate" && run.job?.stage === stage.id)
+    (run.job?.status === "gate" &&
+      run.job?.stage === stage.id &&
+      stage.id !== "transcript_review")
   ) {
     return { kind: "llm_gate" };
   }
 
-  if (stage.status !== "action_required") return null;
+  if (stage.status !== "action_required" && stage.status !== "automation_pending") return null;
 
   switch (stage.id) {
     case "transcript_review":
       return { kind: "transcript_review" };
     case "g1_vo_pickup":
+      if (!gateOperatorMustAct(run, "g1_vo_pickup")) return null;
       return { kind: "g1_vo", missingCount: run.g1_missing?.length ?? 0 };
     case "g1_5_preview_pickup":
       return {

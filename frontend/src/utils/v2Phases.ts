@@ -26,7 +26,6 @@ export const V2_PHASES: V2Phase[] = [
       "audio_preclean",
       "ingest",
       "transcribe",
-      "audio_probe_build",
       "transcript_review_build",
     ],
   },

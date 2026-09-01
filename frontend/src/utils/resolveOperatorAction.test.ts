@@ -118,7 +118,7 @@ describe("resolveOperatorAction", () => {
     const a = resolveOperatorAction(run);
     expect(a.mode).toBe("needs_you");
     expect(a.stageId).toBe("transcript_review");
-    expect(a.substepId).toBe("gate:transcript_review");
+    expect(a.substepId).toBe("gate:review_transcript");
   });
 
   it("G-Framing gate stays needs_you even if jobRunning is stale", () => {
@@ -287,6 +287,29 @@ describe("resolveOperatorAction gate branches", () => {
     ["g1_vo_pickup", "G1 VO pickup"],
     ["missing_framing", "Missing framing"],
   ] as const;
+
+  it("automation_pending g1_vo_pickup does not map to needs_you", () => {
+    const run = baseRun({
+      stages: [stage("g1_vo_pickup", "automation_pending", "G1 VO pickup")],
+      g1_missing: ["line-1"],
+      g1_clear: true,
+      operator_gates: {
+        g1_vo_pickup: {
+          operator_must_act: false,
+          severity: "automation_pending",
+          open: true,
+        },
+      },
+      journey: {
+        phase: "complete",
+        milestones: {},
+        next_action: "x",
+        blocking: { blocked: false },
+      } as RunData["journey"],
+    });
+    const a = resolveOperatorAction(run);
+    expect(a.mode).not.toBe("needs_you");
+  });
 
   it.each(gateCases)("action_required %s maps to needs_you", (stageId, title) => {
     const run = baseRun({

@@ -434,7 +434,22 @@ class JobRunner:
             if until_stage and until_stage in order:
                 order = order[: order.index(until_stage) + 1]
             elif mode == "analysis_until_g0":
-                if "transcript_review_build" in order:
+                from interview_mux.automation_run import (
+                    PARTIAL_AUTO_PREPARE_UNTIL_G0,
+                    is_partially_accelerated_run,
+                )
+
+                meta: dict[str, Any] = {}
+                if ctx.artifact_exists("run_meta.json"):
+                    raw_meta = ctx.read_json("run_meta.json")
+                    if isinstance(raw_meta, dict):
+                        meta = raw_meta
+                if is_partially_accelerated_run(meta):
+                    order = list(PARTIAL_AUTO_PREPARE_UNTIL_G0)
+                    start = from_stage or stage
+                    if start and start in order:
+                        order = order[order.index(start) :]
+                elif "transcript_review_build" in order:
                     order = order[: order.index("transcript_review_build") + 1]
             pending = [s for s in order if not ctx.is_done(s)]
             from interview_mux.gap_fill_eligibility import filter_visible_job_stages

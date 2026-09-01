@@ -20,7 +20,6 @@ PHASES: list[dict[str, Any]] = [
             "audio_preclean",
             "ingest",
             "transcribe",
-            "audio_probe_build",
             "transcript_review_build",
         ],
         "gate": None,

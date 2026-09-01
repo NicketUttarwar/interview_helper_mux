@@ -6,7 +6,7 @@ import { isStageHidden } from "./stageVisibility";
 /** Gate / blocker stage id → default workbench step when operator must act. */
 const GATE_FOCUS_STEP: Record<string, string> = {
   transcript_review: "review_transcript",
-  g1_vo_pickup: "continue_delivery",
+  g1_vo_pickup: "record_lines",
   g1_5_preview_pickup: "continue_sfx",
 };
 
@@ -37,6 +37,10 @@ export function journeySubstepForStage(
   return scopedStageId === stageId ? activeSubstepId : null;
 }
 
+const GATE_STAGE_TO_STEP: Record<string, string> = {
+  transcript_review: "review_transcript",
+};
+
 /** Map journey substep ids to workbench step ids. */
 export function substepIdToStepId(substepId: string | null | undefined): string | null {
   if (!substepId) return null;
@@ -46,8 +50,13 @@ export function substepIdToStepId(substepId: string | null | undefined): string 
     const bare = substepId.split(":").pop();
     return bare || null;
   }
+  if (substepId.startsWith("gate:")) {
+    const stageId = substepId.slice("gate:".length);
+    return GATE_STAGE_TO_STEP[stageId] ?? stageId;
+  }
   if (substepId.includes(":")) {
     const bare = substepId.split(":").pop();
+    if (bare && GATE_STAGE_TO_STEP[bare]) return GATE_STAGE_TO_STEP[bare];
     return bare || null;
   }
   return substepId;
@@ -73,9 +82,14 @@ export function resolveFocusStepId(
   const fromSubstep = substepIdToStepId(substepHint);
   if (fromSubstep && (steps.length === 0 || hasStep(steps, fromSubstep))) return fromSubstep;
 
+  if (stageId === "transcript_review") {
+    const gateStep = GATE_FOCUS_STEP.transcript_review;
+    if (hasStep(steps, gateStep)) return gateStep;
+  }
+
   if (
     blockingReason === "llm_gate" ||
-    (job?.status === "gate" && job.stage === stageId)
+    (job?.status === "gate" && job.stage === stageId && stageId !== "transcript_review")
   ) {
     if (hasStep(steps, "llm_gate")) return "llm_gate";
     return "llm_gate";

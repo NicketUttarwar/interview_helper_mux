@@ -213,6 +213,13 @@ def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[st
         from interview_mux.stages.transcript_review import check_transcript_review_pending
 
         if check_transcript_review_pending(ctx):
+            try:
+                from interview_mux.write_staging import _commit_stage_writes, has_pending_writes
+
+                if has_pending_writes(ctx, "transcript_review_build"):
+                    _commit_stage_writes(ctx, "transcript_review_build")
+            except Exception:
+                pass
             out = dict(job)
             out["stage"] = "transcript_review"
             out["current_stage"] = "transcript_review"
@@ -233,6 +240,30 @@ def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[st
                 job,
                 stage_id=stage,
                 message="Transcript review complete — continue pipeline.",
+            )
+
+    if focus in {"g1_vo_pickup", "g1"} or stage == "g1_vo_pickup":
+        from interview_mux.operator_gate_view import g1_journey_clear
+
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if g1_journey_clear(ctx, meta if isinstance(meta, dict) else {}):
+
+            def _clear_g1_needs(m: dict[str, Any]) -> None:
+                op_stage = str(m.get("needs_operator_stage") or "").lower()
+                if op_stage in {"g1_vo_pickup", "g1", "g1_vo", "vo_pickup", "edl"}:
+                    m.pop("needs_operator", None)
+                    m.pop("needs_operator_stage", None)
+                    m.pop("needs_operator_reason", None)
+
+            try:
+                ctx.mutate_run_meta(_clear_g1_needs)
+            except Exception:
+                pass
+            return _resume_after_operator_gate(
+                ctx,
+                job,
+                stage_id="g1_vo_pickup",
+                message="G1 VO cleared — continue pipeline.",
             )
 
     return job

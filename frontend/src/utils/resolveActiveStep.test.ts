@@ -27,6 +27,8 @@ describe("substepIdToStepId", () => {
     expect(substepIdToStepId("stage_reuse:ingest")).toBe("reuse");
     expect(substepIdToStepId("handoff:speaker_roles")).toBe("speaker_roles");
     expect(substepIdToStepId("run:transcribe")).toBe("run");
+    expect(substepIdToStepId("gate:transcript_review")).toBe("review_transcript");
+    expect(substepIdToStepId("gate:review_transcript")).toBe("review_transcript");
   });
 });
 
@@ -90,13 +92,38 @@ describe("resolveFocusStepId", () => {
           },
         ]),
         stage("g1_vo_pickup", "action_required", [
-          { id: "record_pickups", status: "todo", kind: "gate", number: 1, label: "Record", review: [] },
+          { id: "record_lines", status: "todo", kind: "gate", number: 1, label: "Record", review: [] },
           { id: "complete_g1", status: "todo", kind: "gate", number: 3, label: "Complete", review: [] },
         ]),
       ],
     };
     expect(resolveFocusStepId(run, "transcript_review")).toBe("review_transcript");
-    expect(resolveFocusStepId(run, "g1_vo_pickup")).toBe("record_pickups");
+    expect(resolveFocusStepId(run, "g1_vo_pickup")).toBe("record_lines");
+  });
+
+  it("focuses review_transcript when job status is gate at G0", () => {
+    const run: RunData = {
+      run_id: "exec_test",
+      job: {
+        status: "gate",
+        stage: "transcript_review",
+        message: "Transcript review required.",
+      },
+      stages: [
+        stage("transcript_review", "action_required", [
+          {
+            id: "review_transcript",
+            status: "todo",
+            kind: "gate",
+            number: 1,
+            label: "Review and correct transcript",
+            review: [],
+            primary_button: "Complete transcript review",
+          },
+        ]),
+      ],
+    };
+    expect(resolveFocusStepId(run, "transcript_review")).toBe("review_transcript");
   });
 
   it("does not apply another stage's journey substep when browsing", () => {

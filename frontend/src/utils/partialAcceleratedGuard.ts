@@ -1,5 +1,6 @@
 import type { RunData } from "../types";
 import { isJobActivelyRunning } from "./jobStatus";
+import { gateOperatorMustAct } from "./operatorGates";
 
 /** Mirrors backend DELIVERY_ORDER 5C slice for partial-auto guards. */
 export const DELIVERY_ORDER_5C: readonly string[] = [
@@ -91,6 +92,9 @@ function blockingNeedsOperator(run: RunData): boolean {
   const blocking = run.journey?.blocking ?? run.blocking;
   if (!blocking?.blocked) return false;
   const reason = String(blocking.reason || "");
+  if (reason === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
+    return false;
+  }
   if (OPERATOR_BLOCK_REASONS.has(reason)) return true;
   return !isJobActivelyRunning(run.job);
 }
@@ -105,7 +109,14 @@ export function isPartialAutoCheckpoint(
 ): boolean {
   if (!run) return false;
   if (isTranscriptReviewCheckpoint(run)) return true;
-  if (run.gap_framing_decision_pending) return true;
+  if (run.gap_framing_decision_pending) {
+    const framingGate = run.operator_gates?.missing_framing;
+    if (framingGate && framingGate.severity === "automation_pending") {
+      // Driver resolving framing — keep accelerated overlay.
+    } else {
+      return true;
+    }
+  }
   if (run.pickup_speaker_pending) return true;
   const status = run.job?.status || "";
   if (OPERATOR_JOB_STATUSES.has(status)) return true;

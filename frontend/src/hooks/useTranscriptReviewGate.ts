@@ -43,7 +43,14 @@ export function useTranscriptReviewGate(enabled: boolean) {
   const pendingCount = transcriptReview?.pending_count ?? 0;
   const totalCount = chunks.length;
   const reviewedCount = Math.max(0, totalCount - pendingCount);
-  const busy = completing || actionBusy || (jobRunning && !atCheckpoint);
+  const busy =
+    completing || actionBusy || (jobRunning && !atCheckpoint);
+  const busyReason =
+    completing || actionBusy
+      ? "Saving transcript edits…"
+      : jobRunning && !atCheckpoint
+        ? "Pipeline step still running — wait for the activity log."
+        : null;
 
   const acceptAllAndProceed = useCallback(async () => {
     if (
@@ -98,5 +105,6 @@ export function useTranscriptReviewGate(enabled: boolean) {
     acceptAllAndProceed,
     completeReview,
     reload,
+    busyReason,
   };
 }

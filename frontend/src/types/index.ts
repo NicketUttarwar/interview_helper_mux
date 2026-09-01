@@ -137,6 +137,7 @@ export type StageStatus =
   | "pending"
   | "incomplete"
   | "action_required"
+  | "automation_pending"
   | "locked"
   | "awaiting_write_approval";
 
@@ -553,6 +554,26 @@ export interface RunData {
   timeline_ready?: boolean;
   g1_missing?: string[];
   g1_clear?: boolean;
+  g1_optional?: boolean;
+  operator_gates?: Record<
+    string,
+    {
+      gate_id?: string;
+      open?: boolean;
+      severity?: string;
+      operator_must_act?: boolean;
+      stage_status?: string;
+      blocks_journey?: boolean;
+      ui_mode?: string;
+      message?: string;
+      automation?: {
+        owner?: string;
+        active?: boolean;
+        action?: string;
+        state?: string;
+      };
+    }
+  >;
   resilience?: {
     quality_first?: boolean;
     open_escalations?: Array<{

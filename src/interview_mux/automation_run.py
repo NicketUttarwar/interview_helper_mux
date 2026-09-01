@@ -9,6 +9,13 @@ _FULL_AUTO_MODES = frozenset({"full-auto", "fullauto", "auto", "e2e"})
 _PARTIAL_AUTO_MODES = frozenset(
     {"partially-accelerated", "partial-auto", "partiallyaccelerated"}
 )
+
+# Partial-auto: reach G0 after ingest+STT only — defer DeepFilterNet until after operator review.
+PARTIAL_AUTO_PREPARE_UNTIL_G0: tuple[str, ...] = (
+    "ingest",
+    "transcribe",
+    "transcript_review_build",
+)
 _AUTOMATION_ENV_KEYS = (
     "MUX_FULL_AUTO",
     "MUX_BABA_E2E",
