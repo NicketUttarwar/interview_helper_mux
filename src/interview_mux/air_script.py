@@ -1396,6 +1396,11 @@ def run_air_script_seams(ctx: RunContext) -> None:
         compose_pass_b(ctx)
         persist_air_script_omits_on_gap_report(ctx)
         attach_sonic_scenes(ctx)
+        from interview_mux.vo_contract import sync_vo_contract_after_layup
+
+        remaining = sync_vo_contract_after_layup(ctx)
+        if remaining:
+            raise RuntimeError(f"VO contract drift after air_script_seams: {remaining[0]}")
     except Exception as exc:
         if not air_script_cfg().get("fail_open", True):
             raise

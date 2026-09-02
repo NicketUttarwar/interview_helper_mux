@@ -1,7 +1,7 @@
 """Product recovery controller — one typed playbook per (stage, signature).
 
 Not an e2e waiver layer. Playbooks produce a legal artifact or escalate.
-Budget: at most one attempt per signature per run.
+Budget: structural classes — one attempt per signature; transient classes — up to three.
 """
 
 from __future__ import annotations
@@ -155,6 +155,20 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         blocked_class = str(getattr(exc, "error_class", "") or "").strip()
         if blocked_class:
             return blocked_class
+    if (
+        "vo coverage not rendered" in msg
+        or "seated synthesize vo not rendered" in msg
+    ):
+        return "vo_seated_coverage"
+    if "vo contract" in msg or (
+        "seated synthesize" in msg
+        and ("skip/omit" in msg or "skipped_optional" in msg)
+    ):
+        return "vo_contract_repair"
+    if "stale upstream" in msg or "marked stale" in msg:
+        return "upstream_stale_rerun"
+    if "air_script" in msg and "drift" in msg:
+        return "air_script_omit_sync"
     return None
 
 
@@ -190,6 +204,21 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "musicgen_theme_failed",
         "incomplete_cut_unresolved",
         "pmq_incomplete_ship_walk",
+        "vo_seated_coverage",
+        "vo_contract_repair",
+        "upstream_stale_rerun",
+        "air_script_omit_sync",
+    }
+)
+
+TRANSIENT_ERROR_CLASSES = frozenset(
+    {
+        "vo_seated_coverage",
+        "vo_contract_repair",
+        "mmaudio_qa_missing",
+        "sdp_theme_wavs_missing",
+        "musicgen_theme_failed",
+        "upstream_stale_rerun",
     }
 )
 
@@ -226,10 +255,64 @@ def _read_actions(ctx: RunContext) -> list[dict[str, Any]]:
     return rows
 
 
+def _parse_signature_key(signature: str) -> tuple[str, str]:
+    parts = str(signature or "").split(":", 1)
+    if len(parts) != 2:
+        return "", ""
+    return parts[0].strip(), parts[1].strip()
+
+
+def _recovery_log_count(ctx: RunContext, signature: str) -> int:
+    return sum(
+        1 for row in _read_actions(ctx) if str(row.get("signature") or "") == signature
+    )
+
+
+def _identical_failure_count(ctx: RunContext, stage_id: str, error_class: str) -> int:
+    if not stage_id or not error_class:
+        return 0
+    from interview_mux.identical_failures import failure_signature_by_class, read_identical_failures
+
+    halt_sig = failure_signature_by_class(failed_stage=stage_id, error_class=error_class)
+    row = (read_identical_failures(ctx).get("signatures") or {}).get(halt_sig) or {}
+    return int(row.get("count") or 0)
+
+
+def _mirror_recovery_to_identical_failures(
+    ctx: RunContext,
+    signature: str,
+    *,
+    resume_attempted: str = "",
+) -> None:
+    """R12c: mirror recovery log attempts into identical_failures.json."""
+    stage_id, error_class = _parse_signature_key(signature)
+    if not error_class or not has_classified_playbook(error_class):
+        return
+    from interview_mux.identical_failures import record_class_failure
+
+    target = _recovery_log_count(ctx, signature)
+    ident = _identical_failure_count(ctx, stage_id, error_class)
+    while ident < target:
+        record_class_failure(
+            ctx,
+            failed_stage=stage_id,
+            error_class=error_class,
+            resume_attempted=resume_attempted,
+        )
+        ident += 1
+
+
 def _append_action(ctx: RunContext, row: dict[str, Any]) -> None:
     path = _log_path(ctx)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    sig = str(row.get("signature") or "")
+    if sig:
+        _mirror_recovery_to_identical_failures(
+            ctx,
+            sig,
+            resume_attempted=str(row.get("resume_stage") or row.get("playbook_id") or ""),
+        )
 
 
 def append_remediation_log(ctx: RunContext, action: str, detail: str = "") -> None:
@@ -255,11 +338,30 @@ _OMIT_PLAYBOOKS = frozenset(
 )
 
 
+def recovery_attempt_budget(error_class: str | None) -> int:
+    if error_class in TRANSIENT_ERROR_CLASSES:
+        return 3
+    return 1
+
+
+def attempt_count(ctx: RunContext, signature: str) -> int:
+    stage_id, error_class = _parse_signature_key(signature)
+    log_count = _recovery_log_count(ctx, signature)
+    if not error_class:
+        return log_count
+    return max(log_count, _identical_failure_count(ctx, stage_id, error_class))
+
+
 def already_attempted(ctx: RunContext, signature: str) -> bool:
-    for row in _read_actions(ctx):
-        if str(row.get("signature") or "") == signature:
-            return True
-    return False
+    return attempt_count(ctx, signature) >= 1
+
+
+def budget_exhausted(
+    ctx: RunContext,
+    signature: str,
+    error_class: str | None,
+) -> bool:
+    return attempt_count(ctx, signature) >= recovery_attempt_budget(error_class)
 
 
 def vo_seats_fingerprint(ctx: RunContext) -> str:
@@ -680,6 +782,70 @@ def playbook_incomplete_cut_unresolved(ctx: RunContext) -> list[str]:
     return [QA_REL] if ctx.artifact_exists(QA_REL) else []
 
 
+def playbook_vo_seated_coverage(ctx: RunContext) -> list[str]:
+    from interview_mux.vo_contract import repair_vo_contract_drift
+
+    changed = repair_vo_contract_drift(ctx)
+    _unmark_stages(ctx, "vo_synthesize")
+    artifacts = [".stage_done/vo_synthesize"]
+    if changed:
+        artifacts.append("understanding/gap_report.json")
+    return artifacts
+
+
+def playbook_vo_contract_repair(ctx: RunContext) -> list[str]:
+    from interview_mux.vo_contract import repair_vo_contract_drift
+
+    changed = repair_vo_contract_drift(ctx)
+    _unmark_stages(ctx, "vo_line_adjudicate", "vo_synthesize")
+    return ["understanding/gap_report.json"] if changed else []
+
+
+def playbook_upstream_stale_rerun(ctx: RunContext, *, consumer_stage: str = "") -> list[str]:
+    from interview_mux.delivery_guardrails import upstream_stale_blockers
+
+    stage = consumer_stage or "mix"
+    blockers = upstream_stale_blockers(ctx, stage)
+    producer_map = {
+        "sound_design_plan": "sound_design_plan",
+        "gap_report": "nugget_layup_compose",
+        "transitions": "transitions",
+        "assembly_stale_versus_edl": "edl",
+    }
+    cleared: list[str] = []
+    for blocker in blockers:
+        prod = producer_map.get(blocker, blocker)
+        _unmark_stages(ctx, prod)
+        cleared.append(prod)
+    return cleared
+
+
+def playbook_air_script_omit_sync(ctx: RunContext) -> list[str]:
+    return playbook_stamp_air_script_omits(ctx)
+
+
+def _write_recovery_escalation(
+    ctx: RunContext,
+    *,
+    stage_id: str,
+    error_class: str,
+    signature: str,
+    detail: str,
+) -> None:
+    """H0e: record recovery budget exhaustion for homunculus stall guard."""
+    payload = {
+        "stage_id": stage_id,
+        "error_class": error_class,
+        "signature": signature,
+        "detail": detail,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        ctx.write_json("operator/recovery_escalation.json", payload, skip_handoff=True)
+    except Exception:
+        pass
+
+
 def handle_stage_failure(
     ctx: RunContext,
     stage_id: str,
@@ -772,7 +938,7 @@ def handle_stage_failure(
                 },
             )
             return result
-    elif already_attempted(ctx, sig):
+    elif budget_exhausted(ctx, sig, error_class):
         resume_on_budget = (
             "music_palette_compose" if error_class == "sdp_theme_wavs_missing" else stage_id
         )
@@ -781,7 +947,7 @@ def handle_stage_failure(
             playbook_id="budget_exhausted",
             signature=sig,
             resume_stage=resume_on_budget,
-            detail="already_attempted",
+            detail="budget_exhausted",
         )
         _append_action(
             ctx,
@@ -793,14 +959,7 @@ def handle_stage_failure(
                 "detail": result.detail,
             },
         )
-        if has_classified_playbook(error_class):
-            record_class_failure(
-                ctx,
-                failed_stage=stage_id,
-                error_class=error_class,
-                resume_attempted=resume_on_budget,
-            )
-        else:
+        if not has_classified_playbook(error_class):
             record_identical_failure(
                 ctx,
                 failed_stage=stage_id,
@@ -808,6 +967,13 @@ def handle_stage_failure(
                 reason=str(exc)[:400],
                 resume_attempted=resume_on_budget,
             )
+        _write_recovery_escalation(
+            ctx,
+            stage_id=stage_id,
+            error_class=error_class,
+            signature=sig,
+            detail=result.detail,
+        )
         return result
 
     playbook_id = error_class
@@ -990,6 +1156,26 @@ def handle_stage_failure(
             artifacts = playbook_incomplete_cut_unresolved(ctx)
             recovered = bool(artifacts)
             resume_stage = "junction_snip_qa"
+        elif error_class == "vo_seated_coverage":
+            playbook_id = "vo_seated_coverage"
+            artifacts = playbook_vo_seated_coverage(ctx)
+            recovered = True
+            resume_stage = "vo_synthesize"
+        elif error_class == "vo_contract_repair":
+            playbook_id = "vo_contract_repair"
+            artifacts = playbook_vo_contract_repair(ctx)
+            recovered = True
+            resume_stage = "vo_line_adjudicate"
+        elif error_class == "upstream_stale_rerun":
+            playbook_id = "upstream_stale_rerun"
+            artifacts = playbook_upstream_stale_rerun(ctx, consumer_stage=stage_id)
+            recovered = bool(artifacts)
+            resume_stage = artifacts[0] if artifacts else stage_id
+        elif error_class == "air_script_omit_sync":
+            playbook_id = "air_script_omit_sync"
+            artifacts = playbook_air_script_omit_sync(ctx)
+            recovered = bool(artifacts)
+            resume_stage = "vo_line_adjudicate"
         elif error_class == "pmq_incomplete_ship_walk":
             playbook_id = "listen_delight_remutate"
             artifacts = playbook_listen_delight_remutate(ctx)
@@ -1031,12 +1217,13 @@ def handle_stage_failure(
     )
     if result.status != "recovered":
         if has_classified_playbook(error_class):
-            row = record_class_failure(
-                ctx,
+            from interview_mux.identical_failures import failure_signature_by_class, is_halted
+
+            halt_sig = failure_signature_by_class(
                 failed_stage=stage_id,
                 error_class=error_class,
-                resume_attempted=result.resume_stage,
             )
+            halted = is_halted(ctx, halt_sig)
         else:
             row = record_identical_failure(
                 ctx,
@@ -1045,7 +1232,8 @@ def handle_stage_failure(
                 reason=str(exc)[:400],
                 resume_attempted=result.resume_stage,
             )
-        if row.get("halt"):
+            halted = bool(row.get("halt"))
+        if halted:
             result.status = "escalate"
             result.playbook_id = "identical_failure_halt"
             result.detail = (result.detail + " identical_failures_halted").strip()

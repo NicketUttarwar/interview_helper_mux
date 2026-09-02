@@ -1125,6 +1125,12 @@ class JobRunner:
                 "needs_operator": True,
             }
 
+        self._preflight_delivery_dispatch(
+            ctx_pre,
+            stage=stage,
+            from_stage=from_stage,
+            stage_ids=stage_ids,
+        )
         self._spawn_pipeline_thread(
             run_id,
             mode=mode,
@@ -1170,6 +1176,43 @@ class JobRunner:
         except Exception:
             self._clear_pipeline_start_reservation(run_id)
             raise
+
+    def _preflight_delivery_dispatch(
+        self,
+        ctx: RunContext,
+        *,
+        stage: str | None,
+        from_stage: str | None,
+        stage_ids: list[str],
+    ) -> None:
+        """R9b: block expensive delivery stages when prerequisites are red."""
+        from interview_mux.delivery_guardrails import EXPENSIVE_STAGES, G1_CONSUMERS, record_wasted_work
+        from interview_mux.stage_input_checks import collect_stage_input_issues
+
+        targets: list[str] = []
+        if stage:
+            targets = [stage]
+        elif from_stage:
+            targets = [
+                sid
+                for sid in stage_ids
+                if sid in EXPENSIVE_STAGES or sid in G1_CONSUMERS
+            ][:1]
+        for sid in targets:
+            issues = [
+                issue
+                for issue in collect_stage_input_issues(ctx, sid)
+                if issue.kind != "write_approval"
+            ]
+            if not issues:
+                continue
+            record_wasted_work(
+                ctx,
+                event="avoided_expensive_start",
+                stage=sid,
+                detail={"reason": issues[0].message, "source": "gui_runner"},
+            )
+            raise RuntimeError(issues[0].message)
 
     def _preflight_delivery_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
         """Block delivery_polish when post-listen or mmaudio QA gates are not clear."""

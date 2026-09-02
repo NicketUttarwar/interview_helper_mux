@@ -1128,6 +1128,14 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
             (ctx.run_dir / SELECTION_SEED_REL).unlink(missing_ok=True)
         except OSError:
             pass
+    elif not write_seed:
+        stub = {
+            "version": 1,
+            "ordered_segment_ids": [],
+            "deferred": True,
+            "reason": boundary_skip_reason or "bind_demoted",
+        }
+        ctx.write_json(SELECTION_SEED_REL, stub, stage_key="ideal_cuts_materialize")
 
     materialized = {
         "version": 1,

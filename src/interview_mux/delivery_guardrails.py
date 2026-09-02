@@ -378,6 +378,31 @@ def current_delivery_phase(ctx: RunContext) -> str:
     return "A"
 
 
+def _music_defer_log_allowed(ctx: RunContext, stage: str, reason: str) -> bool:
+    """Cap repetitive music_deferred ledger spam per stage/reason (R1d)."""
+    key = f"{stage}:{reason}"
+    try:
+        if not ctx.artifact_exists("operator/wasted_work.json"):
+            return True
+        doc = ctx.read_json("operator/wasted_work.json")
+        events = doc.get("events") if isinstance(doc, dict) else []
+        if not isinstance(events, list):
+            return True
+        count = 0
+        for row in events:
+            if not isinstance(row, dict):
+                continue
+            if row.get("event") != "music_deferred":
+                continue
+            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+            detail_reason = str(detail.get("reason") or "")
+            if str(row.get("stage") or "") == stage and detail_reason == reason:
+                count += 1
+        return count < 5
+    except Exception:
+        return True
+
+
 def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[str]:
     """E1 + G2 + G5 + G8: drop stages the conductor must not enqueue yet."""
     if not remaining:
@@ -412,12 +437,14 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             deferred.append(sid)
             continue
         if sid in MUSIC_REQUIRES_ASSEMBLY and not assembly_wav_present(ctx):
-            record_wasted_work(
-                ctx,
-                event="music_deferred",
-                stage=sid,
-                detail={"reason": "assembly_missing"},
-            )
+            reason = "assembly_missing"
+            if _music_defer_log_allowed(ctx, sid, reason):
+                record_wasted_work(
+                    ctx,
+                    event="music_deferred",
+                    stage=sid,
+                    detail={"reason": reason},
+                )
             deferred.append(sid)
             continue
         if sid in SHIP_AFTER_MASTER and not ctx.artifact_exists("master/master.wav"):
@@ -426,23 +453,26 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
         if sid in (*PHASE_B_STAGES, *PHASE_C_STAGES, "mix", "junction_snip_qa", "master_finalize") or sid in SHIP_AFTER_MASTER:
             if not sealed:
                 if sid in MUSIC_REQUIRES_ASSEMBLY:
-                    record_wasted_work(
-                        ctx,
-                        event="music_deferred",
-                        stage=sid,
-                        detail={"reason": stable_reason or "phase_a_unsealed"},
-                    )
+                    reason = stable_reason or "phase_a_unsealed"
+                    if _music_defer_log_allowed(ctx, sid, reason):
+                        record_wasted_work(
+                            ctx,
+                            event="music_deferred",
+                            stage=sid,
+                            detail={"reason": reason},
+                        )
                 deferred.append(sid)
                 continue
         if sid in MIX_EPOCH_CONSUMERS:
             if not music_epoch_complete(ctx):
                 mix_b = mix_epoch_block(ctx) or "music_incomplete"
-                record_wasted_work(
-                    ctx,
-                    event="music_deferred",
-                    stage=sid,
-                    detail={"reason": mix_b, "predicate": "music_epoch_complete"},
-                )
+                if _music_defer_log_allowed(ctx, sid, mix_b):
+                    record_wasted_work(
+                        ctx,
+                        event="music_deferred",
+                        stage=sid,
+                        detail={"reason": mix_b, "predicate": "music_epoch_complete"},
+                    )
                 deferred.append(sid)
                 continue
         if sid in STALE_PREFLIGHT_CONSUMERS:
@@ -493,7 +523,28 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
             stage="delivery",
             detail={"cleared": list(dict.fromkeys(cleared))},
         )
+    cleared.extend(reconcile_orphan_artifacts(ctx))
     return list(dict.fromkeys(cleared))
+
+
+def reconcile_orphan_artifacts(ctx: RunContext) -> list[str]:
+    """R11c: flag artifacts on disk when producer stage_done is missing."""
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+    orphans: list[str] = []
+    for sid, rel in STAGE_ARTIFACT_DISK_PATHS.items():
+        if sid not in G3_RECONCILE_CHAIN:
+            continue
+        if ctx.artifact_exists(rel) and not ctx.is_done(sid):
+            orphans.append(sid)
+    if orphans:
+        record_wasted_work(
+            ctx,
+            event="orphan_artifact",
+            stage="delivery",
+            detail={"stages": orphans[:12]},
+        )
+    return orphans
 
 
 def music_skip_allowed(ctx: RunContext, stage: str) -> bool:
@@ -679,18 +730,21 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
         if missing:
             return existing
         if ctx.artifact_exists("understanding/gap_report.json"):
-            gap = ctx.read_json("understanding/gap_report.json")
-            from interview_mux.air_script import gap_line_air_eligible
+            from interview_mux.air_script import seated_vo_line_ids
+            from interview_mux.mastering_plan_loader import load_plan_raw
 
+            gap = ctx.read_json("understanding/gap_report.json")
+            plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+            seated = seated_vo_line_ids(plan)
             for row in (gap.get("interviewer_lines") or []):
                 if not isinstance(row, dict):
                     continue
-                if not gap_line_air_eligible(row):
+                lid = str(row.get("line_id") or "")
+                if not lid or lid not in seated:
                     continue
-                if str(row.get("delivery") or "") == "synthesize":
-                    lid = str(row.get("line_id") or "")
-                    if lid:
-                        g1_ids.append(lid)
+                if str(row.get("delivery") or "").lower() == "synthesize":
+                    g1_ids.append(lid)
+            g1_ids = sorted(set(g1_ids))
     except Exception:
         pass
     assembly = "master/assembly_preview.wav" if ctx.artifact_exists(
@@ -710,6 +764,29 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
     stamp_delivery_epoch(ctx, phase_a_sealed_at=row["sealed_at"])
     record_wasted_work(ctx, event="phase_seal", stage="listen_delight_audit", detail=row)
     return row
+
+
+def delivery_epoch_locked(ctx: RunContext) -> bool:
+    epoch = read_delivery_epoch(ctx)
+    if epoch.get("unlocked_at"):
+        return False
+    if epoch.get("locked"):
+        return True
+    return bool(epoch.get("phase_a_sealed_at"))
+
+
+def unlock_delivery_epoch(ctx: RunContext, reason: str) -> dict[str, Any]:
+    epoch = read_delivery_epoch(ctx)
+    epoch["unlocked_at"] = _utc_now()
+    epoch["unlock_reason"] = str(reason or "")[:400]
+    epoch["locked"] = False
+    epoch["updated_at"] = _utc_now()
+
+    def _mark(meta: dict[str, Any]) -> None:
+        meta["delivery_epoch"] = epoch
+
+    ctx.mutate_run_meta(_mark)
+    return epoch
 
 
 def read_delivery_epoch(ctx: RunContext) -> dict[str, Any]:
@@ -734,6 +811,8 @@ def stamp_delivery_epoch(ctx: RunContext, **fields: Any) -> dict[str, Any]:
             epoch[key] = val
     if fields.get("structural_invalidation"):
         epoch["structural_bump_at"] = _utc_now()
+    if epoch.get("phase_a_sealed_at") and not epoch.get("unlocked_at"):
+        epoch["locked"] = True
     epoch["updated_at"] = _utc_now()
     if read_checkpoint(ctx):
         epoch["last_stable_checkpoint"] = CHECKPOINT_REL
@@ -767,6 +846,18 @@ def record_wasted_work(
         except Exception:
             pass
     events = list(doc.get("events") or [])
+    if event == "music_deferred" and detail:
+        reason = str((detail or {}).get("reason") or "")
+        dupes = sum(
+            1
+            for row in events
+            if isinstance(row, dict)
+            and row.get("event") == "music_deferred"
+            and str(row.get("stage") or "") == stage
+            and str((row.get("detail") or {}).get("reason") or "") == reason
+        )
+        if dupes >= 5:
+            return
     events.append(
         {
             "at": _utc_now(),

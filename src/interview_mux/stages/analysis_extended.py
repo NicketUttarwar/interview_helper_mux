@@ -411,6 +411,11 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         # fail-closed only when analysis minimum / canned / invent remain.
         assert_layup_qc_or_raise(c, qc)
         assert_gap_report_layup_authority(c, report)
+        from interview_mux.vo_contract import sync_vo_contract_after_layup
+
+        remaining = sync_vo_contract_after_layup(c)
+        if remaining:
+            raise RuntimeError(f"VO contract drift after layup: {remaining[0]}")
 
     def build_input(c: RunContext, *, target_ids: list[str] | None = None) -> dict:
         packet = build_layup_compose_input(c, target_segment_ids=target_ids)

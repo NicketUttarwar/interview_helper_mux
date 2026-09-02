@@ -227,6 +227,11 @@ def compute_milestones(ctx: RunContext) -> dict[str, bool]:
 
 
 def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None = None) -> str:
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict) and meta.get("needs_operator") and meta.get("needs_operator_stage"):
+        phase = stage_operator_phase(str(meta.get("needs_operator_stage")))
+        if phase:
+            return phase
     ms = milestones or compute_milestones(ctx)
 
     if not ms.get("g0_complete"):
@@ -261,3 +266,20 @@ def compute_operator_phase(ctx: RunContext, milestones: dict[str, bool] | None =
     if ms.get("g1_complete"):
         return "create"
     return "understand"
+
+
+def reconcile_milestones_after_invalidation(ctx: RunContext) -> None:
+    """Reset sticky delivery milestones after structural invalidation (R3d)."""
+
+    def patch(meta: dict[str, Any]) -> None:
+        for key in ("preview_ready", "g1_complete", "sfx_generated"):
+            meta.pop(key, None)
+        summaries = meta.get("qc_summaries")
+        if isinstance(summaries, dict):
+            for stale_key in ("mix", "listen_delight", "listen_delight_audit"):
+                summaries.pop(stale_key, None)
+
+    try:
+        ctx.mutate_run_meta(patch)
+    except Exception:
+        pass

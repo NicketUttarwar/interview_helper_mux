@@ -1028,6 +1028,19 @@ def create_app() -> FastAPI:
             refresh_journey_meta(ctx)
             return out
 
+    @app.post("/api/runs/{run_id}/delivery/unlock")
+    def delivery_epoch_unlock(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """G-DeliveryUnlock — allow structural invalidation after Phase A seal."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.delivery_guardrails import unlock_delivery_epoch
+
+            payload = body or {}
+            reason = str(payload.get("reason") or "operator_unlock")
+            epoch = unlock_delivery_epoch(ctx, reason)
+            refresh_journey_meta(ctx)
+            return {"ok": True, "delivery_epoch": epoch}
+
     @app.get("/api/runs/{run_id}/log")
     def get_log(
         run_id: str,
@@ -4053,6 +4066,17 @@ def _journey_blocking(
     job = job or {}
     status = str(job.get("status") or "")
     stage_id = job.get("stage") or job.get("current_stage")
+
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict) and meta.get("needs_operator"):
+        op_stage = str(meta.get("needs_operator_stage") or stage_id or "")
+        if op_stage:
+            return {
+                "blocked": True,
+                "reason": "needs_operator",
+                "stage_id": op_stage,
+                "message": str(meta.get("needs_operator_reason") or "Operator action required."),
+            }
 
     if job.get("needs_stage_reuse") and stage_id:
         return {

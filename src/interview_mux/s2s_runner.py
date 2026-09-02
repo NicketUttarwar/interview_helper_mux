@@ -242,41 +242,57 @@ def synthesize_line(
         if should_use_chatterbox(ctx):
             from interview_mux import chatterbox_runner
 
-            try:
-                out = chatterbox_runner.synthesize_line(ctx, line, dest_dir=dest_dir)
-                from interview_mux.vo_synthesis_audit import qc_failed
+            transient_markers = ("mps", "oom", "timeout", "cuda", "metal")
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    out = chatterbox_runner.synthesize_line(ctx, line, dest_dir=dest_dir)
+                    from interview_mux.vo_synthesis_audit import qc_failed
 
-                entries = ctx.read_json("vo_pickup/synthesis_report.json") if ctx.artifact_exists("vo_pickup/synthesis_report.json") else {}
-                last = (entries.get("entries") or [])[-1] if isinstance(entries, dict) and entries.get("entries") else {}
-                if isinstance(last, dict) and qc_failed(last, ctx):
-                    ctx.log(
-                        f"Chatterbox QC fail → mlx-audio retry for {lid}",
-                        level="warning",
-                        stage="vo_synthesize",
-                    )
-                    chatterbox_fallback = True
-                else:
-                    return out
-            except Exception as exc:
-                block = gap_vo_cfg()
-                from interview_mux.chatterbox_runner import chatterbox_cfg
+                    entries = ctx.read_json("vo_pickup/synthesis_report.json") if ctx.artifact_exists("vo_pickup/synthesis_report.json") else {}
+                    last = (entries.get("entries") or [])[-1] if isinstance(entries, dict) and entries.get("entries") else {}
+                    if isinstance(last, dict) and qc_failed(last, ctx):
+                        ctx.log(
+                            f"Chatterbox QC fail → mlx-audio retry for {lid}",
+                            level="warning",
+                            stage="vo_synthesize",
+                        )
+                        chatterbox_fallback = True
+                    else:
+                        return out
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    low = str(exc).lower()
+                    if attempt < 2 and any(marker in low for marker in transient_markers):
+                        ctx.log(
+                            f"Chatterbox transient error (attempt {attempt + 1}/3) for {lid}: {exc}",
+                            level="warning",
+                            stage="vo_synthesize",
+                        )
+                        continue
+                    block = gap_vo_cfg()
+                    from interview_mux.chatterbox_runner import chatterbox_cfg
 
-                parseable = "likely_cause" in str(exc) or "Local runtime" in str(exc)
-                use_mlx = parseable or bool(block.get("fail_open") or chatterbox_cfg().get("fail_open"))
-                if use_mlx and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
-                    ctx.log(
-                        f"Chatterbox → mlx-audio fallback: {exc}",
-                        level="warning",
-                        stage="vo_synthesize",
-                    )
-                    chatterbox_fallback = True
-                    line["fallback_from"] = "chatterbox"
-                elif mode == "synthesize":
-                    from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
+                    parseable = "likely_cause" in str(exc) or "Local runtime" in str(exc)
+                    use_mlx = parseable or bool(block.get("fail_open") or chatterbox_cfg().get("fail_open"))
+                    if use_mlx and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
+                        ctx.log(
+                            f"Chatterbox → mlx-audio fallback: {exc}",
+                            level="warning",
+                            stage="vo_synthesize",
+                        )
+                        chatterbox_fallback = True
+                        line["fallback_from"] = "chatterbox"
+                    elif mode == "synthesize":
+                        from interview_mux.synthesis_fallback import maybe_fallback_after_synthesis_failure
 
-                    maybe_fallback_after_synthesis_failure(ctx, line, exc, stage="vo_synthesize")
-                else:
-                    raise
+                        maybe_fallback_after_synthesis_failure(ctx, line, exc, stage="vo_synthesize")
+                    else:
+                        raise
+                    break
+            if last_exc is not None and not chatterbox_fallback:
+                raise last_exc
 
             if chatterbox_fallback:
                 try:

@@ -28,6 +28,8 @@ Mix → junction → master, then ship (`SHIP_AFTER_MASTER`).
 
 **B3 mix epoch:** after Phase A is sealed, `mix` / `junction_snip_qa` / `master_finalize` wait until `run_meta.delivery_epoch.music_complete_at` (or seated `mmaudio_sfx` / `sound_design/mmaudio_qa.json`). Isolated unit dispatch without a checkpoint is not gated.
 
+**Phase A lock:** when `delivery_epoch.phase_a_sealed_at` is set, `delivery_epoch.locked` defaults true. Structural invalidation requires **G-DeliveryUnlock** (`POST …/delivery/unlock`). See [operator-gates.md](../workflows/operator-gates.md).
+
 ## Listen delight soft-waive (full-auto)
 
 Full-auto may proceed to Phase B/C with `operator/escalations/listen_delight_audit.json` `status: waived_unattended` after an audit artifact exists. Production parity: see [operator-gates.md](../workflows/operator-gates.md).

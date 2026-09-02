@@ -7,6 +7,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from interview_mux.artifact_dependency_graph import transitive_invalidate
@@ -104,6 +105,24 @@ def post_commit_validate(ctx: Any, stage_key: str) -> list[str]:
 
     result = stage_acceptance_ok(ctx, stage_key, staged=False, include_downstream=False)
     errors = list(result.all_errors or [])
+    if stage_key == "vo_synthesize":
+        try:
+            from interview_mux.vo_contract import assert_seated_vo_rendered
+
+            assert_seated_vo_rendered(ctx)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+    elif stage_key == "edl_narrative_audit":
+        try:
+            from interview_mux.vo_contract import validate_vo_contract
+
+            errors.extend(validate_vo_contract(ctx)[:3])
+        except Exception:
+            pass
+    elif stage_key == "assembly_preview":
+        wav = ctx.final_path("master", "assembly_preview.wav")
+        if not wav.is_file():
+            errors.append("assembly_preview.wav missing on disk")
     if stage_key == "gap_framing_compose" and any(
         "has no interviewer line" in str(e) for e in errors
     ):
@@ -277,6 +296,14 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
                 stamped.append(rel)
         except Exception:
             continue
+    try:
+        consumers = transitive_invalidate(from_stage)
+        for sid in consumers:
+            rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+            if rel in stamped and ctx.is_done(sid):
+                (Path(ctx.run_dir) / ".stage_done" / sid).unlink(missing_ok=True)
+    except Exception:
+        pass
     return stamped
 
 

@@ -2530,6 +2530,12 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
         ordered, by_id, chapters = load_ordered_and_segments(ctx)
         settings = prior_context_cfg()
         from interview_mux.opening_orientation import is_episode_orientation
+        from interview_mux.air_script import seated_vo_line_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+        from interview_mux.vo_contract import ensure_gap_line_on_air, mark_gap_line_not_on_air
+
+        _plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+        _seated_ids = seated_vo_line_ids(_plan)
 
         fixed_lines: list[dict[str, Any]] = []
         for row in stamped:
@@ -2634,15 +2640,28 @@ def repair_gap_report(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], li
                     }
                 )
             if last_sentence_restates_target(str(line.get("text") or ""), target_text):
-                line["skipped_optional"] = True
-                line["blocking"] = False
-                applied.append(
-                    {
-                        "action": "skip_last_sentence_overlap",
-                        "line_id": line.get("line_id"),
-                        "targets_segment_id": tid_now,
-                    }
-                )
+                lid_now = str(line.get("line_id") or "").strip()
+                if lid_now and lid_now in _seated_ids:
+                    line = ensure_gap_line_on_air(line)
+                    applied.append(
+                        {
+                            "action": "overlap_keep_seated",
+                            "line_id": line.get("line_id"),
+                            "targets_segment_id": tid_now,
+                        }
+                    )
+                else:
+                    line = mark_gap_line_not_on_air(
+                        line,
+                        reason_code="last_sentence_overlap",
+                    )
+                    applied.append(
+                        {
+                            "action": "skip_last_sentence_overlap",
+                            "line_id": line.get("line_id"),
+                            "targets_segment_id": tid_now,
+                        }
+                    )
             fixed_lines.append(line)
         # Final coerce after stamp/rewrite — never leave JSON null on boolean schema fields.
         coerced: list[dict[str, Any]] = []

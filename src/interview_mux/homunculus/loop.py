@@ -99,6 +99,17 @@ def _dispatch_tool(ctx: RunContext, spec: ToolSpec, args: dict[str, Any]) -> Any
     name = spec.name
     if name.startswith("run_stage_"):
         stage = spec.identity
+        from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+        legal = filter_delivery_candidates(ctx, [stage])
+        if stage not in legal:
+            return {
+                "ok": False,
+                "error": "illegal_stage",
+                "stage": stage,
+                "legal_next": legal,
+                "pin": legal[0] if legal else None,
+            }
         from interview_mux.pipeline import run_single_stage as _orig
 
         setattr(ctx, "_homunculus_inner_stage", True)

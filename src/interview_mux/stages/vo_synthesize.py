@@ -39,14 +39,7 @@ def run_vo_synthesize(ctx: RunContext) -> None:
         except Exception:
             gap = None
         if isinstance(gap, dict):
-            try:
-                gap_notes = resync_required_synthesize_wavs(ctx, gap)
-            except Exception as exc:
-                ctx.log(
-                    f"vo_synthesize: gap line synth failed open: {exc}",
-                    level="warning",
-                    stage=STAGE_ID,
-                )
+            gap_notes = resync_required_synthesize_wavs(ctx, gap)
 
     try:
         restamp_edl_transition_source_paths(ctx)
@@ -80,3 +73,7 @@ def run_vo_synthesize(ctx: RunContext) -> None:
         )
     else:
         ctx.log("vo_synthesize: current-pair transition WAVs ready", stage=STAGE_ID)
+
+    from interview_mux.vo_contract import assert_seated_vo_rendered
+
+    assert_seated_vo_rendered(ctx)

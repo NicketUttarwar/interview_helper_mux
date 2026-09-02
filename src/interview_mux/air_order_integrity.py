@@ -894,15 +894,29 @@ def on_selection_order_changed(
             src_l = str(source or "").lower()
             if "junction_snip_qa" in src_l:
                 notes.append("skipped_layup_invalidate:junction_source")
-            elif fp_unchanged and ctx.is_done("mix"):
+            elif fp_unchanged:
                 notes.append("skipped_layup_invalidate:fingerprint_unchanged")
             elif ctx.is_done("nugget_layup_compose") or ctx.artifact_exists(
                 "understanding/nugget_layup_plan.json"
             ) or ctx.artifact_exists("mastering/nugget_layup_plan.json"):
                 from interview_mux.homunculus.agenda import invalidate_downstream
 
-                invalidate_downstream(ctx, "nugget_layup_compose")
-                notes.append("invalidated_downstream:nugget_layup_compose")
+                try:
+                    invalidate_downstream(ctx, "nugget_layup_compose")
+                    notes.append("invalidated_downstream:nugget_layup_compose")
+                except RuntimeError as exc:
+                    if "delivery epoch locked" in str(exc).lower():
+                        lock_reason = str(exc)[:400]
+
+                        def _mark(meta: dict[str, Any]) -> None:
+                            meta["needs_operator"] = True
+                            meta["needs_operator_stage"] = "delivery_epoch_unlock"
+                            meta["needs_operator_reason"] = lock_reason
+
+                        ctx.mutate_run_meta(_mark)
+                        notes.append("needs_operator:delivery_epoch_unlock")
+                    else:
+                        raise
         except Exception:
             pass
     if notes:

@@ -56,6 +56,7 @@ def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInpu
     """Return actionable issues for a stage (empty list = ready to run)."""
     issues: list[StageInputIssue] = []
     issues.extend(_pending_write_approval_issues(ctx, stage_id))
+    issues.extend(_vo_contract_issues(ctx, stage_id))
     checker = _STAGE_CHECKERS.get(stage_id)
     if checker is not None:
         issues.extend(checker(ctx))
@@ -70,6 +71,10 @@ def require_stage_inputs(ctx: RunContext, stage_id: str) -> None:
     issues = collect_stage_input_issues(ctx, stage_id)
     if not issues:
         return
+    if _try_preflight_recovery(ctx, stage_id, issues):
+        issues = collect_stage_input_issues(ctx, stage_id)
+        if not issues:
+            return
     from interview_mux.operator_trace import log_step
 
     # Operator/gate pauses — not pipeline crashes. Keep gui_log at warning.
@@ -86,6 +91,60 @@ def require_stage_inputs(ctx: RunContext, stage_id: str) -> None:
         },
     )
     raise StageInputError(stage_id, issues)
+
+
+def _try_preflight_recovery(
+    ctx: RunContext,
+    stage_id: str,
+    issues: list[StageInputIssue],
+) -> bool:
+    """H0c: homunculus 0.1.0 recovery before surfacing delivery StageInputError."""
+    try:
+        from interview_mux.homunculus.runtime import is_homunculus_run
+        from interview_mux.recovery_controller import classify_error_class, handle_stage_failure
+
+        if not is_homunculus_run(ctx):
+            return False
+        recoverable = any(
+            issue.kind in {"vo_contract", "upstream_stale"}
+            or "vo coverage" in issue.message.lower()
+            or "stale upstream" in issue.message.lower()
+            for issue in issues
+        )
+        if not recoverable:
+            return False
+        exc = RuntimeError(issues[0].message)
+        if not classify_error_class(stage_id, exc):
+            return False
+        result = handle_stage_failure(ctx, stage_id, exc)
+        return result.status == "recovered"
+    except Exception:
+        return False
+
+
+_VO_CONTRACT_STAGES = frozenset(
+    {"nugget_layup_compose", "air_script_seams", "vo_line_adjudicate", "vo_synthesize"}
+)
+
+
+def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
+    if stage_id not in _VO_CONTRACT_STAGES:
+        return []
+    from interview_mux.vo_contract import repair_vo_contract_drift, validate_vo_contract
+
+    violations = validate_vo_contract(ctx)
+    if violations:
+        repair_vo_contract_drift(ctx)
+        violations = validate_vo_contract(ctx)
+    if not violations:
+        return []
+    return [
+        StageInputIssue(
+            f"VO contract: {violations[0]}",
+            "Run vo_contract_repair or re-run layup/adjudicate before synthesis.",
+            kind="vo_contract",
+        )
+    ]
 
 
 def _pending_write_approval_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:

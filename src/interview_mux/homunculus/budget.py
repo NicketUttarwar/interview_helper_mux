@@ -60,6 +60,8 @@ def _identity_cap(identity: str, kind: str = "") -> int:
     """Per-tool invoke cap. Conductor turns use max_conductor_turns, not the stage cap."""
     if identity == "conductor_turn" or kind == "conductor_turn":
         return max_conductor_turns()
+    if identity == "timeline_optimizer_propose":
+        return int(_cfg().get("max_timeline_optimizer_invokes") or 12)
     return int(_cfg().get("max_invokes_per_identity") or MAX_INVOKES_PER_IDENTITY)
 
 

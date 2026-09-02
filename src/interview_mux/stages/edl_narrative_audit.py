@@ -64,6 +64,10 @@ def compact_vo_coverage(ctx: RunContext) -> list[dict[str, Any]]:
                 script_match = present
         if lid in omitted and lid not in seated:
             coverage = "omitted"
+        elif line.get("air_script_omit") and lid not in seated:
+            coverage = "omitted"
+        elif line.get("skipped_optional") and lid not in seated:
+            coverage = "omitted"
         elif present and script_match:
             coverage = "rendered"
         elif present:

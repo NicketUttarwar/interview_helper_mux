@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import shutil
+from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.homunculus.ledger import append_ledger, remainder_requested
@@ -367,9 +369,14 @@ def _block_hollow_skip(ctx: RunContext, stage: str) -> None:
         try:
 
             def _mark(meta: dict[str, Any]) -> None:
+                from interview_mux.operator_gates import should_stamp_needs_operator
+
+                reason = fingerprint[:240]
+                if not should_stamp_needs_operator(stage, reason, meta=meta):
+                    return
                 meta["needs_operator"] = True
                 meta["needs_operator_stage"] = stage
-                meta["needs_operator_reason"] = fingerprint[:240]
+                meta["needs_operator_reason"] = reason
 
             ctx.mutate_run_meta(_mark)
         except Exception:
@@ -445,6 +452,18 @@ def constrain_conductor_to_seed_front(
             return remaining
     front = earliest_incomplete_seed_stage(ctx, phase, set(remaining))
     if front:
+        if phase == "delivery" and remaining[0] != front:
+            try:
+                from interview_mux.delivery_guardrails import record_wasted_work
+
+                record_wasted_work(
+                    ctx,
+                    event="seed_order_violation_attempt",
+                    stage=remaining[0],
+                    detail={"pinned": front, "requested": remaining[:6]},
+                )
+            except Exception:
+                pass
         return [front]
     return remaining
 
@@ -1092,16 +1111,47 @@ def heal_air_order_integrity(ctx: RunContext) -> dict[str, Any]:
     return {"ok": True}
 
 
+INVALIDATION_LOG_REL = "operator/invalidation_log.jsonl"
+
+
+def _append_invalidation_log(
+    ctx: RunContext,
+    *,
+    stage: str,
+    mode: str,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "stage": stage,
+        "mode": mode,
+        "detail": detail or {},
+    }
+    try:
+        path = ctx.path(INVALIDATION_LOG_REL)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")
     try:
         from interview_mux.delivery_guardrails import (
+            delivery_epoch_locked,
             invalidation_is_structural,
             maybe_restore_master_bundle,
             record_wasted_work,
         )
 
+        if invalidation_is_structural(ctx, stage) and delivery_epoch_locked(ctx):
+            raise RuntimeError(
+                f"delivery epoch locked — operator unlock required before structural "
+                f"invalidation from {stage}"
+            )
         if not invalidation_is_structural(ctx, stage):
             unmark_stage_only(ctx, stage)
             restored = maybe_restore_master_bundle(ctx, stage=stage)
@@ -1115,16 +1165,26 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
                     "restored": list(restored)[:20],
                 },
             )
+            _append_invalidation_log(ctx, stage=stage, mode="heal_only")
             return {"ok": True, "cleared_from": stage, "mode": "heal_only"}
         record_wasted_work(ctx, event="orphan", stage=stage, detail={"mode": "structural"})
+    except RuntimeError:
+        raise
     except Exception:
         pass
     order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    try:
+        from interview_mux.journey_state import reconcile_milestones_after_invalidation
+
+        reconcile_milestones_after_invalidation(ctx)
+    except Exception:
+        pass
     ctx.clear_from(stage, order)
     append_ledger(
         ctx,
         {"kind": "invalidate_downstream", "identity": "invalidate_downstream", "stage": stage},
     )
+    _append_invalidation_log(ctx, stage=stage, mode="structural")
     return {"ok": True, "cleared_from": stage}
 
 

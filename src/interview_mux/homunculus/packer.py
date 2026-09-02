@@ -100,12 +100,22 @@ def pack_conductor_context(
         pipeline_mode = resolve_effective_mode(ctx)
     except Exception:
         pipeline_mode = None
+    legal_next: list[str] = []
+    try:
+        from interview_mux.delivery_guardrails import filter_delivery_candidates
+        from interview_mux.homunculus.agenda import remaining_stages
+
+        rem = remaining_stages(ctx, "delivery")
+        legal_next = filter_delivery_candidates(ctx, rem)[:12]
+    except Exception:
+        legal_next = []
     blob = json.dumps(
         {
             "delivery_analysis_prereqs": prereq_rows,
             "resolve_stage_plan": stage_plan,
             "delivery_readiness": readiness,
             "pipeline_mode": pipeline_mode,
+            "legal_next_stages": legal_next,
         },
         ensure_ascii=False,
         default=str,

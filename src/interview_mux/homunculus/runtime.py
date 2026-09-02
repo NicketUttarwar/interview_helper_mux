@@ -181,12 +181,47 @@ def dispatch_stage(
         from datetime import datetime, timezone
 
         from interview_mux.delivery_guardrails import (
+            EXPENSIVE_STAGES,
+            G1_CONSUMERS,
             mix_epoch_block,
             record_wasted_work,
             stamp_delivery_epoch,
             upstream_stale_blockers,
             vo_synthesize_stability_block,
         )
+        from interview_mux.stage_input_checks import StageInputError, collect_stage_input_issues
+
+        if stage in EXPENSIVE_STAGES or stage in G1_CONSUMERS:
+            issues = [
+                issue
+                for issue in collect_stage_input_issues(ctx, stage)
+                if issue.kind != "write_approval"
+            ]
+            if issues:
+                record_wasted_work(
+                    ctx,
+                    event="avoided_expensive_start",
+                    stage=stage,
+                    detail={"reason": issues[0].message},
+                )
+                try:
+                    from interview_mux.recovery_controller import handle_stage_failure
+
+                    result = handle_stage_failure(
+                        ctx,
+                        stage,
+                        RuntimeError(issues[0].message),
+                    )
+                    if result.status == "recovered" and result.resume_stage:
+                        return dispatch_stage(
+                            ctx,
+                            result.resume_stage,
+                            impl,
+                            source=source,
+                        )
+                except Exception:
+                    pass
+                raise StageInputError(stage, issues)
 
         if stage == "vo_synthesize":
             vo_b = vo_synthesize_stability_block(ctx)
@@ -402,6 +437,16 @@ def recovery_allowed(
 
         if has_classified_playbook(cls):
             return True
+    if cls in {
+        "vo_seated_coverage",
+        "vo_contract_repair",
+        "upstream_stale_rerun",
+        "air_script_omit_sync",
+        "layup_stale",
+        "selection_edl_order_drift",
+        "assembly_not_rendered_from_current_edl",
+    }:
+        return True
     # G0-locked mixed diarization: deterministic dominant-role write, no conductor packet.
     if stage == "speaker_roles":
         return True

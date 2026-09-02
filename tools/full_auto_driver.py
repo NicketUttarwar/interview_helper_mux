@@ -165,6 +165,46 @@ def _forensics_stall_maybe_exit(stage: str, reason: str, *, error_class: str = "
         return False
 
 
+def _clear_needs_operator_meta(ctx: Any) -> None:
+    def _clear(meta: dict[str, Any]) -> None:
+        meta.pop("needs_operator", None)
+        meta.pop("needs_operator_stage", None)
+        meta.pop("needs_operator_reason", None)
+
+    ctx.mutate_run_meta(_clear)
+
+
+def _homunculus_continue_on_needs_operator(stage: str, reason: str) -> bool:
+    """Unattended homunculus 0.1.0: recover delivery contradictions instead of halting."""
+    try:
+        from interview_mux.operator_gates import should_stamp_needs_operator
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if should_stamp_needs_operator(stage, reason, meta=meta if isinstance(meta, dict) else {}):
+            return False
+        _clear_needs_operator_meta(ctx)
+        return True
+    except Exception:
+        return False
+
+
+def _stop_timeline_optimizer_if_driver_idle() -> None:
+    try:
+        from interview_mux.run_context import RunContext
+        from interview_mux.timeline_optimizer.daemon import is_optimizer_running, stop_optimizer_daemon
+
+        ctx = RunContext(RUN_ID, create=False)
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        active = bool((meta or {}).get("partial_auto_driver_active") or (meta or {}).get("full_auto"))
+        if not active and is_optimizer_running(ctx):
+            stop_optimizer_daemon(ctx)
+            log("timeline optimizer stopped — driver inactive")
+    except Exception:
+        pass
+
+
 def pause_needs_operator(stage: str, reason: str) -> str:
     """Cap-reached delivery HARD → stamp needs_operator; do not SystemExit or re-exec body."""
     if _forensics_mode():
@@ -181,6 +221,16 @@ def pause_needs_operator(stage: str, reason: str) -> str:
             f"forensics: heal cap at {stage} — continuing ({reason[:200]})"
         )
         _forensics_clear_heal_cap(stage)
+        return "continue"
+    if _homunculus_continue_on_needs_operator(stage, reason):
+        log_decision(
+            "major",
+            stage=stage,
+            action="homunculus_continue",
+            reason="needs_operator_suppressed",
+            detail=reason[:240],
+        )
+        log(f"homunculus recovery: suppressing needs_operator at {stage}")
         return "continue"
     producer = ""
     try:
@@ -7049,6 +7099,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log("forensics: suppressing needs_operator gate pause — continuing heal loop")
                     _sync_forensics_identical_halts()
                     continue
+                stage = str(job.get("stage") or job.get("current_stage") or "")
+                msg = str(job.get("message") or job.get("error") or "needs_operator")
+                if _homunculus_continue_on_needs_operator(stage, msg):
+                    log("homunculus recovery: suppressing needs_operator gate pause — continuing heal loop")
+                    time.sleep(10)
+                    continue
                 log("paused needs_operator — stopping Full-auto heal loop")
                 return {
                     "status": "needs_operator",
@@ -9888,6 +9944,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 ],
                             }
                         )
+                    from interview_mux.air_script import seated_vo_line_ids
+                    from interview_mux.mastering_plan_loader import load_plan_raw
+                    from interview_mux.vo_contract import ensure_gap_line_on_air
+
+                    _heal_plan = (
+                        load_plan_raw(ctx)
+                        if (root / "mastering" / "mastering_plan.json").is_file()
+                        else {}
+                    )
+                    _heal_seated = seated_vo_line_ids(_heal_plan)
                     for line in lines:
                         if isinstance(line, dict) and str(line.get("line_id") or "") in missing_ids:
                             if str(line.get("delivery") or "").lower() not in {
@@ -9895,7 +9961,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 "synthesize",
                             }:
                                 line["delivery"] = "synthesize"
-                            line.pop("skipped_optional", None)
+                            lid = str(line.get("line_id") or "")
+                            if lid in _heal_seated:
+                                line.update(ensure_gap_line_on_air(line))
+                            else:
+                                line.pop("skipped_optional", None)
                     edl_path = root / "master" / "edl.json"
                     if edl_path.is_file():
                         try:
@@ -9921,7 +9991,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     "synthesize",
                                 }:
                                     line["delivery"] = "synthesize"
-                                line.pop("skipped_optional", None)
+                                lid_sync = str(line.get("line_id") or "")
+                                if lid_sync in _heal_seated:
+                                    line.update(ensure_gap_line_on_air(line))
+                                else:
+                                    line.pop("skipped_optional", None)
                                 voice = str(clip.get("voice_speaker_id") or "").strip()
                                 if voice:
                                     line["voice_speaker_id"] = voice
@@ -11765,6 +11839,14 @@ def main() -> int:
         if pipeline_complete():
             return finish_complete_run()
         try:
+            from interview_mux.delivery_guardrails import reconcile_delivery_batch
+            from interview_mux.run_context import RunContext
+
+            reconcile_delivery_batch(RunContext(RUN_ID, create=False))
+        except Exception:
+            pass
+        _stop_timeline_optimizer_if_driver_idle()
+        try:
             heal_stage_done_markers()
             maybe_proactive_g1_synthesize()
             bodies = build_bodies()
@@ -11822,9 +11904,13 @@ def main() -> int:
                     log("partial-auto: needs_operator while G0 open — waiting for operator")
                     if wait_for_operator_g0():
                         continue
+                stage = str(job.get("stage") or job.get("current_stage") or "")
+                msg = str(job.get("message") or job.get("error") or "needs_operator")
+                if _homunculus_continue_on_needs_operator(stage, msg):
+                    log("homunculus recovery: job needs_operator — continuing driver loop")
+                    time.sleep(10)
+                    continue
                 if _forensics_mode() and not is_partial_auto():
-                    stage = str(job.get("stage") or job.get("current_stage") or "")
-                    msg = str(job.get("message") or job.get("error") or "needs_operator")
                     if _forensics_stall_maybe_exit(stage, msg):
                         return 1
                     log("forensics: job needs_operator — sync halts and continuing driver loop")

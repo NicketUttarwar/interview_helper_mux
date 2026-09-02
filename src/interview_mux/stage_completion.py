@@ -131,6 +131,17 @@ def stage_artifact_incompleteness(
                 return f"G1 VO pickups missing: {', '.join(missing_g1[:4])}"
         except Exception:
             pass
+        try:
+            from interview_mux.vo_contract import seated_vo_missing_ids
+
+            missing_seated = seated_vo_missing_ids(ctx)
+            if missing_seated:
+                return (
+                    "seated synthesize VO missing WAV: "
+                    + ", ".join(missing_seated[:4])
+                )
+        except Exception:
+            pass
     if stage_id in {
         "music_palette_compose",
         "sfx_prompt_craft",

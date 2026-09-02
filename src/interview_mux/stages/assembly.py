@@ -849,15 +849,26 @@ def resync_required_synthesize_wavs(ctx: RunContext, gap_report: dict) -> list[s
     except Exception:
         framing_active = False
 
+    from interview_mux.air_script import seated_vo_line_ids
+    from interview_mux.mastering_plan_loader import load_plan_raw
+    from interview_mux.vo_contract import gap_line_requires_synthesis
+
+    plan = load_plan_raw(ctx) if ctx.artifact_exists("mastering/mastering_plan.json") else {}
+    seated = seated_vo_line_ids(plan)
+
     notes: list[str] = []
     for line in gap_report.get("interviewer_lines") or []:
-        if not isinstance(line, dict) or line.get("skipped_optional"):
+        if not isinstance(line, dict):
             continue
         if str(line.get("delivery") or "").lower() != "synthesize":
             continue
-        requiredish = is_episode_orientation(line) or bool(line.get("required"))
-        if not framing_active and not requiredish:
+        if not gap_line_requires_synthesis(line, seated):
             continue
+        if not framing_active:
+            requiredish = is_episode_orientation(line) or bool(line.get("required"))
+            lid = str(line.get("line_id") or "")
+            if lid not in seated and not requiredish:
+                continue
         path = resolve_vo_pickup_path(ctx, line)
         matches, reason = synthesis_entry_matches_line(ctx, line)
         if path is not None and path.is_file() and matches:

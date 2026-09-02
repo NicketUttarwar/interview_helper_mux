@@ -81,6 +81,13 @@ def _validate_chapters(selection: dict[str, Any]) -> list[str]:
     if not isinstance(chapters, list):
         return errors
 
+    ordered = [
+        str(sid)
+        for sid in (selection.get("ordered_segment_ids") or [])
+        if sid
+    ]
+    order_index = {sid: idx for idx, sid in enumerate(ordered)}
+
     for index, chapter in enumerate(chapters):
         if not isinstance(chapter, dict):
             continue
@@ -88,6 +95,56 @@ def _validate_chapters(selection: dict[str, Any]) -> list[str]:
         segment_ids = chapter.get("segment_ids")
         if not segment_ids:
             errors.append(f'Chapter "{label}" has zero segments in selection.json')
+            continue
+        ids = [str(sid) for sid in segment_ids if sid]
+        idxs = [order_index[sid] for sid in ids if sid in order_index]
+        if len(idxs) != len(ids):
+            missing = [sid for sid in ids if sid not in order_index]
+            errors.append(
+                f'Chapter "{label}" references segments not in ordered_segment_ids: '
+                f"{missing[:4]}"
+            )
+            continue
+        if idxs != sorted(idxs):
+            errors.append(
+                f'Chapter "{label}" segments are not contiguous in ordered_segment_ids'
+            )
+    return errors
+
+
+def _validate_reverse_tape_budget(ctx: RunContext, selection: dict[str, Any]) -> list[str]:
+    from interview_mux.config import merged_config
+
+    mastering = merged_config().get("mastering") or {}
+    air = mastering.get("air_order") if isinstance(mastering.get("air_order"), dict) else {}
+    max_rev = int(air.get("max_reverse_gap_ms", 0) or 0)
+    if max_rev <= 0 or not ctx.artifact_exists("segments/manifest.json"):
+        return []
+    manifest = ctx.read_json("segments/manifest.json")
+    by_id = {
+        str(row.get("segment_id")): row
+        for row in (manifest.get("segments") or [])
+        if isinstance(row, dict) and row.get("segment_id")
+    }
+    ordered = [
+        str(sid)
+        for sid in (selection.get("ordered_segment_ids") or [])
+        if sid
+    ]
+    errors: list[str] = []
+    prev_end: int | None = None
+    for sid in ordered:
+        row = by_id.get(sid)
+        if not isinstance(row, dict):
+            continue
+        start = int(row.get("start_ms") or 0)
+        end = int(row.get("end_ms") or start)
+        if prev_end is not None and start < prev_end - max_rev:
+            errors.append(
+                f"Reverse tape jump exceeds {max_rev}ms before {sid} "
+                f"(gap_ms={start - prev_end})"
+            )
+        prev_end = end
     return errors
 
 
@@ -180,5 +237,6 @@ def validate_flow1_narrative(
         selection = ctx.read_json("master/selection.json")
         if isinstance(selection, dict):
             errors.extend(_validate_chapters(selection))
+            errors.extend(_validate_reverse_tape_budget(ctx, selection))
 
     return errors

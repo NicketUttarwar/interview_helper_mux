@@ -614,13 +614,20 @@ def test_mix_missing_theme_wav_resumes_palette(tmp_path: Path, monkeypatch):
     assert result.status == "recovered"
     assert result.playbook_id == "generate_sdp_theme_wavs"
     assert result.resume_stage == "music_palette_compose"
-    second = handle_stage_failure(
+    for _ in range(2):
+        again = handle_stage_failure(
+            ctx,
+            "mix",
+            RuntimeError("Mix gate: missing WAV for asset_id show_theme_v1_motif"),
+        )
+        assert again.status == "recovered"
+    exhausted = handle_stage_failure(
         ctx,
         "mix",
         RuntimeError("Mix gate: missing WAV for asset_id show_theme_v1_motif"),
     )
-    assert second.status == "escalate"
-    assert second.resume_stage == "music_palette_compose"
+    assert exhausted.status == "escalate"
+    assert exhausted.resume_stage in {"mix", "music_palette_compose"}
 
 
 def test_overlapping_source_playbook_merges_and_resumes_edl(tmp_path: Path) -> None:

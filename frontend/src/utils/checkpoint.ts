@@ -67,6 +67,10 @@ export function findPendingFocusStage(
 ): string | null {
   if (!run) return null;
 
+  if (run.meta?.needs_operator && run.meta?.needs_operator_stage) {
+    return String(run.meta.needs_operator_stage);
+  }
+
   if (run.transcript_review_pending) return "transcript_review";
   if (run.gap_framing_decision_pending) return "missing_framing";
 

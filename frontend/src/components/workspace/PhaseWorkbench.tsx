@@ -44,6 +44,10 @@ export function PhaseWorkbench() {
 
   const activePhase = useMemo(() => {
     if (!run) return V2_PHASES[0];
+    if (run.meta?.needs_operator && run.meta?.needs_operator_stage) {
+      const byOp = phaseForStage(String(run.meta.needs_operator_stage));
+      if (byOp) return byOp;
+    }
     if (selectedStageId) {
       const byStage = phaseForStage(selectedStageId);
       if (byStage) return byStage;

@@ -26,6 +26,10 @@ Later minors (`0.2.0`, …) are extra slider stops. **New runs default to the hi
 - Media-IP CTA omit is flagship-on-the-fly (ranking / compose packets). Host executes drops, recuts, never-touch QC. Logs only — no extra GUI gate. 0.0.0 unchanged.
 - Halt writes `mastering/homunculus/limit_exhausted.json`. Ship stays blocked.
 
+## Unattended recovery (partial-auto + full-auto)
+
+Homunculus **0.1.0** owns delivery failure recovery for unattended runs. `needs_operator` is stamped only for operator journey gates (G0 transcript, voice reference, **G-DeliveryUnlock**, G-Publish) — not for VO coverage, stale upstream, or seed-order blocks. Classified playbooks in `recovery_controller.py` (`vo_seated_coverage`, `vo_contract_repair`, `upstream_stale_rerun`, …) run via `handle_stage_failure` with a tiered retry budget (3× transient, 1× structural). `MUX_FORENSICS` is a legacy driver shim; new runs rely on this policy instead.
+
 ## Not tools
 
 Terraform, AWS CLI, `bootstrap_venv`, pytest, `build_gui`, codegen/audit scripts.

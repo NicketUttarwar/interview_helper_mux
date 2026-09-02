@@ -304,6 +304,34 @@ def _resume_after_operator_gate(
     return out
 
 
+def reconcile_false_complete_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
+    """Invalidate stale complete jobs when needs_operator or artifacts are incomplete."""
+    if str(job.get("status")) != "complete":
+        return job
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if isinstance(meta, dict) and meta.get("needs_operator"):
+        out = dict(job)
+        out["status"] = "needs_operator"
+        out["stage"] = meta.get("needs_operator_stage")
+        out["message"] = str(meta.get("needs_operator_reason") or "needs_operator")
+        return out
+    stage_id = str(job.get("stage") or job.get("current_stage") or "")
+    if stage_id:
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            reason = stage_artifact_incompleteness(ctx, stage_id)
+            if reason:
+                out = dict(job)
+                out["status"] = "error"
+                out["message"] = reason
+                out["stage"] = stage_id
+                return out
+        except Exception:
+            pass
+    return job
+
+
 def sanitize_gui_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     """Drop stale reuse pause flags and backfill candidates from run_meta / disk."""
     if not job:
@@ -478,6 +506,10 @@ def reconcile_job_if_stale(run_id: str, *, lock_held: bool) -> dict[str, Any]:
     if reconciled is not data:
         ctx.write_json("gui_job.json", reconciled)
         data = reconciled
+    false_complete = reconcile_false_complete_job(ctx, data)
+    if false_complete is not data:
+        ctx.write_json("gui_job.json", false_complete)
+        data = false_complete
     data["run_id"] = run_id
     return data
 
