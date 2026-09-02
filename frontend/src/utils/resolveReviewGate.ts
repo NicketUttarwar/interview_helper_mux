@@ -7,7 +7,9 @@ export type ReviewGateKind =
   | "transcript_review"
   | "llm_gate"
   | "sfx_prompt"
-  | "g1_vo";
+  | "g1_vo"
+  | "vo_contract"
+  | "vo_coverage";
 
 export interface ReviewGateSpec {
   kind: ReviewGateKind;
@@ -44,6 +46,18 @@ export function resolveReviewGateSpec(
       run.job?.stage === stage.id &&
       stage.id !== "transcript_review")
   ) {
+    const blockMsg = String(
+      run.journey?.blocking?.message || run.job?.message || "",
+    ).toLowerCase();
+    if (
+      blockMsg.includes("vo contract") ||
+      blockMsg.includes("missing from gap_report")
+    ) {
+      return { kind: "vo_contract" };
+    }
+    if (blockMsg.includes("vo coverage not rendered")) {
+      return { kind: "vo_coverage" };
+    }
     return { kind: "llm_gate" };
   }
 

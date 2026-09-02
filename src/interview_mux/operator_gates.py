@@ -21,6 +21,36 @@ _OPERATOR_REASON_MARKERS: tuple[str, ...] = (
     "operator publish",
 )
 
+# Classified artifact blocks — homunculus/driver should ladder-recover, not stamp needs_operator.
+AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
+    "vo contract",
+    "missing from gap_report",
+    "vo coverage not rendered",
+    "stale upstream",
+    "layup plan stale",
+    "nugget_layup_plan_stale",
+    "selection_edl_order_drift",
+    "opening_slot_conflict",
+    "air_script",
+)
+
+
+def is_automated_classified_block(reason: str | None) -> bool:
+    low = str(reason or "").lower()
+    return any(marker in low for marker in AUTOMATED_CLASSIFIED_MARKERS)
+
+
+def is_operator_must_act(stage: str | None, reason: str | None = None) -> bool:
+    """True for gates that require human operator (G0, G-Publish, unlock, voice ref)."""
+    return is_operator_gate(stage, reason)
+
+
+def is_automated_classified(stage: str | None, reason: str | None = None) -> bool:
+    """True when block should be handled by remediation ladder, not operator pause."""
+    if is_operator_gate(stage, reason):
+        return False
+    return is_automated_classified_block(reason)
+
 
 def is_operator_gate(stage: str | None, reason: str | None = None) -> bool:
     """True when the pause requires a human operator (not homunculus recovery)."""

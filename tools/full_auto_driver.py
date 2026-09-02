@@ -2955,35 +2955,99 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
         detail=msg[:200],
     )
 
+    if (
+        "vo contract" in low
+        or ("seated line" in low and "missing from gap_report" in low)
+        or ("seated synthesize" in low and ("skip/omit" in low or "skipped_optional" in low))
+    ):
+        try:
+            from interview_mux.execution_stall import mark_tier_progress, record_execution_stall
+            from interview_mux.remediation_framework import run_classified_ladder
+            from interview_mux.run_context import RunContext
+
+            ctx_vc = RunContext(RUN_ID, create=False)
+            stall = record_execution_stall(
+                ctx_vc,
+                stage=stage or "nugget_layup_compose",
+                reason=msg,
+                error_class="vo_contract_repair",
+            )
+            outcome = run_classified_ladder(
+                ctx_vc,
+                consumer_stage=stage or "nugget_layup_compose",
+                exc=RuntimeError(msg),
+                error_class="vo_contract_repair",
+            )
+            if outcome.recovered:
+                mark_tier_progress(ctx_vc, outcome.playbook_id)
+                record_execution_stall(
+                    ctx_vc,
+                    stage=stage or "nugget_layup_compose",
+                    reason="recovered",
+                    error_class="vo_contract_repair",
+                )
+                dest = outcome.resume_stage or "nugget_layup_compose"
+                log(f"vo_contract gate ladder recovered — resume {dest}")
+                mode = "delivery" if dest in DELIVERY_ORDER else "analysis"
+                execute({"mode": mode, "from_stage": dest})
+                return "continue"
+            if stall.get("should_escalate"):
+                log(f"vo_contract gate ladder exhausted — {outcome.detail}")
+                return pause_needs_operator(
+                    stage or "nugget_layup_compose",
+                    f"VO contract ladder exhausted: {outcome.detail[:200]}",
+                )
+            dest = outcome.resume_stage or try_product_recovery(stage or "nugget_layup_compose", msg)
+            if dest:
+                execute({"mode": "delivery", "from_stage": dest})
+                return "continue"
+        except Exception as exc:
+            log(f"vo_contract gate ladder: {exc}")
+
     if "vo coverage not rendered" in low:
         try:
+            from interview_mux.execution_stall import mark_tier_progress, record_execution_stall
+            from interview_mux.remediation_framework import run_classified_ladder
             from interview_mux.run_context import RunContext
-            from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
-            from interview_mux.vo_synthesis_audit import backfill_missing_synthesis_entries
 
-            ctx = RunContext(RUN_ID, create=False)
-            backfilled = backfill_missing_synthesis_entries(ctx)
-            still_missing = compact_vo_coverage_stale_or_missing(ctx)
-            for sid in ("edl_narrative_audit", "edl", "assembly_preview", "mix"):
-                (ctx.run_dir / ".stage_done" / sid).unlink(missing_ok=True)
-            if still_missing:
-                log(
-                    "edl_narrative gate: VO still missing/stale after audit backfill "
-                    f"{still_missing[:4]} — resume vo_synthesize"
+            ctx_vc = RunContext(RUN_ID, create=False)
+            consumer = stage or "edl_narrative_audit"
+            stall = record_execution_stall(
+                ctx_vc,
+                stage=consumer,
+                reason=msg,
+                error_class="vo_seated_coverage",
+            )
+            outcome = run_classified_ladder(
+                ctx_vc,
+                consumer_stage=consumer,
+                exc=RuntimeError(msg),
+                error_class="vo_seated_coverage",
+            )
+            if outcome.recovered:
+                mark_tier_progress(ctx_vc, outcome.playbook_id)
+                record_execution_stall(
+                    ctx_vc,
+                    stage=consumer,
+                    reason="recovered",
+                    error_class="vo_seated_coverage",
                 )
-                execute({"mode": "delivery", "from_stage": "vo_synthesize"})
-            else:
-                if backfilled:
-                    log(
-                        "edl_narrative gate: backfilled synthesis audit for "
-                        f"{backfilled[:6]} — rebuild edl"
-                    )
-                else:
-                    log("edl_narrative gate: VO audit clear — rebuild edl")
-                execute({"mode": "delivery", "from_stage": "edl"})
-            return "continue"
+                dest = outcome.resume_stage or "vo_synthesize"
+                log(f"vo_coverage gate ladder recovered — resume {dest}")
+                execute({"mode": "delivery", "from_stage": dest})
+                return "continue"
+            if stall.get("should_escalate"):
+                log(f"vo_coverage gate ladder exhausted — {outcome.detail}")
+                return pause_needs_operator(
+                    consumer,
+                    f"VO coverage ladder exhausted: {outcome.detail[:200]}",
+                )
+            dest = outcome.resume_stage or try_product_recovery(consumer, msg)
+            if dest:
+                execute({"mode": "delivery", "from_stage": dest})
+                return "continue"
         except Exception as exc:
-            log(f"edl VO coverage gate heal: {exc}")
+            log(f"vo_coverage gate ladder: {exc}")
 
     if "edl_qc strict" in low and "edl_narrative_qc" not in low:
         overlap = "overlapping source range" in low
@@ -7080,11 +7144,33 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             continue
         if status in {"gate", "needs_operator"}:
             gate_msg = str(job.get("message") or "")[:200]
+            gate_stage = str(job.get("stage") or job.get("current_stage") or "")
             if gate_msg == last_gate:
                 gate_retries += 1
             else:
                 last_gate = gate_msg
                 gate_retries = 0
+            if gate_retries >= 3 and is_partial_auto():
+                try:
+                    from interview_mux.operator_gates import is_automated_classified
+                    from interview_mux.remediation_framework import run_classified_ladder
+                    from interview_mux.run_context import RunContext
+
+                    if is_automated_classified(gate_stage, gate_msg):
+                        ctx_g = RunContext(RUN_ID, create=False)
+                        outcome = run_classified_ladder(
+                            ctx_g,
+                            consumer_stage=gate_stage or "delivery",
+                            exc=RuntimeError(gate_msg),
+                        )
+                        if outcome.recovered:
+                            gate_retries = 0
+                            dest = outcome.resume_stage or gate_stage
+                            mode = "delivery" if dest in DELIVERY_ORDER else "analysis"
+                            execute({"mode": mode, "from_stage": dest})
+                            continue
+                except Exception as exc:
+                    log(f"gate ladder escalation: {exc}")
             if gate_retries >= 10:
                 log(f"gate stuck: {gate_msg}")
                 return job

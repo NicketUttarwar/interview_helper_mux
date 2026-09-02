@@ -174,6 +174,27 @@ def record_class_failure(
     resume_attempted: str = "",
 ) -> dict[str, Any]:
     """Increment the persisted counter for a classified (stage, error_class) pair."""
+    try:
+        from interview_mux.execution_contract import failure_in_active_policy_cascade
+
+        if failure_in_active_policy_cascade(
+            ctx, failed_stage=failed_stage, producer=error_class
+        ):
+            sig = failure_signature_by_class(failed_stage=failed_stage, error_class=error_class)
+            doc = read_identical_failures(ctx)
+            prev = dict((doc.get("signatures") or {}).get(sig) or {})
+            return {
+                "signature": sig,
+                "failed_stage": str(failed_stage or ""),
+                "error_class": str(error_class or ""),
+                "count": int(prev.get("count") or 0),
+                "halt_after": halt_after(),
+                "halt": False,
+                "cascade_suppressed": True,
+                "updated_at": _utc_now(),
+            }
+    except Exception:
+        pass
     sig = failure_signature_by_class(failed_stage=failed_stage, error_class=error_class)
     doc = read_identical_failures(ctx)
     signatures = dict(doc.get("signatures") or {})
@@ -224,6 +245,30 @@ def record_identical_failure(
         from interview_mux.publishability_boundary import failure_in_active_repair_cascade
 
         if failure_in_active_repair_cascade(
+            ctx, failed_stage=failed_stage, producer=producer
+        ):
+            sig = failure_signature(
+                failed_stage=failed_stage, producer=producer, reason=reason
+            )
+            doc = read_identical_failures(ctx)
+            prev = dict((doc.get("signatures") or {}).get(sig) or {})
+            return {
+                "signature": sig,
+                "failed_stage": str(failed_stage or ""),
+                "producer": str(producer or ""),
+                "reason": normalize_reason(reason),
+                "count": int(prev.get("count") or 0),
+                "halt_after": halt_after(),
+                "halt": False,
+                "cascade_suppressed": True,
+                "updated_at": _utc_now(),
+            }
+    except Exception:
+        pass
+    try:
+        from interview_mux.execution_contract import failure_in_active_policy_cascade
+
+        if failure_in_active_policy_cascade(
             ctx, failed_stage=failed_stage, producer=producer
         ):
             sig = failure_signature(

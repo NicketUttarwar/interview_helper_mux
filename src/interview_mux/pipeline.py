@@ -346,6 +346,12 @@ def maybe_finalize_shared_analysis(ctx: RunContext, *, strict: bool = False) -> 
             "completion": completion,
         },
     )
+    try:
+        from interview_mux.execution_invariants import run_execution_invariants
+
+        run_execution_invariants(ctx, reason="analysis_to_delivery", consumer_stage="topic_coverage_audit")
+    except Exception:
+        pass
     ctx.log(
         "Shared analysis complete — delivery stages unlocked.",
         level="success",

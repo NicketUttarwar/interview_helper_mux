@@ -578,7 +578,7 @@ def create_app() -> FastAPI:
         if body.run_id and RunContext.exists(body.run_id):
             raise HTTPException(409, f"Execution already exists: {body.run_id}")
         from interview_mux.full_auto_launch import normalize_run_mode
-        from interview_mux.homunculus.version import normalize_version, stamp_run_meta
+        from interview_mux.homunculus.version import normalize_version, stamp_build_identity, stamp_run_meta
         from interview_mux.podcast_rss.settings import stamp_podcast_meta
         from interview_mux.source_audio_hash import pipeline_wav_path, source_audio_hash_pair
 
@@ -606,6 +606,7 @@ def create_app() -> FastAPI:
         )
         ensure_analysis_workspace(ctx)
         stamp_run_meta(ctx, homunculus_version)
+        stamp_build_identity(ctx)
         stamp_podcast_meta(ctx, podcast_id)
 
         def _stamp_run_mode(meta: dict[str, Any]) -> None:
@@ -1018,7 +1019,23 @@ def create_app() -> FastAPI:
 
             payload = body or {}
             actions = payload.get("actions") or ["restore", "g1", "resume"]
+            consumer_stage = str(payload.get("consumer_stage") or payload.get("stage") or "")
+            message = str(payload.get("message") or "")
             out: dict[str, Any] = {"ok": True}
+            if payload.get("preflight") or consumer_stage or message:
+                from interview_mux.remediation_framework import run_delivery_recover_preflight
+
+                outcome = run_delivery_recover_preflight(
+                    ctx,
+                    consumer_stage=consumer_stage,
+                    message=message,
+                )
+                out["preflight"] = {
+                    "recovered": outcome.recovered,
+                    "playbook_id": outcome.playbook_id,
+                    "resume_stage": outcome.resume_stage,
+                    "detail": outcome.detail,
+                }
             if "restore" in actions:
                 out["restored"] = restore_master_bundle(ctx)
             if "g1" in actions:
@@ -4054,7 +4071,47 @@ def _resilience_payload(ctx: RunContext) -> dict[str, Any]:
         "jobs": jobs[:20],
         "quality_first": True,
         "suggest_delivery_resume": None,
+        "execution_health": _execution_health_payload(ctx),
+        "execution_contract": _execution_contract_payload(ctx),
+        "remediation_plan": _remediation_plan_payload(ctx),
     }
+
+
+def _execution_health_payload(ctx: RunContext) -> dict[str, Any] | None:
+    rel = "operator/execution_health.json"
+    if not ctx.artifact_exists(rel):
+        return None
+    try:
+        doc = ctx.read_json(rel)
+        return doc if isinstance(doc, dict) else None
+    except Exception:
+        return None
+
+
+def _execution_contract_payload(ctx: RunContext) -> dict[str, Any] | None:
+    rel = "operator/execution_contract.json"
+    if not ctx.artifact_exists(rel):
+        return None
+    try:
+        doc = ctx.read_json(rel)
+        return doc if isinstance(doc, dict) else None
+    except Exception:
+        return None
+
+
+def _remediation_plan_payload(ctx: RunContext) -> dict[str, Any] | None:
+    try:
+        from interview_mux.remediation_framework import read_active_remediation_plan
+        from interview_mux.execution_contract import read_active_vo_repair_plan
+
+        plan = read_active_remediation_plan(ctx) or read_active_vo_repair_plan(ctx)
+        if not plan and ctx.artifact_exists("operator/vo_coverage_repair_plan.json"):
+            vc = ctx.read_json("operator/vo_coverage_repair_plan.json")
+            if isinstance(vc, dict) and vc.get("active"):
+                plan = vc
+        return plan
+    except Exception:
+        return None
 
 
 def _journey_blocking(

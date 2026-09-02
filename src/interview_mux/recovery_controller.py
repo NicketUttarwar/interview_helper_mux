@@ -165,6 +165,8 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         and ("skip/omit" in msg or "skipped_optional" in msg)
     ):
         return "vo_contract_repair"
+    if "missing from gap_report" in msg or "missing from gap" in msg:
+        return "vo_contract_repair"
     if "stale upstream" in msg or "marked stale" in msg:
         return "upstream_stale_rerun"
     if "air_script" in msg and "drift" in msg:
@@ -794,11 +796,14 @@ def playbook_vo_seated_coverage(ctx: RunContext) -> list[str]:
 
 
 def playbook_vo_contract_repair(ctx: RunContext) -> list[str]:
-    from interview_mux.vo_contract import repair_vo_contract_drift
+    from interview_mux.execution_contract import run_vo_contract_ladder
 
-    changed = repair_vo_contract_drift(ctx)
+    result = run_vo_contract_ladder(ctx, consumer_stage="vo_contract_repair")
     _unmark_stages(ctx, "vo_line_adjudicate", "vo_synthesize")
-    return ["understanding/gap_report.json"] if changed else []
+    artifacts = list(result.artifacts)
+    if result.contract_ok:
+        return artifacts or ["understanding/gap_report.json"]
+    return artifacts
 
 
 def playbook_upstream_stale_rerun(ctx: RunContext, *, consumer_stage: str = "") -> list[str]:
@@ -1158,14 +1163,19 @@ def handle_stage_failure(
             resume_stage = "junction_snip_qa"
         elif error_class == "vo_seated_coverage":
             playbook_id = "vo_seated_coverage"
-            artifacts = playbook_vo_seated_coverage(ctx)
-            recovered = True
-            resume_stage = "vo_synthesize"
+            from interview_mux.execution_contract import run_edl_vo_coverage_ladder
+
+            ladder = run_edl_vo_coverage_ladder(ctx, consumer_stage=stage_id)
+            artifacts = list(ladder.artifacts)
+            recovered = ladder.recovered
+            resume_stage = ladder.resume_stage or "vo_synthesize"
         elif error_class == "vo_contract_repair":
             playbook_id = "vo_contract_repair"
             artifacts = playbook_vo_contract_repair(ctx)
-            recovered = True
-            resume_stage = "vo_line_adjudicate"
+            from interview_mux.vo_contract import validate_vo_contract
+
+            recovered = not validate_vo_contract(ctx)
+            resume_stage = "vo_line_adjudicate" if recovered else stage_id
         elif error_class == "upstream_stale_rerun":
             playbook_id = "upstream_stale_rerun"
             artifacts = playbook_upstream_stale_rerun(ctx, consumer_stage=stage_id)

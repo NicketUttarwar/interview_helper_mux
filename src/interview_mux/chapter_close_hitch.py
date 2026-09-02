@@ -1703,6 +1703,12 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
         },
     )
     ctx.mark_done(STAGE_ID, force=True)
+    try:
+        from interview_mux.remediation_framework import reconcile_invalidated_bundle
+
+        reconcile_invalidated_bundle(ctx, [STAGE_ID], reason="chapter_close_hitch")
+    except Exception:
+        pass
     ctx.log(
         f"chapter_close_hitch: committed remap={len(mapping)} restage={len(restaged)} "
         f"authority={authority.get('adopted')}",

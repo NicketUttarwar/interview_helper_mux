@@ -500,6 +500,12 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
 
 def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
     """G3: unmark hollow producers + reconcile .stage_done at every delivery batch start."""
+    try:
+        from interview_mux.execution_contract import reconcile_execution_contract
+
+        reconcile_execution_contract(ctx, reason="delivery_batch")
+    except Exception:
+        pass
     cleared: list[str] = []
     try:
         from interview_mux.homunculus.agenda import unmark_hollow_delivery_producers

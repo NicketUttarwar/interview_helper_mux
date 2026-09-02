@@ -109,6 +109,13 @@ def check_dispatch(
             return
     except Exception:
         pass
+    try:
+        from interview_mux.remediation_framework import policy_remediation_active
+
+        if policy_remediation_active(ctx):
+            return
+    except Exception:
+        pass
     limits = _cfg()
     cap = _identity_cap(identity, kind)
     used = count_identity(ctx, identity)

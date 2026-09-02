@@ -154,6 +154,33 @@ def brains_public() -> list[dict[str, Any]]:
     ]
 
 
+def stamp_build_identity(ctx: Any) -> None:
+    """Stamp git_sha and driver_build_id for forensics correlation."""
+    import os
+    import subprocess
+
+    git_sha = os.environ.get("MUX_GIT_SHA", "").strip()
+    if not git_sha:
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(ctx.root),
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except Exception:
+            git_sha = ""
+    driver_build = os.environ.get("MUX_DRIVER_BUILD_ID", "").strip() or git_sha[:12]
+
+    def _mut(meta: dict[str, Any]) -> None:
+        if git_sha:
+            meta["git_sha"] = git_sha
+        if driver_build:
+            meta["driver_build_id"] = driver_build
+
+    ctx.mutate_run_meta(_mut)
+
+
 def stamp_run_meta(ctx: Any, raw: str | None = None) -> str:
     """Persist homunculus_version on a new run. Never overwrite mid-run."""
     import os

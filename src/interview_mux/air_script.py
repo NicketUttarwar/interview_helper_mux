@@ -159,7 +159,7 @@ def seated_vo_line_ids(plan: dict[str, Any] | None) -> set[str]:
     seats = script.get("vo_seats")
     if isinstance(seats, dict) and "seated_line_ids" in seats:
         out = {str(x) for x in (seats.get("seated_line_ids") or []) if x}
-        oid = str(seats.get("orientation_id") or "") or _orientation_line_id()
+        oid = str(seats.get("orientation_id") or "").strip()
         if oid:
             out.add(oid)
         return out

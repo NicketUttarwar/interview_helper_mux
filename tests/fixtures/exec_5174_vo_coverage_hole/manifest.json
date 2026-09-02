@@ -1,0 +1,25 @@
+{
+  "description": "Seated vo_layup_seg_019 without synthesis WAV — exec_5174 class",
+  "gap_report": {
+    "interviewer_lines": [
+      {
+        "line_id": "vo_layup_seg_019",
+        "delivery": "synthesize",
+        "required": true,
+        "gap_type": "layup",
+        "text": "Stale layup line.",
+        "placement": "before",
+        "targets_segment_id": "seg_019"
+      }
+    ]
+  },
+  "mastering_plan": {
+    "air_script": {
+      "vo_seats": {
+        "seated_line_ids": ["vo_layup_seg_019"],
+        "omitted_line_ids": [],
+        "orientation_id": null
+      }
+    }
+  }
+}

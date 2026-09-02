@@ -218,6 +218,24 @@ export function StageReviewGateBanner({ spec, stage, onReviewDetail }: Props) {
   switch (spec.kind) {
     case "transcript_review":
       return <TranscriptReviewGateContent onReviewDetail={onReviewDetail} />;
+    case "vo_contract":
+      return (
+        <ReviewGateBannerShell
+          title="VO contract reconcile"
+          lead="Artifact seating disagrees with gap_report. Automated remediation is running or retry the layup/adjudicate chain."
+          ariaLabel="VO contract"
+          testId="vo-contract-banner"
+        />
+      );
+    case "vo_coverage":
+      return (
+        <ReviewGateBannerShell
+          title="VO synthesis required"
+          lead="Seated VO lines need synthesis before EDL narrative audit. Automated remediation will rewind vo_synthesize or open G1."
+          ariaLabel="VO coverage"
+          testId="vo-coverage-banner"
+        />
+      );
     case "llm_gate":
       return (
         <ReviewGateBannerShell

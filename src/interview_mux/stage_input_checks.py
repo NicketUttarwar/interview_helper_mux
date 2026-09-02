@@ -101,23 +101,37 @@ def _try_preflight_recovery(
     """H0c: homunculus 0.1.0 recovery before surfacing delivery StageInputError."""
     try:
         from interview_mux.homunculus.runtime import is_homunculus_run
-        from interview_mux.recovery_controller import classify_error_class, handle_stage_failure
+        from interview_mux.recovery_controller import classify_error_class
+        from interview_mux.remediation_framework import run_classified_ladder
 
         if not is_homunculus_run(ctx):
             return False
         recoverable = any(
             issue.kind in {"vo_contract", "upstream_stale"}
             or "vo coverage" in issue.message.lower()
+            or "vo contract" in issue.message.lower()
             or "stale upstream" in issue.message.lower()
             for issue in issues
         )
         if not recoverable:
             return False
         exc = RuntimeError(issues[0].message)
-        if not classify_error_class(stage_id, exc):
+        error_class = classify_error_class(stage_id, exc)
+        if issue_vo := next((i for i in issues if i.kind == "vo_contract"), None):
+            error_class = error_class or "vo_contract_repair"
+            exc = RuntimeError(issue_vo.message)
+        if any("vo coverage" in i.message.lower() for i in issues):
+            error_class = error_class or "vo_seated_coverage"
+            exc = RuntimeError(next(i.message for i in issues if "vo coverage" in i.message.lower()))
+        if not error_class:
             return False
-        result = handle_stage_failure(ctx, stage_id, exc)
-        return result.status == "recovered"
+        outcome = run_classified_ladder(
+            ctx,
+            consumer_stage=stage_id,
+            exc=exc,
+            error_class=error_class,
+        )
+        return outcome.recovered
     except Exception:
         return False
 
@@ -130,18 +144,23 @@ _VO_CONTRACT_STAGES = frozenset(
 def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]:
     if stage_id not in _VO_CONTRACT_STAGES:
         return []
-    from interview_mux.vo_contract import repair_vo_contract_drift, validate_vo_contract
+    from interview_mux.execution_invariants import run_consumer_invariants
+    from interview_mux.execution_contract import run_vo_contract_ladder
+    from interview_mux.vo_contract import validate_vo_contract
 
+    run_consumer_invariants(ctx, stage_id)
     violations = validate_vo_contract(ctx)
     if violations:
-        repair_vo_contract_drift(ctx)
+        result = run_vo_contract_ladder(ctx, consumer_stage=stage_id)
         violations = validate_vo_contract(ctx)
+        if not violations and result.contract_ok:
+            return []
     if not violations:
         return []
     return [
         StageInputIssue(
             f"VO contract: {violations[0]}",
-            "Run vo_contract_repair or re-run layup/adjudicate before synthesis.",
+            "Run vo_contract ladder or re-run layup/adjudicate before synthesis.",
             kind="vo_contract",
         )
     ]
@@ -516,6 +535,7 @@ def _check_edl_narrative_audit(ctx: RunContext) -> list[StageInputIssue]:
             StageInputIssue(
                 f"VO coverage not rendered: {synth_missing[:4]}",
                 "Re-run vo_synthesize after adjudicate text is final.",
+                kind="vo_coverage",
             )
         )
     return issues

@@ -283,3 +283,9 @@ def reconcile_milestones_after_invalidation(ctx: RunContext) -> None:
         ctx.mutate_run_meta(patch)
     except Exception:
         pass
+    try:
+        from interview_mux.remediation_framework import reconcile_invalidated_bundle
+
+        reconcile_invalidated_bundle(ctx, [], reason="milestone_invalidation")
+    except Exception:
+        pass

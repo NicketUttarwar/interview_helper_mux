@@ -1137,6 +1137,34 @@ def _append_invalidation_log(
 
 
 def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
+    try:
+        from interview_mux.remediation_framework import policy_remediation_active, read_active_remediation_plan
+
+        if policy_remediation_active(ctx):
+            plan = read_active_remediation_plan(ctx)
+            allowed = {str(s) for s in (plan or {}).get("allowed_rerun_stages") or []}
+            if allowed and str(stage) not in allowed:
+                from interview_mux.execution_invalidation_profiles import (
+                    resolve_invalidation_profile,
+                    profile_allows_clear,
+                )
+
+                ec = str((plan or {}).get("error_class") or "")
+                profile = resolve_invalidation_profile(ctx, ec)
+                if profile and not profile_allows_clear(profile, stage):
+                    unmark_stage_only(ctx, stage)
+                append_ledger(
+                    ctx,
+                    {
+                        "kind": "invalidate_downstream",
+                        "identity": "invalidate_downstream",
+                        "stage": stage,
+                        "mode": "remediation_heal_only",
+                    },
+                )
+                return {"ok": True, "cleared_from": stage, "mode": "remediation_heal_only"}
+    except Exception:
+        pass
     _refuse_g0_locked_rerun(ctx, stage, action="invalidate")
     _refuse_delivery_timeline_rewind(ctx, stage, action="invalidate")
     try:
@@ -1185,6 +1213,12 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
         {"kind": "invalidate_downstream", "identity": "invalidate_downstream", "stage": stage},
     )
     _append_invalidation_log(ctx, stage=stage, mode="structural")
+    try:
+        from interview_mux.remediation_framework import reconcile_invalidated_bundle
+
+        reconcile_invalidated_bundle(ctx, [stage], reason="invalidate_downstream")
+    except Exception:
+        pass
     return {"ok": True, "cleared_from": stage}
 
 

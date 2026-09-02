@@ -177,7 +177,15 @@ See [podcast-rss-hosting.md](../cross-cutting/podcast-rss-hosting.md) and [terra
 
 Unattended long runs use the Full-auto soft stack (heal → remutate → re-execute, soft waivers, cover art, local publish, S3 upload). Prefer the **Run mode control on the GUI Start page** when the browser is open (Manual, Full-auto, or Partially accelerated). Decision lines are logged as `[DECISION major|minor]` in `ASSETS/full_auto_console.log`.
 
-**Partially accelerated GUI verify:** Start tab → Partially accelerated → pick podcast + brain + audio → Start. Confirm overlay during automation; overlay lifts at G0 (transcript review) and G-Publish (S3 upload confirm only). Manual and Full-auto regressions unchanged.
+**Mohan partial-auto rerun gate:**
+
+```bash
+./scripts/verify_partial_auto_recovery.sh
+./scripts/scan_mohan_runs.py   # optional forensics on d19c15b58ab4 runs
+```
+
+Before a mohan partial-accelerated ship attempt, confirm `verify_ladder_negative_guards.sh` is green (bounded invalidation + VO coverage ladder negatives).
+
 
 ```bash
 # Interactive GUI (default Manual): pick Full-auto on the Start page, then Start

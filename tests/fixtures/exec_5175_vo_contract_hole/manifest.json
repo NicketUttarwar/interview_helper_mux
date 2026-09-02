@@ -1,0 +1,22 @@
+{
+  "mastering_plan": {
+    "air_script": {
+      "vo_seats": {
+        "seated_line_ids": [],
+        "omitted_line_ids": [],
+        "orientation_id": null
+      }
+    }
+  },
+  "gap_report": {
+    "interviewer_lines": [
+      {
+        "line_id": "vo_layup_seg_001",
+        "delivery": "synthesize",
+        "required": true,
+        "targets_segment_id": "seg_001"
+      }
+    ]
+  },
+  "description": "exec_5175 class hole — orientation seated implicitly but missing from gap"
+}

@@ -83,7 +83,25 @@ def _job_activity_ts(ctx: RunContext, job: dict[str, Any]) -> datetime | None:
     return updated or logged
 
 
-def _live_worker(job: dict[str, Any]) -> bool:
+def _remediation_in_progress(ctx: RunContext) -> bool:
+    try:
+        from interview_mux.execution_contract import read_active_vo_repair_plan
+        from interview_mux.remediation_framework import policy_remediation_active, read_active_remediation_plan
+
+        if not policy_remediation_active(ctx):
+            return False
+        if read_active_remediation_plan(ctx) or read_active_vo_repair_plan(ctx):
+            rel = "operator/execution_health.json"
+            if ctx.artifact_exists(rel):
+                health = ctx.read_json(rel)
+                if isinstance(health, dict) and health.get("remediation_in_progress"):
+                    return True
+            return True
+    except Exception:
+        pass
+    return False
+
+
     """True when a tracked stage subprocess is still running."""
     if worker_pid_alive(job.get("worker_pid")):
         return True
@@ -398,6 +416,8 @@ def _reconcile_job_file(ctx: RunContext, *, lock_held: bool) -> bool:
                 activity = activity.replace(tzinfo=timezone.utc)
             age = (now - activity).total_seconds()
             if age >= _stall_threshold_sec(job=data):
+                if _remediation_in_progress(ctx):
+                    return False
                 _mark_stalled(ctx, data)
                 return True
         return False

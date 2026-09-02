@@ -437,6 +437,17 @@ def recovery_allowed(
 
         if has_classified_playbook(cls):
             return True
+    try:
+        from interview_mux.remediation_framework import read_active_remediation_plan
+        from interview_mux.execution_contract import read_active_vo_repair_plan
+
+        plan = read_active_remediation_plan(ctx) or read_active_vo_repair_plan(ctx)
+        if isinstance(plan, dict):
+            allowed = {str(s) for s in (plan.get("allowed_rerun_stages") or plan.get("invalidate_set") or [])}
+            if stage in allowed or str(plan.get("consumer_stage") or "") == stage:
+                return True
+    except Exception:
+        pass
     if cls in {
         "vo_seated_coverage",
         "vo_contract_repair",

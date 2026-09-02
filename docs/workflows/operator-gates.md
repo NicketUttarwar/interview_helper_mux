@@ -12,7 +12,9 @@ Product stages record bounded repairs in `operator/resilience_report.json` and o
 
 **Partially accelerated (GUI):** Uses the same detached driver and gate auto-accept stack as Full-auto, but **never** auto-accepts G0 (`transcript_review`) or uploads to S3. The operator must complete transcript review and confirm G-Publish upload (or skip). A GUI overlay blocks mis-clicks during automated phases.
 
-Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/runs/{id}/delivery/recover` and `GET /api/runs/{id}/resilience`.
+Delivery helpers (G1 pickups, archive restore, resume suggestion): `POST /api/runs/{id}/delivery/recover` and `GET /api/runs/{id}/resilience`. Pass `preflight: true` with `consumer_stage` / `message` for classified remediation ladder before restore/G1/resume.
+
+**Automated vs operator:** Homunculus 0.1.0 unattended runs stamp `needs_operator` only for G0, G-Publish, G-DeliveryUnlock, and voice-reference markers (`operator_gates.py`). VO contract, **VO coverage** (`vo_coverage` GUI banner), stale upstream, and classified playbook blocks route through `remediation_framework.run_classified_ladder` — not permanent operator pauses.
 
 ## Hard gates
 

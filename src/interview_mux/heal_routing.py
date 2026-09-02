@@ -82,6 +82,10 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
     "opening_slot_conflict": PlaybookSpec(
         resume_stage="edl", action="opening_slot_repair"
     ),
+    "vo_contract_repair": PlaybookSpec(
+        resume_stage="vo_line_adjudicate", action="vo_contract_ladder"
+    ),
+    "vo_seated_coverage": PlaybookSpec(resume_stage="vo_synthesize", action="repair_and_resynth"),
     "missing_g1_pickup": PlaybookSpec(
         resume_stage="vo_synthesize", action="ensure_g1"
     ),
