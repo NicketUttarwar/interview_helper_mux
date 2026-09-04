@@ -321,10 +321,53 @@ def audit_issue_covers_optional_vo_gap(ctx: RunContext, issue: dict) -> bool:
     return bool(record_lines) and len(optional_lines) == len(record_lines)
 
 
+def _g1_vo_cache_fingerprint(ctx: RunContext) -> tuple[float, ...]:
+    """Mtimes that affect check_g1_vo — invalidate when gap/plan/VO pickup change."""
+    rels = (
+        "understanding/gap_report.json",
+        "mastering/mastering_plan.json",
+    )
+    stamps: list[float] = []
+    for rel in rels:
+        try:
+            p = ctx.final_path(*rel.split("/"))
+            stamps.append(p.stat().st_mtime if p.is_file() else 0.0)
+        except OSError:
+            stamps.append(0.0)
+    try:
+        vo_dir = ctx.final_path("vo_pickup")
+        if vo_dir.is_dir():
+            stamps.append(vo_dir.stat().st_mtime)
+            stamps.append(
+                max((p.stat().st_mtime for p in vo_dir.rglob("*") if p.is_file()), default=0.0)
+            )
+        else:
+            stamps.extend([0.0, 0.0])
+    except OSError:
+        stamps.extend([0.0, 0.0])
+    return tuple(stamps)
+
+
+_G1_VO_CACHE: dict[str, tuple[float, tuple[float, ...], list[str]]] = {}
+_G1_VO_CACHE_TTL_SEC = 20.0
+
+
 def check_g1_vo(ctx: RunContext) -> list[str]:
     """Return missing line_ids — presence means resolve_vo_pickup_path succeeds."""
-    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    import time
 
+    now = time.monotonic()
+    fp = _g1_vo_cache_fingerprint(ctx)
+    hit = _G1_VO_CACHE.get(ctx.run_id)
+    if hit and hit[1] == fp and (now - hit[0]) < _G1_VO_CACHE_TTL_SEC:
+        return list(hit[2])
+
+    missing = _check_g1_vo_uncached(ctx)
+    _G1_VO_CACHE[ctx.run_id] = (now, fp, list(missing))
+    return missing
+
+
+def _check_g1_vo_uncached(ctx: RunContext) -> list[str]:
     if not ctx.artifact_exists("understanding/gap_report.json"):
         return []
     report = ctx.read_json("understanding/gap_report.json")

@@ -27,17 +27,26 @@ export interface GPublishReviewState {
   editable?: boolean;
 }
 
+export type GPublishSaveFn = () => Promise<boolean>;
+
 interface Props {
   enabled: boolean;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Parent (Upload) can flush unsaved edits before S3 sync. */
+  onRegisterSave?: (save: GPublishSaveFn | null) => void;
 }
 
 function mediaUrl(runId: string, rel: string): string {
   return `/api/runs/${runId}/audio?path=${encodeURIComponent(rel)}`;
 }
 
-export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props) {
+export function GPublishReviewSection({
+  enabled,
+  onSaved,
+  onDirtyChange,
+  onRegisterSave,
+}: Props) {
   const { runId, showToast, appendClientLog } = useApp();
   const [review, setReview] = useState<GPublishReviewState | null>(null);
   const [title, setTitle] = useState("");
@@ -46,12 +55,22 @@ export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const dirtyRef = useRef(false);
+  const titleRef = useRef(title);
+  const descriptionRef = useRef(description);
+  const selectedCoverRef = useRef(selectedCover);
+  const reviewRef = useRef(review);
+  titleRef.current = title;
+  descriptionRef.current = description;
+  selectedCoverRef.current = selectedCover;
+  reviewRef.current = review;
 
-  const markDirty = (dirty: boolean) => {
-    dirtyRef.current = dirty;
-    onDirtyChange?.(dirty);
+  const markDirty = (next: boolean) => {
+    dirtyRef.current = next;
+    setDirty(next);
+    onDirtyChange?.(next);
   };
 
   const reload = useCallback(async () => {
@@ -74,36 +93,25 @@ export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props
     }
   }, [runId, enabled]);
 
-  useEffect(() => {
-    dirtyRef.current = false;
-    void reload();
-  }, [reload, runId]);
-
-  if (!enabled || !runId) return null;
-
-  const masterRel = review?.master?.relative_path || "master/master.wav";
-  const masterAbs = review?.master?.absolute_path || null;
-  const coverPath = review?.cover?.path || null;
-  const candidates = review?.cover?.candidates || [];
-  const wordCount = description.trim() ? description.trim().split(/\s+/).length : 0;
-
-  const save = async () => {
-    if (!runId) return;
-    const trimmedTitle = title.trim();
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!runId) return false;
+    const trimmedTitle = titleRef.current.trim();
     if (!trimmedTitle) {
       showToast("Episode title is required.", "warning");
-      return;
+      return false;
     }
     setSaving(true);
     try {
       const body: { title: string; description: string; cover_path?: string } = {
         title: trimmedTitle,
-        description: description.trim() || trimmedTitle,
+        description: descriptionRef.current.trim() || trimmedTitle,
       };
+      const current = reviewRef.current;
       const currentCover =
-        review?.cover?.candidates?.find((c) => c.selected)?.path || review?.cover?.path;
-      if (selectedCover && selectedCover !== currentCover) {
-        body.cover_path = selectedCover;
+        current?.cover?.candidates?.find((c) => c.selected)?.path || current?.cover?.path;
+      const cover = selectedCoverRef.current;
+      if (cover && cover !== currentCover) {
+        body.cover_path = cover;
       }
       const updated = await api<GPublishReviewState>(`/api/runs/${runId}/g-publish/review`, {
         method: "PUT",
@@ -117,16 +125,39 @@ export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props
         updated.cover?.candidates?.find((c) => c.selected)?.path || updated.cover?.path || null;
       setSelectedCover(nextCover);
       dirtyRef.current = false;
+      setDirty(false);
       onDirtyChange?.(false);
       appendClientLog("G-Publish review saved", "action", "podcast_publish", "gui.g_publish.review");
       showToast("Publish package updated", "success");
       onSaved?.();
+      return true;
     } catch (err) {
       showToast(String(err), "error");
+      return false;
     } finally {
       setSaving(false);
     }
-  };
+  }, [runId, showToast, appendClientLog, onDirtyChange, onSaved]);
+
+  useEffect(() => {
+    dirtyRef.current = false;
+    setDirty(false);
+    onDirtyChange?.(false);
+    void reload();
+  }, [reload, runId, onDirtyChange]);
+
+  useEffect(() => {
+    onRegisterSave?.(save);
+    return () => onRegisterSave?.(null);
+  }, [onRegisterSave, save]);
+
+  if (!enabled || !runId) return null;
+
+  const masterRel = review?.master?.relative_path || "master/master.wav";
+  const masterAbs = review?.master?.absolute_path || null;
+  const coverPath = review?.cover?.path || null;
+  const candidates = review?.cover?.candidates || [];
+  const wordCount = description.trim() ? description.trim().split(/\s+/).length : 0;
 
   const uploadCover = async (file: File) => {
     if (!runId) return;
@@ -143,6 +174,8 @@ export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props
         throw new Error(text || `Upload failed (${res.status})`);
       }
       dirtyRef.current = false;
+      setDirty(false);
+      onDirtyChange?.(false);
       await reload();
       appendClientLog("G-Publish cover uploaded", "action", "podcast_publish", "gui.g_publish.cover");
       showToast("Cover image updated", "success");
@@ -307,7 +340,8 @@ export function GPublishReviewSection({ enabled, onSaved, onDirtyChange }: Props
               type="button"
               className="btn primary"
               data-testid="g-publish-save-review"
-              disabled={saving || uploading}
+              disabled={saving || uploading || !dirty}
+              title={!dirty ? "No unsaved changes" : saving ? "Saving…" : undefined}
               onClick={() => void save()}
             >
               {saving ? "Saving…" : "Save changes"}

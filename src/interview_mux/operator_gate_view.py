@@ -131,6 +131,8 @@ def resolve_g1_vo_gate(
     ctx: RunContext,
     job: dict[str, Any] | None,
     meta: dict[str, Any],
+    *,
+    missing: list[str] | None = None,
 ) -> GateOperatorView:
     from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
     from interview_mux.gates import check_g1_vo
@@ -140,7 +142,10 @@ def resolve_g1_vo_gate(
     if gap_fill_was_skipped(ctx):
         return GateOperatorView(gate_id="g1_vo_pickup", open=False, stage_status="done")
 
-    missing = check_g1_vo(ctx)
+    # Callers that already paid for check_g1_vo (GUI snapshot) must pass missing=
+    # — that path runs speech QA per VO wav and must not re-run per delivery stage.
+    if missing is None:
+        missing = check_g1_vo(ctx)
     if not missing:
         return GateOperatorView(gate_id="g1_vo_pickup", open=False, stage_status="done")
 
@@ -319,26 +324,38 @@ def build_operator_gates(
     ctx: RunContext,
     job: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
+    *,
+    g1_missing: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     meta = meta if isinstance(meta, dict) else _run_meta(ctx)
     gates = {
         "transcript_review": resolve_transcript_review_gate(ctx, meta),
-        "g1_vo_pickup": resolve_g1_vo_gate(ctx, job, meta),
+        "g1_vo_pickup": resolve_g1_vo_gate(ctx, job, meta, missing=g1_missing),
         "missing_framing": resolve_framing_gate(ctx, meta),
     }
     return {gid: view.to_dict() for gid, view in gates.items()}
 
 
-def g1_journey_clear(ctx: RunContext, meta: dict[str, Any] | None = None) -> bool:
+def g1_journey_clear(
+    ctx: RunContext,
+    meta: dict[str, Any] | None = None,
+    *,
+    g1_missing: list[str] | None = None,
+) -> bool:
     """True when G1 must not block operator journey (optional or automation-owned)."""
     meta = meta if isinstance(meta, dict) else _run_meta(ctx)
-    view = resolve_g1_vo_gate(ctx, None, meta)
+    view = resolve_g1_vo_gate(ctx, None, meta, missing=g1_missing)
     return not view.blocks_journey
 
 
-def g1_stage_status(ctx: RunContext, meta: dict[str, Any] | None = None) -> GateStageStatus:
+def g1_stage_status(
+    ctx: RunContext,
+    meta: dict[str, Any] | None = None,
+    *,
+    g1_missing: list[str] | None = None,
+) -> GateStageStatus:
     meta = meta if isinstance(meta, dict) else _run_meta(ctx)
-    return resolve_g1_vo_gate(ctx, None, meta).stage_status
+    return resolve_g1_vo_gate(ctx, None, meta, missing=g1_missing).stage_status
 
 
 def framing_stage_status(ctx: RunContext, meta: dict[str, Any] | None = None) -> GateStageStatus:

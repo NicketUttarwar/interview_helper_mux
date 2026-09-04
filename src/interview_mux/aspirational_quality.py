@@ -453,8 +453,9 @@ def publish_blocked_by_advisories(ctx: RunContext) -> bool:
     """True when S3/RSS sync must wait for operator consent.
 
     Local encode/package is never blocked by advisories (see
-    ``require_publishable``). Operator Prepare (``g_publish_cleared``) is the
-    consent signal for sync when advisories exist.
+    ``require_publishable``). Consent for sync when advisories exist:
+    Prepare (``g_publish_cleared``), Skip, or explicit Upload
+    (``g_publish_advisory_consent`` — set when the operator clicks Upload).
     """
     if not require_operator_publish_when_advisory():
         return False
@@ -463,9 +464,23 @@ def publish_blocked_by_advisories(ctx: RunContext) -> bool:
     try:
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
         if isinstance(meta, dict) and (
-            meta.get("g_publish_cleared") or meta.get("g_publish_skipped")
+            meta.get("g_publish_cleared")
+            or meta.get("g_publish_skipped")
+            or meta.get("g_publish_advisory_consent")
         ):
             return False
     except Exception:
         pass
     return True
+
+
+def consent_g_publish_advisories(ctx: RunContext) -> None:
+    """Record operator Upload as consent to sync despite quality advisories.
+
+    Does not clear ``g_publish_pending`` — that stays until upload succeeds or Skip.
+    """
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["g_publish_advisory_consent"] = True
+    ctx.write_json("run_meta.json", meta, skip_handoff=True)

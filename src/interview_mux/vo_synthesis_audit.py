@@ -39,6 +39,21 @@ def wav_content_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def committed_rel_for_wav(ctx: RunContext, out_wav: Path) -> str:
+    """Store audit paths as committed run-relative paths (never ``.pending_writes/…``)."""
+    try:
+        rel = out_wav.relative_to(ctx.run_dir).as_posix()
+    except ValueError:
+        return out_wav.as_posix()
+    prefix = ".pending_writes/"
+    if rel.startswith(prefix):
+        rest = rel[len(prefix) :]
+        if "/" in rest:
+            # .pending_writes/<stage>/master/... → master/...
+            rel = rest.split("/", 1)[1]
+    return rel
+
+
 def post_synthesis_qc_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     return vo_speech_qa_cfg(cfg)
 
@@ -175,9 +190,7 @@ def record_synthesis(
     entry: dict[str, Any] = {
         "line_id": line_id,
         "backend": backend,
-        "out_wav": out_wav.relative_to(ctx.run_dir).as_posix()
-        if out_wav and out_wav.is_relative_to(ctx.run_dir)
-        else (str(out_wav) if out_wav else None),
+        "out_wav": committed_rel_for_wav(ctx, out_wav) if out_wav else None,
         "ref_audio": ref_audio,
         "duration_ms": duration_ms,
         "estimated_duration_sec": est,
@@ -301,9 +314,7 @@ def record_recorded_vo(
     entry: dict[str, Any] = {
         "line_id": line_id,
         "backend": backend,
-        "out_wav": out_wav.relative_to(ctx.run_dir).as_posix()
-        if out_wav.is_relative_to(ctx.run_dir)
-        else str(out_wav),
+        "out_wav": committed_rel_for_wav(ctx, out_wav),
         "duration_ms": _wav_duration_ms(out_wav),
         "normalized_script": normalize_script(text),
         "script_hash": script_hash(text),
@@ -415,24 +426,62 @@ def synthesis_entry_matches_line(
     return True, "match"
 
 
+def _candidate_rels_for_out_wav(rel: str) -> list[str]:
+    """Expand a stored ``out_wav`` into committed + pending fallbacks."""
+    raw = str(rel or "").strip().replace("\\", "/").lstrip("./")
+    if not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(item: str) -> None:
+        norm = item.replace("\\", "/").lstrip("./")
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+
+    _add(raw)
+    prefix = ".pending_writes/"
+    if raw.startswith(prefix):
+        rest = raw[len(prefix) :]
+        if "/" in rest:
+            _add(rest.split("/", 1)[1])
+    return out
+
+
 def _audited_wav_path(
     ctx: RunContext, entry: dict[str, Any], line: dict[str, Any]
 ) -> Path | None:
     """Resolve on-disk WAV for an audit row without calling resolve_vo_pickup_path.
 
     ``resolve_vo_pickup_path`` itself consults ``synthesis_entry_matches_line``, so
-    path lookup here must stay acyclic.
+    path lookup here must stay acyclic. Prefer committed paths when audit still
+    names a flushed ``.pending_writes/<stage>/…`` shadow.
     """
     rel = str(entry.get("out_wav") or "").strip()
-    if rel:
-        try:
-            cand = ctx.read_path(*rel.split("/"))
-            if cand.is_file():
-                return cand
-        except Exception:
-            pass
+    for candidate_rel in _candidate_rels_for_out_wav(rel):
+        for resolver in (
+            lambda r=candidate_rel: ctx.final_path(*r.split("/")),
+            lambda r=candidate_rel: ctx.read_path(*r.split("/")),
+            lambda r=candidate_rel: ctx.path(*r.split("/")),
+        ):
+            try:
+                cand = resolver()
+                if cand.is_file():
+                    return cand
+            except Exception:
+                continue
     lid = str(line.get("line_id") or entry.get("line_id") or "").strip()
     seg = str(line.get("targets_segment_id") or "").strip()
+    # Spoken transition WAVs live under master/transitions/, not vo_pickup/.
+    if lid.startswith("tr_"):
+        for sub in ("", "synthesized"):
+            base = ctx.final_path("master", "transitions", sub) if sub else ctx.final_path(
+                "master", "transitions"
+            )
+            candidate = base / f"{lid}.wav"
+            if candidate.is_file():
+                return candidate
     pickup = ctx.final_path("vo_pickup")
     for sub in ("matched", "synthesized", "clean", "normalized", ""):
         base = pickup / sub if sub else pickup
@@ -443,6 +492,42 @@ def _audited_wav_path(
             if candidate.is_file():
                 return candidate
     return None
+
+
+def canonicalize_synthesis_out_wav_paths(ctx: RunContext) -> list[str]:
+    """Rewrite synthesis_report ``out_wav`` to committed files that exist on disk.
+
+    After EDL/staging flush, audits must not keep dead ``.pending_writes/…`` paths.
+    """
+    entries = _load_entries(ctx)
+    if not entries:
+        return []
+    updated: list[str] = []
+    rewritten: list[dict[str, Any]] = []
+    for raw in entries:
+        if not isinstance(raw, dict):
+            rewritten.append(raw)
+            continue
+        row = dict(raw)
+        lid = str(row.get("line_id") or "").strip()
+        line = {"line_id": lid, "targets_segment_id": lid}
+        resolved = _audited_wav_path(ctx, row, line)
+        if resolved is not None and resolved.is_file():
+            new_rel = committed_rel_for_wav(ctx, resolved)
+            old_rel = str(row.get("out_wav") or "").strip()
+            if new_rel and new_rel != old_rel:
+                row["out_wav"] = new_rel
+                updated.append(lid or new_rel)
+        rewritten.append(row)
+    if updated:
+        _persist(ctx, rewritten)
+        ctx.log(
+            f"canonicalized synthesis out_wav for {len(updated)} line(s)",
+            level="info",
+            stage="vo_synthesis_audit",
+            detail={"line_ids": updated[:12]},
+        )
+    return updated
 
 
 def line_vo_wav_path(ctx: RunContext, line: dict[str, Any]) -> Path | None:

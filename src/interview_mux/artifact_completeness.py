@@ -30,10 +30,11 @@ def _binary_artifact_status(ctx: RunContext, rel_path: str) -> str:
 
 
 def _safe_read_json_for_status(ctx: RunContext, rel_path: str) -> Any | None:
-    """Read artifact JSON for status checks; None when the file vanished mid-read."""
+    """Read artifact JSON for status checks; None when missing or mid-write corrupt."""
     try:
         return ctx.read_json(rel_path)
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        # ValueError covers json.JSONDecodeError (empty / partial writes during promote).
         return None
 
 @dataclass(frozen=True)

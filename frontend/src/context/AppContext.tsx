@@ -956,8 +956,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const focusId = resolveOperatorFocusStageId(run, mergedApiGrants());
     const currentId = selectedStageIdRef.current;
     if (!focusId || focusId === currentId) return;
-    // Already guided this source stage once this run.sh session — never yank back.
-    if (stageHadAutoNavigation(focusId)) return;
+    // Operator gates always re-surface; otherwise each stage is guided once per server session.
+    const blockReason = run.journey?.blocking?.reason ?? run.blocking?.reason;
+    const forceGate =
+      focusId === "podcast_publish" ||
+      blockReason === "g_publish" ||
+      blockReason === "transcript_review" ||
+      blockReason === "g1_vo_pickup";
+    if (!forceGate && stageHadAutoNavigation(focusId)) return;
     void navigateToOperatorFocus();
   }, [pipelineFocusKey, jobRunning, run, sessionStale, navigateToOperatorFocus]);
 

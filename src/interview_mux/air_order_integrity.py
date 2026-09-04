@@ -862,7 +862,11 @@ def on_selection_order_changed(
                     pruned = prune_transitions_outside_selection(tr, cur_ids)
                     pruned, rnotes = prune_reverse_jump_transitions(ctx, pruned, cur_ids)
                     if int(pruned.get("outside_selection_pruned_count") or 0) or rnotes:
-                        ctx.write_json("master/transitions.json", pruned, stage_key="transitions")
+                        from interview_mux.transition_vo import persist_transitions_doc
+
+                        persist_transitions_doc(
+                            ctx, pruned, stage_key="transitions"
+                        )
                         notes.extend(rnotes or [])
                         notes.append("prune_reverse_jump_transitions")
             except Exception:

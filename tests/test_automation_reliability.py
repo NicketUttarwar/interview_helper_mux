@@ -102,6 +102,28 @@ def test_publish_blocked_by_advisories_respects_g_publish_cleared(
     assert publish_blocked_by_advisories(ctx) is False
 
 
+def test_publish_blocked_by_advisories_respects_upload_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.aspirational_quality import consent_g_publish_advisories
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "adv_consent")
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "quality_advisories": [{"gate_id": "listenability_contract", "failed_checks": ["x"]}],
+            "g_publish_pending": True,
+        },
+    )
+    assert publish_blocked_by_advisories(ctx) is True
+    consent_g_publish_advisories(ctx)
+    assert publish_blocked_by_advisories(ctx) is False
+    meta = ctx.read_json("run_meta.json")
+    assert meta.get("g_publish_advisory_consent") is True
+    assert meta.get("g_publish_pending") is True
+
+
 def test_enrich_content_brief_from_speaker_roles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

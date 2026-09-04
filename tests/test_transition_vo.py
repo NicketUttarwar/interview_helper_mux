@@ -315,3 +315,241 @@ def test_committed_transition_wav_skips_synth_during_staging(
         assert found.resolve() == wav.resolve()
     finally:
         exit_stage_staging()
+
+
+def _write_usable_wav(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48_000)
+        handle.writeframes(b"\x00\x00" * 4800)
+
+
+def test_retain_required_pair_dropped_from_transitions_but_in_edl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EDL transition clips must not vanish from transitions.json on rewrite."""
+    from interview_mux.transition_vo import (
+        persist_transitions_doc,
+        retain_required_transition_pairs,
+    )
+    from run_fixtures import minimal_manifest_segment
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "tr_retain_edl")
+    ctx.write_json(
+        "master/selection.json",
+        {"ordered_segment_ids": ["seg_036", "seg_038", "seg_041"]},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                minimal_manifest_segment(
+                    "seg_036", start_ms=0, end_ms=1000, text="A", speaker_role="interviewee"
+                ),
+                minimal_manifest_segment(
+                    "seg_038", start_ms=5000, end_ms=6000, text="B", speaker_role="interviewee"
+                ),
+                minimal_manifest_segment(
+                    "seg_041", start_ms=7000, end_ms=8000, text="C", speaker_role="interviewee"
+                ),
+            ]
+        },
+        skip_handoff=True,
+    )
+    text = "Moving from liquid biopsy to tumor cells, what changed?"
+    _write_usable_wav(ctx.final_path("master", "transitions", "tr_seg_036_seg_038.wav"))
+    edl_doc = {
+        "version": 1,
+        "ordered_segment_ids": ["seg_036", "seg_038", "seg_041"],
+        "timeline_duration_ms": 1000,
+        "clips": [
+            {
+                "type": "transition",
+                "after_segment_id": "seg_036",
+                "before_segment_id": "seg_038",
+                "text": text,
+                "source_path": "master/transitions/tr_seg_036_seg_038.wav",
+                "duration_ms": 100,
+            }
+        ],
+    }
+    (ctx.final_path("master")).mkdir(parents=True, exist_ok=True)
+    ctx.final_path("master", "edl.json").write_text(
+        json.dumps(edl_doc), encoding="utf-8"
+    )
+    dropped = {
+        "transitions": [
+            {
+                "after_segment_id": "seg_038",
+                "before_segment_id": "seg_041",
+                "text": "Other hinge.",
+                "type": "bridge",
+            }
+        ]
+    }
+    retained, notes = retain_required_transition_pairs(ctx, dropped)
+    pairs = {
+        (
+            str(r.get("after_segment_id")),
+            str(r.get("before_segment_id")),
+        )
+        for r in retained.get("transitions") or []
+    }
+    assert ("seg_036", "seg_038") in pairs
+    assert any("seg_036->seg_038" in n for n in notes)
+    written = persist_transitions_doc(ctx, dropped, skip_handoff=True)
+    pairs2 = {
+        (
+            str(r.get("after_segment_id")),
+            str(r.get("before_segment_id")),
+        )
+        for r in written.get("transitions") or []
+    }
+    assert ("seg_036", "seg_038") in pairs2
+    disk = ctx.read_json("master/transitions.json")
+    assert any(
+        str(r.get("after_segment_id")) == "seg_036"
+        and str(r.get("before_segment_id")) == "seg_038"
+        for r in disk.get("transitions") or []
+    )
+
+
+def test_pending_audit_path_resolves_committed_transition_wav(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """synthesis_report out_wav under .pending_writes must match committed WAV."""
+    from interview_mux.vo_synthesis_audit import (
+        audible_script_hash_errors,
+        canonicalize_synthesis_out_wav_paths,
+        record_synthesis,
+        synthesis_entry_for_line,
+        synthesis_entry_matches_line,
+        _load_entries,
+        _persist,
+    )
+    from interview_mux.transition_vo import ensure_pre_mix_transition_integrity
+    from run_fixtures import minimal_manifest_segment
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "tr_path_canon")
+    text = "The same combined readout could also change which patients enter a trial."
+    after_id, before_id = "seg_033", "seg_035"
+    lid = f"tr_{after_id}_{before_id}"
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": after_id,
+                    "before_segment_id": before_id,
+                    "text": text,
+                    "type": "bridge",
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "segments/manifest.json",
+        {
+            "segments": [
+                minimal_manifest_segment(
+                    after_id, text="before", topic_tags=["t1"], speaker_role="interviewee"
+                ),
+                minimal_manifest_segment(
+                    before_id, text="after", topic_tags=["t2"], speaker_role="interviewee"
+                ),
+            ]
+        },
+        skip_handoff=True,
+    )
+    committed = ctx.final_path("master", "transitions", f"{lid}.wav")
+    _write_usable_wav(committed)
+    line = {
+        "line_id": lid,
+        "text": text,
+        "targets_segment_id": after_id,
+        "placement": "after",
+        "after_segment_id": after_id,
+        "before_segment_id": before_id,
+        "before_excerpt": "before",
+        "after_excerpt": "after",
+        "source_gap_ms": 1000,
+        "strict_grounding": True,
+    }
+    pending = ctx.run_dir / ".pending_writes" / "edl" / "master" / "transitions" / "synthesized"
+    pending.mkdir(parents=True, exist_ok=True)
+    staged = pending / f"{lid}.wav"
+    staged.write_bytes(committed.read_bytes())
+    record_synthesis(ctx, line, backend="chatterbox", out_wav=staged, wav_just_rendered=True)
+    entry = synthesis_entry_for_line(ctx, lid)
+    assert entry is not None
+    rows = _load_entries(ctx)
+    for row in rows:
+        if str(row.get("line_id")) == lid:
+            row["out_wav"] = (
+                f".pending_writes/edl/master/transitions/synthesized/{lid}.wav"
+            )
+    _persist(ctx, rows)
+    staged.unlink()
+    assert not staged.is_file()
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    assert matches, reason
+    rewritten = canonicalize_synthesis_out_wav_paths(ctx)
+    assert lid in rewritten or str(
+        synthesis_entry_for_line(ctx, lid).get("out_wav") or ""
+    ).startswith("master/transitions/")
+    entry2 = synthesis_entry_for_line(ctx, lid)
+    assert not str(entry2.get("out_wav") or "").startswith(".pending_writes/")
+
+    edl_doc = {
+        "version": 1,
+        "ordered_segment_ids": [after_id, before_id],
+        "timeline_duration_ms": 1000,
+        "clips": [
+            {
+                "type": "transition",
+                "after_segment_id": after_id,
+                "before_segment_id": before_id,
+                "text": text,
+                "source_path": f".pending_writes/edl/master/transitions/{lid}.wav",
+                "script_hash": entry2.get("script_hash"),
+                "duration_ms": 100,
+            }
+        ],
+    }
+    ctx.final_path("master").mkdir(parents=True, exist_ok=True)
+    ctx.final_path("master", "edl.json").write_text(
+        json.dumps(edl_doc), encoding="utf-8"
+    )
+    ensure_pre_mix_transition_integrity(ctx, synthesize=False)
+    errs = audible_script_hash_errors(ctx, ctx.read_json("master/edl.json"))
+    assert errs == []

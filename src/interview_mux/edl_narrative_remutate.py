@@ -500,7 +500,9 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     gap if isinstance(gap, dict) else {}, tr
                 )
                 tr = dedupe_transitions_by_adjacency(tr)
-                ctx.write_json("master/transitions.json", tr)
+                from interview_mux.transition_vo import persist_transitions_doc
+
+                tr = persist_transitions_doc(ctx, tr, stage_key="edl_narrative_remutate")
                 after = len(tr.get("transitions") or [])
                 if after < before:
                     notes.append("dedupe_transitions_by_adjacency")
@@ -517,7 +519,9 @@ def apply_edl_narrative_host_repair(ctx: RunContext) -> dict[str, Any]:
                     ]
                 before_n = len(tr.get("transitions") or [])
                 tr = prune_transitions_outside_selection(tr, sel_ids)
-                ctx.write_json("master/transitions.json", tr)
+                from interview_mux.transition_vo import persist_transitions_doc
+
+                tr = persist_transitions_doc(ctx, tr, stage_key="edl_narrative_remutate")
                 after_n = len(tr.get("transitions") or [])
                 if after_n < before_n:
                     notes.append("prune_stale_transitions")

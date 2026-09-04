@@ -203,15 +203,19 @@ def audit_run(ctx: RunContext) -> dict[str, Any]:
     warnings: list[str] = []
 
     for rel in POST_SEGMENTATION_ARTIFACTS:
-        universe = manifest_ids
-        if rel in (
-            "master/selection.json",
+        # selection.json lists excluded IDs on purpose — validate against the
+        # manifest, not ordered/kept only (excluded≠orphan).
+        if rel == "master/selection.json":
+            universe = manifest_ids
+        elif rel in (
             "master/transitions.json",
             "master/edl.json",
         ) and use_selection:
             universe = selection_ids or manifest_ids
         elif rel == "master/narrative_plan.json" and use_selection:
             universe = manifest_ids | selection_ids
+        else:
+            universe = manifest_ids
         info = audit_artifact(ctx, rel, universe=universe if universe else None)
         artifacts[rel] = info
         for sid in info.get("format_violations") or []:
@@ -258,9 +262,15 @@ def audit_run(ctx: RunContext) -> dict[str, Any]:
 
 
 def lineage_warnings_for_gui(ctx: RunContext, *, max_items: int = 6) -> list[str]:
-    """Short human-readable warnings for GUI (orphans + format only)."""
+    """GUI-facing lineage notes — only true hard failures (never excluded-as-orphan noise).
+
+    Soft warnings (unreferenced manifest IDs, etc.) stay out of the operator banner.
+    """
     report = audit_run(ctx)
-    items = list(report.get("hard_failures") or [])[:max_items]
-    if len(report.get("hard_failures") or []) > max_items:
+    hard = [str(x) for x in (report.get("hard_failures") or []) if str(x).strip()]
+    if not hard:
+        return []
+    items = hard[:max_items]
+    if len(hard) > max_items:
         items.append("… additional segment lineage issues")
     return items

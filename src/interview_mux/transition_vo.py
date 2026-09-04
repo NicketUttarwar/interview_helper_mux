@@ -464,7 +464,7 @@ def synthesize_spoken_transitions(
         except Exception:
             pass
     if writeback:
-        ctx.write_json("master/transitions.json", doc)
+        persist_transitions_doc(ctx, doc, stage_key="edl")
     return results
 
 
@@ -668,6 +668,7 @@ def commit_current_transition_wavs(ctx: RunContext) -> list[str]:
     """
     still: list[str] = []
     try:
+        ensure_pre_mix_transition_integrity(ctx, synthesize=True)
         notes = resync_spoken_transitions(ctx, fail_closed=False)
         try:
             from interview_mux.write_staging import promote_staged_side_effects
@@ -675,6 +676,13 @@ def commit_current_transition_wavs(ctx: RunContext) -> list[str]:
             promote_staged_side_effects(ctx, ("master/transitions/",))
         except Exception:
             pass
+        try:
+            from interview_mux.vo_synthesis_audit import canonicalize_synthesis_out_wav_paths
+
+            canonicalize_synthesis_out_wav_paths(ctx)
+        except Exception:
+            pass
+        restamp_edl_transition_source_paths(ctx)
         still = [n[len("missing:") :] for n in notes if str(n).startswith("missing:")]
         return still
     finally:
@@ -903,3 +911,378 @@ def restamp_edl_transition_source_paths(ctx: RunContext) -> bool:
 
     write_live_edl(ctx, out, source="transition_vo")
     return True
+
+
+def _justified_skip_before_ids(ctx: RunContext) -> set[str]:
+    skip: set[str] = set()
+    try:
+        from interview_mux.nugget_layup import (
+            PLAN_REL,
+            is_justified_skip_row,
+            nugget_layup_enabled,
+        )
+
+        if nugget_layup_enabled() and ctx.artifact_exists(PLAN_REL):
+            plan = ctx.read_json(PLAN_REL)
+            if isinstance(plan, dict):
+                for row in plan.get("layups") or []:
+                    if not isinstance(row, dict) or not row.get("skip"):
+                        continue
+                    tid = str(row.get("target_segment_id") or "").strip()
+                    if tid and is_justified_skip_row(row, soft_migrate=True):
+                        skip.add(tid)
+    except Exception:
+        pass
+    try:
+        from interview_mux.air_script import native_handoff_segment_ids
+        from interview_mux.mastering_plan_loader import load_plan_raw
+
+        skip |= native_handoff_segment_ids(load_plan_raw(ctx))
+    except Exception:
+        pass
+    return skip
+
+
+def _selection_ordered_ids(ctx: RunContext) -> list[str]:
+    if not ctx.artifact_exists("master/selection.json"):
+        return []
+    try:
+        sel = ctx.read_json("master/selection.json")
+    except Exception:
+        return []
+    if not isinstance(sel, dict):
+        return []
+    return [str(x) for x in (sel.get("ordered_segment_ids") or []) if x]
+
+
+def _segments_by_id(ctx: RunContext) -> dict[str, dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    if not ctx.artifact_exists("segments/manifest.json"):
+        return by_id
+    try:
+        manifest = ctx.read_json("segments/manifest.json")
+    except Exception:
+        return by_id
+    for row in ((manifest or {}).get("segments") or []):
+        if isinstance(row, dict) and row.get("segment_id"):
+            by_id[str(row.get("segment_id"))] = row
+    return by_id
+
+
+def adjacency_required_transition_pairs(
+    ctx: RunContext,
+    *,
+    transitions_doc: dict[str, Any] | None = None,
+) -> list[tuple[str, str]]:
+    """Selection adjacencies that still demand spoken transition glue (not waived)."""
+    ordered = _selection_ordered_ids(ctx)
+    if len(ordered) < 2:
+        return []
+    by_id = _segments_by_id(ctx)
+    bridges: dict[str, Any] | None = None
+    if ctx.artifact_exists("understanding/reorder_bridges.json"):
+        try:
+            loaded = ctx.read_json("understanding/reorder_bridges.json")
+            if isinstance(loaded, dict):
+                bridges = loaded
+        except Exception:
+            bridges = None
+    if bridges is None:
+        try:
+            from interview_mux.reorder_bridges import build_reorder_bridges
+            from interview_mux.bridge_voice_policy import annotate_reorder_bridges
+
+            bridges = annotate_reorder_bridges(
+                build_reorder_bridges(ordered, by_id),
+                narrative_mode=None,
+                episode_vo_shape=None,
+            )
+        except Exception:
+            try:
+                from interview_mux.reorder_bridges import build_reorder_bridges
+
+                bridges = build_reorder_bridges(ordered, by_id)
+            except Exception:
+                bridges = {"pairs": []}
+    gap = (
+        ctx.read_json("understanding/gap_report.json")
+        if ctx.artifact_exists("understanding/gap_report.json")
+        else {}
+    )
+    if transitions_doc is not None:
+        transitions = transitions_doc
+    elif ctx.artifact_exists("master/transitions.json"):
+        try:
+            transitions = ctx.read_json("master/transitions.json")
+        except Exception:
+            transitions = {"transitions": []}
+    else:
+        transitions = {"transitions": []}
+    edl = (
+        ctx.read_json("master/edl.json")
+        if ctx.artifact_exists("master/edl.json")
+        else None
+    )
+    required: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    try:
+        from interview_mux.bridge_completeness import missing_reorder_bridges
+
+        for row in missing_reorder_bridges(
+            bridges if isinstance(bridges, dict) else None,
+            gap_report=gap if isinstance(gap, dict) else None,
+            transitions=transitions if isinstance(transitions, dict) else None,
+            justified_skip_before_ids=_justified_skip_before_ids(ctx),
+            edl=edl if isinstance(edl, dict) else None,
+        ):
+            if not isinstance(row, dict):
+                continue
+            a = str(row.get("after_segment_id") or row.get("after_id") or "")
+            b = str(row.get("before_segment_id") or row.get("before_id") or "")
+            if a and b and (a, b) not in seen:
+                seen.add((a, b))
+                required.append((a, b))
+    except Exception:
+        pass
+    if isinstance(edl, dict):
+        for clip in edl.get("clips") or []:
+            if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
+                continue
+            a = str(clip.get("after_segment_id") or "")
+            b = str(clip.get("before_segment_id") or "")
+            if a and b and (a, b) not in seen:
+                if b in _justified_skip_before_ids(ctx):
+                    continue
+                seen.add((a, b))
+                required.append((a, b))
+    freeze = frozen_transition_pair_keys(ctx)
+    if freeze and ordered:
+        adj = {(ordered[i], ordered[i + 1]) for i in range(len(ordered) - 1)}
+        for key in freeze:
+            parsed = _parse_pair_key(key)
+            if not parsed:
+                continue
+            if parsed in adj and parsed not in seen:
+                if parsed[1] in _justified_skip_before_ids(ctx):
+                    continue
+                seen.add(parsed)
+                required.append(parsed)
+    return required
+
+
+def _recover_transition_text(
+    ctx: RunContext, after_id: str, before_id: str
+) -> str:
+    """Best-effort spoken text for a required pair that was dropped from inventory."""
+    lid = _transition_line_id(after_id, before_id)
+    if ctx.artifact_exists("master/edl.json"):
+        try:
+            edl = ctx.read_json("master/edl.json")
+            for clip in ((edl or {}).get("clips") or []):
+                if not isinstance(clip, dict) or str(clip.get("type") or "") != "transition":
+                    continue
+                if (
+                    str(clip.get("after_segment_id") or "") == after_id
+                    and str(clip.get("before_segment_id") or "") == before_id
+                ):
+                    text = str(clip.get("text") or "").strip()
+                    if text:
+                        return text
+        except Exception:
+            pass
+    try:
+        from interview_mux.vo_synthesis_audit import synthesis_entry_for_line
+
+        entry = synthesis_entry_for_line(ctx, lid)
+        if entry:
+            text = str(entry.get("normalized_script") or "").strip()
+            if text:
+                return text
+    except Exception:
+        pass
+    try:
+        from interview_mux.seam_glue import default_bridge_text, enrich_bridge_pair_excerpts
+
+        pair = enrich_bridge_pair_excerpts(
+            {
+                "after_segment_id": after_id,
+                "before_segment_id": before_id,
+            },
+            _segments_by_id(ctx),
+        )
+        return str(default_bridge_text(pair) or "").strip()
+    except Exception:
+        return ""
+
+
+def retain_required_transition_pairs(
+    ctx: RunContext, doc: dict[str, Any] | None
+) -> tuple[dict[str, Any], list[str]]:
+    """Re-insert adjacency/EDL-required pairs that a rewrite would drop."""
+    base = dict(doc) if isinstance(doc, dict) else {"transitions": []}
+    items = [dict(r) for r in (base.get("transitions") or []) if isinstance(r, dict)]
+    present = {
+        (
+            str(r.get("after_segment_id") or ""),
+            str(r.get("before_segment_id") or ""),
+        )
+        for r in items
+        if str(r.get("after_segment_id") or "") and str(r.get("before_segment_id") or "")
+    }
+    restored: list[str] = []
+    # Evaluate required pairs against the *incoming* doc so drops are detected.
+    for after_id, before_id in adjacency_required_transition_pairs(
+        ctx, transitions_doc=base
+    ):
+        if (after_id, before_id) in present:
+            for row in items:
+                if (
+                    str(row.get("after_segment_id") or "") == after_id
+                    and str(row.get("before_segment_id") or "") == before_id
+                ):
+                    if not str(row.get("text") or "").strip():
+                        text = _recover_transition_text(ctx, after_id, before_id)
+                        if text:
+                            row["text"] = text
+                            restored.append(f"{after_id}->{before_id}:refilled_text")
+                    break
+            continue
+        text = _recover_transition_text(ctx, after_id, before_id)
+        if not text:
+            continue
+        items.append(
+            {
+                "after_segment_id": after_id,
+                "before_segment_id": before_id,
+                "text": text,
+                "type": "bridge",
+                "retained_required_adjacency": True,
+            }
+        )
+        present.add((after_id, before_id))
+        restored.append(f"{after_id}->{before_id}")
+    out = dict(base)
+    out["transitions"] = items
+    return out, restored
+
+
+def persist_transitions_doc(
+    ctx: RunContext,
+    doc: dict[str, Any] | None,
+    *,
+    stage_key: str | None = None,
+    skip_handoff: bool = False,
+) -> dict[str, Any]:
+    """Write ``master/transitions.json`` after retaining adjacency-required pairs."""
+    retained, notes = retain_required_transition_pairs(ctx, doc)
+    if notes:
+        ctx.log(
+            f"transitions: retained {len(notes)} adjacency-required pair(s)",
+            level="info",
+            stage=stage_key or "transitions",
+            detail={"pairs": notes[:12]},
+        )
+    ctx.write_json(
+        "master/transitions.json",
+        retained,
+        skip_handoff=skip_handoff,
+        stage_key=stage_key,
+    )
+    return retained
+
+
+def _pre_mix_window(ctx: RunContext) -> bool:
+    """True once EDL/transitions exist and mix has not produced assembly yet."""
+    if ctx.artifact_exists("master/assembly.wav"):
+        # Post-mix: still allow path canonicalization, but pair restore is pre-mix.
+        return False
+    return ctx.artifact_exists("master/edl.json") or ctx.artifact_exists(
+        "master/transitions.json"
+    )
+
+
+def ensure_pre_mix_transition_integrity(
+    ctx: RunContext, *, synthesize: bool = True
+) -> dict[str, Any]:
+    """Keep/regenerate adjacency-required spoken transitions and fix artifact paths.
+
+    Call before mix (and after any transitions.json rewrite). Never leave EDL
+    clips or synthesis audits pointing at dead pending paths when committed WAVs
+    exist; never drop a required adjacency pair from inventory.
+    """
+    report: dict[str, Any] = {
+        "retained": [],
+        "synthesized": [],
+        "paths_rewritten": [],
+        "edl_restamped": False,
+    }
+    if not ctx.artifact_exists("master/transitions.json") and not ctx.artifact_exists(
+        "master/edl.json"
+    ):
+        return report
+
+    doc: dict[str, Any] = {"transitions": []}
+    if ctx.artifact_exists("master/transitions.json"):
+        try:
+            loaded = ctx.read_json("master/transitions.json")
+            if isinstance(loaded, dict):
+                doc = loaded
+        except Exception:
+            doc = {"transitions": []}
+
+    if _pre_mix_window(ctx) or ctx.artifact_exists("master/edl.json"):
+        retained, notes = retain_required_transition_pairs(ctx, doc)
+        if notes:
+            report["retained"] = notes
+            ctx.write_json("master/transitions.json", retained, skip_handoff=True)
+            doc = retained
+
+    if synthesize and (_pre_mix_window(ctx) or current_transition_pairs_missing(ctx)):
+        needed: set[tuple[str, str]] = set()
+        for after_id, before_id in spoken_transition_pairs(ctx):
+            if current_pair_wav_usable(ctx, after_id, before_id) is None:
+                needed.add((after_id, before_id))
+        for after_id, before_id in adjacency_required_transition_pairs(ctx):
+            if current_pair_wav_usable(ctx, after_id, before_id) is None:
+                needed.add((after_id, before_id))
+        if needed:
+            try:
+                synthesize_spoken_transitions(ctx, pairs=needed)
+                report["synthesized"] = [f"{a}->{b}" for a, b in sorted(needed)]
+            except Exception as exc:
+                ctx.log(
+                    f"pre-mix transition synth incomplete: {exc}",
+                    level="warning",
+                    stage="mix",
+                )
+
+    try:
+        from interview_mux.write_staging import promote_staged_side_effects
+
+        promote_staged_side_effects(ctx, ("master/transitions/",))
+    except Exception:
+        pass
+
+    try:
+        from interview_mux.vo_synthesis_audit import canonicalize_synthesis_out_wav_paths
+
+        report["paths_rewritten"] = canonicalize_synthesis_out_wav_paths(ctx)
+    except Exception:
+        pass
+
+    try:
+        report["edl_restamped"] = bool(restamp_edl_transition_source_paths(ctx))
+    except Exception:
+        pass
+
+    if report["retained"] or report["synthesized"] or report["paths_rewritten"]:
+        ctx.log(
+            "pre-mix transition integrity: "
+            f"retained={len(report['retained'])} "
+            f"synth={len(report['synthesized'])} "
+            f"paths={len(report['paths_rewritten'])}",
+            level="info",
+            stage="mix",
+            detail=report,
+        )
+    return report

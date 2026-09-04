@@ -320,7 +320,7 @@ def sync_ready_packages(
                     {
                         "error": (
                             "S3 sync blocked: quality advisories require operator "
-                            "G-Publish consent (Prepare), then retry sync"
+                            "G-Publish consent (Upload or Prepare), then retry sync"
                         ),
                         "execution_id": eid,
                         "reason": "publish_blocked_quality_advisories",

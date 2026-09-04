@@ -84,6 +84,31 @@ def test_post_episode_structure_checkpoint(tmp_path, monkeypatch: pytest.MonkeyP
     assert any("seg_999" in e for e in errors)
 
 
+def test_selection_excluded_ids_are_not_orphans(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Excluded kept-out segments are intentional — not lineage orphans."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "lineage_excl")
+    ctx.write_json(
+        "segments/manifest.json",
+        minimal_manifest("seg_001", "seg_002", "seg_003"),
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_002"],
+            "excluded_segment_ids": [
+                {"segment_id": "seg_001", "reason": "cut"},
+                {"segment_id": "seg_003", "reason": "cut"},
+            ],
+            "chapters": [],
+        },
+        skip_handoff=True,
+    )
+    report = audit_run(ctx)
+    assert not any("orphan segment ref" in f for f in report["hard_failures"])
+
+
 def test_audit_run_fixture_chain(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     from progression_chain_sanity_helpers import FULL_PROGRESSION_CHAIN, run_progression_chain_sanity

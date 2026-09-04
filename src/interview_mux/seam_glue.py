@@ -631,7 +631,10 @@ def mint_missing_transitions(
         )
     doc["transitions"] = items
     if minted:
-        ctx.write_json("master/transitions.json", doc)
+        from interview_mux.transition_vo import persist_transitions_doc
+
+        ctx_doc = persist_transitions_doc(ctx, doc, stage_key="edl")
+        doc = ctx_doc if isinstance(ctx_doc, dict) else doc
         ctx.log(
             f"seam_glue: materialized {minted} planned spoken transition(s) for reorder joins",
             level="info",

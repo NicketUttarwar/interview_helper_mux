@@ -397,8 +397,22 @@ def _vo_script_wav_agreement_issues(
     """Hard-stop when synthetic VO text and audible WAV audit disagree."""
     from interview_mux.vo_synthesis_audit import (
         audible_script_hash_errors,
+        canonicalize_synthesis_out_wav_paths,
         purge_stale_vo_wavs_for_script_drift,
     )
+
+    # Pre-mix: restore dropped adjacency transitions, regenerate missing WAVs,
+    # and rewrite audit/EDL paths to committed files before failing the gate.
+    if consumer == "mix":
+        try:
+            from interview_mux.transition_vo import ensure_pre_mix_transition_integrity
+
+            ensure_pre_mix_transition_integrity(ctx, synthesize=True)
+        except Exception:
+            try:
+                canonicalize_synthesis_out_wav_paths(ctx)
+            except Exception:
+                pass
 
     if not ctx.artifact_exists("master/edl.json"):
         # Pre-EDL: seated gap coverage still must not be stale.
@@ -417,11 +431,31 @@ def _vo_script_wav_agreement_issues(
     errors = audible_script_hash_errors(ctx, edl if isinstance(edl, dict) else None)
     if not errors:
         return []
-    # Drop forged audits / stale files so the next vo_synthesize regenerates.
+    # Path-only / inventory drift may clear after canonicalization — recheck once.
     try:
-        purge_stale_vo_wavs_for_script_drift(ctx)
+        canonicalize_synthesis_out_wav_paths(ctx)
+        from interview_mux.transition_vo import restamp_edl_transition_source_paths
+
+        restamp_edl_transition_source_paths(ctx)
+        edl = ctx.read_json("master/edl.json")
+        errors = audible_script_hash_errors(ctx, edl if isinstance(edl, dict) else None)
     except Exception:
         pass
+    if not errors:
+        return []
+    # Only purge gap-line WAVs for non-transition script drift — transition path
+    # heal above must not collateral-delete layup pickups.
+    transition_only = all(
+        (":missing_wav" in e and e.startswith("tr_"))
+        or "missing_current_transition" in e
+        or e.startswith("tr_")
+        for e in errors
+    )
+    if not transition_only:
+        try:
+            purge_stale_vo_wavs_for_script_drift(ctx)
+        except Exception:
+            pass
     return [
         StageInputIssue(
             f"Synthetic VO does not match EDL/gap script: {errors[:6]}",

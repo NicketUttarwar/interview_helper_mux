@@ -229,6 +229,17 @@ def promote_staged_side_effects(
     from interview_mux.edl_source_contract import heal_committed_edl_source_paths
 
     heal_committed_edl_source_paths(ctx)
+    try:
+        from interview_mux.vo_synthesis_audit import canonicalize_synthesis_out_wav_paths
+        from interview_mux.transition_vo import restamp_edl_transition_source_paths
+
+        canonicalize_synthesis_out_wav_paths(ctx)
+        if any(str(r).startswith("master/transitions") for r in flushed) or any(
+            str(r).startswith("master/transitions") for r in rels
+        ):
+            restamp_edl_transition_source_paths(ctx)
+    except Exception:
+        pass
     return flushed
 
 

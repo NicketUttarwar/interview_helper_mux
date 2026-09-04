@@ -139,16 +139,6 @@ export function PhaseWorkbench() {
               </span>
             </div>
           ) : null}
-          {(run.segment_lineage_warnings?.length ?? 0) > 0 ? (
-            <div className="phase-workbench-lineage-warnings" role="alert">
-              <strong>Segment lineage</strong>
-              <ul>
-                {run.segment_lineage_warnings!.map((msg) => (
-                  <li key={msg}>{msg}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </header>
         {activePhase.nle ? (
           <NlePanel />

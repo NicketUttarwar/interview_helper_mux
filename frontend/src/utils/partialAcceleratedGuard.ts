@@ -59,6 +59,7 @@ const OPERATOR_BLOCK_REASONS = new Set([
   "operator_decisions",
   "gap_framing",
   "missing_framing",
+  "g_publish",
 ]);
 
 export type OperatorCoverKind = "none" | "busy" | "accelerated";

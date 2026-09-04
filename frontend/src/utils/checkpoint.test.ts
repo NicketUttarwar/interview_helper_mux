@@ -13,6 +13,38 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("findPendingFocusStage", () => {
+  it("focuses podcast_publish when G-Publish is pending even if an earlier stage is incomplete", () => {
+    const run = minimalRun({
+      stages: [
+        {
+          id: "ideal_cuts_materialize",
+          title: "Materialize ideal cuts",
+          description: "",
+          status: "incomplete",
+        },
+        {
+          id: "podcast_publish",
+          title: "Publish package",
+          description: "",
+          status: "done",
+        },
+      ],
+      meta: { g_publish_pending: true },
+      job: { status: "idle", stage: "podcast_publish", message: "waiting for G-Publish" },
+      journey: makeJourney({
+        phase: "ship",
+        blocking: {
+          blocked: true,
+          reason: "g_publish",
+          stage_id: "podcast_publish",
+          message: "G-Publish: sync or skip",
+        },
+      }),
+    });
+    expect(findPendingFocusStage(run)).toBe("podcast_publish");
+    expect(resolveOperatorFocusStageId(run)).toBe("podcast_publish");
+  });
+
   it("returns transcribe when journey blocking reason is stage_reuse", () => {
     const run = minimalRun({
       stages: [

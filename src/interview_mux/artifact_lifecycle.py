@@ -424,7 +424,12 @@ def build_outputs_view(ctx: Any, stage_id: str) -> list[dict[str, Any]]:
         from interview_mux.sufficiency_engine import evaluate, sufficiency_enabled
 
         suff = "ok"
-        if sufficiency_enabled() and ctx.artifact_exists(rel):
+        # Never read_json binary/audio — GUI snapshot would parse multi‑hundred‑MB WAVs.
+        if (
+            sufficiency_enabled()
+            and ctx.artifact_exists(rel)
+            and rel.endswith(".json")
+        ):
             try:
                 doc = ctx.read_json(rel)
                 if isinstance(doc, dict):

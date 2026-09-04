@@ -178,12 +178,29 @@ function resolveFocusTarget(
  * Auto-surface each source stage at most once per GUI server session (run.sh lifetime).
  * After the first redirect to a stage that needs input, the operator can browse
  * freely — including earlier stages — without being yanked back.
+ *
+ * Operator gates (G-Publish, G0, …) always re-surface so hard refresh cannot leave
+ * the operator stranded on a stale incomplete analysis step.
  */
+const FORCE_AUTO_SURFACE_REASONS = new Set([
+  "g_publish",
+  "transcript_review",
+  "g1_vo_pickup",
+  "g1_5_preview_pickup",
+  "pickup_speaker",
+  "gap_framing",
+  "missing_framing",
+  "llm_gate",
+]);
+
 function shouldSkipAutoSurfaceNavigation(
   intent: NavigationIntent | undefined,
   target: AutoNavTarget,
+  blockingReason?: string | null,
 ): boolean {
   if (intent !== "auto_surface") return false;
+  if (blockingReason && FORCE_AUTO_SURFACE_REASONS.has(blockingReason)) return false;
+  if (target.stageId === "podcast_publish") return false;
   return stageHadAutoNavigation(target.stageId);
 }
 
@@ -200,7 +217,7 @@ export async function focusStageWorkbench(opts: FocusStageWorkbenchOpts): Promis
   }
 
   const target = resolveFocusTarget(opts.run, opts.stageId, opts);
-  if (shouldSkipAutoSurfaceNavigation(intent, target)) {
+  if (shouldSkipAutoSurfaceNavigation(intent, target, opts.blockingReason)) {
     return null;
   }
 
@@ -268,7 +285,7 @@ export async function syncPipelineStageFocus(opts: AdvancePipelineOpts): Promise
 
   const navIntent = opts.navigationIntent ?? "auto_surface";
   const target = resolveFocusTarget(refreshed, focusId, { substepId, blockingReason });
-  if (shouldSkipAutoSurfaceNavigation(navIntent, target)) {
+  if (shouldSkipAutoSurfaceNavigation(navIntent, target, blockingReason)) {
     return false;
   }
 

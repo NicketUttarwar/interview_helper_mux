@@ -535,12 +535,10 @@ DELIVERY_STAGES: tuple[StageInfo, ...] = (
         "delivery",
         (
             "understanding/vo_line_adjudication.json",
-            "understanding/nugget_allocation_plan.json",
             "understanding/gap_report.json",
         ),
         (
             "understanding/vo_line_adjudication.json",
-            "understanding/nugget_allocation_plan.json",
         ),
     ),
     StageInfo(

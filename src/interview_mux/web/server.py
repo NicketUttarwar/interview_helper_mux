@@ -832,7 +832,12 @@ def create_app() -> FastAPI:
         from interview_mux.operator_gate_view import build_operator_gates, g1_journey_clear
         from interview_mux.v2.config import v2_g1_optional
 
-        operator_gates = build_operator_gates(ctx, job, meta if isinstance(meta, dict) else {})
+        operator_gates = build_operator_gates(
+            ctx,
+            job,
+            meta if isinstance(meta, dict) else {},
+            g1_missing=g1_missing,
+        )
 
         def _build_stages() -> list[dict[str, Any]]:
             return _build_stage_list(
@@ -929,7 +934,7 @@ def create_app() -> FastAPI:
             "story_board_ready": story_board_ready,
             "timeline_ready": timeline_ready,
             "g1_missing": g1_missing,
-            "g1_clear": g1_journey_clear(ctx, meta),
+            "g1_clear": g1_journey_clear(ctx, meta, g1_missing=g1_missing),
             "g1_optional": v2_g1_optional(),
             "operator_gates": operator_gates,
             "g1_5_preview_pickup_pending": g1_5_pending,
@@ -2026,7 +2031,20 @@ def create_app() -> FastAPI:
     def g_publish_sync(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Upload this run's ready package only. Never deletes S3 objects; never other executions."""
         with _guarded_run(run_id):
-            _ = _ctx(run_id)  # validate run exists
+            ctx = _ctx(run_id)
+            # Upload click is operator consent when quality advisories would block S3.
+            from interview_mux.aspirational_quality import (
+                consent_g_publish_advisories,
+                has_quality_advisories,
+            )
+
+            if has_quality_advisories(ctx):
+                consent_g_publish_advisories(ctx)
+                ctx.log(
+                    "G-Publish — operator consented to sync despite quality advisories",
+                    level="action",
+                    stage="podcast_publish",
+                )
             body = body or {}
             dry_run = bool(body.get("dry_run"))
             force_files = bool(body.get("force_files"))
@@ -4213,6 +4231,21 @@ def _journey_blocking(
                 "message": f"{stage.get('title') or sid.replace('_', ' ')} needs operator action.",
             }
 
+    from interview_mux.gates import check_g_publish_pending
+
+    if check_g_publish_pending(ctx):
+        package_ready = ctx.artifact_exists("publish/package_ready.json")
+        return {
+            "blocked": True,
+            "reason": "g_publish",
+            "stage_id": "podcast_publish",
+            "message": (
+                "G-Publish: sync local package to S3 or skip."
+                if package_ready
+                else "G-Publish: prepare local package, sync to S3, or skip."
+            ),
+        }
+
     return {"blocked": False}
 
 
@@ -4228,6 +4261,8 @@ def _journey_next_action(
             return "Complete transcript review (G0)"
         if reason == "g1_vo_pickup":
             return "Record or skip G1 pickup VO"
+        if reason == "g_publish":
+            return "Publish package (S3 sync) or skip G-Publish"
         if reason == "stage_reuse":
             return "Choose reuse or run fresh"
         if reason == "api_consent":
@@ -4408,6 +4443,22 @@ def _start_podcast_sync_job(
                 ),
             }
             _write_podcast_sync_job(payload)
+            # Mark this run's G-Publish gate cleared when upload succeeded.
+            if not result.errors and result.uploaded:
+                try:
+                    from interview_mux.gates import clear_g_publish
+                    from interview_mux.run_context import RunContext
+
+                    ctx = RunContext(execution_id, create=False)
+                    clear_g_publish(ctx, skipped=False)
+                    if ctx.artifact_exists("publish/publish_result.json"):
+                        pr = ctx.read_json("publish/publish_result.json")
+                        if isinstance(pr, dict):
+                            pr["uploaded"] = True
+                            pr["uploaded_at"] = datetime.now(timezone.utc).isoformat()
+                            ctx.write_json("publish/publish_result.json", pr, skip_handoff=True)
+                except Exception:
+                    pass
         except Exception as exc:
             _write_podcast_sync_job(
                 {
@@ -4550,6 +4601,19 @@ def _build_stage_list(
         if isinstance(p, dict) and p.get("pass_id")
     }
 
+    run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(run_meta, dict):
+        run_meta = {}
+    from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
+    from interview_mux.operator_gate_view import resolve_framing_gate, resolve_g1_vo_gate
+
+    # Resolve once — check_g1_vo runs speech QA on VO wavs; never per delivery stage.
+    g1_view = resolve_g1_vo_gate(ctx, job, run_meta, missing=g1_missing)
+    fr_view = resolve_framing_gate(ctx, run_meta)
+    gap_skipped = gap_fill_was_skipped(ctx)
+    g1_blocks_delivery = g1_view.blocks_delivery_sidebar and not gap_skipped
+    analysis_complete = ctx.artifact_exists("analysis_complete.json")
+
     # Reconcile is expensive (schema/status per stage). Default off for GUI polls;
     # enable only for rare explicit refresh paths.
     if reconcile_done_markers:
@@ -4565,12 +4629,7 @@ def _build_stage_list(
             else:
                 s["status"] = "done"
         elif sid == "missing_framing":
-            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-            from interview_mux.operator_gate_view import resolve_framing_gate
-
-            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            fr_view = resolve_framing_gate(ctx, run_meta if isinstance(run_meta, dict) else {})
-            if gap_fill_was_skipped(ctx) or ctx.is_done(sid):
+            if gap_skipped or ctx.is_done(sid):
                 s["status"] = "done"
             else:
                 s["status"] = fr_view.stage_status if fr_view.open else (
@@ -4587,12 +4646,7 @@ def _build_stage_list(
             else:
                 s["status"] = "action_required"
         elif sid == "g1_vo_pickup":
-            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-            from interview_mux.operator_gate_view import resolve_g1_vo_gate
-
-            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            g1_view = resolve_g1_vo_gate(ctx, job, run_meta if isinstance(run_meta, dict) else {})
-            if gap_fill_was_skipped(ctx):
+            if gap_skipped:
                 s["status"] = "done"
             elif not ctx.artifact_exists("understanding/gap_report.json"):
                 s["status"] = "locked"
@@ -4607,26 +4661,19 @@ def _build_stage_list(
             )
             from interview_mux.production_profile import is_tbiy
 
-            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
             g1_5_pending = check_g1_5_preview_pickup_pending(ctx)
             if not g1_5_preview_pickup_enabled() or not is_tbiy(ctx):
                 s["status"] = "done"
             elif not ctx.artifact_exists("master/assembly_preview.wav"):
                 s["status"] = "locked"
-            elif not meta.get("preview_listened_at"):
+            elif not run_meta.get("preview_listened_at"):
                 s["status"] = "locked"
             elif g1_5_pending:
                 s["status"] = "action_required"
             else:
                 s["status"] = "done"
         elif sid in STAGE_BY_ID and STAGE_BY_ID[sid].phase == "delivery":
-            from interview_mux.gap_fill_eligibility import gap_fill_was_skipped
-            from interview_mux.operator_gate_view import resolve_g1_vo_gate
-
-            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-            g1_view = resolve_g1_vo_gate(ctx, job, run_meta if isinstance(run_meta, dict) else {})
-            g1_blocks = g1_view.blocks_delivery_sidebar and not gap_fill_was_skipped(ctx)
-            if g1_blocks or not ctx.artifact_exists("analysis_complete.json"):
+            if g1_blocks_delivery or not analysis_complete:
                 s["status"] = "locked"
             elif profile_gate_pending:
                 s["status"] = "locked"
@@ -4638,7 +4685,6 @@ def _build_stage_list(
             from interview_mux.operator_quality import preclean_checkpoint_decision
             from interview_mux.stages.audio_preclean import preclean_was_skipped
 
-            run_meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
             dismissed = preclean_checkpoint_decision(run_meta, "before_ingest") == "dismiss"
             if preclean_was_skipped(ctx) or ctx.is_done(sid) or dismissed:
                 s["status"] = "done"
@@ -4701,6 +4747,16 @@ def _build_stage_list(
                     s["artifacts_status"][script] = "complete"
                     for row in s.get("outputs_view") or []:
                         if isinstance(row, dict) and row.get("path") == script:
+                            row["status"] = "complete"
+                            row["phase"] = "n_a"
+            elif sid == "ideal_cuts_materialize" and s.get("status") == "done":
+                # Ranking seed is optional — materialize may only write windows/boundaries.
+                seed = "understanding/ideal_cuts_selection_seed.json"
+                if (s.get("artifacts_status") or {}).get(seed) in ("pending", "partial"):
+                    s.setdefault("artifacts_lifecycle", {})[seed] = "n_a"
+                    s["artifacts_status"][seed] = "complete"
+                    for row in s.get("outputs_view") or []:
+                        if isinstance(row, dict) and row.get("path") == seed:
                             row["status"] = "complete"
                             row["phase"] = "n_a"
             from interview_mux.write_staging import expand_audio_output_paths

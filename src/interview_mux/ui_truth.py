@@ -141,15 +141,34 @@ def _t11_volley_without_artifact(
 
 
 def reconcile_stage_status(stage: dict[str, Any]) -> dict[str, Any]:
-    """Downgrade done → incomplete when required artifacts are pending/partial (T1)."""
+    """Downgrade done → incomplete when the stage's producer artifact is pending/partial (T1).
+
+    Collateral / optional listed artifacts (e.g. nugget_allocation_plan on an otherwise
+    complete vo_line_adjudicate) must not paint a ship-ready run as Failed.
+    """
     if stage.get("status") != "done":
         return stage
     # N/A / optional skips: artifacts are marked n_a before reconcile; never T1-downgrade.
     if stage.get("stage_output_mode") == "optional_skipped":
         return stage
+
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
     arts = stage.get("artifacts_status") or {}
     lifecycle = stage.get("artifacts_lifecycle") or {}
-    for path, st in arts.items():
+    sid = str(stage.get("id") or "")
+    producer = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+
+    if producer:
+        check_paths = [producer]
+    else:
+        # No canonical producer: keep done when any listed output is complete.
+        if any(st == "complete" for st in arts.values()):
+            return stage
+        check_paths = [p for p in arts.keys() if p]
+
+    for path in check_paths:
+        st = arts.get(path)
         if st not in ("pending", "partial"):
             continue
         phase = lifecycle.get(path)
@@ -158,6 +177,11 @@ def reconcile_stage_status(stage: dict[str, Any]) -> dict[str, Any]:
         stage["status"] = "incomplete"
         stage["incomplete_reason"] = f"{path} is {st}"
         return stage
+
+    if producer:
+        # Producer complete — do not T1 on collateral outputs_view rows.
+        return stage
+
     outputs = stage.get("outputs_view") or []
     for row in outputs:
         if row.get("status") == "pending" and row.get("phase") not in (

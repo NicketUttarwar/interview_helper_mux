@@ -217,7 +217,8 @@ export function listAttentionItems(
     } else if (
       reason === "transcript_review" ||
       reason === "g1_vo_pickup" ||
-      reason === "llm_gate"
+      reason === "llm_gate" ||
+      reason === "g_publish"
     ) {
       if (reason === "g1_vo_pickup" && !gateOperatorMustAct(run, "g1_vo_pickup")) {
         /* optional/automation G1 */
@@ -234,6 +235,18 @@ export function listAttentionItems(
           primaryLabel: checkpointPrimaryLabel(sid, "gate", { clipCount, pickupCount }),
           phase: stagePhase(stage),
           subTab: subTabForStage(sid, "gate"),
+        });
+      } else if (reason === "g_publish") {
+        push({
+          kind: "gate",
+          priority: 1,
+          stageId: sid,
+          stageTitle: "Publish package",
+          title: "G-Publish needs your input",
+          message: blocking.message || "Sync to S3 or skip publishing.",
+          primaryLabel: "Open Ship",
+          phase: "ship",
+          subTab: "stage",
         });
       }
     } else {

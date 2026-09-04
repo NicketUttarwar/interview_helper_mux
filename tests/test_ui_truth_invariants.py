@@ -16,6 +16,25 @@ def test_t1_done_stage_no_pending_artifacts() -> None:
     assert any(x.code == "T1" for x in v)
 
 
+def test_reconcile_ignores_collateral_pending_when_producer_complete() -> None:
+    from interview_mux.ui_truth import reconcile_stage_status
+
+    stage = {
+        "id": "vo_line_adjudicate",
+        "status": "done",
+        "artifacts_status": {
+            "understanding/vo_line_adjudication.json": "complete",
+            "understanding/nugget_allocation_plan.json": "pending",
+        },
+        "artifacts_lifecycle": {
+            "understanding/vo_line_adjudication.json": "committed",
+            "understanding/nugget_allocation_plan.json": "pending",
+        },
+    }
+    reconcile_stage_status(stage)
+    assert stage["status"] == "done"
+
+
 def test_reconcile_stage_status_downgrades_done():
     from interview_mux.ui_truth import reconcile_stage_status
 

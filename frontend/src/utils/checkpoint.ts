@@ -74,6 +74,11 @@ export function findPendingFocusStage(
   if (run.transcript_review_pending) return "transcript_review";
   if (run.gap_framing_decision_pending) return "missing_framing";
 
+  // G-Publish must win over stale "incomplete" analysis stages (optional artifacts).
+  if (run.meta?.g_publish_pending && !run.meta?.g_publish_skipped && !run.meta?.g_publish_cleared) {
+    return "podcast_publish";
+  }
+
   const blocking = run.journey?.blocking ?? run.blocking;
   if (blocking?.blocked && blocking.stage_id) {
     const blockedStage = run.stages.find((s) => s.id === blocking.stage_id);
@@ -84,7 +89,8 @@ export function findPendingFocusStage(
         reason === "g1_vo_pickup" ||
         reason === "g1_5_preview_pickup" ||
         reason === "pickup_speaker" ||
-        reason === "llm_gate"
+        reason === "llm_gate" ||
+        reason === "g_publish"
       ) {
         return blocking.stage_id;
       }
