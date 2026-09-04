@@ -148,6 +148,7 @@ def _synthesize_once(
         model_id=str(chatterbox_cfg().get("model_id") or ""),
         voice_ref_id=voice_ref_id,
         attempt=attempt,
+        wav_just_rendered=True,
     )
 
 

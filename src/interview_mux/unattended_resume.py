@@ -34,6 +34,23 @@ def resume_producer_for_block(
     from interview_mux.artifact_completeness import preferred_fill_stage
 
     low = str(message or "").lower()
+    if consumer_stage in {"master_finalize", "mix", "junction_snip_qa"} or any(
+        tok in low
+        for tok in (
+            "assembly_ledger",
+            "seam_autopsy",
+            "edl.json missing",
+            "render_ledger",
+        )
+    ):
+        try:
+            from interview_mux.delivery_guardrails import finalize_input_producer_pin
+
+            pinned = finalize_input_producer_pin(ctx, message=message)
+            if pinned and pinned != consumer_stage:
+                return pinned
+        except Exception:
+            pass
     for rel in json_paths_in_message(message):
         try:
             fill = preferred_fill_stage(rel, ctx)

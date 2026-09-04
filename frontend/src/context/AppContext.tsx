@@ -34,7 +34,7 @@ import { isPartialAcceleratedRun, isPartialAutoCheckpoint, shouldHoldJobRunningF
 import type { PartialAutoGPublishState } from "../utils/partialAcceleratedGuard";
 import { formatApiError } from "../utils/safeApi";
 import { applyLiveJobToStages, isJobActivelyRunning } from "../utils/jobStatus";
-import { preferFresherLogTail } from "../utils/logStreams";
+import { preferFresherLogTail, filterNoiseLogEntries, dedupeConsecutiveLogEntries } from "../utils/logStreams";
 import { isOperatorGateStartResponse } from "../utils/jobStartResponse";
 import { countRequiredAttention } from "../utils/attentionQueue";
 import { maybePingForRequiredAttention } from "../utils/attentionPing";
@@ -588,9 +588,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const renderLogWithAlerts = useCallback((entries: LogEntry[]) => {
-    setLogEntries(entries);
-    logCountRef.current = entries.length;
-    logLastTsRef.current = entries.length ? String(entries[entries.length - 1]?.ts ?? "") : "";
+    const cleaned = dedupeConsecutiveLogEntries(filterNoiseLogEntries(entries));
+    setLogEntries(cleaned);
+    logCountRef.current = cleaned.length;
+    logLastTsRef.current = cleaned.length ? String(cleaned[cleaned.length - 1]?.ts ?? "") : "";
   }, []);
 
   const refreshStartHome = useCallback(async () => {
@@ -971,7 +972,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void autoContinuePipelineRef.current(checkpoint.stageId);
   }, [pipelineFocusKey, jobRunning, config]);
 
-  const syncJobRunning = useCallback(async (rid: string) => {
+  const syncJobRunning = useCallback(async (rid: string, opts?: { quiet?: boolean }) => {
     try {
       const job = await api<JobState>(`/api/runs/${rid}/job`);
       const hold = shouldHoldJobRunningFlag(
@@ -988,7 +989,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return job;
     } catch (reason) {
       setJobRunning(false);
-      showToast(formatApiError(reason, "Job status"), "error");
+      if (!opts?.quiet) {
+        showToast(formatApiError(reason, "Job status"), "error");
+      }
       return null;
     }
   }, [maybeAutoSelectRunningStage, showToast]);
@@ -1489,7 +1492,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!opts.quiet) {
           await appendClientLogInternal(id, `Opened execution ${id}`, "info");
         }
-        const job = await syncJobRunning(id);
+        const job = await syncJobRunning(id, { quiet: opts.quiet });
         if (isJobActivelyRunning(job)) startJobPoll();
         else setJobRunning(false);
         setServerActiveRunId(id);
@@ -2117,7 +2120,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const runQuery = new URLSearchParams(window.location.search).get("run");
-      const restoreRunId = runQuery || active?.run_id;
+      let restoreRunId = runQuery || active?.run_id || null;
+      if (!restoreRunId) {
+        try {
+          const scope = await api<{ active_run_id?: string | null }>(
+            "/api/runs/session-scope",
+          );
+          restoreRunId = scope.active_run_id ?? null;
+        } catch {
+          /* session-scope optional during boot */
+        }
+      }
 
       if (!restoreRunId) {
         if (gen === bootGenRef.current) setSessionReady(true);

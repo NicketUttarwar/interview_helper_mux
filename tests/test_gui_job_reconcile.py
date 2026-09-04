@@ -115,3 +115,13 @@ def test_reconcile_revives_stalled_when_worker_alive(tmp_path, monkeypatch) -> N
     job = reconcile_job_if_stale(ctx.run_id, lock_held=False)
     assert job["status"] == "running"
     assert not job.get("stalled")
+
+
+def test_live_worker_detects_subprocess_pid(tmp_path, monkeypatch) -> None:
+    import os
+
+    from interview_mux.gui_job_reconcile import _live_worker
+
+    assert _live_worker({"worker_pid": os.getpid()}) is True
+    assert _live_worker({"worker_pid": 999_999_999}) is False
+    assert _live_worker({}) is False

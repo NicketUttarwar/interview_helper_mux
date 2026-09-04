@@ -13,6 +13,8 @@
 
 **Brains:** Start-tab slider. **0.1.0** (default — latest registered) first homunculus. **0.0.0** original linear walk (still available). Canon: [docs/cross-cutting/mastering-homunculus.md](docs/cross-cutting/mastering-homunculus.md).
 
+**Full-auto forensics (debug campaign):** [.cursor/plans/full_auto_forensics_run.plan.md](.cursor/plans/full_auto_forensics_run.plan.md) — **always kick off FRESH** (`MUX_FRESH=1`, new `exec_*`; never prior execution folders). On bugs: **patch code → pytest → continue that same run_id** (`MUX_FRESH=0`). Parent must arm **§3.0a `AGENT_LOOP_TICK_forensics` every 4m** (`notify_on_output`) so the chat nudges itself — re-arm after Cursor restart via Continue opener. State: [.cursor/plans/full_auto_forensics_state.md](.cursor/plans/full_auto_forensics_state.md). Do **not** spawn a second fresh exec mid-campaign to verify a late-stage fix.
+
 ## Read order
 
 1. [NORTH_STAR.md](NORTH_STAR.md)

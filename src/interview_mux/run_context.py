@@ -395,6 +395,50 @@ class RunContext:
                 )
                 return
 
+        # Hollow stage_done hard rule for delivery producers.
+        # force=True still refused for substantive holes (G1/WAV/ledger);
+        # upstream-pending reasons stay force-ok for fixtures.
+        _HOLLOW_FORCE_GUARD = frozenset(
+            {"vo_synthesize", "edl", "mix", "junction_snip_qa", "vo_line_adjudicate"}
+        )
+        _HOLLOW_FORCE_PATTERNS = (
+            "g1 vo pickups missing",
+            "seated synthesize vo missing",
+            "seated vo missing",
+            "assembly_ledger",
+            "master/edl.json",
+        )
+        if stage in _HOLLOW_FORCE_GUARD:
+            try:
+                from interview_mux.stage_completion import stage_artifact_incompleteness
+
+                hollow = stage_artifact_incompleteness(self, stage)
+            except Exception:
+                hollow = None
+            if hollow:
+                skip_stub = False
+                try:
+                    from interview_mux.gates import g1_vo_was_skipped_optional
+
+                    if stage in {
+                        "vo_synthesize",
+                        "vo_line_adjudicate",
+                    } and g1_vo_was_skipped_optional(self):
+                        skip_stub = True
+                except Exception:
+                    pass
+                hollow_l = str(hollow).lower()
+                substantive = any(p in hollow_l for p in _HOLLOW_FORCE_PATTERNS)
+                refuse = (not force) or substantive
+                if not skip_stub and refuse:
+                    self.log(
+                        f"Refusing mark_done({stage}{', force' if force else ''}): {hollow}",
+                        level="warning",
+                        stage=stage,
+                        detail={"hollow_reason": hollow},
+                    )
+                    return
+
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()

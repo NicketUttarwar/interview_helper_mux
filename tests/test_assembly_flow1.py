@@ -121,10 +121,16 @@ def test_edl_never_emits_a_sentence_twice_for_different_targets(tmp_path: Path) 
         )
 
 
-def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
+def test_run_edl_applies_nle_to_selection_and_edl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(assembly, "check_narrative_qc", lambda *_a, **_k: None)
     monkeypatch.setattr(assembly, "check_edl_qc", lambda *_a, **_k: None)
     monkeypatch.setattr(assembly, "check_edl_narrative_qc", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "interview_mux.publishability_boundary.checkpoint_publishability",
+        lambda *_a, **_k: None,
+    )
     monkeypatch.setattr(
         "interview_mux.synthetic_framing.synthetic_framing_cfg",
         lambda cfg=None: {
@@ -135,7 +141,7 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
         },
     )
 
-    def _fake_synth_transitions(ctx):
+    def _fake_synth_transitions(ctx, pairs=None):
         from interview_mux.transition_vo import transition_wav_path
         from interview_mux.vo_synthesis_audit import record_synthesis
 
@@ -156,6 +162,8 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
             before_id = str(item.get("before_segment_id") or "")
             if not after_id or not before_id:
                 continue
+            if pairs is not None and (after_id, before_id) not in pairs:
+                continue
             out = transition_wav_path(ctx, after_id, before_id)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(_minimal_wav_bytes(duration_ms=800))
@@ -174,6 +182,7 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
                 },
                 backend="mlx_audio",
                 out_wav=out,
+                wav_just_rendered=True,
             )
             rows.append(
                 {
@@ -203,7 +212,7 @@ def test_run_edl_applies_nle_to_selection_and_edl(monkeypatch) -> None:
         "interview_mux.assembly_ledger.assert_ledger_no_naked_seams",
         lambda *_a, **_k: None,
     )
-    ctx = RunContext("run_206", create=True)
+    ctx = isolated_run_ctx(tmp_path, "run_206")
     ctx.write_json(
         "segments/manifest.json",
         minimal_manifest(

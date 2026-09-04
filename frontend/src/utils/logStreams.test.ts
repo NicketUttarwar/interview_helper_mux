@@ -3,6 +3,7 @@ import {
   dedupeConsecutiveLogEntries,
   excludePinnedEntries,
   filterLiveStream,
+  filterNoiseLogEntries,
   preferFresherLogTail,
 } from "./logStreams";
 import { makeLogEntry, makeRunFixture, makeStage } from "../test/runFixtures";
@@ -19,6 +20,15 @@ describe("logStreams activity dedupe", () => {
     const dup = makeLogEntry("Coherence report: not found", "error");
     const entries = [dup, dup, dup, makeLogEntry("other", "info")];
     expect(dedupeConsecutiveLogEntries(entries)).toHaveLength(2);
+  });
+
+  it("filters ignorable API job poll errors", () => {
+    const noisy = makeLogEntry("API 500: name '_live_worker' is not defined", "error", "t1");
+    noisy.stage = "api";
+    noisy.detail = { path: "/api/runs/exec_1/job", journey_kind: "api" };
+    const real = makeLogEntry("Stage failed: transcribe", "error", "t2");
+    real.stage = "transcribe";
+    expect(filterNoiseLogEntries([noisy, noisy, real])).toEqual([real]);
   });
 });
 

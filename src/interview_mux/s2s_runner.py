@@ -386,6 +386,7 @@ def synthesize_line(
             fallback_from="chatterbox" if chatterbox_fallback else None,
             fallback_reason="chatterbox_fail_open_or_qc" if chatterbox_fallback else None,
             model_id=str(payload.get("model_id") or ""),
+            wav_just_rendered=True,
         )
         promote_synthesized_vo(ctx, line_id=line_id, src=out_wav)
     return out_wav

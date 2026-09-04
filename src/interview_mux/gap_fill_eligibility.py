@@ -353,6 +353,16 @@ def synthetic_vo_incompleteness(ctx: RunContext, stage_id: str) -> str | None:
     if stage_id in _GAP_VO_COUNT_STAGES:
         have = count_active_gap_vo_lines(ctx)
         if have < need:
+            # One-shot reseat before declaring incomplete — air-script omit can
+            # transiently wipe seats between layup publish and seed checks.
+            try:
+                from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+                ensure_hosted_framing_vo_seats(ctx)
+                have = count_active_gap_vo_lines(ctx)
+            except Exception:
+                pass
+        if have < need:
             return (
                 f"G-Framing Yes requires ≥{need} synthetic host line(s), "
                 f"gap_report has {have}"

@@ -301,3 +301,5 @@ def test_checkpoint_fail_open_by_default(tmp_path: Path) -> None:
     report = checkpoint_publishability(ctx, checkpoint="post_edl")
     assert not report.ok
     assert ctx.artifact_exists("operator/publishability_report.json")
+    # Soft/fail-open must leave the just-committed EDL on disk.
+    assert ctx.artifact_exists("master/edl.json")

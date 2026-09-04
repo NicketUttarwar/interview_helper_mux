@@ -562,13 +562,56 @@ def write_publishability_report(ctx: RunContext, report: PublishabilityReport) -
     ctx.write_json(PUBLISHABILITY_REPORT_REL, doc, skip_handoff=True)
 
 
+def _snapshot_edl_ledger(ctx: RunContext) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    edl = _load_edl(ctx)
+    ledger: dict[str, Any] | None = None
+    if ctx.artifact_exists("master/assembly_ledger.json"):
+        try:
+            doc = ctx.read_json("master/assembly_ledger.json")
+            ledger = dict(doc) if isinstance(doc, dict) else None
+        except Exception:
+            ledger = None
+    return edl, ledger
+
+
+def _reemit_edl_ledger(
+    ctx: RunContext,
+    edl: dict[str, Any] | None,
+    ledger: dict[str, Any] | None,
+) -> None:
+    """Restore just-committed EDL/ledger after a hard invalidate that archived them."""
+    from interview_mux.file_store import write_json as fs_write_json
+
+    if isinstance(edl, dict) and edl:
+        dest = ctx.final_path("master", "edl.json")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # Bypass schema re-validate — bytes were already committed this turn.
+        fs_write_json(dest, edl)
+    if isinstance(ledger, dict) and ledger:
+        dest = ctx.final_path("master", "assembly_ledger.json")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fs_write_json(dest, ledger)
+    elif isinstance(edl, dict) and edl:
+        try:
+            from interview_mux.assembly_ledger import write_assembly_ledger
+
+            write_assembly_ledger(ctx, edl=edl)
+        except Exception:
+            pass
+
+
 def write_publishability_repair_plan(
     ctx: RunContext,
     report: PublishabilityReport,
     *,
     playbook,
+    soft: bool = False,
 ) -> dict[str, Any]:
-    """Persist cascade repair plan with invalidate_set for downstream failures."""
+    """Persist cascade repair plan with invalidate_set for downstream failures.
+
+    Soft/advisory: write the plan only — never ``clear_from(edl)`` / archive live EDL.
+    Hard: may invalidate, but re-emits EDL+ledger in the same call so finalize keeps a ledger.
+    """
     from interview_mux.artifact_dependency_graph import transitive_invalidate
 
     primary = report.violations[0]
@@ -592,9 +635,28 @@ def write_publishability_repair_plan(
         "invalidate_set": invalidate_set,
         "cascade_error_classes": sorted({v.error_class for v in report.violations}),
         "completed": False,
+        "soft": bool(soft),
         "created_at": _utc_now(),
     }
     ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
+    if soft:
+        # Soft/advisory: plan only. Archive downstream of mix at most (never live EDL).
+        if resume_stage in {"mix", "junction_snip_qa", "master_finalize"}:
+            try:
+                from interview_mux.homunculus.agenda import invalidate_downstream
+
+                invalidate_downstream(ctx, "mix")
+                plan["cleared_from"] = "mix"
+                plan["soft_clear_mode"] = "downstream_of_mix"
+            except Exception:
+                pass
+        else:
+            plan["cleared_from"] = None
+            plan["soft_clear_mode"] = "plan_only"
+        ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
+        return plan
+
+    edl_snap, ledger_snap = _snapshot_edl_ledger(ctx)
     try:
         from interview_mux.homunculus.agenda import invalidate_downstream
 
@@ -608,6 +670,14 @@ def write_publishability_repair_plan(
             plan["cleared_from"] = resume_stage
         except Exception:
             pass
+    # Hard invalidate must not leave finalize without the just-committed EDL/ledger.
+    if resume_stage in {"edl", "mix", "junction_snip_qa"} or report.checkpoint in {
+        "post_edl",
+        "post_junction",
+        "pre_mix",
+    }:
+        _reemit_edl_ledger(ctx, edl_snap, ledger_snap)
+        plan["edl_ledger_reemitted"] = True
     ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
     return plan
 
@@ -624,12 +694,13 @@ def commit_or_block(
         return
     primary = report.violations[0]
     playbook = violation_playbook(primary)
-    write_publishability_repair_plan(ctx, report, playbook=playbook)
     should_block = publishability_enforce(ctx) if enforce is None else bool(enforce)
     advisory_only = (
         report.violations
         and all(v.error_class == "quality_advisory" for v in report.violations)
     )
+    soft = advisory_only or not should_block
+    write_publishability_repair_plan(ctx, report, playbook=playbook, soft=soft)
     if advisory_only:
         try:
             from interview_mux.aspirational_quality import is_aspirational_enabled

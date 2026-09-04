@@ -615,10 +615,90 @@ def invalidation_is_structural(ctx: RunContext, stage: str) -> bool:
     return not fingerprints_match_checkpoint(ctx)
 
 
+def finalize_input_producer_pin(ctx: RunContext, *, message: str = "") -> str:
+    """Map master_finalize blockers to a single producer stage (never mix alone).
+
+    Missing ledger → ``edl`` (ledger writer). Missing seam_autopsy →
+    ``junction_snip_qa`` when assembly exists, else ``edl``. Missing EDL → ``edl``.
+    """
+    low = str(message or "").lower()
+    if not ctx.artifact_exists("master/edl.json"):
+        try:
+            from interview_mux.delivery_recovery import restore_master_artifact
+
+            restore_master_artifact(ctx, "master/edl.json", min_bytes=32)
+        except Exception:
+            pass
+    if not ctx.artifact_exists("master/edl.json") or "edl.json missing" in low:
+        return "edl"
+    if not ctx.artifact_exists("master/assembly_ledger.json") or (
+        "assembly_ledger" in low and "missing" in low
+    ):
+        return "edl"
+    if "assembly_ledger" in low and ("naked" in low or "incomplete" in low):
+        return "edl"
+    if not ctx.artifact_exists("master/seam_autopsy.json") or (
+        "seam_autopsy" in low and "missing" in low
+    ):
+        if ctx.artifact_exists("master/assembly.wav"):
+            return "junction_snip_qa"
+        return "edl"
+    if "render_ledger" in low and not ctx.artifact_exists("master/render_ledger.json"):
+        if ctx.artifact_exists("master/assembly.wav"):
+            return "junction_snip_qa"
+        return "mix"
+    return "master_finalize"
+
+
+def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
+    """Monotonic delivery: allow vo_synthesize rewind only for G1 red or seated mismatch.
+
+    Assembly + G1 green + deferred transition pairs alone must not unmark vo_synthesize.
+    """
+    try:
+        from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
+
+        if g1_vo_was_skipped_optional(ctx):
+            return False
+        if check_g1_vo(ctx):
+            return True
+    except Exception:
+        return True
+    try:
+        from interview_mux.vo_contract import seated_vo_missing_ids
+
+        if seated_vo_missing_ids(ctx):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
     """G7: stay on the incomplete producer; never advance to a consumer."""
     if ctx is None:
         return resume
+    # Finalize-class holes: pin the producer, never spin on mix/finalize alone.
+    if resume == "master_finalize":
+        try:
+            pinned = finalize_input_producer_pin(ctx)
+            if pinned and pinned != "master_finalize":
+                return pinned
+        except Exception:
+            pass
+    # Selection leads EDL. Pinning an incomplete consumer (edl/mix) while
+    # master/selection.json is absent is a heal-spin, not a producer pin.
+    if not ctx.artifact_exists("master/selection.json"):
+        try:
+            from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+
+            target = resume if resume in DELIVERY_ORDER else "edl"
+            earliest = _earliest_incomplete_seed_stage(ctx, target)
+            if earliest:
+                return earliest
+        except Exception:
+            pass
+        return "topic_coverage_audit"
     if resume in MIX_EPOCH_CONSUMERS and not music_epoch_complete(ctx):
         for sid in MUSIC_BEFORE_MIX:
             if not seed_stage_complete(ctx, sid):
@@ -639,16 +719,17 @@ def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
             return "nugget_layup_compose"
         # G1 open with layup present — pin adjudicate (never fake stage g1_vo_open).
         return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
-    if resume and not seed_stage_complete(ctx, resume):
-        return resume
     try:
         from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
 
-        earliest = _earliest_incomplete_seed_stage(ctx, resume or "edl")
+        target = resume if resume in DELIVERY_ORDER else "edl"
+        earliest = _earliest_incomplete_seed_stage(ctx, target)
         if earliest:
             return earliest
     except Exception:
         pass
+    if resume and not seed_stage_complete(ctx, resume):
+        return resume
     for sid in PHASE_A_STAGES:
         if not seed_stage_complete(ctx, sid):
             return sid

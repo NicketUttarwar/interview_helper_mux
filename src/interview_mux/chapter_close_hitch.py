@@ -1393,6 +1393,12 @@ def apply_post_walk_patches(
     except Exception:
         stamped = 0
     try:
+        from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+        clamp_hosted_seats_to_rendered_wavs(ctx)
+    except Exception:
+        pass
+    try:
         rewritten = remap_homunculus_memory(ctx, mapping)
     except Exception:
         rewritten = []

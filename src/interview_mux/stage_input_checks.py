@@ -149,10 +149,34 @@ def _vo_contract_issues(ctx: RunContext, stage_id: str) -> list[StageInputIssue]
     from interview_mux.vo_contract import validate_vo_contract
 
     run_consumer_invariants(ctx, stage_id)
+    # Align omit ledger before preflight — stale omitted∩on-air thrash blocks synth.
+    try:
+        from interview_mux.vo_contract import (
+            ensure_hosted_framing_vo_seats,
+            repair_vo_contract_drift,
+        )
+
+        repair_vo_contract_drift(ctx)
+        ensure_hosted_framing_vo_seats(ctx)
+    except Exception:
+        pass
     violations = validate_vo_contract(ctx)
+    # vo_synthesize / vo_line_adjudicate exist to prepare & render seated WAVs —
+    # missing WAV is not a preflight block for either stage.
+    if stage_id in {"vo_synthesize", "vo_line_adjudicate"}:
+        violations = [v for v in violations if "missing WAV" not in v and "missing wav" not in v.lower()]
     if violations:
         result = run_vo_contract_ladder(ctx, consumer_stage=stage_id)
+        try:
+            repair_vo_contract_drift(ctx)
+            ensure_hosted_framing_vo_seats(ctx)
+        except Exception:
+            pass
         violations = validate_vo_contract(ctx)
+        if stage_id in {"vo_synthesize", "vo_line_adjudicate"}:
+            violations = [
+                v for v in violations if "missing WAV" not in v and "missing wav" not in v.lower()
+            ]
         if not violations and result.contract_ok:
             return []
     if not violations:
@@ -363,7 +387,49 @@ def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
         issue = _require_artifact(ctx, rel, remediation=remediation)
         if issue:
             issues.append(issue)
+    issues.extend(_vo_script_wav_agreement_issues(ctx, consumer="mix"))
     return issues
+
+
+def _vo_script_wav_agreement_issues(
+    ctx: RunContext, *, consumer: str
+) -> list[StageInputIssue]:
+    """Hard-stop when synthetic VO text and audible WAV audit disagree."""
+    from interview_mux.vo_synthesis_audit import (
+        audible_script_hash_errors,
+        purge_stale_vo_wavs_for_script_drift,
+    )
+
+    if not ctx.artifact_exists("master/edl.json"):
+        # Pre-EDL: seated gap coverage still must not be stale.
+        stale = compact_vo_coverage_stale_or_missing(ctx)
+        if stale:
+            return [
+                StageInputIssue(
+                    f"Synthetic VO script/WAV mismatch for: {stale[:6]}",
+                    "Re-run vo_synthesize so every seated line is re-rendered "
+                    f"before {consumer}; never mix with stale VO audio.",
+                    kind="vo_coverage",
+                )
+            ]
+        return []
+    edl = ctx.read_json("master/edl.json")
+    errors = audible_script_hash_errors(ctx, edl if isinstance(edl, dict) else None)
+    if not errors:
+        return []
+    # Drop forged audits / stale files so the next vo_synthesize regenerates.
+    try:
+        purge_stale_vo_wavs_for_script_drift(ctx)
+    except Exception:
+        pass
+    return [
+        StageInputIssue(
+            f"Synthetic VO does not match EDL/gap script: {errors[:6]}",
+            "Re-run vo_synthesize (never rebind audit onto old WAVs), then rebuild "
+            f"edl before {consumer}.",
+            kind="vo_coverage",
+        )
+    ]
 
 
 def _check_junction_snip_qa(ctx: RunContext) -> list[StageInputIssue]:
@@ -387,6 +453,25 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
     )
     if issue:
         issues.append(issue)
+    # Soft publishability / invalidate must not leave finalize without EDL —
+    # restore from archive when present, else pin edl (never ranking).
+    if not ctx.artifact_exists("master/edl.json"):
+        try:
+            from interview_mux.delivery_recovery import restore_master_artifact
+
+            restored = restore_master_artifact(ctx, "master/edl.json", min_bytes=32)
+            if restored is not None and restored.is_file():
+                restore_master_artifact(ctx, "master/assembly_ledger.json", min_bytes=32)
+        except Exception:
+            pass
+    if not ctx.artifact_exists("master/edl.json"):
+        issues.append(
+            StageInputIssue(
+                "master/edl.json missing",
+                "Restore archived EDL or re-run edl before master_finalize.",
+            )
+        )
+        return issues
     if ctx.artifact_exists("master/selection.json") and ctx.artifact_exists("master/edl.json"):
         from interview_mux.order_hash import order_hashes_match
 
@@ -423,12 +508,20 @@ def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
                     )
                 )
     elif ctx.artifact_exists("master/edl.json"):
-        issues.append(
-            StageInputIssue(
-                "master/assembly_ledger.json missing",
-                "Re-run edl to emit the assembly ledger.",
+        # Ledger is re-runnable from EDL without a full NLE — emit it here so
+        # identical_failures do not spin on a missing consumer-only pin.
+        try:
+            from interview_mux.assembly_ledger import write_assembly_ledger
+
+            edl_doc = ctx.read_json("master/edl.json")
+            write_assembly_ledger(ctx, edl=edl_doc if isinstance(edl_doc, dict) else None)
+        except Exception:
+            issues.append(
+                StageInputIssue(
+                    "master/assembly_ledger.json missing",
+                    "Re-run edl to emit the assembly ledger.",
+                )
             )
-        )
     if ctx.artifact_exists("master/bridge_completeness.json"):
         bc = ctx.read_json("master/bridge_completeness.json")
         if isinstance(bc, dict) and not bc.get("complete", True):
@@ -542,15 +635,27 @@ def _check_edl_narrative_audit(ctx: RunContext) -> list[StageInputIssue]:
 
 
 def compact_vo_coverage_stale_or_missing(ctx: RunContext) -> list[str]:
+    from interview_mux.air_script import seated_vo_line_ids
+    from interview_mux.mastering_plan_loader import load_plan_raw
     from interview_mux.stages.edl_narrative_audit import compact_vo_coverage
 
+    seated: set[str] = set()
+    if ctx.artifact_exists("mastering/mastering_plan.json"):
+        try:
+            plan = load_plan_raw(ctx)
+            seated = set(seated_vo_line_ids(plan))
+        except Exception:
+            seated = set()
     missing: list[str] = []
     for row in compact_vo_coverage(ctx):
         if not isinstance(row, dict):
             continue
         cov = str(row.get("coverage") or "")
-        if cov in {"missing", "wav_stale"} and row.get("required"):
-            missing.append(str(row.get("line_id") or ""))
+        lid = str(row.get("line_id") or "")
+        if cov in {"missing", "wav_stale"} and (
+            row.get("required") or (lid and lid in seated)
+        ):
+            missing.append(lid)
     return [x for x in missing if x]
 
 
@@ -570,6 +675,15 @@ def _check_edl(ctx: RunContext) -> list[StageInputIssue]:
             StageInputIssue(
                 f"G1 VO pickup missing for: {missing}",
                 "Record vo_pickup WAVs before building the EDL.",
+            )
+        )
+    stale = compact_vo_coverage_stale_or_missing(ctx)
+    if stale:
+        issues.append(
+            StageInputIssue(
+                f"Synthetic VO script/WAV mismatch for: {stale[:6]}",
+                "Re-run vo_synthesize so WAVs match current gap text before edl.",
+                kind="vo_coverage",
             )
         )
     return issues

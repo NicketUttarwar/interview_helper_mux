@@ -227,6 +227,23 @@ def ensure_g1_pickups(
         }
 
     try:
+        from interview_mux.vo_synthesis_audit import purge_stale_vo_wavs_for_script_drift
+
+        purged = purge_stale_vo_wavs_for_script_drift(ctx)
+        if purged:
+            ctx.log(
+                f"ensure_g1_pickups: purged {len(purged)} stale VO take(s) before synth",
+                stage="delivery_recovery",
+                detail=purged[:12],
+            )
+    except Exception as exc:
+        ctx.log(
+            f"stale VO purge skipped: {exc}",
+            level="warning",
+            stage="delivery_recovery",
+        )
+
+    try:
         from interview_mux.source_topology import (
             confirm_pickup_speaker,
             ensure_source_topology,

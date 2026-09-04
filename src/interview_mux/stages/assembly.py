@@ -754,20 +754,22 @@ def build_flow1_edl(
                     tr_dur = duration_fn(tr_path)
                 elif text.strip():
                     missing_transitions.append(f"{sid}->{nxt}")
-                clips.append(
-                    {
-                        "type": "transition",
-                        "after_segment_id": sid,
-                        "before_segment_id": nxt,
-                        "text": text,
-                        "transition_type": tr.get("type", "bridge"),
-                        "voice_speaker_id": tr.get("voice_speaker_id"),
-                        "duration_ms": tr_dur,
-                        "timeline_start_ms": timeline_ms,
-                        "script_hash": script_hash(text),
-                        **({"source_path": tr_rel} if tr_rel else {}),
-                    }
-                )
+                clip_tr = {
+                    "type": "transition",
+                    "after_segment_id": sid,
+                    "before_segment_id": nxt,
+                    "text": text,
+                    "transition_type": tr.get("type", "bridge"),
+                    "duration_ms": tr_dur,
+                    "timeline_start_ms": timeline_ms,
+                    "script_hash": script_hash(text),
+                }
+                voice = tr.get("voice_speaker_id")
+                if voice:
+                    clip_tr["voice_speaker_id"] = voice
+                if tr_rel:
+                    clip_tr["source_path"] = tr_rel
+                clips.append(clip_tr)
                 timeline_ms += tr_dur
                 if not _same_answer_seam(sid, nxt):
                     if tr_dur > 0:
@@ -1372,6 +1374,16 @@ def run_edl(ctx: RunContext) -> None:
             raise
         ctx.log(
             f"edl: publishability checkpoint skipped: {exc}",
+            level="warning",
+            stage="edl",
+        )
+    try:
+        from interview_mux.transition_vo import stamp_transitions_pair_freeze
+
+        stamp_transitions_pair_freeze(ctx)
+    except Exception as freeze_exc:
+        ctx.log(
+            f"edl: transitions pair freeze skipped: {freeze_exc}",
             level="warning",
             stage="edl",
         )

@@ -107,6 +107,10 @@ def _guarded_run(run_id: str):
 SKIP_ASSET_PARTS = {"executions", ".gui"}
 
 _RUN_ID_IN_API_PATH = re.compile(r"^/api/runs/(?P<run_id>[^/]+)")
+# High-frequency poll routes — transient 500s are retried client-side; do not spam gui_log/terminal.
+_API_POLL_PATH_SUFFIXES = ("/job", "/log")
+_API_ERROR_DEDUPE: dict[str, float] = {}
+_API_ERROR_DEDUPE_TTL_SEC = 120.0
 
 
 def _run_id_from_request(request: Request) -> str | None:
@@ -124,17 +128,32 @@ def _append_api_error_log(
     """Mirror unhandled run-scoped API failures to gui_log.jsonl."""
     if not RunContext.exists(run_id):
         return
+    path = request.url.path
+    is_poll = any(path.endswith(suffix) for suffix in _API_POLL_PATH_SUFFIXES)
+    if status_code >= 500 and is_poll:
+        # Job/log polling retries in the GUI and driver — not operator-actionable noise.
+        return
+    import time
+
+    dedupe_key = f"{path}:{status_code}:{type(exc).__name__}:{str(exc)[:200]}"
+    now = time.monotonic()
+    last = _API_ERROR_DEDUPE.get(dedupe_key)
+    if last is not None and now - last < _API_ERROR_DEDUPE_TTL_SEC:
+        return
+    _API_ERROR_DEDUPE[dedupe_key] = now
+
     ctx = RunContext(run_id, create=False)
-    tb = traceback.format_exc()
     detail: dict[str, Any] = {
-        "path": request.url.path,
+        "path": path,
         "method": request.method,
         "status_code": status_code,
         "error_class": type(exc).__name__,
         "journey_kind": "api",
     }
-    if tb and tb.strip() != "NoneType: None":
-        detail["traceback"] = tb
+    if status_code >= 500:
+        tb = traceback.format_exc()
+        if tb and tb.strip() != "NoneType: None":
+            detail["traceback"] = tb
     append_log(
         ctx.run_dir,
         f"API {status_code}: {exc}",

@@ -591,8 +591,25 @@ def playbook_mint_reorder_glue(ctx: RunContext) -> list[str]:
 
 
 
-def _unmark_stages(ctx: RunContext, *stage_ids: str) -> None:
+def _unmark_stages(ctx: RunContext, *stage_ids: str, force: bool = False) -> None:
     for sid in stage_ids:
+        if sid == "vo_synthesize" and not force:
+            try:
+                from interview_mux.delivery_guardrails import (
+                    may_rewind_to_vo_synthesize,
+                    record_wasted_work,
+                )
+
+                if not may_rewind_to_vo_synthesize(ctx):
+                    record_wasted_work(
+                        ctx,
+                        event="refuse_vo_synthesize_rewind",
+                        stage="vo_synthesize",
+                        detail={"reason": "recovery_unmark"},
+                    )
+                    continue
+            except Exception:
+                pass
         (Path(ctx.run_dir) / ".stage_done" / sid).unlink(missing_ok=True)
 
 
@@ -788,7 +805,7 @@ def playbook_vo_seated_coverage(ctx: RunContext) -> list[str]:
     from interview_mux.vo_contract import repair_vo_contract_drift
 
     changed = repair_vo_contract_drift(ctx)
-    _unmark_stages(ctx, "vo_synthesize")
+    _unmark_stages(ctx, "vo_synthesize", force=True)
     artifacts = [".stage_done/vo_synthesize"]
     if changed:
         artifacts.append("understanding/gap_report.json")
@@ -799,7 +816,7 @@ def playbook_vo_contract_repair(ctx: RunContext) -> list[str]:
     from interview_mux.execution_contract import run_vo_contract_ladder
 
     result = run_vo_contract_ladder(ctx, consumer_stage="vo_contract_repair")
-    _unmark_stages(ctx, "vo_line_adjudicate", "vo_synthesize")
+    _unmark_stages(ctx, "vo_line_adjudicate", "vo_synthesize", force=True)
     artifacts = list(result.artifacts)
     if result.contract_ok:
         return artifacts or ["understanding/gap_report.json"]

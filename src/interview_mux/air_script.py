@@ -119,28 +119,87 @@ def _orientation_line_id() -> str:
         return "vo_preface_episode_orientation"
 
 
+def _orientation_line_waived(line: dict[str, Any], gap_report: dict[str, Any] | None) -> bool:
+    """True when orientation must not be force-seated (omit meta or durable waive).
+
+    Bare ``skipped_optional`` alone is not durable — ORIENTATION_ALWAYS may revive it.
+    """
+    try:
+        from interview_mux.opening_orientation import orientation_omitted
+
+        if orientation_omitted(gap_report):
+            return True
+    except Exception:
+        pass
+    reason = str(line.get("skip_reason_code") or "").strip().lower()
+    if reason in {"execution_contract_waive", "not_on_air", "air_script_omit_sync"}:
+        return True
+    if line.get("air_script_omit"):
+        return True
+    if line.get("omit"):
+        return True
+    compensating = str(line.get("compensating_path") or "").strip().lower()
+    if compensating in {"tier_d_logged_waive", "air_script_omit_sync"}:
+        return True
+    return False
+
+
 def build_vo_seats(
     plan: dict[str, Any] | None,
     gap_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Published live-VO contract: who airs, who Pass B omitted, orientation id."""
-    orientation_id = _orientation_line_id()
+    """Published live-VO contract: who airs, who Pass B omitted, orientation id.
+
+    Waived / omitted orientation stays out of seated_line_ids (tier-D and native-open).
+    """
+    default_orientation_id = _orientation_line_id()
+    orientation_id: str | None = default_orientation_id
     seated = set(requested_vo_line_ids(plan))
+    # Preserve published seats (may exist before beats are rewritten).
+    prior = load_air_script(plan) if isinstance(plan, dict) else None
+    if isinstance(prior, dict):
+        prior_seats = prior.get("vo_seats") if isinstance(prior.get("vo_seats"), dict) else {}
+        seated |= {str(x) for x in (prior_seats.get("seated_line_ids") or []) if x}
+        prior_orient = str(prior_seats.get("orientation_id") or "").strip()
+        if prior_orient:
+            seated.add(prior_orient)
     omitted: set[str] = set()
+    live_orientation: str | None = None
     if isinstance(gap_report, dict):
+        try:
+            from interview_mux.opening_orientation import orientation_omitted
+
+            if orientation_omitted(gap_report):
+                orientation_id = None
+        except Exception:
+            pass
         for line in gap_report.get("interviewer_lines") or []:
             if not isinstance(line, dict):
                 continue
             lid = str(line.get("line_id") or "")
             if not lid:
                 continue
-            if _is_orientation_line(line) or lid == orientation_id:
+            is_orient = _is_orientation_line(line) or lid == default_orientation_id
+            if is_orient:
+                if _orientation_line_waived(line, gap_report):
+                    omitted.add(lid)
+                    seated.discard(lid)
+                    continue
                 seated.add(lid)
+                live_orientation = lid
                 orientation_id = lid
+                continue
+            # Gap omit/skip is the later decision — never keep a stale seat.
+            if not gap_line_air_eligible(line):
+                seated.discard(lid)
+                omitted.add(lid)
                 continue
             if lid in seated:
                 continue
             omitted.add(lid)
+    if live_orientation is None and orientation_id and orientation_id not in seated:
+        # No live orientation in gap — do not invent a seat via default id.
+        orientation_id = None
     omitted -= seated
     seated.discard("")
     omitted.discard("")
@@ -159,11 +218,19 @@ def seated_vo_line_ids(plan: dict[str, Any] | None) -> set[str]:
     seats = script.get("vo_seats")
     if isinstance(seats, dict) and "seated_line_ids" in seats:
         out = {str(x) for x in (seats.get("seated_line_ids") or []) if x}
+        omitted = {str(x) for x in (seats.get("omitted_line_ids") or []) if x}
         oid = str(seats.get("orientation_id") or "").strip()
-        if oid:
+        # orientation_id must not re-seat a line already removed from seated_line_ids
+        # or listed only in omitted_line_ids (omit wins when not also seated).
+        if oid and oid not in omitted and oid in out:
+            pass
+        elif oid and oid not in omitted and not out:
+            # Legacy orientation-only seat documents.
             out.add(oid)
+        # Intersection: seated wins — floor/protect reseat is the later decision.
+        # omitted_vo_line_ids subtracts seated, so do not drop seated here.
         return out
-    return requested_vo_line_ids(plan) | {_orientation_line_id()}
+    return requested_vo_line_ids(plan)
 
 
 def omitted_vo_line_ids(plan: dict[str, Any] | None) -> set[str]:
@@ -829,9 +896,43 @@ def compose_pass_b(ctx: RunContext) -> dict[str, Any]:
     script["pass"] = "pass_b"
     script["beats"] = beats
     script["story_clarity"] = lint
-    script["vo_seats"] = build_vo_seats(
-        {"air_script": script}, gap_report if isinstance(gap_report, dict) else None
+    # Clear stale gap omit flags for lines Pass B just seated into beats so
+    # build_vo_seats does not immediately unseat required recovery layups.
+    gap_for_seats: dict[str, Any] | None = (
+        gap_report if isinstance(gap_report, dict) else None
     )
+    beat_line_ids = {
+        str(b.get("line_id") or "")
+        for b in beats
+        if isinstance(b, dict) and b.get("line_id")
+    }
+    if gap_for_seats and beat_line_ids:
+        gap_for_seats = dict(gap_for_seats)
+        cleared_lines: list[Any] = []
+        for ln in gap_for_seats.get("interviewer_lines") or []:
+            if not isinstance(ln, dict):
+                cleared_lines.append(ln)
+                continue
+            lid = str(ln.get("line_id") or "")
+            if lid and lid in beat_line_ids:
+                ln = dict(ln)
+                ln.pop("air_script_omit", None)
+                ln["skipped_optional"] = False
+                if not ln.get("skip_reason_code"):
+                    pass
+                else:
+                    # Drop omit-ish skip reasons revived by Pass B seating.
+                    reason = str(ln.get("skip_reason_code") or "").lower()
+                    if reason in {
+                        "air_script_omit",
+                        "air_script_omit_sync",
+                        "not_on_air",
+                        "rendered_floor_prefer_wav",
+                    }:
+                        ln.pop("skip_reason_code", None)
+            cleared_lines.append(ln)
+        gap_for_seats["interviewer_lines"] = cleared_lines
+    script["vo_seats"] = build_vo_seats({"air_script": script}, gap_for_seats)
     script["generated_at"] = _now()
     plan = dict(plan)
     plan["air_script"] = script
@@ -1041,9 +1142,15 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
         plan = dict(plan)
         plan["air_script"] = script
         write_plan(ctx, plan)
+        try:
+            from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+            clamp_hosted_seats_to_rendered_wavs(ctx)
+        except Exception:
+            pass
         return 0
     gap = ctx.read_json("understanding/gap_report.json")
-    filtered = filter_gap_lines_for_air_script(gap, plan)
+    filtered = filter_gap_lines_for_air_script(gap, plan, ctx=ctx)
     if not isinstance(filtered, dict):
         return 0
     script = dict(load_air_script(plan) or {})
@@ -1076,36 +1183,42 @@ def persist_air_script_omits_on_gap_report(ctx: RunContext) -> int:
             if bool(ln.get("skipped_optional")) != bool(orig.get("skipped_optional")):
                 stamped = True
                 break
-    if not stamped:
-        return 0
-    dest = ctx.write_json("understanding/gap_report.json", filtered)
-    try:
-        import shutil
+    if stamped:
+        dest = ctx.write_json("understanding/gap_report.json", filtered)
+        try:
+            import shutil
 
-        pending_root = ctx.run_dir / ".pending_writes"
-        if pending_root.is_dir():
-            for stage_dir in pending_root.iterdir():
-                if not stage_dir.is_dir():
-                    continue
-                candidate = stage_dir.joinpath("understanding", "gap_report.json")
-                if candidate.is_file():
-                    shutil.copy2(dest, candidate)
+            pending_root = ctx.run_dir / ".pending_writes"
+            if pending_root.is_dir():
+                for stage_dir in pending_root.iterdir():
+                    if not stage_dir.is_dir():
+                        continue
+                    candidate = stage_dir.joinpath("understanding", "gap_report.json")
+                    if candidate.is_file():
+                        shutil.copy2(dest, candidate)
+        except Exception:
+            pass
+        try:
+            from interview_mux.gap_framing import (
+                build_gap_framing_plan,
+                persist_gap_framing_companion_artifacts,
+            )
+
+            lines = [ln for ln in filt_lines if isinstance(ln, dict)]
+            persist_gap_framing_companion_artifacts(ctx, {"interviewer_lines": lines})
+            live = [ln for ln in lines if not ln.get("skipped_optional")]
+            framing = build_gap_framing_plan(ctx, live)
+            ctx.write_json("understanding/gap_framing_plan.json", framing)
+        except Exception:
+            pass
+    # Terminal clamp after every omit/seat mutation path (including no-op stamp).
+    try:
+        from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+        clamp_hosted_seats_to_rendered_wavs(ctx)
     except Exception:
         pass
-    try:
-        from interview_mux.gap_framing import (
-            build_gap_framing_plan,
-            persist_gap_framing_companion_artifacts,
-        )
-
-        lines = [ln for ln in filt_lines if isinstance(ln, dict)]
-        persist_gap_framing_companion_artifacts(ctx, {"interviewer_lines": lines})
-        live = [ln for ln in lines if not ln.get("skipped_optional")]
-        framing = build_gap_framing_plan(ctx, live)
-        ctx.write_json("understanding/gap_framing_plan.json", framing)
-    except Exception:
-        pass
-    return len(newly) + len(revived)
+    return len(newly) + len(revived) if stamped else 0
 
 
 def gap_line_air_eligible(row: dict[str, Any] | None) -> bool:
@@ -1124,16 +1237,64 @@ def gap_line_air_eligible(row: dict[str, Any] | None) -> bool:
 def filter_gap_lines_for_air_script(
     gap_report: dict[str, Any] | None,
     plan: dict[str, Any] | None,
+    *,
+    ctx: Any | None = None,
 ) -> dict[str, Any] | None:
     """Strip unused VO so EDL cannot leak approved-but-omitted lines.
 
     Required orientation airs; native-open omit skips it. Fail-open when air_script is missing.
+    Hosted framing floor: never omit enough synthesize layups to fall below
+    ``min_synthetic_vo_lines`` when G-Framing Yes requires cloned host VO.
     """
     if not isinstance(gap_report, dict):
         return gap_report
     if not air_script_enabled() or not load_air_script(plan):
         return gap_report
-    seats = requested_vo_line_ids(plan)
+    seats = set(requested_vo_line_ids(plan) | seated_vo_line_ids(plan))
+    # Reserve high-severity synthesize layups so Pass B omit cannot wipe the floor.
+    try:
+        from interview_mux.gap_fill_eligibility import (
+            hosted_framing_requires_synthetic_vo,
+            min_synthetic_vo_lines,
+        )
+
+        if ctx is not None and hosted_framing_requires_synthetic_vo(ctx):
+            need = min_synthetic_vo_lines(ctx)
+            candidates: list[tuple[int, str]] = []
+            for line in gap_report.get("interviewer_lines") or []:
+                if not isinstance(line, dict):
+                    continue
+                if _is_orientation_line(line):
+                    continue
+                if str(line.get("delivery") or "").lower() != "synthesize":
+                    continue
+                lid = str(line.get("line_id") or "").strip()
+                if not lid or not str(line.get("text") or "").strip():
+                    continue
+                sev = str(line.get("severity") or "medium").lower()
+                rank = 0 if sev in {"high", "critical", "blocking"} else 1
+                candidates.append((rank, lid))
+            candidates.sort()
+            seated_syn = {
+                lid
+                for lid in seats
+                if any(
+                    isinstance(ln, dict)
+                    and str(ln.get("line_id") or "") == lid
+                    and str(ln.get("delivery") or "").lower() == "synthesize"
+                    and not _is_orientation_line(ln)
+                    for ln in (gap_report.get("interviewer_lines") or [])
+                )
+            }
+            for _rank, lid in candidates:
+                if len(seated_syn) >= need:
+                    break
+                if lid in seated_syn:
+                    continue
+                seats.add(lid)
+                seated_syn.add(lid)
+    except Exception:
+        pass
     try:
         from interview_mux.opening_orientation import orientation_omitted
 
@@ -1144,7 +1305,9 @@ def filter_gap_lines_for_air_script(
     for line in gap_report.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
-        if _is_orientation_line(line) and skip_orientation:
+        if _is_orientation_line(line) and (
+            skip_orientation or _orientation_line_waived(line, gap_report)
+        ):
             skipped = dict(line)
             skipped["skipped_optional"] = True
             skipped["air_script_omit"] = True
@@ -1154,11 +1317,18 @@ def filter_gap_lines_for_air_script(
             kept = dict(line)
             kept["skipped_optional"] = False
             kept.pop("air_script_omit", None)
+            kept.pop("skip_reason_code", None)
             lines.append(kept)
             continue
         lid = str(line.get("line_id") or "")
         if lid and lid in seats:
-            lines.append(line)
+            # Floor-reserved seats must stay on-air even if a prior pass stamped omit.
+            if line.get("skipped_optional") or line.get("air_script_omit"):
+                from interview_mux.vo_contract import ensure_gap_line_on_air
+
+                lines.append(ensure_gap_line_on_air(line))
+            else:
+                lines.append(line)
             continue
         skipped = dict(line)
         skipped["skipped_optional"] = True

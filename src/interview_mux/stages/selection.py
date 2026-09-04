@@ -1039,6 +1039,14 @@ def run_transitions(ctx: RunContext) -> None:
             build_input,
             persist_with_framing_dedupe,
         )
+    try:
+        from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
+        from interview_mux.transition_vo import stamp_transitions_pair_freeze
+
+        if g1_vo_was_skipped_optional(ctx) or not check_g1_vo(ctx):
+            stamp_transitions_pair_freeze(ctx)
+    except Exception:
+        pass
 
 
 def run_podcast_sfx_brief(ctx: RunContext) -> None:

@@ -141,6 +141,34 @@ export function excludePinnedEntries(
   return entries.filter((e) => !pinnedTs.has(e.ts));
 }
 
+/** Drop ignorable API poll noise from activity/log views (server-side retries handle these). */
+export function filterNoiseLogEntries(entries: LogEntry[]): LogEntry[] {
+  const seenApi = new Map<string, number>();
+  const isApiPollNoise = (e: LogEntry): boolean => {
+    const msg = e.message || "";
+    if (!/^API 500:/.test(msg)) return false;
+    if (/\/job\b/.test(msg) || /\/log\b/.test(msg)) return true;
+    const detail = e.detail;
+    if (detail && typeof detail === "object" && "path" in detail) {
+      const path = String((detail as { path?: string }).path || "");
+      if (path.endsWith("/job") || path.endsWith("/log")) return true;
+    }
+    return false;
+  };
+  return entries.filter((e) => {
+    if (e.stage !== "api" || e.level !== "error") return true;
+    if (isApiPollNoise(e)) return false;
+    const key = (e.message || "").slice(0, 160);
+    const ts = Date.parse(e.ts);
+    if (!Number.isNaN(ts)) {
+      const last = seenApi.get(key);
+      if (last !== undefined && ts - last < 120_000) return false;
+      seenApi.set(key, ts);
+    }
+    return true;
+  });
+}
+
 /** Collapse consecutive identical message+level lines (polluted historical tail). */
 export function dedupeConsecutiveLogEntries(entries: LogEntry[]): LogEntry[] {
   const out: LogEntry[] = [];

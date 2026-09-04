@@ -95,6 +95,67 @@ def test_exec_5175_hole_tier_d_waive(ctx: RunContext) -> None:
     assert result.contract_ok or not validate_vo_contract(ctx)
     snapshot = reconcile_execution_contract(ctx, reason="test")
     assert isinstance(snapshot, dict)
+    # Post-reconcile must not reseat a waived orientation (skip/omit + seated).
+    assert not any("has skip/omit flags" in v for v in validate_vo_contract(ctx))
+
+
+def test_tier_d_waive_orientation_survives_reconcile(ctx: RunContext) -> None:
+    """exec_5177 class: seated + skip/omit orientation must stay unseated after tier D."""
+    from interview_mux.air_script import seated_vo_line_ids
+    from interview_mux.execution_contract import _tier_d_logged_waive, classify_vo_violation
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    lid = "vo_preface_precision_oncology"
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "beats": [],
+                "vo_seats": {
+                    "seated_line_ids": [lid],
+                    "omitted_line_ids": [],
+                    "orientation_id": lid,
+                },
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": lid,
+                    "delivery": "synthesize",
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "Cancer treatment decisions often rely on incomplete signals.",
+                }
+            ]
+        },
+    )
+    assert any("has skip/omit flags" in v for v in validate_vo_contract(ctx))
+    violation = classify_vo_violation(
+        f"seated synthesize {lid} has skip/omit flags"
+    )
+    assert violation.line_id == lid
+    _tier_d_logged_waive(ctx, violation)
+    reconcile_execution_contract(ctx, reason="post_tier_d")
+    assert validate_vo_contract(ctx) == []
+    plan = load_plan_raw(ctx) or {}
+    seats = (plan.get("air_script") or {}).get("vo_seats") or {}
+    assert lid not in (seats.get("seated_line_ids") or [])
+    assert lid in (seats.get("omitted_line_ids") or [])
+    assert seats.get("orientation_id") in {None, ""}
+    assert lid not in seated_vo_line_ids(plan)
+    gap = ctx.read_json("understanding/gap_report.json")
+    meta = gap.get("opening_orientation") or {}
+    assert meta.get("omitted") is True
+    assert meta.get("required") is False
 
 
 def test_policy_cascade_suppresses_identical_failure(ctx: RunContext) -> None:

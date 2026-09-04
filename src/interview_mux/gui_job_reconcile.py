@@ -102,6 +102,7 @@ def _remediation_in_progress(ctx: RunContext) -> bool:
     return False
 
 
+def _live_worker(job: dict[str, Any]) -> bool:
     """True when a tracked stage subprocess is still running."""
     if worker_pid_alive(job.get("worker_pid")):
         return True

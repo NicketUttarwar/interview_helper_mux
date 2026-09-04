@@ -244,7 +244,10 @@ class JobRunner:
         from interview_mux.gui_job_reconcile import reconcile_job_if_stale
         from interview_mux.web.job_progress import attach_live_stage_progress
 
-        job = reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
+        try:
+            job = reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
+        except Exception:
+            job = self._read_gui_job(run_id) or {"status": "idle", "run_id": run_id}
         return attach_live_stage_progress(run_id, job)
 
     def is_running(self, run_id: str) -> bool:
@@ -1125,12 +1128,23 @@ class JobRunner:
                 "needs_operator": True,
             }
 
-        self._preflight_delivery_dispatch(
+        gate_msg = self._preflight_delivery_dispatch(
             ctx_pre,
             stage=stage,
             from_stage=from_stage,
             stage_ids=stage_ids,
+            mode=mode,
         )
+        if gate_msg:
+            self._clear_pipeline_start_reservation(run_id)
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "mode": mode,
+                "stage": str(stage or from_stage or ""),
+                "status": "gate",
+                "message": gate_msg,
+            }
         self._spawn_pipeline_thread(
             run_id,
             mode=mode,
@@ -1184,8 +1198,13 @@ class JobRunner:
         stage: str | None,
         from_stage: str | None,
         stage_ids: list[str],
-    ) -> None:
-        """R9b: block expensive delivery stages when prerequisites are red."""
+        mode: str | None = None,
+    ) -> str | None:
+        """R9b: block expensive delivery stages when prerequisites are red.
+
+        Permanent contract / stage-input issues write ``status=gate`` and return
+        the gate message so start() does not spawn (and does not HTTP 500).
+        """
         from interview_mux.delivery_guardrails import EXPENSIVE_STAGES, G1_CONSUMERS, record_wasted_work
         from interview_mux.stage_input_checks import collect_stage_input_issues
 
@@ -1212,7 +1231,43 @@ class JobRunner:
                 stage=sid,
                 detail={"reason": issues[0].message, "source": "gui_runner"},
             )
-            raise RuntimeError(issues[0].message)
+            msg = issues[0].message
+            kind = str(getattr(issues[0], "kind", "") or "")
+            permanent = kind in {
+                "vo_contract",
+                "vo_coverage",
+                "missing_artifact",
+                "upstream",
+            } or any(
+                token in msg.lower()
+                for token in (
+                    "vo contract",
+                    "seated synthesize",
+                    "skip/omit",
+                    "vo coverage not rendered",
+                )
+            )
+            if permanent:
+                ctx.log(
+                    msg,
+                    level="warning",
+                    stage=sid,
+                    detail={"event": "preflight_gate", "kind": kind or "stage_input"},
+                )
+                self._write_job(
+                    ctx,
+                    {
+                        "status": "gate",
+                        "mode": mode or "delivery",
+                        "stage": sid,
+                        "current_stage": sid,
+                        "message": msg,
+                        "error": msg,
+                    },
+                )
+                return msg
+            raise RuntimeError(msg)
+        return None
 
     def _preflight_delivery_polish(self, ctx: RunContext, job_base: dict[str, Any]) -> None:
         """Block delivery_polish when post-listen or mmaudio QA gates are not clear."""

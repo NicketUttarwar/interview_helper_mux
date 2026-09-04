@@ -62,6 +62,14 @@ def stage_artifact_incompleteness(
     lifecycle: dict[str, Any] | None = None,
 ) -> str | None:
     """Human-readable reason when required artifacts are not complete, else None."""
+    if stage_id == "mmaudio_sfx":
+        # Empty/phantom QA rows read as partial even when theme WAVs exist.
+        try:
+            from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity
+
+            heal_mmaudio_qa_wav_parity(ctx)
+        except Exception:
+            pass
     for path in stage_required_artifact_paths(stage_id):
         phase = (lifecycle or {}).get(path)
         if phase in ("n_a", "skipped"):
@@ -116,13 +124,13 @@ def stage_artifact_incompleteness(
         if not ctx.artifact_exists("master/transitions.json"):
             return "master/transitions.json is pending"
         try:
-            from interview_mux.transition_vo import current_transition_pairs_missing
+            from interview_mux.transition_vo import vo_synthesize_pair_incompleteness
 
-            missing_pairs = current_transition_pairs_missing(ctx)
+            pair_reason = vo_synthesize_pair_incompleteness(ctx)
         except Exception:
-            missing_pairs = []
-        if missing_pairs:
-            return f"current transition pairs missing WAV: {', '.join(missing_pairs[:4])}"
+            pair_reason = None
+        if pair_reason:
+            return pair_reason
         try:
             from interview_mux.gates import check_g1_vo
 

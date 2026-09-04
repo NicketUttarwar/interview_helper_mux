@@ -67,25 +67,6 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                 missing_ok=True
             )
             return None
-        try:
-            from interview_mux.homunculus.agenda import (
-                G0_LOCKED_RERUN_STAGES,
-                prepare_outputs_present,
-            )
-
-            if (
-                stage in G0_LOCKED_RERUN_STAGES
-                and earliest in G0_LOCKED_RERUN_STAGES
-                and not prepare_outputs_present(ctx, earliest)
-            ):
-                return None
-        except Exception:
-            pass
-        order = ANALYSIS_ORDER if stage in ANALYSIS_ORDER else DELIVERY_ORDER
-        if stage in order:
-            earlier_list = list(order[: order.index(stage)])
-            if not any(ctx.is_done(s) for s in earlier_list):
-                return None
         return earliest
     return None
 

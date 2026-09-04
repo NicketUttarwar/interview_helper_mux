@@ -1253,6 +1253,41 @@ def test_seed_prereq_block_missing_framing_waits_on_framing_posture() -> None:
     assert _seed_prereq_block(ctx, "missing_framing") == "framing_posture_decide"
 
 
+def test_seed_prereq_block_fresh_run_blocks_downstream_prepare() -> None:
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "homunculus_version": "0.1.0",
+            "homunculus_kind": "homunculus",
+            "run_mode": "partially-accelerated",
+            "partial_auto": True,
+        },
+    )
+    assert _seed_prereq_block(ctx, "ingest") is None
+    assert _seed_prereq_block(ctx, "transcribe") == "ingest"
+    assert _seed_prereq_block(ctx, "source_topology_build") == "ingest"
+
+
+def test_seed_prereq_block_fresh_full_auto_waits_on_preclean() -> None:
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "homunculus_version": "0.1.0",
+            "homunculus_kind": "homunculus",
+            "run_mode": "full-auto",
+            "full_auto": True,
+        },
+    )
+    assert _seed_prereq_block(ctx, "ingest") == "audio_preclean"
+    assert _seed_prereq_block(ctx, "source_topology_build") == "audio_preclean"
+
+
 def test_remaining_stages_uses_seed_order_not_scheduled_reorder() -> None:
     from interview_mux.homunculus.agenda import remaining_stages, write_agenda
 

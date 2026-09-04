@@ -80,6 +80,7 @@ def _synth_wav_for_019(ctx: RunContext) -> None:
 
 
 def test_vo_overlap_seated_always_synth(ctx: RunContext) -> None:
+    """Omit/skip on gap wins: unseat stale seats; do not require synthesis."""
     _write_exec_5174_plan(ctx)
     ctx.write_json(
         "understanding/gap_report.json",
@@ -87,20 +88,26 @@ def test_vo_overlap_seated_always_synth(ctx: RunContext) -> None:
     )
     seated = {"vo_layup_seg_019"}
     line = ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]
-    assert gap_line_requires_synthesis(line, seated)
+    assert not gap_line_requires_synthesis(line, seated)
     assert validate_vo_contract(ctx)
     changed = repair_vo_contract_drift(ctx)
     assert "vo_layup_seg_019" in changed
     fixed = ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]
-    assert not fixed.get("skipped_optional")
-    assert not fixed.get("air_script_omit")
+    assert fixed.get("skipped_optional")
+    seats = ctx.read_json("mastering/mastering_plan.json")["air_script"]["vo_seats"]
+    assert "vo_layup_seg_019" not in (seats.get("seated_line_ids") or [])
+    assert not any("has skip/omit flags" in v for v in validate_vo_contract(ctx))
 
 
 def test_exec_5174_acceptance_coverage_after_repair(ctx: RunContext) -> None:
     _write_exec_5174_plan(ctx)
+    # Intentionally on-air (no omit) so synthesis coverage applies.
+    live = _gap_line_019()
+    live.pop("skipped_optional", None)
+    live.pop("air_script_omit", None)
     ctx.write_json(
         "understanding/gap_report.json",
-        {"interviewer_lines": [_gap_line_019()]},
+        {"interviewer_lines": [live]},
     )
     repair_vo_contract_drift(ctx)
     wav = ctx.final_path("vo_pickup", "synthesized", "vo_layup_seg_019.wav")
@@ -126,9 +133,13 @@ def test_homunculus_recovery_vo_coverage_class(ctx: RunContext) -> None:
     )
     assert error_class == "vo_seated_coverage"
     _write_exec_5174_plan(ctx)
+    # Seated coverage recovery assumes an on-air gap row (omit-wins leaves skips intact).
+    live = _gap_line_019()
+    live.pop("skipped_optional", None)
+    live.pop("air_script_omit", None)
     ctx.write_json(
         "understanding/gap_report.json",
-        {"interviewer_lines": [_gap_line_019()]},
+        {"interviewer_lines": [live]},
     )
     ctx.mark_done("vo_synthesize", force=True)
     artifacts = playbook_vo_seated_coverage(ctx)
@@ -196,6 +207,342 @@ def test_seed_front_pin_rejects_jump(ctx: RunContext) -> None:
     assert pinned[0] != "mix"
 
 
+def test_seed_front_pins_air_script_not_nugget_mine(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hollow-absent air_script must pin even if remaining only lists nugget_corpus_mine."""
+    from interview_mux.homunculus.agenda import constrain_conductor_to_seed_front
+    from interview_mux.v2.config import DELIVERY_ORDER
+
+    prior = set(DELIVERY_ORDER[: DELIVERY_ORDER.index("air_script_compose")])
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, stage: stage in prior,
+    )
+    pinned = constrain_conductor_to_seed_front(ctx, "delivery", ["nugget_corpus_mine"])
+    assert pinned == ["air_script_compose"]
+
+
+def test_ensure_hosted_framing_reseats_omit_to_floor(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Air-script omit of all layups must reseat until G-Framing VO floor."""
+    from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+    from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_preface_episode_orientation"],
+                    "omitted_line_ids": ["vo_layup_seg_001", "vo_layup_seg_002"],
+                    "orientation_id": "vo_preface_episode_orientation",
+                }
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "delivery": "synthesize",
+                    "episode_orientation": True,
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "text": "Welcome.",
+                },
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "First layup question for the guest.",
+                },
+                {
+                    "line_id": "vo_layup_seg_002",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_002",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "Second layup question for the guest.",
+                },
+            ]
+        },
+    )
+    assert count_active_gap_vo_lines(ctx) == 1
+    reseated = ensure_hosted_framing_vo_seats(ctx)
+    assert set(reseated) == {"vo_layup_seg_001", "vo_layup_seg_002"}
+    assert count_active_gap_vo_lines(ctx) == 3
+    seats = ctx.read_json("mastering/mastering_plan.json")["air_script"]["vo_seats"]
+    assert "vo_layup_seg_001" in seats["seated_line_ids"]
+    assert "vo_layup_seg_001" not in seats["omitted_line_ids"]
+
+
+def test_ensure_hosted_prefers_wav_backed_omit_over_high_severity(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When reseating to floor, prefer omitted lines that already have pickup WAVs."""
+    from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+    from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 2,
+    )
+    wav = ctx.final_path("vo_pickup", "synthesized", "vo_layup_seg_010.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    write_fixture_vo_wav(wav)
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {"air_script": {"vo_seats": {"seated_line_ids": [], "omitted_line_ids": []}}},
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_039",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_039",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "High severity but no WAV yet.",
+                },
+                {
+                    "line_id": "vo_layup_seg_010",
+                    "delivery": "synthesize",
+                    "severity": "medium",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_010",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "Medium severity with existing WAV.",
+                },
+            ]
+        },
+    )
+    reseated = ensure_hosted_framing_vo_seats(ctx)
+    assert reseated[0] == "vo_layup_seg_010"
+    assert "vo_layup_seg_010" in reseated
+    assert count_active_gap_vo_lines(ctx) == 2
+
+
+def test_ensure_hosted_noop_when_floor_already_met(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not rewrite seats/beats when synthetic floor is already satisfied."""
+    from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 2,
+    )
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_layup_seg_007", "vo_layup_seg_010"],
+                    "omitted_line_ids": ["vo_layup_seg_039"],
+                },
+                "beats": [{"line_id": "vo_layup_seg_007", "montage_move": "vo_then_clip"}],
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_007",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_007",
+                    "placement": "before",
+                    "text": "A.",
+                },
+                {
+                    "line_id": "vo_layup_seg_010",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_010",
+                    "placement": "before",
+                    "text": "B.",
+                },
+                {
+                    "line_id": "vo_layup_seg_039",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_039",
+                    "placement": "before",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "text": "C.",
+                },
+            ]
+        },
+    )
+    before = ctx.read_json("mastering/mastering_plan.json")
+    assert ensure_hosted_framing_vo_seats(ctx) == []
+    after = ctx.read_json("mastering/mastering_plan.json")
+    assert after == before
+
+
+def test_clamp_hosted_seats_to_rendered_wavs(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once WAV floor exists, unseat active synthesize lines without pickup stems."""
+    from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+    from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 2,
+    )
+    for lid in ("vo_layup_seg_007", "vo_layup_seg_010"):
+        wav = ctx.final_path("vo_pickup", "synthesized", f"{lid}.wav")
+        wav.parent.mkdir(parents=True, exist_ok=True)
+        write_fixture_vo_wav(wav)
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": [
+                        "vo_layup_seg_007",
+                        "vo_layup_seg_010",
+                        "vo_layup_seg_039",
+                    ],
+                    "omitted_line_ids": [],
+                }
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_007",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_007",
+                    "placement": "before",
+                    "text": "A.",
+                },
+                {
+                    "line_id": "vo_layup_seg_010",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_010",
+                    "placement": "before",
+                    "text": "B.",
+                },
+                {
+                    "line_id": "vo_layup_seg_039",
+                    "delivery": "synthesize",
+                    "severity": "high",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_039",
+                    "placement": "before",
+                    "text": "No WAV high severity.",
+                },
+            ]
+        },
+    )
+    assert count_active_gap_vo_lines(ctx) == 3
+    assert clamp_hosted_seats_to_rendered_wavs(ctx) == ["vo_layup_seg_039"]
+    assert count_active_gap_vo_lines(ctx) == 2
+    seats = ctx.read_json("mastering/mastering_plan.json")["air_script"]["vo_seats"]
+    assert "vo_layup_seg_039" not in seats["seated_line_ids"]
+
+
+def test_filter_gap_protects_hosted_framing_floor(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Air-script omit must not wipe below G-Framing synthetic VO floor."""
+    from interview_mux.air_script import filter_gap_lines_for_air_script
+    from interview_mux.gap_fill_eligibility import count_active_gap_vo_lines
+
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.hosted_framing_requires_synthetic_vo",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.gap_fill_eligibility.min_synthetic_vo_lines",
+        lambda _ctx: 3,
+    )
+    monkeypatch.setattr("interview_mux.air_script.air_script_enabled", lambda: True)
+    plan = {
+        "air_script": {
+            "beats": [],
+            "vo_seats": {
+                "seated_line_ids": [],
+                "omitted_line_ids": [],
+                "orientation_id": None,
+            },
+        }
+    }
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": f"vo_layup_seg_{i:03d}",
+                "delivery": "synthesize",
+                "severity": "high",
+                "gap_type": "nugget_layup",
+                "targets_segment_id": f"seg_{i:03d}",
+                "placement": "before",
+                "text": f"Layup question number {i} for the guest.",
+            }
+            for i in range(1, 5)
+        ]
+    }
+    filtered = filter_gap_lines_for_air_script(gap, plan, ctx=ctx)
+    assert filtered is not None
+    ctx.write_json("understanding/gap_report.json", filtered)
+    assert count_active_gap_vo_lines(ctx) >= 3
+
+
 def test_chapter_contiguity_at_ranking() -> None:
     from interview_mux.narrative_qc import _validate_chapters
 
@@ -239,9 +586,14 @@ def test_validate_vo_contract_post_layup(
         {"interviewer_lines": [_gap_line_019()]},
     )
     remaining = sync_vo_contract_after_layup(ctx)
-    fixed = ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]
-    assert not fixed.get("skipped_optional")
     assert not any("skip/omit" in issue for issue in remaining)
+    seats = ctx.read_json("mastering/mastering_plan.json")["air_script"]["vo_seats"]
+    fixed = ctx.read_json("understanding/gap_report.json")["interviewer_lines"][0]
+    # Floor reseat may revive; otherwise omit wins and the line is unseated.
+    if fixed.get("skipped_optional") or fixed.get("air_script_omit"):
+        assert "vo_layup_seg_019" not in (seats.get("seated_line_ids") or [])
+    else:
+        assert "vo_layup_seg_019" in (seats.get("seated_line_ids") or [])
 
 
 def test_recovery_transient_retry_budget(ctx: RunContext) -> None:
@@ -297,18 +649,68 @@ def test_stage_done_coherence_after_invalidate(ctx: RunContext) -> None:
     assert ctx.path("operator/invalidation_log.jsonl").is_file()
 
 
-def test_gui_runner_preflight_blocks_expensive(ctx: RunContext) -> None:
+def test_gui_runner_preflight_blocks_expensive(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
     from interview_mux.web.runner import JobRunner
 
     ctx.mark_done("vo_line_adjudicate", force=True)
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {
+            "air_script": {
+                "vo_seats": {
+                    "seated_line_ids": ["vo_preface_episode_orientation"],
+                    "omitted_line_ids": [],
+                    "orientation_id": "vo_preface_episode_orientation",
+                }
+            }
+        },
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_episode_orientation",
+                    "delivery": "synthesize",
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "episode_orientation": True,
+                    "line_category": "episode_preface",
+                    "skipped_optional": True,
+                    "air_script_omit": True,
+                    "skip_reason_code": "execution_contract_waive",
+                    "text": "Intro.",
+                }
+            ]
+        },
+    )
+    # Force unrecovered contract so preflight must write a gate (not HTTP 500).
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.validate_vo_contract",
+        lambda _ctx: ["seated synthesize vo_preface_episode_orientation has skip/omit flags"],
+    )
+
+    class _LadderFail:
+        contract_ok = False
+        recovered = False
+
+    monkeypatch.setattr(
+        "interview_mux.execution_contract.run_vo_contract_ladder",
+        lambda *a, **k: _LadderFail(),
+    )
     runner = JobRunner()
-    with pytest.raises(RuntimeError, match="vo_synthesize"):
-        runner._preflight_delivery_dispatch(
-            ctx,
-            stage="edl_narrative_audit",
-            from_stage=None,
-            stage_ids=["edl_narrative_audit"],
-        )
+    gate_msg = runner._preflight_delivery_dispatch(
+        ctx,
+        stage="vo_synthesize",
+        from_stage=None,
+        stage_ids=["vo_synthesize"],
+        mode="delivery",
+    )
+    assert gate_msg and "VO contract" in gate_msg
+    job = ctx.read_json("gui_job.json")
+    assert job.get("status") == "gate"
+    assert "VO contract" in str(job.get("message") or "")
 
 
 def test_exec_5174_recovery_unblocks_audit(ctx: RunContext) -> None:

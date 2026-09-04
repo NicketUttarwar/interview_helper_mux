@@ -36,6 +36,15 @@ class ProgressionBlocker:
 def _gate_blockers(ctx: RunContext) -> list[ProgressionBlocker]:
     from interview_mux.gates import check_g1_vo, check_transcript_review_pending
 
+    # Run auto-accept logic before checking any gate so unattended full-auto
+    # runs with INTERVIEW_MUX_AUTO_ACCEPT_GATES=1 can clear the voice-reference
+    # gate here in the delivery preflight path (not just during analysis stages).
+    try:
+        from interview_mux.gap_vo_gates import maybe_auto_accept_gap_gate_defaults
+        maybe_auto_accept_gap_gate_defaults(ctx)
+    except Exception:
+        pass  # fail-open: never block delivery preflight on an auto-accept error
+
     out: list[ProgressionBlocker] = []
     if check_transcript_review_pending(ctx):
         out.append(

@@ -63,7 +63,8 @@ LLM_UPSTREAM_STAGE: dict[str, str | None] = {
     "narrative_arc_plan": "topic_coverage_audit",
     "chapter_close_hitch": "narrative_arc_plan",
     "full_master_ranking": "connector_fuse_pass_pre_ranking",
-    "nugget_corpus_mine": "full_master_ranking",
+    "air_script_compose": "full_master_ranking",
+    "nugget_corpus_mine": "air_script_compose",
     "nugget_layup_compose": "information_package_plan",
     "information_package_plan": "nugget_corpus_mine",
     "transitions": "nugget_layup_compose",
@@ -366,6 +367,31 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
     raise SystemExit(exit_msg)
 
 
+def _seed_order_skip_stage(ctx: RunContext, stage_id: str) -> bool:
+    """True when seed-order should treat ``stage_id`` as satisfied (e.g. deferred preclean)."""
+    if stage_id != "audio_preclean":
+        return False
+    try:
+        from interview_mux.automation_run import is_partially_accelerated_run
+        from interview_mux.homunculus.packer import g0_closed
+        from interview_mux.stages.audio_preclean import preclean_was_skipped
+
+        meta: dict = {}
+        if ctx.artifact_exists("run_meta.json"):
+            raw = ctx.read_json("run_meta.json")
+            if isinstance(raw, dict):
+                meta = raw
+        if not is_partially_accelerated_run(meta):
+            return False
+        if g0_closed(ctx):
+            return False
+        if ctx.is_done("audio_preclean") or preclean_was_skipped(ctx):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | None:
     """First not-done seed-order stage before `stage_key`.
 
@@ -388,6 +414,8 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                 s for s in earlier_list if s in SHIP_AFTER_MASTER or s == "master_finalize"
             ]
         for earlier in earlier_list:
+            if _seed_order_skip_stage(ctx, earlier):
+                continue
             if earlier in DELIVERY_ORDER:
                 try:
                     from interview_mux.delivery_guardrails import seed_stage_complete
@@ -397,6 +425,40 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                 except Exception:
                     if ctx.is_done(earlier):
                         continue
+                # Assembly already rendered: missing transition-pair WAVs are
+                # mix last-chance work, not a vo_synthesize seed-front rewind.
+                if (
+                    earlier == "vo_synthesize"
+                    and ctx.artifact_exists("master/assembly.wav")
+                ):
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            may_rewind_to_vo_synthesize,
+                            record_wasted_work,
+                        )
+
+                        if not may_rewind_to_vo_synthesize(ctx):
+                            record_wasted_work(
+                                ctx,
+                                event="refuse_vo_synthesize_rewind",
+                                stage="vo_synthesize",
+                                detail={"reason": "monotonic_seed_order"},
+                            )
+                            continue
+                    except Exception:
+                        pass
+                    try:
+                        from interview_mux.gates import check_g1_vo
+                        from interview_mux.stage_completion import (
+                            stage_artifact_incompleteness,
+                        )
+
+                        if not check_g1_vo(ctx):
+                            inc = stage_artifact_incompleteness(ctx, earlier)
+                            if inc and "transition pairs missing" in str(inc):
+                                continue
+                    except Exception:
+                        pass
                 return earlier
             if not ctx.is_done(earlier):
                 return earlier

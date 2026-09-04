@@ -600,6 +600,7 @@ def test_omitted_orientation_is_not_force_aired(tmp_path):
                     "line_category": "episode_preface",
                     "episode_orientation": True,
                     "skipped_optional": True,
+                    "air_script_omit": True,
                     "text": "Before the science, meet the founder.",
                 },
                 {
@@ -627,6 +628,48 @@ def test_omitted_orientation_is_not_force_aired(tmp_path):
     )
     assert orient.get("skipped_optional")
     assert orient.get("air_script_omit")
+    from interview_mux.air_script import build_vo_seats
+    from interview_mux.mastering_plan_loader import load_plan_raw
+
+    seats = build_vo_seats(load_plan_raw(ctx), gap)
+    assert "vo_preface_episode_orientation" not in (seats.get("seated_line_ids") or [])
+    assert "vo_preface_episode_orientation" in (seats.get("omitted_line_ids") or [])
+    assert seats.get("orientation_id") in {None, ""}
+
+
+def test_build_vo_seats_respects_execution_contract_waive(tmp_path):
+    from interview_mux.air_script import build_vo_seats
+
+    ctx = isolated_run_ctx(tmp_path, "exec_air_waive_orient")
+    plan = {
+        "air_script": {
+            "beats": [],
+            "vo_seats": {
+                "seated_line_ids": ["vo_preface_precision_oncology"],
+                "omitted_line_ids": [],
+                "orientation_id": "vo_preface_precision_oncology",
+            },
+        }
+    }
+    gap = {
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_precision_oncology",
+                "delivery": "synthesize",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "skipped_optional": True,
+                "air_script_omit": True,
+                "skip_reason_code": "execution_contract_waive",
+                "compensating_path": "tier_d_logged_waive",
+                "text": "Waived orientation.",
+            }
+        ]
+    }
+    seats = build_vo_seats(plan, gap)
+    assert "vo_preface_precision_oncology" not in seats["seated_line_ids"]
+    assert "vo_preface_precision_oncology" in seats["omitted_line_ids"]
+    assert seats.get("orientation_id") in {None, ""}
 
 
 def test_native_handoff_waives_reorder_bridge_requirement():

@@ -1,17 +1,22 @@
-# Forensics loop state — ARCHIVED (ship)
+# Forensics loop state
 
+- **campaign_mode:** fresh_campaign_continue_on_bug
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_4741_d19c15b58ab4_20260901T001444Z
-- **started_at:** 2026-08-31T17:14:52-07:00
-- **last_progress_at:** 2026-09-01T06:30:10Z
-- **driver_alive:** false
-- **stages_done:** podcast_publish
-- **current_stage:** done
-- **note:** §2 SHIP BAR MET. End report: `.cursor/plans/full_auto_forensics_end_report.md`. Honest PMQ `publish_allowed: true`; cover+local publish done; verify_master OK; daemon stopped. S3 sync optional (operator).
-- **patches_this_session:** [keep_driver, g1_vo_open, chapter_clamp, seed_thrash, stale_transitions_route, stale_sdp, synth_backfill, mint_gap_mismatch, clone_adj_transition_suppress, safe_mix_resume_mmaudio, mmaudio_sdp_incompleteness, missing_sdp_e3_referenced, junction_skip_layup_invalidate, pmq_enrich_entities, entity_ignore_determiners, advisories_local_package_vs_s3]
+- **run_id:** exec_5196_d19c15b58ab4_20260903T184658Z
+- **fresh_launches:** 1
+- **driver_restarts:** 23
+- **started_at:** 2026-09-03T18:46:58Z
+- **last_progress_at:** 2026-09-04T00:16:44Z
+- **driver_alive:** false (ship_complete stack_shutdown)
+- **stages_done:** 69/69
+- **current_stage:** SHIPPED (podcast_publish + S3 sync)
 - **g1_complete:** true
-- **intervention_count:** 18+
+- **intervention_count:** 21
+- **last_predicate:** late transition pairs + premature mix→mmaudio bounce
+- **last_predicate_flipped:** true
+- **resume_from_stage:** n/a (shipped)
+- **open_blockers:** []
+- **patches_this_session:** ["WAV prefer reseat + floor noop", "clamp_hosted_seats_to_rendered_wavs", "gap-line heal keep omit", "premature-complete prefer mix when assembly present", "mmaudio_qa heal on incompleteness", "seed-front skip vo pair-only after assembly"]
 - **hard_blocker:** null
-- **ship:** true
-- **master_wav:** ASSETS/executions/exec_4741_d19c15b58ab4_20260901T001444Z/master/master.wav
-- **publish_dir:** ASSETS/executions/exec_4741_d19c15b58ab4_20260901T001444Z/publish/
+- **monitor_loop:** stopped (nudge killed after ship)
+- **notes:** Campaign complete. ONE fresh exec only. Master verified; PMQ publish_allowed; cover+publish done; S3 enclosure uploaded.

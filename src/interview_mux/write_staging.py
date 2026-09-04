@@ -325,6 +325,14 @@ def resolve_read_path(ctx: RunContext, rel: str) -> Path:
             # when a different stage is running (mix vs leftover junction writes).
             if primary.is_file() and sid and pending != sid:
                 return primary
+            # Chronologically later committed file wins over stale incomplete pending
+            # (omit-wins VO seat heals, contract repair, etc.).
+            if primary.is_file():
+                try:
+                    if primary.stat().st_mtime_ns >= staged.stat().st_mtime_ns:
+                        return primary
+                except OSError:
+                    pass
             return staged
     if primary.is_file():
         return primary

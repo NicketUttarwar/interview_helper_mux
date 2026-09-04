@@ -422,7 +422,9 @@ fi
 # Foreground `exec serve` dies with the parent (SIGHUP/process-group kill), which
 # interrupts in-flight stages, so Full-auto launches must use this path.
 if [[ "${MUX_DETACH_SERVE:-0}" == "1" ]]; then
-  python "$ROOT/tools/full_auto_daemon_launch.py" server
+  # --no-keepalive: do not let MUX_KEEPALIVE=1 attach keepalive to server-only
+  # start (that races a second driver ahead of the e2e+keepalive call below).
+  python "$ROOT/tools/full_auto_daemon_launch.py" server --no-keepalive
   if _full_auto_env_set; then
     python "$ROOT/tools/full_auto_daemon_launch.py" "${E2E_ARGS[@]}"
   fi

@@ -148,7 +148,8 @@ def test_s2s_resynth_on_script_drift(tmp_path, monkeypatch) -> None:
         body = payload if isinstance(payload, dict) else (_args[2] if len(_args) > 2 else {})
         calls.append(str(body.get("text") or ""))
         out = Path(str(body.get("out_wav") or ""))
-        _wav(out, duration_ms=400)
+        # Different bytes than the stale take so wav_sha256 binding accepts resynth.
+        _wav(out, duration_ms=550)
         return {"ok": True}
 
     monkeypatch.setattr("interview_mux.s2s_runner.run_runtime_json", _fake_runtime)

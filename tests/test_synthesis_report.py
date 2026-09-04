@@ -9,11 +9,14 @@ import pytest
 from interview_mux.run_context import RunContext
 from interview_mux.vo_synthesis_audit import (
     SYNTHESIS_REPORT_REL,
+    VoScriptWavRebindError,
     backfill_missing_synthesis_entries,
     record_recorded_vo,
     record_skipped_vo,
     record_synthesis,
     synthesis_entry_for_line,
+    synthesis_entry_matches_line,
+    wav_content_sha256,
 )
 from run_fixtures import patch_executions_root
 
@@ -33,16 +36,18 @@ def test_record_synthesis_writes_entry(ctx: RunContext) -> None:
     wav = ctx.path("vo_pickup", "line_001.wav")
     record_synthesis(
         ctx,
-        {"line_id": "line_001", "estimated_duration_sec": 4.0},
+        {"line_id": "line_001", "text": "Hello.", "estimated_duration_sec": 4.0},
         backend="chatterbox",
         out_wav=wav,
         ref_audio="understanding/speaker_samples/spk_0.wav",
+        wav_just_rendered=True,
     )
     doc = ctx.read_json(SYNTHESIS_REPORT_REL)
     entries = doc.get("entries") or []
     assert len(entries) == 1
     assert entries[0]["backend"] == "chatterbox"
     assert entries[0]["line_id"] == "line_001"
+    assert entries[0]["wav_sha256"] == wav_content_sha256(wav)
 
 
 def test_record_skipped_and_recorded(ctx: RunContext) -> None:
@@ -54,7 +59,9 @@ def test_record_skipped_and_recorded(ctx: RunContext) -> None:
     assert backends["line_001"] == "upload"
 
 
-def test_backfill_missing_synthesis_entries(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_backfill_missing_synthesis_entries_refuses_forge(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "interview_mux.vo_synthesis_audit.analyze_vo_wav",
         lambda *_a, **_k: {"pass": True},
@@ -78,5 +85,61 @@ def test_backfill_missing_synthesis_entries(ctx: RunContext, monkeypatch: pytest
     )
     assert synthesis_entry_for_line(ctx, "line_001") is None
     filled = backfill_missing_synthesis_entries(ctx)
-    assert filled == ["line_001"]
-    assert synthesis_entry_for_line(ctx, "line_001") is not None
+    assert filled == []
+    assert synthesis_entry_for_line(ctx, "line_001") is None
+
+
+def test_refuse_silent_script_rebind_same_wav(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "interview_mux.vo_synthesis_audit.analyze_vo_wav",
+        lambda *_a, **_k: {"pass": True},
+    )
+    wav = ctx.path("vo_pickup", "line_001.wav")
+    line = {
+        "line_id": "line_001",
+        "text": "Original host framing.",
+        "targets_segment_id": "seg_001",
+        "placement": "before",
+    }
+    record_synthesis(
+        ctx, line, backend="chatterbox", out_wav=wav, wav_just_rendered=True
+    )
+    rewritten = {**line, "text": "Rewritten host framing after heal."}
+    with pytest.raises(VoScriptWavRebindError, match="stale_wav_script_rebind"):
+        record_synthesis(ctx, rewritten, backend="chatterbox", out_wav=wav)
+    matches, reason = synthesis_entry_matches_line(ctx, rewritten)
+    assert matches is False
+    assert reason == "stale_script_hash"
+
+
+def test_resynth_with_new_bytes_allows_script_change(
+    ctx: RunContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "interview_mux.vo_synthesis_audit.analyze_vo_wav",
+        lambda *_a, **_k: {"pass": True},
+    )
+    wav = ctx.path("vo_pickup", "line_001.wav")
+    line = {
+        "line_id": "line_001",
+        "text": "Original host framing.",
+        "targets_segment_id": "seg_001",
+        "placement": "before",
+    }
+    record_synthesis(
+        ctx, line, backend="chatterbox", out_wav=wav, wav_just_rendered=True
+    )
+    # Renderer wrote different audio for the new script.
+    wav.write_bytes(b"RIFF" + b"\x01" * 96)
+    rewritten = {**line, "text": "Rewritten host framing after heal."}
+    entry = record_synthesis(
+        ctx,
+        rewritten,
+        backend="chatterbox",
+        out_wav=wav,
+        wav_just_rendered=True,
+    )
+    assert entry["wav_sha256"] == wav_content_sha256(wav)
+    matches, reason = synthesis_entry_matches_line(ctx, rewritten)
+    assert matches is True
+    assert reason == "match"

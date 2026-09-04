@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import wave
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,26 @@ from interview_mux.vo_speech_qa import (
 )
 
 SYNTHESIS_REPORT_REL = "vo_pickup/synthesis_report.json"
+
+
+class VoScriptWavRebindError(ValueError):
+    """Raised when a new script hash is stamped onto unchanged WAV bytes.
+
+    Text rewrites must re-synthesize (or re-record) audio before the audit
+    trail, EDL, or mix may treat the take as current.
+    """
+
+
+def wav_content_sha256(path: Path) -> str:
+    """SHA-256 of WAV file bytes — binds audit script_hash to audible content."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def post_synthesis_qc_cfg(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -111,6 +132,7 @@ def record_synthesis(
     model_id: str | None = None,
     voice_ref_id: str | None = None,
     attempt: int | None = None,
+    wav_just_rendered: bool = False,
 ) -> dict[str, Any]:
     if not backend_allowed_for_vo(backend):
         raise ValueError(
@@ -125,6 +147,29 @@ def record_synthesis(
         script_hash,
     )
 
+    new_script = script_hash(str(line.get("text") or ""))
+    wav_sha: str | None = None
+    if out_wav is not None and out_wav.is_file():
+        wav_sha = wav_content_sha256(out_wav)
+    existing = synthesis_entry_for_line(ctx, line_id)
+    if existing and isinstance(existing, dict):
+        old_script = str(existing.get("script_hash") or "")
+        old_sha = str(existing.get("wav_sha256") or "")
+        if old_script and old_script != new_script:
+            # Script rewrite: only accept when a renderer just wrote new audio.
+            if not wav_just_rendered:
+                raise VoScriptWavRebindError(
+                    f"Cannot rebind new script to existing VO audit for {line_id} "
+                    f"without re-synthesis (stale_wav_script_rebind). "
+                    f"Re-run vo_synthesize so the WAV matches the current text."
+                )
+            if old_sha and wav_sha and old_sha == wav_sha:
+                # Renderer claimed a new take but bytes are identical — still refuse.
+                raise VoScriptWavRebindError(
+                    f"Script changed for {line_id} but WAV bytes are unchanged "
+                    f"(stale_wav_script_rebind). Re-synthesize before mixing."
+                )
+
     duration_ms = _wav_duration_ms(out_wav) if out_wav else 0
     est = line.get("estimated_duration_sec")
     entry: dict[str, Any] = {
@@ -138,9 +183,11 @@ def record_synthesis(
         "estimated_duration_sec": est,
         "model_id": model_id,
         "normalized_script": normalize_script(str(line.get("text") or "")),
-        "script_hash": script_hash(str(line.get("text") or "")),
+        "script_hash": new_script,
         "context_hash": context_hash(evidence_for_line(line)),
     }
+    if wav_sha:
+        entry["wav_sha256"] = wav_sha
     if voice_ref_id:
         entry["voice_ref_id"] = voice_ref_id
     if attempt is not None:
@@ -262,6 +309,8 @@ def record_recorded_vo(
         "script_hash": script_hash(text),
         "context_hash": context_hash(evidence_for_line(line)),
     }
+    if out_wav.is_file():
+        entry["wav_sha256"] = wav_content_sha256(out_wav)
     qc = post_synthesis_qc_cfg()
     if qc.get("enabled") and not out_wav.is_file():
         entry["qc_pass"] = False
@@ -332,7 +381,11 @@ def synthesis_entry_for_line(ctx: RunContext, line_id: str) -> dict[str, Any] | 
 def synthesis_entry_matches_line(
     ctx: RunContext, line: dict[str, Any]
 ) -> tuple[bool, str]:
-    """Return whether the approved WAV audit matches current script and context."""
+    """Return whether the approved WAV audit matches current script and context.
+
+    Also requires ``wav_sha256`` binding so a later text rewrite cannot silently
+    re-stamp the audit onto old audio and pass mix/EDL gates.
+    """
     from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
 
     line_id = str(line.get("line_id") or line.get("targets_segment_id") or "")
@@ -344,6 +397,14 @@ def synthesis_entry_matches_line(
         return False, "missing_script_hash"
     if str(entry.get("script_hash")) != expected_script:
         return False, "stale_script_hash"
+    bound_sha = str(entry.get("wav_sha256") or "").strip()
+    if not bound_sha:
+        return False, "missing_wav_content_hash"
+    wav_path = _audited_wav_path(ctx, entry, line)
+    if wav_path is None or not wav_path.is_file():
+        return False, "missing_wav"
+    if wav_content_sha256(wav_path) != bound_sha:
+        return False, "wav_content_mismatch"
     expected_context = context_hash(evidence_for_line(line))
     if not entry.get("context_hash"):
         return False, "missing_context_hash"
@@ -352,6 +413,36 @@ def synthesis_entry_matches_line(
         # drift when evidence enrichment changes without a text rewrite.
         return True, "script_match_stale_context"
     return True, "match"
+
+
+def _audited_wav_path(
+    ctx: RunContext, entry: dict[str, Any], line: dict[str, Any]
+) -> Path | None:
+    """Resolve on-disk WAV for an audit row without calling resolve_vo_pickup_path.
+
+    ``resolve_vo_pickup_path`` itself consults ``synthesis_entry_matches_line``, so
+    path lookup here must stay acyclic.
+    """
+    rel = str(entry.get("out_wav") or "").strip()
+    if rel:
+        try:
+            cand = ctx.read_path(*rel.split("/"))
+            if cand.is_file():
+                return cand
+        except Exception:
+            pass
+    lid = str(line.get("line_id") or entry.get("line_id") or "").strip()
+    seg = str(line.get("targets_segment_id") or "").strip()
+    pickup = ctx.final_path("vo_pickup")
+    for sub in ("matched", "synthesized", "clean", "normalized", ""):
+        base = pickup / sub if sub else pickup
+        for key in (lid, seg):
+            if not key:
+                continue
+            candidate = base / f"{key}.wav"
+            if candidate.is_file():
+                return candidate
+    return None
 
 
 def line_vo_wav_path(ctx: RunContext, line: dict[str, Any]) -> Path | None:
@@ -415,26 +506,66 @@ def _pickup_wav_without_audit(ctx: RunContext, line_id: str) -> Path | None:
 
 
 def backfill_missing_synthesis_entries(ctx: RunContext) -> list[str]:
-    """Create synthesis_report rows for on-disk pickup WAVs lacking audit entries.
+    """Do not stamp current gap text onto orphan WAVs.
 
-    G1 promote copies synthesized WAVs to vo_pickup/ without always recording
-    synthesis_report — edl_narrative_audit then flags wav_stale even though the
-    take is present and script-current.
+    Earlier builds forged ``synthesis_report`` rows for on-disk pickups so EDL
+    hash checks would pass after G1 promote. That allowed rewritten scripts to
+    ship with stale audio. Orphan WAVs without an audit must be re-synthesized
+    (``wav_just_rendered=True``) before they can match.
     """
-    backfilled: list[str] = []
+    orphans: list[str] = []
     for lid, line in _vo_pickup_script_lines(ctx).items():
         if synthesis_entry_for_line(ctx, lid):
             continue
         path = _pickup_wav_without_audit(ctx, lid)
         if path is None:
             continue
-        _matches, reason = synthesis_entry_matches_line(ctx, line)
-        if reason != "missing_synthesis_entry":
+        orphans.append(lid)
+    if orphans:
+        ctx.log(
+            "VO pickup WAV(s) lack synthesis audit — refusing silent backfill; "
+            f"re-synthesize required: {orphans[:8]}",
+            level="warning",
+            stage="g1_vo_pickup",
+            detail={"orphan_line_ids": orphans[:24]},
+        )
+    return []
+
+
+def purge_stale_vo_wavs_for_script_drift(ctx: RunContext) -> list[str]:
+    """Delete pickup WAVs whose audit no longer matches current gap script.
+
+    Call before mix / when gap text is rewritten so vo_synthesize must regenerate.
+    """
+    purged: list[str] = []
+    for lid, line in _vo_pickup_script_lines(ctx).items():
+        matches, reason = synthesis_entry_matches_line(ctx, line)
+        if matches:
             continue
-        backend = "chatterbox" if path.parent.name == "synthesized" else "record"
-        record_synthesis(ctx, line, backend=backend, out_wav=path)
-        backfilled.append(lid)
-    return backfilled
+        if reason == "missing_wav" and not _pickup_wav_without_audit(ctx, lid):
+            # No file and no usable audit path — nothing to purge.
+            if not synthesis_entry_for_line(ctx, lid):
+                continue
+        removed_files = 0
+        pickup = ctx.final_path("vo_pickup")
+        for sub in ("matched", "synthesized", "clean", "normalized", ""):
+            base = pickup / sub if sub else pickup
+            candidate = base / f"{lid}.wav"
+            if candidate.is_file():
+                try:
+                    candidate.unlink()
+                    removed_files += 1
+                except OSError:
+                    pass
+        invalidate_synthesis_entries(ctx, [lid])
+        purged.append(lid)
+        ctx.log(
+            f"Purged stale VO for {lid} ({reason}); re-synthesis required",
+            level="warning",
+            stage="vo_synthesize",
+            detail={"line_id": lid, "reason": reason, "removed_files": removed_files},
+        )
+    return purged
 
 
 def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:

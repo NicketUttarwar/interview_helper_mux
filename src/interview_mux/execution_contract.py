@@ -127,6 +127,11 @@ def classify_vo_violation(message: str) -> VoViolation:
         return VoViolation("missing_from_gap", line_id=lid, detail=message)
     if "missing from gap_report" in low:
         return VoViolation("missing_from_gap", detail=message)
+    if "seated synthesize " in low and ("skip/omit" in low or "skipped_optional" in low):
+        start = low.find("seated synthesize ") + len("seated synthesize ")
+        rest = message[start:]
+        lid = rest.split(" has ")[0].strip() if " has " in rest else rest.split()[0].strip()
+        return VoViolation("skip_omit_on_seated", line_id=lid, detail=message)
     if "skip/omit" in low or "skipped_optional" in low:
         return VoViolation("skip_omit_on_seated", detail=message)
     if "both seated and omitted" in low:
@@ -134,12 +139,20 @@ def classify_vo_violation(message: str) -> VoViolation:
     if "lacks skip/omit" in low:
         return VoViolation("omitted_without_flags", detail=message)
     if "missing wav" in low:
-        return VoViolation("missing_wav", detail=message)
+        if "seated synthesize " in low:
+            start = low.find("seated synthesize ") + len("seated synthesize ")
+            rest = message[start:]
+            lid = rest.split(" missing")[0].strip() if " missing" in rest else ""
+        return VoViolation("missing_wav", line_id=lid, detail=message)
     return VoViolation("unknown", detail=message)
 
 
 def reconcile_execution_contract(ctx: RunContext, *, reason: str = "") -> dict[str, Any]:
-    """Sync vo_seats on mastering_plan from gap_report; persist execution_contract.json."""
+    """Sync vo_seats on mastering_plan from gap_report; persist execution_contract.json.
+
+    Clamp is N/A here: ``clamp_hosted_seats_to_rendered_wavs`` already calls this
+    after omit/seat mutations; calling clamp from reconcile would recurse.
+    """
     from interview_mux.air_script import build_vo_seats, load_air_script
     from interview_mux.mastering_plan_loader import load_plan_raw, write_plan
 
@@ -284,6 +297,17 @@ def _tier_d_logged_waive(ctx: RunContext, violation: VoViolation | None) -> list
         )
     out = dict(gap)
     out["interviewer_lines"] = lines_out
+    # Persist omit meta so filter_gap_lines / ORIENTATION_ALWAYS cannot un-omit.
+    if found or lid:
+        meta = out.get("opening_orientation")
+        meta = dict(meta) if isinstance(meta, dict) else {}
+        meta["omitted"] = True
+        meta["required"] = False
+        meta["omit_reason"] = str(meta.get("omit_reason") or "execution_contract_waive")
+        if lid:
+            meta["waived_line_id"] = lid
+        meta["compensating_path"] = "tier_d_logged_waive"
+        out["opening_orientation"] = meta
     ctx.write_json("understanding/gap_report.json", out)
     written.append("understanding/gap_report.json")
     reconcile_execution_contract(ctx, reason="tier_d_logged_waive")

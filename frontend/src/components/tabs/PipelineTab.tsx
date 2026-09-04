@@ -50,6 +50,20 @@ export function PipelineTab() {
   }, [refreshRun]);
   const { overscrollLoading } = useOverscrollRetry(scrollRef, handleOverscrollRetry, Boolean(runId));
 
+  if (openRunLoading && (runId || serverActiveRunId)) {
+    return (
+      <main className="view tab-view pipeline-empty">
+        <section className="panel panel-compact">
+          <h2>Loading execution…</h2>
+          <p className="hint">Restoring your session.</p>
+          <div className="overscroll-retry-indicator" aria-busy="true">
+            <span className="spinner-inline" aria-hidden /> Loading pipeline…
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (!runId || !run) {
     const resumeId = runId || serverActiveRunId;
     return (

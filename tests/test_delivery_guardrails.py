@@ -149,6 +149,31 @@ def test_premature_cap_pins_not_advances(tmp_path: Path, monkeypatch: pytest.Mon
     assert pinned != "mmaudio_sfx"
 
 
+def test_premature_cap_pins_ranking_producer_when_selection_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EDL thrash with no master/selection.json must pin topic_coverage_audit, not edl."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "g7_no_sel")
+    assert not ctx.artifact_exists("master/selection.json")
+    pinned = premature_cap_hard_pin(ctx, "edl")
+    assert pinned == "topic_coverage_audit"
+
+
+def test_premature_cap_pins_before_edl_when_selection_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G1 WAV then from_stage=edl must still pin the incomplete producer (not EDL)."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "g7_sel_no_trans")
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_1"]})
+    pinned = premature_cap_hard_pin(ctx, "edl")
+    from interview_mux.v2.config import DELIVERY_ORDER
+
+    assert pinned != "edl"
+    assert DELIVERY_ORDER.index(pinned) < DELIVERY_ORDER.index("edl")
+
+
 def test_vo_synth_blocked_when_g1_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "g8")

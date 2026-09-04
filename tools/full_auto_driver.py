@@ -43,6 +43,73 @@ def log(msg: str) -> None:
         pass
 
 
+_TRANSIENT_RETRY_LOG_AT: dict[str, float] = {}
+
+
+def log_transient_retry(msg: str, *, key: str, interval_sec: float = 60.0) -> None:
+    """Rate-limit retry noise on stdout (driver polls recover automatically)."""
+    now = time.time()
+    last = _TRANSIENT_RETRY_LOG_AT.get(key, 0.0)
+    if now - last < interval_sec:
+        return
+    _TRANSIENT_RETRY_LOG_AT[key] = now
+    log(msg)
+
+
+_PERMANENT_EXECUTE_FAIL_TOKENS = (
+    "vo contract",
+    "seated synthesize",
+    "skip/omit",
+    "vo coverage not rendered",
+    "seated line ",
+    "missing from gap_report",
+)
+
+
+def _is_transient_execute_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    if any(
+        tok in text
+        for tok in (
+            "connection refused",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "errno 61",
+            "errno 35",
+            " 409",
+            "busy",
+        )
+    ):
+        return True
+    return False
+
+
+def _is_permanent_execute_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    if _is_transient_execute_error(exc):
+        return False
+    if "-> 500" in text or "-> 422" in text or "-> 400" in text:
+        if any(tok in text for tok in _PERMANENT_EXECUTE_FAIL_TOKENS):
+            return True
+    return any(tok in text for tok in _PERMANENT_EXECUTE_FAIL_TOKENS)
+
+
+def _bump_permanent_execute_failure(exc: BaseException) -> tuple[str, int]:
+    """Return (fail_key, count) for identical permanent execute exceptions."""
+    raw = str(exc)
+    # Normalize HTTP wrapper noise so the same VO contract detail collapses.
+    detail = raw
+    if "-> 500:" in raw:
+        detail = raw.split("-> 500:", 1)[-1].strip()
+    elif "-> 422:" in raw:
+        detail = raw.split("-> 422:", 1)[-1].strip()
+    key = f"execute_http_permanent:{detail[:160].lower()}"
+    count = int(_IDENTICAL_STAGE_FAILURES.get(key, 0) or 0) + 1
+    dict.__setitem__(_IDENTICAL_STAGE_FAILURES, key, count)
+    return key, count
+
+
 def _heal_restored_edl(run_dir: Path) -> None:
     """Drop ghost EDL source_path values after archive restore / raw JSON write."""
     try:
@@ -2724,6 +2791,15 @@ def heal_stage_done_markers() -> None:
                             )
                         if decision["action"] == "omit":
                             dirty += 1
+                            from interview_mux.vo_contract import mark_gap_line_not_on_air
+
+                            # Keep the row in gap_report with omit flags — dropping
+                            # it leaves stale vo_seats entries and thrash-gates synth.
+                            guarded_lines.append(
+                                mark_gap_line_not_on_air(
+                                    ln, reason_code="spoken_copy_guard_omit"
+                                )
+                            )
                             continue
                         if decision["text"] != text:
                             dirty += 1
@@ -2744,6 +2820,17 @@ def heal_stage_done_markers() -> None:
                             stage_key="gap_framing_compose",
                         )
                         log(f"heal: rewrote {dirty} scaffolding VO line(s)")
+                        try:
+                            from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
+
+                            reseated = ensure_hosted_framing_vo_seats(ctx)
+                            if reseated:
+                                log(
+                                    f"heal: reseated {len(reseated)} VO line(s) "
+                                    f"after scaffolding rewrite: {reseated[:6]}"
+                                )
+                        except Exception as reseat_exc:
+                            log(f"heal: hosted framing reseat skipped: {reseat_exc}")
                         for sid in (
                             "mastering_research_waves",
                             "mastering_research_rollup",
@@ -2939,6 +3026,20 @@ def heal_stage_done_markers() -> None:
         log(f"cleared false stage_done: {', '.join(cleared)}")
     if healed:
         log(f"healed stage_done: {', '.join(healed)}")
+    try:
+        from interview_mux.vo_contract import (
+            ensure_hosted_framing_vo_seats,
+            repair_vo_contract_drift,
+        )
+
+        reseated = ensure_hosted_framing_vo_seats(ctx)
+        if reseated:
+            log(f"heal: final hosted framing reseat {reseated[:6]}")
+        drifted = repair_vo_contract_drift(ctx)
+        if drifted:
+            log(f"heal: VO contract drift repair {drifted[:6]}")
+    except Exception as exc:
+        log(f"heal: final VO floor/contract: {exc}")
 
 
 def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
@@ -3916,16 +4017,59 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
     if "missing master/transitions.json" in low or (
         "transitions.json" in low and "missing" in low and "edl" in low
     ):
-        resume = "selection_framing_apply"
         try:
             from interview_mux.run_context import RunContext
+            from interview_mux.delivery_recovery import restore_master_bundle
 
             ctx_t = RunContext(RUN_ID, create=False)
+            restored = restore_master_bundle(ctx_t)
+            if restored:
+                log(f"gate: restored archived master bundle: {restored[:8]}")
+            # Also restore delivery producers commonly archived with selection.
+            from interview_mux.delivery_recovery import restore_master_artifact
+
+            for rel in (
+                "understanding/nugget_layup_plan.json",
+                "understanding/vo_line_adjudication.json",
+                "mastering/vo_synthesize.json",
+            ):
+                if not ctx_t.artifact_exists(rel):
+                    path = restore_master_artifact(ctx_t, rel)
+                    if path is not None and path.is_file():
+                        log(f"gate: restored {rel}")
+            if ctx_t.artifact_exists("master/selection.json") and ctx_t.artifact_exists(
+                "master/transitions.json"
+            ):
+                for sid in (
+                    "full_master_ranking",
+                    "nugget_layup_compose",
+                    "vo_line_adjudicate",
+                    "vo_synthesize",
+                    "transitions",
+                ):
+                    try:
+                        from interview_mux.delivery_guardrails import seed_stage_complete
+                        from interview_mux.homunculus.agenda import stage_outputs_present
+                        from interview_mux.stage_completion import (
+                            stage_artifact_incompleteness,
+                        )
+
+                        if stage_outputs_present(ctx_t, sid) and (
+                            stage_artifact_incompleteness(ctx_t, sid) is None
+                        ):
+                            ctx_t.mark_done(sid, force=True)
+                    except Exception:
+                        pass
+                log("gate: selection+transitions restored — resume edl (no gap rewind)")
+                execute({"mode": "delivery", "from_stage": "edl"})
+                return "continue"
+            resume = "selection_framing_apply"
             if ctx_t.is_done("selection_framing_apply"):
                 resume = "transitions"
             elif not ctx_t.is_done("gap_framing_recompose"):
                 resume = "gap_framing_recompose"
-        except Exception:
+        except Exception as exc:
+            log(f"gate: transitions restore failed: {exc}")
             resume = "transitions"
         log(f"gate: transitions missing — resume delivery from {resume}")
         execute({"mode": "delivery", "from_stage": resume})
@@ -6813,8 +6957,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     f"{label}: needs_operator "
                     f"{_meta_p.get('needs_operator_stage')} while {live_stage} running — wait"
                 )
-                # In-flight rebuild (EDL after order-drift) is the remediation.
-                # Halting here loops keepalive forever and never lets mix run.
+                # Do not fall through to wait_job → from_stage rewind; that
+                # interrupts the in-flight producer (air_script_compose vs mine).
+                time.sleep(8)
+                continue
             elif isinstance(_meta_p, dict) and _meta_p.get("needs_operator"):
                 pause_stage = str(_meta_p.get("needs_operator_stage") or "").lower()
                 pause_reason = str(_meta_p.get("needs_operator_reason") or "").lower()
@@ -6956,9 +7102,10 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             from interview_mux.order_hash import order_drift_heal_action
 
                             missing_g1 = check_g1_vo(ctx_p)
+                            has_selection = ctx_p.artifact_exists("master/selection.json")
                             live_sel = (
                                 ctx_p.read_json("master/selection.json")
-                                if ctx_p.artifact_exists("master/selection.json")
+                                if has_selection
                                 else None
                             )
                             live_edl = (
@@ -6970,7 +7117,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 live_sel if isinstance(live_sel, dict) else None,
                                 live_edl if isinstance(live_edl, dict) else None,
                             )
-                            if missing_g1:
+                            if not has_selection:
+                                log(
+                                    "premature complete without selection.json — "
+                                    f"keep resume {resume} (not edl/mix)"
+                                )
+                            elif missing_g1:
                                 seed_front = None
                                 try:
                                     from interview_mux.llm_flow_hardening import (
@@ -7011,11 +7163,18 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 elif mix_assembly_seated(ctx_p):
                                     resume = "junction_snip_qa"
                                 else:
-                                    from interview_mux.delivery_guardrails import (
-                                        safe_mix_resume_stage,
-                                    )
+                                    # Assembly present but stale vs EDL (or music QA
+                                    # paperwork incomplete) must re-mix — never bounce
+                                    # a finished mix back into MusicGen regeneration.
+                                    asm = ctx_p.final_path("master", "assembly.wav")
+                                    if asm.is_file():
+                                        resume = "mix"
+                                    else:
+                                        from interview_mux.delivery_guardrails import (
+                                            safe_mix_resume_stage,
+                                        )
 
-                                    resume = safe_mix_resume_stage(ctx_p)
+                                        resume = safe_mix_resume_stage(ctx_p)
                                 log(
                                     f"premature EDL complete with mix unseated "
                                     f"(drift={drift}) — resume {resume}"
@@ -10040,6 +10199,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         else {}
                     )
                     _heal_seated = seated_vo_line_ids(_heal_plan)
+                    from interview_mux.vo_contract import mark_gap_line_not_on_air
+
                     for line in lines:
                         if isinstance(line, dict) and str(line.get("line_id") or "") in missing_ids:
                             if str(line.get("delivery") or "").lower() not in {
@@ -10051,7 +10212,12 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             if lid in _heal_seated:
                                 line.update(ensure_gap_line_on_air(line))
                             else:
-                                line.pop("skipped_optional", None)
+                                # Never revive non-seated omits into G1 (seat thrash).
+                                line.update(
+                                    mark_gap_line_not_on_air(
+                                        line, reason_code="gap_line_heal_not_seated"
+                                    )
+                                )
                     edl_path = root / "master" / "edl.json"
                     if edl_path.is_file():
                         try:
@@ -10081,7 +10247,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 if lid_sync in _heal_seated:
                                     line.update(ensure_gap_line_on_air(line))
                                 else:
-                                    line.pop("skipped_optional", None)
+                                    line.update(
+                                        mark_gap_line_not_on_air(
+                                            line, reason_code="gap_line_heal_not_seated"
+                                        )
+                                    )
                                 voice = str(clip.get("voice_speaker_id") or "").strip()
                                 if voice:
                                     line["voice_speaker_id"] = voice
@@ -10089,6 +10259,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             log(f"gap-line heal: EDL target sync skipped: {exc}")
                     best["interviewer_lines"] = lines
                     fs_write_json(disk_gap_path, best)
+                    try:
+                        from interview_mux.vo_contract import (
+                            clamp_hosted_seats_to_rendered_wavs,
+                            sync_vo_contract_after_layup,
+                        )
+
+                        sync_vo_contract_after_layup(ctx)
+                        clamp_hosted_seats_to_rendered_wavs(ctx)
+                    except Exception as exc:
+                        log(f"gap-line heal: vo seat clamp skipped: {exc}")
                     if not synthesize_g1():
                         log("gap-line heal: G1 synth incomplete; retrying edl anyway")
                     for sid in (
@@ -10219,7 +10399,16 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     log("missing gap VO WAV with framing active — clone-voice prereq then G1")
                     _heal_clone_voice_prereqs()
                     if synthesize_g1():
-                        execute({"mode": "delivery", "from_stage": "edl"})
+                        pin = "edl"
+                        try:
+                            from interview_mux.delivery_guardrails import premature_cap_hard_pin
+                            from interview_mux.run_context import RunContext as _RCPin
+
+                            pin = premature_cap_hard_pin(_RCPin(RUN_ID, create=False), "edl")
+                        except Exception:
+                            pin = "transitions"
+                        log(f"G1 synth ok — resume producer {pin} (not edl unless seated)")
+                        execute({"mode": "delivery", "from_stage": pin})
                         continue
                     log(
                         "HARD: G1 synthesize-all failed while framing/chatterbox active — "
@@ -11972,7 +12161,64 @@ def main() -> int:
             try:
                 job = run_until_done(body, label)
             except Exception as exc:
-                log(f"run_until_done failed (will retry): {exc}")
+                if _is_permanent_execute_error(exc):
+                    fail_key, count = _bump_permanent_execute_failure(exc)
+                    log(
+                        f"permanent execute failure (x{count}): {exc}"
+                    )
+                    # One in-process VO contract heal before counting toward halt.
+                    if count == 1 and "vo contract" in str(exc).lower():
+                        try:
+                            from interview_mux.remediation_framework import run_classified_ladder
+                            from interview_mux.run_context import RunContext
+
+                            outcome = run_classified_ladder(
+                                RunContext(RUN_ID, create=False),
+                                consumer_stage=str(body.get("from_stage") or "nugget_layup_compose"),
+                                exc=RuntimeError(str(exc)),
+                                error_class="vo_contract_repair",
+                            )
+                            if outcome.recovered:
+                                log(
+                                    f"vo_contract execute heal recovered — resume "
+                                    f"{outcome.resume_stage or body.get('from_stage')}"
+                                )
+                                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, fail_key, 0)
+                                dest = outcome.resume_stage or str(body.get("from_stage") or "")
+                                if dest:
+                                    mode = "delivery" if dest in DELIVERY_ORDER else "analysis"
+                                    execute({"mode": mode, "from_stage": dest})
+                                break
+                        except Exception as heal_exc:
+                            log(f"vo_contract execute heal: {heal_exc}")
+                    if count >= 3:
+                        pause_needs_operator(
+                            str(body.get("from_stage") or body.get("stage") or label),
+                            f"STOP: identical permanent execute failure ×{count}: {exc}",
+                        )
+                        if is_partial_auto():
+                            _patch_partial_auto_meta(partial_auto_driver_active=False)
+                        return 1
+                    time.sleep(5)
+                    break
+                if _is_transient_execute_error(exc):
+                    log_transient_retry(
+                        f"run_until_done failed (will retry): {exc}",
+                        key=f"run_until_done:{type(exc).__name__}:{exc!s:.120}",
+                    )
+                    time.sleep(10)
+                    break
+                # Unknown errors: limited identical bump, then halt (never infinite).
+                fail_key, count = _bump_permanent_execute_failure(exc)
+                log(f"run_until_done failed (x{count}): {exc}")
+                if count >= 5:
+                    pause_needs_operator(
+                        str(body.get("from_stage") or body.get("stage") or label),
+                        f"STOP: identical execute failure ×{count}: {exc}",
+                    )
+                    if is_partial_auto():
+                        _patch_partial_auto_meta(partial_auto_driver_active=False)
+                    return 1
                 time.sleep(10)
                 break
             if label == "prepare":

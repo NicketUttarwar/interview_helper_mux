@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,12 +37,22 @@ def _transition_wav_usable(path: Path) -> bool:
 def current_pair_wav_usable(
     ctx: RunContext, after_id: str, before_id: str
 ) -> Path | None:
-    """On-disk WAV for this pair that can play. Ignores synthesis-report paperwork."""
+    """On-disk WAV for this pair that can play. Ignores synthesis-report paperwork.
+
+    During stage staging, ``ctx.path`` may point at an empty pending shadow. Prefer
+    that path when present; otherwise fall back to the committed final take so
+    vo_synthesize does not re-render a pair that already exists on disk.
+    """
     if not after_id or not before_id:
         return None
     path = transition_wav_path(ctx, after_id, before_id)
     if _transition_wav_usable(path):
         return path
+    committed = ctx.final_path(
+        "master", "transitions", f"{_transition_line_id(after_id, before_id)}.wav"
+    )
+    if committed != path and _transition_wav_usable(committed):
+        return committed
     return None
 
 
@@ -685,6 +696,144 @@ def current_transition_pairs_missing(ctx: RunContext) -> list[str]:
         if current_pair_wav_usable(ctx, after_id, before_id) is None:
             missing.append(f"{after_id}->{before_id}")
     return missing
+
+
+PAIR_FREEZE_REL = "master/transitions_pair_freeze.json"
+DEFERRED_PAIRS_REL = "master/deferred_transition_pairs.json"
+
+
+def _pair_key(after_id: str, before_id: str) -> str:
+    return f"{after_id}->{before_id}"
+
+
+def _parse_pair_key(key: str) -> tuple[str, str] | None:
+    raw = str(key or "").strip()
+    if "->" not in raw:
+        return None
+    after_id, before_id = raw.split("->", 1)
+    after_id = after_id.strip()
+    before_id = before_id.strip()
+    if not after_id or not before_id:
+        return None
+    return after_id, before_id
+
+
+def read_transitions_pair_freeze(ctx: RunContext) -> dict[str, Any] | None:
+    if not ctx.artifact_exists(PAIR_FREEZE_REL):
+        return None
+    try:
+        doc = ctx.read_json(PAIR_FREEZE_REL)
+    except Exception:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def frozen_transition_pair_keys(ctx: RunContext) -> set[str]:
+    doc = read_transitions_pair_freeze(ctx)
+    if not doc:
+        return set()
+    return {str(x) for x in (doc.get("pairs") or []) if x}
+
+
+def stamp_transitions_pair_freeze(ctx: RunContext, *, generation: int | None = None) -> dict[str, Any]:
+    """Freeze the spoken pair set on first successful EDL / green G1+transitions write.
+
+    Later selection/EDL deltas that add pairs go to deferred_transition_pairs —
+    synth only in mix last-chance, never unmark full vo_synthesize.
+    """
+    existing = read_transitions_pair_freeze(ctx)
+    if existing and existing.get("pairs"):
+        # Refresh deferred bucket from current spoken pairs vs freeze.
+        _sync_deferred_transition_pairs(ctx)
+        return existing
+    pairs = [_pair_key(a, b) for a, b in spoken_transition_pairs(ctx)]
+    gen = generation
+    if gen is None:
+        try:
+            from interview_mux.air_order import generation as air_generation
+
+            gen = int(air_generation(ctx) or 0)
+        except Exception:
+            gen = 0
+    doc: dict[str, Any] = {
+        "version": 1,
+        "generation": gen,
+        "pairs": sorted(set(pairs)),
+        "stamped_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    ctx.write_json(PAIR_FREEZE_REL, doc, skip_handoff=True)
+    _sync_deferred_transition_pairs(ctx)
+    return doc
+
+
+def _sync_deferred_transition_pairs(ctx: RunContext) -> list[str]:
+    frozen = frozen_transition_pair_keys(ctx)
+    if not frozen:
+        return []
+    current = {_pair_key(a, b) for a, b in spoken_transition_pairs(ctx)}
+    deferred = sorted(current - frozen)
+    ctx.write_json(
+        DEFERRED_PAIRS_REL,
+        {
+            "version": 1,
+            "deferred_pairs": deferred,
+            "frozen_count": len(frozen),
+            "current_count": len(current),
+        },
+        skip_handoff=True,
+    )
+    return deferred
+
+
+def deferred_transition_pairs(ctx: RunContext) -> list[tuple[str, str]]:
+    """Spoken pairs added after the freeze — mix last-chance only."""
+    _sync_deferred_transition_pairs(ctx)
+    if not ctx.artifact_exists(DEFERRED_PAIRS_REL):
+        return []
+    try:
+        doc = ctx.read_json(DEFERRED_PAIRS_REL)
+    except Exception:
+        return []
+    if not isinstance(doc, dict):
+        return []
+    out: list[tuple[str, str]] = []
+    for key in doc.get("deferred_pairs") or []:
+        parsed = _parse_pair_key(str(key))
+        if parsed:
+            out.append(parsed)
+    return out
+
+
+def vo_synthesize_pair_incompleteness(ctx: RunContext) -> str | None:
+    """Missing transition-pair WAVs that should keep vo_synthesize incomplete.
+
+    When a freeze exists and G1 is green, deferred (post-freeze) pairs are ignored
+    here — mix last-chance still synths them via ``current_transition_pairs_missing``.
+    """
+    missing = current_transition_pairs_missing(ctx)
+    if not missing:
+        return None
+    freeze = read_transitions_pair_freeze(ctx)
+    if not freeze:
+        return f"current transition pairs missing WAV: {', '.join(missing[:4])}"
+    try:
+        from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
+
+        g1_green = g1_vo_was_skipped_optional(ctx) or not check_g1_vo(ctx)
+    except Exception:
+        g1_green = False
+    if not g1_green:
+        return f"current transition pairs missing WAV: {', '.join(missing[:4])}"
+    frozen = frozen_transition_pair_keys(ctx)
+    frozen_missing = [m for m in missing if m in frozen]
+    if frozen_missing:
+        return (
+            "current transition pairs missing WAV: "
+            + ", ".join(frozen_missing[:4])
+        )
+    # Deferred-only holes: do not flip vo_synthesize incompleteness.
+    _sync_deferred_transition_pairs(ctx)
+    return None
 
 
 def _transition_source_rel(ctx: RunContext, path: Path) -> str:

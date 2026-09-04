@@ -24,6 +24,11 @@
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
           },
+          "wav_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 of out_wav bytes at record time; blocks silent script rebind"
+          },
           "context_hash": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"

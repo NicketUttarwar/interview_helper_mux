@@ -417,19 +417,59 @@ def _order_for(phase: str) -> list[str]:
 def earliest_incomplete_seed_stage(
     ctx: RunContext, phase: str, candidates: set[str]
 ) -> str | None:
-    """First incomplete (or hollow-done) stage in seed order within candidates."""
+    """First incomplete (or hollow-done) stage in seed order.
+
+    Delivery walks the full seed order, not only ``candidates``. A hollow-done
+    producer (e.g. air_script_compose) must still pin the conductor; otherwise
+    nugget_corpus_mine is offered and seed-order raises.
+    """
     from interview_mux.delivery_guardrails import seed_stage_complete
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
     for sid in _order_for(phase):
-        if sid not in candidates:
-            continue
         if phase == "delivery":
             if seed_stage_complete(ctx, sid):
                 continue
-            if stage_outputs_present(ctx, sid) and stage_artifact_incompleteness(ctx, sid) is None:
-                continue
-        elif ctx.is_done(sid) and stage_outputs_present(ctx, sid):
+            # Late-added spoken transition pairs after assembly must not yank the
+            # conductor back to vo_synthesize — mix last-chance synths them.
+            if sid == "vo_synthesize" and ctx.artifact_exists("master/assembly.wav"):
+                try:
+                    from interview_mux.delivery_guardrails import may_rewind_to_vo_synthesize
+
+                    if not may_rewind_to_vo_synthesize(ctx):
+                        try:
+                            from interview_mux.delivery_guardrails import record_wasted_work
+
+                            record_wasted_work(
+                                ctx,
+                                event="refuse_vo_synthesize_rewind",
+                                stage="vo_synthesize",
+                                detail={"reason": "monotonic_delivery"},
+                            )
+                        except Exception:
+                            pass
+                        continue
+                except Exception:
+                    pass
+                try:
+                    from interview_mux.gates import check_g1_vo
+
+                    if check_g1_vo(ctx):
+                        return sid
+                except Exception:
+                    return sid
+                try:
+                    inc = stage_artifact_incompleteness(ctx, sid)
+                except Exception:
+                    inc = None
+                if inc and "transition pairs missing" in str(inc):
+                    continue
+            return sid
+        if sid not in candidates:
+            continue
+        if ctx.is_done(sid) and stage_outputs_present(ctx, sid):
+            continue
+        if stage_outputs_present(ctx, sid) and stage_artifact_incompleteness(ctx, sid) is None:
             continue
         return sid
     return None
