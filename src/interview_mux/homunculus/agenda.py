@@ -747,7 +747,16 @@ def unmark_hollow_delivery_producers(
                 pass
             if stage_outputs_present(ctx, stage) and not ctx.is_done(stage):
                 ctx.mark_done(stage, force=True)
-        if ctx.is_done(stage) and not stage_outputs_present(ctx, stage):
+        hollow_missing = ctx.is_done(stage) and not stage_outputs_present(ctx, stage)
+        hollow_incomplete = False
+        if ctx.is_done(stage) and not hollow_missing:
+            try:
+                from interview_mux.stage_completion import stage_artifact_incompleteness
+
+                hollow_incomplete = stage_artifact_incompleteness(ctx, stage) is not None
+            except Exception:
+                hollow_incomplete = False
+        if hollow_missing or hollow_incomplete:
             unmark_stage_only(ctx, stage)
             cleared.append(stage)
     if cleared:
@@ -1253,6 +1262,15 @@ def invalidate_downstream(ctx: RunContext, stage: str) -> dict[str, Any]:
         {"kind": "invalidate_downstream", "identity": "invalidate_downstream", "stage": stage},
     )
     _append_invalidation_log(ctx, stage=stage, mode="structural")
+    # Remaster/invalidate of pre-mix producers must not leave assembly looking seated.
+    try:
+        if stage in DELIVERY_ORDER and "mix" in DELIVERY_ORDER:
+            if DELIVERY_ORDER.index(stage) <= DELIVERY_ORDER.index("mix"):
+                from interview_mux.thrash_hardening import bump_assembly_seating_generation
+
+                bump_assembly_seating_generation(ctx, f"invalidate:{stage}")
+    except Exception:
+        pass
     try:
         from interview_mux.remediation_framework import reconcile_invalidated_bundle
 
@@ -1700,6 +1718,25 @@ def run_homunculus_phase(
             level="info",
             stage=still[0],
         )
+    if still and phase == "delivery" and not ctx.artifact_exists("master/master.wav"):
+        try:
+            from interview_mux.thrash_hardening import (
+                ensure_phase_a_seal_deadline,
+                note_progress_stall,
+            )
+
+            ensure_phase_a_seal_deadline(ctx)
+            stall = note_progress_stall(ctx, remaining=still, stage=still[0])
+            if stall:
+                # Soft signal only — do not raise / pause a healthy long producer.
+                ctx.log(
+                    "delivery progress stall soft signal "
+                    f"pin={stall.get('pin')} elapsed={stall.get('elapsed_sec')}s",
+                    level="warning",
+                    stage=str(stall.get("pin") or still[0]),
+                )
+        except Exception:
+            pass
     if still and remainder_requested(ctx):
         walk_seed_agenda(ctx, still, reason="walk_seed_remainder")
     elif (
@@ -1710,17 +1747,70 @@ def run_homunculus_phase(
         try:
             from interview_mux.delivery_guardrails import filter_delivery_candidates
 
-            still = filter_delivery_candidates(ctx, still)
+            filtered = filter_delivery_candidates(ctx, still)
         except Exception:
-            pass
-        if still:
+            filtered = list(still)
+        if filtered:
+            # Cap narrative-audit-only cycles — force music/producer pin after N.
+            try:
+                from interview_mux.thrash_hardening import (
+                    FAIL_CLASS_MUSIC_EPOCH,
+                    heal_navigate,
+                    narrative_audit_cap_exceeded,
+                    note_narrative_audit_cycle,
+                    path_to_master_pin,
+                    reset_narrative_audit_cycle,
+                )
+
+                only_narrative = filtered == ["edl_narrative_audit"] or (
+                    len(filtered) == 1 and filtered[0] == "edl_narrative_audit"
+                )
+                if only_narrative:
+                    note_narrative_audit_cycle(ctx)
+                    if narrative_audit_cap_exceeded(ctx):
+                        try:
+                            pin = path_to_master_pin(ctx)
+                        except Exception:
+                            nav = heal_navigate(ctx, intent=FAIL_CLASS_MUSIC_EPOCH)
+                            pin = nav["from_stage"]
+                        raise RuntimeError(
+                            "Delivery incomplete after conductor — "
+                            f"edl_narrative_audit thrash cap; resume={pin}"
+                        )
+                else:
+                    reset_narrative_audit_cycle(ctx)
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
             ctx.log(
                 "homunculus delivery walking remaining seed to master "
-                f"({len(still)} stage(s))",
+                f"({len(filtered)} stage(s))",
                 level="warning",
-                stage=still[0],
+                stage=filtered[0],
             )
-            walk_seed_agenda(ctx, still, reason="delivery_walk_to_master")
+            walk_seed_agenda(ctx, filtered, reason="delivery_walk_to_master")
+        elif still:
+            # T2: filter empty with pre-master holes — never silent complete.
+            try:
+                from interview_mux.thrash_hardening import (
+                    FAIL_CLASS_DELIVERY_BLOCKED,
+                    canonical_resume_pin,
+                    path_to_master_pin,
+                )
+
+                try:
+                    pin = path_to_master_pin(ctx)
+                except Exception:
+                    pin = canonical_resume_pin(
+                        ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=still[0]
+                    )
+            except Exception:
+                pin = still[0]
+            raise RuntimeError(
+                "Delivery incomplete after conductor — remaining stages "
+                f"(filter empty): {', '.join(still[:12])}; resume={pin}"
+            )
     elif still and phase == "delivery" and ctx.artifact_exists("master/master.wav"):
         pmq: dict[str, Any] | None = None
         pmq_missing = not ctx.artifact_exists("master/post_master_quality.json")

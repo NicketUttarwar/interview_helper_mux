@@ -10,6 +10,7 @@ import { StageStepWorkbench } from "../workspace/StageStepWorkbench";
 import { isV2Enabled } from "../../utils/v2Phases";
 import { JourneyShell } from "../journey/JourneyShell";
 import { PipelineVoStatusPanel } from "../pipeline/PipelineVoStatusPanel";
+import { ActionOverlay } from "../ActionOverlay";
 import { useOverscrollRetry } from "../../hooks/useOverscrollRetry";
 import {
   clearPendingCheckpointScroll,
@@ -118,6 +119,8 @@ export function PipelineTab() {
           >
             <PipelineStepList />
             <div className="pipeline-v2-main">
+              {/* Partial-auto blur: middle panel only — stage list + top bar + logs stay clear */}
+              <ActionOverlay placement="workbench" />
               {isPipelineComplete(run) ? (
                 <>
                   <PipelineCompletePanel />

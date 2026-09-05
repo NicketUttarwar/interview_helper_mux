@@ -592,6 +592,30 @@ export interface RunData {
     suggest_delivery_resume?: string | null;
     report?: Record<string, unknown> | null;
   };
+  thrash?: {
+    active?: boolean;
+    fail_class?: string;
+    pin?: string;
+    hit_count?: number;
+    window_sec?: number;
+    stage?: string;
+    detected_at?: string;
+  } | null;
+  delivery_pin?: {
+    from_stage?: string;
+    intent?: string;
+    reason?: string;
+    source?: string;
+  } | null;
+  wasted_work?: {
+    events?: Array<{
+      event?: string;
+      stage?: string;
+      ts?: string;
+      detail?: Record<string, unknown>;
+    }>;
+    counts?: Record<string, number>;
+  } | null;
   g1_5_preview_pickup_pending?: string[];
   g1_5_preview_pickup_clear?: boolean;
   pickup_speaker_pending?: boolean;

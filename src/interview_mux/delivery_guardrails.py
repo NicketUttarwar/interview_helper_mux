@@ -341,6 +341,14 @@ def upstream_stale_blockers(ctx: RunContext, stage: str) -> list[str]:
         return blockers
 
     def _stale(rel: str) -> bool:
+        try:
+            from interview_mux.thrash_hardening import artifact_usable
+
+            ok, reason = artifact_usable(ctx, rel, consumer=stage)
+            if not ok and reason.startswith("stale"):
+                return True
+        except Exception:
+            pass
         if not ctx.artifact_exists(rel):
             return False
         try:
@@ -425,6 +433,16 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
     """E1 + G2 + G5 + G8: drop stages the conductor must not enqueue yet."""
     if not remaining:
         return remaining
+    try:
+        from interview_mux.thrash_hardening import (
+            ensure_phase_a_seal_deadline,
+            music_epoch_sealed_no_delight_rewind,
+        )
+
+        ensure_phase_a_seal_deadline(ctx)
+        _music_sealed_fn = music_epoch_sealed_no_delight_rewind
+    except Exception:
+        _music_sealed_fn = None
     g1_missing = _g1_open(ctx)
     vo_block = vo_synthesize_stability_block(ctx)
     stable, stable_reason = delivery_stable_for_music(ctx)
@@ -433,9 +451,27 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
         stable, stable_reason = delivery_stable_for_music(ctx)
     sealed = phase_a_sealed(ctx)
     ship_ready, ship_reason = ship_path_ready(ctx)
+    music_sealed = False
+    try:
+        music_sealed = bool(_music_sealed_fn and _music_sealed_fn(ctx))
+    except Exception:
+        music_sealed = False
     out: list[str] = []
     deferred: list[str] = []
     for sid in remaining:
+        # After music epoch sealed: skip delight/narrative only when already complete.
+        if music_sealed and sid in {
+            "listen_delight_audit",
+            "edl_narrative_audit",
+            "assembly_preview",
+        }:
+            try:
+                if seed_stage_complete(ctx, sid):
+                    deferred.append(sid)
+                    continue
+            except Exception:
+                pass
+            # Hollow/incomplete — keep in candidates so quality can finish.
         if ship_ready and sid == "junction_snip_qa":
             record_wasted_work(
                 ctx,
@@ -500,6 +536,29 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                 continue
         out.append(sid)
     if deferred and not out:
+        # T2: try orphan promote + Phase A seal once before empty fallback.
+        try:
+            promote_complete_orphan_stage_done(ctx)
+            seal_phase_a_if_stable(ctx)
+        except Exception:
+            pass
+        # Re-scan remaining after seal heal (music may become legal).
+        sealed_now = phase_a_sealed(ctx)
+        stable_now, _ = delivery_stable_for_music(ctx)
+        if sealed_now or stable_now:
+            out2: list[str] = []
+            for sid in remaining:
+                if sid in MUSIC_REQUIRES_ASSEMBLY and not assembly_wav_present(ctx):
+                    continue
+                if sid in (*PHASE_B_STAGES, *PHASE_C_STAGES) and not phase_a_sealed(ctx):
+                    continue
+                if sid in MIX_EPOCH_CONSUMERS and not music_epoch_complete(ctx):
+                    continue
+                if g1_missing and sid in G1_CONSUMERS:
+                    continue
+                out2.append(sid)
+            if out2:
+                return out2
         # Keep Phase A producers so the walk has somewhere to pin.
         for sid in remaining:
             if sid in PHASE_A_STAGES and sid not in G1_CONSUMERS:
@@ -513,6 +572,28 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
                 if sid in PHASE_A_STAGES:
                     out.append(sid)
                     break
+        if not out and phase_a_sealed(ctx):
+            # Pin music/mix/finalize ladder only after Phase A is sealed.
+            post_a = set(MUSIC_BEFORE_MIX) | set(MIX_EPOCH_CONSUMERS) | set(SHIP_AFTER_MASTER)
+            if remaining and all(s in post_a for s in remaining):
+                try:
+                    from interview_mux.thrash_hardening import path_to_master_pin
+
+                    pin = path_to_master_pin(ctx)
+                    if pin and pin not in out:
+                        out.append(pin)
+                except Exception:
+                    try:
+                        from interview_mux.thrash_hardening import (
+                            FAIL_CLASS_DELIVERY_BLOCKED,
+                            canonical_resume_pin,
+                        )
+
+                        pin = canonical_resume_pin(ctx, FAIL_CLASS_DELIVERY_BLOCKED)
+                        if pin and pin not in out:
+                            out.append(pin)
+                    except Exception:
+                        pass
     return out
 
 
@@ -551,22 +632,85 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
     return list(dict.fromkeys(cleared))
 
 
+def promote_complete_orphan_stage_done(ctx: RunContext, stages: tuple[str, ...] | None = None) -> list[str]:
+    """Inverse of hollow-done: stamp .stage_done when producer artifacts are complete.
+
+    exec_5402 thrash: edl.json + edl_narrative_audit.json present, markers missing →
+    Phase A never seals → music deferred → premature_cap rewrites music→narrative.
+    """
+    from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+
+    scope = stages if stages is not None else tuple(G3_RECONCILE_CHAIN)
+    promoted: list[str] = []
+    for sid in scope:
+        if ctx.is_done(sid):
+            continue
+        rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+        if not rel or not ctx.artifact_exists(rel):
+            continue
+        try:
+            from interview_mux.homunculus.agenda import stage_outputs_present
+
+            if not stage_outputs_present(ctx, sid):
+                continue
+        except Exception:
+            continue
+        try:
+            if stage_artifact_incompleteness(ctx, sid) is not None:
+                continue
+        except Exception:
+            continue
+        try:
+            ctx.mark_done(sid)
+        except Exception:
+            continue
+        if ctx.is_done(sid):
+            promoted.append(sid)
+    if promoted:
+        record_wasted_work(
+            ctx,
+            event="orphan_stage_done_promoted",
+            stage="delivery",
+            detail={"stages": promoted[:12]},
+        )
+        ctx.log(
+            "promoted complete orphan stage_done: " + ", ".join(promoted),
+            level="info",
+            stage="delivery",
+            detail={"promoted": promoted},
+        )
+    return promoted
+
+
 def reconcile_orphan_artifacts(ctx: RunContext) -> list[str]:
-    """R11c: flag artifacts on disk when producer stage_done is missing."""
+    """R11c: promote complete orphans; demote incomplete orphans; flag leftovers."""
     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
+    promoted = promote_complete_orphan_stage_done(ctx)
+    demoted: list[str] = []
+    try:
+        from interview_mux.thrash_hardening import demote_incomplete_orphans
+
+        demoted = demote_incomplete_orphans(ctx)
+    except Exception:
+        demoted = []
     orphans: list[str] = []
     for sid, rel in STAGE_ARTIFACT_DISK_PATHS.items():
         if sid not in G3_RECONCILE_CHAIN:
             continue
         if ctx.artifact_exists(rel) and not ctx.is_done(sid):
             orphans.append(sid)
-    if orphans:
+    if orphans or demoted:
         record_wasted_work(
             ctx,
             event="orphan_artifact",
             stage="delivery",
-            detail={"stages": orphans[:12]},
+            detail={
+                "stages": orphans[:12],
+                "promoted": promoted[:12],
+                "demoted": demoted[:12],
+            },
         )
     return orphans
 
@@ -640,6 +784,13 @@ def finalize_input_producer_pin(ctx: RunContext, *, message: str = "") -> str:
     ``junction_snip_qa`` when assembly exists, else ``edl``. Missing EDL → ``edl``.
     """
     low = str(message or "").lower()
+    try:
+        from interview_mux.thrash_hardening import ensure_finalize_inputs_present
+
+        # Restore archives only — do not emit ledger here (would hide missing-ledger pin).
+        ensure_finalize_inputs_present(ctx, emit_ledger=False)
+    except Exception:
+        pass
     if not ctx.artifact_exists("master/edl.json"):
         try:
             from interview_mux.delivery_recovery import restore_master_artifact
@@ -769,12 +920,72 @@ def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
     return False
 
 
+def _music_epoch_producer_pin(ctx: RunContext) -> str:
+    """Earliest incomplete MUSIC_BEFORE_MIX stage (or last when all seed-complete)."""
+    for sid in MUSIC_BEFORE_MIX:
+        if not seed_stage_complete(ctx, sid):
+            return sid
+    try:
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+        if missing_sdp_asset_wavs(ctx):
+            return "mmaudio_sfx"
+    except Exception:
+        pass
+    return "mmaudio_sfx"
+
+
 def premature_cap_hard_pin(
     ctx: RunContext | None, resume: str, *, message: str = ""
 ) -> str:
     """G7: stay on the incomplete producer; never advance to a consumer."""
     if ctx is None:
         return resume
+    # Expensive-stage lease: do not rewrite pin away from active producer.
+    try:
+        from interview_mux.thrash_hardening import expensive_stage_lease_active
+
+        leased, lease_stage = expensive_stage_lease_active(ctx)
+        if leased and lease_stage:
+            return lease_stage
+    except Exception:
+        pass
+    # Prefer stable fail-class pins (T4) for known epochs before earliest walk.
+    try:
+        from interview_mux.thrash_hardening import (
+            FAIL_CLASS_FINALIZE,
+            FAIL_CLASS_MIX_SEAT,
+            FAIL_CLASS_MUSIC_EPOCH,
+            FAIL_CLASS_PHASE_A_EDL,
+            FAIL_CLASS_VO_G1,
+            canonical_resume_pin,
+            heal_navigate,
+            premature_fail_class,
+        )
+
+        cls = premature_fail_class(resume)
+        if cls == FAIL_CLASS_MUSIC_EPOCH and resume in MUSIC_BEFORE_MIX:
+            return heal_navigate(ctx, intent=FAIL_CLASS_MUSIC_EPOCH, stage=resume)[
+                "from_stage"
+            ]
+        if cls == FAIL_CLASS_MIX_SEAT:
+            return heal_navigate(ctx, intent=FAIL_CLASS_MIX_SEAT, stage=resume)[
+                "from_stage"
+            ]
+        if cls == FAIL_CLASS_FINALIZE or resume == "master_finalize":
+            return heal_navigate(
+                ctx, intent=FAIL_CLASS_FINALIZE, stage=resume, error=message
+            )["from_stage"]
+        if cls == FAIL_CLASS_VO_G1 and resume == "vo_synthesize" and _g1_open(ctx):
+            return heal_navigate(ctx, intent=FAIL_CLASS_VO_G1, stage=resume)[
+                "from_stage"
+            ]
+        if cls == FAIL_CLASS_PHASE_A_EDL:
+            return heal_navigate(ctx, intent=FAIL_CLASS_PHASE_A_EDL, stage=resume)[
+                "from_stage"
+            ]
+    except Exception:
+        pass
     # Finalize-class holes: pin the producer, never spin on mix/finalize alone.
     if resume == "master_finalize":
         try:
@@ -796,18 +1007,72 @@ def premature_cap_hard_pin(
         except Exception:
             pass
         return "topic_coverage_audit"
-    if resume in MIX_EPOCH_CONSUMERS and not music_epoch_complete(ctx):
-        for sid in MUSIC_BEFORE_MIX:
-            if not seed_stage_complete(ctx, sid):
-                return sid
+    # Music-epoch producers: stay in MUSIC_BEFORE_MIX. Never walk back to earlier
+    # Phase-A consumers (edl_narrative_audit / edl) via earliest-incomplete — that
+    # was the exec_5402 infinite thrash (premature→music ×3 → pin → narrative).
+    if resume in MUSIC_BEFORE_MIX:
         try:
-            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
-
-            if missing_sdp_asset_wavs(ctx):
-                return "mmaudio_sfx"
+            promote_complete_orphan_stage_done(
+                ctx,
+                (
+                    "edl",
+                    "edl_narrative_audit",
+                    "assembly_preview",
+                    "listen_delight_audit",
+                ),
+            )
+            seal_phase_a_if_stable(ctx)
         except Exception:
             pass
-        return "mmaudio_sfx"
+        stable, reason = delivery_stable_for_music(ctx)
+        if not stable and reason in {
+            "layup_incomplete",
+            "g1_open",
+            "vo_adjudicate_incomplete",
+            "layup_escalation_blocking",
+        }:
+            # True Phase-A producer holes — fall through to earliest-incomplete.
+            pass
+        elif not stable and reason == "edl_incomplete":
+            return "edl"
+        elif not stable and reason == "assembly_missing":
+            return (
+                "assembly_preview"
+                if not seed_stage_complete(ctx, "assembly_preview")
+                else "edl"
+            )
+        else:
+            # phase_a_unsealed after heal, or already stable → run music.
+            return _music_epoch_producer_pin(ctx)
+    if resume in MIX_EPOCH_CONSUMERS and not music_epoch_complete(ctx):
+        try:
+            promote_complete_orphan_stage_done(
+                ctx,
+                (
+                    "edl",
+                    "edl_narrative_audit",
+                    "assembly_preview",
+                    "listen_delight_audit",
+                ),
+            )
+            seal_phase_a_if_stable(ctx)
+        except Exception:
+            pass
+        return _music_epoch_producer_pin(ctx)
+    # Post-music mix/junction/finalize: single ladder — never narrative audit.
+    if resume in {"mix", "junction_snip_qa", "master_finalize"} or (
+        resume in MIX_EPOCH_CONSUMERS and music_epoch_complete(ctx)
+    ):
+        try:
+            from interview_mux.thrash_hardening import (
+                ensure_finalize_inputs_present,
+                path_to_master_pin,
+            )
+
+            ensure_finalize_inputs_present(ctx)
+            return path_to_master_pin(ctx)
+        except Exception:
+            pass
     if resume == "vo_synthesize" and _g1_open(ctx):
         if not seed_stage_complete(ctx, "nugget_layup_compose"):
             return "nugget_layup_compose"
@@ -816,6 +1081,19 @@ def premature_cap_hard_pin(
             return "nugget_layup_compose"
         # G1 open with layup present — pin adjudicate (never fake stage g1_vo_open).
         return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
+    # Phase-A: skip audit-only when assembly audio already present.
+    if resume in {"edl", "edl_narrative_audit", "assembly_preview"} and assembly_wav_present(
+        ctx
+    ):
+        try:
+            from interview_mux.thrash_hardening import (
+                FAIL_CLASS_PHASE_A_EDL,
+                canonical_resume_pin,
+            )
+
+            return canonical_resume_pin(ctx, FAIL_CLASS_PHASE_A_EDL, hint=resume)
+        except Exception:
+            pass
     try:
         from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
 
@@ -870,15 +1148,65 @@ def read_checkpoint(ctx: RunContext) -> dict[str, Any] | None:
 
 
 def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
-    """Write operator/delivery_checkpoint.json when G5 stability predicates pass."""
+    """Write operator/delivery_checkpoint.json when G5 stability predicates pass.
+
+    Artifact-led: if EDL + preview/assembly + delight (or waiver) are usable,
+    promote hollow markers once and seal even when .stage_done lagged.
+    """
     existing = read_checkpoint(ctx)
+    # Artifact-led promote before stability check (markers often lag usable files).
+    try:
+        promote_complete_orphan_stage_done(
+            ctx,
+            (
+                "edl",
+                "edl_narrative_audit",
+                "assembly_preview",
+                "listen_delight_audit",
+            ),
+        )
+    except Exception:
+        pass
     ok, reason = delivery_stable_for_music(ctx)
     # Allow sealing when stable except the seal itself is the only missing piece.
     if not ok and reason != "phase_a_unsealed":
-        return existing
+        # Artifact-led soft path: usable EDL + audio + delight may still seal
+        # when seed markers lag but G1 is closed.
+        try:
+            from interview_mux.thrash_hardening import artifact_usable
+
+            edl_ok, _ = artifact_usable(ctx, "master/edl.json", consumer="edl")
+            audio_ok = assembly_wav_present(ctx)
+            delight_ok = (
+                seed_stage_complete(ctx, "listen_delight_audit")
+                or listen_delight_waived_unattended(ctx)
+                or (
+                    ctx.artifact_exists("mastering/listen_delight_audit.json")
+                    and artifact_usable(
+                        ctx, "mastering/listen_delight_audit.json", consumer="listen_delight_audit"
+                    )[0]
+                )
+            )
+            if (
+                edl_ok
+                and audio_ok
+                and delight_ok
+                and not _g1_open(ctx)
+                and not _layup_escalation_blocking(ctx)
+            ):
+                reason = "phase_a_unsealed"
+                ok = False  # fall through to seal write path below
+            else:
+                return existing
+        except Exception:
+            return existing
     if not ok and reason == "phase_a_unsealed":
         # Re-check stability without seal requirement for the write path.
-        if not seed_stage_complete(ctx, "nugget_layup_compose"):
+        # Prefer artifact usability over strict seed_stage_complete for EDL/preview.
+        layup_ok = seed_stage_complete(ctx, "nugget_layup_compose") or ctx.artifact_exists(
+            "mastering/nugget_layup_plan.json"
+        )
+        if not layup_ok:
             return existing
         if _g1_open(ctx):
             return existing
@@ -887,9 +1215,15 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
                 "mastering/vo_line_adjudication.json"
             ):
                 return existing
-            if not ctx.is_done("vo_line_adjudicate"):
-                return existing
-        if not seed_stage_complete(ctx, "edl"):
+        edl_ok = seed_stage_complete(ctx, "edl")
+        if not edl_ok:
+            try:
+                from interview_mux.thrash_hardening import artifact_usable
+
+                edl_ok, _ = artifact_usable(ctx, "master/edl.json", consumer="edl")
+            except Exception:
+                edl_ok = ctx.artifact_exists("master/edl.json")
+        if not edl_ok:
             return existing
         if not seed_stage_complete(ctx, "assembly_preview") and not assembly_wav_present(ctx):
             return existing
@@ -899,6 +1233,8 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
         if not delight_ok:
             if ensure_listen_delight_waiver_unattended(ctx):
                 delight_ok = True
+        if not delight_ok and ctx.artifact_exists("mastering/listen_delight_audit.json"):
+            delight_ok = True
         if not delight_ok:
             return existing
         if upstream_stale_blockers(ctx, "mmaudio_sfx"):

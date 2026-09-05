@@ -890,6 +890,32 @@ def on_selection_order_changed(
             if marker.is_file():
                 marker.unlink()
                 notes.append("cleared_stage_done:mix")
+    # T6: order change always marks mix/preview seating stale (generation bump).
+    if prev_ids != cur_ids:
+        def _bump_seating(meta: dict[str, Any]) -> None:
+            meta["assembly_seating_generation"] = int(
+                meta.get("assembly_seating_generation") or 0
+            ) + 1
+            meta["assembly_seating_stale"] = True
+            meta["assembly_seating_stale_reason"] = f"order_change:{source}"[:200]
+
+        try:
+            ctx.mutate_run_meta(_bump_seating)
+            notes.append("assembly_seating_stale")
+        except Exception:
+            pass
+        for sid in ("mix", "assembly_preview", "junction_snip_qa"):
+            marker = ctx.final_path(".stage_done", sid)
+            if marker.is_file():
+                marker.unlink()
+                notes.append(f"cleared_stage_done:{sid}")
+        try:
+            from interview_mux.transition_vo import clear_transitions_pair_freeze
+
+            if clear_transitions_pair_freeze(ctx):
+                notes.append("cleared_transitions_pair_freeze")
+        except Exception:
+            pass
     if prev_ids != cur_ids:
         try:
             from interview_mux.delivery_guardrails import fingerprints_match_checkpoint

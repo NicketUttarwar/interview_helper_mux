@@ -52,7 +52,10 @@ def get_or_build_run_snapshot(
     key = _cache_key(ctx)
     now = time.monotonic()
     hit = _CACHE.get(ctx.run_id)
-    if hit and hit.key == key and (now - hit.cached_at) < _TTL_SEC:
+    # Idle / gate waits: keep snapshot longer to avoid pegging CPU on get_run.
+    status = str((job or {}).get("status") or "").lower()
+    ttl = 90.0 if status in {"idle", "complete", "gate", "needs_operator"} else _TTL_SEC
+    if hit and hit.key == key and (now - hit.cached_at) < ttl:
         return hit.stages, hit.journey
 
     stages = build_stages()

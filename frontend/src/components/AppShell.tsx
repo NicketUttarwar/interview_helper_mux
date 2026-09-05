@@ -60,6 +60,8 @@ export function AppShell() {
             {activeTab === "pipeline" ? <LazyPipelineTab /> : null}
             {activeTab === "logs" ? <LazyLogsTab /> : null}
           </Suspense>
+          {/* Busy / non-pipeline accelerated: body only — top bar + logs stay clear */}
+          <ActionOverlay placement="app" />
         </div>
         {runId ? (
           <GlobalActivityDock onDump={() => void dumpLastStep()} />
@@ -68,7 +70,6 @@ export function AppShell() {
       {activeTab !== "pipeline" ? <ActivityTeaser /> : null}
       <ModalHost />
       <SessionStaleOverlay />
-      <ActionOverlay />
     </div>
   );
 }

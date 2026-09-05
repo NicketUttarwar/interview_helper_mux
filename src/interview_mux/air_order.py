@@ -438,6 +438,17 @@ def write_live_edl(
 ) -> dict[str, Any]:
     """Production EDL persist — bumps generation (or no-ops while already committing)."""
     edl_out = edl
+    before_token = ""
+    try:
+        if ctx.artifact_exists(EDL_REL):
+            prev = ctx.read_json(EDL_REL)
+            from interview_mux.thrash_hardening import edl_content_authority_token
+
+            before_token = edl_content_authority_token(
+                prev if isinstance(prev, dict) else None
+            )
+    except Exception:
+        before_token = ""
     try:
         from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
 
@@ -447,7 +458,22 @@ def write_live_edl(
     if _committing(ctx):
         ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
         return read_live(ctx)
-    return commit(ctx, edl=edl_out, source=source)
+    live = commit(ctx, edl=edl_out, source=source)
+    # EDL rewrite without content change must not look unseated / force remaster.
+    src_l = str(source or "").lower()
+    if src_l not in {"mix", "stamp_after_mix", "master_finalize"}:
+        try:
+            from interview_mux.thrash_hardening import maybe_bump_seating_for_edl_rewrite
+
+            maybe_bump_seating_for_edl_rewrite(
+                ctx,
+                before_token=before_token,
+                after_edl=edl_out if isinstance(edl_out, dict) else None,
+                source=source,
+            )
+        except Exception:
+            pass
+    return live
 
 
 def write_live_selection(

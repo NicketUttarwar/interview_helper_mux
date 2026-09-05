@@ -224,6 +224,32 @@ def _check_phantom_vo(
                     segment_id=str(line.get("targets_segment_id") or ""),
                 )
             )
+            continue
+        # Fallback: on-disk synth/clean WAV without G1-green resolve still counts
+        # as phantom (publishability must see bytes, not only audit-bound paths).
+        try:
+            pickup = ctx.final_path("vo_pickup")
+            for sub in ("matched", "synthesized", "clean", "normalized", ""):
+                base = pickup / sub if sub else pickup
+                for key in (lid, str(line.get("targets_segment_id") or "")):
+                    if not key:
+                        continue
+                    candidate = base / f"{key}.wav"
+                    if candidate.is_file():
+                        out.append(
+                            PublishabilityViolation(
+                                error_class="vo_audibility_drift",
+                                code="phantom_vo",
+                                detail=f"WAV exists without EDL vo_pickup for {lid}",
+                                line_id=lid,
+                                segment_id=str(line.get("targets_segment_id") or ""),
+                            )
+                        )
+                        raise StopIteration
+        except StopIteration:
+            pass
+        except Exception:
+            pass
     return out
 
 
@@ -640,7 +666,14 @@ def write_publishability_repair_plan(
     }
     ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
     if soft:
-        # Soft/advisory: plan only. Archive downstream of mix at most (never live EDL).
+        # Soft/advisory: plan only. Never clear/archive live EDL — even if
+        # resume_stage is edl. Downstream-of-mix clear only for mix/junction/finalize.
+        if resume_stage == "edl" or "edl" in {str(s) for s in invalidate_set}:
+            plan["cleared_from"] = None
+            plan["soft_clear_mode"] = "plan_only_refuse_edl_clear"
+            plan["protected_artifacts"] = ["master/edl.json", "master/assembly_ledger.json"]
+            ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
+            return plan
         if resume_stage in {"mix", "junction_snip_qa", "master_finalize"}:
             try:
                 from interview_mux.homunculus.agenda import invalidate_downstream
@@ -657,6 +690,11 @@ def write_publishability_repair_plan(
         return plan
 
     edl_snap, ledger_snap = _snapshot_edl_ledger(ctx)
+    reemit_needed = resume_stage in {"edl", "mix", "junction_snip_qa"} or report.checkpoint in {
+        "post_edl",
+        "post_junction",
+        "pre_mix",
+    }
     try:
         from interview_mux.homunculus.agenda import invalidate_downstream
 
@@ -671,13 +709,19 @@ def write_publishability_repair_plan(
         except Exception:
             pass
     # Hard invalidate must not leave finalize without the just-committed EDL/ledger.
-    if resume_stage in {"edl", "mix", "junction_snip_qa"} or report.checkpoint in {
-        "post_edl",
-        "post_junction",
-        "pre_mix",
-    }:
-        _reemit_edl_ledger(ctx, edl_snap, ledger_snap)
-        plan["edl_ledger_reemitted"] = True
+    # T6: always reemit from snapshot even if invalidate raised mid-way.
+    if reemit_needed:
+        try:
+            _reemit_edl_ledger(ctx, edl_snap, ledger_snap)
+            plan["edl_ledger_reemitted"] = True
+        except Exception as reemit_exc:
+            plan["edl_ledger_reemit_error"] = str(reemit_exc)[:240]
+            # Best-effort restore snapshot bytes even after partial failure.
+            try:
+                _reemit_edl_ledger(ctx, edl_snap, ledger_snap)
+                plan["edl_ledger_reemitted"] = True
+            except Exception:
+                pass
     ctx.write_json(REPAIR_PLAN_REL, plan, skip_handoff=True)
     return plan
 

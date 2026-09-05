@@ -2391,9 +2391,9 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .action-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 9000;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2851,6 +2851,7 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .operator-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -3663,6 +3664,25 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
   margin: 0.35rem 0 0.5rem;
 }
 
+.phase-guidance-thrash {
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border, #c9b8a0);
+  background: color-mix(in srgb, var(--accent, #8b5a2b) 12%, transparent);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.phase-guidance-thrash .hint {
+  margin: 0;
+}
+
+.phase-guidance-why-pin {
+  margin: 0.35rem 0 0.5rem;
+}
+
 .pipeline-step-num {
   flex-shrink: 0;
   width: 1.75rem;
@@ -3704,11 +3724,14 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .pipeline-v2-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
   width: 100%;
+  /* Ensure accelerated overlay has a usable hit area while stages are short */
+  min-height: min(28rem, calc(100vh - 10rem));
 }
 
 .pipeline-tools-drawer summary {
@@ -3981,20 +4004,24 @@ textarea:not(.artifact-editor):not(.tr-textarea) {
 }
 
 .accelerated-run-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 9000;
+  z-index: 40;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 1.5rem;
+  padding: 2.5rem 1.5rem 1.5rem;
   background: color-mix(in srgb, var(--bg, #0f1117) 72%, transparent);
   backdrop-filter: blur(3px);
   pointer-events: all;
+  overflow: auto;
 }
 
 .accelerated-run-overlay-card {
+  position: sticky;
+  top: 2.5rem;
   max-width: 28rem;
+  width: 100%;
   padding: 1.5rem 1.75rem;
   border-radius: var(--radius, 10px);
   border: 1px solid var(--border);

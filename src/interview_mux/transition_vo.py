@@ -893,6 +893,17 @@ def stamp_transitions_pair_freeze(ctx: RunContext, *, generation: int | None = N
     return doc
 
 
+def clear_transitions_pair_freeze(ctx: RunContext) -> bool:
+    """Drop pair freeze (+ deferred) after order/transitions stale so vo incompleteness is honest."""
+    removed = False
+    for rel in (PAIR_FREEZE_REL, DEFERRED_PAIRS_REL):
+        path = ctx.final_path(*rel.split("/"))
+        if path.is_file():
+            path.unlink(missing_ok=True)
+            removed = True
+    return removed
+
+
 def _sync_deferred_transition_pairs(ctx: RunContext) -> list[str]:
     frozen = frozen_transition_pair_keys(ctx)
     if not frozen:

@@ -329,6 +329,23 @@ def record_identical_failure(
     return row
 
 
+def hydrate_driver_fail_counts(ctx: RunContext) -> dict[str, int | str]:
+    """Reload driver fail_key counters (+ optional _pred tokens) after restart."""
+    doc = read_identical_failures(ctx)
+    out: dict[str, int | str] = {}
+    for row in (doc.get("signatures") or {}).values():
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("fail_key") or "").strip()
+        if not key:
+            continue
+        out[key] = int(row.get("count") or 0)
+        token = row.get("predicate_token")
+        if isinstance(token, str) and token:
+            out[f"_pred:{key}"] = token
+    return out
+
+
 def upsert_fail_key(
     ctx: RunContext,
     fail_key: str,
@@ -338,6 +355,7 @@ def upsert_fail_key(
     producer: str = "",
     reason: str = "",
     resume_attempted: str = "",
+    predicate_token: str = "",
 ) -> dict[str, Any]:
     """Set the persisted counter for a driver fail_key (absolute count, keepalive-safe)."""
     sig = hashlib.sha256(str(fail_key or "").encode("utf-8")).hexdigest()[:16]
@@ -361,6 +379,9 @@ def upsert_fail_key(
         "updated_at": _utc_now(),
         "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
     }
+    token = str(predicate_token or prev.get("predicate_token") or "").strip()
+    if token:
+        row["predicate_token"] = token
     signatures[sig] = row
     order = [s for s in (doc.get("order") or []) if s != sig]
     order.append(sig)
@@ -438,6 +459,63 @@ def clear_halts_for_stages(ctx: RunContext, stages: frozenset[str] | set[str]) -
         cleared += 1
     if not cleared:
         return 0
+    doc["signatures"] = signatures
+    doc["updated_at"] = _utc_now()
+    _write(ctx, doc)
+    return cleared
+
+
+def clear_halts_for_stages_if_predicate_flipped(
+    ctx: RunContext, stages: frozenset[str] | set[str]
+) -> int:
+    """T1: clear halt for stage S only when seed/incompleteness token flipped."""
+    from interview_mux.thrash_hardening import predicate_flipped, stage_predicate_token
+
+    stage_set = {str(s or "").strip().lower() for s in stages if s}
+    if not stage_set:
+        return 0
+    doc = read_identical_failures(ctx)
+    signatures = dict(doc.get("signatures") or {})
+    cleared = 0
+    for sig, row in list(signatures.items()):
+        if not isinstance(row, dict):
+            continue
+        stage = str(row.get("failed_stage") or "").strip().lower()
+        fail_key = str(row.get("fail_key") or "").lower()
+        matched = stage in stage_set or any(
+            fail_key.startswith(f"{s}:") or f":{s}" in fail_key or s in fail_key
+            for s in stage_set
+        )
+        if not matched:
+            # Also match premature class keys containing music_epoch etc.
+            if not any(s in fail_key for s in stage_set):
+                continue
+        prior = row.get("predicate_token")
+        # Prefer failed_stage for flip check; fall back to first requested stage.
+        check_stage = stage or next(iter(stage_set))
+        if not predicate_flipped(ctx, check_stage, prior if isinstance(prior, str) else None):
+            # Refresh token so next heal can detect future flips.
+            row = dict(row)
+            row["predicate_token"] = stage_predicate_token(ctx, check_stage)
+            signatures[sig] = row
+            continue
+        row = dict(row)
+        row["count"] = 0
+        row["halt"] = False
+        row["cleared_at"] = _utc_now()
+        row["predicate_token"] = stage_predicate_token(ctx, check_stage)
+        signatures[sig] = row
+        cleared += 1
+        try:
+            from interview_mux.thrash_hardening import clear_thrash_on_predicate_flip
+
+            clear_thrash_on_predicate_flip(
+                ctx,
+                stage=check_stage,
+                prior_token=prior if isinstance(prior, str) else None,
+            )
+        except Exception:
+            pass
     doc["signatures"] = signatures
     doc["updated_at"] = _utc_now()
     _write(ctx, doc)

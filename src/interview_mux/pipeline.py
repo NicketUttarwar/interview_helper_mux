@@ -884,6 +884,24 @@ def _run_steps(
             raise RuntimeError(
                 "Delivery blocked — analysis incomplete: " + ", ".join(str(s) for s in blocked)
             )
+        remaining_after = list((result or {}).get("remaining_after") or [])
+        if remaining_after and not ctx.artifact_exists("master/master.wav"):
+            try:
+                from interview_mux.thrash_hardening import (
+                    FAIL_CLASS_DELIVERY_BLOCKED,
+                    canonical_resume_pin,
+                )
+
+                pin = canonical_resume_pin(
+                    ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=remaining_after[0]
+                )
+            except Exception:
+                pin = remaining_after[0]
+            raise RuntimeError(
+                "Delivery incomplete after conductor — remaining stages: "
+                + ", ".join(str(s) for s in remaining_after[:12])
+                + f"; resume={pin}"
+            )
         if ctx.artifact_exists("master/master.wav"):
             from interview_mux.homunculus.agenda import ship_after_master_remaining
             from interview_mux.homunculus.judge import after_complete_master

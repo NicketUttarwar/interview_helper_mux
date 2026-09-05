@@ -98,6 +98,21 @@ PLAYBOOK_REGISTRY: dict[str, PlaybookSpec] = {
 def mix_assembly_seated(ctx: RunContext) -> bool:
     """Final assembly exists and is not stale vs the live EDL."""
     try:
+        if ctx.artifact_exists("run_meta.json"):
+            meta = ctx.read_json("run_meta.json")
+            if isinstance(meta, dict) and meta.get("assembly_seating_stale"):
+                return False
+    except Exception:
+        pass
+    try:
+        from interview_mux.thrash_hardening import artifact_usable
+
+        ok, _ = artifact_usable(ctx, "master/assembly.wav", consumer="mix")
+        if not ok:
+            return False
+    except Exception:
+        pass
+    try:
         from interview_mux.air_order import mix_outputs_seated
 
         return bool(mix_outputs_seated(ctx))

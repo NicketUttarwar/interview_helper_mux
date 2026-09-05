@@ -248,7 +248,18 @@ class JobRunner:
             job = reconcile_job_if_stale(run_id, lock_held=self.lock_held(run_id))
         except Exception:
             job = self._read_gui_job(run_id) or {"status": "idle", "run_id": run_id}
-        return attach_live_stage_progress(run_id, job)
+        job = attach_live_stage_progress(run_id, job)
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.thrash_hardening import enforce_job_complete_honesty
+
+            if RunContext.exists(run_id):
+                job = enforce_job_complete_honesty(
+                    RunContext(run_id, create=False), job if isinstance(job, dict) else {}
+                )
+        except Exception:
+            pass
+        return job
 
     def is_running(self, run_id: str) -> bool:
         """True only when this process is executing a background job for the run."""

@@ -167,3 +167,25 @@ Optional: one fresh `MUX_FRESH=1` forensics campaign after W1–W3 land (not to 
 - [x] W5–W6 helpers enforced on agenda/driver unmark paths  
 - [x] Plan checklist does not re-implement Excluded table  
 - [x] Spoken text cascades (gap + transitions) + hash-fresh transition completeness (post-exec_5401)
+
+## Follow-on (T1–T8)
+
+See [thrash_edge_case_hardening](thrash_edge_case_hardening_f9dfad74.plan.md) for sticky halts, filter-empty incomplete, canonical pins, artifact_usable, regen blast radius, pending honesty, forensics suppress budget.
+
+### Unstick exec_5402 (same run)
+
+1. Restart `interview_mux serve` + partial-auto driver so code loads.
+2. Reconcile: `promote_complete_orphan_stage_done` + `seal_phase_a_if_stable` on the run.
+3. Resume `MUX_FRESH=0` `from_stage=music_palette_compose` — no second fresh exec.
+
+### Productized (1–2)
+
+- **Unstick playbook:** `delivery_unstick.run_delivery_unstick` + `POST /api/runs/{id}/delivery/unstick` + GUI buttons on thrash / needs_operator.
+- **Dual-driver:** `driver_singleton` claim file; `ensure_e2e` refuses second healer without `force`; serve start runs `on_serve_restart_harden` (hydrate + clear stale claims).
+
+### Productized (3–6 follow-on)
+
+- **Claim release on exit:** `atexit` + `__main__` finally → `release_driver_run`.
+- **heal_navigate-only driver entry:** `_heal_resume` replaces hardcoded edl/narrative resume sites (qc, missing EDL, transition heal, narrative_qc, premature mix drift).
+- **Ship-path honesty:** `enforce_job_complete_honesty` demotes false complete when master exists but encode/PMQ/publish incomplete (respects g-publish pending/skip).
+- **Why pinned banner:** `delivery_pin_summary` + `operator/delivery_pin.json` from `heal_navigate`; GUI “Why pinned” line.

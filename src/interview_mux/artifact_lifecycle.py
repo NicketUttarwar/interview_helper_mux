@@ -321,6 +321,12 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
             if sid == "transitions" and rel in stamped:
                 (Path(ctx.run_dir) / ".stage_done" / "transitions").unlink(missing_ok=True)
                 try:
+                    from interview_mux.transition_vo import clear_transitions_pair_freeze
+
+                    clear_transitions_pair_freeze(ctx)
+                except Exception:
+                    pass
+                try:
                     from interview_mux.delivery_guardrails import record_wasted_work
 
                     record_wasted_work(

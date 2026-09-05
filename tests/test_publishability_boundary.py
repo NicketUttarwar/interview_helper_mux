@@ -112,7 +112,9 @@ def test_phantom_vo_detected(tmp_path: Path) -> None:
     )
     report = validate_publishability(ctx, checkpoint="post_edl")
     classes = {v.error_class for v in report.violations}
+    codes = {v.code for v in report.violations}
     assert "vo_audibility_drift" in classes
+    assert "phantom_vo" in codes
 
 
 def test_phantom_vo_ignores_air_script_omitted_layup(

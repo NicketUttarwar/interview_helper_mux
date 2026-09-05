@@ -388,10 +388,22 @@ class RunContext:
 
         if not paths and not audit_path:
             return
-        present = [p for p in paths if self.artifact_exists(p)]
+        committed: list[str] = []
+        pending_only: list[str] = []
+        for p in paths:
+            final = self.final_path(*str(p).replace("\\", "/").split("/"))
+            if final.is_file():
+                committed.append(p)
+            elif self.artifact_exists(p):
+                pending_only.append(p)
+        present = committed or [p for p in paths if self.artifact_exists(p)]
         info = STAGE_BY_ID.get(stage_id)
         title = info.title if info else stage_id
-        payload: dict[str, Any] = {"handoff": present or paths}
+        payload: dict[str, Any] = {
+            "handoff": present or paths,
+            "committed": committed,
+            "pending": pending_only,
+        }
         if audit_path and self.artifact_exists(audit_path):
             payload["audit_path"] = audit_path
         self.log(
@@ -503,6 +515,20 @@ class RunContext:
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
+        if stage == "mix":
+            try:
+
+                def _clear_seating_stale(meta: dict[str, Any]) -> None:
+                    meta.pop("assembly_seating_stale", None)
+                    meta.pop("assembly_seating_stale_reason", None)
+
+                if self.artifact_exists("run_meta.json"):
+                    self.mutate_run_meta(_clear_seating_stale)
+            except Exception:
+                pass
+        # Do NOT discard .pending_writes here. mark_done often runs before
+        # after_stage_write_check flush (ingest, nested stages). Flush already
+        # promotes then rmtree; pre-flush discard ate unflushed WAVs.
         from interview_mux.web.stages import STAGE_BY_ID
 
         def _clear_handoff_pending(meta: dict[str, Any]) -> None:

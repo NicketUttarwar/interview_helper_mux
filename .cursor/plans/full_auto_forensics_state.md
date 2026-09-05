@@ -2,21 +2,21 @@
 
 - **campaign_mode:** fresh_campaign_continue_on_bug
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
-- **run_id:** exec_5196_d19c15b58ab4_20260903T184658Z
+- **run_id:** exec_5404_d19c15b58ab4_20260905T215237Z
 - **fresh_launches:** 1
-- **driver_restarts:** 23
-- **started_at:** 2026-09-03T18:46:58Z
-- **last_progress_at:** 2026-09-04T00:16:44Z
-- **driver_alive:** false (ship_complete stack_shutdown)
-- **stages_done:** 69/69
-- **current_stage:** SHIPPED (podcast_publish + S3 sync)
-- **g1_complete:** true
-- **intervention_count:** 21
-- **last_predicate:** late transition pairs + premature mix→mmaudio bounce
-- **last_predicate_flipped:** true
-- **resume_from_stage:** n/a (shipped)
+- **driver_restarts:** 0
+- **started_at:** 2026-09-05T21:52:37Z
+- **last_progress_at:** 2026-09-05T21:52:37Z
+- **driver_alive:** true
+- **stages_done:** 0/69
+- **current_stage:** (launching)
+- **g1_complete:** false
+- **intervention_count:** 0
+- **last_predicate:** null
+- **last_predicate_flipped:** null
+- **resume_from_stage:** null
 - **open_blockers:** []
-- **patches_this_session:** ["WAV prefer reseat + floor noop", "clamp_hosted_seats_to_rendered_wavs", "gap-line heal keep omit", "premature-complete prefer mix when assembly present", "mmaudio_qa heal on incompleteness", "seed-front skip vo pair-only after assembly"]
+- **patches_this_session:** []
 - **hard_blocker:** null
-- **monitor_loop:** stopped (nudge killed after ship)
-- **notes:** Campaign complete. ONE fresh exec only. Master verified; PMQ publish_allowed; cover+publish done; S3 enclosure uploaded.
+- **monitor_loop:** every 4m (PID 3123)
+- **notes:** Fresh campaign kickoff. No prior exec folders used. Learning is in code. Nudge §3.0a armed.

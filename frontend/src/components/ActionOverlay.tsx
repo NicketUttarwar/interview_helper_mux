@@ -9,8 +9,17 @@ function formatPhaseLabel(phase: string | undefined): string | null {
   return phase.replace(/_/g, " ");
 }
 
-/** Single cover: busy spinner (any mode) or accelerated guardrail (partial-auto). Unmounts at operator pauses. */
-export function ActionOverlay() {
+export type ActionOverlayPlacement = "app" | "workbench";
+
+/**
+ * Single cover: busy spinner (any mode) or accelerated guardrail (partial-auto).
+ * Unmounts at operator pauses.
+ *
+ * placement="app" — covers operator-body (not top bar / logs dock); skips accelerated
+ * on Pipeline so the workbench host can scope blur to the middle panel only.
+ * placement="workbench" — accelerated cover only, for pipeline-v2-main.
+ */
+export function ActionOverlay({ placement = "app" }: { placement?: ActionOverlayPlacement }) {
   const { jobRunning, run, selectedStageId, apiGrants, setActiveTab, activeTab, partialAutoGPublish } =
     useApp();
   const [peeking, setPeeking] = useState(false);
@@ -24,7 +33,11 @@ export function ActionOverlay() {
     if (activeTab !== "logs") setPeeking(false);
   }, [activeTab]);
 
-  const cover = resolveOperatorCover(run, partialAutoGPublish, { jobRunning, peeking });
+  const cover = resolveOperatorCover(run, partialAutoGPublish, {
+    jobRunning,
+    // Logs tab (and dock) stay interactive — treat as peeking so cover lifts
+    peeking: peeking || activeTab === "logs",
+  });
   const action = useGlobalOperatorAction(run, {
     selectedStageId,
     jobRunning,
@@ -35,6 +48,13 @@ export function ActionOverlay() {
   if (cover === "none") return null;
 
   if (cover === "accelerated") {
+    // Pipeline hosts workbench-scoped blur over the middle panel only
+    if (placement === "app" && activeTab === "pipeline") return null;
+    if (placement === "workbench") {
+      // workbench host is only mounted on Pipeline; still guard
+      if (activeTab !== "pipeline") return null;
+    }
+
     return (
       <div
         className="accelerated-run-overlay"
@@ -43,6 +63,7 @@ export function ActionOverlay() {
         aria-labelledby="accelerated-run-overlay-title"
         aria-live="polite"
         data-testid="accelerated-run-overlay"
+        data-placement={placement}
       >
         <div className="accelerated-run-overlay-card">
           <p id="accelerated-run-overlay-title" className="accelerated-run-overlay-title">
@@ -50,7 +71,7 @@ export function ActionOverlay() {
           </p>
           <p className="accelerated-run-overlay-message hint">
             You&apos;ll be prompted when your input is needed — transcript review and S3 upload
-            are the only planned manual steps. Watch Pipeline and Logs for progress.
+            are the only planned manual steps. Watch the stage list and Logs for progress.
           </p>
           <button
             type="button"
@@ -67,6 +88,8 @@ export function ActionOverlay() {
       </div>
     );
   }
+
+  if (placement === "workbench") return null;
 
   const job = run?.job;
   const stageTitle = action.stageId

@@ -1394,6 +1394,12 @@ def run_edl(ctx: RunContext) -> None:
             level="warning",
             stage="edl",
         )
+    try:
+        from interview_mux.thrash_hardening import bump_assembly_seating_generation
+
+        bump_assembly_seating_generation(ctx, "edl_rewrite")
+    except Exception:
+        pass
     ctx.mark_done("edl")
 
 

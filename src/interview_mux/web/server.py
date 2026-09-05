@@ -961,7 +961,22 @@ def create_app() -> FastAPI:
             "llm_verification_alerts": llm_verification_alerts,
             "segment_lineage_warnings": segment_lineage_warnings,
             "resilience": _resilience_payload(ctx),
+            "thrash": None,
+            "wasted_work": None,
+            "delivery_pin": None,
         }
+        try:
+            from interview_mux.thrash_hardening import (
+                delivery_pin_summary,
+                thrash_summary,
+                wasted_work_summary,
+            )
+
+            payload["thrash"] = thrash_summary(ctx)
+            payload["wasted_work"] = wasted_work_summary(ctx)
+            payload["delivery_pin"] = delivery_pin_summary(ctx)
+        except Exception:
+            pass
         if include_log_tail:
             payload["log_tail"] = read_log(ctx.run_dir, tail=100)
         return payload
@@ -1081,6 +1096,32 @@ def create_app() -> FastAPI:
             epoch = unlock_delivery_epoch(ctx, reason)
             refresh_journey_meta(ctx)
             return {"ok": True, "delivery_epoch": epoch}
+
+    @app.post("/api/runs/{run_id}/delivery/unstick")
+    def delivery_unstick(run_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Operator unstick playbook: promote orphans, seal Phase A, clear thrash, pin resume."""
+        with _guarded_run(run_id):
+            ctx = _ctx(run_id)
+            from interview_mux.delivery_unstick import run_delivery_unstick
+
+            payload = body or {}
+            execute_resume = bool(payload.get("execute_resume") or payload.get("execute"))
+            out = run_delivery_unstick(
+                ctx,
+                clear_needs_operator=payload.get("clear_needs_operator", True) is not False,
+                execute_resume=execute_resume,
+            )
+            refresh_journey_meta(ctx)
+            if execute_resume and out.get("execute"):
+                exe = out["execute"]
+                started = runner.start(
+                    run_id,
+                    mode=str(exe.get("mode") or "delivery"),
+                    from_stage=str(exe.get("from_stage") or ""),
+                    flow=str(exe.get("mode") or "delivery"),
+                )
+                out["job"] = started
+            return out
 
     @app.get("/api/runs/{run_id}/log")
     def get_log(

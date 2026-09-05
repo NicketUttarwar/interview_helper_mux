@@ -28,7 +28,7 @@ _DECISIONS: list[dict[str, Any]] = []
 REPO = Path(__file__).resolve().parents[1]
 MASTER = Path()  # bound in bind_run()
 LOG = Path()  # bound in bind_run()
-
+_CLAIM_ATEXIT_REGISTERED = False
 
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
@@ -317,6 +317,29 @@ def pause_needs_operator(stage: str, reason: str) -> str:
     if _forensics_mode():
         if _forensics_stall_maybe_exit(stage, reason):
             return "pause"
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.thrash_hardening import (
+                forensics_suppress_allowed,
+                premature_fail_class,
+            )
+
+            cls = premature_fail_class(stage)
+            if not forensics_suppress_allowed(RunContext(RUN_ID, create=False), cls):
+                log(
+                    f"forensics: suppress budget exhausted for class={cls} "
+                    f"at {stage} — hard stall"
+                )
+                log_decision(
+                    "major",
+                    stage=stage,
+                    action="forensics_stall",
+                    reason="suppress_budget_exhausted",
+                    detail=reason[:240],
+                )
+                return "pause"
+        except Exception as exc:
+            log(f"forensics suppress budget: {exc}")
         log_decision(
             "major",
             stage=stage,
@@ -330,15 +353,50 @@ def pause_needs_operator(stage: str, reason: str) -> str:
         _forensics_clear_heal_cap(stage)
         return "continue"
     if _homunculus_continue_on_needs_operator(stage, reason):
-        log_decision(
-            "major",
-            stage=stage,
-            action="homunculus_continue",
-            reason="needs_operator_suppressed",
-            detail=reason[:240],
-        )
-        log(f"homunculus recovery: suppressing needs_operator at {stage}")
-        return "continue"
+        try:
+            from interview_mux.run_context import RunContext
+            from interview_mux.thrash_hardening import (
+                premature_fail_class,
+                suppress_allowed,
+            )
+
+            cls = premature_fail_class(stage)
+            if not suppress_allowed(
+                RunContext(RUN_ID, create=False), cls, source="homunculus"
+            ):
+                log(
+                    f"homunculus: suppress budget exhausted for class={cls} "
+                    f"at {stage} — hard pause"
+                )
+                log_decision(
+                    "major",
+                    stage=stage,
+                    action="homunculus_stall",
+                    reason="suppress_budget_exhausted",
+                    detail=reason[:240],
+                )
+                # fall through to stamp needs_operator
+            else:
+                log_decision(
+                    "major",
+                    stage=stage,
+                    action="homunculus_continue",
+                    reason="needs_operator_suppressed",
+                    detail=reason[:240],
+                )
+                log(f"homunculus recovery: suppressing needs_operator at {stage}")
+                return "continue"
+        except Exception as exc:
+            log(f"homunculus suppress budget: {exc}")
+            log_decision(
+                "major",
+                stage=stage,
+                action="homunculus_continue",
+                reason="needs_operator_suppressed",
+                detail=reason[:240],
+            )
+            log(f"homunculus recovery: suppressing needs_operator at {stage}")
+            return "continue"
     producer = ""
     try:
         from interview_mux.run_context import RunContext
@@ -653,7 +711,67 @@ def bind_run(run_id: str) -> None:
         clear_fresh_pending()
     except Exception:
         pass
+    # Persist premature/identical counters across driver restart (disk is SoT).
+    try:
+        from interview_mux.identical_failures import hydrate_driver_fail_counts
+        from interview_mux.run_context import RunContext
 
+        hydrated = hydrate_driver_fail_counts(RunContext(run_id, create=False))
+        for key, value in hydrated.items():
+            # Avoid re-upsert loops while seeding memory from disk.
+            dict.__setitem__(_IDENTICAL_STAGE_FAILURES, key, value)
+        if hydrated:
+            log(f"hydrated {len(hydrated)} identical fail counter(s) from disk")
+    except Exception as exc:
+        log(f"identical fail hydrate: {exc}")
+    # Single-driver claim — refuse dual healers on the same run_id.
+    try:
+        import atexit
+
+        from interview_mux.driver_singleton import claim_driver_run
+        from interview_mux.run_context import RunContext
+
+        claim = claim_driver_run(RunContext(run_id, create=False), force=True)
+        log(f"driver claim pid={claim.get('pid')} run={run_id}")
+        global _CLAIM_ATEXIT_REGISTERED
+        if not _CLAIM_ATEXIT_REGISTERED:
+            atexit.register(_release_driver_claim_safe)
+            _CLAIM_ATEXIT_REGISTERED = True
+    except Exception as exc:
+        log(f"driver claim: {exc}")
+
+
+def _release_driver_claim_safe() -> None:
+    """Release operator/driver_claim.json if this process still holds it."""
+    if not RUN_ID:
+        return
+    try:
+        from interview_mux.driver_singleton import release_driver_run
+        from interview_mux.run_context import RunContext
+
+        if RunContext.exists(RUN_ID):
+            if release_driver_run(RunContext(RUN_ID, create=False)):
+                log(f"driver claim released run={RUN_ID}")
+    except Exception as exc:
+        try:
+            log(f"driver claim release: {exc}")
+        except Exception:
+            pass
+
+
+def _heal_resume(*, error: str = "", stage: str = "", intent: str = "") -> str:
+    """Single resume authority — always heal_navigate (no hardcoded edl/narrative pins)."""
+    from interview_mux.run_context import RunContext
+    from interview_mux.thrash_hardening import heal_navigate
+
+    ctx = RunContext(RUN_ID, create=False)
+    nav = heal_navigate(ctx, error=error, stage=stage, intent=intent)
+    pin = str(nav.get("from_stage") or stage or "music_palette_compose")
+    log(
+        f"heal_navigate resume={pin} intent={nav.get('intent')} "
+        f"stage={stage or '-'} err={(error or '')[:120]}"
+    )
+    return pin
 
 def _forensics_mode() -> bool:
     from interview_mux.identical_failures import forensics_mode
@@ -749,24 +867,53 @@ def _sync_forensics_identical_halts() -> None:
 
 
 def _reset_identical_counters_on_reexecute(from_stage: str) -> None:
-    """Re-running a stage after a heal should not inherit a prior session's ×3 halt."""
+    """Clear ×3 halt for a stage only when its completeness predicate flipped (T1)."""
     global _EDL_NARRATIVE_HEAL_SIGS
     stage = str(from_stage or "").strip().lower()
     if not stage or not RUN_ID:
         return
     try:
-        from interview_mux.identical_failures import clear_halts_for_stages
+        from interview_mux.identical_failures import clear_halts_for_stages_if_predicate_flipped
         from interview_mux.run_context import RunContext
+        from interview_mux.thrash_hardening import (
+            premature_fail_class,
+            stage_predicate_token,
+        )
 
-        n = clear_halts_for_stages(RunContext(RUN_ID, create=False), {stage})
+        ctx = RunContext(RUN_ID, create=False)
+        n = clear_halts_for_stages_if_predicate_flipped(ctx, {stage})
+        # In-memory: clear keys for this stage only when predicate flipped.
+        token = stage_predicate_token(ctx, stage)
+        cls = premature_fail_class(stage)
+        try:
+            from interview_mux.thrash_hardening import clear_thrash_on_predicate_flip
+
+            # clear_halts already clears when flipped; also clear thrash if any prior.
+            if n:
+                clear_thrash_on_predicate_flip(ctx, stage=stage)
+        except Exception:
+            pass
         for key in list(_IDENTICAL_STAGE_FAILURES.keys()):
             text = str(key).lower()
-            if text.startswith(stage) or text.startswith(f"{stage}:"):
+            if not (
+                text.startswith(stage)
+                or text.startswith(f"{stage}:")
+                or f":{cls}" in text
+                or text.endswith(f":{cls}")
+            ):
+                continue
+            prior = _IDENTICAL_STAGE_FAILURES.get(f"_pred:{key}")
+            if prior is None or prior != token:
                 _IDENTICAL_STAGE_FAILURES[key] = 0
-        if stage.startswith("edl"):
+                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, f"_pred:{key}", token)
+            # else keep count — same failure class, no predicate flip
+        if stage.startswith("edl") and n:
             _EDL_NARRATIVE_HEAL_SIGS.clear()
         if n:
-            log(f"identical_halts reset on re_execute from_stage={stage} cleared={n}")
+            log(
+                f"identical_halts reset on re_execute from_stage={stage} "
+                f"cleared={n} (predicate flipped)"
+            )
     except Exception as exc:
         log(f"identical_halts reset on re_execute: {exc}")
 
@@ -2034,21 +2181,53 @@ def bump_identical(
     resume: str = "",
 ) -> int:
     """Persist identical-failure count (keepalive-safe) and return the new count."""
+    # Collapse oscillating stage names into a shared fail class when known.
+    try:
+        from interview_mux.thrash_hardening import premature_fail_class, stable_fail_key
+
+        pin = str(resume or stage or "").strip()
+        if pin:
+            cls = premature_fail_class(pin)
+            if not str(cls).startswith("stage:"):
+                label = (
+                    fail_key.split(":", 1)[0]
+                    if ":" in fail_key
+                    else (stage or "delivery")
+                )
+                fail_key = stable_fail_key(
+                    label,
+                    stage=stage,
+                    reason=reason or fail_key,
+                    resume=resume or pin,
+                )
+    except Exception:
+        pass
     count = int(_IDENTICAL_STAGE_FAILURES.get(fail_key, 0) or 0) + 1
     dict.__setitem__(_IDENTICAL_STAGE_FAILURES, fail_key, count)
     if RUN_ID:
         try:
             from interview_mux.identical_failures import upsert_fail_key
             from interview_mux.run_context import RunContext
+            from interview_mux.thrash_hardening import stage_predicate_token
 
+            ctx = RunContext(RUN_ID, create=False)
+            token = ""
+            try:
+                token = stage_predicate_token(
+                    ctx, resume or stage or fail_key.split(":")[0]
+                )
+                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, f"_pred:{fail_key}", token)
+            except Exception:
+                token = ""
             upsert_fail_key(
-                RunContext(RUN_ID, create=False),
+                ctx,
                 fail_key,
                 count,
                 failed_stage=stage or fail_key.split(":")[0],
                 producer=producer,
                 reason=reason or fail_key,
                 resume_attempted=resume,
+                predicate_token=token,
             )
         except Exception as exc:
             log(f"identical_failure persist: {exc}")
@@ -3253,14 +3432,19 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             except Exception as exc:
                 log(f"edl_qc split-child materialize: {exc}")
         resume = try_product_recovery(stage or "edl", msg)
-        dest = resume or "edl"
+        dest = resume or _heal_resume(
+            error=msg, stage=stage or "edl", intent="phase_a_edl"
+        )
         log(f"edl_qc → resume {dest} overlap={overlap} unknown={unknown}")
         execute({"mode": "delivery", "from_stage": dest})
         return "continue"
 
     if "missing" in low and "edl.json" in low:
-        log("assembly/mix blocked on missing edl.json — resume edl (not ranking)")
-        execute({"mode": "delivery", "from_stage": "edl"})
+        dest = _heal_resume(
+            error=msg, stage=stage or "mix", intent="finalize_inputs"
+        )
+        log(f"assembly/mix blocked on missing edl.json — resume {dest}")
+        execute({"mode": "delivery", "from_stage": dest})
         return "continue"
 
     # Partial / incomplete producer artifacts — never re-execute the blocked consumer.
@@ -4233,18 +4417,11 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 )
             if not synthesize_g1():
                 log("gate: G1 synth after transition heal returned false (continuing)")
-            # Prefer continuing from mix when assembly already exists — avoid
-            # burning cycles rebuilding EDL after junction remasters.
-            resume = "edl"
-            try:
-                from pathlib import Path as _P
-
-                if (_P(ctx.run_dir) / "master" / "assembly.wav").is_file() and ctx.is_done("mix"):
-                    resume = "junction_snip_qa"
-                elif (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
-                    resume = "mix"
-            except Exception:
-                resume = "edl"
+            resume = _heal_resume(
+                error="spoken transition audio heal",
+                stage="vo_synthesize",
+                intent="mix_seat",
+            )
             execute({"mode": "delivery", "from_stage": resume})
             return "continue"
         except Exception as exc:
@@ -6134,30 +6311,21 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         ctx.mark_done(sid, force=True)
                     execute({"mode": "delivery", "from_stage": "master_finalize"})
                     return "continue"
-                # Prefer edl when ranking/transitions/SDP already exist — avoid LLM re-entry.
-                resume = "edl"
-                if not ctx.artifact_exists("master/selection.json"):
-                    resume = "full_master_ranking"
-                elif not ctx.is_done("sound_design_vo_finalize") and not ctx.artifact_exists(
-                    "understanding/sound_design_plan.json"
-                ):
-                    resume = "full_master_ranking"
-                elif not ctx.is_done("edl_narrative_audit") and not ctx.artifact_exists(
-                    "master/edl_narrative_audit.json"
-                ):
-                    resume = "edl_narrative_audit"
-                elif asm_ok:
-                    resume = "junction_snip_qa" if not ctx.is_done("junction_snip_qa") else "master_finalize"
+                resume = _heal_resume(
+                    error="narrative_qc heal incomplete",
+                    stage="edl_narrative_audit",
+                    intent="phase_a_edl",
+                )
                 execute({"mode": "delivery", "from_stage": resume})
                 return "continue"
             # Still failing — ranking, not mix. Mix without selection/edl is a dead loop.
-            log(f"narrative_qc heal incomplete ({len(errs)} left) — resume ranking/edl")
-            if not ctx.artifact_exists("master/selection.json"):
-                execute({"mode": "delivery", "from_stage": "full_master_ranking"})
-            elif (_P(ctx.run_dir) / "master" / "assembly.wav").is_file():
-                execute({"mode": "delivery", "from_stage": "master_finalize"})
-            else:
-                execute({"mode": "delivery", "from_stage": "edl"})
+            log(f"narrative_qc heal incomplete ({len(errs)} left) — heal_navigate")
+            resume = _heal_resume(
+                error="narrative_qc repair incomplete",
+                stage="edl_narrative_audit",
+                intent="phase_a_edl",
+            )
+            execute({"mode": "delivery", "from_stage": resume})
             return "continue"
         except Exception as exc:
             log(f"narrative_qc repair: {exc}")
@@ -7204,7 +7372,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     resume = "vo_synthesize"
                             elif drift == "rebuild":
                                 (ctx_p.run_dir / ".stage_done" / "mix").unlink(missing_ok=True)
-                                resume = "edl"
+                                resume = _heal_resume(
+                                    error="premature EDL complete mix unseated",
+                                    stage="edl",
+                                    intent="mix_seat",
+                                )
                                 log(
                                     f"premature EDL complete with mix unseated "
                                     f"(drift={drift}) — resume {resume}"
@@ -7237,9 +7409,62 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         except Exception as prem_exc:
                             log(f"premature-complete mix guard skipped: {prem_exc}")
                     fail_key = f"{label}:premature_complete:{resume}"
+                    try:
+                        from interview_mux.thrash_hardening import premature_fail_key
+
+                        fail_key = premature_fail_key(label, resume)
+                    except Exception:
+                        pass
                     _IDENTICAL_STAGE_FAILURES[fail_key] = (
                         _IDENTICAL_STAGE_FAILURES.get(fail_key, 0) + 1
                     )
+                    try:
+                        from interview_mux.identical_failures import record_class_failure
+                        from interview_mux.run_context import RunContext as _RCPred
+                        from interview_mux.thrash_hardening import (
+                            premature_fail_class,
+                            record_thrash_hit,
+                            stage_predicate_token,
+                        )
+
+                        _ctx_pred = _RCPred(RUN_ID, create=False)
+                        token = stage_predicate_token(_ctx_pred, resume)
+                        dict.__setitem__(
+                            _IDENTICAL_STAGE_FAILURES,
+                            f"_pred:{fail_key}",
+                            token,
+                        )
+                        cls = premature_fail_class(resume)
+                        record_class_failure(
+                            _ctx_pred,
+                            failed_stage=resume or label,
+                            error_class=cls,
+                            resume_attempted=resume,
+                        )
+                        thrash = record_thrash_hit(
+                            _ctx_pred,
+                            fail_class=cls,
+                            pin=resume,
+                            predicate_token=token,
+                            stage=resume,
+                        )
+                        if thrash:
+                            log(
+                                f"THRASH DETECTED class={cls} pin={resume} "
+                                f"hits={thrash.get('hit_count')} (soft — no auto pause)"
+                            )
+                            log_decision(
+                                "major",
+                                stage=resume or label,
+                                action="thrash_detected",
+                                reason=cls,
+                                detail=thrash,
+                            )
+                            # Soft only: thrash_report + thrash_pause_recommended.
+                            # Hard needs_operator pause was false-stopping healthy
+                            # producer retries; driver continues with heal pin.
+                    except Exception:
+                        pass
                     if (
                         label == "analysis"
                         and resume == "boundary_detection"
@@ -7265,25 +7490,38 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             f"resume {resume}"
                         )
                     if _IDENTICAL_STAGE_FAILURES[fail_key] >= 3:
-                        # G1–G9 in delivery_guardrails.py are the source of truth
-                        # for seed-order, music-before-assembly, and premature-cap.
-                        # Driver substring heals that duplicate those predicates
-                        # should be pruned in a follow-up — do not add new
-                        # heal-only navigation past a missing producer.
+                        # Single resume authority: heal_navigate / lease / premature_cap.
                         pin_stage = resume
                         try:
-                            from interview_mux.delivery_guardrails import (
-                                premature_cap_hard_pin,
+                            from interview_mux.thrash_hardening import (
+                                expensive_stage_lease_active,
+                                heal_navigate,
                             )
 
                             if ctx_p is not None:
-                                pin_stage = premature_cap_hard_pin(
-                                    ctx_p, resume, message=fail_key
-                                )
+                                leased, lease_stage = expensive_stage_lease_active(ctx_p)
+                                if leased and lease_stage:
+                                    pin_stage = lease_stage
+                                else:
+                                    pin_stage = heal_navigate(
+                                        ctx_p,
+                                        error=fail_key,
+                                        stage=resume,
+                                    )["from_stage"]
                         except Exception:
-                            pin_stage = resume
+                            try:
+                                from interview_mux.delivery_guardrails import (
+                                    premature_cap_hard_pin,
+                                )
+
+                                if ctx_p is not None:
+                                    pin_stage = premature_cap_hard_pin(
+                                        ctx_p, resume, message=fail_key
+                                    )
+                            except Exception:
+                                pin_stage = resume
                         log(
-                            f"[DECISION major] premature_cap_hard_pin stage={pin_stage} "
+                            f"[DECISION major] heal_navigate pin stage={pin_stage} "
                             f"(was {fail_key} ×3 — not advance)"
                         )
                         resume = pin_stage
@@ -7344,10 +7582,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     elif asm and edl and ctx.is_done("mix"):
                         resume_body = {"mode": "delivery", "from_stage": "junction_snip_qa"}
                         log("interrupted smart-resume → junction_snip_qa (assembly+mix ready)")
-                    elif edl and ctx.is_done("edl") and ctx.is_done("mmaudio_sfx"):
-                        resume_body = {"mode": "delivery", "from_stage": "mix"}
-                        log("interrupted smart-resume → mix")
                     elif edl and ctx.is_done("edl"):
+                        from interview_mux.delivery_guardrails import safe_mix_resume_stage
+
+                        pin = safe_mix_resume_stage(ctx)
+                        resume_body = {"mode": "delivery", "from_stage": pin}
+                        log(f"interrupted smart-resume → {pin} (safe_mix / music epoch)")
+                    elif edl:
                         resume_body = {"mode": "delivery", "from_stage": "assembly_preview"}
                         log("interrupted smart-resume → assembly_preview")
                 except Exception as exc:
@@ -7413,7 +7654,25 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     "stage": str(job.get("stage") or job.get("current_stage") or ""),
                     "message": "needs_operator",
                 }
-            execute(body)
+            # T8: recompute from_stage after handle_gate — never stale original body.
+            try:
+                from interview_mux.run_context import RunContext
+                from interview_mux.thrash_hardening import (
+                    FAIL_CLASS_DELIVERY_BLOCKED,
+                    canonical_resume_pin,
+                )
+
+                pin = canonical_resume_pin(
+                    RunContext(RUN_ID, create=False),
+                    FAIL_CLASS_DELIVERY_BLOCKED,
+                    hint=gate_stage or str(body.get("from_stage") or ""),
+                )
+                mode = "delivery" if pin in DELIVERY_ORDER else str(body.get("mode") or "delivery")
+                log(f"gate re-execute recomputed pin={pin} (was body from_stage={body.get('from_stage')})")
+                execute({"mode": mode, "from_stage": pin})
+            except Exception as gate_pin_exc:
+                log(f"gate recompute pin failed: {gate_pin_exc}")
+                execute(body)
             continue
         if status == "error":
             stage = parse_failed_stage(job)
@@ -7464,6 +7723,27 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 time.sleep(20)
                 continue
             if "delivery incomplete after conductor" in low_err:
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.thrash_hardening import heal_navigate
+
+                    ctx_nav = RunContext(RUN_ID, create=False)
+                    if not ctx_nav.artifact_exists("master/master.wav"):
+                        nav = heal_navigate(
+                            ctx_nav,
+                            error=err,
+                            stage=stage or "",
+                        )
+                        log(
+                            f"incomplete-after-conductor heal_navigate → "
+                            f"{nav['from_stage']} (intent={nav['intent']})"
+                        )
+                        execute(
+                            {"mode": nav["mode"], "from_stage": nav["from_stage"]}
+                        )
+                        continue
+                except Exception as nav_exc:
+                    log(f"incomplete-after-conductor navigate: {nav_exc}")
                 try:
                     from pathlib import Path as _P
 
@@ -12378,3 +12658,5 @@ if __name__ == "__main__":
         except Exception:
             pass
         raise
+    finally:
+        _release_driver_claim_safe()

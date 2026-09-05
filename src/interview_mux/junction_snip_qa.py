@@ -2365,7 +2365,34 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         prior_applied_sig = applied_sig
         if needs:
             try:
+                from interview_mux.thrash_hardening import (
+                    junction_remaster_budget_ok,
+                    note_junction_remaster,
+                )
+
+                ok_budget, used = junction_remaster_budget_ok(ctx)
+                if not ok_budget:
+                    ctx.log(
+                        "junction_snip_qa: remaster generation budget exhausted "
+                        f"(used={used}) — soft-pass residuals, continue to autopsy",
+                        level="warning",
+                        stage=STAGE_ID,
+                    )
+                    try:
+
+                        def _soft(meta: dict) -> None:
+                            meta["e2e_soft_junction_residuals"] = True
+                            meta["junction_remaster_budget_exhausted"] = True
+
+                        ctx.mutate_run_meta(_soft)
+                    except Exception:
+                        pass
+                    residual_findings = detect_junction_findings(
+                        ctx, current_edl, cfg=conf
+                    )
+                    break
                 remaster_mix_only(ctx)
+                note_junction_remaster(ctx)
             except Exception as exc:
                 from interview_mux.loud_fail import raise_loud_failure
 

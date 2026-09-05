@@ -284,9 +284,29 @@ def ensure_e2e(
 
     When ``keep_gui_server`` is True (browser / in-app launch), the driver is told
     not to tear down ``interview_mux serve`` on ship so the GUI stays observable.
+
+    Dual-driver guard: without ``force``, refuse starting a second healer when a
+    live ``operator/driver_claim.json`` already owns the target ``run_id``.
     """
     if e2e_alive() and not fresh and not force:
         return None
+    resume_rid = None if fresh else (run_id or newest_incomplete_run())
+    if resume_rid and not force:
+        try:
+            sys.path.insert(0, str(ROOT / "src"))
+            from interview_mux.driver_singleton import assert_can_bind_driver
+
+            existing = assert_can_bind_driver(resume_rid, force=False)
+            if existing:
+                other = int(existing.get("pid") or 0)
+                raise RuntimeError(
+                    f"driver already active for {resume_rid} pid={other} "
+                    f"— refuse second driver (pass force=True to replace)"
+                )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
     # Never inherit a MusicGen skip flag into the driver process.
     for key in _MUSICGEN_SKIP_ENV:
         os.environ.pop(key, None)
@@ -307,7 +327,7 @@ def ensure_e2e(
         env["MUX_FRESH"] = "1"
         env["MUX_RUN_ID"] = ""
     else:
-        rid = run_id or newest_incomplete_run()
+        rid = resume_rid
         if not rid:
             raise RuntimeError("no existing execution to resume — pass --fresh")
         env["MUX_FRESH"] = "0"

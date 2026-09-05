@@ -82,6 +82,11 @@ GUARDED_RUN_ROUTE_KEYS: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/runs/{run_id}/timeline-optimizer/stop"),
         ("POST", "/api/runs/{run_id}/timeline-optimizer/skip"),
         ("POST", "/api/runs/{run_id}/timeline-optimizer/take-best"),
+        ("POST", "/api/runs/{run_id}/delivery/recover"),
+        ("POST", "/api/runs/{run_id}/delivery/unlock"),
+        ("POST", "/api/runs/{run_id}/delivery/unstick"),
+        ("POST", "/api/runs/{run_id}/escalations/{stage_id}/resolve"),
+        ("POST", "/api/runs/{run_id}/homunculus/skip-stage"),
     }
 )
 

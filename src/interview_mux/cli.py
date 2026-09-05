@@ -311,6 +311,20 @@ def serve_cmd(
             f"(server restart).[/yellow]"
         )
 
+    try:
+        from interview_mux.driver_singleton import on_serve_restart_harden
+
+        harden = on_serve_restart_harden()
+        hydrated = harden.get("hydrated_runs") or []
+        cleared = harden.get("stale_claims_cleared") or []
+        if hydrated or cleared:
+            console.print(
+                f"[yellow]Restart harden: hydrated {len(hydrated)} run(s), "
+                f"cleared {len(cleared)} stale driver claim(s).[/yellow]"
+            )
+    except Exception as exc:
+        console.print(f"[dim]Restart harden skipped: {exc}[/dim]")
+
     if not no_browser:
         def _open() -> None:
             import time

@@ -76,6 +76,15 @@ def stage_artifact_incompleteness(
             continue
         if not ctx.artifact_exists(path):
             return f"{path} is pending"
+        # Exists ≠ usable (stale, fingerprint, pending-only seating).
+        try:
+            from interview_mux.thrash_hardening import artifact_usable
+
+            ok, usable_reason = artifact_usable(ctx, path, consumer=stage_id)
+            if not ok:
+                return f"{path} unusable ({usable_reason})"
+        except Exception:
+            pass
         # Stale stamps mean the producer must re-run / restamp — do not treat as
         # complete for seed-front (else conductor skips to the next consumer).
         try:
@@ -89,6 +98,15 @@ def stage_artifact_incompleteness(
         st = artifact_status_for_stage(path, ctx, stage_id)
         if st != "complete":
             return f"{path} is {st}"
+    if stage_id == "vo_synthesize":
+        try:
+            from interview_mux.thrash_hardening import vo_done_with_deferred_pairs_ok
+
+            ok, why = vo_done_with_deferred_pairs_ok(ctx)
+            if not ok:
+                return why
+        except Exception:
+            pass
     if stage_id in {"missing_framing", "gap_framing_compose", "optimal_questions"}:
         stub = _gap_report_skip_stub_while_framing(ctx)
         if stub:

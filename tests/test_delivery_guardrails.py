@@ -176,6 +176,95 @@ def test_premature_cap_pins_before_edl_when_selection_exists(
     assert DELIVERY_ORDER.index(pinned) < DELIVERY_ORDER.index("edl")
 
 
+def test_premature_cap_keeps_music_palette_not_edl_narrative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """exec_5402: music resume must not hard-pin back to edl_narrative_audit."""
+    from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "g7_music_vs_narrative")
+    ctx.write_json("master/selection.json", {"ordered_segment_ids": ["seg_1"]})
+    preview = ctx.final_path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF....WAVEfmt ")
+
+    def _seed(_ctx: RunContext, sid: str) -> bool:
+        # Skewed Phase A: narrative/edl unmarked, assembly+listen complete, music open.
+        return sid not in {
+            "edl_narrative_audit",
+            "edl",
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+        }
+
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        _seed,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails._g1_open",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (False, "phase_a_unsealed"),
+    )
+    # Predicate that caused the thrash: earliest incomplete before music is narrative.
+    assert (
+        _earliest_incomplete_seed_stage(ctx, "music_palette_compose")
+        == "edl_narrative_audit"
+    )
+    pinned = premature_cap_hard_pin(ctx, "music_palette_compose")
+    assert pinned == "music_palette_compose"
+    assert pinned != "edl_narrative_audit"
+
+
+def test_promote_complete_orphan_stamps_edl_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux.delivery_guardrails import promote_complete_orphan_stage_done
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "orphan_edl_promote")
+    _write_raw(
+        ctx,
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_1"],
+            "clips": [
+                {
+                    "type": "speech",
+                    "segment_id": "seg_1",
+                    "source_start_ms": 0,
+                    "source_end_ms": 500,
+                    "duration_ms": 500,
+                    "timeline_start_ms": 0,
+                }
+            ],
+            "_meta": {"producer_stage": "edl", "stale": False},
+        },
+    )
+    assert not ctx.is_done("edl")
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.stage_outputs_present",
+        lambda _ctx, sid: sid == "edl",
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        lambda _ctx, sid: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_completeness.artifact_status",
+        lambda *_a, **_k: "complete",
+    )
+    promoted = promote_complete_orphan_stage_done(ctx, ("edl",))
+    assert "edl" in promoted
+    assert ctx.is_done("edl")
+
+
 def test_vo_synth_blocked_when_g1_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "g8")

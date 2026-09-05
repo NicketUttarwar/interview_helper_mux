@@ -51,6 +51,11 @@ def exit_stage_staging() -> None:
     _active_stage.set(None)
 
 
+def active_stage_id() -> str | None:
+    """Currently entered staging stage (None when not inside run_wrapped_stage)."""
+    return _active_stage.get()
+
+
 def run_nested_staged_stage(ctx: RunContext, stage_id: str, fn: Any) -> None:
     """Run ``fn`` in ``stage_id`` staging and auto-commit, then restore the parent stage.
 
