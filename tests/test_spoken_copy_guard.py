@@ -381,6 +381,7 @@ def test_stale_script_hash_rejects_generated_wav(
 
 
 def test_top_level_pickup_without_audit_is_present(tmp_path, monkeypatch) -> None:
+    """Operator record takes under vo_pickup/ may seat without an audit row."""
     patch_merged_config(
         monkeypatch,
         {
@@ -406,8 +407,11 @@ def test_top_level_pickup_without_audit_is_present(tmp_path, monkeypatch) -> Non
         "text": "Mohan describes cell biopsy as next-generation liquid biopsy.",
         "targets_segment_id": "seg_1",
         "placement": "before",
+        "delivery": "record",
     }
     assert resolve_vo_pickup_path(ctx, line) is not None
+    synthesize = {**line, "delivery": "synthesize"}
+    assert resolve_vo_pickup_path(ctx, synthesize) is None
 
 
 def test_heal_invalidates_synthesis_audit(tmp_path, monkeypatch) -> None:

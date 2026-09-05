@@ -324,6 +324,34 @@ def reconcile_edl_with_omit_ledger(
     if not removed:
         return {"removed": [], "updated": False}
 
+    # Purge omitted VO audio/audit so later reseat cannot revive stale takes.
+    try:
+        from interview_mux.vo_synthesis_audit import (
+            invalidate_synthesis_entries,
+        )
+
+        purge_ids = [str(x) for x in removed if str(x).strip()]
+        for lid in purge_ids:
+            pickup = ctx.final_path("vo_pickup")
+            for sub in ("matched", "synthesized", "clean", "normalized", ""):
+                base = pickup / sub if sub else pickup
+                candidate = base / f"{lid}.wav"
+                if candidate.is_file():
+                    try:
+                        candidate.unlink()
+                    except OSError:
+                        pass
+        if purge_ids:
+            invalidate_synthesis_entries(ctx, purge_ids)
+            ctx.log(
+                f"omit_ledger: purged {len(purge_ids)} omitted VO take(s)",
+                level="info",
+                stage="omit_ledger",
+                detail={"line_ids": purge_ids[:24]},
+            )
+    except Exception:
+        pass
+
     removed_set = set(removed)
     gap_placements = [
         row
@@ -351,6 +379,12 @@ def reconcile_edl_with_omit_ledger(
         from interview_mux.assembly_ledger import write_assembly_ledger
 
         write_assembly_ledger(ctx, edl=out)
+    except Exception:
+        pass
+    try:
+        from interview_mux.vo_contract import clamp_hosted_seats_to_rendered_wavs
+
+        clamp_hosted_seats_to_rendered_wavs(ctx)
     except Exception:
         pass
     ctx.log(

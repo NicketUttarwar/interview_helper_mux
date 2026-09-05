@@ -67,6 +67,16 @@ def _seed_prereq_block(ctx: RunContext, stage: str) -> str | None:
                 missing_ok=True
             )
             return None
+        # Seams already seed-complete (outputs + no incompleteness): do not
+        # block transitions on a hollow/false earliest token.
+        if stage == "transitions" and earliest == "air_script_seams":
+            try:
+                from interview_mux.delivery_guardrails import seed_stage_complete
+
+                if seed_stage_complete(ctx, "air_script_seams"):
+                    return None
+            except Exception:
+                pass
         return earliest
     return None
 

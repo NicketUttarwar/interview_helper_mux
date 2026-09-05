@@ -70,7 +70,25 @@ HEAL_ONLY_PRODUCERS: frozenset[str] = frozenset(
     }
 )
 STALE_PREFLIGHT_CONSUMERS: frozenset[str] = frozenset(
-    {"mmaudio_sfx", "vo_synthesize", "mix", "junction_snip_qa", "master_finalize"}
+    {
+        "mmaudio_sfx",
+        "vo_synthesize",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+        "edl",
+        "edl_narrative_audit",
+        "assembly_preview",
+    }
+)
+# Consumers that require a fresh transitions / gap_report doc (producer pin on stale).
+_TRANSITIONS_STALE_CONSUMERS: frozenset[str] = frozenset(
+    {
+        "vo_synthesize",
+        "edl",
+        "edl_narrative_audit",
+        "assembly_preview",
+    }
 )
 EXPENSIVE_STAGES: frozenset[str] = frozenset(
     {"mmaudio_sfx", "vo_synthesize", "mix", "master_finalize", "transcribe", "audio_preclean"}
@@ -349,7 +367,7 @@ def upstream_stale_blockers(ctx: RunContext, stage: str) -> list[str]:
                 blockers.append("assembly_stale_versus_edl")
         except Exception:
             pass
-    if stage == "vo_synthesize":
+    if stage in _TRANSITIONS_STALE_CONSUMERS:
         if _stale("master/transitions.json"):
             blockers.append("transitions")
         if _stale("understanding/gap_report.json"):
@@ -650,10 +668,58 @@ def finalize_input_producer_pin(ctx: RunContext, *, message: str = "") -> str:
     return "master_finalize"
 
 
-def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
-    """Monotonic delivery: allow vo_synthesize rewind only for G1 red or seated mismatch.
+def resolve_assembly_stale_resume(ctx: RunContext) -> str:
+    """Pin for assembly-vs-EDL drift: edl if EDL missing/stale, else remaster mix/junction.
 
-    Assembly + G1 green + deferred transition pairs alone must not unmark vo_synthesize.
+    Never absolute ``edl`` when live EDL is healthy — that was the wrong pin that
+    mirrored the stale-transitions/EDL empty-heal class.
+    """
+    if not ctx.artifact_exists("master/edl.json"):
+        return "edl"
+    try:
+        edl = ctx.read_json("master/edl.json")
+        meta = edl.get("_meta") if isinstance(edl, dict) else {}
+        if isinstance(meta, dict) and meta.get("stale"):
+            return "edl"
+    except Exception:
+        return "edl"
+    try:
+        from interview_mux.heal_routing import mix_assembly_seated
+
+        if mix_assembly_seated(ctx):
+            return "junction_snip_qa"
+    except Exception:
+        pass
+    return "mix"
+
+
+def resolve_gap_report_stale_producer(ctx: RunContext) -> str:
+    """Map stale gap_report to writer by invalidator; default layup (don't skip real rewrites)."""
+    reason = ""
+    try:
+        if ctx.artifact_exists("understanding/gap_report.json"):
+            gap = ctx.read_json("understanding/gap_report.json")
+            meta = gap.get("_meta") if isinstance(gap, dict) else {}
+            reason = str((meta or {}).get("stale_reason") or "").lower()
+    except Exception:
+        reason = ""
+    if "nugget_layup" in reason:
+        return "nugget_layup_compose"
+    if "gap_framing_recompose" in reason:
+        return "gap_framing_recompose"
+    if "gap_framing_compose" in reason:
+        return "gap_framing_compose"
+    if "optimal_questions" in reason:
+        return "optimal_questions"
+    return "nugget_layup_compose"
+
+
+def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
+    """Monotonic delivery: allow vo_synthesize rewind for G1/script/transition holes.
+
+    Assembly + G1 green + deferred transition pairs alone must not unmark
+    vo_synthesize. Script↔WAV mismatch (gap or spoken transition) and missing
+    seated pickups still may rewind so master finalize can reseat fresh audio.
     """
     try:
         from interview_mux.gates import check_g1_vo, g1_vo_was_skipped_optional
@@ -671,17 +737,48 @@ def may_rewind_to_vo_synthesize(ctx: RunContext) -> bool:
             return True
     except Exception:
         pass
+    try:
+        from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
+
+        if compact_vo_coverage_stale_or_missing(ctx):
+            return True
+    except Exception:
+        pass
+    try:
+        from interview_mux.transition_vo import current_transition_pairs_missing
+
+        missing = current_transition_pairs_missing(ctx)
+        if not missing:
+            return False
+        # Deferred-only holes after pair freeze stay mix last-chance.
+        try:
+            from interview_mux.transition_vo import (
+                frozen_transition_pair_keys,
+                read_transitions_pair_freeze,
+            )
+
+            if read_transitions_pair_freeze(ctx):
+                frozen = frozen_transition_pair_keys(ctx)
+                if frozen and all(m not in frozen for m in missing):
+                    return False
+        except Exception:
+            pass
+        return True
+    except Exception:
+        pass
     return False
 
 
-def premature_cap_hard_pin(ctx: RunContext | None, resume: str) -> str:
+def premature_cap_hard_pin(
+    ctx: RunContext | None, resume: str, *, message: str = ""
+) -> str:
     """G7: stay on the incomplete producer; never advance to a consumer."""
     if ctx is None:
         return resume
     # Finalize-class holes: pin the producer, never spin on mix/finalize alone.
     if resume == "master_finalize":
         try:
-            pinned = finalize_input_producer_pin(ctx)
+            pinned = finalize_input_producer_pin(ctx, message=message)
             if pinned and pinned != "master_finalize":
                 return pinned
         except Exception:

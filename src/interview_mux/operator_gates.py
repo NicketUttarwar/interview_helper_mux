@@ -27,6 +27,10 @@ AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
     "missing from gap_report",
     "vo coverage not rendered",
     "stale upstream",
+    "marked stale",
+    "seed order",
+    "invalidated_by",
+    "transitions.json",
     "layup plan stale",
     "nugget_layup_plan_stale",
     "selection_edl_order_drift",
@@ -82,4 +86,6 @@ def should_stamp_needs_operator(
     homunculus = str((meta or {}).get("homunculus_version") or "").strip()
     if homunculus and not homunculus.startswith("0.1"):
         return True
+    if is_automated_classified_block(reason):
+        return False
     return is_operator_gate(stage, reason)

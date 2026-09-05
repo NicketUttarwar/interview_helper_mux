@@ -150,6 +150,17 @@ def stage_artifact_incompleteness(
                 )
         except Exception:
             pass
+        try:
+            from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
+
+            stale = compact_vo_coverage_stale_or_missing(ctx)
+            if stale:
+                return (
+                    "seated synthesize VO script/WAV stale: "
+                    + ", ".join(stale[:4])
+                )
+        except Exception:
+            pass
     if stage_id in {
         "music_palette_compose",
         "sfx_prompt_craft",

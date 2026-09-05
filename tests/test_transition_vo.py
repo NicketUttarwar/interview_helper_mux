@@ -553,3 +553,83 @@ def test_pending_audit_path_resolves_committed_transition_wav(
     ensure_pre_mix_transition_integrity(ctx, synthesize=False)
     errs = audible_script_hash_errors(ctx, ctx.read_json("master/edl.json"))
     assert errs == []
+
+
+def test_transitions_write_cascades_purge_on_text_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rewriting spoken bridge text via write_json must purge the pair WAV."""
+    from interview_mux.transition_vo import (
+        current_transition_pairs_missing,
+        resolve_transition_wav,
+    )
+    from interview_mux.vo_synthesis_audit import synthesis_entry_for_line
+
+    patch_merged_config(
+        monkeypatch,
+        {
+            "analysis": {
+                "gap_vo": {
+                    "post_synthesis_qc": {
+                        "enabled": False,
+                        "speech_qa_enabled": False,
+                    }
+                }
+            }
+        },
+    )
+    ctx = isolated_run_ctx(tmp_path, "tr_text_cascade")
+    text = "Protein buyers rewrote the addressable market."
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": text,
+                    "type": "bridge",
+                    "source_gap_ms": 1000,
+                }
+            ]
+        },
+        skip_handoff=True,
+    )
+    out = transition_wav_path(ctx, "seg_a", "seg_b")
+    with wave.open(str(out), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48_000)
+        handle.writeframes(b"\x00\x00" * 4800)
+    line = {
+        "line_id": "tr_seg_a_seg_b",
+        "text": text,
+        "targets_segment_id": "seg_a",
+        "placement": "after",
+        "after_segment_id": "seg_a",
+        "before_segment_id": "seg_b",
+    }
+    record_synthesis(ctx, line, backend="mlx_audio", out_wav=out)
+    ctx.mark_done("vo_synthesize", force=True)
+    assert resolve_transition_wav(ctx, "seg_a", "seg_b") == out
+
+    ctx.write_json(
+        "master/transitions.json",
+        {
+            "transitions": [
+                {
+                    "after_segment_id": "seg_a",
+                    "before_segment_id": "seg_b",
+                    "text": "What made the deal possible?",
+                    "type": "bridge",
+                    "source_gap_ms": 1000,
+                }
+            ]
+        },
+        stage_key="nugget_layup_compose",
+        skip_handoff=True,
+    )
+    assert not out.is_file()
+    assert synthesis_entry_for_line(ctx, "tr_seg_a_seg_b") is None
+    assert "seg_a->seg_b" in current_transition_pairs_missing(ctx)
+    assert not ctx.is_done("vo_synthesize")

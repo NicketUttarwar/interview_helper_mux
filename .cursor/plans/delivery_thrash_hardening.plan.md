@@ -108,6 +108,23 @@ Encode these as named helpers + tests, then call them from every mutation path:
 
 ---
 
+
+
+### W7 — Stale transitions EDL pin (High — exec_5400)
+
+**Problem:** Layup stamps `master/transitions.json` stale; EDL execute 500s; `playbook_upstream_stale_rerun(edl)` returned `[]` because `upstream_stale_blockers` only checked transitions for `vo_synthesize`. Identical execute ×5 → sticky GUI "Run Transitions" / driver stop.
+
+**Do (landed in stale-transitions autoheal):**
+- `STALE_PREFLIGHT_CONSUMERS` + `_TRANSITIONS_STALE_CONSUMERS` include `edl` / `edl_narrative_audit` / `assembly_preview`.
+- `playbook_upstream_stale_rerun` disk fallback; driver `_heal_stale_transitions_execute`; suppress needs_operator for marked-stale / seed-order; sticky job reconcile.
+- Seams seed-prereq honesty when `seed_stage_complete(air_script_seams)`.
+
+**Unstick exec_5400 (same run, after pytest green):**
+1. Clear identical halt / sticky `gui_job` needs_operator (reconcile or idle + message).
+2. Confirm `air_script_seams` seed-complete.
+3. Resume partial-auto `MUX_FRESH=0` `from_stage=transitions` on `exec_5400_…`.
+4. Expect transitions regenerate → EDL continues without operator CTA.
+
 ## Explicitly deferred (not in this plan)
 
 | Item | Why deferred |
@@ -145,7 +162,8 @@ Optional: one fresh `MUX_FRESH=1` forensics campaign after W1–W3 land (not to 
 
 ## Done when
 
-- [ ] W1–W3 merged with tests  
-- [ ] W4 call-site inventory complete; missing clamps wired  
-- [ ] W5–W6 helpers enforced on agenda/driver unmark paths  
-- [ ] Plan checklist does not re-implement Excluded table  
+- [x] W1–W3 merged with tests  
+- [x] W4 call-site inventory complete; missing clamps wired  
+- [x] W5–W6 helpers enforced on agenda/driver unmark paths  
+- [x] Plan checklist does not re-implement Excluded table  
+- [x] Spoken text cascades (gap + transitions) + hash-fresh transition completeness (post-exec_5401)

@@ -1342,6 +1342,50 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
             except Exception:
                 recommended_next = "vo_line_adjudicate"
             break
+        if token.startswith("stale_upstream:"):
+            token_val = token.split(":", 1)[1]
+            try:
+                from interview_mux.delivery_guardrails import (
+                    resolve_assembly_stale_resume,
+                    resolve_gap_report_stale_producer,
+                    resolve_vo_synth_seed_resume,
+                )
+
+                if token_val == "assembly_stale_versus_edl":
+                    recommended_next = resolve_assembly_stale_resume(ctx)
+                elif token_val == "gap_report":
+                    recommended_next = resolve_gap_report_stale_producer(ctx)
+                elif token_val in {"transitions", "sound_design_plan"}:
+                    recommended_next = token_val
+                else:
+                    recommended_next = (
+                        resolve_vo_synth_seed_resume(token_val) or token_val
+                    )
+            except Exception:
+                recommended_next = token_val
+            break
+        if token.startswith("mix_epoch:"):
+            token_val = token.split(":", 1)[1]
+            try:
+                from interview_mux.delivery_guardrails import (
+                    MUSIC_BEFORE_MIX,
+                    resolve_assembly_stale_resume,
+                    seed_stage_complete,
+                )
+
+                if token_val == "assembly_stale_versus_edl":
+                    recommended_next = resolve_assembly_stale_resume(ctx)
+                elif token_val == "music_incomplete":
+                    recommended_next = "mmaudio_sfx"
+                    for sid in MUSIC_BEFORE_MIX:
+                        if not seed_stage_complete(ctx, sid):
+                            recommended_next = sid
+                            break
+                else:
+                    recommended_next = token_val
+            except Exception:
+                recommended_next = token_val
+            break
         if token.startswith("missing_artifact:"):
             for ps, rel in DELIVERY_ANALYSIS_PREREQS:
                 if rel == token.split(":", 1)[1]:

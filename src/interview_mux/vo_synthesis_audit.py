@@ -631,17 +631,7 @@ def purge_stale_vo_wavs_for_script_drift(ctx: RunContext) -> list[str]:
             # No file and no usable audit path — nothing to purge.
             if not synthesis_entry_for_line(ctx, lid):
                 continue
-        removed_files = 0
-        pickup = ctx.final_path("vo_pickup")
-        for sub in ("matched", "synthesized", "clean", "normalized", ""):
-            base = pickup / sub if sub else pickup
-            candidate = base / f"{lid}.wav"
-            if candidate.is_file():
-                try:
-                    candidate.unlink()
-                    removed_files += 1
-                except OSError:
-                    pass
+        removed_files = _delete_pickup_wavs_for_line(ctx, lid)
         invalidate_synthesis_entries(ctx, [lid])
         purged.append(lid)
         ctx.log(
@@ -651,6 +641,235 @@ def purge_stale_vo_wavs_for_script_drift(ctx: RunContext) -> list[str]:
             detail={"line_id": lid, "reason": reason, "removed_files": removed_files},
         )
     return purged
+
+
+# Stages unmarked so the pipeline re-runs: re-adjudicate → re-synth → re-seat.
+_SPOKEN_TEXT_CASCADE_STAGES: tuple[str, ...] = (
+    "vo_line_adjudicate",
+    "vo_synthesize",
+    "edl_narrative_audit",
+    "edl",
+    "assembly_preview",
+    "mix",
+    "junction_snip_qa",
+    "master_finalize",
+)
+
+GAP_REPORT_REL = "understanding/gap_report.json"
+
+
+def gap_spoken_texts(report: dict[str, Any] | None) -> dict[str, str]:
+    """Map line_id → spoken text from a gap_report document."""
+    out: dict[str, str] = {}
+    if not isinstance(report, dict):
+        return out
+    for row in report.get("interviewer_lines") or []:
+        if not isinstance(row, dict):
+            continue
+        lid = str(row.get("line_id") or "").strip()
+        if not lid:
+            continue
+        out[lid] = str(row.get("text") or "")
+    return out
+
+
+def detect_spoken_text_line_ids(
+    prior_report: dict[str, Any] | None,
+    new_report: dict[str, Any] | None,
+) -> list[str]:
+    """Line ids whose spoken ``text`` changed, appeared, or disappeared."""
+    prior = gap_spoken_texts(prior_report)
+    new = gap_spoken_texts(new_report)
+    changed: list[str] = []
+    for lid, text in new.items():
+        if prior.get(lid) != text:
+            changed.append(lid)
+    for lid in prior:
+        if lid not in new:
+            changed.append(lid)
+    return sorted(set(changed))
+
+
+def _delete_pickup_wavs_for_line(ctx: RunContext, line_id: str) -> int:
+    removed = 0
+    pickup = ctx.final_path("vo_pickup")
+    for sub in ("matched", "synthesized", "clean", "normalized", ""):
+        base = pickup / sub if sub else pickup
+        candidate = base / f"{line_id}.wav"
+        if candidate.is_file():
+            try:
+                candidate.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
+def _unmark_spoken_text_cascade_stages(ctx: RunContext) -> list[str]:
+    from interview_mux.homunculus.agenda import unmark_stage_only
+
+    unmarked: list[str] = []
+    for stage in _SPOKEN_TEXT_CASCADE_STAGES:
+        if ctx.is_done(stage):
+            unmark_stage_only(ctx, stage)
+            unmarked.append(stage)
+    return unmarked
+
+
+def unmark_vo_script_cascade_stages(ctx: RunContext) -> list[str]:
+    """Public: unmark adjudicate → synth → EDL/mix after spoken-script drift."""
+    return _unmark_spoken_text_cascade_stages(ctx)
+
+
+def _clear_g1_complete_milestone(ctx: RunContext) -> None:
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+        if not isinstance(meta, dict):
+            return
+        milestones = meta.get("journey_milestones")
+        if not isinstance(milestones, dict) or not milestones.get("g1_complete"):
+            return
+        milestones["g1_complete"] = False
+        meta["journey_milestones"] = milestones
+        ctx.write_json("run_meta.json", meta, skip_handoff=True)
+    except Exception:
+        pass
+
+
+def propagate_spoken_text_change(
+    ctx: RunContext,
+    *,
+    prior_report: dict[str, Any] | None = None,
+    new_report: dict[str, Any] | None = None,
+    line_ids: list[str] | None = None,
+    stage: str = "spoken_text",
+) -> dict[str, Any]:
+    """Canonical cascade: spoken text change → stale → purge → re-adjudicate/synth/reseat.
+
+    Does not invoke LLM/Chatterbox itself — unmarks producer/consumer stages so the
+    normal pipeline re-runs adjudicate (if needed) → synthesize → EDL/mix reseat.
+
+    Lines whose *new* text still matches an on-disk WAV audit are left alone
+    (e.g. synth guard writeback that aligns gap_report to the take just rendered).
+    """
+    if getattr(ctx, "_spoken_text_cascade_depth", 0):
+        return {"changed": [], "purged": [], "unmarked": [], "skipped": "reentrant"}
+
+    if line_ids is None:
+        if prior_report is not None or new_report is not None:
+            line_ids = detect_spoken_text_line_ids(prior_report, new_report)
+        else:
+            line_ids = []
+            for lid, line in _vo_pickup_script_lines(ctx).items():
+                fresh, _reason = line_vo_wav_fresh(ctx, line)
+                if not fresh and (
+                    _pickup_wav_without_audit(ctx, lid) is not None
+                    or synthesis_entry_for_line(ctx, lid) is not None
+                ):
+                    line_ids.append(lid)
+
+    want = sorted({str(x).strip() for x in (line_ids or []) if str(x).strip()})
+    if not want:
+        return {"changed": [], "purged": [], "unmarked": []}
+
+    report = new_report
+    if not isinstance(report, dict):
+        report = (
+            ctx.read_json(GAP_REPORT_REL)
+            if ctx.artifact_exists(GAP_REPORT_REL)
+            else {}
+        )
+    by_id = {
+        str(row.get("line_id") or ""): row
+        for row in ((report or {}).get("interviewer_lines") or [])
+        if isinstance(row, dict) and row.get("line_id")
+    }
+    prior_texts = gap_spoken_texts(prior_report)
+
+    stale: list[str] = []
+    schedule_unmark = False
+    for lid in want:
+        line = by_id.get(lid)
+        has_entry = synthesis_entry_for_line(ctx, lid) is not None
+        has_wav = _pickup_wav_without_audit(ctx, lid) is not None
+        if isinstance(line, dict):
+            fresh, _reason = line_vo_wav_fresh(ctx, line)
+            if fresh:
+                continue
+            prior_text = prior_texts.get(lid)
+            new_text = str(line.get("text") or "")
+            if has_entry:
+                # Audit-bound take no longer matches current spoken text.
+                stale.append(lid)
+            elif has_wav and prior_text is not None and prior_text != new_text:
+                # Replaced spoken copy while an unbound WAV remains on disk.
+                stale.append(lid)
+            else:
+                # New line / first publish — no purge; still reseat if consumers done.
+                schedule_unmark = True
+        else:
+            # Removed from gap_report — drop orphan audio/audit.
+            if has_wav or has_entry:
+                stale.append(lid)
+
+    if not stale and not schedule_unmark:
+        return {"changed": want, "purged": [], "unmarked": [], "skipped": "audio_fresh"}
+
+    if schedule_unmark and not stale:
+        # Only unmark when a downstream consumer already completed — otherwise a
+        # first gap_report write would thrash empty stage_done markers for no gain.
+        if not any(ctx.is_done(sid) for sid in _SPOKEN_TEXT_CASCADE_STAGES):
+            return {"changed": want, "purged": [], "unmarked": [], "skipped": "no_audio_yet"}
+
+    setattr(ctx, "_spoken_text_cascade_depth", 1)
+    try:
+        purged: list[str] = []
+        for lid in stale:
+            removed_files = _delete_pickup_wavs_for_line(ctx, lid)
+            invalidate_synthesis_entries(ctx, [lid])
+            purged.append(lid)
+            ctx.log(
+                f"Purged stale VO for {lid} (spoken_text_change); re-synthesis required",
+                level="warning",
+                stage=stage or "spoken_text",
+                detail={"line_id": lid, "reason": "spoken_text_change", "removed_files": removed_files},
+            )
+        unmarked = _unmark_spoken_text_cascade_stages(ctx) if (purged or schedule_unmark) else []
+        if purged:
+            _clear_g1_complete_milestone(ctx)
+        if purged or unmarked:
+            ctx.log(
+                "Spoken text change cascade: "
+                f"purged={len(purged)} unmarked={unmarked[:6]}",
+                level="warning",
+                stage=stage or "spoken_text",
+                detail={"purged": purged[:24], "unmarked": unmarked},
+            )
+        return {"changed": want, "purged": purged, "unmarked": unmarked}
+    finally:
+        setattr(ctx, "_spoken_text_cascade_depth", 0)
+
+
+def maybe_propagate_gap_spoken_text_change(
+    ctx: RunContext,
+    *,
+    prior_report: dict[str, Any] | None,
+    new_report: dict[str, Any],
+    stage: str | None = None,
+) -> dict[str, Any]:
+    """Post-write hook for ``understanding/gap_report.json`` mutations."""
+    if not isinstance(new_report, dict):
+        return {"changed": [], "purged": [], "unmarked": []}
+    changed = detect_spoken_text_line_ids(prior_report, new_report)
+    if not changed:
+        return {"changed": [], "purged": [], "unmarked": []}
+    return propagate_spoken_text_change(
+        ctx,
+        prior_report=prior_report,
+        new_report=new_report,
+        line_ids=changed,
+        stage=stage or "gap_report_write",
+    )
 
 
 def _vo_pickup_script_lines(ctx: RunContext) -> dict[str, dict[str, Any]]:
@@ -890,8 +1109,6 @@ def line_has_approved_vo_backend(ctx: RunContext, line_id: str) -> bool:
 
 def nuke_all_synth_wavs_on_adjudicate_change(ctx: RunContext) -> int:
     """1A: delete synth WAVs and invalidate synthesis so vo_synthesize must re-run."""
-    from interview_mux.homunculus.agenda import unmark_stage_only
-
     deleted = 0
     pickup = ctx.path("vo_pickup")
     if pickup.is_dir():
@@ -909,13 +1126,13 @@ def nuke_all_synth_wavs_on_adjudicate_change(ctx: RunContext) -> int:
     line_ids = list(lines.keys())
     if line_ids:
         invalidate_synthesis_entries(ctx, line_ids)
-    for stage in ("vo_synthesize", "edl_narrative_audit"):
-        if ctx.is_done(stage):
-            unmark_stage_only(ctx, stage)
+    unmarked = _unmark_spoken_text_cascade_stages(ctx)
+    _clear_g1_complete_milestone(ctx)
     if deleted or line_ids:
         ctx.log(
             f"Adjudicate mutation: removed {deleted} synth WAV(s); "
-            f"invalidated {len(line_ids)} synthesis row(s)",
+            f"invalidated {len(line_ids)} synthesis row(s); "
+            f"unmarked={unmarked[:6]}",
             level="warning",
             stage="vo_line_adjudicate",
         )

@@ -223,9 +223,52 @@ def promote_staged_side_effects(
         if not src.is_file():
             continue
         dest = ctx.final_path(*rel.split("/"))
+        prior_spoken: dict | None = None
+        if rel in {
+            "understanding/gap_report.json",
+            "master/transitions.json",
+        } and dest.is_file():
+            try:
+                prior_spoken = fs_read_json(dest)
+            except Exception:
+                prior_spoken = None
         dest.parent.mkdir(parents=True, exist_ok=True)
         atomic_copy(src, dest)
         flushed.append(rel)
+        if rel == "understanding/gap_report.json":
+            try:
+                from interview_mux.vo_synthesis_audit import (
+                    maybe_propagate_gap_spoken_text_change,
+                )
+
+                new_doc = fs_read_json(dest)
+                if isinstance(new_doc, dict):
+                    maybe_propagate_gap_spoken_text_change(
+                        ctx,
+                        prior_report=prior_spoken
+                        if isinstance(prior_spoken, dict)
+                        else None,
+                        new_report=new_doc,
+                        stage=sid or "promote_gap_report",
+                    )
+            except Exception:
+                pass
+        elif rel == "master/transitions.json":
+            try:
+                from interview_mux.transition_vo import (
+                    maybe_propagate_transitions_spoken_text_change,
+                )
+
+                new_doc = fs_read_json(dest)
+                if isinstance(new_doc, dict):
+                    maybe_propagate_transitions_spoken_text_change(
+                        ctx,
+                        prior_doc=prior_spoken if isinstance(prior_spoken, dict) else None,
+                        new_doc=new_doc,
+                        stage=sid or "promote_transitions",
+                    )
+            except Exception:
+                pass
     from interview_mux.edl_source_contract import heal_committed_edl_source_paths
 
     heal_committed_edl_source_paths(ctx)

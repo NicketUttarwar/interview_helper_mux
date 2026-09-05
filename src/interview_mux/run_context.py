@@ -117,6 +117,20 @@ class RunContext:
         stage_key: str | None = None,
         skip_handoff: bool = False,
     ) -> Path:
+        prior_gap: Any = None
+        prior_transitions: Any = None
+        if rel == "understanding/gap_report.json" and isinstance(data, dict):
+            try:
+                if self.artifact_exists(rel):
+                    prior_gap = self.read_json(rel)
+            except Exception:
+                prior_gap = None
+        if rel == "master/transitions.json" and isinstance(data, dict):
+            try:
+                if self.artifact_exists(rel):
+                    prior_transitions = self.read_json(rel)
+            except Exception:
+                prior_transitions = None
         if isinstance(data, dict):
             from interview_mux.artifact_writes import _prepare_for_disk_validation
             from interview_mux.edl_source_contract import prepare_edl_payload_for_disk
@@ -133,11 +147,56 @@ class RunContext:
         if skip_handoff:
             from interview_mux.write_staging import write_mirrored_json
 
-            return write_mirrored_json(self, rel, data)
-        p = self.path(rel)
-        fs_write_json(p, data)
-        self._homunculus_admit_write(rel, data)
-        return p
+            path = write_mirrored_json(self, rel, data)
+        else:
+            path = self.path(rel)
+            fs_write_json(path, data)
+            self._homunculus_admit_write(rel, data)
+        if rel == "understanding/gap_report.json" and isinstance(data, dict):
+            try:
+                from interview_mux.vo_synthesis_audit import (
+                    maybe_propagate_gap_spoken_text_change,
+                )
+
+                maybe_propagate_gap_spoken_text_change(
+                    self,
+                    prior_report=prior_gap if isinstance(prior_gap, dict) else None,
+                    new_report=data,
+                    stage=stage_key or "gap_report_write",
+                )
+            except Exception as exc:
+                try:
+                    self.log(
+                        f"spoken text cascade failed (non-fatal): {exc}",
+                        level="warning",
+                        stage=stage_key or "gap_report_write",
+                    )
+                except Exception:
+                    pass
+        if rel == "master/transitions.json" and isinstance(data, dict):
+            try:
+                from interview_mux.transition_vo import (
+                    maybe_propagate_transitions_spoken_text_change,
+                )
+
+                maybe_propagate_transitions_spoken_text_change(
+                    self,
+                    prior_doc=prior_transitions
+                    if isinstance(prior_transitions, dict)
+                    else None,
+                    new_doc=data,
+                    stage=stage_key or "transitions_write",
+                )
+            except Exception as exc:
+                try:
+                    self.log(
+                        f"transition spoken text cascade failed (non-fatal): {exc}",
+                        level="warning",
+                        stage=stage_key or "transitions_write",
+                    )
+                except Exception:
+                    pass
+        return path
 
     def _homunculus_admit_write(self, rel: str, data: Any) -> None:
         """0.1.0: every canonical write is admitted. Skip internal homunculus files."""
@@ -404,7 +463,9 @@ class RunContext:
         _HOLLOW_FORCE_PATTERNS = (
             "g1 vo pickups missing",
             "seated synthesize vo missing",
+            "seated synthesize vo script/wav stale",
             "seated vo missing",
+            "current transition pairs missing",
             "assembly_ledger",
             "master/edl.json",
         )

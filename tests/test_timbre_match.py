@@ -133,7 +133,15 @@ def test_resolve_vo_pickup_precedence_clean_before_normalized(tmp_path: Path, mo
         "interview_mux.vo_speech_qa.vo_passes_speech_qa",
         lambda *_a, **_k: True,
     )
-    line = minimal_gap_line(line_id="line_001", targets_segment_id="seg_001")
+    monkeypatch.setattr(
+        "interview_mux.vo_synthesis_audit.analyze_vo_wav",
+        lambda *_a, **_k: {"pass": True, "reasons": []},
+    )
+    # Unaudited clean/normalized seating is only for operator *record* takes.
+    line = {
+        **minimal_gap_line(line_id="line_001", targets_segment_id="seg_001"),
+        "delivery": "record",
+    }
     pickup = ctx.final_path("vo_pickup")
     for sub in ("clean", "normalized"):
         (pickup / sub).mkdir(parents=True, exist_ok=True)
@@ -143,38 +151,36 @@ def test_resolve_vo_pickup_precedence_clean_before_normalized(tmp_path: Path, mo
     assert resolve_vo_pickup_path(ctx, line).name == "line_001.wav"
     assert resolve_vo_pickup_path(ctx, line).parent.name == "clean"
 
-    from interview_mux.spoken_copy_guard import context_hash, evidence_for_line, script_hash
-
     (pickup / "synthesized").mkdir(parents=True, exist_ok=True)
     _write_tone(pickup / "synthesized" / "line_001.wav")
-    # Generated audio without a script audit must not win over a clean take.
+    # Unaudited synthesize WAV must not displace a recorded clean take.
     assert resolve_vo_pickup_path(ctx, line).parent.name == "clean"
 
-    ctx.write_json(
-        "vo_pickup/synthesis_report.json",
-        {
-            "entries": [
-                {
-                    "line_id": "line_001",
-                    "backend": "mlx_audio",
-                    "out_wav": "vo_pickup/synthesized/line_001.wav",
-                    "script_hash": script_hash(str(line.get("text") or "")),
-                    "context_hash": context_hash(evidence_for_line(line)),
-                    "qc_pass": True,
-                    "normalized_script": str(line.get("text") or ""),
-                }
-            ]
-        },
-        skip_handoff=True,
+    from interview_mux.vo_synthesis_audit import record_synthesis, wav_content_sha256
+
+    synth_line = {
+        **minimal_gap_line(line_id="line_001", targets_segment_id="seg_001"),
+        "delivery": "synthesize",
+        "text": line["text"],
+    }
+    record_synthesis(
+        ctx,
+        synth_line,
+        backend="mlx_audio",
+        out_wav=pickup / "synthesized" / "line_001.wav",
     )
-    assert resolve_vo_pickup_path(ctx, line).parent.name == "synthesized"
+    assert resolve_vo_pickup_path(ctx, synth_line).parent.name == "synthesized"
 
     (pickup / "matched").mkdir(parents=True, exist_ok=True)
     _write_tone(pickup / "matched" / "line_001.wav")
     report = ctx.read_json("vo_pickup/synthesis_report.json")
     report["entries"][0]["out_wav"] = "vo_pickup/matched/line_001.wav"
+    # Keep content hash aligned with the newly preferred matched bytes.
+    report["entries"][0]["wav_sha256"] = wav_content_sha256(
+        pickup / "matched" / "line_001.wav"
+    )
     ctx.write_json("vo_pickup/synthesis_report.json", report, skip_handoff=True)
-    assert resolve_vo_pickup_path(ctx, line).parent.name == "matched"
+    assert resolve_vo_pickup_path(ctx, synth_line).parent.name == "matched"
 
 
 def _match_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, RunContext]:

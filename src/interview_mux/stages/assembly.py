@@ -95,10 +95,17 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
                 matches, _reason = synthesis_entry_matches_line(ctx, line)
                 if not matches:
                     continue
-            elif base.name in {"synthesized", "matched"}:
-                # Generated/matched audio without a script audit cannot prove it
-                # still corresponds to the current artifact text.
-                continue
+            else:
+                # No audit row: only allow explicit operator *record* takes under
+                # clean/normalized/top-level pickup. Synthesize delivery must never
+                # seat unaudited audio (script rewrite would otherwise look G1-green).
+                delivery = str(line.get("delivery") or "synthesize").strip().lower()
+                if delivery != "record" or base.name not in {
+                    "clean",
+                    "normalized",
+                    "vo_pickup",
+                }:
+                    continue
             if not vo_passes_speech_qa(candidate):
                 continue
             return candidate

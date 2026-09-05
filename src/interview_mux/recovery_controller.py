@@ -20,10 +20,118 @@ REMEDIATION_LOG_REL = "operator/remediation_log.jsonl"
 FRAMING_VO_MAX_OBSERVATIONS = 3
 
 # Explicit consumer → producer for fingerprint restamp (never guess).
+# When the error names no producer, heal resumes this producer — never the
+# later gate consumer alone (absolute producer-before-consumer for FP class).
 FINGERPRINT_PRODUCER_BY_CONSUMER: dict[str, str] = {
     "sonic_context_build": "content_brief_reanchor",
     "topic_coverage_audit": "content_brief_reanchor",
+    "sound_design_palettes": "content_brief_reanchor",
+    "edl": "full_master_ranking",
+    "edl_narrative_audit": "edl",
+    "assembly_preview": "edl",
+    "mix": "edl",
+    "junction_snip_qa": "mix",
+    "master_finalize": "junction_snip_qa",
+    "vo_synthesize": "vo_line_adjudicate",
+    "vo_line_adjudicate": "nugget_layup_compose",
+    "transitions": "nugget_layup_compose",
 }
+
+
+def resolve_fingerprint_heal_resume(
+    *,
+    message: str,
+    gate_stage: str = "",
+    body_from: str = "",
+    mode: str = "delivery",
+    ctx: RunContext | None = None,
+    named_producers: list[str] | None = None,
+) -> str:
+    """Always resume the fingerprint producer; never a later gate consumer.
+
+    Resolution order:
+    1. Named producers from the error text (or ``named_producers``)
+    2. Artifact path in the message → registry / preferred_fill / STAGE path map
+    3. ``FINGERPRINT_PRODUCER_BY_CONSUMER[gate]``
+    4. Earlier ``body_from`` only when it is not a later consumer than gate
+    5. Gate as last resort
+    """
+    import re
+
+    from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+    low = str(message or "").lower()
+    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+
+    producers: list[str] = list(named_producers or [])
+    if not producers:
+        producers.extend(
+            p
+            for _, p in re.findall(
+                r"([a-z0-9_./-]+\.json)\s+fingerprint mismatch[^\n]*?producer\s+([a-z0-9_]+)",
+                low,
+            )
+        )
+
+    paths = re.findall(
+        r"([a-z0-9_./-]+\.json)\s+fingerprint mismatch",
+        low,
+    )
+    if not paths:
+        paths = re.findall(r"([a-z0-9_./-]+\.json)", low)
+
+    try:
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+        for rel in paths:
+            for sid, path in STAGE_ARTIFACT_DISK_PATHS.items():
+                if path == rel:
+                    producers.append(sid)
+    except Exception:
+        pass
+
+    if ctx is not None:
+        stored: dict = {}
+        try:
+            if ctx.artifact_exists("run_meta.json"):
+                meta = ctx.read_json("run_meta.json")
+                if isinstance(meta, dict):
+                    stored = meta.get("artifact_fingerprints") or {}
+        except Exception:
+            stored = {}
+        for rel in paths:
+            entry = stored.get(rel) if isinstance(stored, dict) else None
+            if isinstance(entry, dict):
+                ps = str(entry.get("producer_stage") or "").strip()
+                if ps:
+                    producers.append(ps)
+            try:
+                from interview_mux.artifact_completeness import preferred_fill_stage
+
+                fill = preferred_fill_stage(rel, ctx)
+                if fill:
+                    producers.append(fill)
+            except Exception:
+                pass
+
+    ranked = [p for p in producers if p in order]
+    if ranked:
+        return min(ranked, key=lambda p: order.index(p))
+
+    gate = str(gate_stage or "").strip()
+    mapped = FINGERPRINT_PRODUCER_BY_CONSUMER.get(gate)
+    if mapped and mapped in order:
+        return mapped
+
+    body = str(body_from or "").strip()
+    # Never prefer a later gate consumer over an earlier body_from candidate.
+    if body in order and gate in order and order.index(body) < order.index(gate):
+        return body
+    if body in order:
+        return body
+    if gate in order:
+        return gate
+    return body or gate or ""
 
 
 @dataclass
@@ -155,11 +263,8 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         blocked_class = str(getattr(exc, "error_class", "") or "").strip()
         if blocked_class:
             return blocked_class
-    if (
-        "vo coverage not rendered" in msg
-        or "seated synthesize vo not rendered" in msg
-    ):
-        return "vo_seated_coverage"
+    # Broad VO coverage → always classify to seated coverage (resume vo_synthesize).
+    # Keep skip/omit on the contract ladder (checked first).
     if "vo contract" in msg or (
         "seated synthesize" in msg
         and ("skip/omit" in msg or "skipped_optional" in msg)
@@ -167,8 +272,43 @@ def classify_error_class(stage_id: str, exc: BaseException) -> str | None:
         return "vo_contract_repair"
     if "missing from gap_report" in msg or "missing from gap" in msg:
         return "vo_contract_repair"
+    if (
+        "vo coverage not rendered" in msg
+        or "seated synthesize vo not rendered" in msg
+        or "seated synthesize vo missing" in msg
+        or ("seated synthesize" in msg and "missing wav" in msg)
+        or "synthetic vo does not match" in msg
+        or ("synthesized gap line" in msg and "missing wav" in msg)
+        or (
+            "vo" in msg
+            and "coverage" in msg
+            and any(tok in msg for tok in ("missing", "stale", "not rendered", "wav"))
+        )
+        or (
+            stage in {"edl", "edl_narrative_audit", "mix", "master_finalize", "assembly_preview"}
+            and "stage input check blocked" in msg
+            and "vo" in msg
+        )
+    ):
+        return "vo_seated_coverage"
+    # Narrow producer pins — seed/finalize before catch-alls.
+    if "seed order:" in msg and "complete " in msg and "before running" in msg:
+        return "seed_order_prereq"
+    if stage in {"master_finalize", "mix", "junction_snip_qa"} and (
+        ("assembly_ledger" in msg and "missing" in msg)
+        or ("seam_autopsy" in msg and "missing" in msg)
+        or "edl.json missing" in msg
+        or ("render_ledger" in msg and "missing" in msg)
+    ):
+        return "finalize_input_missing"
+    # Multi-blocker "stale upstream X, Y" must clear every producer — do this
+    # before assembly-only remap so transitions+assembly don't drop a pin.
     if "stale upstream" in msg or "marked stale" in msg:
         return "upstream_stale_rerun"
+    if "assembly_stale_versus_edl" in msg or (
+        "delivery epoch" in msg and "assembly_stale" in msg
+    ):
+        return "assembly_not_rendered_from_current_edl"
     if "air_script" in msg and "drift" in msg:
         return "air_script_omit_sync"
     return None
@@ -210,6 +350,8 @@ CLASSIFIED_PLAYBOOKS = frozenset(
         "vo_contract_repair",
         "upstream_stale_rerun",
         "air_script_omit_sync",
+        "seed_order_prereq",
+        "finalize_input_missing",
     }
 )
 
@@ -221,6 +363,8 @@ TRANSIENT_ERROR_CLASSES = frozenset(
         "sdp_theme_wavs_missing",
         "musicgen_theme_failed",
         "upstream_stale_rerun",
+        "seed_order_prereq",
+        "finalize_input_missing",
     }
 )
 
@@ -655,13 +799,39 @@ def playbook_selection_edl_order_drift(ctx: RunContext) -> list[str]:
 
 
 def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
-    from interview_mux.heal_routing import mix_assembly_seated
+    from interview_mux.delivery_guardrails import resolve_assembly_stale_resume
 
-    if mix_assembly_seated(ctx):
+    pin = resolve_assembly_stale_resume(ctx)
+    if pin == "edl":
+        _unmark_stages(ctx, "edl", "mix", "junction_snip_qa", "master_finalize")
+    elif pin == "junction_snip_qa":
         _unmark_stages(ctx, "junction_snip_qa", "master_finalize")
     else:
         _unmark_stages(ctx, "mix", "junction_snip_qa", "master_finalize")
     return ["master/edl.json"] if ctx.artifact_exists("master/edl.json") else []
+
+
+def playbook_seed_order_prereq(ctx: RunContext, exc: BaseException) -> str:
+    """Unmark the named seed-order prereq and return the resume stage."""
+    import re
+
+    from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
+
+    m = re.search(r"complete\s+(\S+)\s+before", str(exc), flags=re.IGNORECASE)
+    raw = m.group(1).strip() if m else ""
+    pin = resolve_vo_synth_seed_resume(raw) or raw
+    if pin:
+        _unmark_stages(ctx, pin)
+    return pin
+
+
+def playbook_finalize_input_missing(ctx: RunContext, exc: BaseException) -> str:
+    from interview_mux.delivery_guardrails import finalize_input_producer_pin
+
+    pin = finalize_input_producer_pin(ctx, message=str(exc))
+    if pin:
+        _unmark_stages(ctx, pin)
+    return pin
 
 
 def playbook_opening_slot_conflict(ctx: RunContext) -> list[str]:
@@ -827,17 +997,69 @@ def playbook_upstream_stale_rerun(ctx: RunContext, *, consumer_stage: str = "") 
     from interview_mux.delivery_guardrails import upstream_stale_blockers
 
     stage = consumer_stage or "mix"
-    blockers = upstream_stale_blockers(ctx, stage)
-    producer_map = {
-        "sound_design_plan": "sound_design_plan",
-        "gap_report": "nugget_layup_compose",
-        "transitions": "transitions",
-        "assembly_stale_versus_edl": "edl",
+    blockers = list(upstream_stale_blockers(ctx, stage))
+
+    def _disk_stale(rel: str) -> bool:
+        if not ctx.artifact_exists(rel):
+            return False
+        try:
+            doc = ctx.read_json(rel)
+        except Exception:
+            return False
+        if not isinstance(doc, dict):
+            return False
+        meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+        return bool(meta.get("stale"))
+
+    # Fallback when consumer is not in STALE_PREFLIGHT_CONSUMERS (or map gap):
+    # still pin known stale producers from disk so we never escalate with [].
+    if not blockers:
+        if _disk_stale("master/transitions.json"):
+            blockers.append("transitions")
+        if _disk_stale("understanding/gap_report.json"):
+            blockers.append("gap_report")
+        if _disk_stale("understanding/sound_design_plan.json"):
+            blockers.append("sound_design_plan")
+
+    from interview_mux.delivery_guardrails import (
+        resolve_assembly_stale_resume,
+        resolve_gap_report_stale_producer,
+    )
+
+    def _producer_for_blocker(blocker: str) -> str:
+        if blocker == "assembly_stale_versus_edl":
+            return resolve_assembly_stale_resume(ctx)
+        if blocker == "gap_report":
+            return resolve_gap_report_stale_producer(ctx)
+        if blocker == "sound_design_plan":
+            return "sound_design_plan"
+        if blocker == "transitions":
+            return "transitions"
+        return blocker
+
+    producer_rels = {
+        "transitions": "master/transitions.json",
+        "gap_report": "understanding/gap_report.json",
+        "sound_design_plan": "understanding/sound_design_plan.json",
     }
     cleared: list[str] = []
     for blocker in blockers:
-        prod = producer_map.get(blocker, blocker)
+        prod = _producer_for_blocker(blocker)
         _unmark_stages(ctx, prod)
+        rel = producer_rels.get(blocker)
+        if rel and ctx.artifact_exists(rel):
+            try:
+                doc = ctx.read_json(rel)
+                if isinstance(doc, dict):
+                    meta = dict(doc.get("_meta") or {})
+                    if meta.get("stale"):
+                        meta.pop("stale", None)
+                        meta.pop("stale_reason", None)
+                        doc = dict(doc)
+                        doc["_meta"] = meta
+                        ctx.write_json(rel, doc, skip_handoff=True)
+            except Exception:
+                pass
         cleared.append(prod)
     return cleared
 
@@ -1076,7 +1298,13 @@ def handle_stage_failure(
                 pass
         elif error_class == "fingerprint_mismatch":
             playbook_id = "fingerprint_restamp_or_rerun"
-            producer = FINGERPRINT_PRODUCER_BY_CONSUMER.get(stage_id)
+            producer = resolve_fingerprint_heal_resume(
+                message=str(exc),
+                gate_stage=stage_id,
+                body_from="",
+                mode="delivery",
+                ctx=ctx,
+            ) or FINGERPRINT_PRODUCER_BY_CONSUMER.get(stage_id)
             recovered = bool(producer)
             detail = producer or "no_mapped_producer"
             if producer:
@@ -1125,14 +1353,19 @@ def handle_stage_failure(
             playbook_id = "assembly_not_rendered_from_current_edl"
             artifacts = playbook_assembly_not_rendered(ctx)
             recovered = True
-            resume_stage = "mix"
-            try:
-                from interview_mux.heal_routing import mix_assembly_seated
+            from interview_mux.delivery_guardrails import resolve_assembly_stale_resume
 
-                if mix_assembly_seated(ctx):
-                    resume_stage = "junction_snip_qa"
-            except Exception:
-                pass
+            resume_stage = resolve_assembly_stale_resume(ctx)
+        elif error_class == "seed_order_prereq":
+            playbook_id = "seed_order_prereq"
+            resume_stage = playbook_seed_order_prereq(ctx, exc) or stage_id
+            artifacts = [resume_stage] if resume_stage else []
+            recovered = bool(resume_stage)
+        elif error_class == "finalize_input_missing":
+            playbook_id = "finalize_input_missing"
+            resume_stage = playbook_finalize_input_missing(ctx, exc) or stage_id
+            artifacts = [resume_stage] if resume_stage else []
+            recovered = bool(resume_stage)
         elif error_class == "opening_slot_conflict":
             playbook_id = "opening_slot_conflict"
             artifacts = playbook_opening_slot_conflict(ctx)
@@ -1181,11 +1414,30 @@ def handle_stage_failure(
         elif error_class == "vo_seated_coverage":
             playbook_id = "vo_seated_coverage"
             from interview_mux.execution_contract import run_edl_vo_coverage_ladder
+            from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
 
             ladder = run_edl_vo_coverage_ladder(ctx, consumer_stage=stage_id)
             artifacts = list(ladder.artifacts)
             recovered = ladder.recovered
-            resume_stage = ladder.resume_stage or "vo_synthesize"
+            # Absolute pin: VO coverage class always resumes vo_synthesize unless
+            # coverage is already satisfied (already_ok → stay on consumer).
+            still_missing = compact_vo_coverage_stale_or_missing(ctx)
+            if ladder.detail == "already_ok" and not still_missing:
+                resume_stage = stage_id
+            else:
+                resume_stage = "vo_synthesize"
+                try:
+                    from interview_mux.delivery_guardrails import may_rewind_to_vo_synthesize
+
+                    if may_rewind_to_vo_synthesize(ctx) or still_missing:
+                        _unmark_stages(ctx, "vo_synthesize", force=True)
+                except Exception:
+                    _unmark_stages(ctx, "vo_synthesize", force=True)
+                if still_missing and not recovered:
+                    # Pin producer even when ladder escalates so we don't identical-fail
+                    # on the consumer (edl_narrative / mix).
+                    recovered = True
+                    detail = ladder.detail or "pin_vo_synthesize"
         elif error_class == "vo_contract_repair":
             playbook_id = "vo_contract_repair"
             artifacts = playbook_vo_contract_repair(ctx)
@@ -1197,7 +1449,20 @@ def handle_stage_failure(
             playbook_id = "upstream_stale_rerun"
             artifacts = playbook_upstream_stale_rerun(ctx, consumer_stage=stage_id)
             recovered = bool(artifacts)
-            resume_stage = artifacts[0] if artifacts else stage_id
+            resume_stage = stage_id
+            if artifacts:
+                try:
+                    from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+
+                    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+                    ranked = [a for a in artifacts if a in order]
+                    resume_stage = (
+                        min(ranked, key=lambda s: order.index(s))
+                        if ranked
+                        else artifacts[0]
+                    )
+                except Exception:
+                    resume_stage = artifacts[0]
         elif error_class == "air_script_omit_sync":
             playbook_id = "air_script_omit_sync"
             artifacts = playbook_air_script_omit_sync(ctx)

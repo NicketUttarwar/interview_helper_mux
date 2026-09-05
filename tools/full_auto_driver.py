@@ -110,6 +110,46 @@ def _bump_permanent_execute_failure(exc: BaseException) -> tuple[str, int]:
     return key, count
 
 
+def _stale_transitions_execute_pin(exc: BaseException | str) -> str | None:
+    """If execute failed on stale transitions.json, return resume stage ``transitions``."""
+    text = str(exc).lower()
+    if "marked stale" not in text and "invalidated_by" not in text:
+        return None
+    if "transitions.json" in text or "master/transitions" in text:
+        return "transitions"
+    return None
+
+
+def _heal_stale_transitions_execute(exc: BaseException, *, fail_key: str = "") -> bool:
+    """Unmark transitions and re-execute from producer. True if resume was issued."""
+    pin = _stale_transitions_execute_pin(exc)
+    if not pin:
+        return False
+    try:
+        from interview_mux.recovery_controller import playbook_upstream_stale_rerun
+        from interview_mux.run_context import RunContext
+
+        ctx = RunContext(RUN_ID, create=False)
+        cleared = playbook_upstream_stale_rerun(ctx, consumer_stage="edl")
+        if fail_key:
+            dict.__setitem__(_IDENTICAL_STAGE_FAILURES, fail_key, 0)
+        log(
+            f"stale transitions execute heal — cleared={cleared or [pin]} resume {pin}"
+        )
+        log_decision(
+            "minor",
+            stage="edl",
+            action="re_execute",
+            reason="stale_transitions_pin",
+            detail={"resume": pin, "cleared": cleared},
+        )
+        execute({"mode": "delivery", "from_stage": pin})
+        return True
+    except Exception as heal_exc:
+        log(f"stale transitions execute heal: {heal_exc}")
+        return False
+
+
 def _heal_restored_edl(run_dir: Path) -> None:
     """Drop ghost EDL source_path values after archive restore / raw JSON write."""
     try:
@@ -2819,6 +2859,14 @@ def heal_stage_done_markers() -> None:
                             merge_from_disk=False,
                             stage_key="gap_framing_compose",
                         )
+                        try:
+                            from interview_mux.vo_contract import (
+                                clamp_hosted_seats_to_rendered_wavs,
+                            )
+
+                            clamp_hosted_seats_to_rendered_wavs(ctx)
+                        except Exception:
+                            pass
                         log(f"heal: rewrote {dirty} scaffolding VO line(s)")
                         try:
                             from interview_mux.vo_contract import ensure_hosted_framing_vo_seats
@@ -3134,6 +3182,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     error_class="vo_seated_coverage",
                 )
                 dest = outcome.resume_stage or "vo_synthesize"
+                if outcome.detail != "already_ok":
+                    dest = "vo_synthesize"
                 log(f"vo_coverage gate ladder recovered — resume {dest}")
                 execute({"mode": "delivery", "from_stage": dest})
                 return "continue"
@@ -3143,10 +3193,10 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     consumer,
                     f"VO coverage ladder exhausted: {outcome.detail[:200]}",
                 )
-            dest = outcome.resume_stage or try_product_recovery(consumer, msg)
-            if dest:
-                execute({"mode": "delivery", "from_stage": dest})
-                return "continue"
+            dest = "vo_synthesize"
+            log(f"vo_coverage gate ladder pin vo_synthesize ({outcome.detail})")
+            execute({"mode": "delivery", "from_stage": dest})
+            return "continue"
         except Exception as exc:
             log(f"vo_coverage gate ladder: {exc}")
 
@@ -3636,19 +3686,20 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if h:
                     _record_fingerprint(ctx, rel, h, producer)
                 log(f"re-fingerprinted {rel} as {producer} hash={h[:8]} (final)")
-            # Prefer the gate consumer (e.g. edl) over the batch body's from_stage
-            # (often topic_coverage_audit) — otherwise every fingerprint heal re-enters
-            # the full delivery LLM prefix and undoes local selection heals.
+            # Always resume the fingerprint producer — never a later gate consumer.
             mode = "delivery" if "delivery" in str(body.get("mode") or "") else "analysis"
-            order = list(DELIVERY_ORDER if mode == "delivery" else ANALYSIS_ORDER)
             body_from = str(body.get("from_stage") or "")
             gate_from = str(stage or "")
-            resume_from = body_from or (producers[0] if producers else "")
-            if gate_from in order:
-                if not resume_from or resume_from not in order:
-                    resume_from = gate_from
-                elif order.index(gate_from) >= order.index(resume_from):
-                    resume_from = gate_from
+            from interview_mux.recovery_controller import resolve_fingerprint_heal_resume
+
+            resume_from = resolve_fingerprint_heal_resume(
+                message=low,
+                gate_stage=gate_from,
+                body_from=body_from,
+                mode=mode,
+                ctx=ctx,
+                named_producers=producers,
+            )
             # Rematerialize downstream markers so first_pending does not rewind.
             heal_stage_done_markers()
             if "segments/manifest.json" in low or "segments/boundaries.json" in low:
@@ -4315,6 +4366,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     log(f"content_brief stale clear: {exc}")
         elif "boundary_topic_resplit" in low:
             resume = "boundary_topic_resplit"
+        elif "transitions.json" in low or "master/transitions" in low:
+            resume = "transitions"
         else:
             path_m = re.search(r"([a-z0-9_./-]+\.json)", low)
             if path_m:
@@ -4325,6 +4378,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     resume = "sound_design_plan"
                 elif "mastering_plan" in stale_path:
                     resume = "mastering_plan_synthesize"
+                elif stale_path.endswith("transitions.json") or "transitions" in stale_path:
+                    resume = "transitions"
         if resume:
             # Delivery mode cannot resume analysis-only stages.
             if mode == "delivery" and resume in {
@@ -7222,7 +7277,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             )
 
                             if ctx_p is not None:
-                                pin_stage = premature_cap_hard_pin(ctx_p, resume)
+                                pin_stage = premature_cap_hard_pin(
+                                    ctx_p, resume, message=fail_key
+                                )
                         except Exception:
                             pin_stage = resume
                         log(
@@ -7783,12 +7840,20 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             ctx_fp, rel, producer_stage=producer
                         )
                         log(f"error-path restamp {rel} producer={producer}")
-                    execute(
-                        {
-                            "mode": "delivery" if label == "delivery" else "analysis",
-                            "from_stage": stage or str(body.get("from_stage") or ""),
-                        }
+                    mode_fp = "delivery" if label == "delivery" else "analysis"
+                    from interview_mux.recovery_controller import (
+                        resolve_fingerprint_heal_resume,
                     )
+
+                    resume_fp = resolve_fingerprint_heal_resume(
+                        message=low_err,
+                        gate_stage=str(stage or ""),
+                        body_from=str(body.get("from_stage") or ""),
+                        mode=mode_fp,
+                        ctx=ctx_fp,
+                        named_producers=[p for _, p in matched],
+                    )
+                    execute({"mode": mode_fp, "from_stage": resume_fp or stage or ""})
                     continue
                 except SystemExit:
                     raise
@@ -12191,11 +12256,18 @@ def main() -> int:
                                 break
                         except Exception as heal_exc:
                             log(f"vo_contract execute heal: {heal_exc}")
+                    if _heal_stale_transitions_execute(exc, fail_key=fail_key):
+                        break
                     if count >= 3:
-                        pause_needs_operator(
+                        outcome = pause_needs_operator(
                             str(body.get("from_stage") or body.get("stage") or label),
                             f"STOP: identical permanent execute failure ×{count}: {exc}",
                         )
+                        if outcome == "continue":
+                            if _heal_stale_transitions_execute(exc, fail_key=fail_key):
+                                break
+                            time.sleep(5)
+                            break
                         if is_partial_auto():
                             _patch_partial_auto_meta(partial_auto_driver_active=False)
                         return 1
@@ -12211,11 +12283,19 @@ def main() -> int:
                 # Unknown errors: limited identical bump, then halt (never infinite).
                 fail_key, count = _bump_permanent_execute_failure(exc)
                 log(f"run_until_done failed (x{count}): {exc}")
+                if _heal_stale_transitions_execute(exc, fail_key=fail_key):
+                    break
                 if count >= 5:
-                    pause_needs_operator(
+                    outcome = pause_needs_operator(
                         str(body.get("from_stage") or body.get("stage") or label),
                         f"STOP: identical execute failure ×{count}: {exc}",
                     )
+                    if outcome == "continue":
+                        if _heal_stale_transitions_execute(exc, fail_key=fail_key):
+                            break
+                        # Suppressed needs_operator — keep driver alive and retry bodies.
+                        time.sleep(5)
+                        break
                     if is_partial_auto():
                         _patch_partial_auto_meta(partial_auto_driver_active=False)
                     return 1

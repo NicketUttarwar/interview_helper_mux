@@ -36,6 +36,32 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+def _seed_hash_fresh_transition(
+    ctx, after_id: str, before_id: str, text: str
+) -> Path:
+    """Write a transition WAV + synthesis audit so resolve_transition_wav succeeds."""
+    from interview_mux.vo_synthesis_audit import record_synthesis
+
+    wav = ctx.final_path(
+        "master", "transitions", f"tr_{after_id}_{before_id}.wav"
+    )
+    write_fixture_vo_wav(wav)
+    record_synthesis(
+        ctx,
+        {
+            "line_id": f"tr_{after_id}_{before_id}",
+            "text": text,
+            "targets_segment_id": after_id,
+            "placement": "after",
+            "after_segment_id": after_id,
+            "before_segment_id": before_id,
+        },
+        backend="mlx_audio",
+        out_wav=wav,
+    )
+    return wav
+
+
 def _speech_clip(sid: str, *, duration_ms: int = 1000) -> dict:
     return {
         "type": "speech",
@@ -201,8 +227,7 @@ def test_pair_freeze_ignores_deferred_for_vo_incompleteness(tmp_path: Path) -> N
             ]
         },
     )
-    wav = ctx.final_path("master", "transitions", "tr_seg_001_seg_002.wav")
-    write_fixture_vo_wav(wav)
+    _seed_hash_fresh_transition(ctx, "seg_001", "seg_002", "First hinge.")
     stamp_transitions_pair_freeze(ctx)
     # Late pair expansion after freeze.
     _write_raw(
@@ -250,7 +275,7 @@ def test_mix_last_chance_still_sees_deferred_pairs(tmp_path: Path) -> None:
             ]
         },
     )
-    write_fixture_vo_wav(ctx.final_path("master", "transitions", "tr_seg_001_seg_002.wav"))
+    _seed_hash_fresh_transition(ctx, "seg_001", "seg_002", "First.")
     stamp_transitions_pair_freeze(ctx)
     _write_raw(
         ctx,
@@ -296,7 +321,7 @@ def test_may_rewind_refuses_when_assembly_g1_green_deferred(tmp_path: Path) -> N
             ]
         },
     )
-    write_fixture_vo_wav(ctx.final_path("master", "transitions", "tr_seg_001_seg_002.wav"))
+    _seed_hash_fresh_transition(ctx, "seg_001", "seg_002", "Ok.")
     stamp_transitions_pair_freeze(ctx)
     assert may_rewind_to_vo_synthesize(ctx) is False
 
@@ -314,6 +339,29 @@ def test_may_rewind_allows_seated_stale_hash(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setattr(
         "interview_mux.vo_contract.seated_vo_missing_ids",
         lambda _ctx: ["vo_layup_seg_007"],
+    )
+    assert may_rewind_to_vo_synthesize(ctx) is True
+
+
+def test_may_rewind_allows_compact_vo_script_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = isolated_run_ctx(tmp_path, "thrash_w6_stale_hash")
+    monkeypatch.setattr(
+        "interview_mux.gates.check_g1_vo",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.gates.g1_vo_was_skipped_optional",
+        lambda _ctx: False,
+    )
+    monkeypatch.setattr(
+        "interview_mux.vo_contract.seated_vo_missing_ids",
+        lambda _ctx: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_input_checks.compact_vo_coverage_stale_or_missing",
+        lambda _ctx: ["vo_layup_seg_013"],
     )
     assert may_rewind_to_vo_synthesize(ctx) is True
 

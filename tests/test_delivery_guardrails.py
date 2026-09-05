@@ -22,6 +22,8 @@ from interview_mux.delivery_guardrails import (
     premature_cap_hard_pin,
     reconcile_delivery_batch,
     record_wasted_work,
+    resolve_assembly_stale_resume,
+    resolve_gap_report_stale_producer,
     seal_phase_a_if_stable,
     seed_stage_complete,
     stamp_delivery_epoch,
@@ -32,7 +34,7 @@ from interview_mux.homunculus.agenda import remaining_stages
 from interview_mux.journey_state import compute_milestones
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import seed_stage_complete as seed_complete_alias
-from tests.run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx
 
 
 def _write_raw(ctx: RunContext, rel: str, data: dict) -> None:
@@ -232,6 +234,28 @@ def test_mmaudio_blocked_on_stale_sound_design(tmp_path: Path, monkeypatch: pyte
     )
     blockers = upstream_stale_blockers(ctx, "mmaudio_sfx")
     assert "sound_design_plan" in blockers
+
+
+def test_upstream_stale_blockers_edl_sees_stale_transitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "stale_tr_edl")
+    _write_raw(
+        ctx,
+        "master/transitions.json",
+        {
+            "transitions": [],
+            "_meta": {
+                "stale": True,
+                "stale_reason": "invalidated_by:nugget_layup_compose",
+            },
+        },
+    )
+    for consumer in ("edl", "edl_narrative_audit", "assembly_preview", "vo_synthesize"):
+        blockers = upstream_stale_blockers(ctx, consumer)
+        assert "transitions" in blockers, consumer
+
 
 
 def test_transcribe_not_rerun_after_g0_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -583,3 +607,64 @@ def test_preclean_skipped_when_ingest_unchanged(
         lambda _ctx, _sid: True,
     )
     assert prepare_fingerprint_blocks_rerun(ctx, "audio_preclean") == "ingest_unchanged"
+
+
+def test_seed_prereq_transitions_skips_complete_seams(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "seams_seed")
+    from interview_mux.homunculus.runtime import _seed_prereq_block
+    from interview_mux.homunculus.agenda import stage_outputs_present
+
+    # Mark seams done with mastering plan outputs (shared seams artifact).
+    ctx.write_json(
+        "mastering/mastering_plan.json",
+        {"air_script": {"beats": [], "vo_seats": {"seated_line_ids": [], "omitted_line_ids": []}}},
+    )
+    ctx.mark_done("air_script_seams", force=True)
+    assert stage_outputs_present(ctx, "air_script_seams") or ctx.is_done("air_script_seams")
+    # Even if earliest incomplete reports seams, seed_complete should clear the block.
+    block = _seed_prereq_block(ctx, "transitions")
+    assert block != "air_script_seams"
+
+
+def test_stamp_stale_layup_clears_transitions_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "stamp_tr")
+    from interview_mux.artifact_lifecycle import stamp_stale_and_archive
+
+    _write_raw(
+        ctx,
+        "master/transitions.json",
+        {"transitions": [], "_meta": {"producer_stage": "transitions"}},
+    )
+    ctx.mark_done("transitions", force=True)
+    stamped = stamp_stale_and_archive(ctx, "nugget_layup_compose")
+    assert any("transitions" in s for s in stamped)
+    assert not ctx.is_done("transitions")
+    doc = ctx.read_json("master/transitions.json")
+    assert (doc.get("_meta") or {}).get("stale") is True
+
+
+def test_resolve_assembly_and_gap_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "asm_gap_helpers")
+    assert resolve_assembly_stale_resume(ctx) == "edl"
+    _write_raw(ctx, "master/edl.json", {"ordered_segment_ids": ["a"], "clips": []})
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: False,
+    )
+    assert resolve_assembly_stale_resume(ctx) == "mix"
+    _write_raw(
+        ctx,
+        "understanding/gap_report.json",
+        {"_meta": {"stale_reason": "invalidated_by:optimal_questions"}},
+    )
+    assert resolve_gap_report_stale_producer(ctx) == "optimal_questions"
+    assert premature_cap_hard_pin(
+        ctx, "master_finalize", message="master/assembly_ledger.json missing"
+    ) in {"edl", "topic_coverage_audit", "master_finalize"}

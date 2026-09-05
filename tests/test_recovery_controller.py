@@ -689,3 +689,450 @@ def test_overlapping_source_playbook_merges_and_resumes_edl(tmp_path: Path) -> N
     speech = [c["segment_id"] for c in edl["clips"] if c.get("type") == "speech"]
     assert speech == ["seg_003c"]
     assert validate_flow1_edl(ctx, edl) == []
+
+
+def test_playbook_upstream_stale_rerun_edl_pins_transitions(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.recovery_controller import playbook_upstream_stale_rerun
+
+    ctx = isolated_run_ctx(tmp_path, "stale_tr_playbook")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "transitions.json").write_text(
+        __import__("json").dumps(
+            {
+                "transitions": [],
+                "_meta": {
+                    "stale": True,
+                    "stale_reason": "invalidated_by:nugget_layup_compose",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    ctx.mark_done("transitions", force=True)
+    cleared = playbook_upstream_stale_rerun(ctx, consumer_stage="edl")
+    assert "transitions" in cleared
+    assert not ctx.is_done("transitions")
+    doc = ctx.read_json("master/transitions.json")
+    assert not (doc.get("_meta") or {}).get("stale")
+
+
+def test_handle_stage_failure_edl_stale_transitions_resume(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "stale_tr_hsf")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "transitions.json").write_text(
+        __import__("json").dumps(
+            {
+                "transitions": [],
+                "_meta": {
+                    "stale": True,
+                    "stale_reason": "invalidated_by:nugget_layup_compose",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = handle_stage_failure(
+        ctx,
+        "edl",
+        RuntimeError(
+            "master/transitions.json is marked stale "
+            "(invalidated_by:nugget_layup_compose)"
+        ),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "upstream_stale_rerun"
+    assert result.resume_stage == "transitions"
+
+
+def test_should_not_stamp_needs_operator_for_stale_transitions() -> None:
+    from interview_mux.operator_gates import should_stamp_needs_operator
+
+    meta = {"partial_auto": True, "homunculus_version": "0.1.0"}
+    reason = (
+        "RuntimeError:seed order: complete air_script_seams before running transitions"
+    )
+    assert not should_stamp_needs_operator("transitions", reason, meta=meta)
+    assert not should_stamp_needs_operator(
+        "edl",
+        "master/transitions.json is marked stale (invalidated_by:nugget_layup_compose)",
+        meta=meta,
+    )
+
+
+def test_resolve_fingerprint_heal_resume_prefers_producer_not_gate() -> None:
+    from interview_mux.recovery_controller import resolve_fingerprint_heal_resume
+
+    # Named producer in message wins over later gate (edl).
+    assert (
+        resolve_fingerprint_heal_resume(
+            message=(
+                "master/selection.json fingerprint mismatch — "
+                "re-run producer full_master_ranking"
+            ),
+            gate_stage="edl",
+            body_from="topic_coverage_audit",
+            mode="delivery",
+        )
+        == "full_master_ranking"
+    )
+    # Unnamed: consumer map pins producer, never the gate alone.
+    assert (
+        resolve_fingerprint_heal_resume(
+            message="fingerprint mismatch on upstream artifact",
+            gate_stage="edl",
+            body_from="edl",
+            mode="delivery",
+        )
+        == "full_master_ranking"
+    )
+    # Path without producer name → STAGE path / preferred fill.
+    assert (
+        resolve_fingerprint_heal_resume(
+            message="master/transitions.json fingerprint mismatch",
+            gate_stage="edl",
+            body_from="edl",
+            mode="delivery",
+        )
+        == "transitions"
+    )
+
+
+def test_classify_broad_vo_coverage() -> None:
+    assert (
+        classify_error_class(
+            "edl_narrative_audit",
+            RuntimeError("Synthetic VO does not match EDL/gap for line vo_x"),
+        )
+        == "vo_seated_coverage"
+    )
+    assert (
+        classify_error_class(
+            "edl",
+            RuntimeError("seated synthesize vo_layup_seg_002 missing WAV"),
+        )
+        == "vo_seated_coverage"
+    )
+    assert (
+        classify_error_class(
+            "edl_narrative_audit",
+            RuntimeError("stage input check blocked: VO coverage stale for seated lines"),
+        )
+        == "vo_seated_coverage"
+    )
+    # Contract skip/omit stays on contract ladder.
+    assert (
+        classify_error_class(
+            "edl",
+            RuntimeError("vo contract: seated synthesize vo_x has skip/omit flags"),
+        )
+        == "vo_contract_repair"
+    )
+
+
+def test_handle_vo_seated_coverage_always_pins_vo_synthesize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "vo_cov_pin")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.execution_contract.run_edl_vo_coverage_ladder",
+        lambda ctx, consumer_stage="edl": __import__(
+            "interview_mux.execution_contract", fromlist=["VoCoverageLadderResult"]
+        ).VoCoverageLadderResult(
+            tier="tier_d_operator",
+            recovered=False,
+            detail="still_missing: ['vo_x']",
+            resume_stage=consumer_stage,
+        ),
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_input_checks.compact_vo_coverage_stale_or_missing",
+        lambda _ctx: ["vo_x"],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.may_rewind_to_vo_synthesize",
+        lambda _ctx: True,
+    )
+    ctx.mark_done("vo_synthesize", force=True)
+    result = handle_stage_failure(
+        ctx,
+        "edl_narrative_audit",
+        RuntimeError("VO coverage not rendered: ['vo_x']"),
+    )
+    assert result.status == "recovered"
+    assert result.resume_stage == "vo_synthesize"
+    assert not ctx.is_done("vo_synthesize")
+
+    assert (
+        classify_error_class(
+            "transitions",
+            RuntimeError("seed order: complete air_script_seams before running transitions"),
+        )
+        == "seed_order_prereq"
+    )
+    assert (
+        classify_error_class(
+            "master_finalize",
+            RuntimeError("master/seam_autopsy.json missing"),
+        )
+        == "finalize_input_missing"
+    )
+    assert (
+        classify_error_class(
+            "mix",
+            RuntimeError("cannot run mix: delivery epoch assembly_stale_versus_edl"),
+        )
+        == "assembly_not_rendered_from_current_edl"
+    )
+    # Multi-blocker stale upstream stays on the upstream playbook (clears all).
+    assert (
+        classify_error_class(
+            "mix",
+            RuntimeError("cannot run mix: stale upstream transitions, assembly_stale_versus_edl"),
+        )
+        == "upstream_stale_rerun"
+    )
+
+
+def test_resolve_assembly_stale_resume_edl_good_pins_mix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.delivery_guardrails import resolve_assembly_stale_resume
+
+    ctx = isolated_run_ctx(tmp_path, "asm_stale_mix")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "edl.json").write_text(
+        __import__("json").dumps(
+            {"ordered_segment_ids": ["seg_001"], "clips": [], "order_content_hash": "h1"}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: False,
+    )
+    assert resolve_assembly_stale_resume(ctx) == "mix"
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: True,
+    )
+    assert resolve_assembly_stale_resume(ctx) == "junction_snip_qa"
+
+
+def test_resolve_assembly_stale_resume_stale_edl_pins_edl(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.delivery_guardrails import resolve_assembly_stale_resume
+
+    ctx = isolated_run_ctx(tmp_path, "asm_stale_edl")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "edl.json").write_text(
+        __import__("json").dumps(
+            {
+                "ordered_segment_ids": ["seg_001"],
+                "clips": [],
+                "_meta": {"stale": True, "stale_reason": "invalidated_by:nugget_layup_compose"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert resolve_assembly_stale_resume(ctx) == "edl"
+
+
+def test_handle_delivery_epoch_assembly_stale_resumes_mix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "epoch_asm")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "edl.json").write_text(
+        __import__("json").dumps(
+            {"ordered_segment_ids": ["seg_001"], "clips": [], "order_content_hash": "h1"}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: False,
+    )
+    result = handle_stage_failure(
+        ctx,
+        "mix",
+        RuntimeError("cannot run mix: delivery epoch assembly_stale_versus_edl (wait for mmaudio_sfx)"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "assembly_not_rendered_from_current_edl"
+    assert result.resume_stage == "mix"
+
+
+def test_handle_seed_order_prereq_pins_named_stage(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "seed_order_hsf")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    ctx.mark_done("air_script_seams", force=True)
+    result = handle_stage_failure(
+        ctx,
+        "transitions",
+        RuntimeError("seed order: complete air_script_seams before running transitions"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "seed_order_prereq"
+    assert result.resume_stage == "air_script_seams"
+    assert not ctx.is_done("air_script_seams")
+
+
+def test_handle_finalize_input_missing_pins_junction(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx, write_fixture_vo_wav
+
+    ctx = isolated_run_ctx(tmp_path, "fin_input_hsf")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "edl.json").write_text(
+        __import__("json").dumps(
+            {"ordered_segment_ids": ["seg_001"], "clips": [], "order_content_hash": "h1"}
+        ),
+        encoding="utf-8",
+    )
+    (ctx.run_dir / "master" / "assembly_ledger.json").write_text(
+        __import__("json").dumps({"complete": True, "seams": []}),
+        encoding="utf-8",
+    )
+    write_fixture_vo_wav(ctx.final_path("master", "assembly.wav"))
+    result = handle_stage_failure(
+        ctx,
+        "master_finalize",
+        RuntimeError("master/seam_autopsy.json missing"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "finalize_input_missing"
+    assert result.resume_stage == "junction_snip_qa"
+
+
+def test_gap_report_stale_producer_by_invalidator(tmp_path: Path) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.delivery_guardrails import resolve_gap_report_stale_producer
+    from interview_mux.recovery_controller import playbook_upstream_stale_rerun
+
+    ctx = isolated_run_ctx(tmp_path, "gap_stale_prod")
+    (ctx.run_dir / "understanding").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "understanding" / "gap_report.json").write_text(
+        __import__("json").dumps(
+            {
+                "interviewer_lines": [],
+                "_meta": {
+                    "stale": True,
+                    "stale_reason": "invalidated_by:gap_framing_recompose",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert resolve_gap_report_stale_producer(ctx) == "gap_framing_recompose"
+    cleared = playbook_upstream_stale_rerun(ctx, consumer_stage="edl")
+    assert "gap_framing_recompose" in cleared
+
+
+def test_resolve_stage_plan_remaps_stale_upstream_assembly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.homunculus import agenda as agenda_mod
+
+    ctx = isolated_run_ctx(tmp_path, "agenda_stale_asm")
+    (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
+    (ctx.run_dir / "master" / "edl.json").write_text(
+        __import__("json").dumps(
+            {"ordered_segment_ids": ["seg_001"], "clips": [], "order_content_hash": "h1"}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(agenda_mod, "DELIVERY_ANALYSIS_PREREQS", ())
+    monkeypatch.setattr(
+        "interview_mux.artifact_dependency_graph.upstream_closure",
+        lambda _stage: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_dependency_graph.transitive_invalidate",
+        lambda _stage: set(),
+    )
+    monkeypatch.setattr(agenda_mod, "stage_outputs_present", lambda _ctx, _up: True)
+    monkeypatch.setattr(agenda_mod, "skipped_stages", lambda _ctx: set())
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.upstream_stale_blockers",
+        lambda _ctx, _stage: ["assembly_stale_versus_edl"],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.mix_epoch_block",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: False,
+    )
+    plan = agenda_mod.resolve_stage_plan(ctx, "mix")
+    assert "stale_upstream:assembly_stale_versus_edl" in plan["blockers"]
+    assert plan["recommended_next"] == "mix"
+
+
+def test_resolve_stage_plan_remaps_mix_epoch_music(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_fixtures import isolated_run_ctx
+    from interview_mux.homunculus import agenda as agenda_mod
+
+    ctx = isolated_run_ctx(tmp_path, "agenda_mix_epoch")
+    monkeypatch.setattr(agenda_mod, "DELIVERY_ANALYSIS_PREREQS", ())
+    monkeypatch.setattr(
+        "interview_mux.artifact_dependency_graph.upstream_closure",
+        lambda _stage: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.artifact_dependency_graph.transitive_invalidate",
+        lambda _stage: set(),
+    )
+    monkeypatch.setattr(agenda_mod, "stage_outputs_present", lambda _ctx, _up: True)
+    monkeypatch.setattr(agenda_mod, "skipped_stages", lambda _ctx: set())
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.upstream_stale_blockers",
+        lambda _ctx, _stage: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.mix_epoch_block",
+        lambda _ctx: "music_incomplete",
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        lambda _ctx, sid: sid != "mmaudio_sfx",
+    )
+    plan = agenda_mod.resolve_stage_plan(ctx, "mix")
+    assert "mix_epoch:music_incomplete" in plan["blockers"]
+    assert plan["recommended_next"] == "mmaudio_sfx"

@@ -176,14 +176,16 @@ def synthesize_line(
             fresh, reason = line_vo_wav_fresh(ctx, line)
             if fresh:
                 return Path(existing)
-            # Operator clean/normalized takes may lack synthesis_report audit rows;
-            # resolve_vo_pickup_path already accepted them — do not re-synth.
-            if reason == "missing_synthesis_entry" and existing.parent.name in {
-                "clean",
-                "normalized",
-            }:
+            # Operator *record* takes under clean/normalized/top-level may lack audit.
+            # Synthesize delivery must fall through to re-synth on any mismatch.
+            delivery = str(line.get("delivery") or "synthesize").strip().lower()
+            if (
+                delivery == "record"
+                and reason == "missing_synthesis_entry"
+                and existing.parent.name in {"clean", "normalized", "vo_pickup"}
+            ):
                 return Path(existing)
-            # stale_script_hash / missing_wav — fall through to re-synth.
+            # stale_script_hash / missing_wav / synthesize clean — fall through.
     except Exception:
         pass
 

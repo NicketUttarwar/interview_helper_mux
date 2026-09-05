@@ -130,7 +130,11 @@ def test_air_contract_detects_unresolved_and_reintroduced_gap_line():
 
 def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
     from interview_mux.omit_ledger import reconcile_edl_with_omit_ledger, write_omit_ledger
-    from run_fixtures import isolated_run_ctx
+    from interview_mux.vo_synthesis_audit import (
+        record_synthesis,
+        synthesis_entry_for_line,
+    )
+    from run_fixtures import isolated_run_ctx, write_fixture_vo_wav
 
     ctx = isolated_run_ctx(tmp_path, "exec_omit_strip_edl")
     ledger = empty_omit_ledger()
@@ -153,6 +157,20 @@ def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
         "unresolved_high_salience": 0,
     }
     write_omit_ledger(ctx, ledger)
+    wav = ctx.final_path("vo_pickup", "synthesized", "vo_layup_seg_005.wav")
+    write_fixture_vo_wav(wav)
+    record_synthesis(
+        ctx,
+        {
+            "line_id": "vo_layup_seg_005",
+            "text": "Omitted line text for purge coverage.",
+            "targets_segment_id": "seg_005",
+            "placement": "before",
+            "delivery": "synthesize",
+        },
+        backend="mlx_audio",
+        out_wav=wav,
+    )
     ctx.write_json(
         "master/edl.json",
         {
@@ -196,6 +214,8 @@ def test_reconcile_edl_strips_omitted_layup_vo(tmp_path):
     edl = ctx.read_json("master/edl.json")
     assert all(c.get("line_id") != "vo_layup_seg_005" for c in edl["clips"])
     assert edl["vo_pickup_clip_count"] == 0
+    assert not wav.is_file()
+    assert synthesis_entry_for_line(ctx, "vo_layup_seg_005") is None
     assert air_contract_errors(ctx, ledger=ledger, edl=edl) == []
 
 

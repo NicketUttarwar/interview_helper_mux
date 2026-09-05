@@ -14,6 +14,22 @@ def _transition_line_id(after_id: str, before_id: str) -> str:
     return f"tr_{after_id}_{before_id}"
 
 
+def _pair_key(after_id: str, before_id: str) -> str:
+    return f"{after_id}->{before_id}"
+
+
+def _parse_pair_key(key: str) -> tuple[str, str] | None:
+    raw = str(key or "").strip()
+    if "->" not in raw:
+        return None
+    after_id, before_id = raw.split("->", 1)
+    after_id = after_id.strip()
+    before_id = before_id.strip()
+    if not after_id or not before_id:
+        return None
+    return after_id, before_id
+
+
 def transition_wav_path(ctx: RunContext, after_id: str, before_id: str) -> Path:
     out_dir = ctx.path("master", "transitions")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -37,11 +53,11 @@ def _transition_wav_usable(path: Path) -> bool:
 def current_pair_wav_usable(
     ctx: RunContext, after_id: str, before_id: str
 ) -> Path | None:
-    """On-disk WAV for this pair that can play. Ignores synthesis-report paperwork.
+    """On-disk WAV bytes that can play (existence only — no script_hash check).
 
-    During stage staging, ``ctx.path`` may point at an empty pending shadow. Prefer
-    that path when present; otherwise fall back to the committed final take so
-    vo_synthesize does not re-render a pair that already exists on disk.
+    Prefer ``resolve_transition_wav`` for completeness, incompleteness, reseat, and
+    mix last-chance. This helper remains for low-level "file exists" probes during
+    staging when audit may not be written yet.
     """
     if not after_id or not before_id:
         return None
@@ -191,6 +207,121 @@ def resolve_transition_wav(
     return None
 
 
+def _purge_transition_pair_wav(ctx: RunContext, after_id: str, before_id: str) -> int:
+    """Delete on-disk transition WAV + synthesis audit for this pair."""
+    removed = 0
+    lid = _transition_line_id(after_id, before_id)
+    for path in (
+        transition_wav_path(ctx, after_id, before_id),
+        ctx.final_path("master", "transitions", f"{lid}.wav"),
+    ):
+        if path.is_file():
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    try:
+        from interview_mux.vo_synthesis_audit import invalidate_synthesis_entries
+
+        invalidate_synthesis_entries(ctx, [lid])
+    except Exception:
+        pass
+    return removed
+
+
+def transition_spoken_texts(doc: dict[str, Any] | None) -> dict[str, str]:
+    """Map ``after->before`` → spoken text from a transitions document."""
+    out: dict[str, str] = {}
+    if not isinstance(doc, dict):
+        return out
+    for item in doc.get("transitions") or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        after_id = str(item.get("after_segment_id") or "").strip()
+        before_id = str(item.get("before_segment_id") or "").strip()
+        if not text or not after_id or not before_id:
+            continue
+        out[f"{after_id}->{before_id}"] = text
+    return out
+
+
+def maybe_propagate_transitions_spoken_text_change(
+    ctx: RunContext,
+    *,
+    prior_doc: dict[str, Any] | None,
+    new_doc: dict[str, Any],
+    stage: str | None = None,
+) -> dict[str, Any]:
+    """Cascade when spoken transition bridge text changes.
+
+    Purge stale pair WAVs/audit and unmark vo_synthesize / edl / mix so reseat
+    can regenerate bridges before master finalize.
+    """
+    if getattr(ctx, "_spoken_text_cascade_depth", 0):
+        return {"changed": [], "purged": [], "unmarked": [], "skipped": "reentrant"}
+    if not isinstance(new_doc, dict):
+        return {"changed": [], "purged": [], "unmarked": []}
+    prior = transition_spoken_texts(prior_doc)
+    new = transition_spoken_texts(new_doc)
+    changed_keys: list[str] = []
+    for key, text in new.items():
+        if prior.get(key) != text:
+            changed_keys.append(key)
+    for key in prior:
+        if key not in new:
+            changed_keys.append(key)
+    changed_keys = sorted(set(changed_keys))
+    if not changed_keys:
+        return {"changed": [], "purged": [], "unmarked": []}
+
+    stale: list[tuple[str, str]] = []
+    for key in changed_keys:
+        parsed = _parse_pair_key(key)
+        if not parsed:
+            continue
+        after_id, before_id = parsed
+        if key not in new:
+            # Removed pair — drop orphan audio.
+            if current_pair_wav_usable(ctx, after_id, before_id) is not None:
+                stale.append(parsed)
+            continue
+        # Spoken text changed for this pair — purge regardless of existence.
+        stale.append(parsed)
+
+    if not stale and not changed_keys:
+        return {"changed": [], "purged": [], "unmarked": []}
+
+    setattr(ctx, "_spoken_text_cascade_depth", 1)
+    try:
+        purged: list[str] = []
+        for after_id, before_id in stale:
+            _purge_transition_pair_wav(ctx, after_id, before_id)
+            purged.append(f"{after_id}->{before_id}")
+        unmarked: list[str] = []
+        try:
+            from interview_mux.vo_synthesis_audit import unmark_vo_script_cascade_stages
+
+            # Only unmark when we actually invalidated audio or text changed on a
+            # pair that already had consumers done.
+            if purged or any(ctx.is_done(s) for s in ("vo_synthesize", "edl", "mix")):
+                unmarked = unmark_vo_script_cascade_stages(ctx)
+        except Exception:
+            unmarked = []
+        if purged or unmarked:
+            ctx.log(
+                "Transition spoken text cascade: "
+                f"purged={len(purged)} unmarked={unmarked[:6]}",
+                level="warning",
+                stage=stage or "transitions_write",
+                detail={"purged": purged[:24], "unmarked": unmarked},
+            )
+        return {"changed": changed_keys, "purged": purged, "unmarked": unmarked}
+    finally:
+        setattr(ctx, "_spoken_text_cascade_depth", 0)
+
+
 def resync_spoken_transitions(ctx: RunContext, *, fail_closed: bool = False) -> list[str]:
     """Re-synth spoken transitions that resolve as missing/stale. Once per call.
 
@@ -210,17 +341,20 @@ def resync_spoken_transitions(ctx: RunContext, *, fail_closed: bool = False) -> 
         before_id = str(item.get("before_segment_id") or "")
         if not after_id or not before_id:
             continue
-        if current_pair_wav_usable(ctx, after_id, before_id) is None:
+        if resolve_transition_wav(ctx, after_id, before_id) is None:
             needed.append((after_id, before_id))
     if not needed:
         return []
+    # Drop stale bytes so Chatterbox cannot skip-fresh on existence alone.
+    for after_id, before_id in needed:
+        _purge_transition_pair_wav(ctx, after_id, before_id)
     synthesize_spoken_transitions(ctx, pairs=set(needed))
     still_bad: list[str] = []
     notes: list[str] = []
     for after_id, before_id in needed:
         key = f"{after_id}->{before_id}"
         notes.append(key)
-        if current_pair_wav_usable(ctx, after_id, before_id) is None:
+        if resolve_transition_wav(ctx, after_id, before_id) is None:
             still_bad.append(key)
     if still_bad:
         msg = (
@@ -599,10 +733,11 @@ def last_chance_synth_missing_clip(
             if key in attempted:
                 return None
             attempted.add(key)
-        existing = current_pair_wav_usable(ctx, after_id, before_id)
+        existing = resolve_transition_wav(ctx, after_id, before_id)
         if existing is None:
+            _purge_transition_pair_wav(ctx, after_id, before_id)
             synthesize_spoken_transitions(ctx, pairs={(after_id, before_id)})
-            path = current_pair_wav_usable(ctx, after_id, before_id)
+            path = resolve_transition_wav(ctx, after_id, before_id)
         else:
             path = existing
         if path is None:
@@ -694,36 +829,20 @@ def commit_current_transition_wavs(ctx: RunContext) -> list[str]:
 
 
 def current_transition_pairs_missing(ctx: RunContext) -> list[str]:
-    """Spoken current pairs in ``master/transitions.json`` with no usable WAV.
+    """Spoken current pairs in ``master/transitions.json`` with no hash-fresh WAV.
 
-    Completeness is the playable file, not synthesis-report audit match.
-    Leftover neighbor names (``…061…`` vs current ``055→058``) do not count.
+    Completeness requires ``resolve_transition_wav`` (script_hash match), not mere
+    file existence — rewritten bridge text must re-synth before master finalize.
     """
     missing: list[str] = []
     for after_id, before_id in spoken_transition_pairs(ctx):
-        if current_pair_wav_usable(ctx, after_id, before_id) is None:
+        if resolve_transition_wav(ctx, after_id, before_id) is None:
             missing.append(f"{after_id}->{before_id}")
     return missing
 
 
 PAIR_FREEZE_REL = "master/transitions_pair_freeze.json"
 DEFERRED_PAIRS_REL = "master/deferred_transition_pairs.json"
-
-
-def _pair_key(after_id: str, before_id: str) -> str:
-    return f"{after_id}->{before_id}"
-
-
-def _parse_pair_key(key: str) -> tuple[str, str] | None:
-    raw = str(key or "").strip()
-    if "->" not in raw:
-        return None
-    after_id, before_id = raw.split("->", 1)
-    after_id = after_id.strip()
-    before_id = before_id.strip()
-    if not after_id or not before_id:
-        return None
-    return after_id, before_id
 
 
 def read_transitions_pair_freeze(ctx: RunContext) -> dict[str, Any] | None:
@@ -876,7 +995,7 @@ def restamp_edl_transition_source_paths(ctx: RunContext) -> bool:
         after_id = str(clip.get("after_segment_id") or "")
         before_id = str(clip.get("before_segment_id") or "")
         wav = (
-            current_pair_wav_usable(ctx, after_id, before_id)
+            resolve_transition_wav(ctx, after_id, before_id)
             if after_id and before_id
             else None
         )
@@ -1240,12 +1359,14 @@ def ensure_pre_mix_transition_integrity(
     if synthesize and (_pre_mix_window(ctx) or current_transition_pairs_missing(ctx)):
         needed: set[tuple[str, str]] = set()
         for after_id, before_id in spoken_transition_pairs(ctx):
-            if current_pair_wav_usable(ctx, after_id, before_id) is None:
+            if resolve_transition_wav(ctx, after_id, before_id) is None:
                 needed.add((after_id, before_id))
         for after_id, before_id in adjacency_required_transition_pairs(ctx):
-            if current_pair_wav_usable(ctx, after_id, before_id) is None:
+            if resolve_transition_wav(ctx, after_id, before_id) is None:
                 needed.add((after_id, before_id))
         if needed:
+            for after_id, before_id in needed:
+                _purge_transition_pair_wav(ctx, after_id, before_id)
             try:
                 synthesize_spoken_transitions(ctx, pairs=needed)
                 report["synthesized"] = [f"{a}->{b}" for a, b in sorted(needed)]

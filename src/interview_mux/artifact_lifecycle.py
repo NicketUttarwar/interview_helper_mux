@@ -175,6 +175,21 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         if reason == f"invalidated_by:{consumer_stage}":
             # A stage must not deadlock on a stale stamp it just wrote.
             return None
+        # Producer rewriting its own disk path after upstream invalidation
+        # (e.g. transitions resume while transitions.json still marked stale
+        # by nugget_layup_compose) — clear stamp and allow regenerate.
+        producer_rel = STAGE_ARTIFACT_DISK_PATHS.get(str(consumer_stage or ""))
+        if producer_rel and producer_rel == rel:
+            meta = dict(meta)
+            meta.pop("stale", None)
+            meta.pop("stale_reason", None)
+            doc = dict(doc)
+            doc["_meta"] = meta
+            try:
+                ctx.write_json(rel, doc, skip_handoff=True)
+            except Exception:
+                pass
+            return None
         if rel == "understanding/content_brief.json" and reason.startswith("invalidated_by:"):
             from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
 
@@ -302,6 +317,23 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
             rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
             if rel in stamped and ctx.is_done(sid):
                 (Path(ctx.run_dir) / ".stage_done" / sid).unlink(missing_ok=True)
+            # Belt: always clear transitions done when its artifact was staled.
+            if sid == "transitions" and rel in stamped:
+                (Path(ctx.run_dir) / ".stage_done" / "transitions").unlink(missing_ok=True)
+                try:
+                    from interview_mux.delivery_guardrails import record_wasted_work
+
+                    record_wasted_work(
+                        ctx,
+                        event="invalidate_schedule_producer",
+                        stage="transitions",
+                        detail={
+                            "invalidated_by": from_stage,
+                            "resume_stage": "transitions",
+                        },
+                    )
+                except Exception:
+                    pass
     except Exception:
         pass
     return stamped

@@ -206,9 +206,60 @@ def reconcile_llm_gate_if_cleared(ctx: RunContext, stage_id: str) -> dict[str, A
     )
 
 
+def reconcile_sticky_needs_operator_job(
+    ctx: RunContext, job: dict[str, Any]
+) -> dict[str, Any]:
+    """Drop false mid-delivery needs_operator pauses (stale transitions / seed-order)."""
+    if str(job.get("status")) != "needs_operator":
+        return job
+    stage = str(job.get("stage") or job.get("current_stage") or "")
+    reason = str(job.get("message") or job.get("error") or "")
+    meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    if not isinstance(meta, dict):
+        meta = {}
+    from interview_mux.operator_gates import should_stamp_needs_operator
+
+    if should_stamp_needs_operator(stage, reason, meta=meta):
+        return job
+    if meta.get("needs_operator"):
+        try:
+
+            def _clear(m: dict[str, Any]) -> None:
+                m.pop("needs_operator", None)
+                m.pop("needs_operator_stage", None)
+                m.pop("needs_operator_reason", None)
+
+            ctx.mutate_run_meta(_clear)
+        except Exception:
+            pass
+    resume = stage or "transitions"
+    low = reason.lower()
+    if "transitions" in low or "marked stale" in low or "seed order" in low:
+        try:
+            from interview_mux.stage_completion import stage_artifact_incompleteness
+
+            if stage_artifact_incompleteness(ctx, "transitions"):
+                resume = "transitions"
+        except Exception:
+            resume = "transitions"
+    out = dict(job)
+    out["status"] = "idle"
+    out["mode"] = "delivery"
+    out["stage"] = resume
+    out["current_stage"] = None
+    out["message"] = f"Autopilot resume — next producer: {resume}"
+    out.pop("error", None)
+    return out
+
+
 def reconcile_operator_gate_job(ctx: RunContext, job: dict[str, Any]) -> dict[str, Any]:
     """Clear stale operator checkpoint gates once the checkpoint has been satisfied."""
-    if str(job.get("status")) != "gate":
+    status = str(job.get("status") or "")
+    if status == "needs_operator":
+        cleared = reconcile_sticky_needs_operator_job(ctx, job)
+        if cleared is not job:
+            return cleared
+    if status != "gate":
         return job
     stage = str(job.get("stage") or "")
     msg = str(job.get("message") or job.get("error") or "")

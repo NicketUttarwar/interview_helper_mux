@@ -172,8 +172,6 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path, monkeypatch) -> None
     ctx = isolated_run_ctx(tmp_path, "run_nuke_synth")
     top = ctx.path("vo_pickup", "line_1.wav")
     sub = ctx.path("vo_pickup", "synthesized", "line_2.wav")
-    _wav(top)
-    _wav(sub)
     ctx.write_json(
         "understanding/gap_report.json",
         {
@@ -184,6 +182,8 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path, monkeypatch) -> None
         },
         skip_handoff=True,
     )
+    _wav(top)
+    _wav(sub)
     record_synthesis(ctx, _base_line(line_id="line_1"), backend="mlx_audio", out_wav=top)
     record_synthesis(
         ctx,
@@ -202,3 +202,153 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path, monkeypatch) -> None
     assert synthesis_entry_for_line(ctx, "line_2") is None
     assert not ctx.is_done("vo_synthesize")
     assert not ctx.is_done("edl_narrative_audit")
+
+
+def test_gap_report_text_rewrite_purges_and_unmarks_cascade(tmp_path, monkeypatch) -> None:
+    """Layup/gap text change must purge stale WAV and unmark adjudicate→synth→reseat."""
+    _patch_vo_qc_off(monkeypatch)
+    from interview_mux.vo_synthesis_audit import maybe_propagate_gap_spoken_text_change
+
+    ctx = isolated_run_ctx(tmp_path, "run_spoken_cascade")
+    wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    _wav(wav)
+    original = _base_line()
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [original]},
+        skip_handoff=True,
+    )
+    record_synthesis(ctx, original, backend="mlx_audio", out_wav=wav)
+    for sid in (
+        "vo_line_adjudicate",
+        "vo_synthesize",
+        "edl",
+        "mix",
+        "master_finalize",
+    ):
+        ctx.mark_done(sid, force=True)
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "journey_milestones": {"g1_complete": True},
+        },
+        skip_handoff=True,
+    )
+
+    rewritten = _base_line(text="What made the deal possible after the rewrite?")
+    new_report = {"interviewer_lines": [rewritten]}
+    result = maybe_propagate_gap_spoken_text_change(
+        ctx,
+        prior_report={"interviewer_lines": [original]},
+        new_report=new_report,
+        stage="nugget_layup_compose",
+    )
+    assert "line_1" in result["purged"]
+    assert not wav.is_file()
+    assert synthesis_entry_for_line(ctx, "line_1") is None
+    assert not ctx.is_done("vo_line_adjudicate")
+    assert not ctx.is_done("vo_synthesize")
+    assert not ctx.is_done("edl")
+    assert not ctx.is_done("mix")
+    meta = ctx.read_json("run_meta.json")
+    assert meta["journey_milestones"]["g1_complete"] is False
+
+
+def test_gap_report_write_hook_cascades_on_text_change(tmp_path, monkeypatch) -> None:
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_gap_write_hook")
+    wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    _wav(wav)
+    original = _base_line()
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [original]},
+        skip_handoff=True,
+    )
+    record_synthesis(ctx, original, backend="mlx_audio", out_wav=wav)
+    ctx.mark_done("vo_synthesize", force=True)
+    ctx.mark_done("vo_line_adjudicate", force=True)
+
+    rewritten = _base_line(text="Needle-in-a-haystack capture method matters.")
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [rewritten]},
+        stage_key="nugget_layup_compose",
+        skip_handoff=True,
+    )
+    assert not wav.is_file()
+    assert synthesis_entry_for_line(ctx, "line_1") is None
+    assert not ctx.is_done("vo_synthesize")
+    assert not ctx.is_done("vo_line_adjudicate")
+
+
+def test_synth_writeback_matching_text_does_not_purge(tmp_path, monkeypatch) -> None:
+    """Guard writeback that aligns gap text to the just-rendered WAV must not delete it."""
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_writeback_safe")
+    wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    rendered = _base_line(text="Cell biopsy is framed as a third generation of liquid biopsy.")
+    # Gap starts with different planner text, then synth + writeback align it.
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [_base_line(text="Planner draft before synth.")]},
+        skip_handoff=True,
+    )
+    _wav(wav)
+    # Simulate synth completing for rendered text, then writeback.
+    record_synthesis(ctx, rendered, backend="mlx_audio", out_wav=wav)
+    ctx.mark_done("vo_synthesize", force=True)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [rendered]},
+        stage_key="vo_synthesize",
+        skip_handoff=True,
+    )
+    assert wav.is_file()
+    assert synthesis_entry_for_line(ctx, "line_1") is not None
+    assert ctx.is_done("vo_synthesize")
+
+
+def test_promote_gap_report_cascades_spoken_text(tmp_path, monkeypatch) -> None:
+    """Staging promote of gap_report must purge when spoken text diverges."""
+    from interview_mux.file_store import write_json as fs_write_json
+    from interview_mux.write_staging import promote_staged_side_effects, staging_root
+
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_promote_gap_cascade")
+    wav = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    _wav(wav)
+    original = _base_line()
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {"interviewer_lines": [original]},
+        skip_handoff=True,
+    )
+    record_synthesis(ctx, original, backend="mlx_audio", out_wav=wav)
+    ctx.mark_done("vo_synthesize", force=True)
+
+    stage = "nugget_layup_compose"
+    staged = staging_root(ctx, stage) / "understanding" / "gap_report.json"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    fs_write_json(
+        staged,
+        {"interviewer_lines": [_base_line(text="Needle-in-a-haystack capture method.")]},
+    )
+    promote_staged_side_effects(ctx, ("understanding/gap_report.json",), stage_id=stage)
+    assert not wav.is_file()
+    assert synthesis_entry_for_line(ctx, "line_1") is None
+    assert not ctx.is_done("vo_synthesize")
+
+
+def test_synthesize_clean_without_audit_not_seated(tmp_path, monkeypatch) -> None:
+    """Synthesize delivery must not seat unaudited clean/normalized WAVs."""
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_clean_no_audit")
+    clean = ctx.path("vo_pickup", "clean", "line_1.wav")
+    _wav(clean)
+    line = _base_line(delivery="synthesize")
+    assert resolve_vo_pickup_path(ctx, line) is None
+    record = _base_line(delivery="record")
+    assert resolve_vo_pickup_path(ctx, record) == clean
