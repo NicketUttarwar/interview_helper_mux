@@ -282,6 +282,11 @@ def reconcile_edl_with_omit_ledger(
         try:
             from interview_mux.opening_orientation import is_episode_orientation
 
+            orient_meta = gap_report.get("opening_orientation")
+            if isinstance(orient_meta, dict) and orient_meta.get("required"):
+                oid = str(orient_meta.get("line_id") or "").strip()
+                if oid:
+                    protected_line_ids.add(oid)
             for line in gap_report.get("interviewer_lines") or []:
                 if not isinstance(line, dict) or line.get("skipped_optional"):
                     continue
@@ -610,8 +615,69 @@ def stamp_gap_report_omit_skips(ctx: RunContext) -> int:
     return stamped
 
 
+def revive_required_opening_orientation(ctx: RunContext) -> dict[str, Any]:
+    """Drop omit skips that fight a required opening_orientation still on air.
+
+    exec_5404: ORIENTATION_ALWAYS revived ``vo_preface_*`` into the EDL while
+    omit_ledger still held ``gap_line_skip`` + ``skipped_optional`` — PMQ then
+    failed both ``omit_ledger_air_contract`` and ``opening_orientation_contract``.
+    """
+    notes: list[str] = []
+    if not ctx.artifact_exists("understanding/gap_report.json"):
+        return {"changed": False, "notes": notes}
+    try:
+        gap = ctx.read_json("understanding/gap_report.json")
+    except Exception:
+        return {"changed": False, "notes": notes}
+    if not isinstance(gap, dict):
+        return {"changed": False, "notes": notes}
+    meta = gap.get("opening_orientation")
+    if not isinstance(meta, dict) or not meta.get("required"):
+        return {"changed": False, "notes": notes}
+    oid = str(meta.get("line_id") or "").strip()
+    if not oid:
+        return {"changed": False, "notes": notes}
+
+    changed = False
+    lines = list(gap.get("interviewer_lines") or [])
+    new_lines: list[Any] = []
+    for row in lines:
+        if not isinstance(row, dict):
+            new_lines.append(row)
+            continue
+        if str(row.get("line_id") or "") != oid:
+            new_lines.append(row)
+            continue
+        updated = dict(row)
+        if updated.get("skipped_optional") or updated.get("air_script_omit"):
+            updated["skipped_optional"] = False
+            updated.pop("air_script_omit", None)
+            changed = True
+            notes.append(f"cleared_gap_skip:{oid}")
+        new_lines.append(updated)
+    if changed:
+        gap = dict(gap)
+        gap["interviewer_lines"] = new_lines
+        ctx.write_json("understanding/gap_report.json", gap, skip_handoff=True)
+
+    if ctx.artifact_exists(OMIT_LEDGER_REL):
+        try:
+            ledger = ctx.read_json(OMIT_LEDGER_REL)
+        except Exception:
+            ledger = None
+        if isinstance(ledger, dict):
+            before = len(active_entries(ledger, kind="gap_line_skip", subject_id=oid))
+            if before:
+                ledger = supersede_entry(ledger, subject_id=oid, kind="gap_line_skip")
+                write_omit_ledger(ctx, ledger)
+                changed = True
+                notes.append(f"superseded_omit_skips:{before}:{oid}")
+    return {"changed": changed, "notes": notes, "line_id": oid}
+
+
 def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
     """Align gap report + EDL with the omit ledger before post-master QC."""
+    revive = revive_required_opening_orientation(ctx)
     errors = air_contract_errors(ctx)
     healable = {
         e
@@ -622,9 +688,9 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
         or e.startswith("omit_ledger_omitted_line_still_in_edl:")
         or e.startswith("omit_ledger_orientation_replacement_missing:")
     }
-    if not healable:
-        return {"healed": False, "errors": errors, "notes": []}
-    notes: list[str] = []
+    if not healable and not revive.get("changed"):
+        return {"healed": False, "errors": errors, "notes": list(revive.get("notes") or [])}
+    notes: list[str] = list(revive.get("notes") or [])
     if "omit_ledger_order_lock_stale" in healable:
         rebuild_and_write_omit_ledger(ctx)
         notes.append("rebuilt_stale_order_lock")
@@ -652,15 +718,26 @@ def heal_omit_ledger_air_contract(ctx: RunContext) -> dict[str, Any]:
                         notes.append("stamped_opening_orientation_meta")
         except Exception:
             pass
+    # Re-run revive after orientation meta stamps / rebuilds.
+    revive2 = revive_required_opening_orientation(ctx)
+    notes.extend(list(revive2.get("notes") or []))
     stamped = stamp_gap_report_omit_skips(ctx)
     if stamped:
         notes.append(f"stamped_gap_skips:{stamped}")
+    # Required orientation must stay audible — revive again after stamp.
+    revive3 = revive_required_opening_orientation(ctx)
+    notes.extend(list(revive3.get("notes") or []))
     rec = reconcile_edl_with_omit_ledger(ctx)
     removed = list(rec.get("removed") or [])
     if removed:
         notes.append(f"stripped_edl:{len(removed)}")
     remaining = air_contract_errors(ctx)
-    return {"healed": True, "notes": notes, "errors": remaining, "removed": removed}
+    return {
+        "healed": True,
+        "notes": notes,
+        "errors": remaining,
+        "removed": removed,
+    }
 
 
 def build_omit_ledger(

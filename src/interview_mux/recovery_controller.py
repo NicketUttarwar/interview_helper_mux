@@ -812,13 +812,21 @@ def playbook_assembly_not_rendered(ctx: RunContext) -> list[str]:
 
 
 def playbook_seed_order_prereq(ctx: RunContext, exc: BaseException) -> str:
-    """Unmark the named seed-order prereq and return the resume stage."""
+    """Unmark the named seed-order prereq and return the resume stage.
+
+    ``g1_vo_open`` is pickup-only: never unmark ``vo_line_adjudicate``. Re-running
+    adjudicate rewrites gap text and purges freshly promoted WAVs
+    (``wav_content_mismatch``), then G1 synth hits ``run_busy`` under the same
+    execute lock — forensics thrash on the same campaign run.
+    """
     import re
 
     from interview_mux.delivery_guardrails import resolve_vo_synth_seed_resume
 
     m = re.search(r"complete\s+(\S+)\s+before", str(exc), flags=re.IGNORECASE)
     raw = m.group(1).strip() if m else ""
+    if raw == "g1_vo_open":
+        return "vo_synthesize"
     pin = resolve_vo_synth_seed_resume(raw) or raw
     if pin:
         _unmark_stages(ctx, pin)

@@ -602,7 +602,20 @@ def _handle_listen_delight_failure(
         "advisory": True,
         "remutate": remutate,
     }
-    if not remutate.get("exhausted"):
+    # Post-master ship gate: never rewind to mix/seams — that thrashes finalize
+    # after loudnorm (exec_5404). Record advisory / pick-best only.
+    if pass_phase == "post_master":
+        remutate = {
+            **(remutate if isinstance(remutate, dict) else {}),
+            "exhausted": True,
+            "skipped_at_ship": True,
+            "from_stage": None,
+        }
+        audit_patch["remutate"] = remutate
+        audit_patch["pick_best"] = apply_best_quality_candidate(
+            ctx, family="listen_delight"
+        )
+    elif not remutate.get("exhausted"):
         applied = apply_listen_delight_remutate(ctx, remutate)
         audit_patch["remutate_applied"] = applied
     elif family_attempts_exhausted(ctx, "listen_delight"):

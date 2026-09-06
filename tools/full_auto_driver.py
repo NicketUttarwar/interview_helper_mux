@@ -7876,6 +7876,34 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 {"mode": "delivery", "from_stage": "vo_synthesize"}
                             )
                             continue
+                        # Seating already present: retry synth/vo_synthesize only.
+                        # Re-running adjudicate rewrites text → purges WAVs → thrash.
+                        adj_seeded = False
+                        try:
+                            from interview_mux.delivery_guardrails import (
+                                seed_stage_complete as _seed_ok,
+                            )
+
+                            ctx_g1 = _RC(RUN_ID, create=False)
+                            adj_seeded = _seed_ok(
+                                ctx_g1, "vo_line_adjudicate"
+                            ) or (
+                                ctx_g1.is_done("vo_line_adjudicate")
+                                and ctx_g1.artifact_exists(
+                                    "understanding/gap_report.json"
+                                )
+                            )
+                        except Exception:
+                            adj_seeded = False
+                        if adj_seeded:
+                            log(
+                                "G1 synthesize incomplete — adjudicate already "
+                                "seeded; resume vo_synthesize without re-adjudicate"
+                            )
+                            execute(
+                                {"mode": "delivery", "from_stage": "vo_synthesize"}
+                            )
+                            continue
                         log(
                             "G1 synthesize incomplete — resume vo_line_adjudicate"
                         )

@@ -236,8 +236,23 @@ def passes_catastrophic_floors(ctx: RunContext, scores: dict[str, Any] | None = 
     reasons: list[str] = []
     floors = catastrophic_floors()
     master = ctx.final_path("master", "master.wav")
-    if not master.is_file() or master.stat().st_size < 1000:
-        reasons.append("missing_or_empty_master")
+    master_ok = master.is_file() and master.stat().st_size >= 1000
+    if not master_ok:
+        # During master_finalize the loudnorm promote may still be pending —
+        # assembly.wav (or a non-trivial pending master) stands in so aspirational
+        # soft-path is not blocked by missing_or_empty_master (exec_5404).
+        asm = ctx.final_path("master", "assembly.wav")
+        pending = (
+            ctx.run_dir
+            / ".pending_writes"
+            / "master_finalize"
+            / "master"
+            / "master.wav"
+        )
+        asm_ok = asm.is_file() and asm.stat().st_size >= 1000
+        pend_ok = pending.is_file() and pending.stat().st_size >= 1000
+        if not (asm_ok or pend_ok):
+            reasons.append("missing_or_empty_master")
     delight = scores or {}
     if isinstance(scores, dict) and "listen_delight" in scores:
         delight = scores.get("listen_delight") or {}

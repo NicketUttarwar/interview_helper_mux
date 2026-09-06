@@ -192,11 +192,29 @@ def classify_heal_error(
                 action="skip_interviewer_g1",
                 detail="gap-fill skipped — interviewer G1 is not a block",
             )
+        # g1_vo_open with adjudicate already seeded → synthesize only (no rewrite thrash).
+        from_stage = "vo_line_adjudicate"
+        detail = "adjudicate then synthesize — never rewind nugget_layup_compose"
+        if ctx is not None and ("g1_vo_open" in low or "complete g1_vo_open" in low):
+            try:
+                from interview_mux.delivery_guardrails import seed_stage_complete
+
+                if seed_stage_complete(ctx, "vo_line_adjudicate") or (
+                    ctx.is_done("vo_line_adjudicate")
+                    and ctx.artifact_exists("understanding/gap_report.json")
+                ):
+                    from_stage = "vo_synthesize"
+                    detail = (
+                        "g1_vo_open with adjudicate seeded — synthesize_g1 only, "
+                        "do not re-adjudicate"
+                    )
+            except Exception:
+                pass
         return HealRoute(
             family=FAMILY_G1_MISSING,
-            from_stage="vo_line_adjudicate",
+            from_stage=from_stage,
             action="synthesize_g1",
-            detail="adjudicate then synthesize — never rewind nugget_layup_compose",
+            detail=detail,
         )
 
     if (

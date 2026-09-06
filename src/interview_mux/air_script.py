@@ -1305,9 +1305,10 @@ def filter_gap_lines_for_air_script(
     for line in gap_report.get("interviewer_lines") or []:
         if not isinstance(line, dict):
             continue
-        if _is_orientation_line(line) and (
-            skip_orientation or _orientation_line_waived(line, gap_report)
-        ):
+        # Durable omit only when opening_orientation meta says so. Stale
+        # air_script_omit / skipped_optional on a *required* orientation must not
+        # win — ORIENTATION_ALWAYS revives (forensics: count=0 expected=1).
+        if _is_orientation_line(line) and skip_orientation:
             skipped = dict(line)
             skipped["skipped_optional"] = True
             skipped["air_script_omit"] = True

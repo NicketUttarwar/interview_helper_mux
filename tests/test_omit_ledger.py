@@ -291,6 +291,107 @@ def test_heal_omit_ledger_stamps_gap_line_and_strips_edl():
     assert air_contract_errors(ctx) == []
 
 
+def test_revive_required_opening_orientation_clears_omit_conflict():
+    """exec_5404: required orientation in EDL must beat stale gap_line_skip."""
+    from interview_mux.omit_ledger import (
+        air_contract_errors,
+        heal_omit_ledger_air_contract,
+        write_omit_ledger,
+    )
+    from interview_mux.opening_orientation import validate_opening_orientation
+
+    ctx = RunContext("exec_omit_revive_orient", create=True)
+    ledger = empty_omit_ledger()
+    ledger["entries"] = [
+        mint_entry(
+            kind="gap_line_skip",
+            subject_id="vo_preface_precision_oncology",
+            target_segment_id="seg_001",
+            decision="defer",
+            reason_code="g1_skipped_optional",
+            owner_stage="g1_vo_pickup",
+            compensating_path="operator_skip_optional",
+            seq=1,
+        )
+    ]
+    ledger["summary"] = {
+        "active_count": 1,
+        "by_kind": {"gap_line_skip": 1},
+        "compensated_count": 1,
+        "unresolved_high_salience": 0,
+    }
+    write_omit_ledger(ctx, ledger)
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "opening_orientation": {
+                "line_id": "vo_preface_precision_oncology",
+                "required": True,
+                "sequence": "intro_music_body",
+            },
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_preface_precision_oncology",
+                    "line_category": "episode_preface",
+                    "episode_orientation": True,
+                    "skipped_optional": True,
+                    "gap_type": "missing_setup",
+                    "targets_segment_id": "seg_001",
+                    "text": "Welcome — today we talk precision oncology with our guest.",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                    "orientation_missions": [
+                        "guest_identity",
+                        "conversation_topic",
+                        "listener_stakes",
+                    ],
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "master/edl.json",
+        {
+            "version": 1,
+            "ordered_segment_ids": ["seg_001"],
+            "timeline_duration_ms": 12_000,
+            "clips": [
+                {
+                    "type": "vo_pickup",
+                    "line_id": "vo_preface_precision_oncology",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "timeline_start_ms": 0,
+                    "duration_ms": 8_000,
+                    "source_path": "vo_pickup/synthesized/vo_preface_precision_oncology.wav",
+                },
+                {
+                    "type": "speech",
+                    "segment_id": "seg_001",
+                    "source_start_ms": 0,
+                    "source_end_ms": 4_000,
+                    "timeline_start_ms": 8_000,
+                    "duration_ms": 4_000,
+                },
+            ],
+            "vo_pickup_clip_count": 1,
+        },
+        skip_handoff=True,
+    )
+    assert any("still_in_edl" in e for e in air_contract_errors(ctx))
+    report = heal_omit_ledger_air_contract(ctx)
+    assert report.get("healed") is True or air_contract_errors(ctx) == []
+    gap = ctx.read_json("understanding/gap_report.json")
+    assert gap["interviewer_lines"][0].get("skipped_optional") is False
+    assert air_contract_errors(ctx) == []
+    # Orientation line is live again (music marker grammar is a separate check).
+    orient_errs = validate_opening_orientation(
+        gap_report=gap, edl=ctx.read_json("master/edl.json")
+    )
+    assert not any("opening_orientation_count=" in e for e in orient_errs)
+
+
 def test_air_contract_accepts_native_omitted_orientation_as_replacement():
     """exec_2058-style: opening layup suppressed for orientation, then native-open omitted it."""
     ctx = RunContext("exec_omit_native_orient", create=True)

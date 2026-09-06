@@ -64,3 +64,29 @@ def test_register_and_pick_best_candidate(tmp_path):
     applied = apply_best_quality_candidate(ctx, family="listen_delight")
     assert applied.get("ok")
     assert master.read_bytes().startswith(b"RIFF_high_score")
+
+
+def test_catastrophic_floors_accept_assembly_when_master_pending(tmp_path, monkeypatch):
+    """exec_5404: ship delight during finalize must not fail missing_or_empty_master."""
+    from interview_mux.aspirational_quality import passes_catastrophic_floors
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "exec_cata_asm")
+    asm = ctx.final_path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + b"\x00" * 2000)
+    _write_raw(
+        ctx,
+        "mastering/listen_delight_audit.json",
+        {
+            "overall": 0.85,
+            "dimensions": {"cut_integrity": 0.9},
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.air_script_structural_ok",
+        lambda _ctx: True,
+    )
+    ok, reasons = passes_catastrophic_floors(ctx)
+    assert ok is True
+    assert "missing_or_empty_master" not in reasons

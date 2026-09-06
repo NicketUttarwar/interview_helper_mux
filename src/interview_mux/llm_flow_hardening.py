@@ -425,6 +425,101 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                 except Exception:
                     if ctx.is_done(earlier):
                         continue
+                # Orphan WAV: assembly present but .stage_done cleared → promote,
+                # do not block mix/junction/finalize (exec_5404 seed thrash).
+                if earlier == "assembly_preview":
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            assembly_wav_present,
+                            promote_complete_orphan_stage_done,
+                            seed_stage_complete as _seed_ok,
+                        )
+
+                        if assembly_wav_present(ctx):
+                            promote_complete_orphan_stage_done(
+                                ctx, ("assembly_preview",)
+                            )
+                            if _seed_ok(ctx, "assembly_preview") or assembly_wav_present(
+                                ctx
+                            ):
+                                continue
+                    except Exception:
+                        pass
+                # Aspiration delight: waiver (or audit+auto-waive) must not block
+                # post-mix consumers after Phase A audio already exists.
+                if earlier == "listen_delight_audit":
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            ensure_listen_delight_waiver_unattended,
+                            listen_delight_waived_unattended,
+                        )
+
+                        if listen_delight_waived_unattended(ctx):
+                            continue
+                        if stage_key in {
+                            "mix",
+                            "junction_snip_qa",
+                            "master_finalize",
+                            "music_palette_compose",
+                            "sfx_prompt_craft",
+                            "mmaudio_sfx",
+                        } and (
+                            ctx.artifact_exists("master/assembly.wav")
+                            or ctx.artifact_exists("master/assembly_preview.wav")
+                        ):
+                            if ctx.artifact_exists(
+                                "mastering/listen_delight_audit.json"
+                            ):
+                                ensure_listen_delight_waiver_unattended(ctx)
+                            if listen_delight_waived_unattended(ctx):
+                                continue
+                    except Exception:
+                        pass
+                # Junction autopsy committed for live assembly size but mtime skew
+                # after mix touch — promote orphan rather than finalize thrash.
+                if earlier == "junction_snip_qa" and stage_key in {
+                    "master_finalize",
+                    "master_transcript_build",
+                }:
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            promote_complete_orphan_stage_done,
+                            seed_stage_complete as _seed_ok,
+                        )
+                        from interview_mux.homunculus.agenda import (
+                            stage_outputs_present,
+                        )
+
+                        if stage_outputs_present(ctx, "junction_snip_qa"):
+                            promote_complete_orphan_stage_done(
+                                ctx, ("junction_snip_qa",)
+                            )
+                            if _seed_ok(ctx, "junction_snip_qa"):
+                                continue
+                    except Exception:
+                        pass
+                # Remutate can clear .stage_done on air_script_seams while plan +
+                # mix remain — promote rather than rewind past a seated master path.
+                if earlier in {"air_script_seams", "transitions"} and stage_key in {
+                    "mix",
+                    "junction_snip_qa",
+                    "master_finalize",
+                }:
+                    try:
+                        from interview_mux.delivery_guardrails import (
+                            promote_complete_orphan_stage_done,
+                            seed_stage_complete as _seed_ok,
+                        )
+                        from interview_mux.homunculus.agenda import (
+                            stage_outputs_present,
+                        )
+
+                        if stage_outputs_present(ctx, earlier):
+                            promote_complete_orphan_stage_done(ctx, (earlier,))
+                            if _seed_ok(ctx, earlier):
+                                continue
+                    except Exception:
+                        pass
                 # Assembly already rendered: missing transition-pair WAVs are
                 # mix last-chance work, not a vo_synthesize seed-front rewind.
                 if (

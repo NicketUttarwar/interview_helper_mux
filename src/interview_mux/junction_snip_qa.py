@@ -2200,8 +2200,34 @@ def _persist_terminal_autopsy(
     report: dict[str, Any] | None = None,
     edl: dict[str, Any] | None = None,
 ) -> None:
-    """Always leave seam_autopsy.json so master_finalize is not blocked on a hole."""
-    if ctx.artifact_exists("master/seam_autopsy.json"):
+    """Always leave a seam_autopsy that is not older than assembly.wav."""
+    from interview_mux.homunculus.agenda import (
+        _junction_commitment_matches_assembly,
+        _producer_older_than_assembly,
+    )
+
+    seam_ok = ctx.artifact_exists("master/seam_autopsy.json") and (
+        not _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
+        or _junction_commitment_matches_assembly(ctx)
+    )
+    if seam_ok:
+        # Still bump mtime when commitment matches but file looks older so
+        # hollow-done / seed_stage_complete stay stable across mix touches.
+        if (
+            ctx.artifact_exists("master/seam_autopsy.json")
+            and _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
+            and _junction_commitment_matches_assembly(ctx)
+        ):
+            try:
+                from interview_mux.seam_autopsy import refresh_autopsy_commitment
+
+                refresh_autopsy_commitment(ctx)
+            except Exception:
+                try:
+                    path = ctx.final_path("master", "seam_autopsy.json")
+                    path.touch()
+                except Exception:
+                    pass
         return
     doc = edl
     if not isinstance(doc, dict) and ctx.artifact_exists("master/edl.json"):

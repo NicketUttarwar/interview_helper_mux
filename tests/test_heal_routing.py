@@ -76,6 +76,39 @@ def test_g1_vo_open_seed_order_routes_to_adjudicate(tmp_path: Path) -> None:
     assert route.action == "synthesize_g1"
 
 
+def test_g1_vo_open_with_seeded_adjudicate_skips_readjudicate(tmp_path: Path) -> None:
+    """Forensics: g1_vo_open after seating must synthesize only — no rewrite thrash."""
+    ctx = isolated_run_ctx(tmp_path, "heal_g1_seeded")
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "gaps": [],
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_layup_seg_001",
+                    "text": "hi",
+                    "gap_type": "nugget_layup",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.mark_done("vo_line_adjudicate", force=True)
+    route = classify_heal_error(
+        "seed order: complete g1_vo_open before running vo_synthesize",
+        ctx,
+        stage="vo_synthesize",
+    )
+    assert route is not None
+    assert route.family == FAMILY_G1_MISSING
+    assert route.action == "synthesize_g1"
+    assert route.from_stage == "vo_synthesize"
+    assert "re-adjudicate" in (route.detail or "")
+
+
 def test_vo_adjudicate_stale_routes_to_adjudicate(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "heal_adj")
     route = classify_heal_error(

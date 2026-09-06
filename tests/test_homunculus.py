@@ -1608,6 +1608,41 @@ def test_mix_outputs_absent_when_assembly_older_than_edl() -> None:
     assert "junction_snip_qa" in remaining_stages(ctx, "delivery")
 
 
+def test_junction_outputs_present_when_commitment_matches_touched_assembly() -> None:
+    """exec_5404: assembly mtime bump alone must not hollow a committed autopsy."""
+    import json
+    import os
+    import time
+
+    from interview_mux.homunculus.agenda import stage_outputs_present
+
+    ctx = _ctx_010()
+    asm = ctx.final_path("master", "assembly.wav")
+    edl = ctx.final_path("master", "edl.json")
+    autopsy = ctx.final_path("master", "seam_autopsy.json")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    payload = b"RIFF" + b"\x00" * 4096
+    asm.write_bytes(payload)
+    edl.write_text("{}", encoding="utf-8")
+    autopsy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "commitment": {
+                    "status": "committed",
+                    "assembly": {"exists": True, "size": len(payload)},
+                    "reasons": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    now = time.time()
+    os.utime(autopsy, (now - 60, now - 60))
+    os.utime(asm, (now, now))
+    assert stage_outputs_present(ctx, "junction_snip_qa") is True
+
+
 def test_edl_outputs_absent_when_selection_order_drifted() -> None:
     from interview_mux.homunculus.agenda import stage_outputs_present
     from interview_mux.order_hash import stamp_order_hash

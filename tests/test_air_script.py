@@ -469,6 +469,57 @@ def test_fail_open_without_plan(tmp_path):
     assert filter_gap_lines_for_air_script(gap, None) is gap
 
 
+def test_required_orientation_revives_stale_air_script_omit(tmp_path):
+    """Required opening_orientation meta wins over stale air_script_omit flags."""
+    plan = {
+        "air_script": {
+            "beats": [
+                {
+                    "id": "b0",
+                    "segment_id": "seg_001",
+                    "montage_move": "vo_setup",
+                    "line_id": "vo_preface_precision_oncology",
+                }
+            ],
+            "vo_seats": {
+                "seated_line_ids": ["vo_preface_precision_oncology"],
+                "omitted_line_ids": [],
+                "orientation_id": "vo_preface_precision_oncology",
+            },
+        }
+    }
+    gap = {
+        "opening_orientation": {
+            "line_id": "vo_preface_precision_oncology",
+            "required": True,
+            "target_segment_id": "seg_001",
+        },
+        "interviewer_lines": [
+            {
+                "line_id": "vo_preface_precision_oncology",
+                "gap_type": "missing_setup",
+                "targets_segment_id": "seg_001",
+                "placement": "before",
+                "delivery": "synthesize",
+                "line_category": "episode_preface",
+                "episode_orientation": True,
+                "skipped_optional": True,
+                "air_script_omit": True,
+                "skip_reason_code": "air_script_omit_sync",
+                "text": "Precision oncology orients the listener.",
+            }
+        ],
+    }
+    filtered = filter_gap_lines_for_air_script(gap, plan)
+    orient = next(
+        ln
+        for ln in filtered["interviewer_lines"]
+        if ln.get("line_id") == "vo_preface_precision_oncology"
+    )
+    assert orient.get("skipped_optional") is False
+    assert not orient.get("air_script_omit")
+
+
 def test_opening_layup_suppressed_when_orientation_owns_slot(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "exec_air_open_adj")
     ordered = ["seg_001", "seg_002"]

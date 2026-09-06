@@ -229,7 +229,29 @@ def phase_a_sealed(ctx: RunContext) -> bool:
 
 
 def music_epoch_complete(ctx: RunContext) -> bool:
-    """Canonical predicate: Phase A stable + music chain sealed + SDP WAV parity."""
+    """Canonical predicate: Phase A stable + music chain sealed + SDP WAV parity.
+
+    When ``delivery_epoch.music_complete_at`` is already stamped and SDP asset
+    WAVs are still on disk, trust the stamp even if MUSIC_BEFORE_MIX
+    ``.stage_done`` markers were later cleared (orphan/heal thrash). Re-burning
+    MusicGen because adjudicate went hollow is forbidden.
+    """
+    epoch = read_delivery_epoch(ctx)
+    if epoch.get("music_complete_at"):
+        try:
+            from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+            if not missing_sdp_asset_wavs(ctx):
+                # Re-seat hollow music markers so seed_stage_complete consumers agree.
+                for sid in MUSIC_BEFORE_MIX:
+                    if not ctx.is_done(sid):
+                        try:
+                            ctx.mark_done(sid, force=True)
+                        except Exception:
+                            pass
+                return True
+        except Exception:
+            pass
     stable, _ = delivery_stable_for_music(ctx)
     if not stable:
         return False
@@ -647,6 +669,21 @@ def promote_complete_orphan_stage_done(ctx: RunContext, stages: tuple[str, ...] 
         if ctx.is_done(sid):
             continue
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+        if not rel:
+            # WAV-first producers (assembly_preview/mix) may live only in
+            # PROTECTED_DELIVERY_OUTPUTS — still promote when outputs are complete.
+            try:
+                from interview_mux.homunculus.agenda import (
+                    PROTECTED_CORE_STAGES,
+                    PROTECTED_DELIVERY_OUTPUTS,
+                )
+
+                outs = PROTECTED_DELIVERY_OUTPUTS.get(sid) or PROTECTED_CORE_STAGES.get(
+                    sid
+                ) or ()
+                rel = outs[0] if outs else None
+            except Exception:
+                rel = None
         if not rel or not ctx.artifact_exists(rel):
             continue
         try:

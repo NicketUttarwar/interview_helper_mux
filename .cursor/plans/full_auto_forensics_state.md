@@ -4,19 +4,20 @@
 - **INPUT_FILE:** mohan_uttarwar_podcast_transforming_cancer_science_direct.mp3
 - **run_id:** exec_5404_d19c15b58ab4_20260905T215237Z
 - **fresh_launches:** 1
-- **driver_restarts:** 0
+- **driver_restarts:** 6
 - **started_at:** 2026-09-05T21:52:37Z
-- **last_progress_at:** 2026-09-05T21:52:37Z
-- **driver_alive:** true
-- **stages_done:** 0/69
-- **current_stage:** (launching)
-- **g1_complete:** false
-- **intervention_count:** 0
+- **last_progress_at:** 2026-09-06T02:19:42Z
+- **driver_alive:** false
+- **stages_done:** 71
+- **current_stage:** shipped
+- **g1_complete:** true
+- **intervention_count:** 7
 - **last_predicate:** null
-- **last_predicate_flipped:** null
+- **last_predicate_flipped:** true
 - **resume_from_stage:** null
 - **open_blockers:** []
-- **patches_this_session:** []
+- **patches_this_session:** ["g1_vo_open no re-adjudicate", "required orientation revives stale omit", "music_complete_at stamp survives cleared stage_done", "assembly_preview STAGE_ARTIFACT + seed skip waived delight", "junction commitment matches assembly despite mtime skew", "aspirational catastrophic accepts assembly; post_master no remutate", "revive_required_opening_orientation omit/PMQ heal"]
 - **hard_blocker:** null
-- **monitor_loop:** every 4m (PID 3123)
-- **notes:** Fresh campaign kickoff. No prior exec folders used. Learning is in code. Nudge §3.0a armed.
+- **monitor_loop:** stopped
+- **ship:** true
+- **notes:** verify_master OK (LUFS -16.01); PMQ publish_allowed; package_ready; cover.jpg + audio.mp3; delight advisory 0.8489 (non-blocking). Daemon + nudge stopped.

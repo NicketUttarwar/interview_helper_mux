@@ -1006,6 +1006,45 @@ def test_handle_seed_order_prereq_pins_named_stage(tmp_path: Path) -> None:
     assert not ctx.is_done("air_script_seams")
 
 
+def test_handle_g1_vo_open_seed_order_does_not_unmark_adjudicate(tmp_path: Path) -> None:
+    """g1_vo_open → resume vo_synthesize; leave adjudicate markers intact."""
+    from run_fixtures import isolated_run_ctx
+
+    ctx = isolated_run_ctx(tmp_path, "seed_order_g1_open")
+    ctx.write_json(
+        "run_meta.json",
+        {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
+        skip_handoff=True,
+    )
+    ctx.write_json(
+        "understanding/gap_report.json",
+        {
+            "gaps": [],
+            "interviewer_lines": [
+                {
+                    "line_id": "vo_x",
+                    "text": "x",
+                    "gap_type": "framing",
+                    "targets_segment_id": "seg_001",
+                    "placement": "before",
+                    "delivery": "synthesize",
+                }
+            ],
+        },
+        skip_handoff=True,
+    )
+    ctx.mark_done("vo_line_adjudicate", force=True)
+    result = handle_stage_failure(
+        ctx,
+        "vo_synthesize",
+        RuntimeError("seed order: complete g1_vo_open before running vo_synthesize"),
+    )
+    assert result.status == "recovered"
+    assert result.playbook_id == "seed_order_prereq"
+    assert result.resume_stage == "vo_synthesize"
+    assert ctx.is_done("vo_line_adjudicate")
+
+
 def test_handle_finalize_input_missing_pins_junction(tmp_path: Path) -> None:
     from run_fixtures import isolated_run_ctx, write_fixture_vo_wav
 

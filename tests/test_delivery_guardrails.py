@@ -265,6 +265,81 @@ def test_promote_complete_orphan_stamps_edl_done(
     assert ctx.is_done("edl")
 
 
+def test_promote_complete_orphan_stamps_assembly_preview_wav(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """exec_5404: WAV present + missing .stage_done must promote (STAGE_ARTIFACT map)."""
+    from interview_mux.delivery_guardrails import promote_complete_orphan_stage_done
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "orphan_asm_promote")
+    preview = ctx.final_path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 4096)
+    assert not ctx.is_done("assembly_preview")
+    promoted = promote_complete_orphan_stage_done(ctx, ("assembly_preview",))
+    assert "assembly_preview" in promoted
+    assert ctx.is_done("assembly_preview")
+    assert seed_stage_complete(ctx, "assembly_preview") is True
+
+
+def test_earliest_seed_skips_orphan_assembly_and_waived_delight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """exec_5404: master_finalize must not thrash on hollow assembly_preview / delight."""
+    from interview_mux.llm_flow_hardening import _earliest_incomplete_seed_stage
+
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "seed_asm_delight")
+    preview = ctx.final_path("master", "assembly_preview.wav")
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"RIFF" + b"\x00" * 4096)
+    asm = ctx.final_path("master", "assembly.wav")
+    asm.write_bytes(b"RIFF" + b"\x00" * 4096)
+    _write_raw(
+        ctx,
+        "mastering/listen_delight_audit.json",
+        {"pass": "post_master", "passed": False, "advisory": True},
+    )
+    _write_raw(
+        ctx,
+        "run_meta.json",
+        {"automation_driver": True, "run_mode": "full-auto"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.automation_run.automation_driver_run",
+        lambda *_a, **_k: True,
+    )
+    # Force every delivery seed incomplete except what we promote/waive.
+    real_seed = seed_stage_complete
+
+    def _seed(c: RunContext, sid: str) -> bool:
+        if sid == "assembly_preview":
+            return real_seed(c, sid)
+        if sid == "listen_delight_audit":
+            return False
+        return True
+
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.seed_stage_complete",
+        _seed,
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.stage_outputs_present",
+        lambda _ctx, sid: sid in {"assembly_preview", "listen_delight_audit"},
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        lambda _ctx, sid: None,
+    )
+    assert not ctx.is_done("assembly_preview")
+    earliest = _earliest_incomplete_seed_stage(ctx, "master_finalize")
+    assert earliest != "assembly_preview"
+    assert earliest != "listen_delight_audit"
+    assert ctx.is_done("assembly_preview")
+    assert listen_delight_waived_unattended(ctx) is True
+
+
 def test_vo_synth_blocked_when_g1_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "g8")
@@ -539,6 +614,35 @@ def test_hollow_mmaudio_qa_does_not_complete_music_epoch(
         ctx.mark_done(sid, force=True)
     assert music_epoch_complete(ctx) is False
     assert mix_epoch_block(ctx) == "music_incomplete"
+
+
+def test_music_complete_stamp_survives_cleared_stage_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Orphan/heal cleared MUSIC_BEFORE_MIX markers — trust music_complete_at + SDP WAVs."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    ctx = _ctx(tmp_path, "music_stamp_trust")
+    ctx.write_json(
+        CHECKPOINT_REL,
+        {"phase": "A_sealed", "order_fingerprint": "abc", "selection_fingerprint": "abc"},
+    )
+    stamp_delivery_epoch(
+        ctx,
+        phase_a_sealed_at="2026-08-31T00:00:00+00:00",
+        music_complete_at="2026-08-31T01:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.delivery_stable_for_music",
+        lambda _ctx: (False, "vo_adjudicate_incomplete"),
+    )
+    monkeypatch.setattr(
+        "interview_mux.sdp_cross_validate.missing_sdp_asset_wavs",
+        lambda _ctx: [],
+    )
+    assert music_epoch_complete(ctx) is True
+    assert mix_epoch_block(ctx) is None
+    for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
+        assert ctx.is_done(sid)
 
 
 def test_safe_mix_resume_routes_missing_sdp_wavs_to_mmaudio(

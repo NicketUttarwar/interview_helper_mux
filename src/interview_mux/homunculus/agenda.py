@@ -608,6 +608,40 @@ def _producer_older_than_assembly(ctx: RunContext, *parts: str) -> bool:
     return asm_m > other_m + 1.0
 
 
+def _junction_commitment_matches_assembly(ctx: RunContext) -> bool:
+    """True when seam_autopsy commitment still describes the live assembly.wav.
+
+    Bare mtime skew (assembly touched after autopsy rewrite of identical
+    content) must not look like missing junction outputs — that was the
+    exec_5404 master_finalize ↔ junction seed thrash.
+    """
+    if not ctx.artifact_exists("master/seam_autopsy.json"):
+        return False
+    try:
+        autopsy = ctx.read_json("master/seam_autopsy.json")
+    except Exception:
+        return False
+    if not isinstance(autopsy, dict):
+        return False
+    commit = autopsy.get("commitment")
+    if not isinstance(commit, dict):
+        return False
+    if str(commit.get("status") or "") != "committed":
+        return False
+    asm_info = commit.get("assembly") if isinstance(commit.get("assembly"), dict) else {}
+    asm_path = ctx.final_path("master", "assembly.wav")
+    if not asm_path.is_file():
+        return False
+    try:
+        live_size = int(asm_path.stat().st_size)
+    except OSError:
+        return False
+    claimed = int(asm_info.get("size") or 0)
+    if claimed <= 0 or claimed != live_size:
+        return False
+    return True
+
+
 def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
     if stage == "low_conf_island_scan":
         return ctx.artifact_exists("analysis/low_conf_islands.json") or ctx.artifact_exists(
@@ -702,11 +736,17 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
                 return False
             needed = stage_required_outputs(stage)
             return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
-    if stage == "junction_snip_qa" and (
-        assembly_stale_versus_edl(ctx)
-        or _producer_older_than_assembly(ctx, "master", "seam_autopsy.json")
-    ):
-        return False
+    if stage == "junction_snip_qa":
+        if assembly_stale_versus_edl(ctx):
+            return False
+        if _producer_older_than_assembly(ctx, "master", "seam_autopsy.json"):
+            # mtime-only skew: mix/touch can bump assembly.wav without remaster.
+            # When autopsy commitment still matches live assembly size + committed,
+            # treat outputs as present (exec_5404 seed thrash).
+            if not _junction_commitment_matches_assembly(ctx):
+                return False
+        needed = stage_required_outputs(stage)
+        return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
     if stage == "master_finalize" and (
         assembly_stale_versus_edl(ctx)
         or _producer_older_than_assembly(ctx, "master", "master.wav")
