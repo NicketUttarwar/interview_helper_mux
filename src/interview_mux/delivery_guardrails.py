@@ -699,7 +699,11 @@ def promote_complete_orphan_stage_done(ctx: RunContext, stages: tuple[str, ...] 
         except Exception:
             continue
         try:
-            ctx.mark_done(sid)
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            out = heal_or_refuse_mark(ctx, sid)
+            if not out.get("marked"):
+                continue
         except Exception:
             continue
         if ctx.is_done(sid):
@@ -1499,10 +1503,37 @@ def referenced_musicgen_asset_ids(ctx: RunContext) -> set[str]:
     return ids
 
 
-# C1: sources that must not structurally invalidate downstream when fingerprint unchanged.
+# C1: sources that must not structurally invalidate beyond listed targets.
+# VO/transition cascades deliberately exclude MUSIC_BEFORE_MIX (heal ≠ wipe seal).
+_VO_EDL_MIX_CASCADE: frozenset[str] = frozenset(
+    {
+        "vo_line_adjudicate",
+        "vo_synthesize",
+        "edl_narrative_audit",
+        "edl",
+        "assembly_preview",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+        "listen_delight_audit",
+    }
+)
+_TRANSITION_EDL_MIX_CASCADE: frozenset[str] = frozenset(
+    {
+        "vo_synthesize",
+        "edl_narrative_audit",
+        "edl",
+        "assembly_preview",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+        "listen_delight_audit",
+    }
+)
+
 INVALIDATION_BLAST_RADIUS: dict[str, frozenset[str]] = {
     "junction_snip_qa": frozenset(
-        {"mix", "junction_snip_qa", "master_finalize", "master/transitions.json"}
+        {"mix", "junction_snip_qa", "master_finalize", "listen_delight_audit"}
     ),
     "nugget_layup_compose": frozenset(
         {
@@ -1511,7 +1542,49 @@ INVALIDATION_BLAST_RADIUS: dict[str, frozenset[str]] = {
             "edl",
             "assembly_preview",
             "listen_delight_audit",
+            "vo_line_adjudicate",
+            "sound_design_vo_finalize",
         }
+    ),
+    "transitions_write": _TRANSITION_EDL_MIX_CASCADE,
+    "transitions": _TRANSITION_EDL_MIX_CASCADE,
+    "gap_report_write": _VO_EDL_MIX_CASCADE,
+    "vo_line_adjudicate": frozenset(
+        {
+            "vo_synthesize",
+            "edl_narrative_audit",
+            "edl",
+            "assembly_preview",
+            "mix",
+            "junction_snip_qa",
+            "master_finalize",
+            "listen_delight_audit",
+        }
+    ),
+    "edl": frozenset(
+        {
+            "edl",
+            "assembly_preview",
+            "mix",
+            "junction_snip_qa",
+            "master_finalize",
+            "listen_delight_audit",
+        }
+    ),
+    "mmaudio_sfx": frozenset(
+        {
+            "mmaudio_sfx",
+            "mix",
+            "junction_snip_qa",
+            "master_finalize",
+            "listen_delight_audit",
+        }
+    ),
+    "listen_delight_audit": frozenset(
+        {"listen_delight_audit", "junction_snip_qa", "master_finalize"}
+    ),
+    "assembly_seating_stale": frozenset(
+        {"edl", "assembly_preview", "mix", "junction_snip_qa", "master_finalize"}
     ),
 }
 
@@ -1522,6 +1595,146 @@ def invalidation_allowed_downstream(source: str, target: str) -> bool:
     if allowed is None:
         return True
     return target in allowed or target.split("/")[0] in {t.split("/")[0] for t in allowed}
+
+
+def music_clear_blocked(ctx: RunContext, target: str, *, source: str = "") -> bool:
+    """True when clearing ``target`` would wipe a sealed music epoch (heal ≠ waive)."""
+    sid = str(target or "").strip()
+    if sid not in MUSIC_BEFORE_MIX and sid != "sound_design_plan":
+        return False
+    epoch = read_delivery_epoch(ctx)
+    if epoch.get("music_seal_broken_at"):
+        return False
+    if epoch.get("music_complete_at") or music_epoch_complete(ctx):
+        return True
+    src = str(source or "").strip()
+    if src in {
+        "transitions_write",
+        "transitions",
+        "gap_report_write",
+        "vo_line_adjudicate",
+        "edl",
+        "nugget_layup_compose",
+        "assembly_seating_stale",
+        "listen_delight_audit",
+        "junction_snip_qa",
+    }:
+        return sid in MUSIC_BEFORE_MIX or sid == "sound_design_plan"
+    return False
+
+
+def break_music_epoch_seal(ctx: RunContext, reason: str) -> dict[str, Any]:
+    """Named unlock to allow MUSIC_BEFORE_MIX unmark / full MusicGen re-entry.
+
+    Delight fail, seating_stale, and VO cascades must not imply seal break.
+    """
+    reason_s = str(reason or "").strip() or "unspecified"
+    stamp_delivery_epoch(
+        ctx,
+        music_seal_broken_at=_utc_now(),
+        music_seal_break_reason=reason_s[:240],
+    )
+    try:
+        record_wasted_work(
+            ctx,
+            event="music_seal_break",
+            stage="mmaudio_sfx",
+            detail={"reason": reason_s[:240]},
+        )
+    except Exception:
+        pass
+    return {"ok": True, "reason": reason_s}
+
+
+def freeze_air_order(ctx: RunContext, *, reason: str = "edl_commit") -> dict[str, Any]:
+    """Stamp air-order freeze after first successful EDL / green preview."""
+    epoch = read_delivery_epoch(ctx)
+    if epoch.get("air_order_frozen_at"):
+        return {"ok": True, "already": True, "frozen_at": epoch.get("air_order_frozen_at")}
+    stamp_delivery_epoch(
+        ctx,
+        air_order_frozen_at=_utc_now(),
+        air_order_freeze_reason=str(reason or "edl_commit")[:240],
+    )
+    return {"ok": True, "frozen": True}
+
+
+def unlock_air_order_freeze(ctx: RunContext, reason: str) -> dict[str, Any]:
+    """Named unlock so optimizer remaster may promote mid-delivery."""
+    reason_s = str(reason or "").strip() or "unspecified"
+
+    def _mark(meta: dict[str, Any]) -> None:
+        epoch = dict(meta.get("delivery_epoch") or {})
+        epoch.pop("air_order_frozen_at", None)
+        epoch["air_order_unlocked_at"] = _utc_now()
+        epoch["air_order_unlock_reason"] = reason_s[:240]
+        epoch["updated_at"] = _utc_now()
+        meta["delivery_epoch"] = epoch
+
+    if ctx.artifact_exists("run_meta.json"):
+        ctx.mutate_run_meta(_mark)
+    return {"ok": True, "reason": reason_s}
+
+
+def air_order_frozen(ctx: RunContext) -> bool:
+    return bool(read_delivery_epoch(ctx).get("air_order_frozen_at"))
+
+
+def generate_missing_referenced_music_assets(ctx: RunContext) -> list[str]:
+    """Generate MusicGen only for referenced ∩ missing WAVs — never full theme regen."""
+    from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+    missing = [str(a) for a in missing_sdp_asset_wavs(ctx) if a]
+    if not missing:
+        return []
+    refs = referenced_musicgen_asset_ids(ctx)
+    targets = [a for a in missing if not refs or a in refs]
+    if not targets:
+        return []
+    try:
+        from interview_mux.stages.sfx_mmaudio import generate_missing_music_assets_only
+
+        return list(generate_missing_music_assets_only(ctx, targets) or [])
+    except ImportError:
+        try:
+            from interview_mux.stages import sfx_mmaudio as _sfx
+
+            if hasattr(_sfx, "_set_regen_asset_ids"):
+                _sfx._set_regen_asset_ids(ctx, targets)
+        except Exception:
+            pass
+        return []
+
+
+def refuse_skip_then_consume(ctx: RunContext, consumer: str) -> str | None:
+    """Host refuse when a producer was skipped without compensating artifacts."""
+    sid = str(consumer or "").strip()
+    if not sid:
+        return None
+    try:
+        from interview_mux.homunculus.agenda import stage_outputs_present, _read_agenda
+
+        doc = _read_agenda(ctx)
+        skipped = {str(s) for s in (doc.get("skipped") or [])}
+    except Exception:
+        return None
+    if sid in skipped and not stage_outputs_present(ctx, sid):
+        return f"skip_then_consume:{sid}"
+    pairs = (
+        ("vo_synthesize", "edl"),
+        ("vo_line_adjudicate", "vo_synthesize"),
+        ("edl", "mix"),
+        ("edl", "assembly_preview"),
+        ("mmaudio_sfx", "mix"),
+        ("transitions", "vo_synthesize"),
+        ("nugget_layup_compose", "vo_synthesize"),
+    )
+    for producer, consumer in pairs:
+        if consumer != sid:
+            continue
+        if producer in skipped and not stage_outputs_present(ctx, producer):
+            return f"skip_then_consume:{producer}->{consumer}"
+    return None
 
 
 def delivery_epoch_matches(ctx: RunContext, epoch_at_start: dict[str, Any] | None) -> bool:

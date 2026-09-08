@@ -39,9 +39,19 @@ def optimizer_cfg() -> dict[str, Any]:
 
 
 def optimizer_live_mutate_blocked(ctx: Any) -> bool:
-    """True when full-auto/operator skip forbids live selection rewrites after mix."""
+    """True when full-auto/operator skip forbids live selection rewrites after mix.
+
+    Also blocks when air-order is frozen until named unlock_air_order_freeze.
+    """
     if ctx is None:
         return False
+    try:
+        from interview_mux.delivery_guardrails import air_order_frozen
+
+        if air_order_frozen(ctx):
+            return True
+    except Exception:
+        pass
     try:
         if not ctx.artifact_exists("run_meta.json"):
             return False

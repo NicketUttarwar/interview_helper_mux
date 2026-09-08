@@ -106,6 +106,35 @@ def test_fresh_match_skips_adjudicate(tmp_path, monkeypatch) -> None:
     assert skip is True
 
 
+def test_audited_path_prefers_seated_wav_matching_bound_sha(tmp_path, monkeypatch) -> None:
+    """Re-synth overwrite of synthesized/ must not reopen G1 when seated WAV matches audit."""
+    from interview_mux.stages.assembly import resolve_vo_pickup_path
+    from interview_mux.vo_synthesis_audit import wav_content_sha256
+
+    _patch_vo_qc_off(monkeypatch)
+    ctx = isolated_run_ctx(tmp_path, "run_seated_sha_prefer")
+    line = _base_line()
+    synth = ctx.path("vo_pickup", "synthesized", "line_1.wav")
+    seated = ctx.path("vo_pickup", "line_1.wav")
+    _wav(synth, duration_ms=300)
+    record_synthesis(ctx, line, backend="chatterbox", out_wav=synth)
+    # Promote/seat the audited take, then overwrite synthesized with different bytes
+    # (simulates mid-flight re-synth before audit rewrite).
+    seated.write_bytes(synth.read_bytes())
+    _wav(synth, duration_ms=900)
+    entry = synthesis_entry_for_line(ctx, "line_1")
+    assert entry is not None
+    assert wav_content_sha256(seated) == entry.get("wav_sha256")
+    assert wav_content_sha256(synth) != entry.get("wav_sha256")
+
+    matches, reason = synthesis_entry_matches_line(ctx, line)
+    assert matches is True
+    assert reason in {"match", "script_match_stale_context"}
+    resolved = resolve_vo_pickup_path(ctx, line)
+    assert resolved is not None
+    assert resolved.resolve() == seated.resolve()
+
+
 def test_lines_needing_adjudicate_filters_fresh_wav(tmp_path, monkeypatch) -> None:
     _patch_vo_qc_off(monkeypatch)
     ctx = isolated_run_ctx(tmp_path, "run_lines_needing")

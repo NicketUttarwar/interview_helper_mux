@@ -797,6 +797,19 @@ def unmark_hollow_delivery_producers(
             except Exception:
                 hollow_incomplete = False
         if hollow_missing or hollow_incomplete:
+            try:
+                from interview_mux.delivery_guardrails import music_clear_blocked
+
+                if music_clear_blocked(ctx, stage, source="hollow_unmark"):
+                    ctx.log(
+                        f"homunculus refuse hollow unmark {stage} — music epoch sealed "
+                        "(heal ≠ waive; call break_music_epoch_seal)",
+                        level="warning",
+                        stage=stage,
+                    )
+                    continue
+            except Exception:
+                pass
             unmark_stage_only(ctx, stage)
             cleared.append(stage)
     if cleared:
@@ -1478,14 +1491,35 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
 
 
 def rerun_with_impact(ctx: RunContext, stage: str) -> dict[str, Any]:
-    """8A: invalidate downstream plus ADG transitive consumer set."""
+    """8A: invalidate downstream plus ADG transitive consumer set.
+
+    Depth budget 8: after clear, pin earliest incomplete stage in the impact
+    chain so seed-front re-emit walks the ADG without thrash (remaster-edge-adg).
+    """
     from interview_mux.artifact_dependency_graph import transitive_invalidate
 
     stage = str(stage or "").strip()
     if not stage:
         raise ValueError("stage required")
-    invalidate_set = transitive_invalidate(stage)
+    invalidate_set = list(transitive_invalidate(stage))
     cleared = invalidate_downstream(ctx, stage)
+    order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
+    chain = [stage] + [s for s in invalidate_set if s != stage]
+    budget = min(max(len(chain), 3), 8)
+    pin = stage
+    for sid in chain[:budget]:
+        if sid not in order:
+            continue
+        try:
+            from interview_mux.delivery_guardrails import seed_stage_complete
+
+            if not seed_stage_complete(ctx, sid):
+                pin = sid
+                break
+        except Exception:
+            if not ctx.is_done(sid):
+                pin = sid
+                break
     append_ledger(
         ctx,
         {
@@ -1493,12 +1527,16 @@ def rerun_with_impact(ctx: RunContext, stage: str) -> dict[str, Any]:
             "identity": "rerun_with_impact",
             "stage": stage,
             "invalidate_set": invalidate_set[:40],
+            "earliest_incomplete": pin,
+            "adg_budget": budget,
         },
     )
     return {
         "ok": True,
         "stage": stage,
         "invalidate_set": invalidate_set,
+        "earliest_incomplete": pin,
+        "adg_budget": budget,
         **cleared,
     }
 
@@ -1832,19 +1870,17 @@ def run_homunculus_phase(
             walk_seed_agenda(ctx, filtered, reason="delivery_walk_to_master")
         elif still:
             # T2: filter empty with pre-master holes — never silent complete.
+            # Pin via delivery_blocked (Phase-A aware) — NOT path_to_master_pin,
+            # which previously named music producers and drove a heal thrash.
             try:
                 from interview_mux.thrash_hardening import (
                     FAIL_CLASS_DELIVERY_BLOCKED,
                     canonical_resume_pin,
-                    path_to_master_pin,
                 )
 
-                try:
-                    pin = path_to_master_pin(ctx)
-                except Exception:
-                    pin = canonical_resume_pin(
-                        ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=still[0]
-                    )
+                pin = canonical_resume_pin(
+                    ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=still[0]
+                )
             except Exception:
                 pin = still[0]
             raise RuntimeError(

@@ -1,0 +1,314 @@
+{
+  "generated_from": "code",
+  "brain": "0.1.0",
+  "counts": {
+    "stages": 69,
+    "host_tools": 31,
+    "run_stage_tools": 69,
+    "walk_reasons": 6,
+    "impact_chains": {
+      "nugget_layup_compose": {
+        "len": 25,
+        "set": [
+          "refinement_agenda",
+          "gap_framing_recompose",
+          "selection_framing_apply",
+          "air_script_seams",
+          "transitions",
+          "sound_design_plan",
+          "sound_design_vo_finalize",
+          "vo_line_adjudicate",
+          "vo_synthesize",
+          "edl_narrative_audit",
+          "edl",
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "vo_line_adjudicate": {
+        "len": 17,
+        "set": [
+          "vo_synthesize",
+          "edl_narrative_audit",
+          "edl",
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "transitions": {
+        "len": 20,
+        "set": [
+          "sound_design_plan",
+          "sound_design_vo_finalize",
+          "vo_line_adjudicate",
+          "vo_synthesize",
+          "edl_narrative_audit",
+          "edl",
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "edl": {
+        "len": 14,
+        "set": [
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "gap_framing_compose": {
+        "len": 3,
+        "set": [
+          "delivery_brief_build",
+          "soundscape_policy_build",
+          "episode_structure_compose"
+        ],
+        "depth_actions_budget": 3
+      },
+      "full_master_ranking": {
+        "len": 29,
+        "set": [
+          "air_script_compose",
+          "nugget_corpus_mine",
+          "information_package_plan",
+          "nugget_layup_compose",
+          "refinement_agenda",
+          "gap_framing_recompose",
+          "selection_framing_apply",
+          "air_script_seams",
+          "transitions",
+          "sound_design_plan",
+          "sound_design_vo_finalize",
+          "vo_line_adjudicate",
+          "vo_synthesize",
+          "edl_narrative_audit",
+          "edl",
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "sound_design_plan": {
+        "len": 19,
+        "set": [
+          "sound_design_vo_finalize",
+          "vo_line_adjudicate",
+          "vo_synthesize",
+          "edl_narrative_audit",
+          "edl",
+          "assembly_preview",
+          "listen_delight_audit",
+          "music_palette_compose",
+          "sfx_prompt_craft",
+          "mmaudio_sfx",
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "mmaudio_sfx": {
+        "len": 9,
+        "set": [
+          "mix",
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "mix": {
+        "len": 8,
+        "set": [
+          "junction_snip_qa",
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 8
+      },
+      "junction_snip_qa": {
+        "len": 7,
+        "set": [
+          "master_finalize",
+          "master_transcript_build",
+          "episode_meta_build",
+          "episode_cover_prompt_craft",
+          "podcast_encode_mp3",
+          "episode_cover_generate",
+          "podcast_publish"
+        ],
+        "depth_actions_budget": 7
+      }
+    },
+    "blast_radius_wired": false
+  },
+  "coverage_targets": {
+    "stage_matrix_rows": 69,
+    "tool_families_1step": 32,
+    "high_severity_2step_pairs": 6,
+    "remaster_3step_cascades": 3,
+    "adg_4n_chains": {
+      "nugget_layup_compose": 8,
+      "vo_line_adjudicate": 8,
+      "transitions": 8,
+      "edl": 8,
+      "gap_framing_compose": 3,
+      "full_master_ranking": 8,
+      "sound_design_plan": 8,
+      "mmaudio_sfx": 8,
+      "mix": 8,
+      "junction_snip_qa": 7
+    }
+  },
+  "high_severity_uncovered_for_durable": [
+    {
+      "id": "blast-radius-unwired",
+      "severity": "high",
+      "finding": "INVALIDATION_BLAST_RADIUS unused at call sites",
+      "execute_in": "Wave 1",
+      "break": "sealed wipe / over-clear"
+    },
+    {
+      "id": "heal-mark-api",
+      "severity": "high",
+      "finding": "hollow done / seed-order thrash needs heal_or_refuse_mark",
+      "execute_in": "Wave 1",
+      "break": "hollow done"
+    },
+    {
+      "id": "edl-seat-preflight",
+      "severity": "high",
+      "finding": "stale script hash / missing source_path after remaster",
+      "execute_in": "Wave 3",
+      "break": "stale / missing path"
+    },
+    {
+      "id": "music-generate-missing",
+      "severity": "high",
+      "finding": "one missing music asset triggers full regen risk",
+      "execute_in": "Wave 2",
+      "break": "missing path / thrash"
+    },
+    {
+      "id": "air-order-freeze",
+      "severity": "high",
+      "finding": "late remaster seating clears music markers",
+      "execute_in": "Wave 7",
+      "break": "sealed wipe"
+    },
+    {
+      "id": "delight-seal-not-waive",
+      "severity": "high",
+      "finding": "music seal must not soft-pass delight/junction",
+      "execute_in": "Wave 8",
+      "break": "ship honesty"
+    },
+    {
+      "id": "skip-then-consume",
+      "severity": "high",
+      "finding": "skip producer then run consumer",
+      "execute_in": "Wave 1 / remaster-edge-skip-consume",
+      "break": "skip-then-consume"
+    },
+    {
+      "id": "adg-long-chain",
+      "severity": "medium",
+      "finding": "ADG chains up to 29 stages \u2014 stub full depth",
+      "execute_in": "Wave 7 / remaster-edge-adg",
+      "break": "missing re-emit"
+    },
+    {
+      "id": "gate-lie-g1",
+      "severity": "medium",
+      "finding": "G1 complete stamp with open seats",
+      "execute_in": "Wave 4 / Wave 9",
+      "break": "gate lie"
+    },
+    {
+      "id": "auto-s3-advisories",
+      "severity": "medium",
+      "finding": "never auto-S3 when quality_advisories present",
+      "execute_in": "Wave 10",
+      "break": "ship honesty"
+    }
+  ]
+}

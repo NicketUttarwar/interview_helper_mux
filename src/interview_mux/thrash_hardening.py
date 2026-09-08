@@ -37,9 +37,12 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
 
 _SUPPRESS_BUDGET = 3
 THRASH_REPORT_REL = "operator/thrash_report.json"
+STICKY_HEAL_REL = "operator/sticky_heal.json"
 NARRATIVE_AUDIT_CAP = 3
 THRASH_WINDOW_SEC = 15 * 60
 THRASH_HIT_THRESHOLD = 6
+# Same pin + unchanged predicate: hard-stop heal re-execute (exec_5409 thrash).
+STICKY_HEAL_HALT_AFTER = 3
 
 
 def premature_fail_class(resume: str) -> str:
@@ -208,6 +211,11 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
     hint_s = str(hint or "").strip()
 
     if intent_l in {"music_epoch", "music", FAIL_CLASS_MUSIC_EPOCH}:
+        from interview_mux.delivery_guardrails import (
+            delivery_stable_for_music,
+            phase_a_sealed,
+        )
+
         try:
             promote_complete_orphan_stage_done(
                 ctx,
@@ -221,6 +229,25 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
             seal_phase_a_if_stable(ctx)
         except Exception:
             pass
+        # Hard upstream holes → never MusicGen (exec_5409 filter-empty thrash).
+        # Seal-only skew (phase_a_unsealed with assembly evidence) stays on music
+        # (exec_5402: must not walk back to edl_narrative_audit).
+        if not phase_a_sealed(ctx):
+            _stable, reason = delivery_stable_for_music(ctx)
+            hard_upstream = reason in {
+                "layup_incomplete",
+                "g1_open",
+                "vo_adjudicate_incomplete",
+                "edl_incomplete",
+                "assembly_missing",
+                "layup_escalation_blocking",
+            } or (
+                isinstance(reason, str) and reason.startswith("stale_upstream:")
+            )
+            if hard_upstream:
+                return canonical_resume_pin(
+                    ctx, FAIL_CLASS_DELIVERY_BLOCKED, hint=hint_s
+                )
         return _music_epoch_producer_pin(ctx)
 
     if intent_l in {"mix_seat", "mix", FAIL_CLASS_MIX_SEAT}:
@@ -298,30 +325,47 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
         if _g1_open(ctx):
             return canonical_resume_pin(ctx, FAIL_CLASS_VO_G1)
         stable, reason = delivery_stable_for_music(ctx)
-        if not stable and reason in {
-            "layup_incomplete",
-            "g1_open",
-            "vo_adjudicate_incomplete",
-            "edl_incomplete",
-            "assembly_missing",
-        }:
-            if reason == "edl_incomplete":
-                return "edl"
-            if reason == "assembly_missing":
-                return "assembly_preview"
-            return canonical_resume_pin(ctx, FAIL_CLASS_VO_G1)
-        # Post Phase-A / music path: single ladder to master.wav.
-        if phase_a_sealed(ctx) or music_epoch_complete(ctx) or hint_s in PATH_TO_MASTER:
-            try:
-                return path_to_master_pin(ctx)
-            except Exception:
-                pass
-        if not phase_a_sealed(ctx) or not music_epoch_complete(ctx):
-            if hint_s in MUSIC_BEFORE_MIX or not music_epoch_complete(ctx):
-                return _music_epoch_producer_pin(ctx)
-        if hint_s:
-            return premature_cap_via_intent(ctx, hint_s)
-        return _music_epoch_producer_pin(ctx)
+        if not phase_a_sealed(ctx):
+            # Hard upstream holes: pin the real hole — never music/mix.
+            # Seal-only skew (phase_a_unsealed) may proceed to path_to_master /
+            # music when assembly evidence exists (exec_5402).
+            hard_upstream = reason in {
+                "layup_incomplete",
+                "g1_open",
+                "vo_adjudicate_incomplete",
+                "edl_incomplete",
+                "assembly_missing",
+                "layup_escalation_blocking",
+            } or (
+                isinstance(reason, str) and reason.startswith("stale_upstream:")
+            )
+            if hard_upstream:
+                if reason == "edl_incomplete":
+                    return "edl"
+                if reason == "assembly_missing":
+                    return "assembly_preview"
+                if reason == "listen_delight_incomplete":
+                    return "listen_delight_audit"
+                if reason in {
+                    "layup_incomplete",
+                    "g1_open",
+                    "vo_adjudicate_incomplete",
+                }:
+                    return canonical_resume_pin(ctx, FAIL_CLASS_VO_G1)
+                if isinstance(reason, str) and reason.startswith("stale_upstream:"):
+                    return canonical_resume_pin(
+                        ctx, FAIL_CLASS_PHASE_A_EDL, hint=hint_s or "transitions"
+                    )
+                return canonical_resume_pin(
+                    ctx, FAIL_CLASS_PHASE_A_EDL, hint=hint_s or reason or "edl"
+                )
+        # Phase A sealed, or seal-only skew → ladder to master.wav.
+        try:
+            return path_to_master_pin(ctx)
+        except Exception:
+            if music_epoch_complete(ctx):
+                return "mix" if not assembly_wav_present(ctx) else "master_finalize"
+            return _music_epoch_producer_pin(ctx)
 
     if hint_s:
         return premature_cap_via_intent(ctx, hint_s)
@@ -430,8 +474,9 @@ def artifact_usable(
     except Exception:
         pass
     # Assembly seating: meta flag only (never recurse into mix_assembly_seated).
+    # mix is the reseating *producer* — seating_stale must not block mark_done(mix)
+    # after a fresh render (clear happens only after mark_done succeeds).
     if path in {"master/assembly.wav", "master/assembly_preview.wav"} and consumer_s in {
-        "mix",
         "junction_snip_qa",
         "master_finalize",
     }:
@@ -575,31 +620,205 @@ def discard_pending_shadows_for_stage(ctx: RunContext, stage: str) -> list[str]:
     return removed
 
 
+def infer_heal_intent(*, error: str = "", stage: str = "", intent: str = "") -> str:
+    """Map error/stage → fail class.
+
+    Structural phrases (filter empty / incomplete after conductor) win over
+    stage-name substrings like ``music_palette_compose`` in remaining lists —
+    otherwise heal forever re-pins music while Phase A is still open (exec_5409).
+    """
+    intent_l = str(intent or "").strip().lower()
+    if intent_l:
+        return intent_l
+    text = f"{error} {stage}".lower()
+    # Structural / conductor phrases FIRST.
+    if (
+        "filter empty" in text
+        or "incomplete after conductor" in text
+        or "delivery blocked" in text
+        or "delivery incomplete" in text
+    ):
+        return FAIL_CLASS_DELIVERY_BLOCKED
+    if "edl_narrative_audit thrash cap" in text:
+        return FAIL_CLASS_MUSIC_EPOCH
+    if "g1" in text or "vo pickup" in text or "vo_synth" in text:
+        return FAIL_CLASS_VO_G1
+    if "seam_autopsy" in text or "assembly_ledger" in text:
+        return FAIL_CLASS_FINALIZE
+    if "finalize" in text and "incomplete" not in text:
+        return FAIL_CLASS_FINALIZE
+    if ("mix" in text or "assembly" in text) and "stale" in text:
+        return FAIL_CLASS_MIX_SEAT
+    # Stage-id keywords only when the *stage arg* is a music producer, or the
+    # error is clearly a music/sfx failure — not when music appears in a remaining list.
+    stage_l = str(stage or "").strip().lower()
+    try:
+        from interview_mux.delivery_guardrails import MIX_EPOCH_CONSUMERS, MUSIC_BEFORE_MIX
+
+        if stage_l in MUSIC_BEFORE_MIX or stage_l in MIX_EPOCH_CONSUMERS:
+            return FAIL_CLASS_MUSIC_EPOCH
+    except Exception:
+        pass
+    if stage_l in {"mix", "junction_snip_qa"}:
+        return FAIL_CLASS_MIX_SEAT
+    if stage_l == "master_finalize" or stage_l in SHIP_AFTER_MASTER:
+        return FAIL_CLASS_FINALIZE
+    # Bare keyword match on error only when stage did not already classify —
+    # still avoid matching remaining-stage dumps (contain "filter empty" above).
+    if "mmaudio" in text or "sfx_prompt" in text or "music_palette" in text:
+        return FAIL_CLASS_MUSIC_EPOCH
+    if "music gen" in text or "musicgen" in text:
+        return FAIL_CLASS_MUSIC_EPOCH
+    if "edl" in text or "narrative" in text or "transition" in text:
+        return FAIL_CLASS_PHASE_A_EDL
+    if stage_l:
+        return premature_fail_class(stage_l)
+    return FAIL_CLASS_DELIVERY_BLOCKED
+
+
 def fail_class_for_failure(*, stage: str = "", reason: str = "", resume: str = "") -> str:
     """Shared fail class for premature, execute, gate, and ranking counters."""
-    text = f"{stage} {reason} {resume}".lower()
     if resume:
         return premature_fail_class(resume)
+    inferred = infer_heal_intent(error=reason, stage=stage)
+    if inferred != FAIL_CLASS_DELIVERY_BLOCKED or (
+        "filter empty" in f"{reason} {stage}".lower()
+        or "incomplete after conductor" in f"{reason} {stage}".lower()
+    ):
+        return inferred
     if stage:
         cls = premature_fail_class(stage)
         if not cls.startswith("stage:"):
             return cls
-    if "music" in text or "mmaudio" in text or "sfx_prompt" in text:
-        return FAIL_CLASS_MUSIC_EPOCH
-    if "g1" in text or "vo_synth" in text or "vo_line" in text:
-        return FAIL_CLASS_VO_G1
-    if "finalize" in text or "seam_autopsy" in text or "assembly_ledger" in text:
-        return FAIL_CLASS_FINALIZE
-    if "mix" in text or "junction" in text:
-        return FAIL_CLASS_MIX_SEAT
-    if "edl" in text or "narrative" in text or "transition" in text:
-        return FAIL_CLASS_PHASE_A_EDL
     return premature_fail_class(stage or resume or "unknown")
 
 
 def stable_fail_key(label: str, *, stage: str = "", reason: str = "", resume: str = "") -> str:
     cls = fail_class_for_failure(stage=stage, reason=reason, resume=resume)
     return f"{label}:{cls}"
+
+
+def note_sticky_heal_attempt(
+    ctx: RunContext,
+    *,
+    kind: str,
+    pin: str,
+    intent: str = "",
+    predicate_token: str = "",
+    halt_after: int | None = None,
+) -> dict[str, Any]:
+    """Count same pin+predicate heal attempts; halt when budget exhausted.
+
+    Progress (predicate token change) resets the counter. Used by the driver so
+    incomplete-after-conductor / same-pin premature heals cannot spin forever.
+    """
+    import time
+
+    limit = int(halt_after if halt_after is not None else STICKY_HEAL_HALT_AFTER)
+    kind_s = str(kind or "heal").strip()[:80] or "heal"
+    pin_s = str(pin or "").strip()[:120]
+    intent_s = str(intent or "").strip()[:80]
+    token_s = str(predicate_token or "").strip()[:240]
+    key = f"{kind_s}|{pin_s}|{intent_s}"
+    now = time.time()
+    doc: dict[str, Any] = {"version": 1, "attempts": {}}
+    if ctx.artifact_exists(STICKY_HEAL_REL):
+        try:
+            loaded = ctx.read_json(STICKY_HEAL_REL)
+            if isinstance(loaded, dict):
+                doc = dict(loaded)
+        except Exception:
+            pass
+    attempts = dict(doc.get("attempts") or {})
+    prev = dict(attempts.get(key) or {})
+    prev_token = str(prev.get("predicate_token") or "")
+    if prev_token and token_s and prev_token != token_s:
+        count = 1
+    else:
+        count = int(prev.get("count") or 0) + 1
+    row = {
+        "kind": kind_s,
+        "pin": pin_s,
+        "intent": intent_s,
+        "predicate_token": token_s,
+        "count": count,
+        "halt_after": limit,
+        "updated_at": now,
+    }
+    halt = count >= limit
+    row["halt"] = halt
+    attempts[key] = row
+    # Cap map size
+    if len(attempts) > 40:
+        ordered = sorted(
+            attempts.items(),
+            key=lambda kv: float((kv[1] or {}).get("updated_at") or 0),
+        )
+        attempts = dict(ordered[-40:])
+    doc["attempts"] = attempts
+    doc["updated_at"] = now
+    if halt:
+        doc["active_halt"] = {
+            "kind": kind_s,
+            "pin": pin_s,
+            "intent": intent_s,
+            "count": count,
+            "predicate_token": token_s,
+        }
+        try:
+            from interview_mux.delivery_guardrails import record_wasted_work
+
+            record_wasted_work(
+                ctx,
+                event="sticky_heal_halt",
+                stage=pin_s or "delivery",
+                detail=row,
+            )
+        except Exception:
+            pass
+    try:
+        ctx.write_json(STICKY_HEAL_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
+    return row
+
+
+def clear_sticky_heal(ctx: RunContext, *, kind: str = "", pin: str = "") -> None:
+    """Clear sticky heal counters after predicate progress or operator unstick."""
+    if not ctx.artifact_exists(STICKY_HEAL_REL):
+        return
+    try:
+        doc = ctx.read_json(STICKY_HEAL_REL)
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    attempts = dict(doc.get("attempts") or {})
+    kind_s = str(kind or "").strip()
+    pin_s = str(pin or "").strip()
+    if not kind_s and not pin_s:
+        doc["attempts"] = {}
+        doc["active_halt"] = None
+    else:
+        drop = [
+            k
+            for k, v in attempts.items()
+            if (not kind_s or str((v or {}).get("kind") or "") == kind_s)
+            and (not pin_s or str((v or {}).get("pin") or "") == pin_s)
+        ]
+        for k in drop:
+            attempts.pop(k, None)
+        doc["attempts"] = attempts
+        active = doc.get("active_halt")
+        if isinstance(active, dict):
+            if (not kind_s or active.get("kind") == kind_s) and (
+                not pin_s or active.get("pin") == pin_s
+            ):
+                doc["active_halt"] = None
+    try:
+        ctx.write_json(STICKY_HEAL_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
 
 
 def heal_navigate(
@@ -610,24 +829,43 @@ def heal_navigate(
     intent: str = "",
 ) -> dict[str, str]:
     """Single heal navigator: error/stage → intent → canonical pin."""
-    text = f"{error} {stage}".lower()
-    intent_l = str(intent or "").strip().lower()
-    if not intent_l:
-        if "music" in text or "mmaudio" in text or "palette" in text:
-            intent_l = FAIL_CLASS_MUSIC_EPOCH
-        elif "g1" in text or "vo pickup" in text or "vo_synth" in text:
-            intent_l = FAIL_CLASS_VO_G1
-        elif "seam_autopsy" in text or "assembly_ledger" in text or "finalize" in text:
-            intent_l = FAIL_CLASS_FINALIZE
-        elif "mix" in text or "assembly" in text and "stale" in text:
-            intent_l = FAIL_CLASS_MIX_SEAT
-        elif "filter empty" in text or "incomplete after conductor" in text:
-            intent_l = FAIL_CLASS_DELIVERY_BLOCKED
-        elif stage:
-            intent_l = premature_fail_class(stage)
-        else:
-            intent_l = FAIL_CLASS_DELIVERY_BLOCKED
+    # Durable: PRODUCER_PIN_TABLE is the only ad-hoc→pin authority for tokens.
+    try:
+        from interview_mux.stage_completion import producer_pin_for_token
+
+        blob = f"{error} {stage} {intent}".strip().lower()
+        table_pin = producer_pin_for_token(blob, default="")
+        if table_pin and table_pin in DELIVERY_ORDER:
+            # Prefer table pin when the token explicitly names a known class.
+            from interview_mux.stage_completion import PRODUCER_PIN_TABLE
+
+            explicit = any(
+                needle and needle in blob
+                for needle in PRODUCER_PIN_TABLE
+                if needle not in DELIVERY_ORDER
+            )
+            if explicit:
+                try:
+                    note_delivery_pin(
+                        ctx,
+                        from_stage=table_pin,
+                        intent=str(intent or "producer_pin_table"),
+                        reason=str(error or stage or "")[:240],
+                        source="heal_navigate_pin_table",
+                    )
+                except Exception:
+                    pass
+                return {
+                    "intent": str(intent or "producer_pin_table"),
+                    "from_stage": table_pin,
+                    "mode": "delivery",
+                }
+    except Exception:
+        pass
+    intent_l = infer_heal_intent(error=error, stage=stage, intent=intent)
     # Once music epoch is open/complete, force path-to-master (no narrative rewind).
+    # Never take this shortcut when Phase A is unsealed — path_to_master would
+    # wrongly pin music while filter still empties the music slice.
     try:
         from interview_mux.delivery_guardrails import music_epoch_complete, phase_a_sealed
 
@@ -639,7 +877,8 @@ def heal_navigate(
                 FAIL_CLASS_FINALIZE,
                 FAIL_CLASS_DELIVERY_BLOCKED,
             }
-            and (phase_a_sealed(ctx) or music_epoch_complete(ctx))
+            and phase_a_sealed(ctx)
+            and (music_epoch_complete(ctx) or intent_l != FAIL_CLASS_MUSIC_EPOCH)
             and intent_l != FAIL_CLASS_VO_G1
         ):
             # Prefer ladder pin directly for post-music progress.
@@ -1456,15 +1695,49 @@ _STALL_SAFE_HEAD: frozenset[str] = frozenset(
 
 
 def path_to_master_pin(ctx: RunContext) -> str:
-    """Single post-Phase-A resume ladder toward master.wav — never narrative audit."""
+    """Single post-Phase-A resume ladder toward master.wav — never narrative audit.
+
+    When Phase A is still open, redirect to the Phase-A / VO hole — never the
+    music producers (filter-empty thrash when from_stage was music).
+    """
     from interview_mux.delivery_guardrails import (
         MUSIC_BEFORE_MIX,
         assembly_wav_present,
+        delivery_stable_for_music,
         finalize_input_producer_pin,
         music_epoch_complete,
+        phase_a_sealed,
         seed_stage_complete,
     )
     from interview_mux.heal_routing import mix_assembly_seated
+
+    if not phase_a_sealed(ctx):
+        _stable, reason = delivery_stable_for_music(ctx)
+        hard_upstream = reason in {
+            "layup_incomplete",
+            "g1_open",
+            "vo_adjudicate_incomplete",
+            "edl_incomplete",
+            "assembly_missing",
+            "layup_escalation_blocking",
+        } or (isinstance(reason, str) and reason.startswith("stale_upstream:"))
+        if hard_upstream:
+            if reason == "edl_incomplete":
+                return "edl"
+            if reason == "assembly_missing":
+                return "assembly_preview"
+            if reason == "listen_delight_incomplete":
+                return "listen_delight_audit"
+            if reason in {
+                "layup_incomplete",
+                "g1_open",
+                "vo_adjudicate_incomplete",
+            }:
+                return canonical_resume_pin(ctx, FAIL_CLASS_VO_G1)
+            return canonical_resume_pin(
+                ctx, FAIL_CLASS_PHASE_A_EDL, hint=reason or "edl"
+            )
+        # Seal-only skew: fall through to music / mix ladder below.
 
     # Music epoch still open → earliest music producer only.
     if not music_epoch_complete(ctx):
@@ -1824,6 +2097,26 @@ def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
     return n < JUNCTION_REMASTER_GEN_CAP, n
 
 
+def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
+    """On budget exhaust: pin junction — never soft-pass seam autopsy (heal ≠ waive)."""
+    try:
+        if not ctx.artifact_exists("run_meta.json"):
+            ctx.write_json(
+                "run_meta.json",
+                {"junction_remaster_budget_exhausted": True},
+                skip_handoff=True,
+            )
+        else:
+
+            def _mark(meta: dict[str, Any]) -> None:
+                meta["junction_remaster_budget_exhausted"] = True
+
+            ctx.mutate_run_meta(_mark)
+    except Exception:
+        pass
+    return "junction_snip_qa"
+
+
 def note_junction_remaster(ctx: RunContext) -> int:
     """Increment remaster count for current seating generation; return new count."""
     gen = 0
@@ -1857,7 +2150,11 @@ def note_junction_remaster(ctx: RunContext) -> int:
 
 
 def music_epoch_sealed_no_delight_rewind(ctx: RunContext) -> bool:
-    """True when music epoch stamped complete — do not re-enter listen_delight/music."""
+    """True when music epoch stamped complete — block MusicGen re-entry for delight.
+
+    Seal only blocks music marker wipe / full MusicGen regen. Delight + junction
+    + PMQ still gate ship (heal ≠ waive).
+    """
     try:
         from interview_mux.delivery_guardrails import music_epoch_complete, read_delivery_epoch
 
@@ -1868,3 +2165,58 @@ def music_epoch_sealed_no_delight_rewind(ctx: RunContext) -> bool:
         pass
     return False
 
+
+GATE_WAIT_ESCALATE_TICKS = 8
+
+
+def classify_gate_wait(signature: str) -> bool:
+    """True when failure is a gate wait (not identical-halt class)."""
+    s = str(signature or "").lower()
+    needles = (
+        "voice_reference",
+        "voice-ref",
+        "voice reference",
+        "g0_pending",
+        "transcript_review",
+        "preclean",
+        "audio_preclean",
+        "g_framing",
+    )
+    return any(n in s for n in needles)
+
+
+def gate_wait_tick(ctx: RunContext, signature: str) -> dict[str, Any]:
+    """Count gate-wait ticks; escalate sticky halt after N (anti forever-suppress)."""
+    sig = str(signature or "gate_wait").strip() or "gate_wait"
+    rel = "operator/gate_wait_ticks.json"
+    doc: dict[str, Any] = {"by_signature": {}}
+    if ctx.artifact_exists(rel):
+        try:
+            loaded = ctx.read_json(rel)
+            if isinstance(loaded, dict):
+                doc = dict(loaded)
+        except Exception:
+            pass
+    by_sig = dict(doc.get("by_signature") or {})
+    n = int(by_sig.get(sig) or 0) + 1
+    by_sig[sig] = n
+    doc["by_signature"] = by_sig
+    try:
+        ctx.write_json(rel, doc, skip_handoff=True)
+    except Exception:
+        pass
+    escalate = n >= GATE_WAIT_ESCALATE_TICKS
+    return {
+        "signature": sig,
+        "ticks": n,
+        "escalate": escalate,
+        "halt_signature": f"gate_wait_escalate:{sig}" if escalate else "",
+    }
+
+
+def wasted_work_is_true_waste(event: str) -> bool:
+    """Intervene×3 only for true waste — not successful avoidance telemetry."""
+    ev = str(event or "").strip().lower()
+    if ev in {"avoided_musicgen", "avoided_junction_remaster"}:
+        return False
+    return ev in {"orphan", "music_deferred", "music_seal_break", "progress_stall"}

@@ -207,3 +207,63 @@ def test_heal_mmaudio_qa_drops_rows_without_wav(tmp_path, monkeypatch):
     qa = load_mmaudio_qa(ctx)
     assert {row["asset_id"] for row in qa["assets"]} == {"bed_ok"}
 
+
+def test_heal_under_mix_staging_does_not_hollow_committed_qa(tmp_path, monkeypatch):
+    """Regression: heal during mix used empty mix pending as wav inventory."""
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "qa_mix_hollow")
+    final_assets = ctx.final_path("sound_design", "assets")
+    final_assets.mkdir(parents=True, exist_ok=True)
+    _write_wav(final_assets / "theme_ok.wav")
+    ctx.write_json(
+        "sound_design/mmaudio_qa.json",
+        {
+            "version": 1,
+            "assets": [{"asset_id": "theme_ok", "verdict": "pass"}],
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.mmaudio_asset_qa import heal_mmaudio_qa_wav_parity, load_mmaudio_qa
+    from interview_mux.write_staging import enter_stage_staging, exit_stage_staging
+
+    enter_stage_staging("mix")
+    try:
+        # Mix staging has no sound_design/assets wavs — must not wipe QA.
+        heal = heal_mmaudio_qa_wav_parity(ctx)
+    finally:
+        exit_stage_staging()
+    assert heal.get("skipped") != "no_wav_inventory" or heal["healed"] is False
+    qa = load_mmaudio_qa(ctx)
+    assert {row["asset_id"] for row in qa["assets"]} == {"theme_ok"}
+    assert heal["dropped"] == [] or heal["healed"] is False
+
+
+def test_mix_mark_done_succeeds_when_assembly_seating_stale(tmp_path, monkeypatch):
+    """mix reseats assembly — seating_stale must not block mark_done(mix)."""
+    monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+    monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    ctx = isolated_run_ctx(tmp_path, "mix_seating")
+    asm = ctx.final_path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    # >1KB so binary artifact status is complete
+    asm.write_bytes(b"RIFF" + (b"\x00" * 2048))
+    ctx.write_json(
+        "run_meta.json",
+        {
+            "assembly_seating_stale": True,
+            "assembly_seating_stale_reason": "order_change:air_order",
+            "assembly_seating_generation": 3,
+        },
+        skip_handoff=True,
+    )
+    from interview_mux.stage_completion import stage_artifact_incompleteness
+    from interview_mux.thrash_hardening import artifact_usable
+
+    ok, reason = artifact_usable(ctx, "master/assembly.wav", consumer="mix")
+    assert ok, reason
+    assert stage_artifact_incompleteness(ctx, "mix") is None
+    ctx.mark_done("mix")
+    assert ctx.is_done("mix")
+    meta = ctx.read_json("run_meta.json")
+    assert not meta.get("assembly_seating_stale")
+

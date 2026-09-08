@@ -373,7 +373,12 @@ def _mmaudio_qa_wav_parity_gaps(ctx: RunContext, data: dict[str, Any]) -> list[s
         for row in assets
         if isinstance(row, dict) and row.get("asset_id")
     }
-    wav_ids = {p.stem for p in ctx.final_path("sound_design", "assets").glob("*.wav")}
+    try:
+        from interview_mux.mmaudio_asset_qa import sound_design_asset_wav_ids
+
+        wav_ids = sound_design_asset_wav_ids(ctx)
+    except Exception:
+        wav_ids = {p.stem for p in ctx.final_path("sound_design", "assets").glob("*.wav")}
     for aid in sorted(wav_ids - qa_ids):
         out.append(f"assets_missing_qa:{aid}")
     for aid in sorted(qa_ids - wav_ids):

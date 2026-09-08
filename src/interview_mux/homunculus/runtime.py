@@ -169,6 +169,19 @@ def dispatch_stage(
         raise
     _refuse_music_before_assembly(ctx, stage, action="run")
     try:
+        from interview_mux.delivery_guardrails import refuse_skip_then_consume
+
+        skip_refuse = refuse_skip_then_consume(ctx, stage)
+        if skip_refuse:
+            raise RuntimeError(
+                f"refuse {stage}: {skip_refuse} — compensate producer artifacts "
+                "before consume (heal ≠ skip-then-consume)"
+            )
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+    try:
         from datetime import datetime, timezone
 
         from interview_mux.delivery_guardrails import (

@@ -16,6 +16,66 @@ from interview_mux.sonic_context import load_sonic_context
 OUTPUT_PATH = "sound_design/mmaudio_qa.json"
 
 
+def sound_design_asset_wav_roots(ctx: RunContext) -> list[Path]:
+    """Committed + mmaudio pending (+ active staging) asset dirs, if present.
+
+    ``ctx.path`` alone is wrong when heal/parity runs under another stage (mix):
+    that stage's empty pending tree looks like zero wavs and hollows QA.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(root: Path) -> None:
+        try:
+            key = str(root.resolve()) if root.exists() else str(root)
+        except OSError:
+            key = str(root)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(root)
+
+    _add(ctx.final_path("sound_design", "assets"))
+    try:
+        from interview_mux.write_staging import active_stage, staged_path
+
+        _add(staged_path(ctx, "sound_design/assets", stage_id="mmaudio_sfx"))
+        active = active_stage()
+        if active:
+            _add(staged_path(ctx, "sound_design/assets", stage_id=active))
+    except Exception:
+        pass
+    return roots
+
+
+def sound_design_asset_wav_ids(ctx: RunContext) -> set[str]:
+    ids: set[str] = set()
+    for root in sound_design_asset_wav_roots(ctx):
+        try:
+            if root.is_dir():
+                ids |= {p.stem for p in root.glob("*.wav")}
+        except OSError:
+            continue
+    return ids
+
+
+def sound_design_asset_wav_paths(ctx: RunContext) -> dict[str, Path]:
+    """Prefer mmaudio pending / active staging over committed for the same stem."""
+    by_stem: dict[str, Path] = {}
+    # Walk committed first, then pending overlays so staging wins.
+    ordered = list(sound_design_asset_wav_roots(ctx))
+    # final is first in roots; process final then overlays so later wins
+    for root in ordered:
+        try:
+            if not root.is_dir():
+                continue
+            for wav in sorted(root.glob("*.wav")):
+                by_stem[wav.stem] = wav
+        except OSError:
+            continue
+    return by_stem
+
+
 def _read_wav_frames(path: Path) -> tuple[list[float], int]:
     with wave.open(str(path), "rb") as wf:
         n_channels = wf.getnchannels()
@@ -359,10 +419,12 @@ def analyze_asset_wav(
 
 
 def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
-    # Prefer staging-aware path: generation writes via ctx.path(); final_path is
-    # empty until stage flush, which previously yielded assets=[] QA forever.
+    # Prefer staging-aware inventory: generation writes via ctx.path(); final_path
+    # is empty until flush. Also scan committed/mmaudio pending so heal under mix
+    # does not see zero wavs and hollow QA.
     assets_dir = ctx.path("sound_design", "assets")
     assets_dir.mkdir(parents=True, exist_ok=True)
+    wav_by_id = sound_design_asset_wav_paths(ctx)
     plan_by_id: dict[str, dict[str, Any]] = {}
     sdp_palettes: list[dict[str, Any]] = []
     if ctx.artifact_exists("understanding/sound_design_plan.json"):
@@ -395,16 +457,14 @@ def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
     }
 
     results: list[dict[str, Any]] = []
-    if assets_dir.is_dir():
-        for wav in sorted(assets_dir.glob("*.wav")):
-            aid = wav.stem
-            results.append(
-                analyze_asset_wav(
-                    asset_id=aid,
-                    path=wav,
-                    plan_row=plan_by_id.get(aid),
-                )
+    for aid, wav in sorted(wav_by_id.items()):
+        results.append(
+            analyze_asset_wav(
+                asset_id=aid,
+                path=wav,
+                plan_row=plan_by_id.get(aid),
             )
+        )
     for row in results:
         aid = str(row.get("asset_id") or "")
         gen = generation_meta.get(aid) if isinstance(generation_meta, dict) else {}
@@ -427,15 +487,15 @@ def run_mmaudio_asset_qa(ctx: RunContext) -> dict[str, Any]:
             row["recommended_action"] = "regenerate"
         from interview_mux.semantic_audio_qa import apply_semantic_verdict, maybe_semantic_similarity
 
+        wav_path = wav_by_id.get(aid) or (assets_dir / f"{aid}.wav")
         semantic = maybe_semantic_similarity(
-            wav_path=assets_dir / f"{aid}.wav",
+            wav_path=wav_path,
             prompt_text=str(prompt.get("sfx_prompt") or ""),
             asset_id=aid,
         )
         apply_semantic_verdict(row, semantic)
         bucket = _expected_sonic_bucket(plan_by_id.get(aid), sdp_palettes)
         sap_expected = _expected_bucket_from_room_timbre(sap_room_hint)
-        wav_path = assets_dir / f"{aid}.wav"
         if wav_path.is_file():
             try:
                 samples, rate = _read_wav_frames(wav_path)
@@ -498,15 +558,20 @@ def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
 
     Phantom QA rows (asset ids without a wav) make the artifact ``partial`` and
     halt ``mmaudio_sfx`` even when mix can continue without those stems.
+
+    Inventory uses committed + mmaudio pending (not only the active stage's
+    ``ctx.path``), so heal under mix cannot see zero wavs and wipe QA.
     """
     qa = load_mmaudio_qa(ctx)
-    assets_dir = ctx.path("sound_design", "assets")
-    wav_ids = {p.stem for p in assets_dir.glob("*.wav")} if assets_dir.is_dir() else set()
+    wav_ids = sound_design_asset_wav_ids(ctx)
     qa_ids = {
         str(row.get("asset_id"))
         for row in (qa.get("assets") or [])
         if isinstance(row, dict) and row.get("asset_id")
     }
+    # Empty inventory with existing QA rows → no-op (do not hollow).
+    if not wav_ids and qa_ids:
+        return {"healed": False, "dropped": [], "analyzed": [], "skipped": "no_wav_inventory"}
     missing_qa = sorted(wav_ids - qa_ids)
     extra_qa = sorted(qa_ids - wav_ids)
     if not missing_qa and not extra_qa:
@@ -518,6 +583,8 @@ def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
             for row in (qa.get("assets") or [])
             if isinstance(row, dict) and row.get("asset_id")
         }
+        # Recompute against live inventory after analyze (may have found more).
+        wav_ids = sound_design_asset_wav_ids(ctx)
         extra_qa = sorted(qa_ids - wav_ids)
     dropped: list[str] = []
     if extra_qa:
@@ -526,8 +593,13 @@ def heal_mmaudio_qa_wav_parity(ctx: RunContext) -> dict[str, Any]:
             for row in (qa.get("assets") or [])
             if isinstance(row, dict) and str(row.get("asset_id") or "") in wav_ids
         ]
-        dropped = extra_qa
-        qa = {"version": int(qa.get("version") or 1), "assets": keep}
+        # Never commit a fully hollow QA when wavs still exist on disk.
+        if not keep and wav_ids:
+            qa = run_mmaudio_asset_qa(ctx)
+            dropped = []
+        else:
+            dropped = extra_qa
+            qa = {"version": int(qa.get("version") or 1), "assets": keep}
     try:
         from interview_mux.write_staging import write_committed_json
 

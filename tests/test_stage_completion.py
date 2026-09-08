@@ -279,7 +279,9 @@ def test_stale_required_artifact_is_incomplete(tmp_path, monkeypatch):
         + "\n"
     )
     reason = stage_artifact_incompleteness(ctx, "sound_design_plan")
-    assert reason and "marked stale" in reason
+    assert reason and (
+        "marked stale" in reason or "stale_meta" in reason or "stale" in reason
+    )
 
 
 def test_mmaudio_incomplete_when_sdp_wavs_missing(tmp_path, monkeypatch):

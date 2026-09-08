@@ -457,7 +457,25 @@ def _audited_wav_path(
     ``resolve_vo_pickup_path`` itself consults ``synthesis_entry_matches_line``, so
     path lookup here must stay acyclic. Prefer committed paths when audit still
     names a flushed ``.pending_writes/<stage>/…`` shadow.
+
+    When ``wav_sha256`` is bound, prefer any candidate whose bytes match that
+    digest. A mid-flight re-synth can overwrite ``synthesized/`` while the seated
+    ``vo_pickup/{id}.wav`` still holds the audited take — returning the overwritten
+    path first falsely yields ``wav_content_mismatch`` and reopens G1.
     """
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(cand: Path) -> None:
+        try:
+            key = str(cand.resolve())
+        except Exception:
+            key = str(cand)
+        if key in seen or not cand.is_file():
+            return
+        seen.add(key)
+        candidates.append(cand)
+
     rel = str(entry.get("out_wav") or "").strip()
     for candidate_rel in _candidate_rels_for_out_wav(rel):
         for resolver in (
@@ -466,9 +484,7 @@ def _audited_wav_path(
             lambda r=candidate_rel: ctx.path(*r.split("/")),
         ):
             try:
-                cand = resolver()
-                if cand.is_file():
-                    return cand
+                _add(resolver())
             except Exception:
                 continue
     lid = str(line.get("line_id") or entry.get("line_id") or "").strip()
@@ -479,20 +495,25 @@ def _audited_wav_path(
             base = ctx.final_path("master", "transitions", sub) if sub else ctx.final_path(
                 "master", "transitions"
             )
-            candidate = base / f"{lid}.wav"
-            if candidate.is_file():
-                return candidate
+            _add(base / f"{lid}.wav")
     pickup = ctx.final_path("vo_pickup")
     for sub in ("matched", "synthesized", "clean", "normalized", ""):
         base = pickup / sub if sub else pickup
         for key in (lid, seg):
             if not key:
                 continue
-            candidate = base / f"{key}.wav"
-            if candidate.is_file():
-                return candidate
-    return None
-
+            _add(base / f"{key}.wav")
+    if not candidates:
+        return None
+    bound = str(entry.get("wav_sha256") or "").strip()
+    if bound:
+        for cand in candidates:
+            try:
+                if wav_content_sha256(cand) == bound:
+                    return cand
+            except Exception:
+                continue
+    return candidates[0]
 
 def canonicalize_synthesis_out_wav_paths(ctx: RunContext) -> list[str]:
     """Rewrite synthesis_report ``out_wav`` to committed files that exist on disk.
@@ -655,6 +676,19 @@ _SPOKEN_TEXT_CASCADE_STAGES: tuple[str, ...] = (
     "master_finalize",
 )
 
+# Transition-bridge text drift reseats audio/EDL/mix — not VO line adjudication.
+# Unmarking vo_line_adjudicate here trips 5A stage-order migration which then
+# wipes music stages (mmaudio_sfx+) whose artifacts are still valid.
+_TRANSITION_SPOKEN_TEXT_CASCADE_STAGES: tuple[str, ...] = (
+    "vo_synthesize",
+    "edl_narrative_audit",
+    "edl",
+    "assembly_preview",
+    "mix",
+    "junction_snip_qa",
+    "master_finalize",
+)
+
 GAP_REPORT_REL = "understanding/gap_report.json"
 
 
@@ -706,13 +740,45 @@ def _delete_pickup_wavs_for_line(ctx: RunContext, line_id: str) -> int:
 
 
 def _unmark_spoken_text_cascade_stages(ctx: RunContext) -> list[str]:
+    from interview_mux.delivery_guardrails import (
+        invalidation_allowed_downstream,
+        music_clear_blocked,
+    )
     from interview_mux.homunculus.agenda import unmark_stage_only
 
     unmarked: list[str] = []
+    source = "gap_report_write"
     for stage in _SPOKEN_TEXT_CASCADE_STAGES:
-        if ctx.is_done(stage):
-            unmark_stage_only(ctx, stage)
-            unmarked.append(stage)
+        if not ctx.is_done(stage):
+            continue
+        if not invalidation_allowed_downstream(source, stage):
+            continue
+        if music_clear_blocked(ctx, stage, source=source):
+            continue
+        unmark_stage_only(ctx, stage)
+        unmarked.append(stage)
+    return unmarked
+
+
+def unmark_transition_spoken_text_cascade_stages(ctx: RunContext) -> list[str]:
+    """Unmark synth→EDL→mix after transition-bridge text drift (not adjudicate)."""
+    from interview_mux.delivery_guardrails import (
+        invalidation_allowed_downstream,
+        music_clear_blocked,
+    )
+    from interview_mux.homunculus.agenda import unmark_stage_only
+
+    unmarked: list[str] = []
+    source = "transitions_write"
+    for stage in _TRANSITION_SPOKEN_TEXT_CASCADE_STAGES:
+        if not ctx.is_done(stage):
+            continue
+        if not invalidation_allowed_downstream(source, stage):
+            continue
+        if music_clear_blocked(ctx, stage, source=source):
+            continue
+        unmark_stage_only(ctx, stage)
+        unmarked.append(stage)
     return unmarked
 
 
@@ -957,7 +1023,7 @@ def assert_script_authority_chain(ctx: RunContext, line_id: str) -> list[str]:
 
 
 def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
-    """Refresh EDL vo_pickup script_hash / duration_ms from current gap text + WAVs.
+    """Refresh EDL vo_pickup + transition script_hash / duration_ms from authority.
 
     Orientation/layup text can be repaired after EDL build (and WAVs resynthesized)
     without rebuilding the full EDL. Post-master hash agreement then fails on stale
@@ -978,19 +1044,52 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
         return {"updated": 0, "clips": [], "omit_removed": omit_report.get("removed") or []}
     clips = edl.get("clips") if isinstance(edl.get("clips"), list) else []
     gap_lines = _vo_pickup_script_lines(ctx)
+    transitions: dict[tuple[str, str], dict[str, Any]] = {}
+    if ctx.artifact_exists("master/transitions.json"):
+        doc = ctx.read_json("master/transitions.json")
+        transitions = {
+            (
+                str(row.get("after_segment_id") or ""),
+                str(row.get("before_segment_id") or ""),
+            ): row
+            for row in ((doc or {}).get("transitions") or [])
+            if isinstance(row, dict)
+        }
     changed: list[str] = []
     for clip in clips:
-        if not isinstance(clip, dict) or str(clip.get("type") or "") != "vo_pickup":
+        if not isinstance(clip, dict):
             continue
-        lid = str(clip.get("line_id") or "")
-        line = gap_lines.get(lid)
-        if not isinstance(line, dict):
+        ctype = str(clip.get("type") or "")
+        if ctype == "vo_pickup":
+            lid = str(clip.get("line_id") or "")
+            line = gap_lines.get(lid)
+            if not isinstance(line, dict):
+                continue
+            fresh, fresh_reason = line_vo_wav_fresh(ctx, line)
+            if not fresh and fresh_reason in {"stale_script_hash", "missing_synthesis_entry"}:
+                continue
+            expected_script = script_hash(str(line.get("text") or ""))
+            expected_context = context_hash(evidence_for_line(line))
+            label = lid
+        elif ctype == "transition":
+            a = str(clip.get("after_segment_id") or "")
+            b = str(clip.get("before_segment_id") or "")
+            row = transitions.get((a, b))
+            if not isinstance(row, dict):
+                continue
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+            # Only restamp when a seated WAV exists (or empty seat with duration 0).
+            src = str(clip.get("source_path") or "")
+            if src and not ctx.artifact_exists(src):
+                continue
+            expected_script = script_hash(text)
+            expected_context = None
+            label = f"tr_{a}_{b}"
+            line = None
+        else:
             continue
-        fresh, fresh_reason = line_vo_wav_fresh(ctx, line)
-        if not fresh and fresh_reason in {"stale_script_hash", "missing_synthesis_entry"}:
-            continue
-        expected_script = script_hash(str(line.get("text") or ""))
-        expected_context = context_hash(evidence_for_line(line))
         dur = 0
         src = str(clip.get("source_path") or "")
         if src and ctx.artifact_exists(src):
@@ -999,14 +1098,14 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
         if expected_script and str(clip.get("script_hash") or "") != expected_script:
             clip["script_hash"] = expected_script
             patch = True
-        if expected_context and str(clip.get("context_hash") or "") != expected_context:
+        if ctype == "vo_pickup" and expected_context and str(clip.get("context_hash") or "") != expected_context:
             clip["context_hash"] = expected_context
             patch = True
         if dur > 0 and int(clip.get("duration_ms") or 0) != dur:
             clip["duration_ms"] = dur
             patch = True
         if patch:
-            changed.append(lid)
+            changed.append(label)
     if changed:
         edl["clips"] = clips
         from interview_mux.air_order import write_live_edl
@@ -1022,6 +1121,65 @@ def sync_edl_vo_script_metadata(ctx: RunContext) -> dict[str, Any]:
         "clips": changed,
         "omit_removed": list(omit_report.get("removed") or []),
     }
+
+
+
+def edl_seat_preflight(ctx: RunContext) -> dict[str, Any]:
+    """Pre-mix/preview/finalize seat authority: sync stamps, heal paths, fail-closed.
+
+    Sync EDL script_hash/duration/source_path when WAVs are fresh. Never skip a
+    required seated line to unblock mix (empty-seat skip only for omitted seats).
+    """
+    report: dict[str, Any] = {"ok": True, "errors": [], "synced": {}}
+    try:
+        from interview_mux.transition_vo import (
+            ensure_pre_mix_transition_integrity,
+            restamp_edl_transition_source_paths,
+        )
+
+        try:
+            ensure_pre_mix_transition_integrity(ctx, synthesize=False)
+        except Exception as exc:
+            report.setdefault("warnings", []).append(f"transition_integrity:{exc}")
+        try:
+            restamp_edl_transition_source_paths(ctx)
+        except Exception as exc:
+            report.setdefault("warnings", []).append(f"restamp:{exc}")
+    except Exception:
+        pass
+    try:
+        report["synced"] = sync_edl_vo_script_metadata(ctx)
+    except Exception as exc:
+        report["ok"] = False
+        report["errors"].append(f"sync_failed:{exc}")
+        return report
+    try:
+        errors = audible_script_hash_errors(
+            ctx,
+            ctx.read_json("master/edl.json")
+            if ctx.artifact_exists("master/edl.json")
+            else None,
+        )
+        hard = [
+            e
+            for e in errors
+            if any(
+                tok in str(e)
+                for tok in (
+                    "missing",
+                    "stale",
+                    "wav_missing",
+                    "script_hash",
+                    "not_fresh",
+                )
+            )
+        ]
+        if hard:
+            report["ok"] = False
+            report["errors"].extend(hard[:20])
+    except Exception as exc:
+        report.setdefault("warnings", []).append(f"hash_check:{exc}")
+    return report
 
 
 def audible_script_hash_errors(

@@ -99,13 +99,37 @@ def detect_stale_new_stage_order(ctx: RunContext) -> str | None:
 
 
 def migrate_stale_stage_order_on_resume(ctx: RunContext) -> dict[str, Any]:
-    """Unmark downstream from the first missing new-stage output. Idempotent."""
+    """Unmark downstream from the first missing new-stage output. Idempotent.
+
+    If the pin stage already has valid outputs but only the stage_done marker is
+    missing (common after intentional VO/transition cascades), heal the marker
+    instead of wiping music/mix markers — that thrash regenerates MusicGen.
+    """
     first = detect_stale_new_stage_order(ctx)
     if not first:
         return {"migrated": False, "from_stage": None, "cleared": []}
     order = _full_order()
     if first not in order:
         return {"migrated": False, "from_stage": first, "cleared": []}
+    if _stage_output_ok(ctx, first) and not ctx.is_done(first):
+        try:
+            ctx.mark_done(first, force=True)
+        except Exception:
+            pass
+        if ctx.is_done(first):
+            ctx.log(
+                f"5A stage-order migration: restored marker for {first} "
+                "(outputs present — skipped downstream wipe)",
+                level="warning",
+                stage=first,
+                detail={"reason": "heal_marker_outputs_present"},
+            )
+            return {
+                "migrated": False,
+                "from_stage": first,
+                "cleared": [],
+                "healed_marker": True,
+            }
     idx = order.index(first)
     cleared: list[str] = []
     try:

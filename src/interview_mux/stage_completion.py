@@ -7,6 +7,7 @@ from typing import Any
 from interview_mux.artifact_completeness import artifact_status_for_stage
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 from interview_mux.run_context import RunContext
+from interview_mux.v2.config import DELIVERY_ORDER
 
 # Non-primary outputs that must exist before a stage is marked done.
 STAGE_SECONDARY_ARTIFACT_PATHS: dict[str, list[str]] = {
@@ -242,6 +243,102 @@ def reconcile_stage_done_marker(ctx: RunContext, stage_id: str) -> bool:
             detail={"reason": reason},
         )
     return False
+
+
+# Error-token → earliest producer (durable Wave 1+). heal_navigate / identical×3
+# consult this table only — no ad-hoc stage guesses past an incomplete producer.
+PRODUCER_PIN_TABLE: dict[str, str] = {
+    "missing_wav": "vo_synthesize",
+    "edl_script_hash_stale": "edl",
+    "music_incomplete": "mmaudio_sfx",
+    "seam_autopsy": "junction_snip_qa",
+    "g1_vo_open": "vo_synthesize",
+    "voice_reference_pending": "topic_coverage_audit",
+    "seed_order": "edl",
+    "assembly_seating_stale": "mix",
+    "air_script_incomplete": "air_script_compose",
+    "air_script_seams": "air_script_seams",
+    "edl_narrative_fail": "edl_narrative_audit",
+    "pmq_structural": "master_finalize",
+    "hollow_done": "edl",
+    "skip_then_consume": "edl",
+    "chapter_close_hitch": "chapter_close_hitch",
+    "nugget_corpus_mine": "nugget_corpus_mine",
+    "information_package_plan": "information_package_plan",
+    "ingest_missing": "ingest",
+    "g0_pending": "transcript_review_build",
+    "preclean_pending": "audio_preclean",
+    "cover_missing": "episode_cover_generate",
+    "encode_missing": "podcast_encode_mp3",
+    "publish_advisories": "podcast_publish",
+}
+# Every delivery stage pins itself for "artifact missing" tokens.
+for _sid in DELIVERY_ORDER:
+    PRODUCER_PIN_TABLE.setdefault(str(_sid), str(_sid))
+    PRODUCER_PIN_TABLE.setdefault(f"{_sid}_missing", str(_sid))
+    PRODUCER_PIN_TABLE.setdefault(f"artifact_missing:{_sid}", str(_sid))
+
+
+def producer_pin_for_token(token: str, *, default: str = "edl") -> str:
+    key = str(token or "").strip().lower()
+    if key in PRODUCER_PIN_TABLE:
+        return PRODUCER_PIN_TABLE[key]
+    for needle, pin in PRODUCER_PIN_TABLE.items():
+        if needle and needle in key:
+            return pin
+    return default
+
+
+def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> dict[str, Any]:
+    """Sole mark/unmark authority for delivery completeness (heal ≠ waive).
+
+    - incompleteness None + usable → mark_done (force only via assert_may_force_done)
+    - incompleteness set + done → unmark that stage only
+    - incompleteness set + not done → refuse mark
+    """
+    sid = str(stage or "").strip()
+    out: dict[str, Any] = {"stage": sid, "marked": False, "unmarked": False, "refused": False}
+    if not sid:
+        out["refused"] = True
+        out["reason"] = "empty_stage"
+        return out
+    reason = stage_artifact_incompleteness(ctx, sid)
+    if reason is None:
+        # Depth 7: refuse mark when primary artifact fails usability.
+        try:
+            from interview_mux.thrash_hardening import artifact_usable
+            from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+            rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+            if rel and ctx.artifact_exists(rel):
+                ok, ureason = artifact_usable(ctx, rel, consumer=sid)
+                if not ok:
+                    out["refused"] = True
+                    out["reason"] = f"artifact_unusable:{ureason or rel}"
+                    return out
+        except Exception:
+            pass
+        if force:
+            try:
+                from interview_mux.thrash_hardening import assert_may_force_done
+
+                assert_may_force_done(ctx, sid)
+            except RuntimeError as exc:
+                out["refused"] = True
+                out["reason"] = str(exc)
+                return out
+        if not ctx.is_done(sid):
+            ctx.mark_done(sid, force=bool(force))
+            out["marked"] = True
+        return out
+    if ctx.is_done(sid):
+        reconcile_stage_done_marker(ctx, sid)
+        out["unmarked"] = not ctx.is_done(sid)
+        out["reason"] = reason
+        return out
+    out["refused"] = True
+    out["reason"] = reason
+    return out
 
 
 def seed_stage_complete(ctx: RunContext, stage: str) -> bool:

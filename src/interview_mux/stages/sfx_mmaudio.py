@@ -1663,3 +1663,42 @@ def _trim_wav_to_duration(path: Path, duration_seconds: float) -> None:
     trimmed = path.with_suffix(".trim.wav")
     trimmed.replace(path)
 
+
+def generate_missing_music_assets_only(
+    ctx: RunContext, asset_ids: list[str]
+) -> list[str]:
+    """Generate MusicGen for the given missing asset_ids only (Wave 2).
+
+    Never clears sibling theme WAVs. Never stubs a referenced missing ID.
+    """
+    targets = [str(a) for a in asset_ids if a]
+    if not targets:
+        return []
+    stage = "mmaudio_sfx"
+    crafted = _load_crafted_prompts(ctx)
+    generation_items = _collect_generation_items(
+        ctx=ctx,
+        profile="podcast",
+        fallback_cues=[],
+    )
+    # Scope regen allowlist so refine/regen helpers cannot broaden.
+    _set_regen_asset_ids(ctx, targets)
+    try:
+        _regenerate_assets_after_refine(
+            ctx,
+            stage,
+            targets,
+            crafted=crafted,
+            generation_items=generation_items,
+        )
+    finally:
+        try:
+            _clear_regen_asset_ids(ctx)
+        except Exception:
+            pass
+    generated: list[str] = []
+    for aid in targets:
+        wav = ctx.path("sound_design", "assets") / f"{aid}.wav"
+        if wav.is_file() and wav.stat().st_size > 44:
+            generated.append(aid)
+    return generated

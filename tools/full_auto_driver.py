@@ -281,6 +281,30 @@ def _clear_needs_operator_meta(ctx: Any) -> None:
     ctx.mutate_run_meta(_clear)
 
 
+def _forensics_auto_unlock_delivery_epoch(ctx: Any, *, reason: str) -> bool:
+    """Unlock Phase-A delivery epoch when forensics hits the operator unlock gate.
+
+    Order-change invalidation after seal stamps ``needs_operator_stage=
+    delivery_epoch_unlock``. Without an auto-unlock, the heal loop waits forever
+    on a stale ``job.status=running`` producer and never remakes mix.
+    """
+    try:
+        from interview_mux.delivery_guardrails import (
+            delivery_epoch_locked,
+            unlock_delivery_epoch,
+        )
+
+        if not delivery_epoch_locked(ctx):
+            return False
+        unlock_delivery_epoch(ctx, reason)
+        _clear_needs_operator_meta(ctx)
+        log(f"forensics: auto-unlocked delivery epoch ({reason[:120]})")
+        return True
+    except Exception as exc:
+        log(f"forensics: delivery epoch unlock failed: {exc}")
+        return False
+
+
 def _homunculus_continue_on_needs_operator(stage: str, reason: str) -> bool:
     """Unattended homunculus 0.1.0: recover delivery contradictions instead of halting."""
     try:
@@ -3245,8 +3269,13 @@ def heal_stage_done_markers() -> None:
             except Exception:
                 pass
         try:
-            ctx.mark_done(sid, force=True)
-            healed.append(sid)
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            out = heal_or_refuse_mark(ctx, sid, force=True)
+            if out.get("marked"):
+                healed.append(sid)
+            elif out.get("refused"):
+                log(f"heal refuse {sid}: {out.get('reason')}")
         except Exception as exc:
             log(f"heal {sid}: {exc}")
     if cleared:
@@ -5190,6 +5219,20 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                                 f"mix gate heal: refusing soft-pass for {len(hard)} failing music assets — "
                                 "retry mmaudio_sfx with motif-family fallback"
                             )
+                            try:
+                                from interview_mux.delivery_guardrails import (
+                                    generate_missing_referenced_music_assets,
+                                )
+
+                                generated = generate_missing_referenced_music_assets(ctx)
+                                if generated:
+                                    log(
+                                        "mix gate heal: generate-missing-only "
+                                        f"{generated[:6]}"
+                                    )
+                                    return "continue"
+                            except Exception as gen_exc:
+                                log(f"mix gate heal generate-missing: {gen_exc}")
                             execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
                             return "continue"
             for sid in ("assembly_preview", "listen_delight_audit", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
@@ -7176,6 +7219,26 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 and _meta_p.get("needs_operator")
                 and live_status == "running"
             ):
+                pause_stage = str(_meta_p.get("needs_operator_stage") or "").lower()
+                pause_reason = str(_meta_p.get("needs_operator_reason") or "").lower()
+                if pause_stage == "delivery_epoch_unlock" and _forensics_mode():
+                    if _forensics_auto_unlock_delivery_epoch(
+                        _RCpause(RUN_ID, create=False),
+                        reason="driver_auto_unlock_while_producer_running",
+                    ):
+                        continue
+                # Forensics: identical seed-order caps must not park forever behind a
+                # live producer — clear the stamp and let heal navigate.
+                if _forensics_mode() and (
+                    "seed order" in pause_reason
+                    or pause_stage in {"vo_synthesize", "vo_line_adjudicate"}
+                ):
+                    _clear_needs_operator_meta(_RCpause(RUN_ID, create=False))
+                    log(
+                        f"forensics: cleared needs_operator {pause_stage} while "
+                        f"{live_stage} running (seed-order heal continues)"
+                    )
+                    continue
                 log(
                     f"{label}: needs_operator "
                     f"{_meta_p.get('needs_operator_stage')} while {live_stage} running — wait"
@@ -7187,6 +7250,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             elif isinstance(_meta_p, dict) and _meta_p.get("needs_operator"):
                 pause_stage = str(_meta_p.get("needs_operator_stage") or "").lower()
                 pause_reason = str(_meta_p.get("needs_operator_reason") or "").lower()
+                if pause_stage == "delivery_epoch_unlock" and (
+                    _forensics_mode() or "delivery epoch" in pause_reason
+                ):
+                    if _forensics_auto_unlock_delivery_epoch(
+                        _RCpause(RUN_ID, create=False),
+                        reason="driver_auto_unlock_needs_operator",
+                    ):
+                        continue
                 g1_pause = pause_stage in {"g1_vo_pickup", "edl", "g1"} or any(
                     tok in pause_reason
                     for tok in ("g1", "chatterbox", "pickup", "voice")
@@ -7422,6 +7493,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         from interview_mux.identical_failures import record_class_failure
                         from interview_mux.run_context import RunContext as _RCPred
                         from interview_mux.thrash_hardening import (
+                            note_sticky_heal_attempt,
                             premature_fail_class,
                             record_thrash_hit,
                             stage_predicate_token,
@@ -7451,7 +7523,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if thrash:
                             log(
                                 f"THRASH DETECTED class={cls} pin={resume} "
-                                f"hits={thrash.get('hit_count')} (soft — no auto pause)"
+                                f"hits={thrash.get('hit_count')}"
                             )
                             log_decision(
                                 "major",
@@ -7460,9 +7532,36 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 reason=cls,
                                 detail=thrash,
                             )
-                            # Soft only: thrash_report + thrash_pause_recommended.
-                            # Hard needs_operator pause was false-stopping healthy
-                            # producer retries; driver continues with heal pin.
+                            # Sticky same-pin + unchanged predicate → hard stop.
+                            # Soft thrash alone was false-pausing healthy MusicGen;
+                            # sticky heal only fires when the pin makes no progress.
+                            # Skip while an expensive producer lease is active.
+                            from interview_mux.thrash_hardening import (
+                                expensive_stage_lease_active,
+                            )
+
+                            leased, _ls = expensive_stage_lease_active(_ctx_pred)
+                            if leased:
+                                sticky = {"halt": False}
+                            else:
+                                sticky = note_sticky_heal_attempt(
+                                    _ctx_pred,
+                                    kind=f"premature_thrash:{cls}",
+                                    pin=resume,
+                                    intent=cls,
+                                    predicate_token=token,
+                                )
+                            if sticky.get("halt"):
+                                log(
+                                    f"STOP: premature thrash sticky heal "
+                                    f"×{sticky.get('count')} pin={resume} class={cls}"
+                                )
+                                pause_needs_operator(
+                                    resume or label,
+                                    f"HARD: premature thrash ×{sticky.get('count')} "
+                                    f"class={cls} pin={resume}",
+                                )
+                                continue
                     except Exception:
                         pass
                     if (
@@ -7525,6 +7624,37 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             f"(was {fail_key} ×3 — not advance)"
                         )
                         resume = pin_stage
+                        # Sticky halt after repeated same-pin premature heals.
+                        try:
+                            from interview_mux.thrash_hardening import (
+                                note_sticky_heal_attempt,
+                                premature_fail_class,
+                                stage_predicate_token,
+                            )
+
+                            if ctx_p is not None:
+                                sticky_x3 = note_sticky_heal_attempt(
+                                    ctx_p,
+                                    kind="premature_complete_heal",
+                                    pin=resume,
+                                    intent=premature_fail_class(resume),
+                                    predicate_token=stage_predicate_token(
+                                        ctx_p, resume
+                                    ),
+                                )
+                                if sticky_x3.get("halt"):
+                                    log(
+                                        f"STOP: premature_complete sticky heal "
+                                        f"×{sticky_x3.get('count')} pin={resume}"
+                                    )
+                                    pause_needs_operator(
+                                        resume or label,
+                                        f"HARD: premature_complete thrash ×"
+                                        f"{sticky_x3.get('count')} pin={resume}",
+                                    )
+                                    continue
+                        except Exception:
+                            pass
                     try:
                         if label == "analysis":
                             predecline_pending_reuse(
@@ -7725,7 +7855,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
             if "delivery incomplete after conductor" in low_err:
                 try:
                     from interview_mux.run_context import RunContext
-                    from interview_mux.thrash_hardening import heal_navigate
+                    from interview_mux.thrash_hardening import (
+                        heal_navigate,
+                        note_sticky_heal_attempt,
+                        stage_predicate_token,
+                    )
 
                     ctx_nav = RunContext(RUN_ID, create=False)
                     if not ctx_nav.artifact_exists("master/master.wav"):
@@ -7734,14 +7868,41 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             error=err,
                             stage=stage or "",
                         )
+                        pin = str(nav.get("from_stage") or stage or "edl")
+                        intent = str(nav.get("intent") or "delivery_blocked")
+                        token = stage_predicate_token(ctx_nav, pin)
+                        sticky = note_sticky_heal_attempt(
+                            ctx_nav,
+                            kind="incomplete_after_conductor",
+                            pin=pin,
+                            intent=intent,
+                            predicate_token=token,
+                        )
+                        if sticky.get("halt"):
+                            log(
+                                f"STOP: incomplete-after-conductor sticky heal "
+                                f"×{sticky.get('count')} pin={pin} intent={intent} "
+                                f"(predicate unchanged)"
+                            )
+                            pause_needs_operator(
+                                pin,
+                                f"HARD: incomplete-after-conductor thrash ×"
+                                f"{sticky.get('count')} pin={pin} intent={intent}",
+                            )
+                            continue
                         log(
                             f"incomplete-after-conductor heal_navigate → "
-                            f"{nav['from_stage']} (intent={nav['intent']})"
+                            f"{pin} (intent={intent} "
+                            f"sticky={sticky.get('count')}/{sticky.get('halt_after')})"
                         )
                         execute(
-                            {"mode": nav["mode"], "from_stage": nav["from_stage"]}
+                            {"mode": nav["mode"], "from_stage": pin}
                         )
+                        # If the next job advances the predicate, counter resets
+                        # on the following attempt via note_sticky_heal_attempt.
                         continue
+                except SystemExit:
+                    raise
                 except Exception as nav_exc:
                     log(f"incomplete-after-conductor navigate: {nav_exc}")
                 try:
@@ -7928,15 +8089,42 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         # Hollow-done: stage marked complete but artifacts incomplete
                         # (e.g. layup plan order ≠ selection after chapter clamp).
                         # Unmark so --from-stage actually re-runs instead of skipping to edl.
+                        # Inverse: artifacts complete but stage_done missing (mark_done race
+                        # after flush) → mark_done instead of re-running forever.
                         from interview_mux.delivery_guardrails import seed_stage_complete
-                        from interview_mux.homunculus.agenda import unmark_stage_only
+                        from interview_mux.homunculus.agenda import (
+                            stage_outputs_present,
+                            unmark_stage_only,
+                        )
+                        from interview_mux.stage_completion import (
+                            stage_artifact_incompleteness,
+                        )
 
                         if not seed_stage_complete(ctx_seed, resume_seed):
-                            unmark_stage_only(ctx_seed, resume_seed)
-                            log(
-                                f"seed order heal: unmarked hollow {resume_seed} "
-                                "before resume"
-                            )
+                            hollow = stage_artifact_incompleteness(ctx_seed, resume_seed)
+                            outputs_ok = False
+                            try:
+                                outputs_ok = bool(
+                                    stage_outputs_present(ctx_seed, resume_seed)
+                                )
+                            except Exception:
+                                outputs_ok = False
+                            if (
+                                hollow is None
+                                and outputs_ok
+                                and not ctx_seed.is_done(resume_seed)
+                            ):
+                                ctx_seed.mark_done(resume_seed)
+                                log(
+                                    f"seed order heal: marked complete {resume_seed} "
+                                    "(artifacts present, stage_done missing)"
+                                )
+                            elif ctx_seed.is_done(resume_seed):
+                                unmark_stage_only(ctx_seed, resume_seed)
+                                log(
+                                    f"seed order heal: unmarked hollow {resume_seed} "
+                                    "before resume"
+                                )
                     except Exception:
                         pass
                     execute({"mode": mode_seed, "from_stage": resume_seed})

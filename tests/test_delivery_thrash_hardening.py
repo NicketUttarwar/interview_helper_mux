@@ -501,3 +501,99 @@ def test_force_done_missing_g1_wav_blocks_seed_complete(
     ctx.mark_done("vo_synthesize", force=True)
     assert stage_artifact_incompleteness(ctx, "vo_synthesize") is not None
     assert seed_stage_complete(ctx, "vo_synthesize") is False
+
+
+# --- exec_5409 filter-empty → music heal thrash --------------------------------
+
+
+def test_filter_empty_error_does_not_pin_music_before_phase_a(tmp_path: Path) -> None:
+    """Remaining-list stage names must not classify as music_epoch (exec_5409)."""
+    from interview_mux.thrash_hardening import (
+        FAIL_CLASS_DELIVERY_BLOCKED,
+        heal_navigate,
+        infer_heal_intent,
+        path_to_master_pin,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_5409_filter_empty")
+    err = (
+        "Delivery incomplete after conductor — remaining stages (filter empty): "
+        "music_palette_compose, sfx_prompt_craft, mmaudio_sfx, mix, "
+        "junction_snip_qa, master_finalize; resume=music_palette_compose"
+    )
+    assert infer_heal_intent(error=err, stage="music_palette_compose") == (
+        FAIL_CLASS_DELIVERY_BLOCKED
+    )
+    nav = heal_navigate(ctx, error=err, stage="music_palette_compose")
+    assert nav["intent"] == FAIL_CLASS_DELIVERY_BLOCKED
+    assert nav["from_stage"] != "music_palette_compose"
+    assert nav["from_stage"] not in {
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+    }
+    # path_to_master must also refuse music while Phase A is open
+    assert path_to_master_pin(ctx) != "music_palette_compose"
+
+
+def test_music_epoch_intent_redirects_when_phase_a_unsealed(tmp_path: Path) -> None:
+    from interview_mux.thrash_hardening import (
+        FAIL_CLASS_MUSIC_EPOCH,
+        canonical_resume_pin,
+        heal_navigate,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_5409_music_redirect")
+    pin = canonical_resume_pin(ctx, FAIL_CLASS_MUSIC_EPOCH, hint="music_palette_compose")
+    assert pin != "music_palette_compose"
+    nav = heal_navigate(ctx, intent=FAIL_CLASS_MUSIC_EPOCH, stage="music_palette_compose")
+    assert nav["from_stage"] != "music_palette_compose"
+
+
+def test_sticky_heal_halts_after_unchanged_predicate(tmp_path: Path) -> None:
+    from interview_mux.thrash_hardening import (
+        STICKY_HEAL_HALT_AFTER,
+        note_sticky_heal_attempt,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_sticky_halt")
+    last = None
+    for _ in range(STICKY_HEAL_HALT_AFTER):
+        last = note_sticky_heal_attempt(
+            ctx,
+            kind="incomplete_after_conductor",
+            pin="music_palette_compose",
+            intent="delivery_blocked",
+            predicate_token="music_palette_compose:0:0:missing",
+        )
+    assert last is not None
+    assert last["halt"] is True
+    assert int(last["count"]) >= STICKY_HEAL_HALT_AFTER
+    # Predicate flip resets
+    reset = note_sticky_heal_attempt(
+        ctx,
+        kind="incomplete_after_conductor",
+        pin="music_palette_compose",
+        intent="delivery_blocked",
+        predicate_token="music_palette_compose:1:1:ok",
+    )
+    assert reset["halt"] is False
+    assert int(reset["count"]) == 1
+
+
+def test_filter_empty_music_slice_stays_empty_until_phase_a(tmp_path: Path) -> None:
+    """Music-only remaining must not be enqueued before Phase A / assembly."""
+    from interview_mux.delivery_guardrails import filter_delivery_candidates
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_5409_filter_slice")
+    still = [
+        "music_palette_compose",
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+        "mix",
+        "junction_snip_qa",
+        "master_finalize",
+    ]
+    assert filter_delivery_candidates(ctx, still) == []

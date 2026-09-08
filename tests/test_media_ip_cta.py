@@ -1507,6 +1507,50 @@ def test_execute_cta_omit_drops_outro_range() -> None:
     assert order == ["seg_054"]
 
 
+def test_execute_cta_omit_drops_fragmentary_tail_via_boundary_detection_need() -> None:
+    """Layup asks boundary_detection to remove post-sign-off scraps — host-omit them."""
+    from interview_mux.media_ip_cta import (
+        execute_cta_omit_from_needs,
+        is_selection_cta_omit_need,
+    )
+
+    need = {
+        "type": "rerun_stage",
+        "stage": "boundary_detection",
+        "blocking": True,
+        "reason": (
+            "Review and recut or remove seg_063i and seg_063j: they are selected "
+            "in the master but contain empty or fragmentary text after an already "
+            "complete sign-off."
+        ),
+    }
+    assert is_selection_cta_omit_need(need)
+
+    ctx = _ctx_010()
+    ctx.write_json(
+        "segments/manifest.json",
+        _manifest(
+            _seg("seg_062", "That is the promise of real-time profiling.", start=0, end=4000),
+            _seg("seg_063h", "Thanks for joining us today.", start=4000, end=7000),
+            _seg("seg_063i", "We'll", start=7000, end=7500),
+            _seg("seg_063j", "We'll see you next time.", start=7500, end=9500),
+        ),
+    )
+    ctx.write_json(
+        "master/selection.json",
+        {
+            "ordered_segment_ids": ["seg_062", "seg_063h", "seg_063i", "seg_063j"],
+        },
+    )
+    dropped = execute_cta_omit_from_needs(ctx, [need])
+    order = ctx.read_json("master/selection.json").get("ordered_segment_ids") or []
+    assert "seg_063i" in dropped
+    assert "seg_063j" in dropped
+    assert "seg_062" not in dropped
+    assert "seg_063h" not in dropped
+    assert order == ["seg_062", "seg_063h"]
+
+
 def test_execute_cta_omit_keeps_reverse_jump_intro_and_commits_under_staging() -> None:
     from interview_mux.media_ip_cta import execute_cta_omit_from_needs
     from interview_mux.write_staging import enter_stage_staging, exit_stage_staging

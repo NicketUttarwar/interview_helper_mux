@@ -153,6 +153,9 @@ def read_stale_guard(ctx: Any, rel: str, *, consumer_stage: str) -> str | None:
         return None
     if not ctx.artifact_exists(rel):
         return None
+    # Binary media: never UTF-8 / JSON-decode (Wave 3 durable).
+    if str(rel).lower().endswith((".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".png", ".jpg")):
+        return None
     # The producing stage may rewrite its own stale file (rerun / self-heal).
     if STAGE_ARTIFACT_DISK_PATHS.get(consumer_stage) == rel:
         return None
@@ -348,10 +351,14 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
 def apply_fingerprints_on_flush(ctx: Any, stage_key: str, flushed_paths: list[str]) -> None:
     if not lifecycle_cfg().get("fingerprint_enabled", True):
         return
+    _binary_suffixes = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
     for rel in flushed_paths:
         if rel not in STAGE_ARTIFACT_DISK_PATHS.values():
             continue
         if not ctx.artifact_exists(rel):
+            continue
+        # Producer outputs may be binary (mix → assembly.wav). Never read_json them.
+        if str(rel).lower().endswith(_binary_suffixes):
             continue
         try:
             doc = ctx.read_json(rel)

@@ -46,7 +46,17 @@ _SELECTION_RERUN_STAGES = frozenset(
         "full_master_ranking",
         "selection_framing_apply",
         "ranking",
+        # Layup often asks boundary_detection to recut/remove post-sign-off scraps;
+        # host-execute the omit instead of bouncing layup forever.
+        "boundary_detection",
     }
+)
+_FRAGMENTARY_TAIL_TOKENS = (
+    "fragmentary",
+    "empty or fragmentary",
+    "after an already complete sign-off",
+    "after sign-off",
+    "complete sign-off",
 )
 
 REASON = "media_ip_cta"
@@ -1615,9 +1625,19 @@ def _outro_like_reason(reason: str) -> bool:
     return any(token.replace("-", "_") in key for token in _OUTRO_REASON_TOKENS)
 
 
+def _fragmentary_tail_reason(reason: str) -> bool:
+    """True when layup asks to drop empty/fragment scraps after a finished sign-off."""
+    key = str(reason or "").casefold()
+    return any(token in key for token in _FRAGMENTARY_TAIL_TOKENS)
+
+
 def is_editorial_exclude_reason(reason: str) -> bool:
     """True for CTA / sponsor / monetization / editorial-omit reasons."""
-    return _cta_like_reason(reason) or _outro_like_reason(reason)
+    return (
+        _cta_like_reason(reason)
+        or _outro_like_reason(reason)
+        or _fragmentary_tail_reason(reason)
+    )
 
 
 def is_selection_cta_omit_need(need: Any) -> bool:
@@ -1806,17 +1826,22 @@ def execute_cta_omit_from_needs(
             and not str((by_id.get(sid) or {}).get("text") or "").strip()
             and not re.search(r"[a-z]$", sid.split("_", 1)[-1])
         }
+        frag_tail = _fragmentary_tail_reason(reason)
         for sid in list(dict.fromkeys([*named, *before])):
             if sid in keep:
                 continue
             text = str((by_id.get(sid) or {}).get("text") or "")
             child_of_omitted = any(_is_nle_child(sid, parent) for parent in omitted_parents)
             empty_parent = (not text.strip()) and sid in omitted_parents
+            # Named post-sign-off scraps ("We'll" / orphaned goodbye) are often not
+            # hard-omit CTA phrases — still drop them when layup names them.
+            named_frag_tail = frag_tail and sid in named
             if (
                 (text and should_hard_omit_cta(text))
                 or range_drop
                 or child_of_omitted
                 or empty_parent
+                or named_frag_tail
             ):
                 extra.setdefault(sid, reason[:240] or "media_ip_cta")
     out: dict[str, Any] | None = None

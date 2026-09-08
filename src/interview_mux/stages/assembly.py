@@ -72,7 +72,11 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
     if not bases:
         bases = [pickup]
     from interview_mux.vo_speech_qa import backend_allowed_for_vo, vo_passes_speech_qa
-    from interview_mux.vo_synthesis_audit import synthesis_entry_for_line
+    from interview_mux.vo_synthesis_audit import (
+        _audited_wav_path,
+        synthesis_entry_for_line,
+        synthesis_entry_matches_line,
+    )
 
     for base in bases:
         for key in (lid, seg):
@@ -88,13 +92,17 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
                     continue
                 if entry.get("qc_pass") is False:
                     continue
-                from interview_mux.vo_synthesis_audit import (
-                    synthesis_entry_matches_line,
-                )
-
                 matches, _reason = synthesis_entry_matches_line(ctx, line)
                 if not matches:
                     continue
+                # Prefer the sha-bound take (seated copy may still match while
+                # synthesized/ was overwritten mid re-synth).
+                audited = _audited_wav_path(ctx, entry, line)
+                if audited is None or not audited.is_file():
+                    continue
+                if not vo_passes_speech_qa(audited):
+                    continue
+                return audited
             else:
                 # No audit row: only allow explicit operator *record* takes under
                 # clean/normalized/top-level pickup. Synthesize delivery must never
@@ -106,10 +114,67 @@ def resolve_vo_pickup_path(ctx: RunContext, line: dict) -> Path | None:
                     "vo_pickup",
                 }:
                     continue
-            if not vo_passes_speech_qa(candidate):
-                continue
-            return candidate
+                if not vo_passes_speech_qa(candidate):
+                    continue
+                return candidate
     return None
+
+
+def _gap_line_for_vo_clip(ctx: RunContext, clip: dict) -> dict:
+    """Enrich a thin EDL vo_pickup clip with gap_report fields needed for resolve.
+
+    EDL clips often carry only line_id / stale script_hash after sanitize strips a
+    null source_path. resolve_vo_pickup_path matches synthesis audit against line
+    text — prefer authoritative gap script so seated WAVs heal instead of hard-fail.
+    """
+    lid = str(clip.get("line_id") or "").strip()
+    if not lid:
+        return clip
+    try:
+        gap = ctx.read_json("understanding/gap_report.json") or {}
+    except Exception:
+        return clip
+    for line in gap.get("interviewer_lines") or []:
+        if not isinstance(line, dict):
+            continue
+        if str(line.get("line_id") or "").strip() != lid:
+            continue
+        merged = dict(clip)
+        for key in (
+            "text",
+            "script_hash",
+            "delivery",
+            "targets_segment_id",
+            "speaker_id",
+            "context_hash",
+            "required",
+        ):
+            if line.get(key) is not None:
+                merged[key] = line[key]
+        return merged
+    return clip
+
+
+def heal_vo_pickup_clip_source(ctx: RunContext, clip: dict) -> Path | None:
+    """Stamp source_path (+ duration_ms) when a resolvable VO WAV exists."""
+    if str(clip.get("type") or "") != "vo_pickup":
+        return None
+    if str(clip.get("source_path") or "").strip():
+        return None
+    line = _gap_line_for_vo_clip(ctx, clip)
+    try:
+        path = resolve_vo_pickup_path(ctx, line)
+    except Exception:
+        return None
+    if path is None or not path.is_file():
+        return None
+    clip["source_path"] = vo_pickup_relpath(ctx, path)
+    if int(clip.get("duration_ms") or 0) <= 0:
+        try:
+            clip["duration_ms"] = int(_wav_duration_ms(path) or 0)
+        except Exception:
+            pass
+    return path
 
 
 def vo_pickup_relpath(ctx: RunContext, path: Path) -> str:
@@ -1401,6 +1466,12 @@ def run_edl(ctx: RunContext) -> None:
     except Exception:
         pass
     ctx.mark_done("edl")
+    try:
+        from interview_mux.delivery_guardrails import freeze_air_order
+
+        freeze_air_order(ctx, reason="edl_commit")
+    except Exception:
+        pass
 
 
 def run_mix(ctx: RunContext) -> Path:
@@ -1521,6 +1592,34 @@ def run_mux(ctx: RunContext) -> Path:
 def run_preview(ctx: RunContext) -> Path:
     """Build Flow 1 assembly preview: speech + recorded VO pickup, no SFX."""
     edl = ctx.read_json("master/edl.json")
+    # Heal VO clips that lost source_path (sanitize stripped nulls / seating race).
+    healed_ids: list[str] = []
+    for clip in edl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        path = heal_vo_pickup_clip_source(ctx, clip)
+        if path is not None:
+            healed_ids.append(str(clip.get("line_id") or path.name))
+    if healed_ids:
+        ctx.log(
+            "assembly_preview: healed vo_pickup source_path for "
+            + ", ".join(healed_ids[:12]),
+            level="warning",
+            stage="assembly_preview",
+        )
+        try:
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(
+                ctx, "master/edl.json", edl, stage_key="assembly_preview"
+            )
+        except Exception as exc:
+            ctx.log(
+                f"assembly_preview: could not persist healed EDL: {exc}",
+                level="warning",
+                stage="assembly_preview",
+            )
+
     source = ctx.read_path("ingest", "normalized.wav")
     work = ctx.path("master", "_preview_clips")
     work.mkdir(parents=True, exist_ok=True)
@@ -1589,7 +1688,9 @@ def run_preview(ctx: RunContext) -> Path:
 
             src_rel = clip.get("source_path")
             if not src_rel:
-                if ctype == "transition" and not str(clip.get("text") or "").strip():
+                if ctype == "transition":
+                    # Explicit empty seat is allowed on the EDL (see transition_vo
+                    # assert): mix last-chance synthesizes; preview skips the clip.
                     continue
                 raise RuntimeError(
                     f"assembly_preview: {ctype} clip {clip.get('line_id') or i} missing source_path"

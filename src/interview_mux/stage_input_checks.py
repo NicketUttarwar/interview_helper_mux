@@ -374,6 +374,7 @@ def _check_assembly_preview(ctx: RunContext) -> list[StageInputIssue]:
     issue = _require_artifact(ctx, "master/edl.json", remediation="Run edl.")
     if issue:
         issues.append(issue)
+    issues.extend(_edl_seat_preflight_issues(ctx, consumer="assembly_preview"))
     return issues
 
 
@@ -387,8 +388,39 @@ def _check_mix(ctx: RunContext) -> list[StageInputIssue]:
         issue = _require_artifact(ctx, rel, remediation=remediation)
         if issue:
             issues.append(issue)
+    issues.extend(_edl_seat_preflight_issues(ctx, consumer="mix"))
     issues.extend(_vo_script_wav_agreement_issues(ctx, consumer="mix"))
     return issues
+
+
+def _edl_seat_preflight_issues(
+    ctx: RunContext, *, consumer: str
+) -> list[StageInputIssue]:
+    """Wave 3: seat authority before hash gates (heal ≠ skip required seats)."""
+    if not ctx.artifact_exists("master/edl.json"):
+        return []
+    try:
+        from interview_mux.vo_synthesis_audit import edl_seat_preflight
+
+        report = edl_seat_preflight(ctx)
+    except Exception as exc:
+        return [
+            StageInputIssue(
+                f"EDL seat preflight failed: {exc}",
+                f"Re-run vo_synthesize / edl before {consumer}.",
+                kind="edl_seat",
+            )
+        ]
+    if report.get("ok", True):
+        return []
+    errs = list(report.get("errors") or [])[:6]
+    return [
+        StageInputIssue(
+            f"EDL seat preflight blocked {consumer}: {', '.join(str(e) for e in errs)}",
+            "Heal seated VO WAVs / script stamps; never skip required seats.",
+            kind="edl_seat",
+        )
+    ]
 
 
 def _vo_script_wav_agreement_issues(
@@ -435,8 +467,10 @@ def _vo_script_wav_agreement_issues(
     try:
         canonicalize_synthesis_out_wav_paths(ctx)
         from interview_mux.transition_vo import restamp_edl_transition_source_paths
+        from interview_mux.vo_synthesis_audit import sync_edl_vo_script_metadata
 
         restamp_edl_transition_source_paths(ctx)
+        sync_edl_vo_script_metadata(ctx)
         edl = ctx.read_json("master/edl.json")
         errors = audible_script_hash_errors(ctx, edl if isinstance(edl, dict) else None)
     except Exception:
@@ -480,6 +514,7 @@ def _check_junction_snip_qa(ctx: RunContext) -> list[StageInputIssue]:
 
 def _check_master_finalize(ctx: RunContext) -> list[StageInputIssue]:
     issues: list[StageInputIssue] = []
+    issues.extend(_edl_seat_preflight_issues(ctx, consumer="master_finalize"))
     issue = _require_artifact(
         ctx,
         "master/assembly.wav",

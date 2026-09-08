@@ -563,7 +563,9 @@ class RunContext:
     def is_done(self, stage: str) -> bool:
         return self.final_path(".stage_done", stage).is_file()
 
-    def clear_from(self, stage: str, order: list[str]) -> None:
+    def clear_from(
+        self, stage: str, order: list[str], *, blast_source: str | None = None
+    ) -> None:
         if stage not in order:
             return
         from interview_mux.execution_invalidation import (
@@ -571,12 +573,39 @@ class RunContext:
             clear_pending_writes_from,
         )
         from interview_mux.artifact_lifecycle import invalidate_downstream_memory
+        from interview_mux.delivery_guardrails import (
+            INVALIDATION_BLAST_RADIUS,
+            invalidation_allowed_downstream,
+            music_clear_blocked,
+        )
 
-        archive_artifacts_from(self, stage, order)
-        invalidate_downstream_memory(self, stage)
-        clear_pending_writes_from(self, stage, order)
+        source = str(blast_source or stage).strip() or stage
         idx = order.index(stage)
-        for s in order[idx:]:
+        candidates = list(order[idx:])
+        restricted = source in INVALIDATION_BLAST_RADIUS
+        music_protected = any(
+            music_clear_blocked(self, s, source=source) for s in candidates
+        )
+        to_clear = [
+            s
+            for s in candidates
+            if (
+                s == stage
+                or invalidation_allowed_downstream(source, s)
+            )
+            and not music_clear_blocked(self, s, source=source)
+        ]
+        # When music epoch is sealed, never full-archive (would wipe theme WAVs).
+        if not restricted and not music_protected:
+            archive_artifacts_from(self, stage, order)
+            invalidate_downstream_memory(self, stage)
+            clear_pending_writes_from(self, stage, order)
+        else:
+            # Restricted blast or sealed music: marker-only for allowed set.
+            invalidate_downstream_memory(self, stage)
+            if not music_protected:
+                clear_pending_writes_from(self, stage, order)
+        for s in to_clear:
             marker = self.final_path(".stage_done", s)
             if marker.is_file():
                 marker.unlink()
@@ -588,8 +617,15 @@ class RunContext:
         clear_step_through_from(self, stage, order)
         from interview_mux.refinement_ledger import reset_ledger_from_stages
 
-        reset_ledger_from_stages(self, set(order[idx:]))
-        self.log(f"Invalidated stages from {stage} onward — ready to re-run.", level="warning", stage=stage)
+        reset_ledger_from_stages(self, set(to_clear))
+        kept = len(candidates) - len(to_clear)
+        self.log(
+            f"Invalidated stages from {stage} onward"
+            + (f" (blast={source}, kept={kept})" if restricted or kept else "")
+            + " — ready to re-run.",
+            level="warning",
+            stage=stage,
+        )
 
     def _resolve_input_audio_ref(self, input_audio_path: str) -> Path:
         raw = Path(input_audio_path)

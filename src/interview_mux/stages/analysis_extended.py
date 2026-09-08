@@ -235,8 +235,28 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         return
 
     try:
-        from interview_mux.media_ip_cta import heal_on_air_cta_residue
+        from interview_mux.media_ip_cta import apply_cta_judgments, heal_on_air_cta_residue
 
+        # Wave 4: pre-layup fragment omit via existing CTA helpers only.
+        try:
+            sel = (
+                ctx.read_json("master/selection.json")
+                if ctx.artifact_exists("master/selection.json")
+                else None
+            )
+            pruned = apply_cta_judgments(ctx, sel if isinstance(sel, dict) else None)
+            if (
+                isinstance(pruned, dict)
+                and pruned.get("ordered_segment_ids") is not None
+                and isinstance(sel, dict)
+            ):
+                ctx.write_json(
+                    "master/selection.json",
+                    pruned,
+                    stage_key="nugget_layup_compose",
+                )
+        except Exception:
+            pass
         healed = heal_on_air_cta_residue(ctx)
         if isinstance(healed, dict) and healed.get("ordered_segment_ids") is not None:
             ctx.log(

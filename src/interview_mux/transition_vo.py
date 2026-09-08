@@ -301,12 +301,14 @@ def maybe_propagate_transitions_spoken_text_change(
             purged.append(f"{after_id}->{before_id}")
         unmarked: list[str] = []
         try:
-            from interview_mux.vo_synthesis_audit import unmark_vo_script_cascade_stages
+            from interview_mux.vo_synthesis_audit import (
+                unmark_transition_spoken_text_cascade_stages,
+            )
 
             # Only unmark when we actually invalidated audio or text changed on a
             # pair that already had consumers done.
             if purged or any(ctx.is_done(s) for s in ("vo_synthesize", "edl", "mix")):
-                unmarked = unmark_vo_script_cascade_stages(ctx)
+                unmarked = unmark_transition_spoken_text_cascade_stages(ctx)
         except Exception:
             unmarked = []
         if purged or unmarked:
@@ -507,6 +509,45 @@ def synthesize_spoken_transitions(
         except Exception:
             pass
         audit_match, audit_reason = synthesis_entry_matches_line(ctx, line)
+        if audit_match:
+            # Pending/re-synth can leave committed transition bytes behind the
+            # audit row. Prefer the sha-bound take and seat it at ``out`` so we
+            # do not thrash-regenerate every pass (same class as G1 seated VO).
+            try:
+                from interview_mux.vo_synthesis_audit import (
+                    _audited_wav_path,
+                    synthesis_entry_for_line,
+                    wav_content_sha256,
+                )
+
+                entry = synthesis_entry_for_line(ctx, str(line.get("line_id") or ""))
+                audited = (
+                    _audited_wav_path(ctx, entry, line)
+                    if isinstance(entry, dict)
+                    else None
+                )
+                bound = str((entry or {}).get("wav_sha256") or "").strip()
+                if (
+                    audited is not None
+                    and audited.is_file()
+                    and bound
+                    and (
+                        not out.is_file()
+                        or wav_content_sha256(out) != bound
+                        or audited.resolve() != out.resolve()
+                    )
+                ):
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    if audited.resolve() != out.resolve():
+                        import shutil
+
+                        shutil.copy2(audited, out)
+            except Exception as exc:
+                ctx.log(
+                    f"transition seat audited take skipped {after_id}→{before_id}: {exc}",
+                    level="warning",
+                    stage="edl",
+                )
         if out.is_file() and _transition_wav_usable(out) and audit_match:
             results.append(
                 {
