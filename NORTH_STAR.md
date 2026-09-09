@@ -49,7 +49,7 @@ First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narra
 |-----------|----------------|
 | Master loudness | `-16 LUFS` integrated, true peak within bounds — `python tools/verify_master.py <path>/master/master.wav` |
 | Narrative + sound | Ordered speech, VO bridges where recorded, SDP beds/stingers via MMAudio mix — bound to Mastering Process plan when present |
-| Listen delight | `mastering/listen_delight_audit.json` + scorecard + human rubric — **authoritative ship gate** (blocks finalize quality + publish when floors fail) |
+| Listen delight | `mastering/listen_delight_audit.json` + scorecard + human rubric — **aspirational + advisory by default** (`mastering.aspirational_quality.enabled`; floors emit on PMQ; hard-stop only when aspirational is off **and** `listen_delight.mode: authoritative`) |
 | Idea transmission | First-time listener can retell thesis / main claims; nuggets audible; cuts do not shred meaning |
 | Operator friction | Hard stops for **G0 transcript fix** and **gap-framing gate ladder**; **G1 gap VO** remains skippable; preclean is an optional offer |
 | Refinement Pass | L0/L1 second analyses; one second-run per function, never dead-ends G1/delivery — [refinement-passes.md](docs/cross-cutting/refinement-passes.md) |
@@ -57,7 +57,7 @@ First-class plan decisions: **`narrative_mode`** + **`montage_grammar`** ([narra
 
 ### Human listen rubric (ship checklist)
 
-Use in smoke-test / sign-off. Machine delight floors mirror these; failures **block ship** when listen_delight mode is authoritative:
+Use in smoke-test / sign-off. Machine delight floors mirror these; failures are **advisory under aspirational quality** (pick-best + advisories), and **block ship** only when aspirational is disabled and listen_delight mode is authoritative:
 
 1. Hook / intent clear in first ~30s (or intentional sparse open)
 2. Mode audible and coherent through the episode
@@ -71,7 +71,7 @@ Use in smoke-test / sign-off. Machine delight floors mirror these; failures **bl
 
 ### Interim segment quality scale
 
-Until a unified density score lands, operable signals include: `self_explanatory` / segment flags · gap severity · ranking excludes · passion/lexicon STT priors · pack retention vs brief ideal · junction/seam autopsy · listener scorecard · **authoritative listen_delight** dims (`nugget_retention`, `cut_integrity`, `conversation_fit`, `sonic_weave`, `mode_coherence`, `finishability`, `recommendability`).
+Until a unified density score lands, operable signals include: `self_explanatory` / segment flags · gap severity · ranking excludes · passion/lexicon STT priors · pack retention vs brief ideal · junction/seam autopsy · listener scorecard · **listen_delight** dims (`nugget_retention`, `cut_integrity`, `conversation_fit`, `sonic_weave`, `mode_coherence`, `finishability`, `recommendability`) — aspirational floors by default.
 
 ## Operator stops (only these)
 
@@ -114,9 +114,9 @@ User packets must contain **this tape’s meaning** (transcript, segment excerpt
 
 **Must-keep clips** (gap-framing primaries, vernacular/low-conf, ideal-cuts, talking-point must-keeps) stay in `ordered_segment_ids`. **E2E must not stub QC green** (`INTERVIEW_MUX_E2E_SOFT` default off). **Resume** does not `clear_from` past a frozen gap spine.
 
-## Quality spine (all hard)
+## Quality spine
 
-`verify_master` (−16 LUFS) · junction snip QA authoritative residuals · listener scorecard / post_master_quality · **listen_delight** (authoritative).
+`verify_master` (−16 LUFS) · junction snip QA residual honesty · listener scorecard / post_master_quality · **listen_delight** (aspirational+advisory default; Tier-0 structural / catastrophic floors still hard).
 
 ## Pipeline shape
 

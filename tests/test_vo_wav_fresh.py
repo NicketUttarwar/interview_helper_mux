@@ -14,7 +14,7 @@ from interview_mux.vo_synthesis_audit import (
     synthesis_entry_for_line,
     synthesis_entry_matches_line,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_merged_config, mark_done_raw
 
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 if str(_TOOLS) not in sys.path:
@@ -220,8 +220,8 @@ def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path, monkeypatch) -> None
         backend="mlx_audio",
         out_wav=sub,
     )
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("edl_narrative_audit", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "edl_narrative_audit")
 
     deleted = nuke_all_synth_wavs_on_adjudicate_change(ctx)
     assert deleted == 2
@@ -255,7 +255,7 @@ def test_gap_report_text_rewrite_purges_and_unmarks_cascade(tmp_path, monkeypatc
         "mix",
         "master_finalize",
     ):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     ctx.write_json(
         "run_meta.json",
         {
@@ -295,8 +295,8 @@ def test_gap_report_write_hook_cascades_on_text_change(tmp_path, monkeypatch) ->
         skip_handoff=True,
     )
     record_synthesis(ctx, original, backend="mlx_audio", out_wav=wav)
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "vo_line_adjudicate")
 
     rewritten = _base_line(text="Needle-in-a-haystack capture method matters.")
     ctx.write_json(
@@ -326,7 +326,7 @@ def test_synth_writeback_matching_text_does_not_purge(tmp_path, monkeypatch) -> 
     _wav(wav)
     # Simulate synth completing for rendered text, then writeback.
     record_synthesis(ctx, rendered, backend="mlx_audio", out_wav=wav)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     ctx.write_json(
         "understanding/gap_report.json",
         {"interviewer_lines": [rendered]},
@@ -354,7 +354,7 @@ def test_promote_gap_report_cascades_spoken_text(tmp_path, monkeypatch) -> None:
         skip_handoff=True,
     )
     record_synthesis(ctx, original, backend="mlx_audio", out_wav=wav)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
 
     stage = "nugget_layup_compose"
     staged = staging_root(ctx, stage) / "understanding" / "gap_report.json"

@@ -14,6 +14,8 @@ outputs:
   staging: true
 inputs:
   hard:
+  - path: mastering/mastering_plan.json
+    producer: air_script_compose
   - path: master/selection.json
     producer: full_master_ranking
   soft:

@@ -73,7 +73,7 @@ export function HomunculusPanel() {
   const admitted = status?.admitted_tail || [];
   const omitted = admitted
     .map((row) => row.fact_id)
-    .filter((id): id is string => Boolean(id) && !lastIds.includes(id));
+    .filter((id): id is string => typeof id === "string" && id.length > 0 && !lastIds.includes(id));
   const categories = status?.gates?.categories || Object.keys(GATE_LABELS);
   const decisions = status?.gates?.decisions || {};
 

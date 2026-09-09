@@ -12,6 +12,7 @@ from interview_mux.operator_trace import logged_step
 from interview_mux.production_profile import TBIY_STYLE, get_production_style, is_tbiy
 from interview_mux.run_context import RunContext
 from interview_mux.conversation_context import role_is_content, role_is_frame
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 TOPOLOGY_CLASSES = (
@@ -703,7 +704,7 @@ def ensure_source_topology(ctx: RunContext) -> dict[str, Any]:
     if isinstance(topo, dict) and topo.get("speaker_stats"):
         if not ctx.is_done("source_topology_build"):
             try:
-                ctx.mark_done("source_topology_build", force=True)
+                heal_or_refuse_mark(ctx, "source_topology_build", force=True)
             except Exception:
                 pass
         return topo

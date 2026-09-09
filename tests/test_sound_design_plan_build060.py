@@ -32,5 +32,20 @@ def test_ensure_analysis_workspace_initializes_sound_design_plan(tmp_path, monke
 def test_write_json_rejects_invalid_sound_design_plan(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "run_sdp_reject")
-    with pytest.raises(ValueError, match="schema validation failed"):
-        ctx.write_json("understanding/sound_design_plan.json", {"version": 999})
+    # One-writer sanitize admits + hardens music-only inventory instead of
+    # raising on a bare invalid dict. Schema refuse still applies with raw escape.
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        with pytest.raises(ValueError, match="schema validation failed"):
+            ctx.write_json("understanding/sound_design_plan.json", {"version": 999})
+    finally:
+        ctx._one_writer_raw = prev
+
+    # Hot path: invalid payload is sanitized into a schema-valid motif inventory.
+    ctx.write_json("understanding/sound_design_plan.json", {"version": 999})
+    plan = ctx.read_json("understanding/sound_design_plan.json")
+    assert isinstance(plan, dict)
+    assert validate_sound_design_plan(plan) == []
+    assets = plan.get("assets") or []
+    assert assets, "music-only harden should mint motif inventory assets"

@@ -8,7 +8,10 @@ lifecycle:
   - staged_validate
   - committed
   - post_commit_validate
-outputs: []
+outputs:
+- path: mastering/listen_delight_audit.json
+  schema: null
+  staging: false
 inputs:
   hard: []
   soft: []

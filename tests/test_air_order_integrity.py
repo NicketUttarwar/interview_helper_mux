@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from run_fixtures import mark_done_raw
 from interview_mux.air_order_integrity import (
     critical_violations,
     late_opening_cluster_violations,
@@ -260,7 +261,7 @@ def test_junction_source_skips_layup_invalidate(tmp_path, monkeypatch):
         {"ordered_segment_ids": ["seg_a", "seg_b"], "layups": []},
         skip_handoff=True,
     )
-    ctx.mark_done("nugget_layup_compose", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
     calls: list[str] = []
 
     def _fake_invalidate(_ctx, stage: str) -> None:

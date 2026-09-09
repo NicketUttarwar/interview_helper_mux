@@ -13,6 +13,23 @@ function minimalRun(overrides: Partial<RunData> = {}): RunData {
 }
 
 describe("findPendingFocusStage", () => {
+
+  it("prefers transcript review over sticky needs_operator", () => {
+    const run = minimalRun({
+      transcript_review_pending: true,
+      meta: {
+        needs_operator: true,
+        needs_operator_stage: "mmaudio_sfx",
+        needs_operator_reason: "true_waste_sticky:music_deferred",
+      },
+      stages: [
+        { id: "transcript_review", title: "Transcript review", description: "", status: "action_required" },
+        { id: "mmaudio_sfx", title: "MMAudio", description: "", status: "pending" },
+      ],
+    });
+    expect(findPendingFocusStage(run)).toBe("transcript_review");
+  });
+
   it("focuses podcast_publish when G-Publish is pending even if an earlier stage is incomplete", () => {
     const run = minimalRun({
       stages: [

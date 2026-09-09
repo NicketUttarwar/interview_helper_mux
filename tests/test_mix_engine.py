@@ -138,6 +138,24 @@ def test_mix_under_segment_bed(tmp_path: Path, monkeypatch) -> None:
             generated={"ambient_bed": "sound_design/assets/ambient_bed.wav"},
         ),
     )
+    # Music-only / mix gate: seed passing QA so ambient_bed is not fail-closed.
+    ctx.write_json(
+        "sound_design/mmaudio_qa.json",
+        {
+            "version": 1,
+            "assets": [
+                {
+                    "asset_id": "ambient_bed",
+                    "role": "ambient_bed",
+                    "verdict": "pass",
+                    "generation_status": "pass",
+                    "silence_detected": False,
+                }
+            ],
+        },
+        skip_handoff=True,
+        stage_key="mmaudio_sfx",
+    )
 
     assembly = run_mix(ctx)
     mixed = AudioSegment.from_file(assembly)

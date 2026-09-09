@@ -19,6 +19,7 @@ CANDIDATES_REL = "master/quality_candidates.json"
 ADVISORIES_META_KEY = "quality_advisories"
 
 # PMQ checks that remain hard even when aspirational (existing never-soft set).
+# LD6: opening_orientation + critical air_order are structural (not rubric soft).
 STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
     {
         "master_exists_nonempty",
@@ -27,6 +28,8 @@ STRUCTURAL_PMQ_CHECKS: frozenset[str] = frozenset(
         "omit_ledger_air_contract",
         "selection_duration_floor",
         "opening_music_quality",
+        "opening_orientation_contract",
+        "air_order_integrity",
     }
 )
 
@@ -43,8 +46,6 @@ RUBRIC_GATE_IDS: frozenset[str] = frozenset(
         "planned_music_preserved",
         "episode_close_outro_present",
         "opening_music_preserved",
-        "opening_orientation_contract",
-        "air_order_integrity",
         "verify_master_lufs",
         "homunculus_delight_reject",
     }
@@ -64,8 +65,10 @@ _DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 _DEFAULT_CATASTROPHIC: dict[str, float] = {
-    "cut_integrity": 0.55,
-    "listen_delight_overall": 0.50,
+    "cut_integrity": 0.70,
+    "listen_delight_overall": 0.70,
+    "conversation_fit": 0.60,
+    "story_followability": 0.60,
 }
 
 
@@ -145,8 +148,6 @@ RUBRIC_PMQ_CHECKS: frozenset[str] = frozenset(
         "planned_music_preserved",
         "episode_close_outro_present",
         "opening_music_preserved",
-        "opening_orientation_contract",
-        "air_order_integrity",
         "spoken_native_intro_duplicate",
         "mastering_plan_present_when_complete",
         "render_ledger_exists",
@@ -164,6 +165,16 @@ def is_rubric_pmq_check(check_id: str) -> bool:
         return False
     if cid == "no_critical_junction_residuals":
         return True
+    # Delight mode flip: when listen_delight.mode is authoritative, floors are structural
+    # (not soft-shipped via aspirational advisory_fail).
+    if cid == "listen_delight_floors":
+        try:
+            from interview_mux.listen_delight import listen_delight_cfg
+
+            if str(listen_delight_cfg().get("mode") or "").strip() == "authoritative":
+                return False
+        except Exception:
+            pass
     return cid in RUBRIC_PMQ_CHECKS or is_rubric_gate(cid)
 
 
@@ -267,10 +278,15 @@ def passes_catastrophic_floors(ctx: RunContext, scores: dict[str, Any] | None = 
         if min_overall > 0 and overall < min_overall:
             reasons.append(f"listen_delight_overall {overall} < catastrophic {min_overall}")
         dims = delight.get("dimensions") if isinstance(delight.get("dimensions"), dict) else {}
-        cut = float(dims.get("cut_integrity") or 0.0)
-        min_cut = float(floors.get("cut_integrity") or 0.0)
-        if min_cut > 0 and cut < min_cut:
-            reasons.append(f"cut_integrity {cut} < catastrophic {min_cut}")
+        for dim_key, floor_key in (
+            ("cut_integrity", "cut_integrity"),
+            ("conversation_fit", "conversation_fit"),
+            ("story_followability", "story_followability"),
+        ):
+            val = float(dims.get(dim_key) or 0.0)
+            min_val = float(floors.get(floor_key) or 0.0)
+            if min_val > 0 and val < min_val:
+                reasons.append(f"{dim_key} {val} < catastrophic {min_val}")
     if not air_script_structural_ok(ctx):
         reasons.append("air_script_story_clarity_errors")
     return (not reasons, reasons)

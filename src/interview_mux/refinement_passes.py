@@ -27,6 +27,7 @@ from interview_mux.refinement_ledger import record_call
 from interview_mux.refinement_outcome import append_listener_outcome
 from interview_mux.refinement_shadow import maybe_write_shadow_score
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def _record_refinement(ctx: RunContext, pass_id: str, outcome: str, **extra: Any) -> None:
@@ -89,7 +90,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
             append_listener_outcome(ctx, "gap_recompose_nugget_layup", {"status": "authority"})
             after_gap_recompose_or_skip(ctx)
             if not ctx.is_done("gap_framing_recompose"):
-                ctx.mark_done("gap_framing_recompose", force=True)
+                heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
             return
 
     dual_write_draft_from_compose(ctx)
@@ -103,7 +104,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
         append_listener_outcome(ctx, "gap_recompose_skipped", decision)
         after_gap_recompose_or_skip(ctx)
         if not ctx.is_done("gap_framing_recompose"):
-            ctx.mark_done("gap_framing_recompose", force=True)
+            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
         return
 
     row_paths = [
@@ -175,7 +176,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
         append_listener_outcome(ctx, "gap_recompose_quarantine", sharded)
         after_gap_recompose_or_skip(ctx)
         if not ctx.is_done("gap_framing_recompose"):
-            ctx.mark_done("gap_framing_recompose", force=True)
+            heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
         return
 
     kept_lines = list(sharded.get("lines") or [])
@@ -269,7 +270,7 @@ def run_gap_framing_recompose(ctx: RunContext) -> None:
     append_listener_outcome(ctx, "gap_recompose", result)
     after_gap_recompose_or_skip(ctx)
     if not ctx.is_done("gap_framing_recompose"):
-        ctx.mark_done("gap_framing_recompose", force=True)
+        heal_or_refuse_mark(ctx, "gap_framing_recompose", force=True)
 
 
 def run_selection_framing_apply(ctx: RunContext) -> None:
@@ -279,13 +280,13 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
     ensure_gap_report_authoritative(ctx)
     if not ctx.artifact_exists("master/selection.json"):
         if not ctx.is_done("selection_framing_apply"):
-            ctx.mark_done("selection_framing_apply", force=True)
+            heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
         return
 
     decision = decide_pass(ctx, "selection_framing_apply")
     sel = ctx.read_json("master/selection.json")
     if not isinstance(sel, dict):
-        ctx.mark_done("selection_framing_apply", force=True)
+        heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
         return
 
     covered = ranking_exclude_segment_ids(ctx)
@@ -381,8 +382,35 @@ def run_selection_framing_apply(ctx: RunContext) -> None:
 
     if decision.get("status") == "activate":
         _record_refinement(ctx, "selection_framing_apply", "ok")
+    # Re-sanitize after framing may mutate selection (non-amplifying).
+    if ctx.artifact_exists("master/selection.json"):
+        try:
+            from interview_mux.artifact_sanitize.selection import sanitize_master_selection
+            from interview_mux.air_order_boundary import commit_selection_mutation
+            from interview_mux.artifact_sanitize.audit import write_sanitize_audit
+
+            sel_now = ctx.read_json("master/selection.json")
+            if isinstance(sel_now, dict):
+                result = sanitize_master_selection(ctx, sel_now)
+                write_sanitize_audit(
+                    ctx, result, stage_key="selection_framing_apply", mode="post_framing"
+                )
+                if result.ok and result.actions:
+                    commit_selection_mutation(
+                        ctx,
+                        result.doc,
+                        producer="artifact_sanitize.selection",
+                        stage_key="selection_framing_apply",
+                        checkpoint_mode="detect",
+                    )
+        except Exception as exc:
+            ctx.log(
+                f"selection_framing_apply sanitize skipped: {exc}",
+                level="warning",
+                stage="selection_framing_apply",
+            )
     if not ctx.is_done("selection_framing_apply"):
-        ctx.mark_done("selection_framing_apply", force=True)
+        heal_or_refuse_mark(ctx, "selection_framing_apply", force=True)
 
 
 def _noop_refine(ctx: RunContext, pass_id: str) -> None:
@@ -394,7 +422,7 @@ def _noop_refine(ctx: RunContext, pass_id: str) -> None:
     else:
         maybe_write_shadow_score(ctx, pass_id)
     if not ctx.is_done(pass_id):
-        ctx.mark_done(pass_id, force=True)
+        heal_or_refuse_mark(ctx, pass_id, force=True)
 
 
 def run_narrative_arc_refine(ctx: RunContext) -> None:

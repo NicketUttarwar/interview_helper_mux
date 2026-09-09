@@ -16,6 +16,7 @@ from interview_mux.source_topology import attach_adaptation_to_payload, pickup_e
 from interview_mux.production_profile import prompt_variant
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, sync_gaps_to_state
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def _compact_segments_payload(
@@ -207,7 +208,8 @@ def ensure_gap_fill_skipped(
 
     for stage_id in ("missing_framing", "gap_framing_compose", "optimal_questions"):
         if not ctx.is_done(stage_id):
-            ctx.mark_done(stage_id, force=True)
+            # TH1b allow-stub: gap skip writes complete artifacts → incompleteness empty.
+            heal_or_refuse_mark(ctx, stage_id, force=True)
 
     ctx.log(
         f"Gap-fill skipped: {reason}",
@@ -986,6 +988,7 @@ def run_gap_framing_compose(ctx: RunContext) -> None:
                 from interview_mux.stage_completion import (
                     StageArtifactsIncompleteError,
                     assert_stage_artifacts_complete,
+                    heal_or_refuse_mark,
                 )
 
                 assert_stage_artifacts_complete(ctx, "gap_framing_compose")

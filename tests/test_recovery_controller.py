@@ -16,6 +16,7 @@ from interview_mux.recovery_controller import (
 from interview_mux.run_context import RunContext
 from interview_mux.stage_resilience import escalate_stage_failure, resolve_escalation
 from interview_mux.vo_synthesis_audit import qc_failed
+from run_fixtures import mark_done_raw
 
 
 def test_classify_exec_1822_signatures():
@@ -460,7 +461,7 @@ def test_place_episode_close_cue_rebinds_to_last_speech_clip(tmp_path: Path):
     ctx = RunContext(str(tmp_path / "rec_close_rebind"), create=True)
     ctx.write_json(
         "master/selection.json",
-        {"ordered_segment_ids": ["seg_060", "seg_062"]},
+        {"ordered_segment_ids": ["seg_060", "seg_062", "seg_055"]},
     )
     ctx.write_json(
         "master/edl.json",
@@ -529,6 +530,7 @@ def test_place_episode_close_cue_rebinds_to_last_speech_clip(tmp_path: Path):
             }
         },
     )
+    ctx._one_writer_raw = True
     ctx.write_json("understanding/sound_design_plan.json", sdp, skip_handoff=True)
     picked = pick_theme_outro_asset(sdp["assets"])
     assert picked is not None
@@ -709,7 +711,7 @@ def test_playbook_upstream_stale_rerun_edl_pins_transitions(tmp_path: Path) -> N
         ),
         encoding="utf-8",
     )
-    ctx.mark_done("transitions", force=True)
+    mark_done_raw(ctx, "transitions")
     cleared = playbook_upstream_stale_rerun(ctx, consumer_stage="edl")
     assert "transitions" in cleared
     assert not ctx.is_done("transitions")
@@ -867,7 +869,7 @@ def test_handle_vo_seated_coverage_always_pins_vo_synthesize(
         "interview_mux.delivery_guardrails.may_rewind_to_vo_synthesize",
         lambda _ctx: True,
     )
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     result = handle_stage_failure(
         ctx,
         "edl_narrative_audit",
@@ -994,7 +996,7 @@ def test_handle_seed_order_prereq_pins_named_stage(tmp_path: Path) -> None:
         {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus", "partial_auto": True},
         skip_handoff=True,
     )
-    ctx.mark_done("air_script_seams", force=True)
+    mark_done_raw(ctx, "air_script_seams")
     result = handle_stage_failure(
         ctx,
         "transitions",
@@ -1033,7 +1035,7 @@ def test_handle_g1_vo_open_seed_order_does_not_unmark_adjudicate(tmp_path: Path)
         },
         skip_handoff=True,
     )
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     result = handle_stage_failure(
         ctx,
         "vo_synthesize",

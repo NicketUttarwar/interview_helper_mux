@@ -1,8 +1,15 @@
 {
   "version": 1,
   "pipeline_stages": 69,
-  "breakpoint_count": 191,
+  "breakpoint_count": 194,
   "breakpoints": [
+    {
+      "id": "contract:air_contract_sanitize",
+      "kind": "stage_contract",
+      "stage": "air_contract_sanitize",
+      "tier": "process",
+      "outputs": []
+    },
     {
       "id": "contract:air_script_compose",
       "kind": "stage_contract",
@@ -26,7 +33,9 @@
       "kind": "stage_contract",
       "stage": "assembly_preview",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "master/assembly_preview.wav"
+      ]
     },
     {
       "id": "contract:audio_preclean",
@@ -222,6 +231,13 @@
       "outputs": []
     },
     {
+      "id": "contract:gap_report_sanitize",
+      "kind": "stage_contract",
+      "stage": "gap_report_sanitize",
+      "tier": "process",
+      "outputs": []
+    },
+    {
       "id": "contract:ideal_cuts_materialize",
       "kind": "stage_contract",
       "stage": "ideal_cuts_materialize",
@@ -284,7 +300,9 @@
       "kind": "stage_contract",
       "stage": "junction_snip_qa",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "master/seam_autopsy.json"
+      ]
     },
     {
       "id": "contract:junction_thought_complete",
@@ -300,7 +318,9 @@
       "kind": "stage_contract",
       "stage": "listen_delight_audit",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "mastering/listen_delight_audit.json"
+      ]
     },
     {
       "id": "contract:low_conf_island_scan",
@@ -398,7 +418,9 @@
       "kind": "stage_contract",
       "stage": "mix",
       "tier": "process",
-      "outputs": []
+      "outputs": [
+        "master/assembly.wav"
+      ]
     },
     {
       "id": "contract:mmaudio_sfx",
@@ -521,6 +543,15 @@
       "stage": "selection_framing_apply",
       "tier": "deterministic",
       "outputs": []
+    },
+    {
+      "id": "contract:selection_order_sanitize",
+      "kind": "stage_contract",
+      "stage": "selection_order_sanitize",
+      "tier": "process",
+      "outputs": [
+        "master/selection.json"
+      ]
     },
     {
       "id": "contract:sfx_brief",
@@ -935,6 +966,27 @@
       "note": "no dedicated completeness gap rule"
     },
     {
+      "id": "disk_path:assembly_preview",
+      "kind": "stage_artifact_path",
+      "stage": "assembly_preview",
+      "path": "master/assembly_preview.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:listen_delight_audit",
+      "kind": "stage_artifact_path",
+      "stage": "listen_delight_audit",
+      "path": "mastering/listen_delight_audit.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:mix",
+      "kind": "stage_artifact_path",
+      "stage": "mix",
+      "path": "master/assembly.wav",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
       "id": "disk_path:air_script_compose",
       "kind": "stage_artifact_path",
       "stage": "air_script_compose",
@@ -960,6 +1012,13 @@
       "kind": "stage_artifact_path",
       "stage": "music_palette_compose",
       "path": "sound_design/music_palette_compose.json",
+      "note": "no dedicated completeness gap rule"
+    },
+    {
+      "id": "disk_path:junction_snip_qa",
+      "kind": "stage_artifact_path",
+      "stage": "junction_snip_qa",
+      "path": "master/seam_autopsy.json",
       "note": "no dedicated completeness gap rule"
     },
     {
@@ -1023,15 +1082,15 @@
       "reason": "process/gate stage without primary JSON completeness rule"
     },
     {
-      "id": "no_unattended_check:audio_probe_build",
-      "kind": "no_unattended_check",
-      "stage": "audio_probe_build",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
       "id": "no_unattended_check:transcript_review_build",
       "kind": "no_unattended_check",
       "stage": "transcript_review_build",
+      "reason": "process/gate stage without primary JSON completeness rule"
+    },
+    {
+      "id": "no_unattended_check:audio_probe_build",
+      "kind": "no_unattended_check",
+      "stage": "audio_probe_build",
       "reason": "process/gate stage without primary JSON completeness rule"
     },
     {
@@ -1134,30 +1193,6 @@
       "id": "no_unattended_check:sound_design_vo_finalize",
       "kind": "no_unattended_check",
       "stage": "sound_design_vo_finalize",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:assembly_preview",
-      "kind": "no_unattended_check",
-      "stage": "assembly_preview",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:listen_delight_audit",
-      "kind": "no_unattended_check",
-      "stage": "listen_delight_audit",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:mix",
-      "kind": "no_unattended_check",
-      "stage": "mix",
-      "reason": "process/gate stage without primary JSON completeness rule"
-    },
-    {
-      "id": "no_unattended_check:junction_snip_qa",
-      "kind": "no_unattended_check",
-      "stage": "junction_snip_qa",
       "reason": "process/gate stage without primary JSON completeness rule"
     },
     {

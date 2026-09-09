@@ -16,6 +16,7 @@ from interview_mux.source_audio_hash import (
     parse_hash_from_run_id,
 )
 from interview_mux.web.stages import STAGE_BY_ID
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 Disposition = Literal["run", "skipped"]
 
@@ -585,9 +586,9 @@ def apply_stage_reuse(ctx: RunContext, stage_id: str, source_run_id: str) -> lis
                 if stage_id == "transcript_review_build" and ctx.artifact_exists(
                     "transcript/review_queue.json"
                 ):
-                    ctx.mark_done("transcript_review_build", force=True)
+                    heal_or_refuse_mark(ctx, "transcript_review_build", force=True)
                 elif stage_id == "transcribe":
-                    ctx.mark_done("transcribe", force=True)
+                    heal_or_refuse_mark(ctx, "transcribe", force=True)
                 # Prefer operator-corrected text over raw STT copy when both landed.
                 from interview_mux.stages.transcript_review import (
                     prefer_operator_corrected_transcript,

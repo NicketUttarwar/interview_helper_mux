@@ -140,7 +140,8 @@ def test_non_homunculus_skips_stage_without_artifact(tmp_path: Path) -> None:
 
     stage_mod.run_framing_posture_decide(ctx)
 
-    assert ctx.is_done("framing_posture_decide")
+    # Legacy brain skips without writing posture; hollow mark is refused.
+    assert not ctx.is_done("framing_posture_decide")
     assert not ctx.artifact_exists(FRAMING_POSTURE_DECISION_REL)
 
 

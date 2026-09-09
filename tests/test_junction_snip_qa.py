@@ -464,7 +464,11 @@ def test_stage_off_and_o1_llm_budget(tmp_path, monkeypatch):
     ctx.write_json("master/edl.json", edl, skip_handoff=True)
     assembly = ctx.path("master", "assembly.wav")
     assembly.parent.mkdir(parents=True, exist_ok=True)
-    assembly.write_bytes(b"RIFF" + (b"\0" * 128))
+    assembly.write_bytes(b"RIFF" + (b"\0" * 2048))
+    # Advisory path needs a seated render commitment before assert_consumer.
+    from interview_mux.seam_autopsy import write_render_ledger
+
+    write_render_ledger(ctx, edl=edl)
     run_junction_snip_qa(ctx)
     report = ctx.read_json("master/junction_snip_qa.json")
     assert int(report.get("llm_calls") or 0) <= 2

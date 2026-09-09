@@ -1015,9 +1015,9 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.quality_hardening.diversity.mode` | `advisory` | `mastering_diversity` | `authoritative` forces remint of near-clone candidates |
 | `mastering.quality_hardening.diversity.min_pairwise_distance` | `0.35` | Diversity threshold (0–1) | Too high causes endless reminting; too low permits clones |
 | `mastering.quality_hardening.diversity.max_remint_rounds` | `1` | Remint budget | Unbounded reminting burns the agenda budget |
-| `mastering.quality_hardening.feasibility.mode` | `advisory` | `mastering_feasibility` | `authoritative` blocks unbuildable candidates before auditions/synthesize |
+| `mastering.quality_hardening.feasibility.mode` | `authoritative` | `mastering_feasibility` | `authoritative` blocks unbuildable candidates before auditions/synthesize |
 | `mastering.quality_hardening.feasibility.duration_slack_pct` | `0.15` | `duration_fits` tolerance | Too tight rejects workable plans |
-| `mastering.quality_hardening.semantic_integrity.mode` | `advisory` | `mastering_semantic_integrity` | `authoritative` blocks critical fabrication findings |
+| `mastering.quality_hardening.semantic_integrity.mode` | `authoritative` | `mastering_semantic_integrity` | `authoritative` blocks critical fabrication findings |
 | `mastering.quality_hardening.semantic_integrity.adjacency_max_turns` | `3` | `false_reaction_adjacency` window | Too wide misses fabricated reactions |
 | `mastering.quality_hardening.semantic_integrity.llm_confirm` | `true` | LLM confirm pass over deterministic flags | `false` keeps deterministic flags unconfirmed (more false positives) |
 | `mastering.quality_hardening.voice_clone.mode` | `advisory` | Clone consent gate | `authoritative` hard-fails `vo_clone_*` without consent. **Never** relaxes the guest-clone ban |
@@ -1047,7 +1047,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.junction_snip_qa.thought_complete_llm_enabled` | `true` | One batched OH-J2 recut LLM for hanging native ends | `false` uses transcript-only complete-thought cuts |
 | `mastering.junction_snip_qa.thought_complete_max_segments` | `4` | Max following same-speaker clips to traverse | Caps lookahead; does not absorb whole sections |
 | `mastering.junction_snip_qa.thought_complete_max_ms` | `24000` | Max source-ms after a hanging end to search | Independent of in-clip `phrase_extend_max_ms` |
-| `mastering.junction_snip_qa.max_remaster_rounds` | `2` | Cap remasters (deterministic + feel) | Hard ceiling 2 |
+| `mastering.junction_snip_qa.max_remaster_rounds` | `2` | Cap remasters (deterministic + feel) | Hard ceiling 2; also gated by `JUNCTION_REMASTER_GEN_CAP=3` per seating generation + sticky `oscillation_halt` in `operator/junction_remaster_budget.json` |
 | `mastering.junction_snip_qa.apply_repairs` | `true` | Apply NLE/EDL/placement repairs | `false` detect-only |
 | `mastering.junction_snip_qa.music_soft_crossfade_ms` | `180` | Suggested bed/theme crossfade when hard | Transition-only — never recreates stems |
 | `mastering.junction_snip_qa.dead_air_clamp_ms` | `2500` | Clamp non-impact silence pads | Does not steal `impact_hold` |
@@ -1057,7 +1057,7 @@ Flip gates to `authoritative` one at a time, after the [eval corpus](./mastering
 | `mastering.post_master_quality.block_on_feel_unavailable` | `true` | Fail publish when feel audit verdict is unavailable after retry | `false` ignores missing feel judgment |
 | `mastering.post_master_quality.overall_min` | `0.90` | Listener scorecard overall floor | Lower allows weaker masters to publish |
 | `mastering.post_master_quality.dimension_floors.*` | flow/clarity/music/native `0.90`; synthetic_fit `0.85` | Per-dimension publish floors | Missing floors skip that dimension |
-| `mastering.listen_delight.mode` | `advisory` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | With `mastering.aspirational_quality.enabled` (default), floors are aspiration signals; `authoritative` + aspirational off restores hard-stop ship gate |
+| `mastering.listen_delight.mode` | `authoritative` | `listen_delight.run_listen_delight_audit` (`off` / `advisory` / `authoritative`) | Default hard-blocks ship after ≤3 remutate attempts; set `advisory` to soft-ship with PMQ advisories |
 | `mastering.aspirational_quality.enabled` | `true` | Rubric gates (delight, PMQ scorecard, listenability, junction feel) | `false` restores authoritative blocking on rubrics |
 | `mastering.aspirational_quality.max_attempts_per_family` | `3` | Remutate / heal budget per rubric family before pick-best | Lower = faster fallback to best candidate |
 | `mastering.aspirational_quality.always_produce_master` | `true` | `master_finalize` completes with best structurally sound candidate | `false` not recommended |
@@ -1178,7 +1178,7 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `step_down_timeout_sec` | `480` | Hang budget for medium/small ladder steps |
 | `step_down_duration_ratio` | `0.85` | Shorten clip duration on each ladder step-down |
 | `pause_between_ladder_steps_sec` | `0` | Optional extra pause between ladder rungs (abort backoff handles kills) |
-| `fail_closed_on_stub` | `false` | Last-resort musical-note stub is allowed after ladder + MMAudio backup so mix always has music |
+| `fail_closed_on_stub` | `true` | Production fail-closed: no underscore musical stub after ladder; omit bed + rewrite cues instead |
 | `fail_closed_on_stub_roles` | `theme_cold_open`, `theme_outro` | QA fails (and stub is blocked) for these roles regardless of global `fail_closed_on_stub` |
 | `keep_prior_stem_on_fail` | `true` | On regen failure, restore `.prior.bak` instead of overwriting a good stem |
 | `skip_cold_open_on_total_failure` | `true` | After all fallbacks fail, emit silence for cold-open rather than stub |
@@ -1187,7 +1187,7 @@ Local MusicGen fixed palette stems for creative-delivery `theme_*` / palette kin
 | `max_best_of_n` | `3` | Hard cap (also clamps production-profile overrides) |
 | `use_melody_conditioning` | `false` | Condition later stems on motif/cold-open melody |
 | `prefer_medium_on_cpu` | `false` | When true, skip large on CPU if medium is cached — **default off** (large first) |
-| `mmaudio_backup_on_stub` | `true` | After the MusicGen ladder ends in a stub, try MMAudio before accepting stub audio |
+| `mmaudio_backup_on_stub` | `false` | After MusicGen ladder ends in a stub, try MMAudio (legacy/non-creative only). Creative theme path omits instead (MU7). |
 | `min_duration_sec` | `4.0` | Soft floor only |
 | `max_duration_sec` | `24.0` | Soft advisory only — not enforced as a hard ceiling in `clamp_music_duration` |
 | `prefetch_models` | large + melody-large + medium + small | Bootstrap cache list |
@@ -1453,6 +1453,13 @@ See [NORTH_STAR.md](../../NORTH_STAR.md) and [docs/v2/drop-manifest.md](../v2/dr
 | `resilience.quality_first` | `true` | `stage_resilience`, escalation resolve | Never auto-publish a waived master |
 | `resilience.commit_barrier` | `true` | `write_staging.approve_stage_writes` | Validate staged overlay before flush |
 | `resilience.identical_failure_halt_after` | `3` | `identical_failures`, Full-auto driver | Stop the same heal signature after N repeats; write execution report |
+| `artifact_sanitize.block_consumers` | `true` | `artifact_sanitize` | Hard-gate consumers when selection/gap/air unsanitary |
+| `artifact_sanitize.halt_after` | `3` | `artifact_sanitize.halt` | Identical sanitize_refused halt (code default if unset) |
+| `artifact_sanitize.selection.max_same_family_on_air` | `8` | `artifact_sanitize.selection` | Cap NLE children from one base id on air |
+| `artifact_sanitize.selection.max_fragment_depth` | `3` | `artifact_sanitize.selection` | Collapse deeper `seg_003aaaa…` trees |
+| `artifact_sanitize.selection.max_cta_readmit` | `0` | `artifact_repairs._readmit_cta_story_children` | Disable unbounded CTA story readmit on every write |
+| `artifact_sanitize.selection.max_order_growth_pct` | `15` | `repair_master_selection` | Refuse repair amplification beyond growth budget |
+| `artifact_sanitize.gap.min_layup_coverage` / `layup.min_layup_coverage` | `0.70` | `artifact_sanitize.gap_report` | Optional coverage floor for gap/layup refuse |
 | `resilience.unattended_defaults.enabled` | `false` | operator escalation resolve | Documented defaults write the same decision artifacts as humans. Full-auto (`MUX_FULL_AUTO=1` / `run_meta.full_auto`) treats this as on without `force_publish`. |
 | `resilience.source_profiles` | (object) | `stage_families.select_source_profile`, ingest | Recipes for clean / town-hall / noisy / video / short / long |
 

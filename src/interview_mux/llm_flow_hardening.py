@@ -9,6 +9,7 @@ from interview_mux.config import merged_config
 from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS, STAGE_ARTIFACT_SCHEMAS
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 CRITICAL_LLM_STAGES = frozenset(
     {
@@ -348,7 +349,7 @@ def require_llm_stage_progress(ctx: RunContext, upstream_stage: str) -> None:
 
     if ctx.artifact_exists(rel) and upstream_artifact_acceptable(upstream_stage, rel, ctx):
         if not ctx.is_done(upstream_stage):
-            ctx.mark_done(upstream_stage, force=True)
+            heal_or_refuse_mark(ctx, upstream_stage, force=True)
         return
     if not ctx.is_done(upstream_stage):
         exit_msg = (
@@ -545,6 +546,7 @@ def _earliest_incomplete_seed_stage(ctx: RunContext, stage_key: str) -> str | No
                     try:
                         from interview_mux.gates import check_g1_vo
                         from interview_mux.stage_completion import (
+                            heal_or_refuse_mark,
                             stage_artifact_incompleteness,
                         )
 

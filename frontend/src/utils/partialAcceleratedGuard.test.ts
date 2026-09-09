@@ -12,7 +12,7 @@ import {
 import type { RunData } from "../types";
 
 function run(partial: Record<string, unknown>): RunData {
-  return partial as RunData;
+  return partial as unknown as RunData;
 }
 
 const accelerated = { run_mode: "partially-accelerated" as const, partial_auto_driver_active: true };

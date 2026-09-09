@@ -48,7 +48,10 @@ export function GListenPanel() {
   };
 
   return (
-    <GatePanelShell title="G-Listen (optional)">
+    <GatePanelShell
+      complete={Boolean(payload.skipped || payload.cleared)}
+      title="G-Listen (optional)"
+    >
       <p className="hint">Borderline listen quality — preview assembly before shipping.</p>
       <p className="hint">
         Quality score: {payload.quality_score ?? "—"} ({payload.verdict ?? "warn"})

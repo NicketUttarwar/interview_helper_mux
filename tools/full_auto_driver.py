@@ -24,6 +24,18 @@ def _e2e_soft() -> bool:
     return e2e_soft_enabled()
 
 
+def _heal_mark(ctx: Any, stage: str, *, force: bool = True) -> None:
+    """TH1b: sole driver mark path — heal_or_refuse only (no raw force fallback)."""
+    sid = str(stage or "").strip()
+    if not sid:
+        return
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    heal_or_refuse_mark(ctx, sid, force=force)
+
+
+
+
 _DECISIONS: list[dict[str, Any]] = []
 REPO = Path(__file__).resolve().parents[1]
 MASTER = Path()  # bound in bind_run()
@@ -194,6 +206,21 @@ def log_decision(
     }
     _DECISIONS.append(entry)
     log(" ".join(parts))
+    if RUN_ID and _forensics_mode():
+        try:
+            from interview_mux.forensics_minor_fixes import record_from_driver_decision
+            from interview_mux.run_context import RunContext
+
+            record_from_driver_decision(
+                RunContext(RUN_ID, create=False),
+                severity=sev,
+                stage=stage,
+                action=action,
+                reason=reason,
+                detail=detail,
+            )
+        except Exception:
+            pass
 
 
 def _write_terminal_report(
@@ -338,6 +365,22 @@ def _stop_timeline_optimizer_if_driver_idle() -> None:
 
 def pause_needs_operator(stage: str, reason: str) -> str:
     """Cap-reached delivery HARD → stamp needs_operator; do not SystemExit or re-exec body."""
+    try:
+        from interview_mux.run_context import RunContext
+        from interview_mux.thrash_hardening import (
+            is_hard_non_suppress_class,
+            note_authority_undo_attempt,
+        )
+
+        if is_hard_non_suppress_class(reason) or is_hard_non_suppress_class(stage):
+            note_authority_undo_attempt(
+                RunContext(RUN_ID, create=False),
+                artifact=f"pause:{stage}",
+                action_class="needs_operator_pause",
+                content_hash=str(reason or "")[:64],
+            )
+    except Exception:
+        pass
     if _forensics_mode():
         if _forensics_stall_maybe_exit(stage, reason):
             return "pause"
@@ -411,16 +454,20 @@ def pause_needs_operator(stage: str, reason: str) -> str:
                 log(f"homunculus recovery: suppressing needs_operator at {stage}")
                 return "continue"
         except Exception as exc:
+            # RC4: fail-closed — do not continue when suppress budget itself errors.
             log(f"homunculus suppress budget: {exc}")
             log_decision(
                 "major",
                 stage=stage,
-                action="homunculus_continue",
-                reason="needs_operator_suppressed",
+                action="homunculus_stall",
+                reason="suppress_budget_error_fail_closed",
                 detail=reason[:240],
             )
-            log(f"homunculus recovery: suppressing needs_operator at {stage}")
-            return "continue"
+            log(
+                f"homunculus: suppress budget error at {stage} — "
+                f"fail-closed pause ({exc})"
+            )
+            # fall through to stamp needs_operator
     producer = ""
     try:
         from interview_mux.run_context import RunContext
@@ -635,16 +682,30 @@ RUN_ID = str(os.environ.get("MUX_RUN_ID") or "").strip() if not FRESH else ""
 
 def try_product_recovery(stage_id: str, err: str) -> str | None:
     """One typed playbook via the product controller. Returns resume stage or None."""
-    from interview_mux.identical_failures import failure_signature, is_halted
-    from interview_mux.recovery_controller import classify_error_class, handle_stage_failure
+    from interview_mux.identical_failures import (
+        failure_signature,
+        failure_signature_by_class,
+        is_halted,
+    )
+    from interview_mux.recovery_controller import (
+        classify_error_class,
+        handle_stage_failure,
+        has_classified_playbook,
+    )
     from interview_mux.run_context import RunContext
 
     ctx = RunContext(RUN_ID, create=False)
     exc = RuntimeError(err)
     cls = classify_error_class(stage_id, exc) or "unknown"
-    halt_sig = failure_signature(
-        failed_stage=stage_id, producer=cls, reason=err[:400]
-    )
+    # Mirror handle_stage_failure: classified playbooks use class sig, else reason sig.
+    if has_classified_playbook(cls):
+        halt_sig = failure_signature_by_class(
+            failed_stage=stage_id, error_class=cls
+        )
+    else:
+        halt_sig = failure_signature(
+            failed_stage=stage_id, producer=cls, reason=err[:400]
+        )
     if is_halted(ctx, halt_sig):
         log(f"recovery_controller halted identical failure {halt_sig}")
         return None
@@ -741,9 +802,19 @@ def bind_run(run_id: str) -> None:
         from interview_mux.run_context import RunContext
 
         hydrated = hydrate_driver_fail_counts(RunContext(run_id, create=False))
+        from interview_mux.identical_failures import _strip_pred_prefix
+
         for key, value in hydrated.items():
             # Avoid re-upsert loops while seeding memory from disk.
-            dict.__setitem__(_IDENTICAL_STAGE_FAILURES, key, value)
+            # O1/O9: never nest `_pred:_pred:`; strip if fail_key already pred-prefixed.
+            k = str(key)
+            if k.startswith("_pred:"):
+                base = _strip_pred_prefix(k)
+                if not base:
+                    continue
+                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, f"_pred:{base}", value)
+            else:
+                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, _strip_pred_prefix(k) or k, value)
         if hydrated:
             log(f"hydrated {len(hydrated)} identical fail counter(s) from disk")
     except Exception as exc:
@@ -917,7 +988,12 @@ def _reset_identical_counters_on_reexecute(from_stage: str) -> None:
                 clear_thrash_on_predicate_flip(ctx, stage=stage)
         except Exception:
             pass
+        from interview_mux.identical_failures import _strip_pred_prefix
+
         for key in list(_IDENTICAL_STAGE_FAILURES.keys()):
+            # Pred-token rows are never fail counts — skip to avoid nesting.
+            if str(key).startswith("_pred:"):
+                continue
             text = str(key).lower()
             if not (
                 text.startswith(stage)
@@ -926,10 +1002,11 @@ def _reset_identical_counters_on_reexecute(from_stage: str) -> None:
                 or text.endswith(f":{cls}")
             ):
                 continue
-            prior = _IDENTICAL_STAGE_FAILURES.get(f"_pred:{key}")
+            base = _strip_pred_prefix(key) or str(key)
+            prior = _IDENTICAL_STAGE_FAILURES.get(f"_pred:{base}")
             if prior is None or prior != token:
-                _IDENTICAL_STAGE_FAILURES[key] = 0
-                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, f"_pred:{key}", token)
+                _IDENTICAL_STAGE_FAILURES[base] = 0
+                dict.__setitem__(_IDENTICAL_STAGE_FAILURES, f"_pred:{base}", token)
             # else keep count — same failure class, no predicate flip
         if stage.startswith("edl") and n:
             _EDL_NARRATIVE_HEAL_SIGS.clear()
@@ -1963,9 +2040,14 @@ def _heal_clone_voice_prereqs() -> bool:
                 from interview_mux.identical_failures import clear_halts_matching
 
                 n_edl = clear_halts_matching(
-                    ctx, failed_stage="edl", reason_substr="g1 vo pickup missing"
+                    ctx,
+                    failed_stage="edl",
+                    reason_substr="g1 vo pickup missing",
+                    force=True,
                 )
-                n_g1 = clear_halts_matching(ctx, failed_stage="g1_vo_pickup")
+                n_g1 = clear_halts_matching(
+                    ctx, failed_stage="g1_vo_pickup", force=True
+                )
                 log(f"clone-voice prereq heal cleared identical-halts edl={n_edl} g1={n_g1}")
             except Exception as exc:
                 log(f"clone-voice prereq halt-clear: {exc}")
@@ -2372,7 +2454,7 @@ def synthesize_g1() -> bool:
             from interview_mux.stage_completion import stage_artifact_incompleteness
 
             if not check_g1_vo(ctx) and not stage_artifact_incompleteness(ctx, "vo_synthesize"):
-                ctx.mark_done("vo_synthesize", force=True)
+                _heal_mark(ctx, "vo_synthesize", force=True)
                 log("G1 synth: marked vo_synthesize done (pickups complete)")
         except Exception as exc:
             log(f"G1 synth promote: {exc}")
@@ -2886,7 +2968,7 @@ def heal_stage_done_markers() -> None:
                 "connector_fuse_pass",
             ):
                 if not ctx.is_done(sid):
-                    ctx.mark_done(sid, force=True)
+                    _heal_mark(ctx, sid)
                     healed_forward.append(sid)
             if healed_forward:
                 log(f"heal forward markers: {', '.join(healed_forward)}")
@@ -3003,7 +3085,7 @@ def heal_stage_done_markers() -> None:
                                 continue
                         except Exception:
                             pass
-                        ctx.mark_done(sid, force=True)
+                        _heal_mark(ctx, sid)
                         healed.append(sid)
                 else:
                     # Rewrite scaffolding phrasing so compose artifacts can finalize.
@@ -3101,7 +3183,7 @@ def heal_stage_done_markers() -> None:
                                     continue
                             except Exception:
                                 pass
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                             healed.append(sid)
                     else:
                         from interview_mux.high_gap_vo import demote_uncovered_high_gaps
@@ -3645,7 +3727,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if arch:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(arch[-1], dest)
-                    ctx.mark_done("mix", force=True)
+                    _heal_mark(ctx, "mix", force=True)
                     log(f"gate: restored assembly.wav from {arch[-1]}")
                     execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
                     return "continue"
@@ -3746,13 +3828,13 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if not (root / "master" / "render_ledger.json").is_file():
                     write_render_ledger(ctx, edl=edl if isinstance(edl, dict) else None)
                     log("gate autopsy heal: wrote render_ledger.json")
-                ctx.mark_done("junction_snip_qa", force=True)
-                ctx.mark_done("mix", force=True)
+                _heal_mark(ctx, "junction_snip_qa", force=True)
+                _heal_mark(ctx, "mix", force=True)
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             if (root / "master" / "seam_autopsy.json").is_file() and asm.is_file():
-                ctx.mark_done("junction_snip_qa", force=True)
-                ctx.mark_done("mix", force=True)
+                _heal_mark(ctx, "junction_snip_qa", force=True)
+                _heal_mark(ctx, "mix", force=True)
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
@@ -3810,7 +3892,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         autopsy["blocking_reasons"] = []
                         ctx.write_json("master/seam_autopsy.json", autopsy)
                         log("commitment heal: e2e soft-forced committed")
-                ctx.mark_done("junction_snip_qa", force=True)
+                _heal_mark(ctx, "junction_snip_qa", force=True)
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
@@ -4021,7 +4103,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             heal_layup_spoken_copy()
                         except Exception as exc:
                             log(f"layup freeze heal: {exc}")
-                        ctx_l.mark_done("nugget_layup_compose", force=True)
+                        _heal_mark(ctx_l, "nugget_layup_compose", force=True)
                         if ctx_l.artifact_exists("master/transitions.json"):
                             log(
                                 "prerequisite nugget_layup_compose waived — "
@@ -4321,7 +4403,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         if stage_outputs_present(ctx_t, sid) and (
                             stage_artifact_incompleteness(ctx_t, sid) is None
                         ):
-                            ctx_t.mark_done(sid, force=True)
+                            _heal_mark(ctx_t, sid)
                     except Exception:
                         pass
                 log("gate: selection+transitions restored — resume edl (no gap rewind)")
@@ -4513,7 +4595,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         except Exception:
                             st_g = "partial"
                         if st_g == "complete":
-                            ctx_g.mark_done("content_brief_reanchor", force=True)
+                            _heal_mark(ctx_g, "content_brief_reanchor")
                         else:
                             marker = ctx_g.final_path(
                                 ".stage_done", "content_brief_reanchor"
@@ -4525,7 +4607,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                                 "resplit gate: brief incomplete — resume "
                                 f"content_brief_reanchor (status={st_g})"
                             )
-                    ctx_g.mark_done("boundary_topic_resplit", force=True)
+                    _heal_mark(ctx_g, "boundary_topic_resplit")
                     if resume != "content_brief_reanchor":
                         resume = "vernacular_segment_sanitize"
             except Exception as exc:
@@ -4695,7 +4777,22 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 es["segment_order"] = list(order)
                 ctx.write_json("understanding/episode_structure.json", es)
             fp = fingerprint_artifact(sel, "full_master_ranking")
-            ctx.write_json("master/selection.json", fp, stage_key="full_master_ranking", skip_handoff=True)
+            from interview_mux.air_order_boundary import commit_selection_mutation
+
+            commit_selection_mutation(
+                ctx,
+                fp,
+                producer="full_auto_driver",
+                stage_key="full_master_ranking",
+                checkpoint_mode="detect",
+                skip_checkpoint=True,
+                write_committed=True,
+            )
+            fp = (
+                ctx.read_json("master/selection.json")
+                if ctx.artifact_exists("master/selection.json")
+                else fp
+            )
             h = str((fp.get("_meta") or {}).get("content_hash") or "")
             if h:
                 _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
@@ -5236,7 +5333,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
                             return "continue"
             for sid in ("assembly_preview", "listen_delight_audit", "music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
-                ctx.mark_done(sid, force=True)
+                _heal_mark(ctx, sid)
             log(f"mix gate heal: mmaudio_qa assets={len((doc or {}).get('assets') or [])}")
             # Mix requires master/edl.json — restore from archive before entering mix.
             from pathlib import Path as _P
@@ -5248,7 +5345,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 if arch:
                     edl_dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(arch[-1], edl_dest)
-                    ctx.mark_done("edl", force=True)
+                    _heal_mark(ctx, "edl", force=True)
                     _heal_restored_edl(_P(ctx.run_dir))
                     log(f"mix gate heal: restored edl.json from {arch[-1]}")
                 else:
@@ -5334,7 +5431,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 "sfx_prompt_craft",
                 "mmaudio_sfx",
             ):
-                ctx.mark_done(sid, force=True)
+                _heal_mark(ctx, sid)
             # Resume at mix — do NOT restart delivery from topic_coverage.
             execute({"mode": "delivery", "from_stage": "mix"})
             return "continue"
@@ -5431,9 +5528,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                             f"naked-seam soft-pass: complete=True "
                             f"(was naked={ledger.get('naked_seam_count')})"
                         )
-                ctx.mark_done("edl", force=True)
-                ctx.mark_done("mix", force=True)
-                ctx.mark_done("junction_snip_qa", force=True)
+                _heal_mark(ctx, "edl", force=True)
+                _heal_mark(ctx, "mix", force=True)
+                _heal_mark(ctx, "junction_snip_qa", force=True)
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             if not ctx.artifact_exists("understanding/reorder_bridges.json"):
@@ -5640,7 +5737,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
                     if e2e_quality_waivers_enabled():
-                        m["e2e_soft_junction_residuals"] = True
+                        m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
                 ctx.mutate_run_meta(_soft_meta)
             write_committed_json(ctx, "master/bridge_completeness.json", doc)
@@ -5656,7 +5753,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
                     if e2e_quality_waivers_enabled():
-                        m["e2e_soft_junction_residuals"] = True
+                        m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
                 ctx.mutate_run_meta(_soft_meta2)
             if doc.get("complete") and (rewritten or miss) and not doc.get("e2e_softened"):
@@ -5677,14 +5774,14 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
             if (soft or asm.is_file() or doc.get("e2e_softened")) and doc.get("complete"):
                 execute({"mode": "delivery", "from_stage": "edl" if not asm.is_file() else "master_finalize"})
                 if asm.is_file():
-                    ctx.mark_done("edl", force=True)
-                    ctx.mark_done("mix", force=True)
-                    ctx.mark_done("junction_snip_qa", force=True)
+                    _heal_mark(ctx, "edl", force=True)
+                    _heal_mark(ctx, "mix", force=True)
+                    _heal_mark(ctx, "junction_snip_qa", force=True)
                 return "continue"
             if soft and asm.is_file():
-                ctx.mark_done("edl", force=True)
-                ctx.mark_done("mix", force=True)
-                ctx.mark_done("junction_snip_qa", force=True)
+                _heal_mark(ctx, "edl", force=True)
+                _heal_mark(ctx, "mix", force=True)
+                _heal_mark(ctx, "junction_snip_qa", force=True)
                 execute({"mode": "delivery", "from_stage": "master_finalize"})
                 return "continue"
             execute({"mode": "delivery", "from_stage": "edl"})
@@ -5700,7 +5797,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
                     if e2e_quality_waivers_enabled():
-                        m["e2e_soft_junction_residuals"] = True
+                        m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
                 ctx.mutate_run_meta(_soft_meta_outer)
                 log("bridge heal outer soft-pass → edl")
@@ -6115,8 +6212,8 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     cov,
                     stage_key="topic_coverage_audit",
                 )
-                ctx.mark_done("topic_coverage_audit", force=True)
-                ctx.mark_done("full_master_ranking", force=True)
+                _heal_mark(ctx, "topic_coverage_audit")
+                _heal_mark(ctx, "full_master_ranking")
                 for sid in (
                     "edl",
                     "edl_narrative_audit",
@@ -6201,9 +6298,9 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                 # missing_coverage rows when a concurrent stage holds staging.
                 ctx.write_json("master/coverage_audit.json", repaired, stage_key="topic_coverage_audit")
                 log(f"coverage_audit narrative heal: {notes[-3:]}")
-                ctx.mark_done("topic_coverage_audit", force=True)
+                _heal_mark(ctx, "topic_coverage_audit")
             if ctx.artifact_exists("master/narrative_plan.json"):
-                ctx.mark_done("narrative_arc_plan", force=True)
+                _heal_mark(ctx, "narrative_arc_plan")
             if "edl_narrative_qc" in low and ctx.artifact_exists("master/selection.json"):
                 from interview_mux.artifact_repairs import _segment_is_blank_or_unusable
                 from interview_mux.artifact_lifecycle import fingerprint_artifact, _record_fingerprint
@@ -6351,7 +6448,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                         "mix",
                         "junction_snip_qa",
                     ):
-                        ctx.mark_done(sid, force=True)
+                        _heal_mark(ctx, sid)
                     execute({"mode": "delivery", "from_stage": "master_finalize"})
                     return "continue"
                 resume = _heal_resume(
@@ -6394,7 +6491,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     and ctx_p.artifact_exists(rel)
                     and upstream_artifact_acceptable(need, rel, ctx_p)
                 ):
-                    ctx_p.mark_done(need, force=True)
+                    _heal_mark(ctx_p, need)
                     nxt = first_pending(
                         [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
                     ) or "missing_framing"
@@ -6595,7 +6692,7 @@ def handle_gate(job: dict[str, Any], body: dict[str, Any]) -> str:
                     merge_from_disk=False,
                     stage_key="sound_design_plan",
                 )
-                ctx.mark_done("sound_design_plan", force=True)
+                _heal_mark(ctx, "sound_design_plan")
                 log(
                     f"sdp empty-assets heal: assets={len(repaired.get('assets') or [])} "
                     f"palettes={len(repaired.get('palettes') or [])} notes={notes[-4:]}"
@@ -6871,7 +6968,7 @@ def soft_pass_pre_edl_delivery(ctx: Any) -> list[str]:
     ):
         try:
             if not ctx.is_done(sid):
-                ctx.mark_done(sid, force=True)
+                _heal_mark(ctx, sid)
                 notes.append(f"marked {sid}")
         except Exception:
             pass
@@ -7070,7 +7167,7 @@ def build_bodies() -> list[tuple[str, dict[str, Any]]]:
                 "episode_structure_compose",
             ):
                 if not ctx_b.is_done(sid):
-                    ctx_b.mark_done(sid, force=True)
+                    _heal_mark(ctx_b, sid)
             analysis_from = None
             log("build_bodies: analysis soft-complete (gap+brief present) — skip to delivery")
     except Exception as exc:
@@ -7182,7 +7279,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "mix",
                         "junction_snip_qa",
                     ):
-                        ctx1.mark_done(sid, force=True)
+                        _heal_mark(ctx1, sid)
                 except Exception:
                     pass
                 # Wait for current job to finish or stall, then force execute.
@@ -7329,7 +7426,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "episode_structure_compose",
                         ):
                             if not ctx_p.is_done(sid):
-                                ctx_p.mark_done(sid, force=True)
+                                _heal_mark(ctx_p, sid)
                         log(
                             f"{label}: analysis past gap/delivery_brief "
                             f"({(job.get('message') or '')[:80]}) — advance phase"
@@ -7381,7 +7478,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "episode_structure_compose",
                         ):
                             if not ctx_p.is_done(sid):
-                                ctx_p.mark_done(sid, force=True)
+                                _heal_mark(ctx_p, sid)
                         return {"status": "complete", "message": "analysis soft-complete (anti-rewind)"}
                     log(
                         f"{label}: ignoring premature complete "
@@ -7570,7 +7667,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         and ctx_p is not None
                         and ctx_p.artifact_exists("segments/boundaries.json")
                     ):
-                        ctx_p.mark_done("boundary_detection", force=True)
+                        _heal_mark(ctx_p, "boundary_detection")
                         resume = _first_pending_for_label(label) or "segment_classification"
                         log(
                             "boundary_detection artifact on disk — mark done, "
@@ -7582,7 +7679,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         and ctx_p is not None
                         and ctx_p.artifact_exists("master/coverage_audit.json")
                     ):
-                        ctx_p.mark_done("topic_coverage_audit", force=True)
+                        _heal_mark(ctx_p, "topic_coverage_audit")
                         resume = _first_pending_for_label(label) or "narrative_arc_plan"
                         log(
                             "topic_coverage artifact on disk — mark done, "
@@ -7854,7 +7951,13 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 continue
             if "delivery incomplete after conductor" in low_err:
                 try:
+                    from interview_mux.delivery_guardrails import (
+                        reconcile_delivery_batch,
+                        seed_stage_complete,
+                    )
+                    from interview_mux.delivery_unstick import maybe_auto_unstick_once
                     from interview_mux.run_context import RunContext
+                    from interview_mux.stage_completion import reconcile_stage_done_marker
                     from interview_mux.thrash_hardening import (
                         heal_navigate,
                         note_sticky_heal_attempt,
@@ -7862,6 +7965,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     )
 
                     ctx_nav = RunContext(RUN_ID, create=False)
+                    # O4: G3 reconcile hollow markers before heal_navigate.
+                    try:
+                        reconcile_delivery_batch(ctx_nav)
+                    except Exception as recon_exc:
+                        log(f"incomplete-after-conductor reconcile: {recon_exc}")
                     if not ctx_nav.artifact_exists("master/master.wav"):
                         nav = heal_navigate(
                             ctx_nav,
@@ -7870,6 +7978,14 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         )
                         pin = str(nav.get("from_stage") or stage or "edl")
                         intent = str(nav.get("intent") or "delivery_blocked")
+                        # O4: unmark sticky pin when hollow-done.
+                        try:
+                            if pin and ctx_nav.is_done(pin) and not seed_stage_complete(
+                                ctx_nav, pin
+                            ):
+                                reconcile_stage_done_marker(ctx_nav, pin)
+                        except Exception:
+                            pass
                         token = stage_predicate_token(ctx_nav, pin)
                         sticky = note_sticky_heal_attempt(
                             ctx_nav,
@@ -7879,16 +7995,56 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             predicate_token=token,
                         )
                         if sticky.get("halt"):
+                            sticky_sig = (
+                                f"incomplete_after_conductor:{pin}:{intent}:"
+                                f"{str(token)[:48]}"
+                            )
+                            # O8: once-per-sig auto-unstick before needs_operator.
+                            unstick = maybe_auto_unstick_once(ctx_nav, sticky_sig)
+                            if unstick.get("invoked"):
+                                log(
+                                    f"incomplete-after-conductor auto-unstick once "
+                                    f"sig={sticky_sig[:80]} → "
+                                    f"{unstick.get('from_stage') or pin}"
+                                )
+                                resume = str(
+                                    unstick.get("from_stage") or pin or "edl"
+                                )
+                                execute(
+                                    {
+                                        "mode": unstick.get("mode")
+                                        or nav.get("mode")
+                                        or "delivery",
+                                        "from_stage": resume,
+                                    }
+                                )
+                                continue
                             log(
                                 f"STOP: incomplete-after-conductor sticky heal "
                                 f"×{sticky.get('count')} pin={pin} intent={intent} "
-                                f"(predicate unchanged)"
+                                f"(predicate unchanged; unstick already attempted="
+                                f"{bool(unstick.get('already_attempted'))})"
                             )
                             pause_needs_operator(
                                 pin,
                                 f"HARD: incomplete-after-conductor thrash ×"
                                 f"{sticky.get('count')} pin={pin} intent={intent}",
                             )
+                            try:
+                                from interview_mux.thrash_hardening import (
+                                    note_authority_undo_attempt,
+                                )
+
+                                note_authority_undo_attempt(
+                                    RunContext(RUN_ID, create=False),
+                                    artifact="delivery/incomplete_after_conductor",
+                                    action_class=f"sticky:{pin}",
+                                    content_hash=str(
+                                        sticky.get("predicate_token") or pin
+                                    ),
+                                )
+                            except Exception:
+                                pass
                             continue
                         log(
                             f"incomplete-after-conductor heal_navigate → "
@@ -7964,7 +8120,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ):
                         # Cycle already spent — rematerialize markers and continue.
                         if ctx_r.artifact_exists("segments/manifest.json"):
-                            ctx_r.mark_done("segment_classification", force=True)
+                            _heal_mark(ctx_r, "segment_classification")
                         # Never force-mark reanchor when the brief is still partial —
                         # that left sonic_context_build gated forever on empty topics.
                         if ctx_r.artifact_exists("understanding/content_brief.json"):
@@ -7981,7 +8137,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             except Exception:
                                 st_b = "partial"
                             if st_b == "complete":
-                                ctx_r.mark_done("content_brief_reanchor", force=True)
+                                _heal_mark(ctx_r, "content_brief_reanchor")
                             else:
                                 marker = ctx_r.final_path(
                                     ".stage_done", "content_brief_reanchor"
@@ -7995,7 +8151,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 )
                                 execute({"mode": "analysis", "from_stage": resume})
                                 continue
-                        ctx_r.mark_done("boundary_topic_resplit", force=True)
+                        _heal_mark(ctx_r, "boundary_topic_resplit")
                         resume = "vernacular_segment_sanitize"
                         log(
                             "resplit invalidation after cycle_done — "
@@ -8168,7 +8324,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         f"sdp overlap_high drop-repair: dropped={len(dropped)} "
                         f"notes={notes[-6:]}"
                     )
-                    ctx_sdp.mark_done("sound_design_plan", force=True)
+                    _heal_mark(ctx_sdp, "sound_design_plan")
                 except Exception as exc:
                     log(f"sdp overlap_high drop-repair: {exc}")
                     execute({"mode": "delivery", "from_stage": "sound_design_plan"})
@@ -8415,7 +8571,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         execute({"mode": "delivery", "from_stage": "vo_synthesize"})
                     else:
                         if backfilled and not ctx_vo.is_done("vo_synthesize"):
-                            ctx_vo.mark_done("vo_synthesize", force=True)
+                            _heal_mark(ctx_vo, "vo_synthesize", force=True)
                         execute(
                             {"mode": "delivery", "from_stage": "edl_narrative_audit"}
                         )
@@ -8601,7 +8757,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     ) and upstream_artifact_acceptable(
                         "boundary_detection", "segments/boundaries.json", ctx_b
                     ):
-                        ctx_b.mark_done("boundary_detection", force=True)
+                        _heal_mark(ctx_b, "boundary_detection")
                         nxt = first_pending(
                             [s for s in ANALYSIS_ORDER if s not in PREPARE_STAGES]
                         ) or "missing_framing"
@@ -8665,6 +8821,29 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                 or "junction remaster left" in low_err
                 or "could not remaster" in low_err
             ):
+                try:
+                    from interview_mux.run_context import RunContext
+                    from interview_mux.thrash_hardening import (
+                        junction_budget_exhaust_hard_pin,
+                        junction_oscillation_halted,
+                        junction_remaster_budget_ok,
+                    )
+
+                    ctx_j = RunContext(RUN_ID, create=False)
+                    ok_budget, used = junction_remaster_budget_ok(ctx_j)
+                    if junction_oscillation_halted(ctx_j) or not ok_budget:
+                        pin = junction_budget_exhaust_hard_pin(ctx_j)
+                        log(
+                            f"STOP: junction remaster refused "
+                            f"(osc/budget used={used}) — pin={pin}"
+                        )
+                        pause_needs_operator(
+                            "junction_snip_qa",
+                            "HARD: junction remaster budget/oscillation exhausted",
+                        )
+                        continue
+                except Exception as exc:
+                    log(f"junction remaster budget check: {exc}")
                 resume = try_product_recovery(stage or "edl", err)
                 if resume:
                     execute({"mode": _mode_for_stage(resume), "from_stage": resume})
@@ -8723,7 +8902,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             else {}
                         )
                         if adopted.get("ok") and isinstance(plan, dict):
-                            ctx.mark_done("nugget_layup_compose", force=True)
+                            _heal_mark(ctx, "nugget_layup_compose", force=True)
                             log(
                                 "layup plan adopted to selection "
                                 f"skipped={adopted.get('skipped') or []} "
@@ -8763,7 +8942,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 ctx.write_json(
                                     PLAN_REL, plan, stage_key="nugget_layup_compose"
                                 )
-                                ctx.mark_done("nugget_layup_compose", force=True)
+                                _heal_mark(ctx, "nugget_layup_compose", force=True)
                                 log("layup plan reattached to current selection order lock")
                                 if not layup_freshness_errors(ctx, plan):
                                     execute(
@@ -8924,7 +9103,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             )
                             publish_layup_plan_to_gap_report(ctx, plan_cta)
                             ctx.write_json("understanding/nugget_layup_qc.json", qc_cta)
-                            ctx.mark_done("nugget_layup_compose", force=True)
+                            _heal_mark(ctx, "nugget_layup_compose", force=True)
                             log(
                                 "nugget layup never_touch_cta skip ok "
                                 f"({len(cta_notes)} row(s)) → gap_framing_recompose"
@@ -9006,7 +9185,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 )
                                 publish_layup_plan_to_gap_report(ctx, plan0)
                                 ctx.write_json("understanding/nugget_layup_qc.json", qc0)
-                                ctx.mark_done("nugget_layup_compose", force=True)
+                                _heal_mark(ctx, "nugget_layup_compose", force=True)
                                 log(
                                     "nugget layup QC in-place heal ok "
                                     f"(analysis={len(heal_notes)} copy={len(copy_notes)}) "
@@ -9090,7 +9269,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             + str(qc.get("errors"))
                         )
                     ctx.write_json("understanding/nugget_layup_qc.json", qc)
-                    ctx.mark_done("nugget_layup_compose", force=True)
+                    _heal_mark(ctx, "nugget_layup_compose", force=True)
                     log(
                         "nugget layup QC ledger heal ok → refinement_agenda "
                         f"(open_must={qc.get('open_must_keep_talking_point_ids')} "
@@ -9131,7 +9310,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             }
                             cleared += 1
                     ctx.write_json("master/transitions.json", tdoc)
-                    ctx.mark_done("transitions", force=True)
+                    _heal_mark(ctx, "transitions")
                     log(
                         f"transition/gap VO dup heal: cleared={cleared} → sound_design_plan"
                     )
@@ -9392,7 +9571,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         ctx.write_json("master/transitions.json", tdoc)
                         # Do NOT re-run the LLM transitions stage — that regenerates
                         # ungrounded copy. Mark done and continue downstream.
-                        ctx.mark_done("transitions", force=True)
+                        _heal_mark(ctx, "transitions")
                         resume = "sound_design_plan"
                         if stage in {"selection_framing_apply", "edl", "sound_design_vo_finalize", "mix", "junction_snip_qa"}:
                             resume = "sound_design_vo_finalize" if stage in {"mix", "junction_snip_qa", "edl"} else stage
@@ -9439,7 +9618,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         try:
                             _assert_boundary_quality(ctx)
                             # Repair succeeded (no raise) — mark boundary done and continue.
-                            ctx.mark_done("boundary_detection", force=True)
+                            _heal_mark(ctx, "boundary_detection")
                             globals()["_UNSAFE_CUTS_HEAL_N"] = 0
                             log("unsafe-cuts heal: max-duration repair accepted boundaries")
                             execute({"mode": "analysis", "from_stage": "segment_classification"})
@@ -9458,7 +9637,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if ctx.artifact_exists(BOUNDARIES_REL):
                             try:
                                 _assert_boundary_quality(ctx)
-                                ctx.mark_done("boundary_detection", force=True)
+                                _heal_mark(ctx, "boundary_detection")
                                 globals()["_UNSAFE_CUTS_HEAL_N"] = 0
                                 log(
                                     "unsafe-cuts heal: accept after repair budget "
@@ -9677,6 +9856,27 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     asm = root / "master" / "assembly.wav"
                     # Recut EDL + remaster mix. Do not remint seams (MusicGen loop)
                     # and do not fake-pass junction while hanging-clause recuts exist.
+                    try:
+                        from interview_mux.thrash_hardening import (
+                            junction_budget_exhaust_hard_pin,
+                            junction_oscillation_halted,
+                            junction_remaster_budget_ok,
+                        )
+
+                        ok_budget, used_j = junction_remaster_budget_ok(ctx)
+                        if junction_oscillation_halted(ctx) or not ok_budget:
+                            pin = junction_budget_exhaust_hard_pin(ctx)
+                            log(
+                                f"junction remaster refused — budget/osc "
+                                f"(used={used_j}) pin={pin}"
+                            )
+                            pause_needs_operator(
+                                "junction_snip_qa",
+                                "HARD: junction remaster budget/oscillation exhausted",
+                            )
+                            continue
+                    except Exception as exc:
+                        log(f"junction remaster budget gate: {exc}")
                     count_path = root / "operator" / "junction_mix_remaster_n.txt"
                     try:
                         n_junc = int((count_path.read_text(encoding="utf-8") or "0").strip() or "0")
@@ -9790,7 +9990,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             continue
 
                         def _soft(m: dict) -> None:
-                            m["e2e_soft_junction_residuals"] = True
+                            m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
                         ctx.mutate_run_meta(_soft)
                         for sid in (
@@ -9803,7 +10003,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "mix",
                             "junction_snip_qa",
                         ):
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                         log(
                             "junction residuals soft-ship → master_finalize "
                             "(assembly present; skip EDL remint/MusicGen loop)"
@@ -9906,8 +10106,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         marker = root / ".stage_done" / sid
                         if marker.is_file():
                             marker.unlink()
-                    ctx.mark_done("edl", force=True)
-                    ctx.mark_done("mmaudio_sfx", force=True)
+                    _heal_mark(ctx, "edl", force=True)
+                    _heal_mark(ctx, "mmaudio_sfx", force=True)
                     log("assembly-fresh heal: resume mix → junction")
                     execute({"mode": "delivery", "from_stage": "mix"})
                     continue
@@ -9952,7 +10152,22 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
 
                         # Selection leads — do not rewrite selection from EDL.
                         sel = bump_order_lock(sel, source="full_auto_order_drift_error_heal")
-                        fs_write_json(_P(ctx.run_dir) / "master" / "selection.json", sel)
+                        from interview_mux.air_order_boundary import commit_selection_mutation
+
+                        commit_selection_mutation(
+                            ctx,
+                            sel,
+                            producer="full_auto_order_drift_error_heal",
+                            stage_key="full_auto_order_drift_error_heal",
+                            checkpoint_mode="detect",
+                            skip_checkpoint=True,
+                            write_committed=True,
+                        )
+                        sel = (
+                            ctx.read_json("master/selection.json")
+                            if ctx.artifact_exists("master/selection.json")
+                            else sel
+                        )
                         edl = copy_order_lock(
                             sel,
                             stamp_order_hash(
@@ -9966,7 +10181,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 }
                             ),
                         )
-                        fs_write_json(_P(ctx.run_dir) / "master" / "edl.json", edl)
+                        ctx.write_json("master/edl.json", edl, stage_key="edl")
                         write_assembly_ledger(ctx, edl=edl)
                         asm = _P(ctx.run_dir) / "master" / "assembly.wav"
                         if not asm.is_file():
@@ -9975,9 +10190,9 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 asm.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(arch[-1], asm)
                                 log(f"order-drift error heal: restored assembly from {arch[-1]}")
-                        ctx.mark_done("edl", force=True)
+                        _heal_mark(ctx, "edl", force=True)
                         if asm.is_file():
-                            ctx.mark_done("mix", force=True)
+                            _heal_mark(ctx, "mix", force=True)
                             log("order-drift error heal: resume junction_snip_qa")
                             execute({"mode": "delivery", "from_stage": "junction_snip_qa"})
                         else:
@@ -10178,7 +10393,22 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         if changed:
                             sel["ordered_segment_ids"] = order
                             fp = fingerprint_artifact(sel, "full_master_ranking")
-                            fs_write_json(ctx.final_path("master/selection.json"), fp)
+                            from interview_mux.air_order_boundary import commit_selection_mutation
+
+                            commit_selection_mutation(
+                                ctx,
+                                fp,
+                                producer="full_auto_transition_order_heal",
+                                stage_key="full_auto_transition_order_heal",
+                                checkpoint_mode="detect",
+                                skip_checkpoint=True,
+                                write_committed=True,
+                            )
+                            fp = (
+                                ctx.read_json("master/selection.json")
+                                if ctx.artifact_exists("master/selection.json")
+                                else fp
+                            )
                             h = str((fp.get("_meta") or {}).get("content_hash") or "")
                             if h:
                                 _record_fingerprint(ctx, "master/selection.json", h, "full_master_ranking")
@@ -10402,7 +10632,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "reasoning_summary": "e2e stub after context_length_exceeded",
                         },
                     )
-                    ctx.mark_done("edl_narrative_audit", force=True)
+                    _heal_mark(ctx, "edl_narrative_audit", force=True)
                     log("edl_narrative_audit overflow stub — resume mix/finalize")
                     resume = "master_finalize" if (dest / "assembly.wav").is_file() else "mix"
                     execute({"mode": "delivery", "from_stage": resume})
@@ -10430,7 +10660,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         ratio = gap_eval_scored_ratio(ctx)
                         log(f"healed gap_evaluations scored_ratio={ratio:.3f} notes={len(notes)}")
                         if ratio + 0.001 >= 0.95:
-                            ctx.mark_done("missing_framing", force=True)
+                            _heal_mark(ctx, "missing_framing")
                             execute({"mode": "analysis", "from_stage": "mastering_plan_confirm"})
                             continue
                     execute({"mode": "analysis", "from_stage": "missing_framing"})
@@ -10486,7 +10716,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             merge_from_disk=False,
                             stage_key="full_master_ranking",
                         )
-                        ctx.mark_done("full_master_ranking", force=True)
+                        _heal_mark(ctx, "full_master_ranking")
                         log(
                             "primary-impact heal: restored "
                             f"{[s for s in need if s in (fixed.get('ordered_segment_ids') or [])]}"
@@ -10578,8 +10808,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             merge_from_disk=False,
                             stage_key="gap_framing_compose",
                         )
-                        ctx.mark_done("missing_framing", force=True)
-                        ctx.mark_done("gap_framing_compose", force=True)
+                        _heal_mark(ctx, "missing_framing")
+                        _heal_mark(ctx, "gap_framing_compose")
                         log(f"gap_report high-gap seed heal: {notes[-3:]}")
                         execute({"mode": "analysis", "from_stage": "delivery_brief_build"})
                         continue
@@ -10669,7 +10899,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     except Exception:
                                         pass
                         edl_path.write_text(_json.dumps(edl, indent=2) + "\n")
-                        ctx.mark_done("edl", force=True)
+                        _heal_mark(ctx, "edl", force=True)
                     execute({"mode": "delivery", "from_stage": "assembly_preview"})
                     continue
                 except Exception as exc:
@@ -10712,7 +10942,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         n = len(cand.get("interviewer_lines") or [])
                         if n > best_n:
                             best, best_n = cand, n
-                    fs_write_json(disk_gap_path, best)
+                    from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
+
+                    commit_gap_report_doc(
+                        ctx, best, reason="gap_line_heal", stage_key="gap_line_heal"
+                    )
                     for stale_stage in list(stages_with_pending_writes(ctx)):
                         if stale_stage in {"edl", "selection_framing_apply", "gap_framing_recompose"}:
                             discard_stage_writes(ctx, stale_stage)
@@ -10819,7 +11053,11 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         except Exception as exc:
                             log(f"gap-line heal: EDL target sync skipped: {exc}")
                     best["interviewer_lines"] = lines
-                    fs_write_json(disk_gap_path, best)
+                    from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
+
+                    commit_gap_report_doc(
+                        ctx, best, reason="gap_line_heal", stage_key="gap_line_heal"
+                    )
                     try:
                         from interview_mux.vo_contract import (
                             clamp_hosted_seats_to_rendered_wavs,
@@ -10932,7 +11170,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "mmaudio_sfx",
                     ):
                         if (root / ".stage_done" / sid).is_file() or sid == "mmaudio_sfx":
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                     (root / ".stage_done" / "mix").unlink(missing_ok=True)
                     if not (root / "master" / "edl.json").is_file():
                         arch = sorted((root / ".archived").glob("*/master/edl.json"))
@@ -11075,7 +11313,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             for e in errs
                         )
                         if not errs or dur_only:
-                            ctx.mark_done("sfx_prompt_craft", force=True)
+                            _heal_mark(ctx, "sfx_prompt_craft", force=True)
                             approve_sfx_prompts()
                             execute({"mode": "delivery", "from_stage": "mmaudio_sfx"})
                             continue
@@ -11108,8 +11346,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             merge_from_disk=False,
                             stage_key="sound_design_plan",
                         )
-                        ctx.mark_done("sound_design_plan", force=True)
-                        ctx.mark_done("sdp_intent_refine", force=True)
+                        _heal_mark(ctx, "sound_design_plan")
+                        _heal_mark(ctx, "sdp_intent_refine")
                         errs = validate_post_sound_plan(ctx)
                         log(f"sdp cue/stinger heal: notes={notes[-4:]} errs={errs[:2] or 'pass'}")
                         if "assets[] empty" in low_err or "sdp assets[] empty" in low_err:
@@ -11259,7 +11497,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                     root = _P(ctx.run_dir)
                     if (root / "master" / "assembly.wav").is_file():
                         for sid in ("edl", "assembly_preview", "mix", "junction_snip_qa"):
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                         execute({"mode": "delivery", "from_stage": "master_finalize"})
                     else:
                         execute({"mode": "delivery", "from_stage": "mix"})
@@ -11437,7 +11675,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "transitions",
                             "edl_narrative_audit",
                         ):
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                         if ctx.artifact_exists("master/coverage_audit.json"):
                             cov = ctx.read_json("master/coverage_audit.json")
                             for section in ("topic_mappings", "claim_mappings"):
@@ -11565,8 +11803,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         "master_finalize",
                     ):
                         (root / ".stage_done" / sid).unlink(missing_ok=True)
-                    ctx.mark_done("full_master_ranking", force=True)
-                    ctx.mark_done("topic_coverage_audit", force=True)
+                    _heal_mark(ctx, "full_master_ranking")
+                    _heal_mark(ctx, "topic_coverage_audit")
                     log(f"coverage-gap heal: restored source segment(s) {sorted(restored_ids)}")
                     # The air order changed — the lay-up plan must be composed
                     # against it before any delivery stage consumes gap_report.
@@ -11714,7 +11952,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "episode_meta_build",
                             "episode_cover_prompt_craft",
                         ):
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                         execute({"mode": "delivery", "from_stage": "podcast_publish"})
                     else:
                         execute({"mode": "delivery", "from_stage": "podcast_encode_mp3"})
@@ -11955,7 +12193,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             # Never soft-waive missing PMQ — playbook only.
                             if "post-master quality artifact is missing" in low_err:
                                 return
-                            m["e2e_soft_junction_residuals"] = True
+                            m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
                             m["e2e_soft_listenability"] = True
 
                         ctx.mutate_run_meta(_soft)
@@ -11969,7 +12207,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "mix",
                             "junction_snip_qa",
                         ):
-                            ctx.mark_done(sid, force=True)
+                            _heal_mark(ctx, sid)
                         log(
                             "pmq heal: soft-waive (non-VO) + resume master_finalize "
                             "(do not rewind EDL)"
@@ -11989,7 +12227,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                         from interview_mux.e2e_soft import e2e_quality_waivers_enabled
 
                         if e2e_quality_waivers_enabled():
-                            m["e2e_soft_junction_residuals"] = True
+                            m["e2e_soft_junction_residuals"] = bool(_e2e_soft())
 
                     ctx.mutate_run_meta(_soft)
                     refreshed = refresh_autopsy_commitment(ctx)
@@ -12012,8 +12250,8 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                 }
                             ]
                             write_autopsy(ctx, autopsy)
-                    ctx.mark_done("junction_snip_qa", force=True)
-                    ctx.mark_done("mix", force=True)
+                    _heal_mark(ctx, "junction_snip_qa", force=True)
+                    _heal_mark(ctx, "mix", force=True)
                     log_decision(
                         "major",
                         stage="junction_snip_qa",
@@ -12446,7 +12684,17 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                                     excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
                             sel["ordered_segment_ids"] = ordered
                             sel["excluded_segment_ids"] = excl
-                        ctx.write_json("master/selection.json", sel, stage_key="full_master_ranking")
+                        from interview_mux.air_order_boundary import commit_selection_mutation
+
+                        commit_selection_mutation(
+                            ctx,
+                            sel,
+                            producer="full_auto_driver",
+                            stage_key="full_master_ranking",
+                            checkpoint_mode="detect",
+                            skip_checkpoint=True,
+                            write_committed=True,
+                        )
                     # Do not soft-pass edl_narrative_audit on 429 restore.
                     for sid in (
                         "topic_coverage_audit",
@@ -12477,7 +12725,7 @@ def run_until_done(body: dict[str, Any], label: str) -> dict[str, Any]:
                             "understanding/sound_design_plan.json"
                         ):
                             continue
-                        ctx.mark_done(sid, force=True)
+                        _heal_mark(ctx, sid)
                     # Heal SDP against restored selection, then jump to edl.
                     if ctx.artifact_exists("understanding/sound_design_plan.json"):
                         from interview_mux.artifact_repairs import repair_sound_design_plan

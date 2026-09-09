@@ -12,6 +12,9 @@ from jsonschema import Draft202012Validator
 from interview_mux.config import repo_root
 from interview_mux.schema_nullability import with_nullable_optional_leaves
 
+# Successful root-schema loads only (never cache missing-file misses).
+_ROOT_SCHEMA_CACHE: dict[str, dict[str, Any]] = {}
+
 # stage_key -> artifact schema filename (under artifacts/)
 STAGE_ARTIFACT_SCHEMAS: dict[str, str] = {
     "speaker_roles": "speakers_artifact.schema.json",
@@ -125,23 +128,43 @@ def _schemas_dir() -> Path:
 def _json_schemas_root() -> Path:
     return repo_root() / "docs" / "cross-cutting" / "json-schemas"
 
-@lru_cache(maxsize=8)
 def _load_root_schema(filename: str) -> dict[str, Any] | None:
+    """Load a root json-schema. Successful loads are cached; misses are not.
+
+    Caching ``None`` would permanently disable validation if the first lookup
+    happened while ``repo_root`` was monkeypatched to a tree without schemas.
+    """
+    cached = _ROOT_SCHEMA_CACHE.get(filename)
+    if cached is not None:
+        return cached
     path = _json_schemas_root() / filename
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    _ROOT_SCHEMA_CACHE[filename] = data
+    return data
 
-@lru_cache(maxsize=32)
+
+# Successful artifact-schema loads only (never cache missing-file misses).
+_ARTIFACT_SCHEMA_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def _load_schema(filename: str) -> dict[str, Any] | None:
+    cached = _ARTIFACT_SCHEMA_CACHE.get(filename)
+    if cached is not None:
+        return cached
     path = _schemas_dir() / filename
-    if not path.is_file():
-        # gap_report lives one level up
-        alt = repo_root() / "docs" / "cross-cutting" / "json-schemas" / filename
-        if alt.is_file():
-            return json.loads(alt.read_text(encoding="utf-8"))
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        _ARTIFACT_SCHEMA_CACHE[filename] = data
+        return data
+    # gap_report lives one level up
+    alt = repo_root() / "docs" / "cross-cutting" / "json-schemas" / filename
+    if alt.is_file():
+        data = json.loads(alt.read_text(encoding="utf-8"))
+        _ARTIFACT_SCHEMA_CACHE[filename] = data
+        return data
+    return None
 
 @lru_cache(maxsize=4)
 def _load_envelope_schema() -> dict[str, Any] | None:

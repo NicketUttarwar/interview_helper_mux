@@ -19,9 +19,14 @@ _OPERATOR_REASON_MARKERS: tuple[str, ...] = (
     "delivery_epoch_unlock",
     "g-publish",
     "operator publish",
+    "sanitize_refused",
+    "selection_unsanitary",
+    "gap_unsanitary",
+    "air_contract_unsanitary",
 )
 
 # Classified artifact blocks — homunculus/driver should ladder-recover, not stamp needs_operator.
+# Static heritage markers kept; RC11 also derives from CLASSIFIED_PLAYBOOKS at runtime.
 AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
     "vo contract",
     "missing from gap_report",
@@ -39,9 +44,27 @@ AUTOMATED_CLASSIFIED_MARKERS: tuple[str, ...] = (
 )
 
 
+def _classified_playbook_markers() -> tuple[str, ...]:
+    """RC11: derive substring markers from CLASSIFIED_PLAYBOOKS error_class ids."""
+    try:
+        from interview_mux.recovery_controller import CLASSIFIED_PLAYBOOKS
+
+        out: list[str] = []
+        for cid in CLASSIFIED_PLAYBOOKS:
+            s = str(cid or "").strip().lower().replace("_", " ")
+            if s:
+                out.append(s)
+                out.append(str(cid).strip().lower())
+        return tuple(dict.fromkeys(out))
+    except Exception:
+        return ()
+
+
 def is_automated_classified_block(reason: str | None) -> bool:
     low = str(reason or "").lower()
-    return any(marker in low for marker in AUTOMATED_CLASSIFIED_MARKERS)
+    if any(marker in low for marker in AUTOMATED_CLASSIFIED_MARKERS):
+        return True
+    return any(marker in low for marker in _classified_playbook_markers())
 
 
 def is_operator_must_act(stage: str | None, reason: str | None = None) -> bool:
@@ -85,6 +108,18 @@ def should_stamp_needs_operator(
         return True
     homunculus = str((meta or {}).get("homunculus_version") or "").strip()
     if homunculus and not homunculus.startswith("0.1"):
+        return True
+    low = str(reason or "").lower()
+    # Sanitize refuse is a hard product halt — never auto-continue past it.
+    if "sanitize_refused" in low or "selection_unsanitary" in low:
+        return True
+    if "gap_unsanitary" in low or "air_contract_unsanitary" in low or "layup_unsanitary" in low:
+        return True
+    if "sdp_unsanitary" in low or "vo_unsanitary" in low:
+        return True
+    if "authority_undo" in low or "same_family_over_budget" in low:
+        return True
+    if "incomplete-after-conductor" in low or "incomplete_after_conductor" in low:
         return True
     if is_automated_classified_block(reason):
         return False

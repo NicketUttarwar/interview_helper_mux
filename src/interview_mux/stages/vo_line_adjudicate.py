@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 STAGE_ID = "vo_line_adjudicate"
 
@@ -21,7 +22,7 @@ def run_vo_line_adjudicate(ctx: RunContext) -> None:
             level="info",
             stage=STAGE_ID,
         )
-        ctx.mark_done(STAGE_ID, force=True)
+        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
 
     if not adjudicate_before_synth_enabled():
@@ -30,7 +31,7 @@ def run_vo_line_adjudicate(ctx: RunContext) -> None:
             level="info",
             stage=STAGE_ID,
         )
-        ctx.mark_done(STAGE_ID, force=True)
+        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
 
     with logged_step("vo_line_adjudicate/run", ctx=ctx, stage=STAGE_ID):

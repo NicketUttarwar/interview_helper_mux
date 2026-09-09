@@ -80,8 +80,10 @@ def test_exec_188_mid_arc_repair_excludes_host_intro():
     }
     repaired, actions = repair_air_order_integrity(_Ctx(), selection)
     ordered = repaired.get("ordered_segment_ids") or []
-    assert "seg_001c" not in ordered
-    assert "seg_001d" not in ordered
+    # Prefer native opening-window host intro on air (prepend, do not drop).
+    assert "seg_001c" in ordered
+    assert "seg_001d" in ordered
+    assert ordered.index("seg_001c") < ordered.index("seg_003")
     assert ordered.index("seg_050") < len(ordered) - 1
     assert actions
 

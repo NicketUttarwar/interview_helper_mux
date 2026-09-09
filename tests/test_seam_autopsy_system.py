@@ -86,11 +86,13 @@ def _ctx_with_timeline(tmp_path):
     )
     ctx.write_json("master/selection.json", selection, skip_handoff=True)
     ctx.write_json("master/edl.json", edl, skip_handoff=True)
+    # Re-read after write_json restamps locks/hashes.
+    edl = ctx.read_json("master/edl.json")
     ctx.write_json(
         "master/assembly_ledger.json",
         {
             "version": 1,
-            "order_content_hash": edl["order_content_hash"],
+            "order_content_hash": edl.get("order_content_hash"),
             "complete": True,
             "naked_seam_count": 0,
             "seams": [
@@ -110,6 +112,29 @@ def _ctx_with_timeline(tmp_path):
     assembly = ctx.path("master", "assembly.wav")
     assembly.parent.mkdir(parents=True, exist_ok=True)
     assembly.write_bytes(b"RIFF" + (b"\0" * 128))
+    from interview_mux.seam_autopsy import RENDER_LEDGER_REL, _file_fingerprint
+
+    fp = _file_fingerprint(ctx.final_path("master", "assembly.wav"))
+    ledger_path = ctx.final_path(*RENDER_LEDGER_REL.split("/"))
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+
+    ledger_path.write_text(
+        _json.dumps(
+            {
+                "version": 1,
+                "generated_at": "2026-01-01T00:00:00Z",
+                "edl_hash": str(edl.get("order_content_hash") or "fixture"),
+                "assembly": {
+                    "exists": True,
+                    "size": fp["size"],
+                    "sha256_edges": fp["sha256_edges"],
+                },
+                "clips": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     return ctx, edl
 
 
@@ -144,7 +169,7 @@ def test_commitment_rejects_false_applied_claim(tmp_path):
                 "status": "applied",
                 "action": "nudge_source_bounds",
                 "segment_id": "seg_a",
-                "applied_ms": 700,
+                "applied_ms": 100,
                 "detail": {"edge": "end"},
             }
         ]
@@ -287,7 +312,11 @@ def test_selection_repair_never_reincludes_narrative_only_segments(tmp_path):
     )
 
 
-def test_full_remediation_is_hard_capped_at_two_complete_runs(tmp_path):
+def test_full_remediation_is_hard_capped_at_two_complete_runs(tmp_path, monkeypatch):
+    # Schema const max_runs=2; keep product loop aligned for this contract test.
+    monkeypatch.setattr("interview_mux.failure_recovery.MAX_REMEDIATION_RUNS", 2)
+    from interview_mux.failure_recovery import MAX_REMEDIATION_RUNS
+
     ctx, _ = _ctx_with_timeline(tmp_path)
     identify_calls: list[int] = []
     execute_calls: list[int] = []

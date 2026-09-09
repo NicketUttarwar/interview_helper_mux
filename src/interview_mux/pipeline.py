@@ -46,6 +46,7 @@ from interview_mux.stages import transcript_review
 from interview_mux.stages import understanding
 from interview_mux.stages import vo_line_adjudicate
 from interview_mux.stages import vo_synthesize
+from interview_mux.stage_completion import heal_or_refuse_mark
 from interview_mux.v2.config import (
     ALL_LLM_STAGES_V2,
     ANALYSIS_ORDER_V2,
@@ -68,7 +69,12 @@ FLOW2_ORDER: tuple[str, ...] = ()
 FLOW3_ORDER: tuple[str, ...] = ()
 
 _STAGE_ID_ALIASES: dict[str, str] = {
-    "selection": "full_master_ranking",
+    "selection": "selection_order_sanitize",
+    "selection_order": "selection_order_sanitize",
+    "gap": "gap_report_sanitize",
+    "gap_report": "gap_report_sanitize",
+    "air_contract": "air_contract_sanitize",
+    "air": "air_contract_sanitize",
 }
 
 
@@ -163,6 +169,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             fromlist=["run_connector_fuse_pass_pre_ranking"],
         ).run_connector_fuse_pass_pre_ranking(ctx),
         "full_master_ranking": lambda: selection.run_full_master_ranking(ctx),
+        "selection_order_sanitize": lambda: __import__(
+            "interview_mux.artifact_sanitize.selection",
+            fromlist=["run_selection_order_sanitize"],
+        ).run_selection_order_sanitize(ctx),
         "air_script_compose": lambda: __import__(
             "interview_mux.air_script", fromlist=["run_air_script_compose"]
         ).run_air_script_compose(ctx),
@@ -171,6 +181,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
             "interview_mux.information_packages", fromlist=["run_information_package_plan"]
         ).run_information_package_plan(ctx),
         "nugget_layup_compose": lambda: analysis_extended.run_nugget_layup_compose(ctx),
+        "gap_report_sanitize": lambda: __import__(
+            "interview_mux.artifact_sanitize.gap_report",
+            fromlist=["run_gap_report_sanitize"],
+        ).run_gap_report_sanitize(ctx),
         # Refinement Pass (docs/cross-cutting/refinement-passes.md): L0 agenda + deterministic
         # recompose/refine stages. No LLM calls — gated by refinement_gate.decide_pass.
         "refinement_agenda": lambda: run_refinement_agenda(ctx, phase="confirm"),
@@ -179,6 +193,10 @@ def _delivery_stage_fns(ctx: RunContext) -> dict[str, Callable[[], None]]:
         "air_script_seams": lambda: __import__(
             "interview_mux.air_script", fromlist=["run_air_script_seams"]
         ).run_air_script_seams(ctx),
+        "air_contract_sanitize": lambda: __import__(
+            "interview_mux.artifact_sanitize.air_script",
+            fromlist=["run_air_contract_sanitize"],
+        ).run_air_contract_sanitize(ctx),
         "ranking_refine": lambda: run_ranking_refine(ctx),
         "narrative_arc_refine": lambda: run_narrative_arc_refine(ctx),
         "transitions": lambda: selection.run_transitions(ctx),
@@ -474,7 +492,9 @@ def run_single_stage(ctx: RunContext, stage: str) -> None:
 
         if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage) and music_epoch_complete(ctx):
             if not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
+                # TH1b music-epoch skip: heal only marks when incompleteness empty
+                # (epoch seal / WAVs present). Hollow force stamp is refused.
+                heal_or_refuse_mark(ctx, stage, force=True)
             ctx.log(
                 f"{stage}: music epoch complete — skip regenerate",
                 level="info",

@@ -434,7 +434,7 @@ def test_musicgen_ladder_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
         role="theme_underscore",
         seed=1,
     )
-    assert meta.get("backend") == "musical_stub"
+    assert meta.get("backend") == "music_omitted"
     assert models, "expected MusicGen ladder attempts"
     assert models[0].endswith("large")
     assert any(m.endswith("medium") for m in models)

@@ -1125,8 +1125,23 @@ def _readmit_cta_story_children(
     ctx: Any,
     ordered: list[str],
     applied: list[dict[str, Any]],
+    *,
+    banned_ids: set[str] | None = None,
 ) -> list[str]:
-    """Put CTA-sanitized story remainders back on the air-order candidate list."""
+    """Put CTA-sanitized story remainders back on the air-order candidate list.
+
+    Honors ``artifact_sanitize.selection.max_cta_readmit`` (default 0 = no-op).
+    Never re-admits ids in ``banned_ids`` (sanitize drops / exclusions).
+    """
+    try:
+        from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
+
+        max_readmit = int(sanitize_selection_cfg().get("max_cta_readmit") or 0)
+    except Exception:
+        max_readmit = 0
+    if max_readmit <= 0:
+        applied.append({"action": "skip_cta_readmit", "reason": "max_cta_readmit=0"})
+        return ordered
     try:
         from interview_mux.media_ip_cta import admitted_story_segment_ids, never_touch_segment_ids
 
@@ -1135,11 +1150,20 @@ def _readmit_cta_story_children(
         return ordered
     if not story:
         return ordered
+    ban = {str(s) for s in (banned_ids or set()) if s}
     have = set(ordered)
-    missing = [s for s in story if s not in have]
+    missing = [s for s in story if s not in have and s not in ban]
     if not missing:
         return ordered
-    by_start: dict[str, int] = {}
+    if len(missing) > max_readmit:
+        applied.append(
+            {
+                "action": "cap_cta_readmit",
+                "max": max_readmit,
+                "requested": len(missing),
+            }
+        )
+        missing = missing[:max_readmit]
     try:
         from interview_mux.nle_state import segments_by_id_with_nle
 
@@ -1155,7 +1179,7 @@ def _readmit_cta_story_children(
         idx = len(out)
         for i, other in enumerate(out):
             try:
-                other_start = int((by_id.get(other) or {}).get("start_ms") or by_start.get(other) or 0)
+                other_start = int((by_id.get(other) or {}).get("start_ms") or 0)
             except (TypeError, ValueError):
                 other_start = 0
             if start < other_start:
@@ -1167,7 +1191,22 @@ def _readmit_cta_story_children(
     return out
 
 
-def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _selection_excluded_id_set(doc: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for row in doc.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+        else:
+            sid = str(row or "")
+        if sid:
+            out.add(sid)
+    return out
+
+
+def _normalize_master_selection_only(
+    ctx: Any, doc: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Schema/orphan/dedupe/never-touch normalize — no CTA readmit or leftovers growth."""
     out = copy.deepcopy(doc)
     applied: list[dict[str, Any]] = []
     manifest_ids, _ = _manifest_ids_and_tags(ctx)
@@ -1185,7 +1224,55 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                 continue
             seen.add(s)
             deduped.append(s)
-        ordered_now = _readmit_cta_story_children(ctx, deduped, applied)
+        try:
+            from interview_mux.media_ip_cta import never_touch_segment_ids
+
+            banned = never_touch_segment_ids(ctx)
+        except Exception:
+            banned = set()
+        if banned:
+            cta_drop = [s for s in deduped if s in banned]
+            if cta_drop:
+                deduped = [s for s in deduped if s not in banned]
+                applied.append({"action": "drop_never_touch_cta", "ids": cta_drop[:24]})
+        out["ordered_segment_ids"] = deduped
+    from interview_mux.order_hash import bump_order_lock
+
+    out = bump_order_lock(out, source="artifact_repairs.normalize_selection")
+    applied.append({"action": "normalize_selection_only"})
+    return out, applied
+
+
+def repair_master_selection(
+    ctx: Any,
+    doc: dict[str, Any],
+    *,
+    amplify: bool = True,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if not amplify:
+        return _normalize_master_selection_only(ctx, doc)
+    out = copy.deepcopy(doc)
+    applied: list[dict[str, Any]] = []
+    before_n = len([s for s in (out.get("ordered_segment_ids") or []) if s])
+    excluded_ban = _selection_excluded_id_set(out)
+    manifest_ids, _ = _manifest_ids_and_tags(ctx)
+    ordered = out.get("ordered_segment_ids")
+    if isinstance(ordered, list):
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for sid in ordered:
+            s = str(sid)
+            if manifest_ids and s not in manifest_ids:
+                applied.append({"action": "drop_orphan_ref", "segment_id": s})
+                continue
+            if s in seen:
+                applied.append({"action": "dedupe", "segment_id": s})
+                continue
+            seen.add(s)
+            deduped.append(s)
+        ordered_now = _readmit_cta_story_children(
+            ctx, deduped, applied, banned_ids=excluded_ban
+        )
         try:
             from interview_mux.media_ip_cta import never_touch_segment_ids
 
@@ -1200,18 +1287,28 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
         out["ordered_segment_ids"] = ordered_now
         # Drop blank / unusable answer segments (blank-safe for later chapter repairs).
         # Use the post-readmit list so CTA story children are not wiped here.
+        # Never empty the entire air order — fixture/short manifests must not
+        # collapse selection to [] (schema + one-writer refuse).
         blank_drop = [s for s in ordered_now if _segment_is_blank_or_unusable(ctx, s)]
         if blank_drop:
             kept = [s for s in ordered_now if s not in set(blank_drop)]
-            out["ordered_segment_ids"] = kept
-            excl = list(out.get("excluded_segment_ids") or [])
-            have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
-            for sid in blank_drop:
-                if sid not in have:
-                    excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
-                    have.add(sid)
-            out["excluded_segment_ids"] = excl
-            applied.append({"action": "drop_blank_segments", "ids": blank_drop})
+            if kept:
+                out["ordered_segment_ids"] = kept
+                excl = list(out.get("excluded_segment_ids") or [])
+                have = {str(r.get("segment_id") if isinstance(r, dict) else r) for r in excl}
+                for sid in blank_drop:
+                    if sid not in have:
+                        excl.append({"segment_id": sid, "reason": "blank_or_unusable_answer_audio"})
+                        have.add(sid)
+                out["excluded_segment_ids"] = excl
+                applied.append({"action": "drop_blank_segments", "ids": blank_drop})
+            else:
+                applied.append(
+                    {
+                        "action": "keep_blank_segments_refuse_empty_order",
+                        "ids": blank_drop[:24],
+                    }
+                )
     excluded = out.get("excluded_segment_ids")
     if isinstance(excluded, list):
         # Schema requires {segment_id, reason} objects; LLMs often emit bare id strings.
@@ -1244,18 +1341,38 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
         if normalized != excluded:
             applied.append({"action": "normalize_excluded_segment_ids", "count": len(normalized)})
         try:
+            from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
             from interview_mux.media_ip_cta import admitted_story_segment_ids
 
             story = admitted_story_segment_ids(ctx)
+            max_readmit = int(sanitize_selection_cfg().get("max_cta_readmit") or 0)
         except Exception:
             story = set()
-        if story:
+            max_readmit = 0
+        # When CTA readmit is disabled, keep sanitize/exclusion drops authoritative.
+        if story and max_readmit > 0:
+            on_air = {str(s) for s in (out.get("ordered_segment_ids") or []) if s}
+            protect = story & on_air
             before_n = len(normalized)
-            normalized = [row for row in normalized if str(row.get("segment_id") or "") not in story]
+            normalized = [
+                row
+                for row in normalized
+                if str(row.get("segment_id") or "") not in protect
+            ]
             if len(normalized) != before_n:
-                applied.append({"action": "keep_cta_story_children", "count": before_n - len(normalized)})
-            for sid in story:
+                applied.append(
+                    {"action": "keep_cta_story_children", "count": before_n - len(normalized)}
+                )
+            for sid in protect:
                 rationales.pop(sid, None)
+        elif story and max_readmit <= 0:
+            applied.append(
+                {
+                    "action": "skip_keep_cta_story_children",
+                    "reason": "max_cta_readmit=0",
+                    "excluded_story": len(story & excluded_ban),
+                }
+            )
         out["excluded_segment_ids"] = normalized
         if normalized:
             out["exclude_rationales"] = rationales
@@ -1290,10 +1407,12 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
         for rel in ("segments/boundaries.json", "segments/segments.json"):
             if not ctx.artifact_exists(rel):
                 continue
-            doc = ctx.read_json(rel)
+            boundaries_doc = ctx.read_json(rel)
             rows = []
-            if isinstance(doc, dict):
-                rows = list(doc.get("boundaries") or doc.get("segments") or [])
+            if isinstance(boundaries_doc, dict):
+                rows = list(
+                    boundaries_doc.get("boundaries") or boundaries_doc.get("segments") or []
+                )
             for row in rows:
                 if not isinstance(row, dict) or not row.get("segment_id"):
                     continue
@@ -1301,7 +1420,13 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
                     starts[str(row["segment_id"])] = int(row.get("start_ms") or 0)
                 except (TypeError, ValueError):
                     continue
-        out, order_notes = repair_selection_order(out, plan, source_start_ms=starts or None)
+        ban_grow = _selection_excluded_id_set(out) | excluded_ban
+        out, order_notes = repair_selection_order(
+            out,
+            plan,
+            source_start_ms=starts or None,
+            banned_readmit_ids=ban_grow,
+        )
         applied.extend(order_notes)
     except Exception:
         pass
@@ -1509,6 +1634,45 @@ def repair_master_selection(ctx: Any, doc: dict[str, Any]) -> tuple[dict[str, An
             applied.append({"action": "prune_stale_exclude_rationales"})
     out = reconciled
     _sort_selection_chapters_with_backward_jumps(ctx, out, applied)
+    # Growth budget: amplifying repair must not balloon membership past sanitize/ranking.
+    try:
+        from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
+
+        growth_pct = float(sanitize_selection_cfg().get("max_order_growth_pct") or 15.0)
+    except Exception:
+        growth_pct = 15.0
+    after_ids = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    # Also drop any excluded / banned ids that snuck back onto air.
+    ban_final = excluded_ban | _selection_excluded_id_set(out)
+    if ban_final:
+        filtered = [s for s in after_ids if s not in ban_final]
+        if len(filtered) != len(after_ids):
+            dropped = [s for s in after_ids if s in ban_final]
+            applied.append(
+                {
+                    "action": "drop_banned_readmit",
+                    "count": len(dropped),
+                    "ids": dropped[:24],
+                }
+            )
+            after_ids = filtered
+            out["ordered_segment_ids"] = after_ids
+    if before_n > 0 and growth_pct >= 0:
+        cap = max(before_n, int(before_n * (1.0 + (growth_pct / 100.0))))
+        if len(after_ids) > cap:
+            # Prefer keeping the prefix of current order (already topo-shaped).
+            kept = after_ids[:cap]
+            applied.append(
+                {
+                    "action": "clamp_order_growth",
+                    "before": before_n,
+                    "after": len(after_ids),
+                    "cap": cap,
+                    "growth_pct": growth_pct,
+                }
+            )
+            out["ordered_segment_ids"] = kept
+            after_ids = kept
     from interview_mux.order_hash import bump_order_lock
 
     stamped = bump_order_lock(out, source="artifact_repairs.repair_selection")
@@ -1824,12 +1988,12 @@ def _seed_missing_high_gap_interviewer_lines(
     # Under Nugget Layup authority the publish path owns body lines — seeded
     # hinges are canned air and fail EDL authority lint.
     if bool(out.get("nugget_layup_authority")):
-        try:
-            from interview_mux.high_gap_vo import fill_uncovered_high_gaps
-
-            fill_uncovered_high_gaps(ctx, out, applied=applied, origin="nugget_layup")
-        except Exception as exc:
-            applied.append({"action": "high_gap_vo_fill_failed", "error": str(exc)[:240]})
+        applied.append(
+            {
+                "action": "skip_high_gap_seed_under_layup_authority",
+                "reason": "nugget_layup_authority",
+            }
+        )
         return
     if not ctx.artifact_exists("understanding/gap_evaluations.json"):
         return

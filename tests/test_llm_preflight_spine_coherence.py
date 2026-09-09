@@ -40,5 +40,14 @@ def test_preflight_narrative_arc_requires_coherence_report_for_long_interview(
         json.dumps({"topic_mappings": [], "coverage_score": 0.5}),
         encoding="utf-8",
     )
+    monkeypatch.setattr("interview_mux.coherence.coherence_active", lambda: True)
+    monkeypatch.setattr(
+        "interview_mux.coherence.duration_gate.coherence_activated",
+        lambda _ctx: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.llm_preflight._ensure_coherence_report",
+        lambda _ctx: None,
+    )
     errors = run_preflight("narrative_arc_plan", ctx)
     assert any("coherence_report" in e for e in errors)

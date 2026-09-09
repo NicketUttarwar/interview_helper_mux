@@ -131,6 +131,22 @@ def write_committed_json(
 
         data = prepare_edl_payload_for_disk(ctx, rel, data)
         payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
+        try:
+            from interview_mux.artifact_sanitize.one_writer import maybe_admit_hot_write
+
+            admitted = maybe_admit_hot_write(
+                ctx,
+                rel,
+                payload,
+                stage_key=stage_key,
+                skip_handoff=True,
+                write_committed=True,
+                reason=stage_key or "write_committed_json",
+            )
+            if admitted is not None:
+                return admitted
+        except ImportError:
+            pass
         errors = validate_artifact_write(rel, payload)
         if errors:
             raise ValueError(

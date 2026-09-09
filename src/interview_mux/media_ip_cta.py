@@ -484,12 +484,17 @@ def _omit_unplayable_keeps_from_selection(
         sel = stamp_order_hash(sel)
     except Exception:
         pass
-    try:
-        from interview_mux.write_staging import write_committed_json
+    from interview_mux.air_order_boundary import commit_selection_mutation
 
-        write_committed_json(ctx, "master/selection.json", sel, stage_key="edl")
-    except Exception:
-        ctx.write_json("master/selection.json", sel)
+    commit_selection_mutation(
+        ctx,
+        sel,
+        producer="media_ip_cta",
+        stage_key="edl",
+        checkpoint_mode="detect",
+        skip_checkpoint=True,
+        write_committed=True,
+    )
 
 
 def release_false_cta_never_touch(ctx: RunContext) -> list[str]:
@@ -1458,27 +1463,33 @@ def heal_on_air_cta_residue(
     ]
     if not residue:
         if stripped_never_touch and ctx.artifact_exists("master/selection.json"):
-            try:
-                from interview_mux.write_staging import write_committed_json
+            from interview_mux.air_order_boundary import commit_selection_mutation
 
-                write_committed_json(
-                    ctx, "master/selection.json", out, stage_key="full_master_ranking"
-                )
-            except Exception:
-                ctx.write_json("master/selection.json", out)
+            commit_selection_mutation(
+                ctx,
+                out,
+                producer="media_ip_cta.heal_on_air_cta_residue",
+                stage_key="full_master_ranking",
+                checkpoint_mode="detect",
+                skip_checkpoint=True,
+                write_committed=True,
+            )
         return out
     before = list(ordered)
     out = run_cta_prune(ctx, out, notes=["layup_residue_scan"])
     after = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
     if before != after and ctx.artifact_exists("master/selection.json"):
-        try:
-            from interview_mux.write_staging import write_committed_json
+        from interview_mux.air_order_boundary import commit_selection_mutation
 
-            write_committed_json(
-                ctx, "master/selection.json", out, stage_key="full_master_ranking"
-            )
-        except Exception:
-            ctx.write_json("master/selection.json", out)
+        commit_selection_mutation(
+            ctx,
+            out,
+            producer="media_ip_cta.heal_on_air_cta_residue",
+            stage_key="full_master_ranking",
+            checkpoint_mode="detect",
+            skip_checkpoint=True,
+            write_committed=True,
+        )
     return out
 
 
@@ -1889,14 +1900,17 @@ def execute_cta_omit_from_needs(
     if ctx.artifact_exists("master/selection.json") and healed and (
         (after and after != before) or released
     ):
-        try:
-            from interview_mux.write_staging import write_committed_json
+        from interview_mux.air_order_boundary import commit_selection_mutation
 
-            write_committed_json(
-                ctx, "master/selection.json", healed, stage_key="full_master_ranking"
-            )
-        except Exception:
-            ctx.write_json("master/selection.json", healed)
+        commit_selection_mutation(
+            ctx,
+            healed,
+            producer="media_ip_cta",
+            stage_key="full_master_ranking",
+            checkpoint_mode="detect",
+            skip_checkpoint=True,
+            write_committed=True,
+        )
     return [sid for sid in before if sid not in set(after)]
 
 

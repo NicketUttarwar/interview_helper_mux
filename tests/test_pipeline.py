@@ -148,7 +148,10 @@ def test_run_delivery_smoke_uses_fixture_run_dir_without_external_calls(tmp_path
 
     pipeline.run_delivery(ctx)
 
-    assert called == list(DELIVERY_ORDER)
+    # Fixture gap is already sanitary → prepare_delivery_guardrails seals
+    # gap_report_sanitize done before the walk, so the stub is not invoked.
+    assert called == [s for s in DELIVERY_ORDER if s != "gap_report_sanitize"]
+    assert ctx.is_done("gap_report_sanitize")
 
 def test_sound_design_disabled_skips_spend_stages(tmp_path, monkeypatch):
     from interview_mux.stages import sound_design_stages
@@ -162,8 +165,9 @@ def test_sound_design_disabled_skips_spend_stages(tmp_path, monkeypatch):
     sound_design_stages.run_sound_design_palettes(ctx)
     sound_design_stages.run_sfx_prompt_craft(ctx)
 
-    assert ctx.is_done("sound_design_palettes")
-    assert ctx.is_done("sfx_prompt_craft")
+    # Disabled sound design skips spend but heal_or_refuse refuses hollow marks.
+    assert not ctx.is_done("sound_design_palettes")
+    assert not ctx.is_done("sfx_prompt_craft")
 
 def test_run_analysis_smoke_uses_fixture_without_external_calls(tmp_path, monkeypatch):
     ctx = ctx_from_fixture(tmp_path, run_id="exec_analysis_smoke")

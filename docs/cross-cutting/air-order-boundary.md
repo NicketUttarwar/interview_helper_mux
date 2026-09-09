@@ -42,6 +42,15 @@ Stages decide editorial content. The bus only asks: *Is this order physically va
 
 ---
 
+## Lifecycle
+
+`commit_selection_mutation()` is the sole selection persist API (checkpoint → write →
+`on_selection_order_changed`). Hot JSON also routes through
+[`artifact_sanitize/one_writer.py`](../../src/interview_mux/artifact_sanitize/one_writer.py)
+when callers use `write_json` / `write_committed_json`.
+
+---
+
 ## Rollout (warn-first)
 
 Default **`mastering.air_order_integrity.block_ranking_on_critical: false`** during soak.

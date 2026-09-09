@@ -40,4 +40,5 @@ def test_reconcile_operator_gate_after_transcript_review_complete(tmp_path, monk
     job = ctx.read_json("gui_job.json")
     reconciled = reconcile_operator_gate_job(ctx, job)
     assert reconciled["status"] in {"complete", "awaiting_write_approval"}
-    assert reconciled.get("stage") == "transcript_review_build"
+    # Operator focus id after review complete is the gate alias, not the build stage.
+    assert reconciled.get("stage") in {"transcript_review", "transcript_review_build"}

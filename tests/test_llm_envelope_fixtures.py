@@ -28,6 +28,16 @@ REMOVED_STAGE_FIXTURES = frozenset(
     }
 )
 
+# Product no longer hard-fails these envelopes (stage removed / early palettes
+# deferred / mono-type obligation). Keep nodeids collectable; expect clean lint.
+RETIRED_HARD_LINT_FIXTURES = frozenset(
+    {
+        "optimal_questions_high_gap.json",
+        "sound_design_palettes_no_identity.json",
+        "segment_classification_mono_type.json",
+    }
+)
+
 FULL_STACK_FIXTURES = {
     "content_context_low_confidence.json",
     "missing_framing_low_coverage.json",
@@ -131,6 +141,9 @@ def test_golden_envelope_stage_lint(tmp_path, monkeypatch, fixture_path: Path) -
         envelope = {"status": "complete", "artifacts": doc.get("artifacts") or {}}
     _seed_context(ctx, stage_key)
     errors = deterministic_lint(stage_key, envelope, ctx)
+    if fixture_path.name in RETIRED_HARD_LINT_FIXTURES:
+        assert errors == [], f"retired hard-lint fixture unexpectedly failed: {errors}"
+        return
     assert errors, f"expected lint failure for {fixture_path.name}"
     if expected:
         joined = " ".join(errors).lower()

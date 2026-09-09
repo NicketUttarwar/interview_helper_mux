@@ -80,7 +80,11 @@ def test_catastrophic_floors_accept_assembly_when_master_pending(tmp_path, monke
         "mastering/listen_delight_audit.json",
         {
             "overall": 0.85,
-            "dimensions": {"cut_integrity": 0.9},
+            "dimensions": {
+                "cut_integrity": 0.9,
+                "conversation_fit": 0.9,
+                "story_followability": 0.9,
+            },
         },
     )
     monkeypatch.setattr(

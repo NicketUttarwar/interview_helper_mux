@@ -23,6 +23,7 @@ from interview_mux.segment_id_remap import (
     rewrite_embedded_segment_ids,
 )
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 STAGE_ID = "chapter_close_hitch"
 LATCH_REL = "mastering/chapter_close_hitch.json"
@@ -1347,7 +1348,7 @@ def run_inner_walk(ctx: RunContext, stages: list[str] | None = None) -> list[str
             # recut and can reintroduce zero-length windows from the LLM collate.
             if stage == "boundary_detection" and _hitch_published_boundaries(ctx):
                 if not ctx.is_done(stage):
-                    ctx.mark_done(stage, force=True)
+                    heal_or_refuse_mark(ctx, stage, force=True)
                 ctx.log(
                     "chapter_close_hitch: keeping hitch-published boundaries — skip recollate",
                     stage=STAGE_ID,
@@ -1478,7 +1479,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
     if hitch_latch_committed(ctx):
         ctx.log("chapter_close_hitch: latch committed — no-op", stage=STAGE_ID)
         if not ctx.is_done(STAGE_ID):
-            ctx.mark_done(STAGE_ID, force=True)
+            heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
     if not bool(conf.get("enabled", True)):
         _write_latch(
@@ -1492,7 +1493,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
                 "generated_at": _now(),
             },
         )
-        ctx.mark_done(STAGE_ID, force=True)
+        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
     if not ctx.artifact_exists(NARRATIVE_REL) and not ctx.artifact_exists(INTENT_REL):
         _write_latch(
@@ -1506,7 +1507,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
                 "generated_at": _now(),
             },
         )
-        ctx.mark_done(STAGE_ID, force=True)
+        heal_or_refuse_mark(ctx, STAGE_ID, force=True)
         return
 
     if ctx.artifact_exists(INTENT_REL):
@@ -1708,7 +1709,7 @@ def run_chapter_close_hitch(ctx: RunContext) -> None:
             "listen_restage": bool(listen_restage),
         },
     )
-    ctx.mark_done(STAGE_ID, force=True)
+    heal_or_refuse_mark(ctx, STAGE_ID, force=True)
     try:
         from interview_mux.remediation_framework import reconcile_invalidated_bundle
 

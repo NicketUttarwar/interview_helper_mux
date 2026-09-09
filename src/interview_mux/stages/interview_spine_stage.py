@@ -10,12 +10,13 @@ from interview_mux.interview_spine.lineage import build_derived_from, can_skip_r
 from interview_mux.interview_spine.windows import build_windows
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def run_interview_spine_build(ctx: RunContext) -> None:
     if not spine_enabled():
         ctx.log("Interview spine disabled in config.", level="info", stage="interview_spine_build")
-        ctx.mark_done("interview_spine_build", force=True)
+        heal_or_refuse_mark(ctx, "interview_spine_build", force=True)
         return
 
     if not ctx.artifact_exists("transcript/full.json"):

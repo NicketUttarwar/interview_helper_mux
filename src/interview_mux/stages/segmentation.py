@@ -19,6 +19,7 @@ from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
 from interview_mux.segment_timeline_standard import resolved_segmentation_policy, segmentation_cfg
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def _attach_segmentation_policy(payload: dict, ctx: RunContext) -> dict:
@@ -66,7 +67,7 @@ def run_boundaries(ctx: RunContext) -> None:
         )
         if not report.get("reject") and bool(segmentation_cfg().get("reject_coarse_fallback", True)):
             if not ctx.is_done("boundary_detection"):
-                ctx.mark_done("boundary_detection", force=True)
+                heal_or_refuse_mark(ctx, "boundary_detection", force=True)
             ctx.log(
                 "boundary_detection: skipped LLM — using ideal_cuts_materialize boundaries "
                 f"(n={report.get('segment_count')} coverage={report.get('coverage_ratio')})",
@@ -86,7 +87,7 @@ def run_boundaries(ctx: RunContext) -> None:
             return
         if not report.get("reject") and not bool(segmentation_cfg().get("reject_coarse_fallback", True)):
             if not ctx.is_done("boundary_detection"):
-                ctx.mark_done("boundary_detection", force=True)
+                heal_or_refuse_mark(ctx, "boundary_detection", force=True)
             ctx.log(
                 "boundary_detection: skipped LLM — ideal_cuts bind (reject_coarse_fallback=false)",
                 level="info",
@@ -449,7 +450,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             stage="boundary_topic_resplit",
         )
         _run_post_reanchor_edge_confidence()
-        ctx.mark_done("boundary_topic_resplit", force=True)
+        heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
         return
 
     # Talking-points-first: ideal-cut windows are the keep authority — do not
@@ -469,12 +470,19 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
             stage="boundary_topic_resplit",
         )
         _run_post_reanchor_edge_confidence()
-        ctx.mark_done("boundary_topic_resplit", force=True)
+        heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
         return
 
     if not ctx.artifact_exists("segments/boundaries.json"):
         ctx.log("boundary_topic_resplit skipped — no boundaries", level="warning", stage="boundary_topic_resplit")
-        ctx.mark_done("boundary_topic_resplit", force=True)
+        # Intentional skip: nothing to resplit. Hollow-stamp done — heal_or_refuse
+        # would refuse on pending boundaries.json incompleteness.
+        prev_raw = getattr(ctx, "_mark_done_raw", False)
+        ctx._mark_done_raw = True
+        try:
+            ctx.mark_done("boundary_topic_resplit", force=True)
+        finally:
+            ctx._mark_done_raw = prev_raw
         return
 
     boundaries = ctx.read_json("segments/boundaries.json")
@@ -496,7 +504,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
 
         ctx.mutate_run_meta(_mark_cycle)
         _run_post_reanchor_edge_confidence()
-        ctx.mark_done("boundary_topic_resplit", force=True)
+        heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
         return
 
     if policy.get("resegment_pass"):
@@ -579,7 +587,7 @@ def run_boundary_topic_resplit(ctx: RunContext) -> None:
     _run_post_reanchor_edge_confidence()
 
     _assert_boundary_quality(ctx)
-    ctx.mark_done("boundary_topic_resplit", force=True)
+    heal_or_refuse_mark(ctx, "boundary_topic_resplit", force=True)
     try:
         _patch_brief_ids_after_resplit(ctx)
     except Exception as exc:
@@ -664,7 +672,7 @@ def run_classification(ctx: RunContext) -> None:
             stage="segment_classification",
         )
         if not ctx.is_done("segment_classification"):
-            ctx.mark_done("segment_classification", force=True)
+            heal_or_refuse_mark(ctx, "segment_classification", force=True)
         try:
             from interview_mux.asset_transcripts import sync_speech_sidecars
 

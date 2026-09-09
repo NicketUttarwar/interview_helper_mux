@@ -319,8 +319,61 @@ def validate_cue_segment_anchors(cues: list[dict[str, Any]], selection_ids: set[
     return errors
 
 
+def _estimate_bed_coverage_ratio(ctx: RunContext, cues: list[dict[str, Any]]) -> float:
+    """Estimate under_segment bed coverage vs selection speech duration (MU5 preflight)."""
+    bed_cues = [c for c in cues if str(c.get("placement") or "") == "under_segment"]
+    if not bed_cues:
+        return 0.0
+    speech_ms = 0.0
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            for row in (sel.get("segments") or []) if isinstance(sel, dict) else []:
+                if not isinstance(row, dict):
+                    continue
+                start = float(row.get("start_ms") or row.get("start") or 0)
+                end = float(row.get("end_ms") or row.get("end") or 0)
+                if end > start:
+                    speech_ms += end - start
+    except Exception:
+        speech_ms = 0.0
+    if speech_ms <= 0:
+        # No selection clock yet — require at least one bed (presence already checked).
+        return 1.0 if bed_cues else 0.0
+    covered: set[str] = set()
+    for cue in bed_cues:
+        sid = str(
+            cue.get("segment_id")
+            or cue.get("under_segment_id")
+            or cue.get("targets_segment_id")
+            or ""
+        ).strip()
+        if sid:
+            covered.add(sid)
+    # Approximate: each unique under_segment bed covers that segment's share equally.
+    try:
+        sel = (
+            ctx.read_json("master/selection.json")
+            if ctx.artifact_exists("master/selection.json")
+            else {}
+        )
+        segs = [r for r in (sel.get("segments") or []) if isinstance(r, dict)]
+        covered_ms = 0.0
+        for row in segs:
+            sid = str(row.get("segment_id") or row.get("id") or "")
+            if sid not in covered:
+                continue
+            start = float(row.get("start_ms") or row.get("start") or 0)
+            end = float(row.get("end_ms") or row.get("end") or 0)
+            if end > start:
+                covered_ms += end - start
+        return max(0.0, min(1.0, covered_ms / speech_ms))
+    except Exception:
+        return max(0.0, min(1.0, len(covered) / max(1, len(bed_cues))))
+
+
 def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]:
-    """Validate role presence (coverage ratios enforced at soundscape/listenability verify)."""
+    """MU5: role presence + referenced bed coverage before MusicGen GPU."""
     errors: list[str] = []
     if not creative_delivery_required():
         return errors
@@ -361,6 +414,14 @@ def validate_creative_density(ctx: RunContext, sdp: dict[str, Any]) -> list[str]
     beds = sum(1 for c in cues if c.get("placement") == "under_segment")
     if beds < 1:
         errors.append("creative delivery requires at least one under_segment bed cue")
+
+    min_cov = float(min_density_cfg().get("min_bed_coverage_ratio") or 0.40)
+    est = _estimate_bed_coverage_ratio(ctx, cues)
+    if beds >= 1 and est + 1e-9 < min_cov:
+        errors.append(
+            f"creative density preflight: estimated bed coverage {est:.2f} "
+            f"< min_bed_coverage_ratio {min_cov:.2f} — repair compose before MusicGen"
+        )
 
     from interview_mux.soundscape_policy import resolve_mix_contract
 

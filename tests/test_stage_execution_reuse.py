@@ -25,6 +25,7 @@ from run_fixtures import (
     TEST_SOURCE_AUDIO_HASH,
     TEST_SOURCE_AUDIO_HASH_SHORT,
     init_run_meta_for_test,
+    mark_done_raw,
 )
 
 
@@ -395,7 +396,7 @@ def test_accept_reuse_marks_transcribe_done_when_bypassing_staging(
 
     prior.write_json("transcript/full.json", {"segments": []})
     prior.write_json("transcript/speakers.json", {"speakers": []})
-    prior.mark_done("transcribe", force=True)
+    mark_done_raw(prior, "transcribe")
 
     monkeypatch.setattr("interview_mux.write_staging.write_approval_enabled", lambda: True)
 

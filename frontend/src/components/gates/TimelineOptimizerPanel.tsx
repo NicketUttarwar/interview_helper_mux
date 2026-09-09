@@ -69,7 +69,7 @@ export function TimelineOptimizerPanel() {
   };
 
   return (
-    <GatePanelShell title="Timeline optimizer (endless)">
+    <GatePanelShell complete={false} title="Timeline optimizer (endless)">
       <p className="hint">
         Per-run search permutes structure, bridges, and sound cues after mix. Daemon keeps going until
         you stop — Take best remasters the current champion.

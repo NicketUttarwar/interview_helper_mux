@@ -31,7 +31,7 @@ from interview_mux.opening_adjacency_repair import (
 from interview_mux.stage_families import source_profile_recipe
 from interview_mux.unattended_resume import resume_producer_for_block
 
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def test_e2e_quality_waivers_off_even_when_soft(monkeypatch):
@@ -113,7 +113,12 @@ def test_clear_halts_matching_resets_g1_edl_signature(tmp_path: Path):
         )
     assert last is not None
     assert last["halt"] is True
-    n = clear_halts_matching(ctx, failed_stage="edl", reason_substr="g1 vo pickup missing")
+    n = clear_halts_matching(
+        ctx,
+        failed_stage="edl",
+        reason_substr="g1 vo pickup missing",
+        force=True,
+    )
     assert n == 1
     stored = json.loads(
         (ctx.run_dir / "operator" / "identical_failures.json").read_text(encoding="utf-8")
@@ -552,7 +557,7 @@ def test_mark_done_refuses_partial_llm_artifact(tmp_path: Path):
     )
     ctx.mark_done("speaker_roles")
     assert not ctx.is_done("speaker_roles")
-    ctx.mark_done("speaker_roles", force=True)
+    mark_done_raw(ctx, "speaker_roles")
     assert not ctx.is_done("speaker_roles")
 
 
@@ -588,7 +593,7 @@ def test_catalog_unattended_breakpoints_nonempty():
     import catalog_unattended_breakpoints as cat
 
     catalog = cat.build_catalog()
-    assert catalog["pipeline_stages"] == 69
+    assert catalog["pipeline_stages"] == 72
     assert catalog["breakpoint_count"] > 50
     kinds = {row["kind"] for row in catalog["breakpoints"]}
     assert "completeness_gap_rule" in kinds

@@ -145,6 +145,11 @@ SAP_PROMPT_FILES = [
 def test_sap_prompt_files_mention_pace_class_and_underscore_policy(prompt_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
     text = (repo_root / prompt_path).read_text(encoding="utf-8")
+    # plan-flow1 is music-only motif DNA; SAP pace/underscore live on palettes + SFX brief.
+    if prompt_path.name == "plan-flow1.system.txt":
+        assert "motif_family" in text
+        assert "theme_" in text
+        return
     assert "pace_class" in text
     assert "underscore_policy" in text
 

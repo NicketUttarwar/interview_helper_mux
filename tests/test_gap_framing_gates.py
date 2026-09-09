@@ -24,7 +24,7 @@ from interview_mux.gap_vo_gates import (
 )
 from interview_mux.run_context import RunContext
 from interview_mux.stages.gaps import gap_compose_stage_done
-from run_fixtures import init_run_meta_for_test, patch_executions_root
+from run_fixtures import init_run_meta_for_test, patch_executions_root, mark_done_raw
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
     run = RunContext("exec_gap_framing", create=True)
     init_run_meta_for_test(run)
     run.write_json("understanding/source_topology.json", {"topology_class": "one_on_one_asymmetric"})
-    run.mark_done("source_topology_build", force=True)
+    mark_done_raw(run, "source_topology_build")
     return run
 
 
@@ -48,7 +48,7 @@ def test_gap_framing_decision_pending_after_topology(ctx: RunContext) -> None:
 
     idx = ANALYSIS_ORDER.index("missing_framing")
     for sid in ANALYSIS_ORDER[:idx]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     assert check_gap_framing_decision_pending(ctx) is True
 
 
@@ -87,7 +87,7 @@ def test_auto_accept_gap_gate_defaults(ctx: RunContext, monkeypatch: pytest.Monk
     )
     idx = ANALYSIS_ORDER.index("missing_framing")
     for sid in ANALYSIS_ORDER[:idx]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     assert check_gap_framing_decision_pending(ctx) is True
     assert maybe_auto_accept_gap_gate_defaults(ctx) is True
     assert check_gap_framing_decision_pending(ctx) is False
@@ -125,7 +125,7 @@ def test_homunculus_auto_resolve_accepts_framing_without_env(
     )
     idx = ANALYSIS_ORDER.index("missing_framing")
     for sid in ANALYSIS_ORDER[:idx]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     assert check_gap_framing_decision_pending(ctx) is True
     assert maybe_auto_accept_gap_gate_defaults(ctx) is True
     assert gap_framing_enabled(ctx) is True
@@ -138,7 +138,7 @@ def test_operator_no_not_overwritten_by_auto_accept(ctx: RunContext, monkeypatch
 
     idx = ANALYSIS_ORDER.index("missing_framing")
     for sid in ANALYSIS_ORDER[:idx]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     set_gap_framing_enabled(ctx, False)
     assert gap_framing_enabled(ctx) is False
     maybe_auto_accept_gap_gate_defaults(ctx)
@@ -582,14 +582,14 @@ def test_demote_uncovered_high_gaps_clears_listenability_ratio(ctx: RunContext) 
         {
             "transitions": [
                 {
+                    "after_segment_id": "seg_032",
                     "before_segment_id": "seg_037",
-                    "after_segment_id": "seg_038",
                     "type": "bridge",
                     "text": "Transition bridge",
                 },
                 {
+                    "after_segment_id": "seg_037",
                     "before_segment_id": "seg_048",
-                    "after_segment_id": "seg_049",
                     "type": "bridge",
                     "text": "Another bridge",
                 },

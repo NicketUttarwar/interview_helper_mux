@@ -10,6 +10,7 @@ from interview_mux.deepfilter_runner import DeepFilterUnavailable, enhance_wav, 
 from interview_mux.operator_subprocess import JobProgressReporter
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def write_skip_artifact(
@@ -49,7 +50,7 @@ def ensure_preclean_skipped(
             level="info",
             stage="audio_preclean",
         )
-        ctx.mark_done("audio_preclean", force=True)
+        heal_or_refuse_mark(ctx, "audio_preclean", force=True)
 
 
 def preclean_was_skipped(ctx: RunContext) -> bool:

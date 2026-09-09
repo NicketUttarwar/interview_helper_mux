@@ -437,43 +437,56 @@ def write_live_edl(
     source: str = "edl",
 ) -> dict[str, Any]:
     """Production EDL persist — bumps generation (or no-ops while already committing)."""
-    edl_out = edl
-    before_token = ""
-    try:
-        if ctx.artifact_exists(EDL_REL):
-            prev = ctx.read_json(EDL_REL)
-            from interview_mux.thrash_hardening import edl_content_authority_token
+    from interview_mux.artifact_sanitize.one_writer import (
+        admitting,
+        begin_admit,
+        end_admit,
+    )
 
-            before_token = edl_content_authority_token(
-                prev if isinstance(prev, dict) else None
-            )
-    except Exception:
-        before_token = ""
+    nested_admit = admitting(ctx)
+    if not nested_admit:
+        begin_admit(ctx)
     try:
-        from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
-
-        edl_out, _nt_rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
-    except Exception:
         edl_out = edl
-    if _committing(ctx):
-        ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
-        return read_live(ctx)
-    live = commit(ctx, edl=edl_out, source=source)
-    # EDL rewrite without content change must not look unseated / force remaster.
-    src_l = str(source or "").lower()
-    if src_l not in {"mix", "stamp_after_mix", "master_finalize"}:
+        before_token = ""
         try:
-            from interview_mux.thrash_hardening import maybe_bump_seating_for_edl_rewrite
+            if ctx.artifact_exists(EDL_REL):
+                prev = ctx.read_json(EDL_REL)
+                from interview_mux.thrash_hardening import edl_content_authority_token
 
-            maybe_bump_seating_for_edl_rewrite(
-                ctx,
-                before_token=before_token,
-                after_edl=edl_out if isinstance(edl_out, dict) else None,
-                source=source,
-            )
+                before_token = edl_content_authority_token(
+                    prev if isinstance(prev, dict) else None
+                )
         except Exception:
-            pass
-    return live
+            before_token = ""
+        try:
+            from interview_mux.media_ip_cta import clamp_edl_speech_away_from_never_touch
+
+            edl_out, _nt_rows = clamp_edl_speech_away_from_never_touch(ctx, edl)
+        except Exception:
+            edl_out = edl
+        if _committing(ctx):
+            ctx.write_json(EDL_REL, edl_out, skip_handoff=True)
+            return read_live(ctx)
+        live = commit(ctx, edl=edl_out, source=source)
+        # EDL rewrite without content change must not look unseated / force remaster.
+        src_l = str(source or "").lower()
+        if src_l not in {"mix", "stamp_after_mix", "master_finalize"}:
+            try:
+                from interview_mux.thrash_hardening import maybe_bump_seating_for_edl_rewrite
+
+                maybe_bump_seating_for_edl_rewrite(
+                    ctx,
+                    before_token=before_token,
+                    after_edl=edl_out if isinstance(edl_out, dict) else None,
+                    source=source,
+                )
+            except Exception:
+                pass
+        return live
+    finally:
+        if not nested_admit:
+            end_admit(ctx)
 
 
 def write_live_selection(
@@ -482,10 +495,23 @@ def write_live_selection(
     *,
     source: str = "selection",
 ) -> dict[str, Any]:
-    if _committing(ctx):
-        ctx.write_json(SELECTION_REL, selection, skip_handoff=True)
-        return read_live(ctx)
-    return commit(ctx, selection=selection, source=source)
+    from interview_mux.artifact_sanitize.one_writer import (
+        admitting,
+        begin_admit,
+        end_admit,
+    )
+
+    nested_admit = admitting(ctx)
+    if not nested_admit:
+        begin_admit(ctx)
+    try:
+        if _committing(ctx):
+            ctx.write_json(SELECTION_REL, selection, skip_handoff=True)
+            return read_live(ctx)
+        return commit(ctx, selection=selection, source=source)
+    finally:
+        if not nested_admit:
+            end_admit(ctx)
 
 
 def stamp_after_mix(ctx: RunContext) -> dict[str, Any]:

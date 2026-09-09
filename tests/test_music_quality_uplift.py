@@ -29,7 +29,7 @@ def test_musicgen_defaults_large_and_fail_closed():
     assert int(cfg.get("request_timeout_sec") or 0) == 900
     assert int(cfg.get("step_down_timeout_sec") or 0) == 480
     assert cfg.get("prefer_medium_on_cpu") is False
-    assert fail_closed_on_stub() is False
+    assert fail_closed_on_stub() is True
     assert best_of_n_for_role("theme_cold_open") >= 1
     assert best_of_n_for_role("theme_underscore") >= 1
 
@@ -128,16 +128,17 @@ def test_analyze_rejects_stub_meta(tmp_path: Path, monkeypatch):
     from interview_mux.musicgen_runner import _write_musical_stub_wav
 
     monkeypatch.setattr(musicgen_runner, "fail_closed_on_stub", lambda: False)
-    path = tmp_path / "theme_cold_open.wav"
+    monkeypatch.setattr(musicgen_runner, "fail_closed_on_stub_roles", lambda: set())
+    path = tmp_path / "theme_underscore.wav"
     _write_musical_stub_wav(path, duration_sec=8.0, seed=1)
     path.with_suffix(".gen.json").write_text(
         json.dumps({"backend": "musical_stub", "seed": 1, "prompt_hash": "abc"}),
         encoding="utf-8",
     )
     row = analyze_asset_wav(
-        asset_id="theme_cold_open",
+        asset_id="theme_underscore",
         path=path,
-        plan_row={"role": "theme_cold_open", "duration_seconds": 8},
+        plan_row={"role": "theme_underscore", "duration_seconds": 8},
     )
     assert "musical_stub_last_resort" in row["reasons"]
     assert "musical_stub_backend" not in row["reasons"]

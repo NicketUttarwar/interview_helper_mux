@@ -113,9 +113,17 @@ def context_clip_for_line(ctx: RunContext, line: dict[str, Any]) -> Path | None:
 
 
 def _writeback_guarded_gap_line(
-    ctx: RunContext, line: dict[str, Any], guarded: dict[str, Any]
+    ctx: RunContext,
+    line: dict[str, Any],
+    guarded: dict[str, Any],
+    *,
+    after_record: bool = False,
 ) -> None:
-    """Persist guard rewrites onto gap_report for non-orientation synthesize lines."""
+    """Persist guard rewrites onto gap_report for non-orientation synthesize lines.
+
+    VO5: prefer ``after_record=True`` (post successful synth). Mid-synth writes use
+    ``skip_handoff`` and rely on ``_vo_synth_lease`` to suppress spoken cascades.
+    """
     from interview_mux.opening_orientation import is_episode_orientation
 
     if is_episode_orientation(line) or guarded.get("kept_orientation"):
@@ -145,8 +153,16 @@ def _writeback_guarded_gap_line(
         }
         changed = True
         break
-    if changed:
-        ctx.write_json("understanding/gap_report.json", report)
+    if not changed:
+        return
+    # Mid-synth: skip_handoff + lease suppress. After record: allow cascade if needed
+    # (usually audio_fresh skip) with fail-closed when consumers already done.
+    ctx.write_json(
+        "understanding/gap_report.json",
+        report,
+        skip_handoff=not after_record,
+        stage_key="vo_synthesize" if after_record else "vo_synth_guard_writeback",
+    )
 
 
 def synthesize_line(
@@ -189,54 +205,99 @@ def synthesize_line(
     except Exception:
         pass
 
-    from interview_mux.spoken_copy_guard import (
-        assert_guarded_spoken_copy,
-        enrich_evidence_from_run,
-        evidence_for_line,
-    )
-    line = dict(line)
-    lid = str(line.get("line_id") or line.get("targets_segment_id") or "line")
-    raw_text = str(line.get("text") or "").strip()
-    if not raw_text:
-        raise ValueError(f"VO script empty for {lid} — refuse Chatterbox with incomplete text")
+    # VO5: suppress spoken-text cascade while this line is rendering.
+    setattr(ctx, "_vo_synth_lease", int(getattr(ctx, "_vo_synth_lease", 0) or 0) + 1)
+    try:
+        from interview_mux.spoken_copy_guard import (
+            assert_guarded_spoken_copy,
+            enrich_evidence_from_run,
+            evidence_for_line,
+        )
+        line = dict(line)
+        lid = str(line.get("line_id") or line.get("targets_segment_id") or "line")
+        raw_text = str(line.get("text") or "").strip()
+        if not raw_text:
+            raise ValueError(f"VO script empty for {lid} — refuse Chatterbox with incomplete text")
 
-    evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
-    from interview_mux.opening_orientation import is_episode_orientation
+        evidence = enrich_evidence_from_run(ctx, evidence_for_line(line))
+        from interview_mux.opening_orientation import is_episode_orientation
 
-    if is_episode_orientation(line):
-        # Brief-grounded orientation often names the same topic the open illustrates.
-        evidence.pop("target_excerpt", None)
-        evidence.pop("after_excerpt", None)
-        evidence.pop("next_clip_text", None)
-    guarded = assert_guarded_spoken_copy(
-        raw_text,
-        evidence=evidence,
-        purpose=f"vo[{lid}]",
-        ctx=ctx,
-        exclude_line_id=lid,
-    )
-    final_text = str(guarded.get("text") or "").strip()
-    if not final_text:
-        raise ValueError(f"VO script empty after spoken_copy_guard for {lid}")
-    # Sentence-complete preflight: require terminal punctuation so Chatterbox
-    # never receives a truncated mid-clause script.
-    if final_text[-1] not in ".?!…\"'”’":
-        # Soft-complete with a period when the guard returned a usable clause.
-        if len(final_text.split()) >= 3:
-            final_text = final_text.rstrip(",;:—-") + "."
-        else:
-            raise ValueError(
-                f"VO script incomplete for {lid} (no terminal punctuation): {final_text!r}"
+        if is_episode_orientation(line):
+            # Brief-grounded orientation often names the same topic the open illustrates.
+            evidence.pop("target_excerpt", None)
+            evidence.pop("after_excerpt", None)
+            evidence.pop("next_clip_text", None)
+        guarded = assert_guarded_spoken_copy(
+            raw_text,
+            evidence=evidence,
+            purpose=f"vo[{lid}]",
+            ctx=ctx,
+            exclude_line_id=lid,
+        )
+        final_text = str(guarded.get("text") or "").strip()
+        if not final_text:
+            raise ValueError(f"VO script empty after spoken_copy_guard for {lid}")
+        # Sentence-complete preflight: require terminal punctuation so Chatterbox
+        # never receives a truncated mid-clause script.
+        if final_text[-1] not in ".?!…\"'”’":
+            # Soft-complete with a period when the guard returned a usable clause.
+            if len(final_text.split()) >= 3:
+                final_text = final_text.rstrip(",;:—-") + "."
+            else:
+                raise ValueError(
+                    f"VO script incomplete for {lid} (no terminal punctuation): {final_text!r}"
+                )
+        line["text"] = final_text
+        line["spoken_copy_guard"] = {
+            "action": guarded["action"],
+            "script_hash": guarded["script_hash"],
+            "context_hash": guarded["context_hash"],
+            "preflight_complete": True,
+        }
+        # Mid-synth writeback (lease suppresses cascade); re-commit after success.
+        _writeback_guarded_gap_line(ctx, line, {**guarded, "text": final_text}, after_record=False)
+
+        out_path = _synthesize_line_render(
+            ctx,
+            line,
+            mode=mode,
+            tone=tone,
+            source_audio=source_audio,
+            dest_dir=dest_dir,
+            guarded=guarded,
+            lid=lid,
+        )
+        # VO5: after successful record, re-persist gap text under normal handoff
+        # (cascade usually audio_fresh; fail-closed applies if consumers exist).
+        try:
+            _writeback_guarded_gap_line(
+                ctx, line, {**guarded, "text": final_text}, after_record=True
             )
-    line["text"] = final_text
-    line["spoken_copy_guard"] = {
-        "action": guarded["action"],
-        "script_hash": guarded["script_hash"],
-        "context_hash": guarded["context_hash"],
-        "preflight_complete": True,
-    }
-    _writeback_guarded_gap_line(ctx, line, {**guarded, "text": final_text})
+        except Exception:
+            pass
+        return out_path
+    finally:
+        n = int(getattr(ctx, "_vo_synth_lease", 0) or 0) - 1
+        if n <= 0:
+            try:
+                delattr(ctx, "_vo_synth_lease")
+            except Exception:
+                setattr(ctx, "_vo_synth_lease", 0)
+        else:
+            setattr(ctx, "_vo_synth_lease", n)
 
+
+def _synthesize_line_render(
+    ctx: RunContext,
+    line: dict[str, Any],
+    *,
+    mode: str,
+    tone: str | None,
+    source_audio: Path | None,
+    dest_dir: Path | None,
+    guarded: dict[str, Any],
+    lid: str,
+) -> Path:
     chatterbox_fallback = False
     if mode == "synthesize":
         from interview_mux.chatterbox_runner import should_use_chatterbox
@@ -276,8 +337,12 @@ def synthesize_line(
                     block = gap_vo_cfg()
                     from interview_mux.chatterbox_runner import chatterbox_cfg
 
-                    parseable = "likely_cause" in str(exc) or "Local runtime" in str(exc)
-                    use_mlx = parseable or bool(block.get("fail_open") or chatterbox_cfg().get("fail_open"))
+                    use_mlx = bool(
+                        block.get("fail_open")
+                        or chatterbox_cfg().get("fail_open")
+                        or str(block.get("synth_ladder") or "").strip()
+                        == "chatterbox_then_mlx_qc"
+                    )
                     if use_mlx and str(block.get("fallback_backend", "mlx_audio")) == "mlx_audio":
                         ctx.log(
                             f"Chatterbox → mlx-audio fallback: {exc}",
@@ -392,6 +457,7 @@ def synthesize_line(
         )
         promote_synthesized_vo(ctx, line_id=line_id, src=out_wav)
     return out_wav
+
 
 
 def promote_synthesized_vo(ctx: RunContext, *, line_id: str, src: Path) -> Path | None:

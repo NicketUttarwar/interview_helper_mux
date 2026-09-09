@@ -319,13 +319,23 @@ def verify_commitment(
             ledger = ctx.read_json(RENDER_LEDGER_REL) or {}
         except Exception:
             ledger = {}
-    ledger_hash = str((ledger or {}).get("assembly_sha256_edges") or (ledger or {}).get("sha256_edges") or "")
+    ledger_hash = ""
+    if isinstance(ledger, dict):
+        assembly_block = ledger.get("assembly")
+        if isinstance(assembly_block, dict):
+            ledger_hash = str(
+                assembly_block.get("sha256_edges")
+                or assembly_block.get("assembly_sha256_edges")
+                or ""
+            )
+        if not ledger_hash:
+            ledger_hash = str(
+                ledger.get("assembly_sha256_edges") or ledger.get("sha256_edges") or ""
+            )
     content_ok = bool(
         assembly_fp.get("exists")
-        and (
-            not ledger_hash
-            or ledger_hash == str(assembly_fp.get("sha256_edges") or "")
-        )
+        and ledger_hash
+        and ledger_hash == str(assembly_fp.get("sha256_edges") or "")
     )
     fresh = bool(content_ok and assembly_fp.get("exists") and edl_path.is_file())
     reasons: list[str] = []
@@ -404,6 +414,16 @@ def build_autopsy(
         else {"status": "pending", "verified_at": _now()}
     )
     worst = sorted(seams, key=lambda s: float(s["listen_score"]))[:20]
+    n_seams = max(1, len(seams))
+    hard_edges = sum(1 for s in seams if "music_hard_edge" in (s.get("risk_codes") or []))
+    # LD4: continuous music completeness (not binary {0.5, 1.0}).
+    music_completeness = round(max(0.0, min(1.0, 1.0 - (hard_edges / n_seams))), 4)
+    # Distinct clarity signal: penalize pack conflicts + synthetic overload separately from seam mean.
+    pack_n = len(_pack_conflicts(selection))
+    clarity = round(
+        max(0.0, min(1.0, mean - 0.04 * pack_n - max(0.0, abs(synthetic_share - 0.35) - 0.15))),
+        4,
+    )
     return {
         "version": VERSION,
         "generated_at": _now(),
@@ -412,15 +432,17 @@ def build_autopsy(
         "commitment": commitment,
         "scores": {
             "continuity": round(mean, 4),
-            "finishability": round(max(0.0, mean - 0.05 * len(_pack_conflicts(selection))), 4),
+            "finishability": round(max(0.0, mean - 0.05 * pack_n), 4),
             "sonic_density_fit": round(max(0.0, 1.0 - abs(synthetic_share - 0.35)), 4),
-            "information_clarity": round(mean, 4),
-            "music_completeness": 1.0 if not any("music_hard_edge" in s["risk_codes"] for s in seams) else 0.5,
+            "information_clarity": clarity,
+            "music_completeness": music_completeness,
         },
         "guides": {
             "synthetic_input_share": round(synthetic_share, 4),
             "synthetic_share_min": seam_autopsy_cfg()["synthetic_share_guide_min"],
             "synthetic_share_max": seam_autopsy_cfg()["synthetic_share_guide_max"],
+            "music_hard_edge_count": hard_edges,
+            "music_seam_count": n_seams,
         },
         "pack_conflicts": _pack_conflicts(selection),
         "seams": seams,

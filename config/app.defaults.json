@@ -791,7 +791,7 @@
     "min_duration_sec": 4.0,
     "max_duration_sec": 24.0,
     "use_melody_conditioning": false,
-    "fail_closed_on_stub": false,
+    "fail_closed_on_stub": true,
     "fail_closed_on_stub_roles": [
       "theme_cold_open",
       "theme_outro"
@@ -801,7 +801,7 @@
     "step_down_duration_ratio": 0.85,
     "pause_between_ladder_steps_sec": 0,
     "prefer_medium_on_cpu": false,
-    "mmaudio_backup_on_stub": true,
+    "mmaudio_backup_on_stub": false,
     "best_of_n_speech_free": 2,
     "best_of_n_underscore": 3,
     "max_best_of_n": 3,
@@ -1585,11 +1585,11 @@
         "max_remint_rounds": 1
       },
       "feasibility": {
-        "mode": "advisory",
+        "mode": "authoritative",
         "duration_slack_pct": 0.15
       },
       "semantic_integrity": {
-        "mode": "advisory",
+        "mode": "authoritative",
         "adjacency_max_turns": 3,
         "llm_confirm": true
       },
@@ -1697,8 +1697,10 @@
       "record_advisories_in_pmq": true,
       "require_operator_publish_when_advisory": true,
       "catastrophic_floors": {
-        "cut_integrity": 0.55,
-        "listen_delight_overall": 0.50
+        "cut_integrity": 0.70,
+        "listen_delight_overall": 0.70,
+        "conversation_fit": 0.60,
+        "story_followability": 0.60
       },
       "pick_best_weights": {
         "listen_delight_overall": 0.5,
@@ -1709,7 +1711,7 @@
       }
     },
     "listen_delight": {
-      "mode": "advisory",
+      "mode": "authoritative",
       "overall_min": 0.90,
       "dimension_floors": {
         "nugget_retention": 0.80,
@@ -1797,6 +1799,16 @@
         "min_duration_s": 7200,
         "batch_layup": true
       }
+    }
+  },
+  "_comment_artifact_sanitize": "Deterministic non-amplifying baseline sanitizers (selection-first).",
+  "artifact_sanitize": {
+    "block_consumers": true,
+    "selection": {
+      "max_same_family_on_air": 8,
+      "max_fragment_depth": 3,
+      "max_cta_readmit": 0,
+      "max_order_growth_pct": 15.0
     }
   }
 }

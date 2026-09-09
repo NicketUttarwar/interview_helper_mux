@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,17 @@ def test_approve_integration_marks_done_and_commits(tmp_path: Path, monkeypatch:
     final_rel = "ingest/checksums.json"
     staged = ctx.path(final_rel)
     staged.parent.mkdir(parents=True, exist_ok=True)
-    staged.write_text('{"ok": true}', encoding="utf-8")
+    staged.write_text(
+        json.dumps(
+            {
+                "source_path": "fixture.wav",
+                "source_sha256": "a" * 64,
+                "normalized_sha256": "b" * 64,
+                "sample_rate": 48000,
+            }
+        ),
+        encoding="utf-8",
+    )
     exit_stage_staging()
     assert not ctx.final_path("ingest", "checksums.json").is_file()
     approve_stage_writes(ctx, "ingest")

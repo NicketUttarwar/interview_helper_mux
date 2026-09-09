@@ -35,6 +35,7 @@ from interview_mux.thrash_hardening import (
 from interview_mux.timeline_optimizer.config import optimizer_live_mutate_blocked
 from interview_mux.v2.config import DELIVERY_ORDER
 from interview_mux.vo_synthesis_audit import unmark_transition_spoken_text_cascade_stages
+from run_fixtures import mark_done_raw
 
 
 @pytest.fixture()
@@ -46,7 +47,7 @@ def ctx(tmp_path, monkeypatch):
 def test_seal_does_not_waive_delight_ship(ctx):
     stamp_delivery_epoch(ctx, music_complete_at="2026-01-01T00:00:00Z")
     for sid in MUSIC_BEFORE_MIX:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     # No assembly / delight → ship blocked even if music sealed.
     ok, reason = ship_path_ready(ctx)
     assert ok is False
@@ -64,10 +65,10 @@ def test_vo_cascade_cannot_clear_sealed_music(ctx):
     stamp_delivery_epoch(ctx, music_complete_at="2026-01-01T00:00:00Z")
     for sid in MUSIC_BEFORE_MIX:
         (ctx.run_dir / "sound_design" / "assets").mkdir(parents=True, exist_ok=True)
-        ctx.mark_done(sid, force=True)
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("edl", force=True)
-    ctx.mark_done("mix", force=True)
+        mark_done_raw(ctx, sid)
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "edl")
+    mark_done_raw(ctx, "mix")
     # Ensure SDP missing-wav check does not unseal for this unit test.
     stamp_delivery_epoch(ctx, music_complete_at="2026-01-01T00:00:00Z")
     assert music_clear_blocked(ctx, "mmaudio_sfx", source="transitions_write")
@@ -86,7 +87,7 @@ def test_blast_radius_excludes_music_from_vo_sources():
 
 def test_heal_or_refuse_mark_refuses_hollow(ctx):
     # edl marked without artifact → refuse / unmark
-    ctx.mark_done("edl", force=True)
+    mark_done_raw(ctx, "edl")
     out = heal_or_refuse_mark(ctx, "edl")
     assert out.get("unmarked") or out.get("refused")
     assert not heal_or_refuse_mark(ctx, "edl", force=True).get("marked")
@@ -124,6 +125,16 @@ def test_junction_budget_exhaust_pins_not_soft_pass(ctx):
 def test_avoidance_is_not_true_waste():
     assert wasted_work_is_true_waste("avoided_musicgen") is False
     assert wasted_work_is_true_waste("orphan") is True
+    from interview_mux.thrash_hardening import wasted_work_counts_toward_sticky_halt
+
+    assert wasted_work_counts_toward_sticky_halt(
+        "music_deferred", {"reason": "assembly_missing"}
+    ) is False
+    assert wasted_work_counts_toward_sticky_halt(
+        "music_deferred", {"reason": "phase_a_unsealed"}
+    ) is False
+    assert wasted_work_counts_toward_sticky_halt("music_deferred", {"reason": "beds_stuck"}) is True
+    assert wasted_work_counts_toward_sticky_halt("orphan") is True
 
 
 def test_gate_wait_escalates(ctx):
@@ -156,7 +167,7 @@ def test_producer_pin_table_covers_delivery_order():
 def test_clear_from_respects_blast_and_music_seal(ctx):
     stamp_delivery_epoch(ctx, music_complete_at="2026-01-01T00:00:00Z")
     for sid in ("edl", "mix", "mmaudio_sfx", "music_palette_compose"):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     order = list(DELIVERY_ORDER)
     ctx.clear_from("edl", order, blast_source="edl")
     assert ctx.is_done("mmaudio_sfx")

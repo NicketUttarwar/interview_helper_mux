@@ -309,7 +309,10 @@ export function GPublishPanel() {
 
   return (
     <div data-partial-auto-checkpoint="g_publish">
-      <GatePanelShell title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}>
+      <GatePanelShell
+        complete={Boolean(thisRunUploaded || payload.skipped || payload.cleared)}
+        title={`G-Publish — ${payload.show_title ?? "Zero Shot Podcast DEMO"} RSS`}
+      >
         <p className="hint">
           Review title, description, and cover below. Listen to the final master, save your edits,
           then upload this run&apos;s package to {payload.show_title ?? "Zero Shot Podcast DEMO"}{" "}

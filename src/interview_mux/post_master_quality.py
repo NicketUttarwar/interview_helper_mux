@@ -611,9 +611,8 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         opening_quality_detail = {"required": True, "error": str(exc)[:160]}
     add("opening_music_quality", opening_quality_ok, opening_quality_detail)
 
-    # Listen delight (mastering.listen_delight) — authoritative by default: the master
-    # must clear its overall + per-dimension floors before it is publishable, even if
-    # the earlier listen_delight_audit stage ran in a config where fail-early was off.
+    # Listen delight floors — structural when mode is authoritative (delight mode flip).
+    # Under advisory mode they remain aspirational-softened via is_rubric_pmq_check.
     from interview_mux.listen_delight import listen_delight_cfg
 
     delight_cfg = listen_delight_cfg()
@@ -623,57 +622,55 @@ def evaluate_post_master_quality(ctx: RunContext) -> dict[str, Any]:
         else {}
     )
     delight = delight if isinstance(delight, dict) else {}
-    delight_authoritative = str(delight_cfg.get("mode") or "authoritative") == "authoritative" or bool(
-        delight.get("blocking")
+    delight_overall_min = float(delight_cfg.get("overall_min") or delight.get("overall_min") or 0.90)
+    delight_floors = (
+        delight_cfg.get("dimension_floors")
+        if isinstance(delight_cfg.get("dimension_floors"), dict)
+        else (delight.get("dimension_floors") if isinstance(delight.get("dimension_floors"), dict) else {})
     )
-    if delight_authoritative:
-        delight_overall_min = float(delight_cfg.get("overall_min") or delight.get("overall_min") or 0.90)
-        delight_floors = (
-            delight_cfg.get("dimension_floors")
-            if isinstance(delight_cfg.get("dimension_floors"), dict)
-            else (delight.get("dimension_floors") if isinstance(delight.get("dimension_floors"), dict) else {})
-        )
-        delight_dims = delight.get("dimensions") if isinstance(delight.get("dimensions"), dict) else {}
-        delight_overall = float(delight.get("overall") or 0.0)
-        delight_failed = [
-            str(dim)
-            for dim, floor in (delight_floors or {}).items()
-            if float(delight_dims.get(dim) or 0.0) < float(floor or 0.0)
-        ]
-        delight_present = bool(delight)
-        soft_delight = bool(meta.get("e2e_soft_listen_delight") or meta.get("e2e_soft_listenability"))
-        hard_failed = [d for d in delight_failed if d not in _SOFTENABLE_DELIGHT_DIMS]
-        soft_only_failed = [d for d in delight_failed if d in _SOFTENABLE_DELIGHT_DIMS]
-        floors_ok = delight_present and delight_overall >= delight_overall_min and not delight_failed
-        if soft_delight and not floors_ok:
-            # Soft-pass may waive softenable dims only — never nugget_retention / overall.
-            if not hard_failed and delight_present and delight_overall >= delight_overall_min:
-                floors_ok = True
-            elif soft_only_failed and not hard_failed and delight_overall >= max(
-                0.75, delight_overall_min - 0.05
-            ):
-                floors_ok = True
-            elif soft_delight and delight_present and delight_overall >= max(
-                0.75, delight_overall_min - 0.1
-            ) and "nugget_retention" not in delight_failed:
-                # Broader e2e soft ship once master.wav exists.
-                floors_ok = True
-            else:
-                floors_ok = False
-        add(
-            "listen_delight_floors",
-            floors_ok,
-            {
-                "present": delight_present,
-                "overall": delight_overall,
-                "overall_min": delight_overall_min,
-                "failed_dimensions": delight_failed,
-                "hard_failed_dimensions": hard_failed,
-                "dimensions": delight_dims,
-                "mode": delight.get("mode") or delight_cfg.get("mode"),
-                "e2e_softened": soft_delight and floors_ok and bool(soft_only_failed),
-            },
-        )
+    delight_dims = delight.get("dimensions") if isinstance(delight.get("dimensions"), dict) else {}
+    delight_overall = float(delight.get("overall") or 0.0)
+    delight_failed = [
+        str(dim)
+        for dim, floor in (delight_floors or {}).items()
+        if float(delight_dims.get(dim) or 0.0) < float(floor or 0.0)
+    ]
+    delight_present = bool(delight)
+    soft_delight = bool(meta.get("e2e_soft_listen_delight") or meta.get("e2e_soft_listenability"))
+    hard_failed = [d for d in delight_failed if d not in _SOFTENABLE_DELIGHT_DIMS]
+    soft_only_failed = [d for d in delight_failed if d in _SOFTENABLE_DELIGHT_DIMS]
+    floors_ok = delight_present and delight_overall >= delight_overall_min and not delight_failed
+    if soft_delight and not floors_ok:
+        # Soft-pass may waive softenable dims only — never nugget_retention / overall.
+        if not hard_failed and delight_present and delight_overall >= delight_overall_min:
+            floors_ok = True
+        elif soft_only_failed and not hard_failed and delight_overall >= max(
+            0.75, delight_overall_min - 0.05
+        ):
+            floors_ok = True
+        elif soft_delight and delight_present and delight_overall >= max(
+            0.75, delight_overall_min - 0.1
+        ) and "nugget_retention" not in delight_failed:
+            floors_ok = True
+        else:
+            floors_ok = False
+    # LD1: missing delight artifact at post_master → floors fail (≤ floor−ε semantics).
+    if not delight_present:
+        floors_ok = False
+    add(
+        "listen_delight_floors",
+        floors_ok,
+        {
+            "present": delight_present,
+            "overall": delight_overall,
+            "overall_min": delight_overall_min,
+            "failed_dimensions": delight_failed,
+            "hard_failed_dimensions": hard_failed,
+            "dimensions": delight_dims,
+            "mode": delight.get("mode") or delight_cfg.get("mode"),
+            "e2e_softened": soft_delight and floors_ok and bool(soft_only_failed),
+        },
+    )
 
     if soft_pmq:
         # Spoken VO speakability + audible script-hash agreement stay hard even

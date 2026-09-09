@@ -156,7 +156,8 @@ export type JourneyLogKind =
   | "sfx"
   | "qc"
   | "milestone"
-  | "execute";
+  | "execute"
+  | "api";
 
 export type JourneyBlockingReason =
   | "write_approval"
@@ -665,6 +666,13 @@ export interface RunMeta {
   partial_auto?: boolean;
   partial_auto_driver_active?: boolean;
   partial_auto_complete?: boolean;
+  /** Sticky operator halt from delivery guardrails / thrash. */
+  needs_operator?: boolean;
+  needs_operator_stage?: string;
+  needs_operator_reason?: string;
+  g_publish_pending?: boolean;
+  g_publish_skipped?: boolean;
+  g_publish_cleared?: boolean;
   homunculus_version?: string;
   homunculus_kind?: "original_pipeline" | "homunculus" | string;
   podcast_id?: string;
@@ -692,6 +700,8 @@ export interface RunMeta {
       errors?: string[];
       failed_checks?: string[];
       blocking?: boolean;
+      /** Explicit false = non-advisory (blocking) gate even when blocking is unset. */
+      advisory?: boolean;
       message?: string;
       /** listen_delight shape */
       overall?: number;

@@ -109,9 +109,11 @@ def test_master_wav_measures_bus_then_applies_loudnorm(monkeypatch, tmp_path) ->
 
     assert output == run_dir / "master/master.wav"
     assert ctx.done == ["master_finalize"]
-    assert len(calls) == 1
-    assert calls[0][0] == "ffmpeg"
-    master_filter = calls[0][calls[0].index("-af") + 1]
+    assert len(calls) == 2
+    assert all(c[0] == "ffmpeg" for c in calls)
+    # Two-pass loudnorm: probe (null sink) then render.
+    assert "null" in calls[0]
+    master_filter = calls[1][calls[1].index("-af") + 1]
     assert master_filter.startswith("alimiter=limit=0.891251:attack=5:release=50,loudnorm=")
     assert "I=-16.0" in master_filter
     assert "TP=-1.0" in master_filter

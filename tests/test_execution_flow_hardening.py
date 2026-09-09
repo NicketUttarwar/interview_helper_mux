@@ -19,7 +19,7 @@ from interview_mux.vo_contract import (
     repair_vo_contract_drift,
     validate_vo_contract,
 )
-from run_fixtures import patch_executions_root, write_fixture_vo_wav
+from run_fixtures import patch_executions_root, write_fixture_vo_wav, mark_done_raw
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def test_homunculus_recovery_vo_coverage_class(ctx: RunContext) -> None:
         "understanding/gap_report.json",
         {"interviewer_lines": [live]},
     )
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     artifacts = playbook_vo_seated_coverage(ctx)
     assert artifacts
     assert not ctx.is_done("vo_synthesize")
@@ -168,8 +168,8 @@ def test_delivery_epoch_locked_blocks_structural_invalidate(
     from interview_mux.delivery_guardrails import stamp_delivery_epoch
 
     stamp_delivery_epoch(ctx, phase_a_sealed_at="2026-09-02T00:00:00+00:00")
-    ctx.mark_done("nugget_layup_compose", force=True)
-    ctx.mark_done("edl", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
+    mark_done_raw(ctx, "edl")
     ctx.write_json("master/assembly.wav", {"placeholder": True})
     monkeypatch.setattr(
         "interview_mux.delivery_guardrails.fingerprints_match_checkpoint",
@@ -187,8 +187,8 @@ def test_playbook_vo_contract_repair_unmarks_stages(ctx: RunContext) -> None:
         "understanding/gap_report.json",
         {"interviewer_lines": [_gap_line_019()]},
     )
-    ctx.mark_done("vo_line_adjudicate", force=True)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
+    mark_done_raw(ctx, "vo_synthesize")
     playbook_vo_contract_repair(ctx)
     assert not ctx.is_done("vo_line_adjudicate")
     assert not ctx.is_done("vo_synthesize")
@@ -558,7 +558,7 @@ def test_dispatch_preflight_blocks_expensive(ctx: RunContext) -> None:
     from interview_mux.homunculus.runtime import dispatch_stage
     from interview_mux.stage_input_checks import StageInputError
 
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     with pytest.raises(StageInputError):
         dispatch_stage(ctx, "edl_narrative_audit", lambda: None)
 
@@ -641,8 +641,8 @@ def test_recovery_transient_retry_budget(ctx: RunContext) -> None:
 def test_stage_done_coherence_after_invalidate(ctx: RunContext) -> None:
     from interview_mux.homunculus.agenda import invalidate_downstream
 
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("edl", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "edl")
     invalidate_downstream(ctx, "nugget_layup_compose")
     assert not ctx.is_done("vo_synthesize")
     assert not ctx.is_done("edl")
@@ -652,7 +652,7 @@ def test_stage_done_coherence_after_invalidate(ctx: RunContext) -> None:
 def test_gui_runner_preflight_blocks_expensive(ctx: RunContext, monkeypatch: pytest.MonkeyPatch) -> None:
     from interview_mux.web.runner import JobRunner
 
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     ctx.write_json(
         "mastering/mastering_plan.json",
         {
@@ -724,8 +724,8 @@ def test_exec_5174_recovery_unblocks_audit(ctx: RunContext) -> None:
         "understanding/gap_report.json",
         {"interviewer_lines": [_gap_line_019()]},
     )
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("edl_narrative_audit", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "edl_narrative_audit")
 
     result = handle_stage_failure(
         ctx,
@@ -743,7 +743,7 @@ def test_exec_5174_recovery_unblocks_audit(ctx: RunContext) -> None:
             {"interviewer_lines": [_gap_line_019()]},
         )
     _synth_wav_for_019(ctx)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     issues = collect_stage_input_issues(ctx, "edl_narrative_audit")
     assert not issues
 
@@ -766,7 +766,7 @@ def test_stage_input_preflight_recovery_h0c(ctx: RunContext) -> None:
         "understanding/gap_report.json",
         {"interviewer_lines": [_gap_line_019()]},
     )
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
 
     handle_stage_failure(
         ctx,
@@ -774,7 +774,7 @@ def test_stage_input_preflight_recovery_h0c(ctx: RunContext) -> None:
         RuntimeError("VO coverage not rendered: ['vo_layup_seg_019']"),
     )
     _synth_wav_for_019(ctx)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     require_stage_inputs(ctx, "edl_narrative_audit")
     assert not collect_stage_input_issues(ctx, "edl_narrative_audit")
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from interview_mux.homunculus.ledger import append_ledger, remainder_requested
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER, SHIP_AFTER_MASTER
 
 AGENDA_REL = "mastering/homunculus/agenda.json"
@@ -172,12 +173,12 @@ def pending_analysis_for_delivery(ctx: RunContext) -> list[str]:
         if gap_skipped and stage in _GAP_FILL_ANALYSIS_PREREQS:
             if ctx.artifact_exists(rel):
                 if not ctx.is_done(stage):
-                    ctx.mark_done(stage, force=True)
+                    heal_or_refuse_mark(ctx, stage, force=True)
                 continue
         if ctx.artifact_exists(rel) and ctx.is_done(stage):
             continue
         if ctx.artifact_exists(rel) and not ctx.is_done(stage):
-            ctx.mark_done(stage, force=True)
+            heal_or_refuse_mark(ctx, stage, force=True)
             continue
         pending.append(stage)
     return pending
@@ -193,7 +194,7 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
         return
     if stage == "transcript_review_build":
         if not ctx.is_done(stage):
-            ctx.mark_done(stage, force=True)
+            heal_or_refuse_mark(ctx, stage, force=True)
         raise RuntimeError(
             f"cannot {action} transcript_review_build: G0 is closed"
         )
@@ -206,7 +207,7 @@ def _refuse_delivery_timeline_rewind(ctx: RunContext, stage: str, *, action: str
     if not has_art and not classified:
         return
     if has_art and not ctx.is_done(stage):
-        ctx.mark_done(stage, force=True)
+        heal_or_refuse_mark(ctx, stage, force=True)
     raise RuntimeError(
         f"cannot {action} {stage}: timeline artifacts exist after G0; "
         "pack existing facts and fill missing_framing / gap_framing_compose / "
@@ -240,6 +241,10 @@ PROTECTED_CORE_STAGES: dict[str, tuple[str, ...]] = {
 
 # Delivery producers — skip only when THIS stage wrote its output. Skip never marks done.
 PROTECTED_DELIVERY_OUTPUTS: dict[str, tuple[str, ...]] = {
+    "selection_order_sanitize": ("master/selection.json",),
+    "gap_report_sanitize": ("understanding/gap_report.json",),
+    # Air-contract authority is mastering_plan vo_seats; omit ledger mirrors only.
+    "air_contract_sanitize": ("mastering/mastering_plan.json",),
     "edl_narrative_audit": ("master/edl_narrative_audit.json",),
     "edl": ("master/edl.json",),
     "assembly_preview": ("master/assembly_preview.wav",),
@@ -422,6 +427,9 @@ def earliest_incomplete_seed_stage(
     Delivery walks the full seed order, not only ``candidates``. A hollow-done
     producer (e.g. air_script_compose) must still pin the conductor; otherwise
     nugget_corpus_mine is offered and seed-order raises.
+
+    Analysis (RC8) likewise walks the full order — do not skip stages merely
+    because they are absent from ``candidates``.
     """
     from interview_mux.delivery_guardrails import seed_stage_complete
     from interview_mux.stage_completion import stage_artifact_incompleteness
@@ -465,12 +473,20 @@ def earliest_incomplete_seed_stage(
                 if inc and "transition pairs missing" in str(inc):
                     continue
             return sid
-        if sid not in candidates:
-            continue
+        # Analysis: full seed-order walk (ignore candidates membership).
         if ctx.is_done(sid) and stage_outputs_present(ctx, sid):
-            continue
-        if stage_outputs_present(ctx, sid) and stage_artifact_incompleteness(ctx, sid) is None:
-            continue
+            try:
+                if stage_artifact_incompleteness(ctx, sid) is None:
+                    continue
+            except Exception:
+                continue
+            return sid
+        if stage_outputs_present(ctx, sid):
+            try:
+                if stage_artifact_incompleteness(ctx, sid) is None:
+                    continue
+            except Exception:
+                pass
         return sid
     return None
 
@@ -737,14 +753,15 @@ def stage_outputs_present(ctx: RunContext, stage: str) -> bool:
             needed = stage_required_outputs(stage)
             return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
     if stage == "junction_snip_qa":
+        # exec_5404: committed autopsy that still matches live assembly size must
+        # not look hollow solely because mix_stale_versus_live / mtime skew.
+        if _junction_commitment_matches_assembly(ctx):
+            needed = stage_required_outputs(stage)
+            return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
         if assembly_stale_versus_edl(ctx):
             return False
         if _producer_older_than_assembly(ctx, "master", "seam_autopsy.json"):
-            # mtime-only skew: mix/touch can bump assembly.wav without remaster.
-            # When autopsy commitment still matches live assembly size + committed,
-            # treat outputs as present (exec_5404 seed thrash).
-            if not _junction_commitment_matches_assembly(ctx):
-                return False
+            return False
         needed = stage_required_outputs(stage)
         return bool(needed) and all(ctx.artifact_exists(rel) for rel in needed)
     if stage == "master_finalize" and (
@@ -786,7 +803,7 @@ def unmark_hollow_delivery_producers(
             except Exception:
                 pass
             if stage_outputs_present(ctx, stage) and not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
+                heal_or_refuse_mark(ctx, stage, force=True)
         hollow_missing = ctx.is_done(stage) and not stage_outputs_present(ctx, stage)
         hollow_incomplete = False
         if ctx.is_done(stage) and not hollow_missing:
@@ -895,6 +912,23 @@ def note_identical_stage_error(ctx: RunContext, stage: str, fingerprint: str) ->
     }
     ctx.write_json(IDENTICAL_ERROR_REL, doc, skip_handoff=True)
     exhausted = bool(row.get("halt"))
+    try:
+        from interview_mux.thrash_hardening import note_authority_undo_attempt
+
+        undo = note_authority_undo_attempt(
+            ctx,
+            artifact=f"stage:{stage}",
+            action_class="identical_stage_error",
+            content_hash=str(fingerprint or "")[:64],
+        )
+        if undo.get("halt"):
+            exhausted = True
+            fingerprint = (
+                f"authority_undo_thrash:{stage}: "
+                + str(undo.get("reason") or fingerprint)
+            )
+    except Exception:
+        pass
     if exhausted:
         def _mark(meta: dict[str, Any]) -> None:
             meta["needs_operator"] = True
@@ -985,7 +1019,14 @@ def backfill_delivery_holes_after_master(ctx: RunContext) -> list[str]:
                     skip_handoff=True,
                     stage_key="vo_synthesize",
                 )
-        ctx.mark_done(stage, force=True)
+        # Master already shipped — hollow-stamp unmarked pre-master holes so
+        # seed-front cannot rewind into VO/sanitize thrash after finalize.
+        prev_raw = getattr(ctx, "_mark_done_raw", False)
+        ctx._mark_done_raw = True
+        try:
+            ctx.mark_done(stage, force=True)
+        finally:
+            ctx._mark_done_raw = prev_raw
         filled.append(stage)
         ctx.log(
             f"homunculus backfilled pre-master hole {stage} (master already exists)",
@@ -1361,7 +1402,7 @@ def resolve_stage_plan(ctx: RunContext, stage: str) -> dict[str, Any]:
     for prereq_stage, rel in DELIVERY_ANALYSIS_PREREQS:
         if gap_skipped and prereq_stage in _GAP_FILL_ANALYSIS_PREREQS:
             if ctx.artifact_exists(rel) and not ctx.is_done(prereq_stage):
-                ctx.mark_done(prereq_stage, force=True)
+                heal_or_refuse_mark(ctx, prereq_stage, force=True)
             continue
         if not ctx.artifact_exists(rel):
             blockers.append(f"missing_artifact:{rel}")
@@ -1608,13 +1649,32 @@ def walk_seed_agenda(ctx: RunContext, stages: list[str], *, reason: str) -> None
                 _refuse_music_before_assembly(ctx, stage, action="walk")
             except RuntimeError as exc:
                 if prepare_outputs_present(ctx, stage) and not ctx.is_done(stage):
-                    ctx.mark_done(stage, force=True)
+                    from interview_mux.stage_completion import heal_or_refuse_mark
+
+                    heal_or_refuse_mark(ctx, stage, force=True)
                 if "assembly audio missing" in str(exc):
                     ctx.log(
                         f"music_deferred: {stage} — pin assembly_preview",
                         level="warning",
                         stage="assembly_preview",
                     )
+                    # RC9: prepend assembly_preview and restart walk (do not skip).
+                    rest = [s for s in walk_stages if s != "assembly_preview"]
+                    try:
+                        idx = walk_stages.index(stage)
+                        rest = [
+                            s
+                            for s in walk_stages[idx:]
+                            if s not in {"assembly_preview", stage}
+                        ]
+                    except ValueError:
+                        pass
+                    restart = ["assembly_preview"] + rest
+                    if restart != walk_stages:
+                        walk_seed_agenda(
+                            ctx, restart, reason="music_deferred_pin_assembly"
+                        )
+                        return
                 continue
             try:
                 run_single_stage(ctx, stage)
@@ -1693,7 +1753,7 @@ def run_homunculus_phase(
                             pass
                     if sid in MUSIC_BEFORE_MIX and music_epoch_complete(ctx):
                         if not ctx.is_done(sid):
-                            ctx.mark_done(sid, force=True)
+                            heal_or_refuse_mark(ctx, sid, force=True)
                         ctx.log(
                             f"homunculus keeping {sid} — music epoch complete",
                             level="info",

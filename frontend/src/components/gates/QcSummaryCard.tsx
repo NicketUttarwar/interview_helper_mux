@@ -92,7 +92,9 @@ export function QcSummaryCard({
           Overall {overall.toFixed(2)}
           {blocksShip
             ? " — this gate blocks Ship (master finalize + publish) when it fails."
-            : " — advisory only; does not block Ship."}
+            : summary.advisory === false
+              ? " — blocking gate."
+              : " — advisory only; does not block Ship."}
         </p>
       ) : null}
       {!summary.passed ? (

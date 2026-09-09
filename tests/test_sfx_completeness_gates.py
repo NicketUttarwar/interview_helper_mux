@@ -55,7 +55,8 @@ def test_collect_generation_items_includes_uncued_assets(tmp_path, monkeypatch):
         },
     )
     items = sfx_mmaudio._collect_generation_items(ctx=ctx, profile="podcast", fallback_cues=[])
-    assert [row["asset_id"] for row in items] == ["theme_a", "theme_b", "theme_c"]
+    # Lazy MusicGen: only cue-referenced (and mix-referenced) assets are queued.
+    assert [row["asset_id"] for row in items] == ["theme_a"]
 
 
 def test_mix_gate_enforced_under_soft_progression_when_creative(tmp_path, monkeypatch):

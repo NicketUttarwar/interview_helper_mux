@@ -8,7 +8,7 @@ from interview_mux.artifact_root_cause import (
     resolve_upstream_for_issue,
 )
 from interview_mux.issue_severity_rules import ClassifiedIssue, classify_lint_message
-from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment, patch_merged_config
+from run_fixtures import isolated_run_ctx, minimal_manifest, minimal_manifest_segment, patch_merged_config, mark_done_raw
 
 
 def test_overlap_maps_to_boundary_detection() -> None:
@@ -42,7 +42,7 @@ def test_compute_stale_downstream_after_segment_fix(tmp_path, monkeypatch: pytes
         minimal_manifest(minimal_manifest_segment("seg_001")),
         stage_key="segment_classification",
     )
-    ctx.mark_done("segment_classification", force=True)
-    ctx.mark_done("content_brief_reanchor", force=True)
+    mark_done_raw(ctx, "segment_classification")
+    mark_done_raw(ctx, "content_brief_reanchor")
     plan = compute_stale_downstream(ctx, "segment_classification")
     assert plan.invalidate_from == "content_brief_reanchor"

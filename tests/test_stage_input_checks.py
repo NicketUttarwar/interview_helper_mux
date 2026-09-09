@@ -18,7 +18,7 @@ from interview_mux.write_staging import (
     staging_approval_hint,
 )
 
-from run_fixtures import isolated_run_ctx, patch_merged_config, patch_write_approval_enabled
+from run_fixtures import isolated_run_ctx, patch_merged_config, patch_write_approval_enabled, mark_done_raw
 
 
 def _ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
@@ -101,7 +101,7 @@ def test_source_acoustic_profile_passes_with_approved_inputs(
         {"text": "hello world", "words": [], "segments": []},
         skip_handoff=True,
     )
-    ctx.mark_done("transcript_review", force=True)
+    mark_done_raw(ctx, "transcript_review")
     issues = collect_stage_input_issues(ctx, "source_acoustic_profile")
     assert issues == []
 
@@ -182,7 +182,7 @@ def test_segment_classification_blocked_when_boundaries_incomplete(
         {"analysis": {"flow_hardening": {"enabled": True}}},
     )
     ctx = _ctx(tmp_path, monkeypatch)
-    ctx.mark_done("boundary_detection", force=True)
+    mark_done_raw(ctx, "boundary_detection")
     import json
 
     boundaries_path = ctx.path("segments/boundaries.json")

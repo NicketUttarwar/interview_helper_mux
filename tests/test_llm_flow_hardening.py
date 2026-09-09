@@ -11,7 +11,7 @@ from interview_mux.llm_flow_hardening import (
     require_llm_stage_progress,
     require_spend_artifacts_complete,
 )
-from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready
+from run_fixtures import isolated_run_ctx, patch_merged_config, seed_flow1_sound_spend_ready, mark_done_raw
 
 def _minimal_speakers(**extra: object) -> dict:
     base = {
@@ -144,7 +144,7 @@ def test_require_llm_stage_progress_upstream_artifact_partial(tmp_path, monkeypa
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     patch_merged_config(monkeypatch, _cfg())
     ctx = isolated_run_ctx(tmp_path, "fh_upstream_partial")
-    ctx.mark_done("speaker_roles", force=True)
+    mark_done_raw(ctx, "speaker_roles")
     ctx.write_json(
         "understanding/speakers.json",
         _minimal_speakers(_meta={"resilience": {"partial": True}}),
@@ -178,7 +178,7 @@ def test_maybe_require_names_earliest_incomplete_seed(tmp_path, monkeypatch):
         "ideal_cuts_propose",
         "ideal_cuts_materialize",
     ):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     with pytest.raises(SystemExit, match="Prerequisite stage boundary_detection"):
         maybe_require_upstream_llm_progress(ctx, "content_brief_reanchor")
 
@@ -190,7 +190,7 @@ def test_ship_does_not_rewind_vo_synthesize_after_master(tmp_path, monkeypatch):
     master = ctx.path("master/master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
     master.write_bytes(b"RIFF" + b"\0" * 40)
-    ctx.mark_done("master_finalize", force=True)
+    mark_done_raw(ctx, "master_finalize")
     maybe_require_upstream_llm_progress(ctx, "master_transcript_build")
 
 def test_llm_upstream_stage_maps_content_context(tmp_path):
@@ -219,6 +219,6 @@ def test_mix_gate_blocks_without_wavs(tmp_path, monkeypatch):
     monkeypatch.setattr("interview_mux.coverage_limits.soft_progression_enabled", lambda cfg=None: False)
     ctx = isolated_run_ctx(tmp_path, "fh_mix_gate")
     seed_flow1_sound_spend_ready(ctx)
-    (ctx.path("sound_design", "assets") / "bed_01.wav").unlink()
+    (ctx.path("sound_design", "assets") / "theme_underscore_01.wav").unlink()
     with pytest.raises(SystemExit, match="Mix gate"):
         require_spend_artifacts_complete(ctx, "mix")

@@ -12,6 +12,7 @@ from run_fixtures import (
     init_run_meta_for_test,
     isolated_run_ctx,
     log_detail_matches,
+    mark_done_raw,
     minimal_source_acoustic_profile,
     parse_log_detail,
     patch_server_ctx,
@@ -50,10 +51,10 @@ def test_recompute_invalidates_sound_design_on_pace_change(tmp_path, monkeypatch
     ctx = isolated_run_ctx(tmp_path, "run_recompute_pace")
     init_run_meta_for_test(ctx)
     _write_profile(ctx, pace_class="calm")
-    ctx.mark_done("sound_design_palettes", force=True)
-    ctx.mark_done("missing_framing", force=True)
-    ctx.mark_done("sound_design_plan", force=True)
-    ctx.mark_done("sfx_prompt_craft", force=True)
+    mark_done_raw(ctx, "sound_design_palettes")
+    mark_done_raw(ctx, "missing_framing")
+    mark_done_raw(ctx, "sound_design_plan")
+    mark_done_raw(ctx, "sfx_prompt_craft")
 
     _mock_recompute_to_pace(monkeypatch, "dense")
     patch_server_ctx(monkeypatch, ctx)
@@ -89,7 +90,7 @@ def test_recompute_skips_invalidation_when_pace_unchanged(tmp_path, monkeypatch)
     ctx = isolated_run_ctx(tmp_path, "run_recompute_same")
     init_run_meta_for_test(ctx)
     _write_profile(ctx, pace_class="conversational")
-    ctx.mark_done("sound_design_palettes", force=True)
+    mark_done_raw(ctx, "sound_design_palettes")
 
     _mock_recompute_to_pace(monkeypatch, "conversational")
     patch_server_ctx(monkeypatch, ctx)

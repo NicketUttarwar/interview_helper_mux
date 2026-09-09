@@ -606,24 +606,36 @@ def _reemit_edl_ledger(
     ledger: dict[str, Any] | None,
 ) -> None:
     """Restore just-committed EDL/ledger after a hard invalidate that archived them."""
+    from interview_mux.artifact_sanitize.one_writer import (
+        admitting,
+        begin_admit,
+        end_admit,
+    )
     from interview_mux.file_store import write_json as fs_write_json
 
-    if isinstance(edl, dict) and edl:
-        dest = ctx.final_path("master", "edl.json")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        # Bypass schema re-validate — bytes were already committed this turn.
-        fs_write_json(dest, edl)
-    if isinstance(ledger, dict) and ledger:
-        dest = ctx.final_path("master", "assembly_ledger.json")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        fs_write_json(dest, ledger)
-    elif isinstance(edl, dict) and edl:
-        try:
-            from interview_mux.assembly_ledger import write_assembly_ledger
+    # Restore exact bytes under admit — do not re-enter write_live_edl (gen bump).
+    nested = admitting(ctx)
+    if not nested:
+        begin_admit(ctx)
+    try:
+        if isinstance(edl, dict) and edl:
+            dest = ctx.final_path("master", "edl.json")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fs_write_json(dest, edl)
+        if isinstance(ledger, dict) and ledger:
+            dest = ctx.final_path("master", "assembly_ledger.json")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fs_write_json(dest, ledger)
+        elif isinstance(edl, dict) and edl:
+            try:
+                from interview_mux.assembly_ledger import write_assembly_ledger
 
-            write_assembly_ledger(ctx, edl=edl)
-        except Exception:
-            pass
+                write_assembly_ledger(ctx, edl=edl)
+            except Exception:
+                pass
+    finally:
+        if not nested:
+            end_admit(ctx)
 
 
 def write_publishability_repair_plan(

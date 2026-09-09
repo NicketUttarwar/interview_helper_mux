@@ -222,7 +222,17 @@ def apply_bounded_invalidation(
         try:
             from interview_mux.remediation_framework import reconcile_invalidated_bundle
 
-            reconcile_invalidated_bundle(ctx, cleared, reason=reason or profile.profile_id)
+            # Bounded profiles already express the exact clear set. Do not run the
+            # full G3 hollow-delivery reconcile afterward — that would unmark
+            # forbidden stages that are only hollow fixture stamps (or still
+            # needed producers like layup/mix).
+            reconcile_invalidated_bundle(
+                ctx,
+                cleared,
+                reason=reason or profile.profile_id,
+                skip_delivery_batch=True,
+                skip_invariants=True,
+            )
         except Exception:
             pass
 

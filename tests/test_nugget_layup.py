@@ -785,7 +785,9 @@ def test_attach_selection_lock_overwrites_llm_authored_lock(llm_lock: dict):
 
     assert layup_freshness_errors(ctx, plan)
     stamped = attach_selection_order_lock(ctx, plan)
-    assert stamped["order_lock"] == selection["order_lock"]
+    # write_json restamps selection order_lock; copy must match disk selection.
+    disk_sel = ctx.read_json("master/selection.json")
+    assert stamped["order_lock"] == disk_sel["order_lock"]
     assert layup_freshness_errors(ctx, stamped) == []
 
 
@@ -1374,7 +1376,8 @@ def test_prepare_persist_strips_llm_lock_before_assert():
     }
     assert layup_freshness_errors(ctx, plan)
     prepared = prepare_layup_plan_for_persist(ctx, plan)
-    assert prepared["order_lock"] == selection["order_lock"]
+    disk_sel = ctx.read_json("master/selection.json")
+    assert prepared["order_lock"] == disk_sel["order_lock"]
     assert layup_freshness_errors(ctx, prepared) == []
     stripped = strip_model_order_lock(plan)
     assert "order_lock" not in stripped

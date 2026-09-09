@@ -409,8 +409,17 @@ def _dimension_floors(cfg: dict[str, Any]) -> dict[str, float]:
     return floors
 
 
-def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Compute dimensions + overall + pass/fail without writing or raising."""
+def evaluate_listen_delight(
+    ctx: RunContext,
+    *,
+    cfg: dict[str, Any] | None = None,
+    pass_phase: str = "pre_mix",
+) -> dict[str, Any]:
+    """Compute dimensions + overall + pass/fail without writing or raising.
+
+    LD1: at ``post_master``, missing evidence fails closed (score ≤ floor−ε).
+    ``pre_mix`` keeps soft defaults so early audits stay non-blocking.
+    """
     conf = cfg if cfg is not None else listen_delight_cfg()
     mode_str = str(conf.get("mode") or "authoritative")
     plan = load_plan_raw(ctx) or {}
@@ -449,9 +458,61 @@ def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
             cut_integrity=cut_integrity,
         ),
     }
+    floors = _dimension_floors(conf)
+    # LD1: post_master fail-closed when evidence for a dim is missing.
+    missing_evidence: list[str] = []
+    if str(pass_phase or "") == "post_master":
+        evidence = {
+            "nugget_retention": bool(
+                ctx.artifact_exists("master/selection.json")
+                and ctx.artifact_exists("understanding/delivery_brief.json")
+            ),
+            "cut_integrity": bool(
+                ctx.artifact_exists("master/junction_snip_qa.json")
+                or (
+                    ctx.artifact_exists("master/edl.json")
+                    and ctx.artifact_exists("transcript/full.json")
+                )
+            ),
+            "conversation_fit": bool(
+                ctx.artifact_exists("master/bridge_completeness.json")
+            ),
+            "sonic_weave": bool(
+                ctx.artifact_exists("master/seam_autopsy.json")
+                or (isinstance(plan, dict) and (plan.get("sonic_scenes") or plan.get("sonic_opportunities")))
+            ),
+            "story_followability": False,
+        }
+        try:
+            from interview_mux.air_script import load_air_script
+
+            has_air = bool(load_air_script(plan))
+            evidence["story_followability"] = has_air
+            evidence["conversation_fit"] = bool(evidence["conversation_fit"] or has_air)
+        except Exception:
+            pass
+        eps = 0.01
+        for dim, present in evidence.items():
+            if present or dim not in floors:
+                continue
+            floor = float(floors.get(dim) or 0.0)
+            if floor <= 0:
+                continue
+            capped = max(0.0, round(floor - eps, 4))
+            if float(dims.get(dim) or 0.0) > capped:
+                dims[dim] = capped
+            missing_evidence.append(dim)
+        # Recompute recommendability after clamps.
+        dims["recommendability"] = _recommendability(
+            finishability=float(dims.get("finishability") or 0.0),
+            conversation_fit=float(dims.get("conversation_fit") or 0.0),
+            story_followability=float(dims.get("story_followability") or 0.0),
+            mode_coherence=float(dims.get("mode_coherence") or 0.0),
+            cut_integrity=float(dims.get("cut_integrity") or 0.0),
+        )
+
     overall = round(sum(dims.values()) / len(dims), 4)
 
-    floors = _dimension_floors(conf)
     overall_min = float(conf.get("overall_min") or 0.90)
     failed_dims = sorted(dim for dim, floor in floors.items() if dims.get(dim, 0.0) < floor)
     overall_ok = overall >= overall_min
@@ -478,6 +539,8 @@ def evaluate_listen_delight(ctx: RunContext, *, cfg: dict[str, Any] | None = Non
         "failed_dimensions": failed_dims,
         "passed": passed,
         "has_gap_lines": bool(lines),
+        "pass_phase": pass_phase,
+        "missing_evidence_dims": missing_evidence,
     }
 
 
@@ -571,7 +634,11 @@ def _handle_listen_delight_failure(
     pass_phase: str,
     stage_id: str,
 ) -> bool:
-    """Aspirational path: register candidate, remutate or pick-best, record advisories."""
+    """Aspirational remutate path. Returns True only when soft-proceed is allowed.
+
+    When ``listen_delight.mode`` is authoritative and remutate is exhausted (or
+    post_master ship gate), return False so callers hard-block publish.
+    """
     from interview_mux.aspirational_quality import (
         apply_best_quality_candidate,
         family_attempts_exhausted,
@@ -588,6 +655,7 @@ def _handle_listen_delight_failure(
 
     if not is_aspirational_enabled(ctx):
         return False
+    authoritative = str(listen_delight_cfg().get("mode") or "").strip() == "authoritative"
     cata_ok, cata_reasons = passes_catastrophic_floors(ctx)
     if not cata_ok:
         return False
@@ -598,12 +666,13 @@ def _handle_listen_delight_failure(
     )
     audit_patch: dict[str, Any] = {
         "aspirational_fail": True,
-        "blocking": False,
-        "advisory": True,
+        "blocking": bool(authoritative and remutate.get("exhausted")),
+        "advisory": not (authoritative and remutate.get("exhausted")),
         "remutate": remutate,
     }
     # Post-master ship gate: never rewind to mix/seams — that thrashes finalize
     # after loudnorm (exec_5404). Record advisory / pick-best only.
+    soft_proceed = True
     if pass_phase == "post_master":
         remutate = {
             **(remutate if isinstance(remutate, dict) else {}),
@@ -615,6 +684,11 @@ def _handle_listen_delight_failure(
         audit_patch["pick_best"] = apply_best_quality_candidate(
             ctx, family="listen_delight"
         )
+        if authoritative:
+            soft_proceed = False
+            audit_patch["blocking"] = True
+            audit_patch["advisory"] = False
+            audit_patch["needs_operator_reason"] = "listen_delight_floors_exhausted"
     elif not remutate.get("exhausted"):
         applied = apply_listen_delight_remutate(ctx, remutate)
         audit_patch["remutate_applied"] = applied
@@ -622,6 +696,11 @@ def _handle_listen_delight_failure(
         audit_patch["pick_best"] = apply_best_quality_candidate(
             ctx, family="listen_delight"
         )
+        if authoritative:
+            soft_proceed = False
+            audit_patch["blocking"] = True
+            audit_patch["advisory"] = False
+            audit_patch["needs_operator_reason"] = "listen_delight_floors_exhausted"
     if ctx.artifact_exists(AUDIT_REL):
         try:
             loaded = ctx.read_json(AUDIT_REL)
@@ -638,17 +717,37 @@ def _handle_listen_delight_failure(
             "overall": result.get("overall"),
             "pass": pass_phase,
             "remutate": remutate,
+            "authoritative_hard_block": not soft_proceed,
         },
-        aspirational_proceeded=bool(audit_patch.get("pick_best", {}).get("ok")),
+        aspirational_proceeded=soft_proceed
+        and bool(audit_patch.get("pick_best", {}).get("ok")),
     )
-    ctx.log(
-        "listen_delight floors below aspiration (advisory — no hard stop): "
-        f"overall={result.get('overall')} dims={result.get('failed_dimensions')}",
-        level="warning",
-        stage=stage_id,
-    )
-    return True
+    if soft_proceed:
+        ctx.log(
+            "listen_delight floors below aspiration (advisory — remutate/pick-best): "
+            f"overall={result.get('overall')} dims={result.get('failed_dimensions')}",
+            level="warning",
+            stage=stage_id,
+        )
+    else:
+        try:
+            if ctx.artifact_exists("run_meta.json"):
 
+                def _need(meta: dict[str, Any]) -> None:
+                    meta["needs_operator"] = True
+                    meta["needs_operator_stage"] = stage_id
+                    meta["needs_operator_reason"] = "listen_delight_floors_exhausted"
+
+                ctx.mutate_run_meta(_need)
+        except Exception:
+            pass
+        ctx.log(
+            "listen_delight floors exhausted under authoritative mode (hard block ship): "
+            f"overall={result.get('overall')} dims={result.get('failed_dimensions')}",
+            level="error",
+            stage=stage_id,
+        )
+    return soft_proceed
 
 def run_listen_delight_audit(ctx: RunContext) -> dict[str, Any]:
     conf = listen_delight_cfg()
@@ -764,9 +863,10 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
                 return {}
         return {}
 
-    result = evaluate_listen_delight(ctx, cfg=conf)
+    result = evaluate_listen_delight(ctx, cfg=conf, pass_phase="post_master")
     dims = result["dimensions"]
-    blocking = not aspirational
+    # Authoritative mode blocks ship on fail once remutate soft-proceed declines.
+    blocking = mode_str == "authoritative" or not aspirational
     prior: dict[str, Any] = {}
     if ctx.artifact_exists(AUDIT_REL):
         try:
@@ -779,16 +879,16 @@ def run_authoritative_listen_delight_at_ship(ctx: RunContext) -> dict[str, Any]:
         result,
         dims,
         pass_phase="post_master",
-        blocking=blocking,
-        advisory=aspirational or not blocking,
+        blocking=blocking and not result["passed"],
+        advisory=not (blocking and not result["passed"]),
     )
     ctx.write_json(AUDIT_REL, audit)
     _write_listen_delight_qc_meta(
         ctx,
         result,
         dims,
-        blocking=blocking,
-        advisory=aspirational or not blocking,
+        blocking=blocking and not result["passed"],
+        advisory=not (blocking and not result["passed"]),
     )
 
     if not result["passed"]:

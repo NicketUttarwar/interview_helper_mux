@@ -44,6 +44,14 @@ export function PhaseWorkbench() {
 
   const activePhase = useMemo(() => {
     if (!run) return V2_PHASES[0];
+    if (run.transcript_review_pending) {
+      const byG0 = phaseForStage("transcript_review");
+      if (byG0) return byG0;
+    }
+    if (run.gap_framing_decision_pending) {
+      const byFraming = phaseForStage("missing_framing") || phaseForStage("framing_posture_decide");
+      if (byFraming) return byFraming;
+    }
     if (run.meta?.needs_operator && run.meta?.needs_operator_stage) {
       const byOp = phaseForStage(String(run.meta.needs_operator_stage));
       if (byOp) return byOp;

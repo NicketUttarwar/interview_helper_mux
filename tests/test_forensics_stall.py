@@ -23,7 +23,15 @@ def test_predicate_key_stable_for_same_reason(tmp_path, monkeypatch):
 
 def test_record_stall_escalates_after_three(tmp_path, monkeypatch):
   monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
+  monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+  from run_fixtures import patch_executions_root
+
+  patch_executions_root(monkeypatch, tmp_path)
   ctx = RunContext("test_forensics_stall2", create=True)
+  # Isolate from any prior stall artifact in reused run dirs.
+  stall_path = ctx.run_dir / "operator" / "forensics_stall.json"
+  if stall_path.is_file():
+    stall_path.unlink()
   reason = "seed order: complete junction_snip_qa before running master_finalize"
   row1 = record_stall(ctx, stage="junction_snip_qa", reason=reason)
   row2 = record_stall(ctx, stage="junction_snip_qa", reason=reason)

@@ -16,6 +16,7 @@ from interview_mux.context_resolver import (
 from interview_mux.prompt_validation import validate_context_index
 from interview_mux.stage_input_helpers import STAGE_PLANS, plan_for_stage
 from interview_mux.run_context import RunContext
+from run_fixtures import mark_done_raw
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "minimal_run"
@@ -118,7 +119,7 @@ def test_apply_envelope_writes_volley_entry(minimal_ctx):
         minimal_content_brief(),
         skip_handoff=True,
     )
-    minimal_ctx.mark_done("content_context", force=True)
+    mark_done_raw(minimal_ctx, "content_context")
 
     apply_envelope_to_memory(
         minimal_ctx,

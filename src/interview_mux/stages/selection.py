@@ -22,6 +22,7 @@ from interview_mux.artifact_writes import write_validated_artifact
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.stage_enrichment import compact_manifest_for_volley
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
+from interview_mux.stage_completion import heal_or_refuse_mark
 from interview_mux.stt_lexicon_islands import (
     enforce_stt_island_selection_guards,
     load_stt_trust_priors,
@@ -88,7 +89,7 @@ def commit_persistable_ranking_from_last_envelope(ctx: RunContext) -> bool:
     if not arts:
         return False
     persist_full_master_ranking(ctx, arts)
-    ctx.mark_done("full_master_ranking", force=True)
+    heal_or_refuse_mark(ctx, "full_master_ranking", force=True)
     ctx.log(
         "Committed ranking from last persistable envelope "
         f"({len(arts.get('ordered_segment_ids') or [])} ordered)",

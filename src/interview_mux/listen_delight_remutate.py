@@ -1,4 +1,7 @@
-"""Dimension → stage remutate for listen_delight floors (no soft-pass)."""
+"""Dimension → stage remutate for listen_delight floors (no soft-pass).
+
+LD5: axis-scoped producers — sonic→music/SFX, mode→Shape/plan, conversation→VO/transitions.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,13 @@ _DIM_STAGES: dict[str, list[str]] = {
         "listen_delight_audit",
     ],
     "cut_integrity": ["edl", "junction_snip_qa", "mix", "listen_delight_audit"],
-    "conversation_fit": ["edl", "mix", "listen_delight_audit"],
+    "conversation_fit": [
+        "transitions",
+        "vo_line_adjudicate",
+        "edl",
+        "mix",
+        "listen_delight_audit",
+    ],
     "story_followability": [
         "air_script_seams",
         "transitions",
@@ -26,12 +35,39 @@ _DIM_STAGES: dict[str, list[str]] = {
         "mix",
         "listen_delight_audit",
     ],
-    "sonic_weave": ["mix", "listen_delight_audit"],
-    "mode_coherence": ["gap_framing_compose", "edl", "mix", "listen_delight_audit"],
+    # LD5: sonic weave is music/SFX density — not EDL-only thrash.
+    "sonic_weave": [
+        "music_palette_compose",
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+        "sound_design_plan",
+        "mix",
+        "listen_delight_audit",
+    ],
+    # LD5: mode coherence → Shape / plan producers (not ranking thrash).
+    "mode_coherence": [
+        "mastering_shape_agenda",
+        "mastering_plan_synthesize",
+        "gap_framing_compose",
+        "edl",
+        "mix",
+        "listen_delight_audit",
+    ],
     "finishability": ["full_master_ranking", "edl", "mix", "listen_delight_audit"],
     # recommendability is a composite of other dims. Ranking/EDL/mix remutate
     # cannot raise it independently (exec_1970 looped 70+ attempts).
 }
+
+_MUSIC_EPOCH_STAGES = frozenset(
+    {
+        "music_palette_compose",
+        "sfx_prompt_craft",
+        "mmaudio_sfx",
+        "sound_design_plan",
+        "sound_design_palettes",
+        "sound_design_vo_finalize",
+    }
+)
 
 
 def plan_listen_delight_remutate(
@@ -55,15 +91,24 @@ def plan_listen_delight_remutate(
     failed_set = {str(x) for x in (failed_dimensions or [])}
     if assembly_ready and "cut_integrity" not in failed_set:
         # Ranking/layup rewind cannot raise retention without destroying seated air.
-        # Finish MusicGen/SFX + mix, then re-audit. cut_integrity must rewind EDL.
         skip = {
             "full_master_ranking",
             "nugget_layup_compose",
             "gap_framing_compose",
             "edl",
         }
+        # Sonic-only: also skip edl (already in skip) — keep music producers.
+        if failed_set <= {"sonic_weave", "recommendability"}:
+            skip |= {"mastering_shape_agenda", "mastering_plan_synthesize"}
         stages = [s for s in stages if s not in skip]
-        if not ctx.is_done("mmaudio_sfx"):
+        if "sonic_weave" in failed_set and not ctx.is_done("mmaudio_sfx"):
+            lead = [
+                "music_palette_compose",
+                "mmaudio_sfx",
+                "mix",
+                "listen_delight_audit",
+            ]
+        elif not ctx.is_done("mmaudio_sfx"):
             lead = ["mmaudio_sfx", "mix", "listen_delight_audit"]
         else:
             lead = ["mix", "listen_delight_audit"]
@@ -133,13 +178,25 @@ def apply_listen_delight_remutate(
         except Exception as exc:
             notes.append(f"pack_failed:{exc}")
 
+    stages = [str(s) for s in (doc.get("from_stages") or []) if str(s)]
+    # LD5 / MusicGen↔delight seal: remutating into music epoch must break the seal.
+    if any(s in _MUSIC_EPOCH_STAGES for s in stages):
+        try:
+            from interview_mux.delivery_guardrails import break_music_epoch_seal
+
+            break_music_epoch_seal(ctx, reason="listen_delight_remutate_music_axis")
+            notes.append("broke_music_epoch_seal")
+        except Exception as exc:
+            notes.append(f"break_music_epoch_seal_failed:{exc}")
+
     cleared: list[str] = []
     from_stage = str(doc.get("from_stage") or "")
     preserve_edl = (
-        from_stage in {"mmaudio_sfx", "mix", "listen_delight_audit"}
+        from_stage in {"mmaudio_sfx", "mix", "listen_delight_audit", "music_palette_compose"}
         or (assembly_ready and "nugget_retention" in failed)
+        or ("sonic_weave" in failed and "cut_integrity" not in failed)
     ) and "cut_integrity" not in failed
-    for sid in doc.get("from_stages") or []:
+    for sid in stages:
         if preserve_edl and sid in {
             "full_master_ranking",
             "nugget_layup_compose",

@@ -138,6 +138,24 @@ class RunContext:
 
             data = prepare_edl_payload_for_disk(self, rel, data)
             payload = _prepare_for_disk_validation(data, rel_path=rel, stage_key=stage_key)
+            # One-writer: admit hot authority JSON before schema so commit can harden
+            # (e.g. music-only SDP inventory). Raw escape / nested admit skip this.
+            try:
+                from interview_mux.artifact_sanitize.one_writer import maybe_admit_hot_write
+
+                admitted = maybe_admit_hot_write(
+                    self,
+                    rel,
+                    payload,
+                    stage_key=stage_key,
+                    skip_handoff=skip_handoff,
+                    write_committed=False,
+                    reason=stage_key or "write_json",
+                )
+                if admitted is not None:
+                    return admitted
+            except ImportError:
+                pass
             errors = validate_artifact_write(rel, payload)
             if errors:
                 raise ValueError(
@@ -153,26 +171,42 @@ class RunContext:
             fs_write_json(path, data)
             self._homunculus_admit_write(rel, data)
         if rel == "understanding/gap_report.json" and isinstance(data, dict):
-            try:
-                from interview_mux.vo_synthesis_audit import (
-                    maybe_propagate_gap_spoken_text_change,
-                )
-
-                maybe_propagate_gap_spoken_text_change(
-                    self,
-                    prior_report=prior_gap if isinstance(prior_gap, dict) else None,
-                    new_report=data,
-                    stage=stage_key or "gap_report_write",
-                )
-            except Exception as exc:
+            # VO5: suppress cascade while vo_synthesize holds the expensive lease.
+            if int(getattr(self, "_vo_synth_lease", 0) or 0) > 0:
+                pass
+            else:
                 try:
-                    self.log(
-                        f"spoken text cascade failed (non-fatal): {exc}",
-                        level="warning",
+                    from interview_mux.vo_synthesis_audit import (
+                        maybe_propagate_gap_spoken_text_change,
+                        _SPOKEN_TEXT_CASCADE_STAGES,
+                    )
+
+                    maybe_propagate_gap_spoken_text_change(
+                        self,
+                        prior_report=prior_gap if isinstance(prior_gap, dict) else None,
+                        new_report=data,
                         stage=stage_key or "gap_report_write",
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    consumers_done = False
+                    try:
+                        from interview_mux.vo_synthesis_audit import _SPOKEN_TEXT_CASCADE_STAGES
+
+                        consumers_done = any(self.is_done(sid) for sid in _SPOKEN_TEXT_CASCADE_STAGES)
+                    except Exception:
+                        consumers_done = False
+                    if consumers_done:
+                        raise RuntimeError(
+                            f"spoken text cascade failed (fail-closed; consumers exist): {exc}"
+                        ) from exc
+                    try:
+                        self.log(
+                            f"spoken text cascade failed (non-fatal): {exc}",
+                            level="warning",
+                            stage=stage_key or "gap_report_write",
+                        )
+                    except Exception:
+                        pass
         if rel == "master/transitions.json" and isinstance(data, dict):
             try:
                 from interview_mux.transition_vo import (
@@ -434,6 +468,13 @@ class RunContext:
             write_approval_enabled,
         )
 
+        # TH1b: any force=True (except _mark_done_raw escape) routes through heal.
+        if force and not getattr(self, "_mark_done_raw", False):
+            from interview_mux.stage_completion import heal_or_refuse_mark
+
+            heal_or_refuse_mark(self, stage, force=True)
+            return
+
         if (
             not force
             and write_approval_enabled()
@@ -466,51 +507,37 @@ class RunContext:
                 )
                 return
 
-        # Hollow stage_done hard rule for delivery producers.
-        # force=True still refused for substantive holes (G1/WAV/ledger);
-        # upstream-pending reasons stay force-ok for fixtures.
-        _HOLLOW_FORCE_GUARD = frozenset(
-            {"vo_synthesize", "edl", "mix", "junction_snip_qa", "vo_line_adjudicate"}
-        )
-        _HOLLOW_FORCE_PATTERNS = (
-            "g1 vo pickups missing",
-            "seated synthesize vo missing",
-            "seated synthesize vo script/wav stale",
-            "seated vo missing",
-            "current transition pairs missing",
-            "assembly_ledger",
-            "master/edl.json",
-        )
-        if stage in _HOLLOW_FORCE_GUARD:
-            try:
-                from interview_mux.stage_completion import stage_artifact_incompleteness
+        # Hollow delivery producers: non-force marks still refuse incompleteness.
+        # Force hollow-stamp is gated solely by heal_or_refuse_mark /
+        # assert_may_force_done (FORCE_DONE_GUARDED includes junction_snip_qa).
+        try:
+            from interview_mux.thrash_hardening import FORCE_DONE_GUARDED
+            from interview_mux.stage_completion import stage_artifact_incompleteness
 
+            if stage in FORCE_DONE_GUARDED and not force:
                 hollow = stage_artifact_incompleteness(self, stage)
-            except Exception:
-                hollow = None
-            if hollow:
-                skip_stub = False
-                try:
-                    from interview_mux.gates import g1_vo_was_skipped_optional
+                if hollow:
+                    skip_stub = False
+                    try:
+                        from interview_mux.gates import g1_vo_was_skipped_optional
 
-                    if stage in {
-                        "vo_synthesize",
-                        "vo_line_adjudicate",
-                    } and g1_vo_was_skipped_optional(self):
-                        skip_stub = True
-                except Exception:
-                    pass
-                hollow_l = str(hollow).lower()
-                substantive = any(p in hollow_l for p in _HOLLOW_FORCE_PATTERNS)
-                refuse = (not force) or substantive
-                if not skip_stub and refuse:
-                    self.log(
-                        f"Refusing mark_done({stage}{', force' if force else ''}): {hollow}",
-                        level="warning",
-                        stage=stage,
-                        detail={"hollow_reason": hollow},
-                    )
-                    return
+                        if stage in {
+                            "vo_synthesize",
+                            "vo_line_adjudicate",
+                        } and g1_vo_was_skipped_optional(self):
+                            skip_stub = True
+                    except Exception:
+                        pass
+                    if not skip_stub:
+                        self.log(
+                            f"Refusing mark_done({stage}): {hollow}",
+                            level="warning",
+                            stage=stage,
+                            detail={"hollow_reason": hollow},
+                        )
+                        return
+        except Exception:
+            pass
 
         marker = self.final_path(".stage_done", stage)
         marker.parent.mkdir(parents=True, exist_ok=True)

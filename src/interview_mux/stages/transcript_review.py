@@ -704,10 +704,12 @@ def _sync_review_queue_from_word_edits(
             continue
         synced = _text_for_word_range(words, chunk["start_ms"], chunk["end_ms"])
         chunk["corrected_text"] = synced
+        # Dock word edits clear the chunk from the G0 pending queue…
         chunk["reviewed"] = True
         entry = corrections.get(chunk_id) or {}
         entry["text"] = synced
-        entry["reviewed"] = True
+        # …but corrections stay unreviewed until explicit chunk sign-off.
+        entry["reviewed"] = False
         corrections[chunk_id] = entry
 
     queue["chunks"] = chunks

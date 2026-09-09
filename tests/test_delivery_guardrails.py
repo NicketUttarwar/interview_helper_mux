@@ -34,7 +34,7 @@ from interview_mux.homunculus.agenda import remaining_stages
 from interview_mux.journey_state import compute_milestones
 from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import seed_stage_complete as seed_complete_alias
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def _write_raw(ctx: RunContext, rel: str, data: dict) -> None:
@@ -50,7 +50,7 @@ def _ctx(tmp_path: Path, name: str = "gdr") -> RunContext:
 def test_seed_complete_blocks_hollow_assembly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "hollow_asm")
-    ctx.mark_done("assembly_preview", force=True)
+    mark_done_raw(ctx, "assembly_preview")
     assert ctx.is_done("assembly_preview")
     assert seed_stage_complete(ctx, "assembly_preview") is False
     assert seed_complete_alias(ctx, "assembly_preview") is False
@@ -75,8 +75,8 @@ def test_music_blocked_without_assembly_wav(tmp_path: Path, monkeypatch: pytest.
 def test_reconcile_clears_hollow_music_before_walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "reconcile")
-    ctx.mark_done("mmaudio_sfx", force=True)
-    ctx.mark_done("mix", force=True)
+    mark_done_raw(ctx, "mmaudio_sfx")
+    mark_done_raw(ctx, "mix")
     cleared = reconcile_delivery_batch(ctx)
     assert "mmaudio_sfx" in cleared or not ctx.is_done("mmaudio_sfx")
     assert not seed_stage_complete(ctx, "mmaudio_sfx")
@@ -430,8 +430,8 @@ def test_transcribe_not_rerun_after_g0_lock(tmp_path: Path, monkeypatch: pytest.
 
     ctx.write_json("transcript/full.json", {"utterances": [{"text": "hello", "speaker": "spk_0"}]})
     ctx.write_json("ingest/transcript.json", {"utterances": [{"text": "hello"}]})
-    ctx.mark_done("transcript_review", force=True)
-    ctx.mark_done("transcribe", force=True)
+    mark_done_raw(ctx, "transcript_review")
+    mark_done_raw(ctx, "transcribe")
     ctx.path("ingest").mkdir(parents=True, exist_ok=True)
     # Outputs present enough for prepare_outputs_present / g0_closed.
     ran: list[str] = []
@@ -505,7 +505,7 @@ def test_exec_3751_replay_hollow_assembly_and_stale_sdp(
     """ASSETS-free replay of O1 + stale SDP — MusicGen must not be a candidate."""
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "exec_3751_replay")
-    ctx.mark_done("assembly_preview", force=True)
+    mark_done_raw(ctx, "assembly_preview")
     _write_raw(
         ctx,
         "understanding/sound_design_plan.json",
@@ -611,7 +611,7 @@ def test_hollow_mmaudio_qa_does_not_complete_music_epoch(
         lambda _ctx: (True, ""),
     )
     for sid in ("music_palette_compose", "sfx_prompt_craft", "mmaudio_sfx"):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     assert music_epoch_complete(ctx) is False
     assert mix_epoch_block(ctx) == "music_incomplete"
 
@@ -755,8 +755,8 @@ def test_ship_path_ready_pins_finalize(
     asm = ctx.path("master", "assembly.wav")
     asm.parent.mkdir(parents=True, exist_ok=True)
     asm.write_bytes(b"RIFF" + b"\x00" * 4096)
-    ctx.mark_done("mix", force=True)
-    ctx.mark_done("listen_delight_audit", force=True)
+    mark_done_raw(ctx, "mix")
+    mark_done_raw(ctx, "listen_delight_audit")
     _write_raw(ctx, "mastering/listen_delight_audit.json", {"status": "complete", "passed": True})
     _write_raw(ctx, "master/post_master_quality.json", {"publish_allowed": True})
     _write_raw(ctx, "master/junction_snip_qa.json", {"critical_count": 0, "residuals": []})
@@ -794,7 +794,7 @@ def test_preclean_skipped_when_ingest_unchanged(
     monkeypatch.setenv("MUX_ASSETS_ROOT", str(tmp_path))
     ctx = _ctx(tmp_path, "preclean_fp")
     ctx.write_json("ingest/ingest_checksums.json", {"sha256": "abc"})
-    ctx.mark_done("audio_preclean", force=True)
+    mark_done_raw(ctx, "audio_preclean")
     monkeypatch.setattr(
         "interview_mux.homunculus.agenda.prepare_outputs_present",
         lambda _ctx, _sid: True,
@@ -815,7 +815,7 @@ def test_seed_prereq_transitions_skips_complete_seams(
         "mastering/mastering_plan.json",
         {"air_script": {"beats": [], "vo_seats": {"seated_line_ids": [], "omitted_line_ids": []}}},
     )
-    ctx.mark_done("air_script_seams", force=True)
+    mark_done_raw(ctx, "air_script_seams")
     assert stage_outputs_present(ctx, "air_script_seams") or ctx.is_done("air_script_seams")
     # Even if earliest incomplete reports seams, seed_complete should clear the block.
     block = _seed_prereq_block(ctx, "transitions")
@@ -834,7 +834,7 @@ def test_stamp_stale_layup_clears_transitions_done(
         "master/transitions.json",
         {"transitions": [], "_meta": {"producer_stage": "transitions"}},
     )
-    ctx.mark_done("transitions", force=True)
+    mark_done_raw(ctx, "transitions")
     stamped = stamp_stale_and_archive(ctx, "nugget_layup_compose")
     assert any("transitions" in s for s in stamped)
     assert not ctx.is_done("transitions")

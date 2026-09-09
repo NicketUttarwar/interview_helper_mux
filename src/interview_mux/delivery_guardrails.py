@@ -35,6 +35,13 @@ MIX_EPOCH_CONSUMERS: frozenset[str] = frozenset(
     {"mix", "junction_snip_qa", "master_finalize", *SHIP_AFTER_MASTER}
 )
 G3_RECONCILE_CHAIN: tuple[str, ...] = (
+    "nugget_layup_compose",
+    "gap_report_sanitize",
+    "air_contract_sanitize",
+    # TH2: Phase A producers that feed VO/EDL (transitions → SDP → adjudicate).
+    "transitions",
+    "sound_design_plan",
+    "vo_line_adjudicate",
     "vo_synthesize",
     "edl_narrative_audit",
     "edl",
@@ -235,21 +242,37 @@ def music_epoch_complete(ctx: RunContext) -> bool:
     WAVs are still on disk, trust the stamp even if MUSIC_BEFORE_MIX
     ``.stage_done`` markers were later cleared (orphan/heal thrash). Re-burning
     MusicGen because adjudicate went hollow is forbidden.
+
+    MU8: refuse trust / auto-break seal when referenced assets are stubs.
     """
     epoch = read_delivery_epoch(ctx)
     if epoch.get("music_complete_at"):
         try:
             from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
 
-            if not missing_sdp_asset_wavs(ctx):
+            missing = missing_sdp_asset_wavs(ctx)
+            if not missing:
                 # Re-seat hollow music markers so seed_stage_complete consumers agree.
                 for sid in MUSIC_BEFORE_MIX:
                     if not ctx.is_done(sid):
                         try:
-                            ctx.mark_done(sid, force=True)
+                            # TH1a: bypass heal_or_refuse — stamp already proves epoch.
+                            prev = getattr(ctx, "_mark_done_raw", False)
+                            ctx._mark_done_raw = True
+                            try:
+                                marker = ctx.final_path(".stage_done", sid)
+                                marker.parent.mkdir(parents=True, exist_ok=True)
+                                marker.touch()
+                            finally:
+                                ctx._mark_done_raw = prev
                         except Exception:
                             pass
                 return True
+            # Stamp present but stubs/silence still referenced — break seal.
+            break_music_epoch_seal(
+                ctx, reason="music_complete_at_with_missing:" + ",".join(missing[:4])
+            )
+            return False
         except Exception:
             pass
     stable, _ = delivery_stable_for_music(ctx)
@@ -564,6 +587,11 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
             seal_phase_a_if_stable(ctx)
         except Exception:
             pass
+        # MU3: music limbo exit (omit or break-seal) when Phase A sealed but beds stuck.
+        try:
+            resolve_music_limbo_exit(ctx)
+        except Exception:
+            pass
         # Re-scan remaining after seal heal (music may become legal).
         sealed_now = phase_a_sealed(ctx)
         stable_now, _ = delivery_stable_for_music(ctx)
@@ -620,17 +648,30 @@ def filter_delivery_candidates(ctx: RunContext, remaining: list[str]) -> list[st
 
 
 def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
-    """G3: unmark hollow producers + reconcile .stage_done at every delivery batch start."""
+    """G3: unmark hollow producers + reconcile .stage_done at every delivery batch start.
+
+    TH6: promote XOR unmark — snapshot incompleteness once; never promote a stage
+    that was just unmarked (or unmark one just promoted) in the same batch.
+    """
     try:
         from interview_mux.execution_contract import reconcile_execution_contract
 
         reconcile_execution_contract(ctx, reason="delivery_batch")
     except Exception:
         pass
+    # Snapshot hollow-done candidates before either promote or unmark mutates markers.
+    hollow_snapshot: set[str] = set()
+    try:
+        for sid in G3_RECONCILE_CHAIN:
+            if ctx.is_done(sid) and not seed_stage_complete(ctx, sid):
+                hollow_snapshot.add(sid)
+    except Exception:
+        pass
     cleared: list[str] = []
     try:
         from interview_mux.homunculus.agenda import unmark_hollow_delivery_producers
 
+        # Unmark hollow first; promoted set excludes these (XOR).
         cleared.extend(unmark_hollow_delivery_producers(ctx, G3_RECONCILE_CHAIN))
     except Exception:
         pass
@@ -638,9 +679,11 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
         from interview_mux.stage_completion import reconcile_stage_done_marker
 
         for sid in G3_RECONCILE_CHAIN:
-            if ctx.is_done(sid) and not seed_stage_complete(ctx, sid):
-                if not reconcile_stage_done_marker(ctx, sid):
-                    cleared.append(sid)
+            if sid in hollow_snapshot or (ctx.is_done(sid) and not seed_stage_complete(ctx, sid)):
+                if ctx.is_done(sid) and not seed_stage_complete(ctx, sid):
+                    if not reconcile_stage_done_marker(ctx, sid):
+                        cleared.append(sid)
+                        hollow_snapshot.add(sid)
     except Exception:
         pass
     if cleared:
@@ -650,22 +693,34 @@ def reconcile_delivery_batch(ctx: RunContext) -> list[str]:
             stage="delivery",
             detail={"cleared": list(dict.fromkeys(cleared))},
         )
-    cleared.extend(reconcile_orphan_artifacts(ctx))
+    # Promote orphans only for stages not unmarked this batch (XOR).
+    orphans = reconcile_orphan_artifacts(ctx, skip_promote=frozenset(hollow_snapshot | set(cleared)))
+    cleared.extend(orphans)
     return list(dict.fromkeys(cleared))
 
 
-def promote_complete_orphan_stage_done(ctx: RunContext, stages: tuple[str, ...] | None = None) -> list[str]:
+def promote_complete_orphan_stage_done(
+    ctx: RunContext,
+    stages: tuple[str, ...] | None = None,
+    *,
+    skip: frozenset[str] | None = None,
+) -> list[str]:
     """Inverse of hollow-done: stamp .stage_done when producer artifacts are complete.
 
     exec_5402 thrash: edl.json + edl_narrative_audit.json present, markers missing →
     Phase A never seals → music deferred → premature_cap rewrites music→narrative.
+
+    TH6: ``skip`` stages (just unmarked this batch) are never promoted (XOR).
     """
     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
     from interview_mux.stage_completion import stage_artifact_incompleteness
 
     scope = stages if stages is not None else tuple(G3_RECONCILE_CHAIN)
+    skip_set = skip or frozenset()
     promoted: list[str] = []
     for sid in scope:
+        if sid in skip_set:
+            continue
         if ctx.is_done(sid):
             continue
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
@@ -724,11 +779,15 @@ def promote_complete_orphan_stage_done(ctx: RunContext, stages: tuple[str, ...] 
     return promoted
 
 
-def reconcile_orphan_artifacts(ctx: RunContext) -> list[str]:
+def reconcile_orphan_artifacts(
+    ctx: RunContext,
+    *,
+    skip_promote: frozenset[str] | None = None,
+) -> list[str]:
     """R11c: promote complete orphans; demote incomplete orphans; flag leftovers."""
     from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
-    promoted = promote_complete_orphan_stage_done(ctx)
+    promoted = promote_complete_orphan_stage_done(ctx, skip=skip_promote)
     demoted: list[str] = []
     try:
         from interview_mux.thrash_hardening import demote_incomplete_orphans
@@ -739,6 +798,8 @@ def reconcile_orphan_artifacts(ctx: RunContext) -> list[str]:
     orphans: list[str] = []
     for sid, rel in STAGE_ARTIFACT_DISK_PATHS.items():
         if sid not in G3_RECONCILE_CHAIN:
+            continue
+        if sid in (skip_promote or frozenset()):
             continue
         if ctx.artifact_exists(rel) and not ctx.is_done(sid):
             orphans.append(sid)
@@ -895,6 +956,13 @@ def resolve_gap_report_stale_producer(ctx: RunContext) -> str:
             reason = str((meta or {}).get("stale_reason") or "").lower()
     except Exception:
         reason = ""
+    # Prefer thin sanitize pins over broader producers when refuse/unsanitary.
+    if (
+        "sanitize_refused" in reason
+        or "gap_unsanitary" in reason
+        or "sanitize" in reason
+    ):
+        return "gap_report_sanitize"
     if "nugget_layup" in reason:
         return "nugget_layup_compose"
     if "gap_framing_recompose" in reason:
@@ -1221,12 +1289,6 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
             delight_ok = (
                 seed_stage_complete(ctx, "listen_delight_audit")
                 or listen_delight_waived_unattended(ctx)
-                or (
-                    ctx.artifact_exists("mastering/listen_delight_audit.json")
-                    and artifact_usable(
-                        ctx, "mastering/listen_delight_audit.json", consumer="listen_delight_audit"
-                    )[0]
-                )
             )
             if (
                 edl_ok
@@ -1268,14 +1330,12 @@ def seal_phase_a_if_stable(ctx: RunContext) -> dict[str, Any] | None:
             return existing
         if not seed_stage_complete(ctx, "assembly_preview") and not assembly_wav_present(ctx):
             return existing
+        # TH4 / MU2: delight OK only if seed_stage_complete (or *existing* waiver) —
+        # bare listen_delight_audit.json must not soft-seal Phase A, and we must not
+        # mint a waiver here just because the file exists.
         delight_ok = seed_stage_complete(ctx, "listen_delight_audit") or listen_delight_waived_unattended(
             ctx
         )
-        if not delight_ok:
-            if ensure_listen_delight_waiver_unattended(ctx):
-                delight_ok = True
-        if not delight_ok and ctx.artifact_exists("mastering/listen_delight_audit.json"):
-            delight_ok = True
         if not delight_ok:
             return existing
         if upstream_stale_blockers(ctx, "mmaudio_sfx"):
@@ -1430,10 +1490,52 @@ def record_wasted_work(
     doc["version"] = 1
     doc["updated_at"] = _utc_now()
     doc["events"] = events[-200:]
+    # TH5: count true waste in-ledger (same write) to avoid nested FileLock.
+    halt_event = ""
+    try:
+        from interview_mux.thrash_hardening import (
+            TRUE_WASTE_STICKY_HALT_AFTER,
+            wasted_work_counts_toward_sticky_halt,
+        )
+
+        if wasted_work_counts_toward_sticky_halt(event, detail if isinstance(detail, dict) else None):
+            counts = dict(doc.get("true_waste_counts") or {})
+            key = str(event or "").strip().lower() or "waste"
+            n = int(counts.get(key) or 0) + 1
+            counts[key] = n
+            doc["true_waste_counts"] = counts
+            if n >= TRUE_WASTE_STICKY_HALT_AFTER:
+                doc["true_waste_halt"] = True
+                doc["true_waste_halt_event"] = key
+                halt_event = key
+    except Exception:
+        pass
     try:
         ctx.write_json(WASTED_WORK_REL, doc, skip_handoff=True)
     except Exception:
         pass
+    if halt_event:
+        try:
+
+            def _halt(meta: dict[str, Any]) -> None:
+                meta["needs_operator"] = True
+                meta["needs_operator_stage"] = str(stage or "delivery")[:80] or "delivery"
+                meta["needs_operator_reason"] = f"true_waste_sticky:{halt_event}"
+
+            if ctx.artifact_exists("run_meta.json"):
+                ctx.mutate_run_meta(_halt)
+            else:
+                ctx.write_json(
+                    "run_meta.json",
+                    {
+                        "needs_operator": True,
+                        "needs_operator_stage": str(stage or "delivery")[:80] or "delivery",
+                        "needs_operator_reason": f"true_waste_sticky:{halt_event}",
+                    },
+                    skip_handoff=True,
+                )
+        except Exception:
+            pass
     if event == "orphan":
 
         def _mark(meta: dict[str, Any]) -> None:
@@ -1537,6 +1639,7 @@ INVALIDATION_BLAST_RADIUS: dict[str, frozenset[str]] = {
     ),
     "nugget_layup_compose": frozenset(
         {
+            "transitions",
             "vo_synthesize",
             "edl_narrative_audit",
             "edl",
@@ -1549,6 +1652,22 @@ INVALIDATION_BLAST_RADIUS: dict[str, frozenset[str]] = {
     "transitions_write": _TRANSITION_EDL_MIX_CASCADE,
     "transitions": _TRANSITION_EDL_MIX_CASCADE,
     "gap_report_write": _VO_EDL_MIX_CASCADE,
+    "gap_report_sanitize": _VO_EDL_MIX_CASCADE,
+    "air_contract_sanitize": frozenset(
+        {
+            "vo_synthesize",
+            "edl_narrative_audit",
+            "edl",
+            "assembly_preview",
+        }
+    ),
+    "sound_design_plan": frozenset(
+        {
+            "music_palette_compose",
+            "sfx_prompt_craft",
+            "mmaudio_sfx",
+        }
+    ),
     "vo_line_adjudicate": frozenset(
         {
             "vo_synthesize",
@@ -1634,6 +1753,21 @@ def break_music_epoch_seal(ctx: RunContext, reason: str) -> dict[str, Any]:
         music_seal_broken_at=_utc_now(),
         music_seal_break_reason=reason_s[:240],
     )
+    # Clear completed stamp so mix waiters re-enter music producers.
+    try:
+
+        def _clear(meta: dict[str, Any]) -> None:
+            epoch = dict(meta.get("delivery_epoch") or {})
+            epoch.pop("music_complete_at", None)
+            epoch["music_seal_broken_at"] = _utc_now()
+            epoch["music_seal_break_reason"] = reason_s[:240]
+            epoch["updated_at"] = _utc_now()
+            meta["delivery_epoch"] = epoch
+
+        if ctx.artifact_exists("run_meta.json"):
+            ctx.mutate_run_meta(_clear)
+    except Exception:
+        pass
     try:
         record_wasted_work(
             ctx,
@@ -1644,6 +1778,76 @@ def break_music_epoch_seal(ctx: RunContext, reason: str) -> dict[str, Any]:
     except Exception:
         pass
     return {"ok": True, "reason": reason_s}
+
+
+def resolve_music_limbo_exit(ctx: RunContext) -> dict[str, Any]:
+    """MU3: exit music limbo via omit-bed + music_omitted **or** break-seal + pin.
+
+    Limbo = Phase A sealed, music epoch incomplete, fail_closed blocks stubs.
+    Prefer honest omit when MU1 omit path is available; otherwise break seal and
+    pin the earliest incomplete music producer.
+    """
+    out: dict[str, Any] = {"resolved": False, "path": "", "pin": ""}
+    if not phase_a_sealed(ctx):
+        return out
+    if music_epoch_complete(ctx):
+        out["resolved"] = True
+        out["path"] = "already_complete"
+        return out
+    try:
+        from interview_mux.musicgen_runner import fail_closed_on_stub
+        from interview_mux.sdp_cross_validate import missing_sdp_asset_wavs
+
+        if not fail_closed_on_stub():
+            return out
+        missing = [str(a) for a in missing_sdp_asset_wavs(ctx) if a]
+    except Exception:
+        missing = []
+    if not missing:
+        return out
+    # Path A: stamp omit ledger for missing referenced beds (MU1 honesty).
+    try:
+        from interview_mux.musicgen_runner import stamp_music_omitted
+
+        for aid in missing[:12]:
+            stamp_music_omitted(ctx, asset_id=aid, reason="music_limbo_omit")
+        out["resolved"] = True
+        out["path"] = "music_omitted"
+        out["omitted"] = missing[:12]
+        record_wasted_work(
+            ctx,
+            event="music_limbo_omit",
+            stage="mmaudio_sfx",
+            detail={"asset_ids": missing[:12]},
+        )
+        return out
+    except Exception as exc:
+        out["omit_error"] = str(exc)[:200]
+    # Path B: break seal + pin earliest incomplete music producer.
+    pin = "music_palette_compose"
+    try:
+        for sid in MUSIC_BEFORE_MIX:
+            if not seed_stage_complete(ctx, sid):
+                pin = sid
+                break
+    except Exception:
+        pin = "music_palette_compose"
+    break_music_epoch_seal(ctx, reason=f"music_limbo_break:{','.join(missing[:4])}")
+    try:
+
+        def _pin(meta: dict[str, Any]) -> None:
+            meta["needs_operator"] = True
+            meta["needs_operator_stage"] = pin
+            meta["needs_operator_reason"] = "music_limbo_break_seal"
+
+        if ctx.artifact_exists("run_meta.json"):
+            ctx.mutate_run_meta(_pin)
+    except Exception:
+        pass
+    out["resolved"] = True
+    out["path"] = "break_seal"
+    out["pin"] = pin
+    return out
 
 
 def freeze_air_order(ctx: RunContext, *, reason: str = "edl_commit") -> dict[str, Any]:

@@ -27,7 +27,7 @@ from interview_mux.transition_vo import (
     stamp_transitions_pair_freeze,
     vo_synthesize_pair_incompleteness,
 )
-from run_fixtures import isolated_run_ctx, write_fixture_vo_wav
+from run_fixtures import isolated_run_ctx, write_fixture_vo_wav, mark_done_raw
 
 
 def _write_raw(ctx, rel: str, data: dict) -> None:
@@ -109,8 +109,8 @@ def test_post_edl_hard_fail_reemits_edl_ledger(tmp_path: Path) -> None:
     }
     _write_raw(ctx, "master/edl.json", edl)
     _write_raw(ctx, "master/assembly_ledger.json", {"complete": True, "seams": []})
-    ctx.mark_done("edl", force=True)
-    ctx.mark_done("mix", force=True)
+    mark_done_raw(ctx, "edl")
+    mark_done_raw(ctx, "mix")
     report = validate_publishability(ctx, checkpoint="post_edl")
     assert not report.ok
     with pytest.raises(PublishabilityBlocked):
@@ -497,10 +497,57 @@ def test_force_done_missing_g1_wav_blocks_seed_complete(
         "interview_mux.gates.g1_vo_was_skipped_optional",
         lambda _ctx: False,
     )
-    # force=True must not make seed_complete true while G1 WAV missing.
+    # force=True must not hollow-stamp or make seed_complete true while G1 WAV missing.
     ctx.mark_done("vo_synthesize", force=True)
+    assert not ctx.is_done("vo_synthesize")
     assert stage_artifact_incompleteness(ctx, "vo_synthesize") is not None
     assert seed_stage_complete(ctx, "vo_synthesize") is False
+
+
+def test_force_done_refuses_hollow_music_and_junction(tmp_path: Path) -> None:
+    """TH1b: music-skip / junction cannot hollow-stamp via force or heal."""
+    from interview_mux.stage_completion import heal_or_refuse_mark
+    from interview_mux.thrash_hardening import FORCE_DONE_GUARDED
+
+    assert "junction_snip_qa" in FORCE_DONE_GUARDED
+    ctx = isolated_run_ctx(tmp_path, "thrash_th1b_music_junction")
+    for sid in ("music_palette_compose", "mmaudio_sfx", "junction_snip_qa", "mix"):
+        out = heal_or_refuse_mark(ctx, sid, force=True)
+        assert out.get("refused") or not out.get("marked"), sid
+        assert not ctx.is_done(sid), sid
+        ctx.mark_done(sid, force=True)
+        assert not ctx.is_done(sid), sid
+
+
+def test_force_done_marks_when_incompleteness_empty(tmp_path: Path) -> None:
+    """Analysis soft-completes still stamp when incompleteness is empty."""
+    from interview_mux.stage_completion import heal_or_refuse_mark
+
+    ctx = isolated_run_ctx(tmp_path, "thrash_th1b_soft_ok")
+    ctx.write_json(
+        "understanding/framing_posture_decision.json",
+        {
+            "decision": "monologue",
+            "rationale": "fixture soft-complete",
+            "_meta": {"producer": "test", "producer_stage": "framing_posture_decide"},
+        },
+        skip_handoff=True,
+    )
+    out = heal_or_refuse_mark(ctx, "framing_posture_decide", force=True)
+    assert out.get("refused") is not True, out
+    assert out.get("marked") is True
+    assert ctx.is_done("framing_posture_decide")
+
+
+def test_fixture_mark_done_raw_bypasses_heal(tmp_path: Path) -> None:
+    """Fixtures that need hollow markers must use _mark_done_raw."""
+    ctx = isolated_run_ctx(tmp_path, "thrash_th1b_raw")
+    ctx._mark_done_raw = True
+    try:
+        ctx.mark_done("mix", force=True)
+    finally:
+        ctx._mark_done_raw = False
+    assert ctx.is_done("mix")
 
 
 # --- exec_5409 filter-empty → music heal thrash --------------------------------

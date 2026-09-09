@@ -10,7 +10,7 @@ from interview_mux.vo_synthesis_audit import (
     _TRANSITION_SPOKEN_TEXT_CASCADE_STAGES,
     unmark_transition_spoken_text_cascade_stages,
 )
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def test_transition_cascade_stages_exclude_adjudicate():
@@ -29,7 +29,7 @@ def test_unmark_transition_leaves_adjudicate_and_music(tmp_path: Path) -> None:
         "mmaudio_sfx",
         "mix",
     ):
-        ctx.mark_done(stage, force=True)
+        mark_done_raw(ctx, stage)
     unmarked = unmark_transition_spoken_text_cascade_stages(ctx)
     assert "vo_line_adjudicate" not in unmarked
     assert "mmaudio_sfx" not in unmarked
@@ -41,9 +41,9 @@ def test_unmark_transition_leaves_adjudicate_and_music(tmp_path: Path) -> None:
 
 def test_transition_text_change_does_not_unmark_adjudicate(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "tr_text")
-    ctx.mark_done("vo_line_adjudicate", force=True)
-    ctx.mark_done("vo_synthesize", force=True)
-    ctx.mark_done("mmaudio_sfx", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
+    mark_done_raw(ctx, "vo_synthesize")
+    mark_done_raw(ctx, "mmaudio_sfx")
     prior = {
         "transitions": [
             {
@@ -78,7 +78,7 @@ def test_migrate_heals_marker_when_outputs_present(tmp_path: Path, monkeypatch) 
         skip_handoff=True,
     )
     # Downstream music done without adjudicate marker, but adjudicate outputs exist.
-    ctx.mark_done("mmaudio_sfx", force=True)
+    mark_done_raw(ctx, "mmaudio_sfx")
     ctx.write_json(
         "understanding/vo_line_adjudication.json",
         {"lines": [], "status": "complete"},

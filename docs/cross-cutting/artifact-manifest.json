@@ -175,14 +175,16 @@
     },
     "master/selection.json": {
       "schemas_by_producer": {
-        "full_master_ranking": "master_selection_artifact.schema.json"
+        "full_master_ranking": "master_selection_artifact.schema.json",
+        "selection_order_sanitize": null
       },
       "producers": [
         "full_master_ranking"
       ],
       "consumers": [
         "chapter_close_hitch",
-        "full_master_ranking"
+        "full_master_ranking",
+        "selection_order_sanitize"
       ],
       "has_write_validator": true
     },
@@ -311,6 +313,38 @@
       ],
       "has_write_validator": true
     },
+    "master/assembly_preview.wav": {
+      "schemas_by_producer": {
+        "assembly_preview": null
+      },
+      "producers": [
+        "assembly_preview"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "mastering/listen_delight_audit.json": {
+      "schemas_by_producer": {
+        "listen_delight_audit": null
+      },
+      "producers": [
+        "listen_delight_audit"
+      ],
+      "consumers": [],
+      "has_write_validator": false
+    },
+    "master/assembly.wav": {
+      "schemas_by_producer": {
+        "mix": null
+      },
+      "producers": [
+        "mix"
+      ],
+      "consumers": [
+        "mmaudio_sfx"
+      ],
+      "has_write_validator": false
+    },
     "mastering/mastering_plan.json": {
       "schemas_by_producer": {
         "air_script_compose": "mastering_plan.schema.json",
@@ -395,6 +429,19 @@
         "mmaudio_sfx"
       ],
       "consumers": [],
+      "has_write_validator": true
+    },
+    "master/seam_autopsy.json": {
+      "schemas_by_producer": {
+        "junction_snip_qa": null
+      },
+      "producers": [
+        "junction_snip_qa"
+      ],
+      "consumers": [
+        "junction_feel_audit",
+        "junction_thought_complete"
+      ],
       "has_write_validator": true
     },
     "master/junction_feel_audit.json": {

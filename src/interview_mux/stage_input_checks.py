@@ -56,12 +56,30 @@ def collect_stage_input_issues(ctx: RunContext, stage_id: str) -> list[StageInpu
     """Return actionable issues for a stage (empty list = ready to run)."""
     issues: list[StageInputIssue] = []
     issues.extend(_pending_write_approval_issues(ctx, stage_id))
+    # Sanitary preflight before VO-contract repair: repair_vo_contract_drift may
+    # commit/sanitize gap and would otherwise hide dirty-gap blockers.
+    try:
+        from interview_mux.artifact_sanitize.preflight import sanitary_preflight_errors
+
+        for err in sanitary_preflight_errors(ctx, stage_id):
+            issues.append(
+                StageInputIssue(
+                    err,
+                    "Run the matching sanitize stage (selection/gap/air_contract) before continuing.",
+                    kind="sanitize",
+                )
+            )
+    except Exception:
+        pass
     issues.extend(_vo_contract_issues(ctx, stage_id))
     checker = _STAGE_CHECKERS.get(stage_id)
     if checker is not None:
         issues.extend(checker(ctx))
     elif stage_id in _LLM_STAGES:
         for err in run_preflight(stage_id, ctx):
+            # Avoid duplicate sanitary lines already added above.
+            if any(err == i.message for i in issues):
+                continue
             issues.append(StageInputIssue(err, _llm_remediation(err, ctx)))
     return issues
 

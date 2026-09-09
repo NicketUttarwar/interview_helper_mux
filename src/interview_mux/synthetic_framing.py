@@ -8,6 +8,7 @@ from typing import Any
 from interview_mux.artifact_completeness import make_stage_persist
 from interview_mux.run_context import RunContext
 from interview_mux.stage_enrichment import compact_manifest_for_volley
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 CONTEXT_REL = "understanding/synthetic_context_packet.json"
 PLAN_REL = "understanding/synthetic_framing_plan.json"
@@ -816,7 +817,7 @@ def run_synthetic_framing_plan(ctx: RunContext, *, force: bool = False) -> dict[
         _commit_json(ctx, PLAN_REL, empty)
         if not ctx.is_done(STAGE_ID):
             try:
-                ctx.mark_done(STAGE_ID, force=True)
+                heal_or_refuse_mark(ctx, STAGE_ID, force=True)
             except Exception:
                 pass
         ctx.log(

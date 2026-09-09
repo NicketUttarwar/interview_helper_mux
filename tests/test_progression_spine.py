@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from interview_mux.progression_spine import first_incomplete_p0_stage
-from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config
+from run_fixtures import init_run_meta_for_test, isolated_run_ctx, patch_merged_config, mark_done_raw
 
 
 def test_first_incomplete_p0_stage_missing_boundaries(tmp_path, monkeypatch):
@@ -9,8 +9,8 @@ def test_first_incomplete_p0_stage_missing_boundaries(tmp_path, monkeypatch):
     patch_merged_config(monkeypatch, {"analysis": {"flow_hardening": {"enabled": True}}})
     ctx = isolated_run_ctx(tmp_path, "p0_spine_boundaries")
     init_run_meta_for_test(ctx)
-    ctx.mark_done("speaker_roles", force=True)
-    ctx.mark_done("content_context", force=True)
+    mark_done_raw(ctx, "speaker_roles")
+    mark_done_raw(ctx, "content_context")
     ctx.write_json(
         "understanding/speakers.json",
         {
@@ -47,7 +47,7 @@ def test_p0_hole_detected_when_later_stages_marked_done(tmp_path, monkeypatch):
     for sid in ANALYSIS_ORDER:
         if sid == "segment_classification":
             break
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     ctx.write_json(
         "understanding/speakers.json",
         {

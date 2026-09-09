@@ -8,7 +8,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
@@ -20,6 +20,8 @@ EDL_REPAIR_STAGES: frozenset[str] = frozenset(
     {"edl", "edl_narrative_audit", "delivery", "g1_vo_pickup", "g1"}
 )
 PRODUCT_FINGERPRINT_META_KEY = "identical_halts_product_fingerprint"
+
+FailureKind = Literal["reason", "class", "fail_key"]
 
 _COUNT_SUFFIX_RE = re.compile(r"\sx\d+\b", flags=re.IGNORECASE)
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
@@ -43,6 +45,12 @@ def forensics_mode() -> bool:
 
 def halt_after(*, cfg: dict[str, Any] | None = None) -> int:
     root = cfg if isinstance(cfg, dict) else merged_config()
+    try:
+        san = root.get("artifact_sanitize") if isinstance(root, dict) else None
+        if isinstance(san, dict) and san.get("halt_after") is not None:
+            return max(1, int(san.get("halt_after")))
+    except (TypeError, ValueError):
+        pass
     raw = (root.get("resilience") or {}) if isinstance(root, dict) else {}
     try:
         n = int(raw.get("identical_failure_halt_after") or DEFAULT_HALT_AFTER)
@@ -166,81 +174,166 @@ def failure_signature_by_class(
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
-def record_class_failure(
-    ctx: RunContext,
-    *,
-    failed_stage: str,
-    error_class: str,
-    resume_attempted: str = "",
-) -> dict[str, Any]:
-    """Increment the persisted counter for a classified (stage, error_class) pair."""
+def _predicate_token_for(ctx: RunContext, stage: str) -> str:
     try:
-        from interview_mux.execution_contract import failure_in_active_policy_cascade
+        from interview_mux.thrash_hardening import stage_predicate_token
 
-        if failure_in_active_policy_cascade(
-            ctx, failed_stage=failed_stage, producer=error_class
-        ):
-            sig = failure_signature_by_class(failed_stage=failed_stage, error_class=error_class)
-            doc = read_identical_failures(ctx)
-            prev = dict((doc.get("signatures") or {}).get(sig) or {})
-            return {
-                "signature": sig,
-                "failed_stage": str(failed_stage or ""),
-                "error_class": str(error_class or ""),
-                "count": int(prev.get("count") or 0),
-                "halt_after": halt_after(),
-                "halt": False,
-                "cascade_suppressed": True,
-                "updated_at": _utc_now(),
-            }
+        return stage_predicate_token(ctx, stage)
     except Exception:
-        pass
-    sig = failure_signature_by_class(failed_stage=failed_stage, error_class=error_class)
-    doc = read_identical_failures(ctx)
-    signatures = dict(doc.get("signatures") or {})
-    prev = dict(signatures.get(sig) or {})
-    count = int(prev.get("count") or 0) + 1
-    limit = halt_after()
-    row = {
-        "signature": sig,
-        "failed_stage": str(failed_stage or ""),
-        "error_class": str(error_class or ""),
-        "producer": str(error_class or ""),
-        "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
-        "count": count,
-        "halt_after": limit,
-        "halt": count >= limit,
-        "updated_at": _utc_now(),
-        "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
-    }
-    signatures[sig] = row
-    order = [s for s in (doc.get("order") or []) if s != sig]
-    order.append(sig)
-    doc["signatures"] = signatures
-    doc["order"] = order[-200:]
-    doc["updated_at"] = _utc_now()
-    _write(ctx, doc)
-    try:
-        ctx.log(
-            f"class_failure {failed_stage}/{error_class} x{count}/{limit} halt={row['halt']}",
-            level="warning" if row["halt"] else "info",
-            stage=str(failed_stage or None),
-            detail={"signature": sig, "error_class": error_class, "resume": resume_attempted},
-        )
-    except Exception:
-        pass
-    return row
+        return ""
 
 
-def record_identical_failure(
-    ctx: RunContext,
+def _cascade_suppressed_row(
     *,
+    sig: str,
     failed_stage: str,
     producer: str = "",
+    error_class: str = "",
     reason: str = "",
-    resume_attempted: str = "",
+    prev: dict[str, Any],
 ) -> dict[str, Any]:
-    """Increment the persisted counter for this signature. Returns the row + halt flag."""
+    out: dict[str, Any] = {
+        "signature": sig,
+        "failed_stage": str(failed_stage or ""),
+        "count": int(prev.get("count") or 0),
+        "halt_after": halt_after(),
+        "halt": False,
+        "cascade_suppressed": True,
+        "updated_at": _utc_now(),
+    }
+    if producer:
+        out["producer"] = str(producer)
+    if error_class:
+        out["error_class"] = str(error_class)
+        out["producer"] = str(error_class or producer or "")
+    if reason:
+        out["reason"] = normalize_reason(reason)
+    return out
+
+
+def record_failure(
+    ctx: RunContext,
+    *,
+    kind: FailureKind,
+    failed_stage: str = "",
+    producer: str = "",
+    reason: str = "",
+    error_class: str = "",
+    fail_key: str = "",
+    resume_attempted: str = "",
+    predicate_token: str = "",
+    count: int | None = None,
+) -> dict[str, Any]:
+    """Sole writer for identical-failure ledger increments (kinds: reason|class|fail_key)."""
+    kind_key = str(kind or "").strip().lower()
+    if kind_key not in {"reason", "class", "fail_key"}:
+        raise ValueError(f"record_failure: unknown kind {kind!r}")
+
+    if kind_key == "class":
+        cls = str(error_class or producer or "").strip()
+        try:
+            from interview_mux.execution_contract import failure_in_active_policy_cascade
+
+            if failure_in_active_policy_cascade(
+                ctx, failed_stage=failed_stage, producer=cls
+            ):
+                sig = failure_signature_by_class(failed_stage=failed_stage, error_class=cls)
+                doc = read_identical_failures(ctx)
+                prev = dict((doc.get("signatures") or {}).get(sig) or {})
+                return _cascade_suppressed_row(
+                    sig=sig,
+                    failed_stage=failed_stage,
+                    error_class=cls,
+                    prev=prev,
+                )
+        except Exception:
+            pass
+        sig = failure_signature_by_class(failed_stage=failed_stage, error_class=cls)
+        doc = read_identical_failures(ctx)
+        signatures = dict(doc.get("signatures") or {})
+        prev = dict(signatures.get(sig) or {})
+        n = int(prev.get("count") or 0) + 1
+        limit = halt_after()
+        stage = str(failed_stage or "")
+        row = {
+            "signature": sig,
+            "kind": "class",
+            "failed_stage": stage,
+            "error_class": cls,
+            "producer": cls,
+            "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
+            "count": n,
+            "halt_after": limit,
+            "halt": n >= limit,
+            "updated_at": _utc_now(),
+            "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
+            "predicate_token": str(
+                predicate_token
+                or prev.get("predicate_token")
+                or _predicate_token_for(ctx, stage)
+                or ""
+            ).strip(),
+        }
+        signatures[sig] = row
+        order = [s for s in (doc.get("order") or []) if s != sig]
+        order.append(sig)
+        doc["signatures"] = signatures
+        doc["order"] = order[-200:]
+        doc["updated_at"] = _utc_now()
+        _write(ctx, doc)
+        try:
+            ctx.log(
+                f"class_failure {failed_stage}/{cls} x{n}/{limit} halt={row['halt']}",
+                level="warning" if row["halt"] else "info",
+                stage=str(failed_stage or None),
+                detail={"signature": sig, "error_class": cls, "resume": resume_attempted},
+            )
+        except Exception:
+            pass
+        return row
+
+    if kind_key == "fail_key":
+        key = str(fail_key or "").strip()
+        sig = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+        doc = read_identical_failures(ctx)
+        signatures = dict(doc.get("signatures") or {})
+        prev = dict(signatures.get(sig) or {})
+        limit = halt_after()
+        n = max(int(prev.get("count") or 0), int(count if count is not None else 0))
+        stage = str(failed_stage or "").strip() or str(key).split(":")[0]
+        row = {
+            "signature": sig,
+            "kind": "fail_key",
+            "fail_key": key,
+            "failed_stage": stage,
+            "producer": str(producer or prev.get("producer") or ""),
+            "reason": normalize_reason(reason or key),
+            "raw_reason": str(reason or key or "")[:400],
+            "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
+            "count": n,
+            "halt_after": limit,
+            "halt": n >= limit,
+            "updated_at": _utc_now(),
+            "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
+        }
+        token = str(
+            predicate_token
+            or prev.get("predicate_token")
+            or _predicate_token_for(ctx, stage)
+            or ""
+        ).strip()
+        if token:
+            row["predicate_token"] = token
+        signatures[sig] = row
+        order = [s for s in (doc.get("order") or []) if s != sig]
+        order.append(sig)
+        doc["signatures"] = signatures
+        doc["order"] = order[-200:]
+        doc["updated_at"] = _utc_now()
+        _write(ctx, doc)
+        return row
+
+    # kind == "reason"
     try:
         from interview_mux.publishability_boundary import failure_in_active_repair_cascade
 
@@ -252,17 +345,13 @@ def record_identical_failure(
             )
             doc = read_identical_failures(ctx)
             prev = dict((doc.get("signatures") or {}).get(sig) or {})
-            return {
-                "signature": sig,
-                "failed_stage": str(failed_stage or ""),
-                "producer": str(producer or ""),
-                "reason": normalize_reason(reason),
-                "count": int(prev.get("count") or 0),
-                "halt_after": halt_after(),
-                "halt": False,
-                "cascade_suppressed": True,
-                "updated_at": _utc_now(),
-            }
+            return _cascade_suppressed_row(
+                sig=sig,
+                failed_stage=failed_stage,
+                producer=producer,
+                reason=reason,
+                prev=prev,
+            )
     except Exception:
         pass
     try:
@@ -276,17 +365,13 @@ def record_identical_failure(
             )
             doc = read_identical_failures(ctx)
             prev = dict((doc.get("signatures") or {}).get(sig) or {})
-            return {
-                "signature": sig,
-                "failed_stage": str(failed_stage or ""),
-                "producer": str(producer or ""),
-                "reason": normalize_reason(reason),
-                "count": int(prev.get("count") or 0),
-                "halt_after": halt_after(),
-                "halt": False,
-                "cascade_suppressed": True,
-                "updated_at": _utc_now(),
-            }
+            return _cascade_suppressed_row(
+                sig=sig,
+                failed_stage=failed_stage,
+                producer=producer,
+                reason=reason,
+                prev=prev,
+            )
     except Exception:
         pass
     sig = failure_signature(
@@ -295,20 +380,28 @@ def record_identical_failure(
     doc = read_identical_failures(ctx)
     signatures = dict(doc.get("signatures") or {})
     prev = dict(signatures.get(sig) or {})
-    count = int(prev.get("count") or 0) + 1
+    n = int(prev.get("count") or 0) + 1
     limit = halt_after()
+    stage = str(failed_stage or "")
     row = {
         "signature": sig,
-        "failed_stage": str(failed_stage or ""),
+        "kind": "reason",
+        "failed_stage": stage,
         "producer": str(producer or ""),
         "reason": normalize_reason(reason),
         "raw_reason": str(reason or "")[:400],
         "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
-        "count": count,
+        "count": n,
         "halt_after": limit,
-        "halt": count >= limit,
+        "halt": n >= limit,
         "updated_at": _utc_now(),
         "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
+        "predicate_token": str(
+            predicate_token
+            or prev.get("predicate_token")
+            or _predicate_token_for(ctx, stage)
+            or ""
+        ).strip(),
     }
     signatures[sig] = row
     order = [s for s in (doc.get("order") or []) if s != sig]
@@ -319,7 +412,7 @@ def record_identical_failure(
     _write(ctx, doc)
     try:
         ctx.log(
-            f"identical_failure {failed_stage} x{count}/{limit} halt={row['halt']}",
+            f"identical_failure {failed_stage} x{n}/{limit} halt={row['halt']}",
             level="warning" if row["halt"] else "info",
             stage=str(failed_stage or None),
             detail={"signature": sig, "producer": producer, "resume": resume_attempted},
@@ -329,6 +422,50 @@ def record_identical_failure(
     return row
 
 
+def record_class_failure(
+    ctx: RunContext,
+    *,
+    failed_stage: str,
+    error_class: str,
+    resume_attempted: str = "",
+) -> dict[str, Any]:
+    """Increment the persisted counter for a classified (stage, error_class) pair."""
+    return record_failure(
+        ctx,
+        kind="class",
+        failed_stage=failed_stage,
+        error_class=error_class,
+        resume_attempted=resume_attempted,
+    )
+
+
+def record_identical_failure(
+    ctx: RunContext,
+    *,
+    failed_stage: str,
+    producer: str = "",
+    reason: str = "",
+    resume_attempted: str = "",
+) -> dict[str, Any]:
+    """Increment the persisted counter for this signature. Returns the row + halt flag."""
+    return record_failure(
+        ctx,
+        kind="reason",
+        failed_stage=failed_stage,
+        producer=producer,
+        reason=reason,
+        resume_attempted=resume_attempted,
+    )
+
+
+def _strip_pred_prefix(key: str) -> str:
+    """Normalize fail keys so `_pred:` is never nested (`_pred:_pred:…`)."""
+    base = str(key or "").strip()
+    while base.startswith("_pred:"):
+        base = base[len("_pred:") :]
+    return base
+
+
 def hydrate_driver_fail_counts(ctx: RunContext) -> dict[str, int | str]:
     """Reload driver fail_key counters (+ optional _pred tokens) after restart."""
     doc = read_identical_failures(ctx)
@@ -336,13 +473,20 @@ def hydrate_driver_fail_counts(ctx: RunContext) -> dict[str, int | str]:
     for row in (doc.get("signatures") or {}).values():
         if not isinstance(row, dict):
             continue
-        key = str(row.get("fail_key") or "").strip()
+        key = _strip_pred_prefix(str(row.get("fail_key") or "").strip())
         if not key:
             continue
         out[key] = int(row.get("count") or 0)
         token = row.get("predicate_token")
         if isinstance(token, str) and token:
             out[f"_pred:{key}"] = token
+    # Normalize any already-nested in-memory keys from older disks / callers.
+    nested = [k for k in list(out) if str(k).startswith("_pred:_pred:")]
+    for bad in nested:
+        token = out.pop(bad)
+        base = _strip_pred_prefix(bad)
+        if base:
+            out[f"_pred:{base}"] = token
     return out
 
 
@@ -358,47 +502,39 @@ def upsert_fail_key(
     predicate_token: str = "",
 ) -> dict[str, Any]:
     """Set the persisted counter for a driver fail_key (absolute count, keepalive-safe)."""
-    sig = hashlib.sha256(str(fail_key or "").encode("utf-8")).hexdigest()[:16]
-    doc = read_identical_failures(ctx)
-    signatures = dict(doc.get("signatures") or {})
-    prev = dict(signatures.get(sig) or {})
-    limit = halt_after()
-    n = max(int(prev.get("count") or 0), int(count or 0))
-    stage = failed_stage or str(fail_key).split(":")[0]
-    row = {
-        "signature": sig,
-        "fail_key": str(fail_key or ""),
-        "failed_stage": stage,
-        "producer": str(producer or prev.get("producer") or ""),
-        "reason": normalize_reason(reason or fail_key),
-        "raw_reason": str(reason or fail_key or "")[:400],
-        "resume_attempted": str(resume_attempted or prev.get("resume_attempted") or ""),
-        "count": n,
-        "halt_after": limit,
-        "halt": n >= limit,
-        "updated_at": _utc_now(),
-        "first_seen_at": str(prev.get("first_seen_at") or _utc_now()),
-    }
-    token = str(predicate_token or prev.get("predicate_token") or "").strip()
-    if token:
-        row["predicate_token"] = token
-    signatures[sig] = row
-    order = [s for s in (doc.get("order") or []) if s != sig]
-    order.append(sig)
-    doc["signatures"] = signatures
-    doc["order"] = order[-200:]
-    doc["updated_at"] = _utc_now()
-    _write(ctx, doc)
-    return row
+    return record_failure(
+        ctx,
+        kind="fail_key",
+        fail_key=fail_key,
+        count=count,
+        failed_stage=failed_stage,
+        producer=producer,
+        reason=reason,
+        resume_attempted=resume_attempted,
+        predicate_token=predicate_token,
+    )
 
 
 def is_halted(ctx: RunContext, signature: str) -> bool:
+    """Halt authority is operator/identical_failures.json only (never legacy mirror)."""
     if forensics_mode():
         return False
     doc = read_identical_failures(ctx)
     row = (doc.get("signatures") or {}).get(signature) or {}
     if row.get("cascade_suppressed"):
         return False
+    # RC3: also honor live policy cascade (in-memory suppress never persisted).
+    try:
+        from interview_mux.execution_contract import failure_in_active_policy_cascade
+
+        failed_stage = str(row.get("failed_stage") or "")
+        error_class = str(row.get("error_class") or row.get("producer") or "")
+        if failed_stage and error_class and failure_in_active_policy_cascade(
+            ctx, failed_stage=failed_stage, producer=error_class
+        ):
+            return False
+    except Exception:
+        pass
     return bool(row.get("halt")) or int(row.get("count") or 0) >= halt_after()
 
 
@@ -412,6 +548,14 @@ def halted_rows(ctx: RunContext) -> list[dict[str, Any]]:
     return out
 
 
+def _zero_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["count"] = 0
+    out["halt"] = False
+    out["cleared_at"] = _utc_now()
+    return out
+
+
 def clear_all_halts(ctx: RunContext) -> int:
     """Reset every persisted identical-failure counter (forensics / post-patch resume)."""
     doc = read_identical_failures(ctx)
@@ -420,11 +564,7 @@ def clear_all_halts(ctx: RunContext) -> int:
     for sig, row in list(signatures.items()):
         if not isinstance(row, dict):
             continue
-        row = dict(row)
-        row["count"] = 0
-        row["halt"] = False
-        row["cleared_at"] = _utc_now()
-        signatures[sig] = row
+        signatures[sig] = _zero_row(row)
         cleared += 1
     if not cleared:
         return 0
@@ -434,8 +574,9 @@ def clear_all_halts(ctx: RunContext) -> int:
     return cleared
 
 
-def clear_halts_for_stages(ctx: RunContext, stages: frozenset[str] | set[str]) -> int:
-    """Reset all halt counters for the given stages (any reason / fail_key)."""
+def _clear_halts_for_stages_unchecked(
+    ctx: RunContext, stages: frozenset[str] | set[str]
+) -> int:
     stage_set = {str(s or "").strip().lower() for s in stages if s}
     if not stage_set:
         return 0
@@ -451,11 +592,7 @@ def clear_halts_for_stages(ctx: RunContext, stages: frozenset[str] | set[str]) -
             fail_key.startswith(f"{s}:") for s in stage_set
         ):
             continue
-        row = dict(row)
-        row["count"] = 0
-        row["halt"] = False
-        row["cleared_at"] = _utc_now()
-        signatures[sig] = row
+        signatures[sig] = _zero_row(row)
         cleared += 1
     if not cleared:
         return 0
@@ -463,6 +600,22 @@ def clear_halts_for_stages(ctx: RunContext, stages: frozenset[str] | set[str]) -
     doc["updated_at"] = _utc_now()
     _write(ctx, doc)
     return cleared
+
+
+def clear_halts_for_stages(
+    ctx: RunContext,
+    stages: frozenset[str] | set[str],
+    *,
+    force: bool = False,
+) -> int:
+    """Reset halt counters for stages.
+
+    RC6/O8: free clears require ``force=True`` or forensics mode. Otherwise only
+    clear when ``stage_predicate_token`` flipped since the halt was stamped.
+    """
+    if force or forensics_mode():
+        return _clear_halts_for_stages_unchecked(ctx, stages)
+    return clear_halts_for_stages_if_predicate_flipped(ctx, stages)
 
 
 def clear_halts_for_stages_if_predicate_flipped(
@@ -527,16 +680,23 @@ def clear_halts_matching(
     *,
     failed_stage: str = "",
     reason_substr: str = "",
+    force: bool = False,
 ) -> int:
     """Reset halt counters after the root cause of those failures was repaired.
 
     Without this, a G1/topology heal cannot resume EDL: the supervisor keeps
-    `halt=True` for the old G1-missing signature and needs_operator loops.
+    ``halt=True`` for the old G1-missing signature and needs_operator loops.
+
+    RC6/O8: free clears require ``force=True`` or forensics. Otherwise only clear
+    when the stage predicate flipped since the halt row was stamped.
     """
+    from interview_mux.thrash_hardening import predicate_flipped, stage_predicate_token
+
     doc = read_identical_failures(ctx)
     signatures = dict(doc.get("signatures") or {})
     stage_key = str(failed_stage or "").strip().lower()
     needle = str(reason_substr or "").strip().lower()
+    allow_free = force or forensics_mode()
     cleared = 0
     for sig, row in list(signatures.items()):
         if not isinstance(row, dict):
@@ -547,13 +707,25 @@ def clear_halts_matching(
             continue
         if needle and needle not in reason:
             continue
-        row = dict(row)
-        row["count"] = 0
-        row["halt"] = False
-        row["cleared_at"] = _utc_now()
+        check_stage = stage or stage_key
+        prior = row.get("predicate_token")
+        if not allow_free and check_stage:
+            if not predicate_flipped(
+                ctx, check_stage, prior if isinstance(prior, str) else None
+            ):
+                row = dict(row)
+                row["predicate_token"] = stage_predicate_token(ctx, check_stage)
+                signatures[sig] = row
+                continue
+        row = _zero_row(row)
+        if check_stage:
+            row["predicate_token"] = stage_predicate_token(ctx, check_stage)
         signatures[sig] = row
         cleared += 1
     if not cleared:
+        doc["signatures"] = signatures
+        doc["updated_at"] = _utc_now()
+        _write(ctx, doc)
         return 0
     doc["signatures"] = signatures
     doc["updated_at"] = _utc_now()
@@ -562,8 +734,8 @@ def clear_halts_matching(
 
 
 def clear_edl_repair_halts(ctx: RunContext) -> int:
-    """Clear identical-failure halts for the EDL repair chain."""
-    return clear_halts_for_stages(ctx, EDL_REPAIR_STAGES)
+    """Clear identical-failure halts for the EDL repair chain (product-fingerprint flip)."""
+    return clear_halts_for_stages(ctx, EDL_REPAIR_STAGES, force=True)
 
 
 def sync_identical_halts_with_product(

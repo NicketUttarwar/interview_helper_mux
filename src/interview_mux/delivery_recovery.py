@@ -119,7 +119,6 @@ def restore_master_bundle(
 
 def heal_layup_spoken_copy(ctx: RunContext) -> int:
     """Repair grounded layups or skip unhealable rows before G1 can deadlock."""
-    from interview_mux.file_store import write_json as fs_write_json
     from interview_mux.nugget_layup import (
         PLAN_REL,
         publish_layup_plan_to_gap_report,
@@ -158,7 +157,14 @@ def heal_layup_spoken_copy(ctx: RunContext) -> int:
             and note.get("line_id")
         ]
         invalidate_synthesis_entries(ctx, changed_ids)
-        fs_write_json(ctx.final_path(PLAN_REL), repaired)
+        from interview_mux.artifact_sanitize.one_writer import commit_nugget_layup_plan_doc
+
+        commit_nugget_layup_plan_doc(
+            ctx,
+            repaired,
+            skip_handoff=True,
+            reason="heal_layup_spoken_copy",
+        )
         publish_layup_plan_to_gap_report(ctx, repaired)
         gap = (
             ctx.read_json("understanding/gap_report.json")

@@ -15,7 +15,7 @@ from interview_mux.refinement_succession import (
     priority_order,
 )
 from interview_mux.run_context import RunContext
-from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config, mark_done_raw
 
 
 @pytest.fixture
@@ -113,11 +113,11 @@ def test_legacy_unlock_rules_still_honored_when_configured(
         },
     )
     assert is_unlocked(ctx, "transitions_refine") is False
-    ctx.mark_done("gap_framing_recompose", force=True)
+    mark_done_raw(ctx, "gap_framing_recompose")
     assert is_unlocked(ctx, "transitions_refine") is True
     assert is_unlocked(ctx, "ranking_refine") is False
     _raw_write(ctx, "master/coverage_audit.json", {"uncovered_topics": ["topic_1"]})
     assert is_unlocked(ctx, "ranking_refine") is True
     assert mutex_blocked(ctx, "narrative_arc_refine") is False
-    ctx.mark_done("ranking_refine", force=True)
+    mark_done_raw(ctx, "ranking_refine")
     assert mutex_blocked(ctx, "narrative_arc_refine") is True

@@ -7,6 +7,79 @@ from typing import Any
 from interview_mux.run_context import RunContext
 
 
+def _collapse_overlapping_keeps(ctx: RunContext, ids: set[str]) -> set[str]:
+    """Keep one representative per overlapping same-family source span."""
+    if len(ids) < 2:
+        return set(ids)
+    try:
+        from interview_mux.artifact_sanitize.selection import (
+            _base_family,
+            _fragment_depth,
+            _prefer_keep,
+            _segment_starts,
+            _spans_overlap_or_nested,
+        )
+    except Exception:
+        return set(ids)
+    starts = _segment_starts(ctx)
+    if not starts:
+        # No span map — still cap same-family hard-keeps to max_same_family_on_air.
+        try:
+            from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
+            from interview_mux.artifact_sanitize.selection import _base_family, _fragment_depth
+
+            max_family = int(sanitize_selection_cfg().get("max_same_family_on_air") or 8)
+        except Exception:
+            return set(ids)
+        by_fam: dict[str, list[str]] = {}
+        for sid in ids:
+            by_fam.setdefault(_base_family(sid), []).append(sid)
+        out: set[str] = set()
+        for members in by_fam.values():
+            ranked = sorted(members, key=lambda x: (_fragment_depth(x), len(x), x))
+            out.update(ranked[:max_family])
+        return out
+    survivors: list[str] = []
+    hard = set(ids)
+    for sid in sorted(ids, key=lambda x: (_fragment_depth(x), len(x), x)):
+        span = starts.get(sid)
+        if span is None:
+            survivors.append(sid)
+            continue
+        collide_idx = None
+        for i, other in enumerate(survivors):
+            if _base_family(other) != _base_family(sid):
+                continue
+            other_span = starts.get(other)
+            if other_span is None:
+                continue
+            if _spans_overlap_or_nested(span, other_span):
+                collide_idx = i
+                break
+        if collide_idx is None:
+            survivors.append(sid)
+            continue
+        other = survivors[collide_idx]
+        keep = _prefer_keep(other, sid, hard)
+        if keep != other:
+            survivors[collide_idx] = sid
+    # Family cap after span collapse
+    try:
+        from interview_mux.artifact_sanitize.config import sanitize_selection_cfg
+
+        max_family = int(sanitize_selection_cfg().get("max_same_family_on_air") or 8)
+    except Exception:
+        max_family = 8
+    by_fam2: dict[str, list[str]] = {}
+    for sid in survivors:
+        by_fam2.setdefault(_base_family(sid), []).append(sid)
+    out2: set[str] = set()
+    for members in by_fam2.values():
+        ranked = sorted(members, key=lambda x: (_fragment_depth(x), len(x), x))
+        out2.update(ranked[:max_family])
+    return out2
+
+
 def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
     ids: set[str] = set()
     try:
@@ -62,19 +135,32 @@ def hard_keep_segment_ids(ctx: RunContext) -> set[str]:
 
         banned = never_touch_segment_ids(ctx)
         story = admitted_story_segment_ids(ctx)
-        # Parent hard-keep transfers onto the keepable recut remainder.
+        # Parent hard-keep transfers onto the keepable recut remainder —
+        # but only one representative per overlapping source span / family budget.
         if story and (ids & banned):
-            ids |= story
+            ids |= _collapse_overlapping_keeps(ctx, set(story))
         ids -= banned
     except Exception:
         pass
-    return {s for s in ids if s}
+    return _collapse_overlapping_keeps(ctx, {s for s in ids if s})
 
 
 def enforce_hard_keeps(ctx: RunContext, selection: dict[str, Any]) -> dict[str, Any]:
     """Restore hard-keeps into ordered even if they vanished from excluded too."""
     out = dict(selection)
     keeps = hard_keep_segment_ids(ctx)
+    if not keeps:
+        return out
+    # Never restore ids already excluded by sanitize / operator omit.
+    excl_ids: set[str] = set()
+    for row in out.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+        else:
+            sid = str(row or "")
+        if sid:
+            excl_ids.add(sid)
+    keeps = {s for s in keeps if s not in excl_ids}
     if not keeps:
         return out
     ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]

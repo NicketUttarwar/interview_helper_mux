@@ -1888,6 +1888,32 @@ def remaster_mix_only(ctx: RunContext) -> None:
     )
 
 
+def _budgeted_remaster_mix(ctx: RunContext, *, path: str = "repair") -> tuple[bool, int]:
+    """Gate every remaster_mix_only through gen budget + sticky oscillation halt.
+
+    Returns ``(remastered, used_count)``. On refuse, hard-pins needs_operator when
+    budget/osc exhausted (no soft residuals for naked/critical paths).
+    """
+    from interview_mux.thrash_hardening import (
+        junction_budget_exhaust_hard_pin,
+        junction_remaster_budget_ok,
+        note_junction_remaster,
+    )
+
+    ok_budget, used = junction_remaster_budget_ok(ctx)
+    if not ok_budget:
+        pin = junction_budget_exhaust_hard_pin(ctx)
+        ctx.log(
+            f"junction_snip_qa: remaster refused ({path}) used={used} pin={pin}",
+            level="warning",
+            stage=STAGE_ID,
+        )
+        return False, used
+    remaster_mix_only(ctx)
+    note_junction_remaster(ctx)
+    return True, used + 1
+
+
 def _set_g_listen_pending_after_remaster(ctx: RunContext) -> None:
     """Refresh listen critic and set g_listen_pending when recommended."""
     try:
@@ -2382,6 +2408,12 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 level="warning",
                 stage=STAGE_ID,
             )
+            try:
+                from interview_mux.thrash_hardening import note_junction_oscillation_halt
+
+                note_junction_oscillation_halt(ctx)
+            except Exception:
+                pass
             residual_findings = detect_junction_findings(ctx, current_edl, cfg=conf)
             residual_findings, extra_llm = enrich_thought_complete_findings(
                 ctx, current_edl, residual_findings, cfg=conf, allow_llm=(run_index >= 2)
@@ -2391,34 +2423,55 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         prior_applied_sig = applied_sig
         if needs:
             try:
-                from interview_mux.thrash_hardening import (
-                    junction_remaster_budget_ok,
-                    note_junction_remaster,
-                )
-
-                ok_budget, used = junction_remaster_budget_ok(ctx)
-                if not ok_budget:
-                    ctx.log(
-                        "junction_snip_qa: remaster generation budget exhausted "
-                        f"(used={used}) — soft-pass residuals, continue to autopsy",
-                        level="warning",
-                        stage=STAGE_ID,
-                    )
-                    try:
-
-                        def _soft(meta: dict) -> None:
-                            meta["e2e_soft_junction_residuals"] = True
-                            meta["junction_remaster_budget_exhausted"] = True
-
-                        ctx.mutate_run_meta(_soft)
-                    except Exception:
-                        pass
+                remastered, used = _budgeted_remaster_mix(ctx, path="repair")
+                if not remastered:
+                    # EM2: budget/osc exhaust → hard pin + needs_operator.
                     residual_findings = detect_junction_findings(
                         ctx, current_edl, cfg=conf
                     )
+                    naked_or_critical = any(
+                        isinstance(f, dict)
+                        and (
+                            str(f.get("severity") or "") == "critical"
+                            or str(f.get("kind") or "")
+                            in {
+                                "naked_seam",
+                                "incomplete_clause",
+                                "on_a_roll",
+                                "chapter_bleed_incomplete",
+                            }
+                        )
+                        for f in residual_findings
+                    )
+                    if naked_or_critical:
+                        ctx.log(
+                            "junction_snip_qa: remaster budget exhausted "
+                            f"(used={used}) — needs_operator "
+                            "(no e2e soft-pass for naked/critical seams)",
+                            level="error",
+                            stage=STAGE_ID,
+                        )
+                    else:
+                        # Observational-only residuals: e2e soft flag allowed.
+                        try:
+                            from interview_mux.e2e_soft import e2e_soft_enabled
+
+                            if e2e_soft_enabled():
+
+                                def _e2e_only(meta: dict) -> None:
+                                    meta["e2e_soft_junction_residuals"] = True
+                                    meta["junction_remaster_budget_exhausted"] = True
+
+                                ctx.mutate_run_meta(_e2e_only)
+                        except Exception:
+                            pass
+                        ctx.log(
+                            "junction_snip_qa: remaster budget exhausted "
+                            f"(used={used}) — observational residuals only",
+                            level="warning",
+                            stage=STAGE_ID,
+                        )
                     break
-                remaster_mix_only(ctx)
-                note_junction_remaster(ctx)
             except Exception as exc:
                 from interview_mux.loud_fail import raise_loud_failure
 
@@ -2531,11 +2584,15 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
         and apply_feel_directives(ctx, audit, cfg=conf)
     ):
         try:
-            remaster_mix_only(ctx)
-            remaster_rounds += 1
-            _set_g_listen_pending_after_remaster(ctx)
-            report["remaster_rounds"] = remaster_rounds
-            ctx.write_json(QA_REL, report)
+            remastered, _used = _budgeted_remaster_mix(ctx, path="feel")
+            if remastered:
+                remaster_rounds += 1
+                _set_g_listen_pending_after_remaster(ctx)
+                report["remaster_rounds"] = remaster_rounds
+                ctx.write_json(QA_REL, report)
+            else:
+                report["feel_remaster_refused"] = True
+                ctx.write_json(QA_REL, report)
         except Exception as exc:
             from interview_mux.loud_fail import raise_loud_failure
 
@@ -2630,14 +2687,18 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                     level="info",
                     stage=STAGE_ID,
                 )
-                remaster_mix_only(ctx)
-                remaster_rounds += 1
-                report["remaster_rounds"] = remaster_rounds
-                ctx.write_json(QA_REL, report)
-                if ctx.artifact_exists("master/edl.json"):
-                    loaded = ctx.read_json("master/edl.json")
-                    if isinstance(loaded, dict):
-                        current_edl = loaded
+                remastered, _used = _budgeted_remaster_mix(ctx, path="commitment")
+                if remastered:
+                    remaster_rounds += 1
+                    report["remaster_rounds"] = remaster_rounds
+                    ctx.write_json(QA_REL, report)
+                    if ctx.artifact_exists("master/edl.json"):
+                        loaded = ctx.read_json("master/edl.json")
+                        if isinstance(loaded, dict):
+                            current_edl = loaded
+                else:
+                    report["commitment_remaster_refused"] = True
+                    ctx.write_json(QA_REL, report)
         except Exception as exc:
             from interview_mux.loud_fail import raise_loud_failure
 
@@ -2760,7 +2821,11 @@ def run_junction_snip_qa(ctx: RunContext) -> None:
                 level="warning",
                 stage=STAGE_ID,
             )
+    # EM8: incomplete_clause / mid-cut residuals always hard-block even when
+    # junction mode stays advisory (mode flag is observational elsewhere).
     enforce_block = mode == "authoritative"
+    if "critical_incomplete_cut_residuals" in blocking_reasons:
+        enforce_block = True
     critical_blocking = {
         "critical_incomplete_cut_residuals",
         "critical_junction_residuals_after_two_runs",

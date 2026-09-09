@@ -58,6 +58,62 @@ def fingerprint_artifact(artifact: dict[str, Any], stage_key: str) -> dict[str, 
     return out
 
 
+def content_fingerprint(ctx: Any, rel: str) -> str:
+    """TH3: live content hash for an on-disk artifact (JSON body or file bytes).
+
+    Fail-closed callers compare this to ``run_meta.artifact_fingerprints[rel]``.
+    Returns empty string only when the path is missing/unreadable.
+    """
+    path = str(rel or "").replace("\\", "/").lstrip("/")
+    if not path or not hasattr(ctx, "artifact_exists") or not ctx.artifact_exists(path):
+        return ""
+    try:
+        if path.endswith(".json"):
+            doc = ctx.read_json(path)
+            if not isinstance(doc, dict):
+                return ""
+            meta = doc.get("_meta") if isinstance(doc.get("_meta"), dict) else {}
+            fp = fingerprint_artifact(
+                doc, str((meta or {}).get("producer_stage") or "read")
+            )
+            return str((fp.get("_meta") or {}).get("content_hash") or "")
+        if hasattr(ctx, "final_path"):
+            fpath = ctx.final_path(*path.split("/"))
+        else:
+            fpath = None
+        if fpath is None or not getattr(fpath, "is_file", lambda: False)():
+            return ""
+        h = hashlib.sha256()
+        with open(fpath, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def compare_content_fingerprint(ctx: Any, rel: str, stored: Any) -> tuple[bool, str]:
+    """Return (ok, reason). Fail-closed when stored fingerprint disagrees with live.
+
+    ``stored`` may be a bare hash string or ``{"hash": "..."}`` entry from run_meta.
+    """
+    path = str(rel or "").replace("\\", "/").lstrip("/")
+    if not path:
+        return False, "empty_rel"
+    if isinstance(stored, dict):
+        expected = str(stored.get("hash") or stored.get("content_hash") or "")
+    else:
+        expected = str(stored or "")
+    if not expected:
+        return True, ""
+    live = content_fingerprint(ctx, path)
+    if not live:
+        return False, "fingerprint_unreadable"
+    if live != expected:
+        return False, "fingerprint_mismatch"
+    return True, ""
+
+
 def _record_fingerprint(ctx: Any, rel: str, content_hash: str, stage_key: str) -> None:
     def _mut(meta: dict[str, Any]) -> None:
         fps = dict(meta.get("artifact_fingerprints") or {})
@@ -280,7 +336,28 @@ def stamp_stale_and_archive(ctx: Any, from_stage: str) -> list[str]:
     order = list(ANALYSIS_ORDER) + list(DELIVERY_ORDER)
     from_idx = order.index(from_stage) if from_stage in order else -1
     stamped: list[str] = []
+    # Respect delivery blast radius — do not false-stale out-of-blast artifacts (esp. SDP).
+    blast: frozenset[str] | None = None
+    try:
+        from interview_mux.delivery_guardrails import (
+            INVALIDATION_BLAST_RADIUS,
+            music_clear_blocked,
+        )
+
+        blast = INVALIDATION_BLAST_RADIUS.get(from_stage)
+    except Exception:
+        music_clear_blocked = None  # type: ignore[assignment]
+        blast = None
     for sid in transitive_invalidate(from_stage):
+        if blast is not None and sid not in blast:
+            continue
+        try:
+            if music_clear_blocked is not None and music_clear_blocked(
+                ctx, sid, source=from_stage
+            ):
+                continue
+        except Exception:
+            pass
         rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
         if not rel or not ctx.artifact_exists(rel):
             continue
@@ -540,6 +617,8 @@ __all__ = [
     "LifecyclePhase",
     "apply_fingerprints_on_flush",
     "build_outputs_view",
+    "compare_content_fingerprint",
+    "content_fingerprint",
     "fingerprint_artifact",
     "invalidate_downstream_memory",
     "lifecycle_cfg",

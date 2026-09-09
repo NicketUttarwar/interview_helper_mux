@@ -18,6 +18,7 @@ from interview_mux.progression_readiness import build_delivery_readiness_report
 from interview_mux.stages.gaps import ensure_gap_fill_skipped
 from run_fixtures import (
     isolated_run_ctx,
+    mark_done_raw,
     minimal_content_brief,
     minimal_manifest,
     minimal_speakers,
@@ -66,7 +67,7 @@ def _seed_through_sound_design_palettes(ctx, monkeypatch: pytest.MonkeyPatch) ->
     for sid in ANALYSIS_ORDER:
         if sid in ("missing_framing", "optimal_questions", "delivery_brief_build", "soundscape_policy_build", "episode_structure_compose"):
             continue
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
 
 
 def test_gap_skip_unlocks_profile_and_delivery_after_episode_structure(
@@ -80,7 +81,7 @@ def test_gap_skip_unlocks_profile_and_delivery_after_episode_structure(
     seed_analysis_ready_artifacts(ctx, verified=False)
     ensure_gap_fill_skipped(ctx, reason="operator skip", signals={"reseed": True})
     for sid in ("delivery_brief_build", "soundscape_policy_build", "episode_structure_compose"):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
 
     update_completion_from_analysis(ctx)
     assert analysis_profile_ready_for_review(ctx)
@@ -111,7 +112,7 @@ def test_maybe_finalize_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         "soundscape_policy_build",
         "episode_structure_compose",
     ):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
 
     assert maybe_finalize_shared_analysis(ctx)
     assert ctx.artifact_exists("analysis_complete.json")

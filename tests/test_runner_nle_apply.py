@@ -6,7 +6,7 @@ import pytest
 
 from interview_mux.run_context import RunContext
 from interview_mux.web.runner import JobRunner
-from run_fixtures import init_run_meta_for_test, patch_executions_root
+from run_fixtures import init_run_meta_for_test, patch_executions_root, mark_done_raw
 
 
 @pytest.fixture
@@ -27,7 +27,8 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 def test_nle_apply_stages_trim_only(ctx: RunContext) -> None:
     runner = JobRunner()
     stages = runner._nle_apply_stages(ctx, full_refresh=False)
-    assert stages == ["edl", "assembly_preview"]
+    # Trim-only still reseats VO before EDL/assembly.
+    assert stages == ["vo_synthesize", "edl", "assembly_preview"]
 
 
 def test_nle_apply_stages_structural(ctx: RunContext) -> None:
@@ -76,7 +77,7 @@ def test_nle_apply_stages_full_refresh_mode(ctx: RunContext) -> None:
 def test_delivery_skips_master_qa_until_master_exists(ctx: RunContext) -> None:
     runner = JobRunner()
     assert runner._should_verify_master_after_delivery(ctx) is False
-    ctx.mark_done("master_finalize", force=True)
+    mark_done_raw(ctx, "master_finalize")
     assert runner._should_verify_master_after_delivery(ctx) is True
 
 
@@ -97,7 +98,7 @@ def test_delivery_incomplete_raises_when_ship_remaining(ctx: RunContext, monkeyp
     master = ctx.path("master/master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
     master.write_bytes(b"RIFF" + b"\0" * 40)
-    ctx.mark_done("master_finalize", force=True)
+    mark_done_raw(ctx, "master_finalize")
 
     def _phase(_ctx, phase, remaining, **_kwargs):
         return {"conductor": {"ok": True}, "remaining_after": remaining}

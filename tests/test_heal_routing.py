@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from interview_mux.heal_routing import (
     FAMILY_G1_MISSING,
     FAMILY_LAYUP_STALE,
@@ -18,7 +20,7 @@ from interview_mux.heal_routing import (
 )
 from interview_mux.order_hash import bump_order_lock
 from interview_mux.recovery_controller import classify_error_class
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def _edl(ids: list[str]) -> dict:
@@ -96,7 +98,7 @@ def test_g1_vo_open_with_seeded_adjudicate_skips_readjudicate(tmp_path: Path) ->
         },
         skip_handoff=True,
     )
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     route = classify_heal_error(
         "seed order: complete g1_vo_open before running vo_synthesize",
         ctx,
@@ -143,12 +145,19 @@ def test_spoken_copy_routes_to_transitions_not_mix(tmp_path: Path) -> None:
     assert route.from_stage == "transitions"
 
 
-def test_mix_error_with_seated_wav_routes_to_junction(tmp_path: Path) -> None:
+def test_mix_error_with_seated_wav_routes_to_junction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ctx = isolated_run_ctx(tmp_path, "heal_mix_seated")
     sel = bump_order_lock({"ordered_segment_ids": ["a", "b"], "version": 1}, source="t")
     ctx.write_json("master/selection.json", sel, skip_handoff=True)
     ctx.write_json("master/edl.json", _edl(["a", "b"]), skip_handoff=True)
     (ctx.run_dir / "master" / "assembly.wav").write_bytes(b"RIFF" + b"\x00" * 64)
+    # Seating probe uses artifact_usable — fixture bytes are not a real WAV.
+    monkeypatch.setattr(
+        "interview_mux.heal_routing.mix_assembly_seated",
+        lambda _ctx: True,
+    )
     route = classify_heal_error(
         "mix finished without required artifact (master/assembly.wav)",
         ctx,

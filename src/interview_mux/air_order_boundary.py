@@ -139,51 +139,92 @@ def commit_selection_mutation(
     skip_handoff: bool = False,
 ) -> dict[str, Any]:
     """Single write path: checkpoint, optional block, persist, lifecycle on order change."""
-    previous = _previous_selection(ctx)
-    out = dict(selection)
-    result = CheckpointResult()
-    if not skip_checkpoint:
-        out, result = checkpoint_air_order(
-            ctx, out, producer=producer, mode=checkpoint_mode
-        )
-        if should_block_commit(result, producer=producer, mode=checkpoint_mode):
-            msgs = [
-                str(v.get("message") or v.get("code") or "")
-                for v in result.violations
-                if str(v.get("severity") or "").lower() == "critical"
-            ][:3]
-            raise ValueError(
-                f"air_order_boundary blocked {producer}: " + "; ".join(msgs)
-            )
-
-    if write_committed:
-        from interview_mux.write_staging import write_committed_json
-
-        write_committed_json(ctx, "master/selection.json", out, stage_key=stage_key)
-    elif skip_handoff:
-        ctx.write_json(
-            "master/selection.json", out, stage_key=stage_key, skip_handoff=True
-        )
-    else:
-        from interview_mux.artifact_writes import write_validated_artifact
-
-        write_validated_artifact(
-            ctx,
-            "master/selection.json",
-            out,
-            merge_from_disk=merge_from_disk,
-            stage_key=stage_key,
-        )
-
-    from interview_mux.air_order_integrity import on_selection_order_changed
-
-    on_selection_order_changed(
-        ctx,
-        source=producer,
-        previous=previous,
-        current=out,
+    from interview_mux.artifact_sanitize.one_writer import (
+        admitting,
+        begin_admit,
+        end_admit,
     )
-    return out
+
+    nested_admit = admitting(ctx)
+    if not nested_admit:
+        begin_admit(ctx)
+    try:
+        previous = _previous_selection(ctx)
+        out = dict(selection)
+        result = CheckpointResult()
+        if not skip_checkpoint:
+            out, result = checkpoint_air_order(
+                ctx, out, producer=producer, mode=checkpoint_mode
+            )
+            if should_block_commit(result, producer=producer, mode=checkpoint_mode):
+                msgs = [
+                    str(v.get("message") or v.get("code") or "")
+                    for v in result.violations
+                    if str(v.get("severity") or "").lower() == "critical"
+                ][:3]
+                raise ValueError(
+                    f"air_order_boundary blocked {producer}: " + "; ".join(msgs)
+                )
+
+        # Sanitize-last: non-amplifying sanitize after any repair/checkpoint, before disk.
+        from interview_mux.artifact_sanitize.selection import sanitize_master_selection
+
+        sanitize_result = sanitize_master_selection(ctx, out)
+        if not sanitize_result.ok:
+            raise RuntimeError(
+                "sanitize_refused:selection: "
+                + "; ".join((sanitize_result.errors or ["unknown"])[:4])
+            )
+        out = sanitize_result.doc if isinstance(sanitize_result.doc, dict) else out
+
+        try:
+            from interview_mux.artifact_sanitize.reentry import sanitary_content_hash
+            from interview_mux.thrash_hardening import note_authority_undo_attempt
+
+            undo = note_authority_undo_attempt(
+                ctx,
+                artifact="master/selection.json",
+                action_class=str(producer or stage_key or "selection_commit"),
+                content_hash=sanitary_content_hash(
+                    out, keys=["ordered_segment_ids", "order_content_hash"]
+                ),
+            )
+            if undo.get("halt"):
+                raise RuntimeError(
+                    "authority_undo_thrash:master/selection.json: "
+                    + str(undo.get("reason") or "oscillation")
+                )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+
+        if write_committed:
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(ctx, "master/selection.json", out, stage_key=stage_key)
+        elif skip_handoff:
+            ctx.write_json(
+                "master/selection.json", out, stage_key=stage_key, skip_handoff=True
+            )
+        else:
+            # Prefer write_committed so write_validated cannot re-amplify after sanitize.
+            from interview_mux.write_staging import write_committed_json
+
+            write_committed_json(ctx, "master/selection.json", out, stage_key=stage_key)
+
+        from interview_mux.air_order_integrity import on_selection_order_changed
+
+        on_selection_order_changed(
+            ctx,
+            source=producer,
+            previous=previous,
+            current=out,
+        )
+        return out
+    finally:
+        if not nested_admit:
+            end_admit(ctx)
 
 
 def commit_selection_via(

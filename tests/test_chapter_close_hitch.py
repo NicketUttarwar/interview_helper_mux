@@ -35,7 +35,7 @@ from interview_mux.homunculus.loop import nested_chat_create
 from interview_mux.pipeline import run_single_stage
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
-from run_fixtures import patch_executions_root
+from run_fixtures import patch_executions_root, mark_done_raw
 
 
 def _tok(start: int, end: int, text: str) -> dict:
@@ -464,7 +464,7 @@ def test_inner_walk_does_not_dispatch_stage_budget(
 
     def _stage(ctx: RunContext, stage: str) -> None:
         seen.append((stage, bool(getattr(ctx, "_homunculus_inner_stage", False))))
-        ctx.mark_done(stage, force=True)
+        mark_done_raw(ctx, stage)
 
     monkeypatch.setattr("interview_mux.pipeline.run_single_stage", _stage)
     ran = run_inner_walk(ctx, stages=["boundary_detection", "narrative_arc_plan"])
@@ -530,7 +530,7 @@ def test_inner_walk_skips_recollate_when_hitch_published(
 
     def _stage(_ctx: RunContext, stage: str) -> None:
         seen.append(stage)
-        _ctx.mark_done(stage, force=True)
+        mark_done_raw(_ctx, stage)
 
     monkeypatch.setattr("interview_mux.pipeline.run_single_stage", _stage)
     ran = run_inner_walk(ctx, stages=["boundary_detection", "segment_classification"])
@@ -549,8 +549,18 @@ def test_hitch_identity_counts_one_on_010(
         skip_handoff=True,
     )
     _seed_hitch_run(ctx)
+    # Delivery seed_stage_complete needs a complete coverage artifact (not hollow stamp).
+    ctx.write_json(
+        "master/coverage_audit.json",
+        {
+            "topic_mappings": [],
+            "coverage_score": 1.0,
+            "_meta": {"producer": "test", "producer_stage": "topic_coverage_audit"},
+        },
+        skip_handoff=True,
+    )
     for sid in list(ANALYSIS_ORDER) + ["topic_coverage_audit", "narrative_arc_plan"]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     monkeypatch.setattr(
         "interview_mux.chapter_close_hitch.apply_acoustic_refine",
         lambda windows, words, wav: windows,

@@ -971,7 +971,7 @@ def _resolve_music_fallbacks(
     out_file: Path,
     meta: dict[str, Any],
 ) -> dict[str, Any]:
-    """Quality-first ladder after MusicGen: MMAudio → motif-family → prior stem → skip."""
+    """Quality-first ladder after MusicGen: prior → motif → omit (MU7: no creative MMAudio)."""
     from interview_mux.delivery_guardrails import record_wasted_work
     from interview_mux.musicgen_runner import restore_prior_stem, stub_allowed_for_role
 
@@ -986,7 +986,32 @@ def _resolve_music_fallbacks(
     if not needs_fallback:
         return meta
 
-    if backend in {"musical_stub", "musicgen_failed", ""} or meta.get("mmaudio_backup_suggested"):
+    # MU7: creative / theme roles never use MMAudio as show-music backup.
+    allow_mmaudio_backup = True
+    try:
+        from interview_mux.creative_delivery import creative_delivery_required
+        from interview_mux.musicgen_runner import musicgen_cfg
+
+        theme_roles = {
+            "theme_underscore",
+            "theme_cold_open",
+            "theme_outro",
+            "theme_emphasis",
+            "theme_chapter_resolve",
+            "theme_transition",
+            "era_music_bed",
+            "ambient_bed",
+        }
+        if creative_delivery_required() or role in theme_roles:
+            allow_mmaudio_backup = False
+        if not bool(musicgen_cfg().get("mmaudio_backup_on_stub", False)):
+            allow_mmaudio_backup = False
+    except Exception:
+        allow_mmaudio_backup = bool(meta.get("mmaudio_backup_suggested"))
+
+    if allow_mmaudio_backup and (
+        backend in {"musical_stub", "musicgen_failed", ""} or meta.get("mmaudio_backup_suggested")
+    ):
         ctx.log(
             f"MusicGen did not produce stem for {asset_id} — trying MMAudio backup",
             level="warning",
@@ -1001,6 +1026,12 @@ def _resolve_music_fallbacks(
         )
         if mm_meta:
             return mm_meta
+    elif not allow_mmaudio_backup:
+        ctx.log(
+            f"MU7: skipping MMAudio music backup for {asset_id} (creative path)",
+            level="info",
+            stage=stage,
+        )
 
     rescued = _fallback_to_motif_family_stems(ctx, [asset_id], stage=stage)
     if asset_id in rescued:

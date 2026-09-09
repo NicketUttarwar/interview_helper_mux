@@ -26,11 +26,11 @@ GATE_DEFAULTS: dict[str, dict[str, Any]] = {
         "max_remint_rounds": 1,
     },
     "feasibility": {
-        "mode": "advisory",
+        "mode": "authoritative",
         "duration_slack_pct": 0.15,
     },
     "semantic_integrity": {
-        "mode": "advisory",
+        "mode": "authoritative",
         "adjacency_max_turns": 3,
         "llm_confirm": True,
     },

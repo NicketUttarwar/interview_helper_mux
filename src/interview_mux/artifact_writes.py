@@ -146,9 +146,31 @@ def write_validated_artifact(
 
     # Normalize LLM nulls / coherence coupling before disk schema + post-commit lint.
     from interview_mux.artifact_repairs import apply_repairs_for_stage
+    from interview_mux.artifact_sanitize.reentry import stamp_matches
 
     sk = stage_key or None
-    out, _ = apply_repairs_for_stage(ctx, sk or "", out, rel_path=rel_path)
+    amplify = True
+    if rel_path.endswith("selection.json") and isinstance(out, dict):
+        # Fresh sanitize stamp → normalize-only (no CTA readmit / leftovers growth).
+        if stamp_matches(
+            out, content_keys=["ordered_segment_ids", "order_content_hash"]
+        ):
+            amplify = False
+    if rel_path.endswith("selection.json"):
+        from interview_mux.artifact_repairs import repair_master_selection
+
+        out, _ = repair_master_selection(ctx, out, amplify=amplify)
+        from interview_mux.artifact_sanitize.selection import sanitize_master_selection
+
+        sanitized = sanitize_master_selection(ctx, out)
+        if not sanitized.ok:
+            raise ValueError(
+                f"{rel_path}: sanitize_refused:selection: "
+                + "; ".join((sanitized.errors or ["unknown"])[:4])
+            )
+        out = sanitized.doc
+    else:
+        out, _ = apply_repairs_for_stage(ctx, sk or "", out, rel_path=rel_path)
 
     out = _prepare_for_disk_validation(out, rel_path=rel_path, stage_key=stage_key)
 

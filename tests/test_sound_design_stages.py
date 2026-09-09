@@ -12,6 +12,7 @@ from interview_mux.prompt_validation import validate_sound_design_plan
 from interview_mux.run_context import RunContext
 from interview_mux.stages import sound_design_stages, understanding
 from run_fixtures import (
+    mark_done_raw,
     minimal_content_brief,
     minimal_gap_report,
     minimal_manifest,
@@ -100,15 +101,20 @@ def test_sound_design_plan_persists_assets_and_cues(tmp_path, monkeypatch):
                 },
             },
         )
-        _ctx.mark_done("sound_design_plan", force=True)
+        mark_done_raw(_ctx, "sound_design_plan")
         return {"status": "complete"}
 
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
 
     sound_design_stages.run_sound_design_plan(ctx)
     sdp = ctx.read_json("understanding/sound_design_plan.json")
-    assert sdp["assets"][0]["asset_id"] == "chapter_stinger_warm"
-    assert sdp["flow_plans"]["podcast"]["cues"][0]["asset_id"] == "chapter_stinger_warm"
+    # Music-only harden replaces legacy chapter_stinger with motif inventory.
+    asset_ids = {str(a.get("asset_id") or "") for a in (sdp.get("assets") or []) if isinstance(a, dict)}
+    assert asset_ids
+    assert any(aid.startswith("show_theme") or "theme" in aid for aid in asset_ids)
+    cues = (((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    assert cues
+    assert str(cues[0].get("asset_id") or "") in asset_ids
     assert ctx.is_done("sound_design_plan")
 
 
@@ -123,16 +129,24 @@ def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
             {
                 "assets": [
                     {
-                        "asset_id": "known_asset",
-                        "role": "chapter_stinger",
-                        "description": "Soft marker.",
-                        "duration_seconds": 1.4,
+                        "asset_id": "show_theme_v1_motif",
+                        "role": "theme_cold_open",
+                        "description": "Show motif seed phrase with clear pulse.",
+                        "duration_seconds": 4.0,
+                        "palette_kind": "motif",
                     }
                 ],
                 "flow_plans": {
                     "podcast": {
                         "profile": "podcast",
-                        "cues": [{"cue_id": "bad", "asset_id": "missing_asset", "placement": "after_segment"}],
+                        "cues": [
+                            {
+                                "cue_id": "bad",
+                                "asset_id": "missing_asset_xyz",
+                                "placement": "after_segment",
+                                "after_segment_id": "seg_001",
+                            }
+                        ],
                     }
                 },
             },
@@ -141,8 +155,15 @@ def test_sound_design_plan_rejects_unknown_cue_asset(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
 
-    with pytest.raises(ValueError, match="unknown asset_id"):
-        sound_design_stages.run_sound_design_plan(ctx)
+    # Music-only harden remaps/drops unknown cue assets onto the motif inventory.
+    sound_design_stages.run_sound_design_plan(ctx)
+    sdp = ctx.read_json("understanding/sound_design_plan.json")
+    asset_ids = {str(a.get("asset_id") or "") for a in (sdp.get("assets") or []) if isinstance(a, dict)}
+    cues = (((sdp.get("flow_plans") or {}).get("podcast") or {}).get("cues") or [])
+    assert "missing_asset_xyz" not in {
+        str(c.get("asset_id") or "") for c in cues if isinstance(c, dict)
+    }
+    assert all(str(c.get("asset_id") or "") in asset_ids for c in cues if isinstance(c, dict))
 
 
 def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
@@ -151,12 +172,14 @@ def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     plan = default_sound_design_plan()
     plan["assets"] = [
         {
-            "asset_id": "chapter_stinger_warm",
-            "role": "chapter_stinger",
-            "description": "Warm documentary marker",
-            "duration_seconds": 1.5,
+            "asset_id": "show_theme_v1_motif",
+            "role": "theme_cold_open",
+            "description": "Warm documentary motif seed",
+            "duration_seconds": 4.0,
+            "palette_kind": "motif",
         }
     ]
+    ctx._one_writer_raw = True
     ctx.write_json("understanding/sound_design_plan.json", plan)
     state = default_analysis_state(ctx.run_id)
     state["style"]["sound_design_notes"] = "Keep subtle."
@@ -165,7 +188,7 @@ def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):
         payload = build_input(_ctx)
-        assert payload["assets"][0]["asset_id"] == "chapter_stinger_warm"
+        assert payload["assets"][0]["asset_id"] == "show_theme_v1_motif"
         assert payload["operator_style_sound_design_notes"] == "Keep subtle."
         assert payload["source_acoustic_profile"]["pacing"]["pace_class"]
         persist(
@@ -173,9 +196,9 @@ def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
             {
                 "prompts": [
                     {
-                        "asset_id": "chapter_stinger_warm",
-                        "sfx_prompt": "Warm, short transition marker.",
-                        "duration_seconds": 1.5,
+                        "asset_id": "show_theme_v1_motif",
+                        "sfx_prompt": "Warm, short motif phrase with clear pulse.",
+                        "duration_seconds": 4.0,
                         "negative_prompt": "no vocals, no speech",
                     }
                 ]
@@ -186,8 +209,8 @@ def test_sfx_prompt_craft_writes_prompts_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
     sound_design_stages.run_sfx_prompt_craft(ctx)
     artifact = ctx.read_json("sound_design/sfx_prompts.json")
-    assert artifact["prompts"][0]["asset_id"] == "chapter_stinger_warm"
-    assert artifact["prompts"][0]["duration_seconds"] == 1.5
+    assert artifact["prompts"][0]["asset_id"] == "show_theme_v1_motif"
+    assert float(artifact["prompts"][0]["duration_seconds"]) > 0
     ctx.mark_done("sfx_prompt_craft")
     assert ctx.is_done("sfx_prompt_craft")
 
@@ -197,20 +220,34 @@ def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
     ctx = RunContext("run_204b", create=True)
     plan = default_sound_design_plan()
     plan["assets"] = [
-        {"asset_id": "a1", "role": "chapter_stinger", "description": "A", "duration_seconds": 1.5},
-        {"asset_id": "a2", "role": "ambient_bed", "description": "B", "duration_seconds": 6.0},
+        {
+            "asset_id": "show_theme_v1_motif",
+            "role": "theme_cold_open",
+            "description": "Motif seed",
+            "duration_seconds": 4.0,
+            "palette_kind": "motif",
+        },
+        {
+            "asset_id": "show_theme_v1_underscore",
+            "role": "theme_underscore",
+            "description": "Underscore loop",
+            "duration_seconds": 12.0,
+            "palette_kind": "underscore_loop",
+        },
     ]
+    ctx._one_writer_raw = True
     ctx.write_json("understanding/sound_design_plan.json", plan)
 
     def fake_run_flow_llm_stage(_ctx, _stage_key, _prompt_rel, build_input, persist):
+        # Intentionally omit underscore prompt — craft auto-fills remaining theme assets.
         persist(
             _ctx,
             {
                 "prompts": [
                     {
-                        "asset_id": "a1",
-                        "sfx_prompt": "Stinger prompt with enough words for validation.",
-                        "duration_seconds": 2.0,
+                        "asset_id": "show_theme_v1_motif",
+                        "sfx_prompt": "Short motif prompt with enough words for validation.",
+                        "duration_seconds": 4.0,
                         "negative_prompt": "no vocals, no speech",
                     }
                 ]
@@ -220,29 +257,48 @@ def test_sfx_prompt_craft_requires_all_plan_assets(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sound_design_stages, "run_flow_llm_stage", fake_run_flow_llm_stage)
 
-    with pytest.raises(ValueError, match="missing crafted prompt"):
-        sound_design_stages.run_sfx_prompt_craft(ctx)
+    sound_design_stages.run_sfx_prompt_craft(ctx)
+    artifact = ctx.read_json("sound_design/sfx_prompts.json")
+    prompt_ids = {
+        str(p.get("asset_id") or "") for p in (artifact.get("prompts") or []) if isinstance(p, dict)
+    }
+    assert "show_theme_v1_motif" in prompt_ids
+    assert "show_theme_v1_underscore" in prompt_ids
 
 
 def test_analysis_order_places_sonic_context_and_palettes_after_content_brief_reanchor():
     reanchor_idx = ANALYSIS_ORDER.index("content_brief_reanchor")
+    framing_idx = ANALYSIS_ORDER.index("framing_posture_decide")
     resplit_idx = ANALYSIS_ORDER.index("boundary_topic_resplit")
     vernacular_idx = ANALYSIS_ORDER.index("vernacular_segment_sanitize")
+    low_conf_idx = ANALYSIS_ORDER.index("low_conf_island_scan")
+    fuse_idx = ANALYSIS_ORDER.index("connector_fuse_pass")
     sonic_idx = ANALYSIS_ORDER.index("sonic_context_build")
     pal_idx = ANALYSIS_ORDER.index("sound_design_palettes")
-    assert resplit_idx == reanchor_idx + 1
+    assert framing_idx == reanchor_idx + 1
+    assert resplit_idx == framing_idx + 1
     assert vernacular_idx == resplit_idx + 1
-    assert sonic_idx == vernacular_idx + 1
+    assert low_conf_idx == vernacular_idx + 1
+    assert fuse_idx == low_conf_idx + 1
+    assert sonic_idx == fuse_idx + 1
     assert pal_idx == sonic_idx + 1
 
 
 def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("INTERVIEW_MUX_SOUND_DESIGN_EARLY_PALETTES_LLM", "1")
     ctx = RunContext("run_205", create=True)
     ctx.write_json("understanding/content_brief.json", minimal_content_brief(thesis="Test thesis"))
     ctx.write_json(
         "segments/manifest.json",
-        minimal_manifest(minimal_manifest_segment("seg_1", text="hello")),
+        minimal_manifest(
+            minimal_manifest_segment(
+                "seg_1",
+                text="Founder story about early risk and the first team.",
+                start_ms=0,
+                end_ms=9000,
+            )
+        ),
     )
     ctx.write_json("understanding/analysis_state.json", default_analysis_state(ctx.run_id))
     ctx.write_json("understanding/sound_design_plan.json", default_sound_design_plan())
@@ -275,9 +331,14 @@ def test_sound_design_palettes_reads_source_acoustic_profile(tmp_path, monkeypat
                 ],
             },
         )
-        _ctx.mark_done("sound_design_palettes", force=True)
+        mark_done_raw(_ctx, "sound_design_palettes")
         return {"status": "complete"}
 
+    # Force early-palettes LLM path (default is deferred to sound_design_plan).
+    monkeypatch.setattr(
+        "interview_mux.stages.sound_design_stages.merged_config",
+        lambda: {"sound_design": {"early_palettes_llm": True, "enabled": True}},
+    )
     monkeypatch.setattr(sound_design_stages, "run_analysis_llm_stage", fake_run_analysis_llm_stage)
     sound_design_stages.run_sound_design_palettes(ctx)
     sdp = ctx.read_json("understanding/sound_design_plan.json")

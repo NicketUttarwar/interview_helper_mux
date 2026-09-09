@@ -363,6 +363,8 @@ def reconcile_invalidated_bundle(
     invalidated_stages: list[str] | tuple[str, ...],
     *,
     reason: str = "",
+    skip_delivery_batch: bool = False,
+    skip_invariants: bool = False,
 ) -> list[str]:
     """Post-invalidation reconcile: invariants + contract + delivery batch + clear halts."""
     stages = [str(s) for s in invalidated_stages if s]
@@ -373,14 +375,19 @@ def reconcile_invalidated_bundle(
         reconcile_status="running",
     )
     notes: list[str] = []
-    try:
-        from interview_mux.execution_invariants import run_execution_invariants
+    if not skip_invariants:
+        try:
+            from interview_mux.execution_invariants import run_execution_invariants
 
-        report = run_execution_invariants(ctx, reason=reason or "invalidation_bundle", consumer_stage=stages[0] if stages else "")
-        if report.get("fixes_applied"):
-            notes.extend(report.get("fixes_applied") or [])
-    except Exception:
-        pass
+            report = run_execution_invariants(
+                ctx,
+                reason=reason or "invalidation_bundle",
+                consumer_stage=stages[0] if stages else "",
+            )
+            if report.get("fixes_applied"):
+                notes.extend(report.get("fixes_applied") or [])
+        except Exception:
+            pass
     try:
         from interview_mux.execution_contract import reconcile_execution_contract
 
@@ -388,13 +395,14 @@ def reconcile_invalidated_bundle(
         notes.append("execution_contract")
     except Exception:
         pass
-    try:
-        from interview_mux.delivery_guardrails import reconcile_delivery_batch
+    if not skip_delivery_batch:
+        try:
+            from interview_mux.delivery_guardrails import reconcile_delivery_batch
 
-        cleared = reconcile_delivery_batch(ctx)
-        notes.extend(cleared or [])
-    except Exception:
-        pass
+            cleared = reconcile_delivery_batch(ctx)
+            notes.extend(cleared or [])
+        except Exception:
+            pass
     try:
         from interview_mux.identical_failures import clear_halts_for_stages
 

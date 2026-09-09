@@ -377,5 +377,121 @@
   },
   "sfx_brief": {
     "transitions": []
+  },
+  "talking_points_compose": {
+    "strategy_summary": "Lead with the oncology through-line and keep host framing sparse.",
+    "talking_points": [
+      {
+        "talking_point_id": "tp_001",
+        "title": "Early detection",
+        "text": "Circulating tumour cells enable earlier oncology decisions.",
+        "segment_ids": ["seg_001"],
+        "importance": "must_keep",
+        "why_it_matters": "Sets the episode thesis for listeners early."
+      }
+    ]
+  },
+  "ideal_cuts_propose": {
+    "cuts": [
+      {
+        "cut_id": "cut_001",
+        "talking_point_id": "tp_001",
+        "start_ms": 0,
+        "end_ms": 4000,
+        "segment_ids": ["seg_001"],
+        "rationale": "Clear guest claim with host setup.",
+        "priority": "must_keep"
+      }
+    ]
+  },
+  "air_script_compose": {
+    "version": 1,
+    "cold_open": {
+      "kind": "segment_hook",
+      "rationale": "Open on the strongest guest claim.",
+      "evidence_refs": ["seg_001"],
+      "confidence": 0.8
+    },
+    "decisions": [],
+    "bespoke_rationale": "Keep conversational host framing with one cold open.",
+    "invariants": {"never_invent_unspoken_dialogue": true},
+    "generated_at": "2026-01-01T00:00:00Z",
+    "narrative_mode": "conversational_host",
+    "montage_grammar": [],
+    "plan_status": "complete",
+    "pass": "confirmed"
+  },
+  "air_script_seams": {
+    "version": 1,
+    "cold_open": {
+      "kind": "segment_hook",
+      "rationale": "Open on the strongest guest claim.",
+      "evidence_refs": ["seg_001"],
+      "confidence": 0.8
+    },
+    "decisions": [],
+    "bespoke_rationale": "Seams pass confirms conversational host framing.",
+    "invariants": {"never_invent_unspoken_dialogue": true},
+    "generated_at": "2026-01-01T00:00:00Z",
+    "narrative_mode": "conversational_host",
+    "montage_grammar": [],
+    "plan_status": "complete",
+    "pass": "confirmed"
+  },
+  "mmaudio_sfx": {
+    "version": 1,
+    "assets": [
+      {
+        "asset_id": "theme_underscore",
+        "role": "theme_underscore",
+        "verdict": "pass",
+        "generation_status": "pass",
+        "silence_detected": false
+      }
+    ]
+  },
+  "music_palette_compose": {
+    "cues": [
+      {
+        "cue_id": "c1",
+        "asset_id": "theme_underscore",
+        "role": "theme_underscore",
+        "placement": "under_segment",
+        "duration_sec": 8
+      }
+    ]
+  },
+  "master_transcript_build": {
+    "schema_version": 1,
+    "timebase": "master",
+    "cues": [
+      {
+        "start_ms": 0,
+        "end_ms": 1000,
+        "text": "Hello",
+        "speaker": "host",
+        "speaker_name": "Host"
+      }
+    ]
+  },
+  "connector_seam_adjudicate": {
+    "verdicts": [
+      {
+        "pair_id": "p1",
+        "decision": "fuse",
+        "rationale": "clean adjacency across low-conf island"
+      }
+    ]
+  },
+  "island_cluster_structure_adjudicate": {
+    "cluster_id": "cl1",
+    "topic_unity": "same_conversation",
+    "assignments": [
+      {
+        "island_id": "i1",
+        "role": "core",
+        "fuse_side": "left"
+      }
+    ]
   }
 }

@@ -657,7 +657,7 @@ def run_edl_vo_coverage_ladder(
             elif tier == "tier_b_vo_seated":
                 artifacts = _tier_b_vo_seated_coverage(ctx)
             elif tier == "tier_c_adjudicate_heal":
-                artifacts = _tier_c_adjudicate_heal(ctx)
+                artifacts = _tier_c_vo_adjudicate_heal(ctx)
             elif tier == "tier_d_operator":
                 if _hosted_topology_requires_orientation(ctx):
                     mark_remediation_plan_completed_vo_coverage(ctx)

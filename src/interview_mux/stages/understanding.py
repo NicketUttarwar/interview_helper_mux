@@ -25,6 +25,7 @@ from interview_mux.value_analysis.extract import (
 from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.artifact_completeness import make_stage_persist
+from interview_mux.stage_completion import heal_or_refuse_mark
 from interview_mux.stages.analysis_stage import (
     run_analysis_llm_stage,
     sync_content_brief_reanchor_to_state,
@@ -259,7 +260,7 @@ def run_talking_points_compose(ctx: RunContext) -> None:
             },
             stage_key="talking_points_compose",
         )
-        ctx.mark_done("talking_points_compose", force=True)
+        heal_or_refuse_mark(ctx, "talking_points_compose", force=True)
         return
 
     base_tp_persist = make_stage_persist(
@@ -384,7 +385,7 @@ def run_ideal_cuts_propose(ctx: RunContext) -> None:
             },
             stage_key="ideal_cuts_propose",
         )
-        ctx.mark_done("ideal_cuts_propose", force=True)
+        heal_or_refuse_mark(ctx, "ideal_cuts_propose", force=True)
         return
 
     def build_input(c: RunContext) -> dict:

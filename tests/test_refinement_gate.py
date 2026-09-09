@@ -12,7 +12,7 @@ import interview_mux.refinement_catalog as refinement_catalog
 from interview_mux.config import merged_config
 from interview_mux.refinement_gate import decide_pass
 from interview_mux.run_context import RunContext
-from run_fixtures import isolated_run_ctx, patch_executions_root
+from run_fixtures import isolated_run_ctx, patch_executions_root, mark_done_raw
 
 
 @pytest.fixture
@@ -208,7 +208,7 @@ def test_input_hash_skips_when_no_new_evidence_since_prior_snapshot(
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
     ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
     freeze_inputs(ctx, "narrative_arc_refine", req)
-    ctx.mark_done("narrative_arc_refine", force=True)
+    mark_done_raw(ctx, "narrative_arc_refine")
 
     decision = decide_pass(ctx, "narrative_arc_refine")
 
@@ -237,7 +237,7 @@ def test_input_hash_activates_again_when_inputs_change_after_prior_snapshot(
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1"]})
     ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
     freeze_inputs(ctx, "narrative_arc_refine", req)
-    ctx.mark_done("narrative_arc_refine", force=True)
+    mark_done_raw(ctx, "narrative_arc_refine")
 
     # New evidence: selection changed since the frozen snapshot.
     _raw_write(ctx, "master/selection.json", {"ordered_segment_ids": ["seg_1", "seg_2"]})

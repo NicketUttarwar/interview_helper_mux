@@ -13,6 +13,7 @@ from interview_mux.stage_completion import (
     stage_artifact_incompleteness,
     staged_artifacts_acceptable,
 )
+from run_fixtures import mark_done_raw
 from interview_mux.write_staging import (
     WriteApprovalBlockedError,
     assert_write_approval_allowed,
@@ -37,7 +38,7 @@ def test_reconcile_clears_stage_done_for_partial_resilience(tmp_path, monkeypatc
         merge_from_disk=False,
         stage_key="speaker_roles",
     )
-    ctx.mark_done("speaker_roles", force=True)
+    mark_done_raw(ctx, "speaker_roles")
     assert not ctx.is_done("speaker_roles")
     marker = ctx.final_path(".stage_done", "speaker_roles")
     marker.parent.mkdir(parents=True, exist_ok=True)
@@ -171,8 +172,8 @@ def test_content_context_stays_done_when_only_reanchor_gaps(tmp_path, monkeypatc
         merge_from_disk=False,
         stage_key="content_context",
     )
-    ctx.mark_done("content_context", force=True)
-    ctx.mark_done("content_brief_reanchor", force=True)
+    mark_done_raw(ctx, "content_context")
+    mark_done_raw(ctx, "content_brief_reanchor")
 
     assert stage_artifact_incompleteness(ctx, "content_context") is None
     reconcile_stage_done_marker(ctx, "content_context")
@@ -318,7 +319,7 @@ def test_mmaudio_incomplete_when_sdp_wavs_missing(tmp_path, monkeypatch):
     )
     reason = stage_artifact_incompleteness(ctx, "mmaudio_sfx")
     assert reason and "theme_missing_bed" in reason
-    ctx.mark_done("mmaudio_sfx", force=True)
+    mark_done_raw(ctx, "mmaudio_sfx")
     assert not reconcile_stage_done_marker(ctx, "mmaudio_sfx")
     assert not ctx.is_done("mmaudio_sfx")
 

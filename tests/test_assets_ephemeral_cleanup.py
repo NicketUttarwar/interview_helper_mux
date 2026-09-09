@@ -14,6 +14,7 @@ from run_fixtures import (
     TEST_SOURCE_AUDIO_HASH,
     TEST_SOURCE_AUDIO_HASH_SHORT,
     init_run_meta_for_test,
+    mark_done_raw,
 )
 
 
@@ -114,14 +115,18 @@ def test_cleanup_preserves_stage_reuse_lookback_outputs(
 
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: repo)
     monkeypatch.setattr("interview_mux.assets_ephemeral_cleanup.repo_root", lambda: repo)
-    monkeypatch.setattr(
-        "interview_mux.config.merged_config",
-        lambda: {
-            **merged_config(),
+    from interview_mux.config import merged_config
+    from run_fixtures import patch_merged_config
+
+    base = merged_config()
+    patch_merged_config(
+        monkeypatch,
+        {
+            **base,
             "assets_root": "ASSETS",
             "executions_root": "ASSETS/executions",
             "journey_ui": {
-                **(merged_config().get("journey_ui") or {}),
+                **(base.get("journey_ui") or {}),
                 "stage_reuse_lookback_executions": 5,
                 "enable_stage_reuse_offers": True,
             },
@@ -148,7 +153,7 @@ def test_cleanup_preserves_stage_reuse_lookback_outputs(
     )
     reusable.write_json("transcript/full.json", {"segments": [{"text": "hello"}]})
     reusable.write_json("transcript/speakers.json", {"speakers": [{"id": "A"}]})
-    reusable.mark_done("transcribe")
+    mark_done_raw(reusable, "transcribe")
     (reusable.run_dir / ".run.lock").write_text("", encoding="utf-8")
     (reusable.run_dir / ".pending_writes").mkdir(exist_ok=True)
 

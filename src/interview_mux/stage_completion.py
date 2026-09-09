@@ -122,6 +122,17 @@ def stage_artifact_incompleteness(
         return vo_reason
     if stage_id == "nugget_layup_compose":
         try:
+            from interview_mux.artifact_sanitize.registry import selection_sanitary_errors
+
+            sel_errs = selection_sanitary_errors(ctx)
+        except Exception:
+            sel_errs = []
+        if sel_errs:
+            return (
+                "selection_unsanitary — resume selection_order_sanitize: "
+                + "; ".join(sel_errs[:3])
+            )
+        try:
             from interview_mux.nugget_layup import layup_freshness_errors
 
             fresh_errs = layup_freshness_errors(ctx)
@@ -129,7 +140,75 @@ def stage_artifact_incompleteness(
             fresh_errs = []
         if fresh_errs:
             return fresh_errs[0]
+        try:
+            from interview_mux.artifact_sanitize.registry import layup_sanitary_errors
+
+            lay_errs = layup_sanitary_errors(ctx)
+        except Exception:
+            lay_errs = []
+        if lay_errs:
+            return "layup_unsanitary — resume nugget_layup_compose: " + "; ".join(
+                lay_errs[:3]
+            )
+    if stage_id == "gap_report_sanitize":
+        try:
+            from interview_mux.artifact_sanitize.registry import gap_sanitary_errors
+
+            gap_errs = gap_sanitary_errors(ctx)
+        except Exception:
+            gap_errs = []
+        if gap_errs:
+            return "gap still unsanitary: " + "; ".join(gap_errs[:3])
+    if stage_id == "air_contract_sanitize":
+        try:
+            from interview_mux.artifact_sanitize.registry import air_contract_sanitary_errors
+
+            air_errs = air_contract_sanitary_errors(ctx)
+        except Exception:
+            air_errs = []
+        if air_errs:
+            return "air_contract still unsanitary: " + "; ".join(air_errs[:3])
+    if stage_id == "selection_order_sanitize":
+        if not ctx.artifact_exists("master/selection.json"):
+            return "master/selection.json is pending"
+        try:
+            from interview_mux.artifact_sanitize.registry import selection_sanitary_errors
+
+            sel_errs = selection_sanitary_errors(ctx)
+        except Exception:
+            sel_errs = []
+        if sel_errs:
+            return "selection still unsanitary: " + "; ".join(sel_errs[:3])
     if stage_id == "sound_design_plan":
+        try:
+            from interview_mux.artifact_sanitize.registry import (
+                selection_sanitary_errors,
+                sdp_sanitary_errors,
+                layup_sanitary_errors,
+            )
+
+            sel_errs = selection_sanitary_errors(ctx)
+            if sel_errs:
+                return (
+                    "selection_unsanitary — resume selection_order_sanitize: "
+                    + "; ".join(sel_errs[:3])
+                )
+            lay_errs = layup_sanitary_errors(ctx)
+            if lay_errs:
+                return (
+                    "layup_unsanitary — resume nugget_layup_compose: "
+                    + "; ".join(lay_errs[:3])
+                )
+            sdp_errs = sdp_sanitary_errors(ctx)
+            if sdp_errs and any("missing" not in e for e in sdp_errs):
+                # missing is ok before first write; stale/unsanitary is not
+                stale = [e for e in sdp_errs if "stale" in e or "needs_sanitize" in e]
+                if stale:
+                    return "sdp_unsanitary — resume sound_design_plan: " + "; ".join(
+                        stale[:3]
+                    )
+        except Exception:
+            pass
         if not ctx.artifact_exists("master/transitions.json"):
             return "master/transitions.json is pending"
         try:
@@ -140,6 +219,31 @@ def stage_artifact_incompleteness(
         except Exception:
             return "sound_design_plan delivery SDP not confirmed"
     if stage_id == "vo_synthesize":
+        try:
+            from interview_mux.artifact_sanitize.registry import (
+                gap_sanitary_errors,
+                air_contract_sanitary_errors,
+            )
+
+            for label, fn in (
+                ("gap", gap_sanitary_errors),
+                ("air_contract", air_contract_sanitary_errors),
+            ):
+                try:
+                    errs = fn(ctx)
+                except Exception:
+                    errs = []
+                if errs:
+                    resume = (
+                        "gap_report_sanitize"
+                        if label == "gap"
+                        else "air_contract_sanitize"
+                    )
+                    return f"{label}_unsanitary — resume {resume}: " + "; ".join(
+                        errs[:3]
+                    )
+        except Exception:
+            pass
         if not ctx.artifact_exists("master/transitions.json"):
             return "master/transitions.json is pending"
         try:
@@ -167,6 +271,14 @@ def stage_artifact_incompleteness(
                     "seated synthesize VO missing WAV: "
                     + ", ".join(missing_seated[:4])
                 )
+        except Exception:
+            pass
+        try:
+            from interview_mux.artifact_sanitize.registry import vo_sanitary_errors
+
+            vo_errs = vo_sanitary_errors(ctx)
+            if vo_errs:
+                return "vo_unsanitary — resume vo_synthesize: " + "; ".join(vo_errs[:3])
         except Exception:
             pass
         try:
@@ -271,12 +383,99 @@ PRODUCER_PIN_TABLE: dict[str, str] = {
     "cover_missing": "episode_cover_generate",
     "encode_missing": "podcast_encode_mp3",
     "publish_advisories": "podcast_publish",
+    # Sanitize / incompleteness tokens (Lock 5 / O3)
+    "selection_unsanitary": "selection_order_sanitize",
+    "gap_unsanitary": "gap_report_sanitize",
+    "air_contract_unsanitary": "air_contract_sanitize",
+    "layup_unsanitary": "nugget_layup_compose",
+    "fragment_depth": "selection_order_sanitize",
+    "sdp_unsanitary": "sound_design_plan",
+    "vo_unsanitary": "vo_synthesize",
 }
 # Every delivery stage pins itself for "artifact missing" tokens.
 for _sid in DELIVERY_ORDER:
     PRODUCER_PIN_TABLE.setdefault(str(_sid), str(_sid))
     PRODUCER_PIN_TABLE.setdefault(f"{_sid}_missing", str(_sid))
     PRODUCER_PIN_TABLE.setdefault(f"artifact_missing:{_sid}", str(_sid))
+
+
+def _resume_stage_allowlist() -> set[str]:
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    ids = {str(s) for s in DELIVERY_ORDER} | {str(s) for s in ANALYSIS_ORDER}
+    ids.update(
+        {
+            "selection_order_sanitize",
+            "gap_report_sanitize",
+            "air_contract_sanitize",
+        }
+    )
+    return ids
+
+
+def parse_resume_stage_from_reason(reason: str) -> str | None:
+    """Allowlisted fallback parse of ``— resume <stage>:`` in incompleteness prose."""
+    import re
+
+    text = str(reason or "")
+    m = re.search(r"—\s*resume\s+([a-z0-9_]+)\s*:", text, flags=re.IGNORECASE)
+    if not m:
+        m = re.search(r"-\s*resume\s+([a-z0-9_]+)\s*:", text, flags=re.IGNORECASE)
+    if not m:
+        return None
+    sid = str(m.group(1) or "").strip()
+    if sid in _resume_stage_allowlist():
+        return sid
+    return None
+
+
+def incompleteness_resume_stage(ctx: RunContext, consumer_stage: str) -> str | None:
+    """Structured resume for a consumer's incompleteness (same branch, not regex)."""
+    sid = str(consumer_stage or "").strip()
+    if not sid:
+        return None
+    # Mirror the sanitary/resume branches in stage_artifact_incompleteness.
+    if sid == "nugget_layup_compose":
+        try:
+            from interview_mux.artifact_sanitize.registry import selection_sanitary_errors
+
+            if selection_sanitary_errors(ctx):
+                return "selection_order_sanitize"
+        except Exception:
+            pass
+        try:
+            from interview_mux.artifact_sanitize.registry import layup_sanitary_errors
+
+            if layup_sanitary_errors(ctx):
+                return "nugget_layup_compose"
+        except Exception:
+            pass
+    if sid == "sound_design_plan":
+        try:
+            from interview_mux.artifact_sanitize.registry import (
+                selection_sanitary_errors,
+                layup_sanitary_errors,
+                sdp_sanitary_errors,
+            )
+
+            if selection_sanitary_errors(ctx):
+                return "selection_order_sanitize"
+            if layup_sanitary_errors(ctx):
+                return "nugget_layup_compose"
+            sdp_errs = sdp_sanitary_errors(ctx)
+            if sdp_errs and any("stale" in e or "needs_sanitize" in e for e in sdp_errs):
+                return "sound_design_plan"
+        except Exception:
+            pass
+    reason = stage_artifact_incompleteness(ctx, sid)
+    if reason:
+        parsed = parse_resume_stage_from_reason(reason)
+        if parsed:
+            return parsed
+        for tok, pin in PRODUCER_PIN_TABLE.items():
+            if tok and tok in str(reason).lower() and pin in _resume_stage_allowlist():
+                return pin
+    return None
 
 
 def producer_pin_for_token(token: str, *, default: str = "edl") -> str:
@@ -295,6 +494,7 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
     - incompleteness None + usable → mark_done (force only via assert_may_force_done)
     - incompleteness set + done → unmark that stage only
     - incompleteness set + not done → refuse mark
+    - intentional allow-stub (G1 optional VO skip with force) → mark despite hollow
     """
     sid = str(stage or "").strip()
     out: dict[str, Any] = {"stage": sid, "marked": False, "unmarked": False, "refused": False}
@@ -303,22 +503,32 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
         out["reason"] = "empty_stage"
         return out
     reason = stage_artifact_incompleteness(ctx, sid)
-    if reason is None:
-        # Depth 7: refuse mark when primary artifact fails usability.
+    allow_stub = False
+    if reason and force and sid in {"vo_synthesize", "vo_line_adjudicate"}:
+        # Documented allow-stub: operator skipped optional G1 VO pickup.
         try:
-            from interview_mux.thrash_hardening import artifact_usable
-            from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+            from interview_mux.gates import g1_vo_was_skipped_optional
 
-            rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
-            if rel and ctx.artifact_exists(rel):
-                ok, ureason = artifact_usable(ctx, rel, consumer=sid)
-                if not ok:
-                    out["refused"] = True
-                    out["reason"] = f"artifact_unusable:{ureason or rel}"
-                    return out
+            allow_stub = bool(g1_vo_was_skipped_optional(ctx))
         except Exception:
-            pass
-        if force:
+            allow_stub = False
+    if reason is None or allow_stub:
+        # Depth 7: refuse mark when primary artifact fails usability (unless allow_stub).
+        if reason is None:
+            try:
+                from interview_mux.thrash_hardening import artifact_usable
+                from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
+
+                rel = STAGE_ARTIFACT_DISK_PATHS.get(sid)
+                if rel and ctx.artifact_exists(rel):
+                    ok, ureason = artifact_usable(ctx, rel, consumer=sid)
+                    if not ok:
+                        out["refused"] = True
+                        out["reason"] = f"artifact_unusable:{ureason or rel}"
+                        return out
+            except Exception:
+                pass
+        if force and not allow_stub:
             try:
                 from interview_mux.thrash_hardening import assert_may_force_done
 
@@ -328,8 +538,17 @@ def heal_or_refuse_mark(ctx: RunContext, stage: str, *, force: bool = False) -> 
                 out["reason"] = str(exc)
                 return out
         if not ctx.is_done(sid):
-            ctx.mark_done(sid, force=bool(force))
+            # Avoid re-entering heal_or_refuse via mark_done force guard.
+            prev = getattr(ctx, "_mark_done_raw", False)
+            ctx._mark_done_raw = True
+            try:
+                ctx.mark_done(sid, force=bool(force))
+            finally:
+                ctx._mark_done_raw = prev
             out["marked"] = True
+            if allow_stub:
+                out["allow_stub"] = True
+                out["reason"] = reason
         return out
     if ctx.is_done(sid):
         reconcile_stage_done_marker(ctx, sid)

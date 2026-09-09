@@ -1,0 +1,26 @@
+stage_id: selection_order_sanitize
+tier: process
+lifecycle:
+  phases:
+  - prestage
+  - pre_call
+  - llm_execute
+  - staged_validate
+  - committed
+  - post_commit_validate
+outputs:
+- path: master/selection.json
+  schema: null
+  staging: false
+inputs:
+  hard: []
+  soft: []
+sufficiency: []
+propagation:
+  invalidates_stages: []
+consumers:
+- full_master_ranking
+remediation:
+  strategies:
+  - volley_retry
+  - full_stage_rerun

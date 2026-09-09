@@ -177,7 +177,11 @@ def test_feasibility_blocks_split_locked_volley():
 def test_feasibility_allow_list_only_applies_when_authoritative():
     fixture, _ = load_fixture("technical_1on1_landmined")
     cands = candidates(fixture)
-    advisory = build_feasibility_report(cands, feasibility_inputs(fixture))
+    advisory = build_feasibility_report(
+        cands,
+        feasibility_inputs(fixture),
+        cfg={"mastering": {"quality_hardening": {"feasibility": {"mode": "advisory"}}}},
+    )
     assert len(eligible_candidates(advisory, cands)) == len(cands)
 
     authoritative = build_feasibility_report(
@@ -247,7 +251,15 @@ def test_llm_confirm_can_clear_a_deterministic_flag():
 def test_critical_findings_only_remove_candidates_when_authoritative():
     fixture, _ = load_fixture("technical_1on1_landmined")
     cands = candidates(fixture)
-    advisory = build_integrity_report(cands, integrity_inputs(fixture))
+    advisory = build_integrity_report(
+        cands,
+        integrity_inputs(fixture),
+        cfg={
+            "mastering": {
+                "quality_hardening": {"semantic_integrity": {"mode": "advisory"}}
+            }
+        },
+    )
     assert len(clean_candidates(advisory, cands)) == len(cands)
 
     authoritative = build_integrity_report(

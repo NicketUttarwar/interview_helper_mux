@@ -29,13 +29,21 @@ _FLOW_UPSTREAM_ARTIFACTS: dict[str, tuple[str, ...]] = {
 
 def run_preflight(stage_key: str, ctx: RunContext) -> list[str]:
     """Return human-readable preflight errors (empty list = pass)."""
+    errors: list[str] = []
+    try:
+        from interview_mux.artifact_sanitize.preflight import sanitary_preflight_errors
+
+        errors.extend(sanitary_preflight_errors(ctx, stage_key))
+    except Exception:
+        pass
     checker = _PREFLIGHT_CHECKERS.get(stage_key)
     if checker is None:
         upstream = _FLOW_UPSTREAM_ARTIFACTS.get(stage_key)
         if upstream:
-            return _check_upstream_artifacts(ctx, upstream)
-        return []
-    return checker(ctx)
+            errors.extend(_check_upstream_artifacts(ctx, upstream))
+        return errors
+    errors.extend(checker(ctx))
+    return errors
 
 
 def _check_upstream_artifacts(ctx: RunContext, paths: tuple[str, ...]) -> list[str]:

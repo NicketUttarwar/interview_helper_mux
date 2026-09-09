@@ -11,6 +11,7 @@ from interview_mux.refinement_ledger import record_call
 from interview_mux.refinement_policy import detect_tape_character, resolve_policy_pack
 from interview_mux.refinement_priors import bias_eligible_classes, priors_enabled
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 AGENDA_REL = "understanding/refinement_agenda.json"
 
@@ -110,5 +111,5 @@ def run_refinement_agenda(ctx: RunContext, *, phase: Literal["draft", "confirm"]
         detail={"tape_character": characters, "eligible_classes": eligible},
     )
     if not ctx.is_done("refinement_agenda"):
-        ctx.mark_done("refinement_agenda", force=True)
+        heal_or_refuse_mark(ctx, "refinement_agenda", force=True)
     return doc

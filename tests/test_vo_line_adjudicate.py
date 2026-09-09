@@ -194,7 +194,8 @@ def test_stage_skips_for_original_brain(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "adj_skip")
     ctx.write_json("run_meta.json", {"homunculus_version": "0.0.0"}, skip_handoff=True)
     vo_line_adjudicate_stage.run_vo_line_adjudicate(ctx)
-    assert ctx.is_done("vo_line_adjudicate")
+    # Skip path refuses hollow marks when adjudication artifacts are absent.
+    assert not ctx.is_done("vo_line_adjudicate")
 
 
 def test_nuke_all_synth_wavs_on_adjudicate_change(tmp_path: Path) -> None:

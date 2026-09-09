@@ -11,6 +11,7 @@ from typing import Any
 
 from interview_mux.config import merged_config
 from interview_mux.run_context import RunContext
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 TALKING_POINTS_REL = "understanding/talking_points.json"
 IDEAL_CUTS_REL = "understanding/ideal_cuts.json"
@@ -1025,7 +1026,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
             MATERIALIZED_REL,
             {"version": 1, "enabled": False, "cuts": [], "note": "analysis.ideal_cuts.enable=false"},
         )
-        ctx.mark_done("ideal_cuts_materialize", force=True)
+        heal_or_refuse_mark(ctx, "ideal_cuts_materialize", force=True)
         return
 
     if not ctx.artifact_exists(IDEAL_CUTS_REL):
@@ -1153,7 +1154,7 @@ def run_ideal_cuts_materialize(ctx: RunContext) -> None:
         materialized["boundary_skip_reason"] = boundary_skip_reason
     ctx.write_json(MATERIALIZED_REL, materialized, stage_key="ideal_cuts_materialize")
     if not ctx.is_done("ideal_cuts_materialize"):
-        ctx.mark_done("ideal_cuts_materialize", force=True)
+        heal_or_refuse_mark(ctx, "ideal_cuts_materialize", force=True)
     ctx.log(
         f"ideal_cuts_materialize: cuts={len(snapped.get('cuts') or [])} "
         f"boundaries={wrote_boundaries} seed={bool(write_seed)}",

@@ -2334,7 +2334,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       gPublish: partialAutoGPublishRef.current,
     }).stageId;
     return Boolean(focusId && selectedStageId !== focusId);
-  }, [refreshRun, navigateToOperatorFocus]);
+  }, [pinnedStageId, run, selectedStageId, jobRunning, apiGrants]);
 
   const partialAutoGPublish = usePartialAutoGPublish(run);
   partialAutoGPublishRef.current = partialAutoGPublish;

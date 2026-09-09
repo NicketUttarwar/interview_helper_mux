@@ -622,22 +622,122 @@ def generate_music_clip(
         except Exception as exc:
             meta["musicgen_error"] = str(exc)[:400]
 
-    if not stub_allowed_for_role(role):
+    if not stub_allowed_for_role(role) or fail_closed_on_stub():
         prior = restore_prior_stem(out_wav)
         if prior:
             meta.update(prior)
             return meta
-        meta["backend"] = "musicgen_failed"
-        meta["warning"] = "MusicGen failed; musical_stub blocked for role"
-        meta["mmaudio_backup_suggested"] = bool(musicgen_cfg().get("mmaudio_backup_on_stub", True))
+        # MU1: omit bed path — do not write musical_stub for creative delivery.
+        if out_wav.is_file():
+            try:
+                out_wav.unlink()
+            except OSError:
+                pass
+        meta["backend"] = "music_omitted"
+        meta["warning"] = "MusicGen failed; stub omitted (fail_closed_on_stub)"
+        meta["mmaudio_backup_suggested"] = bool(
+            musicgen_cfg().get("mmaudio_backup_on_stub", False)
+        )
+        meta["music_omitted"] = True
         _write_generation_meta(out_wav, meta)
+        try:
+            stamp_music_omitted(run_ctx, asset_id=out_wav.stem, reason="fail_closed_stub_exhaustion")
+        except Exception:
+            pass
         return meta
 
-    # Always emit listenable notes if MusicGen timed out or failed — never silent mix.
-    # Callers (sfx_mmaudio) may still try MMAudio when backend=musical_stub.
+    # Legacy stub path only when fail_closed_on_stub is false and role allows.
     _write_musical_stub_wav(out_wav, duration_sec=dur, seed=int(seed or 0))
     meta["backend"] = "musical_stub"
     meta["warning"] = "MusicGen unavailable; wrote deterministic musical-note stub"
-    meta["mmaudio_backup_suggested"] = bool(musicgen_cfg().get("mmaudio_backup_on_stub", True))
+    meta["mmaudio_backup_suggested"] = bool(
+        musicgen_cfg().get("mmaudio_backup_on_stub", False)
+    )
     _write_generation_meta(out_wav, meta)
     return meta
+
+
+def stamp_music_omitted(
+    run_ctx: Any | None,
+    *,
+    asset_id: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Record honest music_omitted ledger when a bed is skipped instead of stubbed."""
+    row = {
+        "asset_id": str(asset_id or ""),
+        "reason": str(reason or "")[:240],
+        "at": __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ).isoformat(),
+    }
+    if run_ctx is None:
+        return row
+    try:
+        rel = "operator/music_omitted.json"
+        doc: dict[str, Any] = {"omitted": []}
+        if hasattr(run_ctx, "artifact_exists") and run_ctx.artifact_exists(rel):
+            loaded = run_ctx.read_json(rel)
+            if isinstance(loaded, dict):
+                doc = dict(loaded)
+        omitted = list(doc.get("omitted") or [])
+        omitted.append(row)
+        doc["omitted"] = omitted[-100:]
+        doc["updated_at"] = row["at"]
+        run_ctx.write_json(rel, doc, skip_handoff=True)
+    except Exception:
+        pass
+    try:
+        if hasattr(run_ctx, "mutate_run_meta"):
+
+            def _mark(meta: dict[str, Any]) -> None:
+                meta["music_omitted"] = True
+                ids = list(meta.get("music_omitted_asset_ids") or [])
+                aid = str(asset_id or "")
+                if aid and aid not in ids:
+                    ids.append(aid)
+                meta["music_omitted_asset_ids"] = ids[-40:]
+
+            run_ctx.mutate_run_meta(_mark)
+    except Exception:
+        pass
+    return row
+
+
+def generate_or_omit_bed(
+    *,
+    prompt: str,
+    negative_prompt: str = "",
+    duration_sec: float = 8.0,
+    out_wav: Path,
+    role: str | None = None,
+    run_ctx: Any | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Generate a MusicGen bed, or omit (no stub WAV) when fail-closed exhausts."""
+    _ = run_ctx  # caller may stamp; generate_music_clip derives ctx from out_wav
+    meta = generate_music_clip(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        duration_sec=duration_sec,
+        out_wav=out_wav,
+        role=role,
+        **kwargs,
+    )
+    backend = str((meta or {}).get("backend") or "")
+    if backend in {"musical_stub", "music_omitted", "musicgen_failed"} and fail_closed_on_stub():
+        if out_wav.is_file() and backend == "musical_stub":
+            try:
+                out_wav.unlink()
+            except OSError:
+                pass
+            meta = dict(meta or {})
+            meta["backend"] = "music_omitted"
+            meta["music_omitted"] = True
+            _write_generation_meta(out_wav, meta)
+        stamp_music_omitted(
+            run_ctx or _run_ctx_for_out_wav(out_wav),
+            asset_id=out_wav.stem,
+            reason=f"generate_or_omit:{backend}",
+        )
+    return meta or {}

@@ -21,6 +21,7 @@ from interview_mux.sonic_context import (
 )
 from interview_mux.stage_enrichment import compact_manifest_for_volley, compact_value_features_summary
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage, run_flow_llm_stage
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 _SOUND_DESIGN_PLAN_REL = "understanding/sound_design_plan.json"
 
@@ -64,7 +65,7 @@ def run_sound_design_palettes(ctx: RunContext) -> None:
             level="info",
             stage="sound_design_palettes",
         )
-        ctx.mark_done("sound_design_palettes", force=True)
+        heal_or_refuse_mark(ctx, "sound_design_palettes", force=True)
         return
 
     def build_input(c: RunContext) -> dict:
@@ -617,7 +618,7 @@ def _mark_skipped(ctx: RunContext, stage_key: str) -> None:
         level="info",
         stage=stage_key,
     )
-    ctx.mark_done(stage_key, force=True)
+    heal_or_refuse_mark(ctx, stage_key, force=True)
 
 def _attach_palette_provenance(ctx: RunContext, palettes: list[dict]) -> list[dict]:
     sonic = load_sonic_context(ctx) or {}

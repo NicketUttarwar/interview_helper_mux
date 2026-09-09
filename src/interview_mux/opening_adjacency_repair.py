@@ -105,12 +105,15 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
         changed.append(line_id or _line_target(line))
     if not changed:
         return []
-    from interview_mux.file_store import write_json as fs_write_json
+    from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
 
-    fs_write_json(ctx.path("understanding/gap_report.json"), gap)
+    commit_gap_report_doc(ctx, gap, reason="opening_adjacency_suppress_duplicate")
     if ctx.artifact_exists("understanding/nugget_layup_plan.json"):
         try:
             from interview_mux.nugget_layup import PLAN_REL, stamp_typed_skip
+            from interview_mux.artifact_sanitize.one_writer import (
+                commit_nugget_layup_plan_doc,
+            )
 
             plan = ctx.read_json(PLAN_REL)
             if isinstance(plan, dict):
@@ -134,7 +137,12 @@ def suppress_opening_layup_when_orientation_owns_slot(ctx: RunContext) -> list[s
                     )
                     plan_changed = True
                 if plan_changed:
-                    fs_write_json(ctx.path(PLAN_REL), plan)
+                    commit_nugget_layup_plan_doc(
+                        ctx,
+                        plan,
+                        skip_handoff=True,
+                        reason="opening_adjacency_suppress_duplicate",
+                    )
         except Exception:
             pass
     try:
@@ -186,9 +194,9 @@ def drop_orphan_opening_vo_when_native_orients(ctx: RunContext) -> list[str]:
             kept.append(line)
         if dropped:
             gap["interviewer_lines"] = kept
-            from interview_mux.file_store import write_json as fs_write_json
+            from interview_mux.artifact_sanitize.gap_report import commit_gap_report_doc
 
-            fs_write_json(ctx.path("understanding/gap_report.json"), gap)
+            commit_gap_report_doc(ctx, gap, reason="opening_adjacency_drop_orphan")
     pickup = ctx.final_path("vo_pickup")
     for lid in _ORPHAN_OPENING_LINE_IDS:
         for folder in (pickup, pickup / "synthesized"):

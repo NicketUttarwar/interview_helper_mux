@@ -2,9 +2,10 @@
 
 | Stage | Tier | Outputs |
 |-------|------|---------|
+| `air_contract_sanitize` | process | — |
 | `air_script_compose` | llm_full | mastering/mastering_plan.json |
 | `air_script_seams` | llm_full | mastering/mastering_plan.json |
-| `assembly_preview` | process | — |
+| `assembly_preview` | process | master/assembly_preview.wav |
 | `audio_preclean` | process | — |
 | `audio_probe_build` | process | — |
 | `boundary_detection` | llm_full | segments/boundaries.json |
@@ -28,6 +29,7 @@
 | `g1_vo_pickup` | gate | — |
 | `gap_framing_compose` | llm_full | understanding/gap_report.json |
 | `gap_framing_recompose` | deterministic | — |
+| `gap_report_sanitize` | process | — |
 | `ideal_cuts_materialize` | process | understanding/ideal_cuts_materialized.json |
 | `ideal_cuts_propose` | llm_full | understanding/ideal_cuts.json |
 | `information_package_plan` | process | — |
@@ -35,9 +37,9 @@
 | `interview_spine_build` | deterministic | — |
 | `island_cluster_structure_adjudicate` | llm_advisory | analysis/island_cluster_structure_verdicts.json, analysis/island_cluster_structure_packets.json |
 | `junction_feel_audit` | llm_full | master/junction_feel_audit.json |
-| `junction_snip_qa` | process | — |
+| `junction_snip_qa` | process | master/seam_autopsy.json |
 | `junction_thought_complete` | llm_full | master/junction_thought_complete.json |
-| `listen_delight_audit` | process | — |
+| `listen_delight_audit` | process | mastering/listen_delight_audit.json |
 | `low_conf_island_scan` | process | analysis/low_conf_islands.json |
 | `master_finalize` | process | — |
 | `master_transcript_build` | process | master/transcript.json, master/transcript.vtt, master/transcript.txt |
@@ -49,7 +51,7 @@
 | `mastering_shape_agenda` | process | — |
 | `mastering_shape_candidates` | process | — |
 | `missing_framing` | llm_full | understanding/gap_evaluations.json |
-| `mix` | process | — |
+| `mix` | process | master/assembly.wav |
 | `mmaudio_sfx` | process | sound_design/mmaudio_qa.json |
 | `music_palette_compose` | llm_full | sound_design/music_palette_compose.json |
 | `narrative_arc_plan` | llm_full | master/narrative_plan.json |
@@ -65,6 +67,7 @@
 | `sdp_intent_refine` | deterministic | — |
 | `segment_classification` | llm_full | segments/manifest.json |
 | `selection_framing_apply` | deterministic | — |
+| `selection_order_sanitize` | process | master/selection.json |
 | `sfx_brief` | llm_full | REMOVED_flow2/sfx_brief.json |
 | `sfx_prompt_craft` | llm_full | sound_design/sfx_prompts.json |
 | `sfx_prompt_refine` | llm_full | sound_design/sfx_prompts.json |

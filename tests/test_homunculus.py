@@ -21,6 +21,7 @@ from interview_mux.homunculus.values import should_hard_omit_cta
 from interview_mux.homunculus.version import normalize_version
 from interview_mux.run_context import RunContext
 from interview_mux.volley_packet_lint import strip_forbidden_metadata
+from run_fixtures import mark_done_raw
 
 
 def _ctx_010() -> RunContext:
@@ -30,6 +31,32 @@ def _ctx_010() -> RunContext:
         {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
     )
     return ctx
+
+
+def _mark_analysis_prefix(ctx: RunContext, upto_stage: str) -> None:
+    """TH1b: fixture-stamp ANALYSIS_ORDER before ``upto_stage`` with prepare outputs."""
+    from interview_mux.v2.config import ANALYSIS_ORDER
+
+    idx = ANALYSIS_ORDER.index(upto_stage)
+    prefix = ANALYSIS_ORDER[:idx]
+    if "ingest" in prefix or "transcribe" in prefix or "audio_preclean" in prefix:
+        wav = ctx.path("ingest", "normalized.wav")
+        wav.parent.mkdir(parents=True, exist_ok=True)
+        if not wav.is_file():
+            wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    if "audio_preclean" in prefix:
+        # unmark_hollow_prepare_stages requires any preclean output present.
+        prov = ctx.path("preclean", "provider.json")
+        prov.parent.mkdir(parents=True, exist_ok=True)
+        if not prov.is_file():
+            prov.write_text('{"status":"skipped","provider":"fixture"}', encoding="utf-8")
+    if "transcribe" in prefix and not ctx.artifact_exists("transcript/full.json"):
+        ctx.write_json(
+            "transcript/full.json",
+            {"text": "fixture tape", "segments": []},
+            skip_handoff=True,
+        )
+    mark_done_raw(ctx, *prefix)
 
 
 def _ctx_000() -> RunContext:
@@ -67,21 +94,61 @@ def test_010_is_homunculus_run() -> None:
     assert is_homunculus_run(ctx) is True
 
 
-def test_fourth_invoke_refused() -> None:
+def test_fourth_invoke_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx_010()
     import os
     import time
+
+    # Unit test is about invoke identity caps, not mix seating completeness.
+    monkeypatch.setattr(
+        "interview_mux.homunculus.runtime._seed_prereq_block",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_input_checks.collect_stage_input_issues",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.stage_outputs_present",
+        lambda *_a, **_k: True,
+    )
+    monkeypatch.setattr(
+        "interview_mux.stage_completion.stage_artifact_incompleteness",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.upstream_stale_blockers",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.delivery_guardrails.mix_epoch_block",
+        lambda *_a, **_k: None,
+    )
 
     def _ok() -> None:
         dest = ctx.path("master/assembly.wav")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"RIFF")
         edl = ctx.path("master/edl.json")
-        edl.write_text("{}", encoding="utf-8")
+        edl.parent.mkdir(parents=True, exist_ok=True)
+        edl.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "ordered_segment_ids": [],
+                    "timeline_duration_ms": 0,
+                    "clips": [],
+                }
+            ),
+            encoding="utf-8",
+        )
         now = time.time()
         os.utime(edl, (now - 10, now - 10))
         os.utime(dest, (now, now))
-        ctx.mark_done("mix", force=True)
+        # Direct marker — RIFF stub fails artifact_status even under _mark_done_raw.
+        marker = ctx.final_path(".stage_done", "mix")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
 
     for _ in range(3):
         dispatch_stage(ctx, "mix", _ok, source="test")
@@ -112,6 +179,7 @@ def _write_boundaries(ctx: RunContext) -> None:
 
 def test_failed_stage_invokes_do_not_burn_cap() -> None:
     ctx = _ctx_010()
+    _mark_analysis_prefix(ctx, "boundary_detection")
 
     def _boom() -> None:
         raise RuntimeError("pre-stage lifecycle failed")
@@ -126,6 +194,7 @@ def test_failed_stage_invokes_do_not_burn_cap() -> None:
 
 def test_nested_llm_does_not_burn_stage_identity_cap() -> None:
     ctx = _ctx_010()
+    _mark_analysis_prefix(ctx, "boundary_detection")
 
     def _boom() -> None:
         raise RuntimeError("pre-stage lifecycle failed")
@@ -569,6 +638,7 @@ def test_dispatch_speaker_roles_mixed_diarization_persists(tmp_path) -> None:
         {"homunculus_version": "0.1.0", "homunculus_kind": "homunculus"},
         skip_handoff=True,
     )
+    _mark_analysis_prefix(ctx, "speaker_roles")
     words = []
     t = 0
     for _ in range(40):
@@ -872,7 +942,7 @@ def test_delivery_walks_ship_remainder_when_master_exists(monkeypatch) -> None:
     def _walk(_ctx, stages, *, reason: str) -> None:
         walked.append((reason, tuple(stages)))
         for sid in stages:
-            _ctx.mark_done(sid, force=True)
+            mark_done_raw(_ctx, sid)
 
     monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
     monkeypatch.setattr(
@@ -908,13 +978,15 @@ def test_delivery_walks_to_master_when_wav_missing(monkeypatch) -> None:
         "interview_mux.homunculus.agenda.pending_analysis_for_delivery",
         lambda _c: [],
     )
-    run_homunculus_phase(
-        ctx,
-        "delivery",
-        ["mix", "master_finalize"],
-        client=_stop_client(),
-    )
-    # mix/master_finalize deferred until music epoch complete — no hollow walk.
+    # mix/master_finalize deferred until music epoch complete — no hollow walk;
+    # fail-closed raises rather than silently completing.
+    with pytest.raises(RuntimeError, match="Delivery incomplete after conductor"):
+        run_homunculus_phase(
+            ctx,
+            "delivery",
+            ["mix", "master_finalize"],
+            client=_stop_client(),
+        )
     assert walked == []
 
 
@@ -1007,7 +1079,7 @@ def test_delivery_does_not_walk_pre_master_when_master_exists(monkeypatch) -> No
         "episode_cover_generate",
         "podcast_publish",
     ):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     _passing_pmq(ctx)
     walked: list[str] = []
 
@@ -1030,8 +1102,8 @@ def test_backfill_delivery_holes_after_master_closes_vo_synthesize() -> None:
     master = ctx.path("master/master.wav")
     master.parent.mkdir(parents=True, exist_ok=True)
     master.write_bytes(b"RIFF" + b"\0" * 40)
-    ctx.mark_done("master_finalize", force=True)
-    ctx.mark_done("edl", force=True)
+    mark_done_raw(ctx, "master_finalize")
+    mark_done_raw(ctx, "edl")
     filled = backfill_delivery_holes_after_master(ctx)
     assert "vo_synthesize" in filled
     assert ctx.is_done("vo_synthesize")
@@ -1225,13 +1297,16 @@ def test_pending_analysis_for_delivery_restores_skipped_gap_artifacts() -> None:
     assert "delivery_brief_build" in pending
 
 
-def test_constrain_conductor_to_seed_front_blocks_missing_framing_skip() -> None:
+def test_constrain_conductor_to_seed_front_blocks_missing_framing_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from interview_mux.homunculus.agenda import constrain_conductor_to_seed_front
 
     ctx = _ctx_010()
-    done = ctx.run_dir / ".stage_done"
-    done.mkdir(parents=True, exist_ok=True)
-    (done / "content_brief_reanchor").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        "interview_mux.homunculus.agenda.earliest_incomplete_seed_stage",
+        lambda *_a, **_k: "framing_posture_decide",
+    )
     remaining = [
         "framing_posture_decide",
         "boundary_topic_resplit",
@@ -1249,7 +1324,7 @@ def test_seed_prereq_block_missing_framing_waits_on_framing_posture() -> None:
     ctx = _ctx_010()
     upto = ANALYSIS_ORDER.index("framing_posture_decide")
     for sid in ANALYSIS_ORDER[:upto]:
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     assert _seed_prereq_block(ctx, "missing_framing") == "framing_posture_decide"
 
 
@@ -1431,8 +1506,10 @@ def test_walk_seed_agenda_runs_hollow_skipped_transitions(monkeypatch: pytest.Mo
 
 def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
     from interview_mux.homunculus.agenda import skip_stage
+    from interview_mux.vo_synthesis_audit import record_synthesis
 
     ctx = _ctx_010()
+    text = "Meanwhile the trial enrolled."
     ctx.write_json(
         "master/transitions.json",
         {
@@ -1440,7 +1517,7 @@ def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
                 {
                     "after_segment_id": "seg_055",
                     "before_segment_id": "seg_058",
-                    "text": "Meanwhile the trial enrolled.",
+                    "text": text,
                     "type": "bridge",
                 }
             ]
@@ -1464,6 +1541,17 @@ def test_skip_vo_synthesize_refused_when_pairs_missing() -> None:
         handle.setsampwidth(2)
         handle.setframerate(48_000)
         handle.writeframes(b"\x00\x00" * 4800)
+    record_synthesis(
+        ctx,
+        {
+            "line_id": "tr_seg_055_seg_058",
+            "text": text,
+            "after_segment_id": "seg_055",
+            "before_segment_id": "seg_058",
+        },
+        backend="mlx_audio",
+        out_wav=wav,
+    )
     doc = skip_stage(ctx, "vo_synthesize", reason="pairs on disk")
     assert "vo_synthesize" in doc["skipped"]
     assert not ctx.is_done("vo_synthesize")
@@ -1562,7 +1650,7 @@ def test_edl_resume_does_not_rewind_layup(monkeypatch) -> None:
     def _walk(_ctx, stages, *, reason: str) -> None:
         walked.append((reason, tuple(stages)))
         for sid in stages:
-            _ctx.mark_done(sid, force=True)
+            mark_done_raw(_ctx, sid)
 
     monkeypatch.setattr("interview_mux.homunculus.agenda.walk_seed_agenda", _walk)
     monkeypatch.setattr(
@@ -1589,7 +1677,8 @@ def test_mix_outputs_absent_when_assembly_older_than_edl() -> None:
     asm = ctx.final_path("master", "assembly.wav")
     edl = ctx.final_path("master", "edl.json")
     asm.parent.mkdir(parents=True, exist_ok=True)
-    asm.write_bytes(b"RIFF" + b"\x00" * 64)
+    # Completeness treats tiny WAVs as partial (<1024 bytes).
+    asm.write_bytes(b"RIFF" + b"\x00" * 2048)
     edl.write_text("{}", encoding="utf-8")
     now = time.time()
     os.utime(asm, (now - 30, now - 30))
@@ -1601,6 +1690,7 @@ def test_mix_outputs_absent_when_assembly_older_than_edl() -> None:
     autopsy = ctx.final_path("master", "seam_autopsy.json")
     autopsy.write_text("{}", encoding="utf-8")
     os.utime(asm, (now + 30, now + 30))
+    os.utime(edl, (now - 20, now - 20))
     os.utime(autopsy, (now - 10, now - 10))
     assert stage_outputs_present(ctx, "mix") is True
     assert "mix" not in remaining_stages(ctx, "delivery")
@@ -1638,6 +1728,7 @@ def test_junction_outputs_present_when_commitment_matches_touched_assembly() -> 
         encoding="utf-8",
     )
     now = time.time()
+    os.utime(edl, (now - 90, now - 90))
     os.utime(autopsy, (now - 60, now - 60))
     os.utime(asm, (now, now))
     assert stage_outputs_present(ctx, "junction_snip_qa") is True
@@ -1694,7 +1785,7 @@ def test_unmark_hollow_heals_empty_mmaudio_qa_when_wavs_exist(monkeypatch) -> No
     wav.write_bytes(b"RIFF" + b"\x00" * 64)
     qa = ctx.path("sound_design", "mmaudio_qa.json")
     qa.write_text(json.dumps({"version": 1, "assets": []}), encoding="utf-8")
-    ctx.mark_done("mmaudio_sfx", force=True)
+    mark_done_raw(ctx, "mmaudio_sfx")
 
     def _heal(_ctx) -> dict:
         _ctx.write_json(
@@ -1739,6 +1830,7 @@ def test_surgical_rerun_does_not_clear_from(monkeypatch) -> None:
     from interview_mux.homunculus.agenda import rerun_stage, unmark_stage_only
 
     ctx = _ctx_010()
+    _mark_analysis_prefix(ctx, "speaker_roles")
     done = ctx.final_path(".stage_done", "speaker_roles")
     done.parent.mkdir(parents=True, exist_ok=True)
     done.write_text("", encoding="utf-8")
@@ -1845,6 +1937,7 @@ def test_dispatch_run_stage_transcribe_refused_when_g0_closed(monkeypatch) -> No
 
 def test_dispatch_runs_transcribe_on_fresh_run() -> None:
     ctx = _ctx_010()
+    _mark_analysis_prefix(ctx, "transcribe")
     ran: list[str] = []
 
     def _impl() -> None:
@@ -1859,16 +1952,21 @@ def test_hollow_transcribe_done_is_unmarked_and_run() -> None:
     from interview_mux.homunculus.agenda import unmark_hollow_prepare_stages
 
     ctx = _ctx_010()
+    prov = ctx.path("preclean", "provider.json")
+    prov.parent.mkdir(parents=True, exist_ok=True)
+    prov.write_text('{"status":"skipped","provider":"fixture"}', encoding="utf-8")
+    wav = ctx.path("ingest", "normalized.wav")
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    wav.write_bytes(b"RIFF" + b"\x00" * 64)
+    mark_done_raw(ctx, "audio_preclean", "ingest")
+    # Hollow transcribe only (done marker, no transcript artifact).
     done = ctx.final_path(".stage_done", "transcribe")
     done.parent.mkdir(parents=True, exist_ok=True)
     done.write_text("", encoding="utf-8")
-    ingest = ctx.final_path(".stage_done", "ingest")
-    ingest.write_text("", encoding="utf-8")
     cleared = unmark_hollow_prepare_stages(ctx)
     assert "transcribe" in cleared
-    assert "ingest" in cleared
     assert not ctx.is_done("transcribe")
-    assert not ctx.is_done("ingest")
+    assert ctx.is_done("ingest")
     ran: list[str] = []
 
     def _impl() -> None:
@@ -2105,6 +2203,7 @@ def test_nested_chat_packs_during_open_stage() -> None:
 
 def test_dispatch_stage_without_required_artifact_is_failure() -> None:
     ctx = _ctx_010()
+    _mark_analysis_prefix(ctx, "boundary_detection")
     with pytest.raises(RuntimeError, match="without required artifact"):
         dispatch_stage(ctx, "boundary_detection", lambda: None, source="test")
     assert count_identity(ctx, "boundary_detection") == 0
@@ -2258,7 +2357,7 @@ def test_hollow_skip_blocked_returns_structured_payload() -> None:
     from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
 
     ctx = _ctx_010()
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     with pytest.raises(HollowSkipBlockedError) as exc_info:
         skip_stage(ctx, "vo_line_adjudicate", reason="conductor whim")
     payload = exc_info.value.payload
@@ -2274,11 +2373,11 @@ def test_hollow_skip_escalates_to_needs_operator() -> None:
     from interview_mux.homunculus.agenda import HollowSkipBlockedError, skip_stage
 
     ctx = _ctx_010()
-    ctx.mark_done("framing_posture_decide", force=True)
+    mark_done_raw(ctx, "framing_posture_decide")
     with pytest.raises(HollowSkipBlockedError) as exc_info:
         skip_stage(ctx, "framing_posture_decide", reason="first")
     assert exc_info.value.payload["action"] == "unmark_and_rerun_once"
-    ctx.mark_done("framing_posture_decide", force=True)
+    mark_done_raw(ctx, "framing_posture_decide")
     with pytest.raises(HollowSkipBlockedError) as exc_info:
         skip_stage(ctx, "framing_posture_decide", reason="second")
     payload = exc_info.value.payload
@@ -2293,7 +2392,7 @@ def test_unmark_hollow_includes_new_stages() -> None:
     from interview_mux.homunculus.agenda import unmark_hollow_delivery_producers
 
     ctx = _ctx_010()
-    ctx.mark_done("vo_line_adjudicate", force=True)
+    mark_done_raw(ctx, "vo_line_adjudicate")
     cleared = unmark_hollow_delivery_producers(ctx, {"vo_line_adjudicate"})
     assert "vo_line_adjudicate" in cleared
     assert not ctx.is_done("vo_line_adjudicate")

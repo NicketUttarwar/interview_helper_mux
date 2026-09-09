@@ -24,7 +24,7 @@ from interview_mux.refinement_accept import accept_gap_recompose
 from interview_mux.refinement_champion import load_champion
 from interview_mux.refinement_gate import freeze_inputs
 from interview_mux.refinement_succession import is_unlocked, mutex_blocked
-from run_fixtures import patch_executions_root
+from run_fixtures import patch_executions_root, mark_done_raw
 
 
 @pytest.fixture
@@ -133,7 +133,7 @@ def test_slim_pass2_active_passes_unlocked(ctx: RunContext) -> None:
 
 
 def test_mutex_inactive_without_legacy_rules(ctx: RunContext) -> None:
-    ctx.mark_done("narrative_arc_refine", force=True)
+    mark_done_raw(ctx, "narrative_arc_refine")
     # Slim defaults have empty mutex — legacy refine stubs are not gated.
     assert not mutex_blocked(ctx, "ranking_refine")
 
@@ -160,10 +160,10 @@ def test_legacy_succession_injectable(ctx: RunContext, monkeypatch: pytest.Monke
         },
     )
     assert not is_unlocked(ctx, "transitions_refine")
-    ctx.mark_done("gap_framing_recompose", force=True)
+    mark_done_raw(ctx, "gap_framing_recompose")
     assert is_unlocked(ctx, "transitions_refine")
     assert not mutex_blocked(ctx, "ranking_refine")
-    ctx.mark_done("narrative_arc_refine", force=True)
+    mark_done_raw(ctx, "narrative_arc_refine")
     assert mutex_blocked(ctx, "ranking_refine")
 
 
@@ -185,7 +185,7 @@ def test_gate_skips_on_unchanged_input_hash(ctx: RunContext) -> None:
     # refinement_passes.run_gap_framing_recompose does on success.
     freeze_inputs(ctx, "gap_framing_recompose", req)
     ctx.write_json("understanding/gap_report.json", {"interviewer_lines": []})
-    ctx.mark_done("gap_framing_recompose", force=True)
+    mark_done_raw(ctx, "gap_framing_recompose")
 
     second = decide_pass(ctx, "gap_framing_recompose")
     assert second["status"] == "skip"
@@ -218,7 +218,9 @@ def test_accept_gap_recompose_noop_when_unchanged(ctx: RunContext) -> None:
     result = accept_gap_recompose(ctx, dict(draft))
     assert result["accepted"] is False
     assert result["reason_code"] == "noop"
-    assert ctx.read_json(FINAL_REL) == draft
+    final = ctx.read_json(FINAL_REL)
+    assert final.get("interviewer_lines") == draft["interviewer_lines"]
+    assert isinstance(final.get("_meta"), dict)  # sanitize stamp on write
 
 
 def test_accept_gap_recompose_promotes_champion_on_improvement(ctx: RunContext) -> None:
@@ -239,7 +241,9 @@ def test_accept_gap_recompose_promotes_champion_on_improvement(ctx: RunContext) 
     result = accept_gap_recompose(ctx, candidate)
     assert result["accepted"] is True
     assert result["reason_code"] == "accepted"
-    assert ctx.read_json(FINAL_REL) == candidate
+    final = ctx.read_json(FINAL_REL)
+    assert final.get("interviewer_lines") == candidate["interviewer_lines"]
+    assert isinstance(final.get("_meta"), dict)
 
     champion = load_champion(ctx, "gap_vo")
     assert champion is not None

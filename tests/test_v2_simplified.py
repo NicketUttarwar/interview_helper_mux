@@ -33,7 +33,7 @@ def test_v2_analysis_order_excludes_disfluency():
         "edl_narrative_audit"
     )
     assert DELIVERY_ORDER_V2.index("edl_narrative_audit") < DELIVERY_ORDER_V2.index("edl")
-    assert len(DELIVERY_ORDER_V2) == 34
+    assert len(DELIVERY_ORDER_V2) == 37
     assert "ranking_refine" not in DELIVERY_ORDER_V2
     assert "gap_framing_recompose" in DELIVERY_ORDER_V2
     assert "framing_posture_decide" in ANALYSIS_ORDER_V2

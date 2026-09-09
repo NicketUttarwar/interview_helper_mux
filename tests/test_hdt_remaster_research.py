@@ -35,6 +35,7 @@ from interview_mux.homunculus.loop import run_conductor
 from interview_mux.homunculus.registry import stage_tool_specs
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER, SHIP_AFTER_MASTER
+from run_fixtures import mark_done_raw
 
 
 def _ctx_010() -> RunContext:
@@ -171,7 +172,7 @@ def test_hdt_heal_only_when_fingerprints_match_checkpoint() -> None:
     dest = ctx.path("master/assembly_preview.wav")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(b"RIFF....")
-    ctx.mark_done("nugget_layup_compose", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
     assert fingerprints_match_checkpoint(ctx) is True
     assert invalidation_is_structural(ctx, "nugget_layup_compose") is False
     # Unlock epoch so structural refuse does not fire if seal stamps lock
@@ -188,8 +189,8 @@ def test_hdt_structural_invalidate_non_heal_producer() -> None:
 
     unlock_delivery_epoch(ctx, "test_structural")
     assert invalidation_is_structural(ctx, "edl") is True
-    ctx.mark_done("edl", force=True)
-    ctx.mark_done("mix", force=True)
+    mark_done_raw(ctx, "edl")
+    mark_done_raw(ctx, "mix")
     result = invalidate_downstream(ctx, "edl")
     assert result.get("ok") is True
     assert result.get("mode") != "heal_only"
@@ -232,7 +233,7 @@ def test_hdt_2step_skip_then_consume_consumer_still_incomplete() -> None:
     """skip producer should not make consumer seed-complete."""
     ctx = _ctx_010()
     # Mark edl done hollow — no edl.json
-    ctx.mark_done("edl", force=True)
+    mark_done_raw(ctx, "edl")
     assert seed_stage_complete(ctx, "edl") is False
     client = _stub_client(
         [
@@ -262,7 +263,7 @@ def test_hdt_3step_rerun_with_impact_clears_and_pins_earliest() -> None:
 
     unlock_delivery_epoch(ctx, "test_impact")
     for sid in ("transitions", "vo_synthesize", "edl", "mix"):
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     # Use transitions (not heal-only) so impact does structural clear
     out = rerun_with_impact(ctx, "transitions")
     assert out.get("ok") is True
@@ -277,7 +278,7 @@ def test_hdt_delivery_phase_axis_values() -> None:
     dest = ctx.path("master/master.wav")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(b"RIFF")
-    ctx.mark_done("master_finalize", force=True)
+    mark_done_raw(ctx, "master_finalize")
     assert current_delivery_phase(ctx) == "E"
 
 
@@ -343,8 +344,8 @@ def test_hdt_music_epoch_incomplete_without_assets() -> None:
 
 def test_hdt_unmark_stage_only_does_not_clear_others() -> None:
     ctx = _ctx_010()
-    ctx.mark_done("edl", force=True)
-    ctx.mark_done("mix", force=True)
+    mark_done_raw(ctx, "edl")
+    mark_done_raw(ctx, "mix")
     unmark_stage_only(ctx, "edl")
     assert not ctx.is_done("edl")
     assert ctx.is_done("mix")

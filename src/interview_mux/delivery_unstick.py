@@ -2,9 +2,81 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from interview_mux.run_context import RunContext
+
+UNSTICK_ATTEMPTS_REL = "operator/unstick_attempts.json"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_unstick_ledger(ctx: RunContext) -> dict[str, Any]:
+    if not ctx.artifact_exists(UNSTICK_ATTEMPTS_REL):
+        return {"attempts": []}
+    try:
+        doc = ctx.read_json(UNSTICK_ATTEMPTS_REL)
+    except Exception:
+        return {"attempts": []}
+    if not isinstance(doc, dict):
+        return {"attempts": []}
+    attempts = doc.get("attempts")
+    if not isinstance(attempts, list):
+        doc = dict(doc)
+        doc["attempts"] = []
+    return doc
+
+
+def _write_unstick_ledger(ctx: RunContext, doc: dict[str, Any]) -> None:
+    ctx.write_json(UNSTICK_ATTEMPTS_REL, doc, skip_handoff=True)
+
+
+def maybe_auto_unstick_once(ctx: RunContext, sticky_signature: str) -> dict[str, Any]:
+    """Invoke ``run_delivery_unstick`` at most once per sticky signature.
+
+    Ledger: ``operator/unstick_attempts.json`` list of ``{sig, at, result}``.
+    Same ``sig`` → ``{invoked: False, already_attempted: True}`` without re-unstick.
+    """
+    sig = str(sticky_signature or "").strip()
+    if not sig:
+        return {"invoked": False, "already_attempted": False, "reason": "empty_sig"}
+    ledger = _read_unstick_ledger(ctx)
+    attempts = list(ledger.get("attempts") or [])
+    for row in attempts:
+        if isinstance(row, dict) and str(row.get("sig") or "") == sig:
+            return {
+                "invoked": False,
+                "already_attempted": True,
+                "sig": sig,
+                "prior": row,
+            }
+    result = run_delivery_unstick(ctx, clear_needs_operator=True, execute_resume=False)
+    entry = {
+        "sig": sig,
+        "at": _utc_now(),
+        "result": {
+            "ok": bool(result.get("ok")),
+            "from_stage": result.get("from_stage"),
+            "intent": result.get("intent"),
+            "thrash_cleared": result.get("thrash_cleared"),
+            "phase_a_sealed": result.get("phase_a_sealed"),
+        },
+    }
+    attempts.append(entry)
+    ledger["attempts"] = attempts[-50:]
+    ledger["updated_at"] = _utc_now()
+    try:
+        _write_unstick_ledger(ctx, ledger)
+    except Exception as exc:
+        result["ledger_error"] = str(exc)[:200]
+    out = dict(result)
+    out["invoked"] = True
+    out["already_attempted"] = False
+    out["sig"] = sig
+    return out
 
 
 def run_delivery_unstick(
@@ -22,6 +94,9 @@ def run_delivery_unstick(
       4. Clear active thrash report when predicates allow
       5. heal_navigate → canonical from_stage
       6. Optionally clear needs_operator and return execute hint
+
+    RC6/O8: never zero ``operator/identical_failures.json`` halt rows here.
+    Identical clears require ``stage_predicate_token`` flip (or forensics/force).
     """
     out: dict[str, Any] = {
         "ok": True,

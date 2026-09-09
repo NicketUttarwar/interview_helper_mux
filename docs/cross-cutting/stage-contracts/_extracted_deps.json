@@ -6,7 +6,9 @@
       "segments/manifest.json",
       "understanding/content_brief.json"
     ],
-    "writes": []
+    "writes": [
+      "master/selection.json"
+    ]
   },
   "analysis_stage": {
     "reads": [],
@@ -19,6 +21,7 @@
       "master/edl_narrative_audit.json",
       "master/selection.json",
       "master/transitions.json",
+      "mastering/mastering_plan.json",
       "run_meta.json",
       "understanding/gap_report.json",
       "understanding/speaker_delivery_plan.json"

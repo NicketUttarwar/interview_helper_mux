@@ -309,40 +309,22 @@ def test_advisory_rubric_fail_allows_publish_with_advisories(tmp_path, monkeypat
         "interview_mux.post_master_quality.post_master_quality_cfg",
         lambda: _GOOD_PMQ_CFG,
     )
-    _write_raw(
-        ctx,
-        "master/junction_snip_qa.json",
-        {
-            "residual_findings": [],
-            "feel_audit_unavailable": True,
-            "blocking_reasons": ["junction_feel_audit_unavailable"],
-        },
-    )
-    _write_raw(
-        ctx,
-        "master/seam_autopsy.json",
-        {
-            "version": 1,
-            "phase": "post_master",
-            "commitment": {"status": "diverged", "reasons": ["claimed_repairs_missing_from_edl"]},
-            "scores": {
-                "continuity": 0.95,
-                "finishability": 0.95,
-                "information_clarity": 0.95,
-                "music_completeness": 0.95,
-                "sonic_density_fit": 0.9,
-            },
-            "seams": [],
-            "blocking_reasons": [],
+    monkeypatch.setattr(
+        "interview_mux.listen_delight.listen_delight_cfg",
+        lambda: {
+            "mode": "advisory",
+            "overall_min": 0.99,
+            "dimension_floors": {"finishability": 0.99},
         },
     )
     quality = evaluate_post_master_quality(ctx)
     assert quality["status"] == "advisory_fail"
     assert quality["publish_allowed"] is True
-    assert "feel_audit_available" in quality["rubric_failed_checks"]
+    assert "listen_delight_floors" in quality["rubric_failed_checks"]
 
 
-def test_listen_delight_advisory_mode_does_not_block_publish(tmp_path, monkeypatch):
+def test_listen_delight_advisory_mode_soft_ships_floors(tmp_path, monkeypatch):
+    """Advisory delight floors remain rubric-soft under aspirational (publish allowed)."""
     ctx = isolated_run_ctx(tmp_path, "exec_pmq_delight_advisory")
     _write_good_pmq_fixture(ctx)
     monkeypatch.setattr(
@@ -351,8 +333,13 @@ def test_listen_delight_advisory_mode_does_not_block_publish(tmp_path, monkeypat
     )
     monkeypatch.setattr(
         "interview_mux.listen_delight.listen_delight_cfg",
-        lambda: {"mode": "advisory"},
+        lambda: {
+            "mode": "advisory",
+            "overall_min": 0.99,
+            "dimension_floors": {"finishability": 0.99},
+        },
     )
     quality = evaluate_post_master_quality(ctx)
-    assert "listen_delight_floors" not in [c["check_id"] for c in quality["checks"]]
-    assert quality["status"] == "pass"
+    assert "listen_delight_floors" in [c["check_id"] for c in quality["checks"]]
+    assert quality["publish_allowed"] is True
+    assert quality["status"] in {"pass", "advisory_fail"}

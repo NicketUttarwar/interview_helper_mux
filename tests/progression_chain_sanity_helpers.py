@@ -15,6 +15,7 @@ from interview_mux.run_context import RunContext
 from interview_mux.stage_completion import stage_artifact_incompleteness
 from interview_mux.stage_input_checks import collect_stage_input_issues
 from interview_mux.write_staging import record_pending_approval, staging_root
+from run_fixtures import mark_done_raw
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "prompts" / "stage_artifacts.json"
 PROGRESSION_WALK_FIXTURES = Path(__file__).parent / "fixtures" / "progression_walk"
@@ -112,6 +113,7 @@ def seed_prefix_through_boundary(ctx: RunContext, fixtures: dict[str, Any]) -> N
     """Minimal committed artifacts for stages before segment_classification."""
     from run_fixtures import (
         init_run_meta_for_test,
+        mark_done_raw,
         minimal_content_brief,
         minimal_manifest,
         minimal_manifest_segment,
@@ -174,9 +176,9 @@ def seed_prefix_through_boundary(ctx: RunContext, fixtures: dict[str, Any]) -> N
         skip_handoff=True,
     )
     for sid in ANALYSIS_ORDER[: ANALYSIS_ORDER.index(PROGRESSION_START_STAGE)]:
-        ctx.mark_done(sid, force=True)
-    ctx.mark_done("transcript_review", force=True)
-    ctx.mark_done("disfluency_review", force=True)
+        mark_done_raw(ctx, sid)
+    mark_done_raw(ctx, "transcript_review")
+    mark_done_raw(ctx, "disfluency_review")
 
 
 def build_manifest_from_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
@@ -209,6 +211,99 @@ def build_manifest_from_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
         }
         segments.append(seg)
     return {"segments": segments}
+
+
+def _stamp_selection_sanitary_for_progression(ctx: RunContext) -> None:
+    """Progression fixtures: bump order lock + sanitize stamp so consumers don't block."""
+    if not ctx.artifact_exists("master/selection.json"):
+        return
+    try:
+        from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+        from interview_mux.file_store import write_json as fs_write_json
+        from interview_mux.order_hash import bump_order_lock
+
+        doc = ctx.read_json("master/selection.json")
+        if not isinstance(doc, dict):
+            return
+        try:
+            doc = bump_order_lock(doc, source="progression_chain_sanity")
+        except Exception:
+            pass
+        doc = stamp_sanitize_meta(
+            doc,
+            ok=True,
+            source="progression_chain_sanity",
+            actions_n=0,
+        )
+        fs_write_json(ctx.path("master/selection.json"), doc)
+        mark_done_raw(ctx, "selection_order_sanitize")
+    except Exception:
+        pass
+
+
+def _ensure_layup_for_progression(
+    ctx: RunContext, fixtures: dict[str, Any] | None = None
+) -> None:
+    """SDP consumers require a sanitary layup plan; seed fixture + hash stamp."""
+    rel = "understanding/nugget_layup_plan.json"
+    from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+    from interview_mux.file_store import write_json as fs_write_json
+
+    content_keys = ["ordered_segment_ids", "layups", "status"]
+    ordered: list[str] = ["seg_001"]
+    try:
+        if ctx.artifact_exists("master/selection.json"):
+            sel = ctx.read_json("master/selection.json")
+            if isinstance(sel, dict) and isinstance(sel.get("ordered_segment_ids"), list):
+                ordered = [str(x) for x in sel["ordered_segment_ids"] if x] or ordered
+    except Exception:
+        pass
+
+    doc: dict[str, Any] | None = None
+    if ctx.artifact_exists(rel):
+        try:
+            existing = ctx.read_json(rel)
+            if isinstance(existing, dict):
+                doc = existing
+        except Exception:
+            doc = None
+    if doc is None and isinstance(fixtures, dict):
+        fixture_doc = fixtures.get("nugget_layup_compose")
+        if isinstance(fixture_doc, dict):
+            doc = dict(fixture_doc)
+            doc.setdefault("version", 1)
+    if doc is None:
+        doc = {
+            "version": 1,
+            "ordered_segment_ids": ordered,
+            "layups": [
+                {
+                    "target_segment_id": sid,
+                    "nugget_ids": [],
+                    "selected_nugget_ids": [],
+                    "skip": True,
+                    "skip_reason_code": "progression_fixture",
+                }
+                for sid in ordered
+            ],
+            "discharged_talking_point_ids": [],
+            "open_talking_point_ids": [],
+        }
+    # Align order to current selection so stamp stays valid across ranking.
+    if ordered:
+        doc["ordered_segment_ids"] = list(ordered)
+    doc = stamp_sanitize_meta(
+        doc,
+        ok=True,
+        source="progression_chain_sanity",
+        actions_n=0,
+        content_keys=content_keys,
+    )
+    meta = dict(doc.get("_meta") or {})
+    meta.pop("needs_recompose", None)
+    doc["_meta"] = meta
+    fs_write_json(ctx.path(rel), doc)
+    mark_done_raw(ctx, "nugget_layup_compose")
 
 
 def _sound_design_plan_patch(stage_id: str, fixtures: dict[str, Any]) -> dict[str, Any]:
@@ -277,7 +372,13 @@ def write_stage_producer_artifact(
         sonic_path = Path(__file__).parent / "fixtures" / "sonic_context" / "fireside.json"
         doc = json.loads(sonic_path.read_text(encoding="utf-8"))
     elif stage_id in ("sound_design_palettes", "sound_design_plan"):
+        _stamp_selection_sanitary_for_progression(ctx)
+        _ensure_layup_for_progression(ctx, fixtures)
         doc = _sound_design_plan_doc(stage_id, fixtures)
+    elif stage_id == "full_master_ranking":
+        doc = fixtures.get(stage_id) or {"ordered_segment_ids": ["seg_001"]}
+        # Ranking is the selection producer in this fixture walk — stamp sanitary
+        # immediately so transitions / SDP preflight don't refuse.
     elif stage_id == "episode_structure_compose":
         from interview_mux.episode_structure import build_episode_structure, structure_enabled
         from interview_mux.write_staging import write_committed_json
@@ -384,7 +485,24 @@ def write_stage_producer_artifact(
     errors = validate_artifact_write(rel, out)
     if errors:
         raise ValueError(f"{rel}: schema validation failed — {'; '.join(errors[:6])}")
+    if stage_id == "sound_design_plan":
+        try:
+            from interview_mux.artifact_sanitize.reentry import stamp_sanitize_meta
+
+            out = stamp_sanitize_meta(
+                out,
+                ok=True,
+                source="progression_chain_sanity",
+                actions_n=0,
+            )
+        except Exception:
+            meta = dict(out.get("_meta") or {})
+            meta["sanitize"] = {"ok": True, "source": "progression_chain_sanity"}
+            out["_meta"] = meta
     write_committed_json(ctx, rel, out, stage_key=stage_id)
+    if stage_id == "full_master_ranking":
+        _stamp_selection_sanitary_for_progression(ctx)
+        _ensure_layup_for_progression(ctx, fixtures)
     if stage_id == "optimal_questions":
         lines = out.get("interviewer_lines") or []
         rows: list[str] = []
@@ -445,7 +563,7 @@ def ensure_reanchored_content_brief(ctx: RunContext) -> None:
             {"from_topic": name_a, "to_topic": name_a, "relation": "supports"}
         ]
     ctx.write_json("understanding/content_brief.json", brief, skip_handoff=True)
-    ctx.mark_done("content_brief_reanchor", force=True)
+    mark_done_raw(ctx, "content_brief_reanchor")
 
 
 def seed_vo_from_gap_report(ctx: RunContext) -> None:
@@ -544,7 +662,7 @@ def seed_progression_walk_gates(ctx: RunContext) -> None:
         }
     )
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
-    ctx.mark_done("source_topology_build", force=True)
+    mark_done_raw(ctx, "source_topology_build")
 
 
 def prepare_flow_chain_gates(ctx: RunContext) -> None:
@@ -556,9 +674,9 @@ def prepare_flow_chain_gates(ctx: RunContext) -> None:
         meta = {}
     meta.setdefault("handoff_ack", {})
     ctx.write_json("run_meta.json", meta, skip_handoff=True)
-    ctx.mark_done("analysis_profile", force=True)
-    ctx.mark_done("g1_vo_pickup", force=True)
-    ctx.mark_done("vo_ingest", force=True)
+    mark_done_raw(ctx, "analysis_profile")
+    mark_done_raw(ctx, "g1_vo_pickup")
+    mark_done_raw(ctx, "vo_ingest")
     if not ctx.artifact_exists("understanding/delivery_brief.json"):
         write_validated_artifact(
             ctx,
@@ -666,7 +784,7 @@ def run_progression_chain_sanity(
                 skip_handoff=True,
             )
             sync_content_brief_topic_segment_ids(ctx)
-        ctx.mark_done("segment_classification", force=True)
+        mark_done_raw(ctx, "segment_classification")
         from interview_mux.write_staging import discard_stage_writes
 
         discard_stage_writes(ctx, "segment_classification")
@@ -705,7 +823,7 @@ def run_progression_chain_sanity(
         if stage_id == "segment_classification":
             sync_content_brief_topic_segment_ids(ctx)
 
-        ctx.mark_done(stage_id, force=True)
+        mark_done_raw(ctx, stage_id)
         stage_report["ok"] = not failures
         report["stages"][stage_id] = stage_report
         if failures:

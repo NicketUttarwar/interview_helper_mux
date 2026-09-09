@@ -11,7 +11,7 @@ from interview_mux.air_script import gap_line_air_eligible
 from interview_mux.aspirational_quality import publish_blocked_by_advisories
 from interview_mux.run_context import RunContext
 from interview_mux.speaker_role_evidence import enrich_content_brief_from_evidence
-from tests.run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx
 
 
 def _write_raw(ctx: RunContext, rel: str, data: dict) -> None:

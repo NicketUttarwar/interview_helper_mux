@@ -119,7 +119,7 @@ def test_edl_vo_clips_subset_of_committed_gap_report(tmp_path: Path) -> None:
 
 
 def test_canonical_stage_id_maps_selection_alias() -> None:
-    assert canonical_stage_id("selection") == "full_master_ranking"
+    assert canonical_stage_id("selection") == "selection_order_sanitize"
     assert canonical_stage_id("full_master_ranking") == "full_master_ranking"
 
 

@@ -61,6 +61,14 @@ def test_sanitize_gui_job_clears_after_reuse_decision(tmp_path, monkeypatch) -> 
 
 def test_reconcile_stale_jobs_scans_all(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("interview_mux.run_context.repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        "interview_mux.config.merged_config",
+        lambda: {
+            "assets_root": "ASSETS",
+            "executions_root": "ASSETS/executions",
+            "journey_ui": {"reconcile_all_runs_on_shutdown": True},
+        },
+    )
     wav = _wav_path(tmp_path)
     for rid in ("exec_011_20260101T000011Z", "exec_012_20260101T000012Z"):
         ctx = RunContext(rid)

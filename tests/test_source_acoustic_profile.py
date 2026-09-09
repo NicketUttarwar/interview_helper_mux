@@ -25,11 +25,13 @@ def _write_test_wav(path: Path, *, sample_rate: int = 16000, duration_seconds: f
 
 def test_analysis_order_places_source_acoustic_profile_after_transcript_review_build():
     review_idx = ANALYSIS_ORDER.index("transcript_review_build")
+    probe_idx = ANALYSIS_ORDER.index("audio_probe_build")
     sap_idx = ANALYSIS_ORDER.index("source_acoustic_profile")
     speaker_idx = ANALYSIS_ORDER.index("speaker_roles")
     palettes_idx = ANALYSIS_ORDER.index("sound_design_palettes")
     assert "disfluency_extract" not in ANALYSIS_ORDER
-    assert sap_idx == review_idx + 1
+    assert probe_idx == review_idx + 1
+    assert sap_idx == probe_idx + 1
     spine_idx = ANALYSIS_ORDER.index("interview_spine_build")
     assert spine_idx == sap_idx + 1
     assert speaker_idx == spine_idx + 1

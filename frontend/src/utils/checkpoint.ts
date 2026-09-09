@@ -67,12 +67,13 @@ export function findPendingFocusStage(
 ): string | null {
   if (!run) return null;
 
+  // Live operator gates beat sticky delivery halts (e.g. premature music_deferred).
+  if (run.transcript_review_pending) return "transcript_review";
+  if (run.gap_framing_decision_pending) return "missing_framing";
+
   if (run.meta?.needs_operator && run.meta?.needs_operator_stage) {
     return String(run.meta.needs_operator_stage);
   }
-
-  if (run.transcript_review_pending) return "transcript_review";
-  if (run.gap_framing_decision_pending) return "missing_framing";
 
   // G-Publish must win over stale "incomplete" analysis stages (optional artifacts).
   if (run.meta?.g_publish_pending && !run.meta?.g_publish_skipped && !run.meta?.g_publish_cleared) {

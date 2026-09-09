@@ -58,7 +58,7 @@ def test_musicgen_defaults_rhythmic_selection() -> None:
 
     mg = merged_config().get("musicgen") or {}
     assert int(mg.get("best_of_n_underscore") or 0) == 3
-    assert int(mg.get("best_of_n_speech_free") or 0) == 1
+    assert int(mg.get("best_of_n_speech_free") or 0) == 2
     assert int(mg.get("max_best_of_n") or 0) == 3
     assert bool(mg.get("keep_candidates")) is True
     assert str(mg.get("device") or "") == "auto"

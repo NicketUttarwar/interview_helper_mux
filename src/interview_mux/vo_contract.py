@@ -304,7 +304,10 @@ def ensure_hosted_framing_vo_seats(ctx: RunContext) -> list[str]:
 
 
 def _gap_row_has_pickup_stem(ctx: RunContext, row: dict[str, Any]) -> bool:
-    """True when a vo_pickup stem exists for this line (audit match not required)."""
+    """True when a vo_pickup stem exists for this line (audit match not required).
+
+    Clamp / hosted-floor uses stem presence. Script freshness is ``line_vo_wav_fresh``.
+    """
     lid = str(row.get("line_id") or "").strip()
     seg = str(row.get("targets_segment_id") or "").strip()
     if not lid and not seg:

@@ -16,7 +16,7 @@ from interview_mux.transition_vo import (
     transition_wav_path,
 )
 from interview_mux.vo_synthesis_audit import record_synthesis
-from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config
+from run_fixtures import isolated_run_ctx, patch_executions_root, patch_merged_config, mark_done_raw
 
 
 def test_build_flow1_edl_transition_duration_from_wav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -610,7 +610,7 @@ def test_transitions_write_cascades_purge_on_text_change(
         "before_segment_id": "seg_b",
     }
     record_synthesis(ctx, line, backend="mlx_audio", out_wav=out)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
     assert resolve_transition_wav(ctx, "seg_a", "seg_b") == out
 
     ctx.write_json(

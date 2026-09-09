@@ -1345,21 +1345,24 @@ def persist_transitions_doc(
     skip_handoff: bool = False,
 ) -> dict[str, Any]:
     """Write ``master/transitions.json`` after retaining adjacency-required pairs."""
-    retained, notes = retain_required_transition_pairs(ctx, doc)
-    if notes:
-        ctx.log(
-            f"transitions: retained {len(notes)} adjacency-required pair(s)",
-            level="info",
-            stage=stage_key or "transitions",
-            detail={"pairs": notes[:12]},
-        )
-    ctx.write_json(
-        "master/transitions.json",
-        retained,
-        skip_handoff=skip_handoff,
+    from interview_mux.artifact_sanitize.one_writer import commit_transitions_doc
+
+    retained_path = commit_transitions_doc(
+        ctx,
+        dict(doc or {"transitions": []}),
         stage_key=stage_key,
+        skip_handoff=skip_handoff,
+        reason=stage_key or "persist_transitions_doc",
     )
-    return retained
+    try:
+        loaded = ctx.read_json("master/transitions.json")
+        if isinstance(loaded, dict):
+            return loaded
+    except Exception:
+        pass
+    # Fallback — path was written; return input shape
+    _ = retained_path
+    return dict(doc or {"transitions": []})
 
 
 def _pre_mix_window(ctx: RunContext) -> bool:

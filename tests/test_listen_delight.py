@@ -22,18 +22,22 @@ def _write_raw(ctx, rel: str, data: dict) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_advisory_mode_is_default(tmp_path):
+def test_authoritative_mode_is_default(tmp_path):
     ctx = isolated_run_ctx(tmp_path, "exec_delight_default_mode")
     from interview_mux.listen_delight import listen_delight_cfg
 
     cfg = listen_delight_cfg()
-    assert cfg.get("mode") == "advisory"
+    assert cfg.get("mode") == "authoritative"
     assert cfg.get("overall_min") == 0.90
 
 
-def test_aspirational_ship_does_not_hard_stop(tmp_path):
-    """With aspirational policy, below-floor delight is advisory at ship."""
+def test_authoritative_ship_hard_stops_after_remutate_exhaustion(tmp_path, monkeypatch):
+    """Authoritative + aspirational: remutate then hard-block at ship (no soft-ship)."""
     ctx = isolated_run_ctx(tmp_path, "exec_delight_fail")
+    monkeypatch.setattr(
+        "interview_mux.aspirational_quality.passes_catastrophic_floors",
+        lambda *a, **k: (True, []),
+    )
     _write_raw(
         ctx,
         "understanding/gap_report.json",
@@ -61,11 +65,8 @@ def test_aspirational_ship_does_not_hard_stop(tmp_path):
     (ctx.run_dir / "master").mkdir(parents=True, exist_ok=True)
     (ctx.run_dir / "master" / "master.wav").write_bytes(b"RIFF" + b"x" * 1100)
 
-    ship_audit = run_authoritative_listen_delight_at_ship(ctx)
-    assert ship_audit["pass"] == "post_master"
-    assert ship_audit["blocking"] is False
-    assert ship_audit.get("aspirational_fail") is True
-    assert ship_audit["passed"] is False
+    with pytest.raises(LoudStageFailure, match="Listen delight floors failed at ship"):
+        run_authoritative_listen_delight_at_ship(ctx)
 
 
 def test_authoritative_fails_below_floors_when_aspirational_disabled(tmp_path, monkeypatch):
@@ -149,7 +150,7 @@ def test_authoritative_passes_when_floors_are_cleared(tmp_path):
 
     audit = run_listen_delight_audit(ctx)
 
-    assert audit["mode"] == "advisory"
+    assert audit["mode"] == "authoritative"
     assert audit["pass"] == "pre_mix"
     assert audit["blocking"] is False
     assert audit["passed"] is True

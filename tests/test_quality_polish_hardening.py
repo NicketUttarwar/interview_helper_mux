@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -607,6 +608,9 @@ def _nudge_ctx(tmp_path: Path):
         }
     )
     ctx.write_json("master/edl.json", edl, skip_handoff=True)
+    asm = ctx.final_path("master", "assembly.wav")
+    asm.parent.mkdir(parents=True, exist_ok=True)
+    asm.write_bytes(b"RIFF" + (b"\0" * 128))
     return ctx, edl
 
 
@@ -760,9 +764,142 @@ def test_oscillating_repair_signature_halts_remaster_thrash(
     monkeypatch.setattr(
         "interview_mux.seam_autopsy.enrich_ledger", lambda ctx_, doc: None
     )
+    monkeypatch.setattr(
+        "interview_mux.air_order.assert_consumer", lambda ctx_, stage: None
+    )
 
-    junction_snip_qa.run_junction_snip_qa(ctx)
+    from interview_mux.loud_fail import LoudStageFailure
+
+    with pytest.raises(LoudStageFailure):
+        junction_snip_qa.run_junction_snip_qa(ctx)
     report = ctx.read_json("master/junction_snip_qa.json")
     assert len(remasters) == 1, "identical repair signature must not remaster twice"
     assert int(report.get("remaster_rounds") or 0) == 1
     assert len(report.get("remediation_runs") or []) == 1
+    budget = ctx.read_json("operator/junction_remaster_budget.json")
+    assert budget.get("oscillation_halt") is True
+
+
+def test_feel_and_commitment_remaster_honor_gen_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from interview_mux import junction_snip_qa
+    from interview_mux.thrash_hardening import (
+        JUNCTION_REMASTER_GEN_CAP,
+        note_junction_remaster,
+    )
+
+    assert JUNCTION_REMASTER_GEN_CAP == 3
+    ctx, _edl = _nudge_ctx(tmp_path)
+    remasters: list[str] = []
+
+    def _track_remaster(ctx_):
+        remasters.append("mix")
+
+    # Exhaust gen remaster budget before feel/commitment paths.
+    for _ in range(JUNCTION_REMASTER_GEN_CAP):
+        note_junction_remaster(ctx)
+
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "junction_snip_cfg",
+        lambda cfg=None: {
+            "mode": "advisory",
+            "feel_audit_enabled": True,
+            "apply_repairs": False,
+            "max_remaster_rounds": 2,
+            "micro_nudge_ms": 2500,
+            "phrase_extend_max_ms": 8000,
+            "impact_hold_ms_min": 1200,
+            "impact_hold_ms_max": 3500,
+            "music_soft_crossfade_ms": 180,
+            "dead_air_clamp_ms": 2500,
+            "pace_multipliers": {"balanced": 1.0},
+        },
+    )
+    monkeypatch.setattr(
+        junction_snip_qa, "detect_junction_findings", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        junction_snip_qa, "remaster_mix_only", _track_remaster
+    )
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "apply_feel_directives",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(
+        junction_snip_qa,
+        "run_junction_feel_audit",
+        lambda ctx_, report, cfg=None: {
+            "version": 1,
+            "verdict": "revise",
+            "llm_calls": 1,
+            "directives": [{"action": "trim", "segment_id": "seg_a"}],
+        },
+    )
+    monkeypatch.setattr(
+        "interview_mux.failure_recovery.identify_all_failures",
+        lambda ctx_, **kwargs: {"run_index": 1, "broken_pieces": []},
+    )
+    monkeypatch.setattr(
+        "interview_mux.failure_recovery.plan_all_fixes", lambda ctx_, review: {}
+    )
+    monkeypatch.setattr(
+        "interview_mux.seam_autopsy.build_autopsy",
+        lambda ctx_, **kwargs: {
+            "version": 1,
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "phase": "post_junction",
+            "seams": [],
+            "blocking_reasons": [],
+            "scores": {"finishability": 1.0},
+            "commitment": {"status": "committed", "reasons": []},
+        },
+    )
+    monkeypatch.setattr("interview_mux.seam_autopsy.write_autopsy", lambda ctx_, doc: None)
+    monkeypatch.setattr(
+        "interview_mux.seam_autopsy.enrich_ledger", lambda ctx_, doc: None
+    )
+    monkeypatch.setattr(
+        "interview_mux.air_order.assert_consumer", lambda ctx_, stage: None
+    )
+    # Force commitment remaster attempt (assembly older than EDL).
+    asm = ctx.final_path("master", "assembly.wav")
+    import os
+    import time
+
+    edl_path = ctx.final_path("master", "edl.json")
+    older = time.time() - 60
+    os.utime(asm, (older, older))
+    os.utime(edl_path, None)
+
+    junction_snip_qa.run_junction_snip_qa(ctx)
+    report = ctx.read_json("master/junction_snip_qa.json")
+    assert remasters == [], "feel+commitment must not remaster past GEN_CAP"
+    assert report.get("feel_remaster_refused") is True
+    meta = ctx.read_json("run_meta.json")
+    assert meta.get("needs_operator") is True
+    assert meta.get("junction_remaster_budget_exhausted") is True
+
+
+def test_third_gen_remaster_forbidden(tmp_path: Path) -> None:
+    from interview_mux.thrash_hardening import (
+        JUNCTION_REMASTER_GEN_CAP,
+        junction_remaster_budget_ok,
+        note_junction_remaster,
+    )
+
+    ctx = isolated_run_ctx(tmp_path, "exec_junc_cap3")
+    (ctx.run_dir / "run_meta.json").write_text(
+        json.dumps({"assembly_seating_generation": 1}), encoding="utf-8"
+    )
+    assert JUNCTION_REMASTER_GEN_CAP == 3
+    for i in range(3):
+        ok, used = junction_remaster_budget_ok(ctx)
+        assert ok is True
+        assert used == i
+        note_junction_remaster(ctx)
+    ok, used = junction_remaster_budget_ok(ctx)
+    assert ok is False
+    assert used == 3

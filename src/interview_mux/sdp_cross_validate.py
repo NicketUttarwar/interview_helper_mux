@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from interview_mux.config import merged_config
@@ -310,6 +312,14 @@ def _role_duration_gate_error(
 def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
     errors: list[str] = []
     sdp = _sdp(ctx)
+    # MU5: refuse MusicGen/GPU when creative density is thin (before acquire).
+    try:
+        from interview_mux.creative_delivery import validate_creative_density
+
+        if isinstance(sdp, dict):
+            errors.extend(validate_creative_density(ctx, sdp))
+    except Exception:
+        pass
     assets = sdp.get("assets") or []
     if not assets:
         errors.append("SDP assets[] empty before MMAudio craft")
@@ -344,6 +354,42 @@ def validate_pre_sfx_generation(ctx: RunContext) -> list[str]:
     return errors
 
 
+def _sdp_asset_backend_unusable(ctx: RunContext, aid: str, wav: Path) -> str | None:
+    """Return reason when a present WAV is stub/silence/skipped and must count as missing."""
+    for meta_path in (
+        wav.with_suffix(".gen.json"),
+        wav.parent / f"{aid}.gen.json",
+    ):
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(meta, dict):
+            continue
+        backend = str(meta.get("backend") or "").strip().lower()
+        if backend in {
+            "musical_stub",
+            "music_stub",
+            "sine_stub",
+            "skipped_cold_open",
+            "music_omitted",
+            "musicgen_failed",
+            "silence",
+        }:
+            return backend
+        if meta.get("music_omitted"):
+            return "music_omitted"
+    # Tiny / empty WAV ≈ silence placeholder only when gen meta says so or file empty.
+    try:
+        if wav.is_file() and wav.stat().st_size == 0:
+            return "silence"
+    except OSError:
+        return "silence"
+    return None
+
+
 def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
     """Referenced SDP asset_ids that do not yet have sound_design/assets/<id>.wav.
 
@@ -354,6 +400,8 @@ def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
 
     Checks the committed run dir as well as the active read path so mix
     staging cannot hide already-generated theme WAVs.
+
+    MU1/MU8: stub / skipped_cold_open / silence backends count as missing.
     """
     required: set[str] | None = None
     try:
@@ -375,15 +423,19 @@ def missing_sdp_asset_wavs(ctx: RunContext) -> list[str]:
         if required is not None and aid not in required:
             continue
         wav = ctx.read_path("sound_design", "assets", f"{aid}.wav")
-        if wav.is_file():
-            continue
-        try:
-            committed = ctx.final_path("sound_design", "assets", f"{aid}.wav")
-        except Exception:
-            committed = ctx.run_dir / "sound_design" / "assets" / f"{aid}.wav"
-        if committed.is_file():
-            continue
-        missing.append(aid)
+        if not wav.is_file():
+            try:
+                committed = ctx.final_path("sound_design", "assets", f"{aid}.wav")
+            except Exception:
+                committed = ctx.run_dir / "sound_design" / "assets" / f"{aid}.wav"
+            if committed.is_file():
+                wav = committed
+            else:
+                missing.append(aid)
+                continue
+        bad = _sdp_asset_backend_unusable(ctx, aid, wav)
+        if bad:
+            missing.append(aid)
     return missing
 
 
@@ -407,6 +459,16 @@ def validate_pre_mix(ctx: RunContext, flow: str = "podcast") -> list[str]:
             errors.append(
                 "master/edl.json source_path names missing files: " + ", ".join(leftover[:4])
             )
+        # EM5: speech clip order must equal selection ordered_segment_ids.
+        if isinstance(edl, dict) and ctx.artifact_exists("master/selection.json"):
+            try:
+                from interview_mux.order_hash import assert_selection_leads_edl
+
+                sel = ctx.read_json("master/selection.json")
+                if isinstance(sel, dict):
+                    assert_selection_leads_edl(sel, edl)
+            except Exception as exc:
+                errors.append(f"pre_mix speech/selection order: {exc}")
     for aid in missing_sdp_asset_wavs(ctx):
         errors.append(f"missing WAV for asset_id {aid}")
     return errors

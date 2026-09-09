@@ -10,7 +10,7 @@ import pytest
 from interview_mux.execution_contract import run_edl_vo_coverage_ladder, run_vo_contract_ladder
 from interview_mux.remediation_framework import remediation_plan_mutex_allows
 from interview_mux.run_context import RunContext
-from run_fixtures import patch_executions_root
+from run_fixtures import patch_executions_root, mark_done_raw
 
 BASELINE = Path(__file__).parent / "fixtures" / "exec_4741_ship_baseline" / "manifest.json"
 
@@ -22,25 +22,28 @@ def ctx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunContext:
 
 
 def _healthy_vo(ctx: RunContext) -> None:
+    from interview_mux.vo_synthesis_audit import record_synthesis
+    from run_fixtures import write_fixture_vo_wav
+
     doc = json.loads(BASELINE.read_text(encoding="utf-8"))
     ctx.write_json("understanding/gap_report.json", doc["gap_report"])
     ctx.write_json("mastering/mastering_plan.json", doc["mastering_plan"])
-    pickup = ctx.final_path("vo_pickup")
-    pickup.mkdir(parents=True, exist_ok=True)
-    wav = pickup / "synthesized" / "vo_layup_seg_001.wav"
-    wav.parent.mkdir(parents=True, exist_ok=True)
-    wav.write_bytes(b"RIFF")
-    ctx.write_json(
-        "mastering/vo_synthesis_report.json",
-        {"entries": [{"line_id": "vo_layup_seg_001", "status": "rendered", "text": "Hook line."}]},
+    line = next(
+        row
+        for row in (doc["gap_report"].get("interviewer_lines") or [])
+        if isinstance(row, dict) and row.get("line_id") == "vo_layup_seg_001"
     )
+    wav = ctx.final_path("vo_pickup") / "synthesized" / "vo_layup_seg_001.wav"
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    write_fixture_vo_wav(wav)
+    record_synthesis(ctx, line, backend="mlx_audio", out_wav=wav)
 
 
 def test_ladder_no_op_when_healthy(ctx: RunContext) -> None:
     """MUST_NOT mutate stage_done when coverage already valid."""
     _healthy_vo(ctx)
-    ctx.mark_done("nugget_layup_compose", force=True)
-    ctx.mark_done("edl_narrative_audit", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
+    mark_done_raw(ctx, "edl_narrative_audit")
     result = run_edl_vo_coverage_ladder(ctx)
     assert result.recovered
     assert ctx.is_done("nugget_layup_compose")
@@ -48,7 +51,7 @@ def test_ladder_no_op_when_healthy(ctx: RunContext) -> None:
 
 def test_vo_contract_no_op_when_valid(ctx: RunContext) -> None:
     _healthy_vo(ctx)
-    ctx.mark_done("nugget_layup_compose", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
     result = run_vo_contract_ladder(ctx, consumer_stage="nugget_layup_compose")
     assert result.recovered
     assert result.contract_ok
@@ -77,7 +80,7 @@ def test_vo_coverage_ladder_preserves_layup_marker(ctx: RunContext) -> None:
     )
     ctx.write_json("understanding/gap_report.json", doc["gap_report"])
     ctx.write_json("mastering/mastering_plan.json", doc["mastering_plan"])
-    ctx.mark_done("nugget_layup_compose", force=True)
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "nugget_layup_compose")
+    mark_done_raw(ctx, "vo_synthesize")
     run_edl_vo_coverage_ladder(ctx)
     assert ctx.is_done("nugget_layup_compose")

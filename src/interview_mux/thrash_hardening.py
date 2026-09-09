@@ -20,6 +20,8 @@ FAIL_CLASS_FINALIZE = "finalize_inputs"
 FAIL_CLASS_DELIVERY_BLOCKED = "delivery_blocked"
 
 PHASE_A_AUDIT_ONLY: frozenset[str] = frozenset({"edl_narrative_audit"})
+# TH1b: hollow-force + delivery producers — any force-done must pass
+# assert_may_force_done / heal_or_refuse_mark (no parallel hollow list).
 FORCE_DONE_GUARDED: frozenset[str] = frozenset(
     {
         "vo_synthesize",
@@ -27,6 +29,7 @@ FORCE_DONE_GUARDED: frozenset[str] = frozenset(
         "edl",
         "edl_narrative_audit",
         "mix",
+        "junction_snip_qa",
         "music_palette_compose",
         "sfx_prompt_craft",
         "mmaudio_sfx",
@@ -258,10 +261,26 @@ def canonical_resume_pin(ctx: RunContext, intent: str, *, hint: str = "") -> str
 
     if intent_l in {"vo_g1", "vo", FAIL_CLASS_VO_G1}:
         if not seed_stage_complete(ctx, "nugget_layup_compose"):
+            try:
+                from interview_mux.stage_completion import incompleteness_resume_stage
+
+                resume = incompleteness_resume_stage(ctx, "nugget_layup_compose")
+                if resume:
+                    return resume
+            except Exception:
+                pass
             return "nugget_layup_compose"
         if _g1_open(ctx):
             block = vo_synthesize_stability_block(ctx)
             if block == "nugget_layup_compose":
+                try:
+                    from interview_mux.stage_completion import incompleteness_resume_stage
+
+                    resume = incompleteness_resume_stage(ctx, "nugget_layup_compose")
+                    if resume:
+                        return resume
+                except Exception:
+                    pass
                 return "nugget_layup_compose"
             return resolve_vo_synth_seed_resume(block) or "vo_line_adjudicate"
         return hint_s if hint_s in DELIVERY_ORDER else "vo_synthesize"
@@ -461,18 +480,34 @@ def artifact_usable(
                 return False, f"stale_meta:{meta.get('stale_reason') or 'stale'}"
         except Exception:
             pass
-    # Fingerprint mismatch
+    # Fingerprint mismatch (TH3: compare helper; fail-closed — no silent restamp).
+    # Producer checking its own output may be mid-rewrite — skip (same as read_stale_guard).
     try:
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        fps = (meta or {}).get("artifact_fingerprints") if isinstance(meta, dict) else None
-        if isinstance(fps, dict) and path in fps:
-            from interview_mux.artifact_lifecycle import content_fingerprint
+        from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS
 
-            live = content_fingerprint(ctx, path)
-            if live and str(fps.get(path) or "") and live != str(fps.get(path)):
-                return False, "fingerprint_mismatch"
+        if STAGE_ARTIFACT_DISK_PATHS.get(consumer_s) == path:
+            pass  # own producer — fingerprint may lag the live rewrite
+        else:
+            meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+            fps = (meta or {}).get("artifact_fingerprints") if isinstance(meta, dict) else None
+            if isinstance(fps, dict) and path in fps:
+                from interview_mux.artifact_lifecycle import compare_content_fingerprint
+
+                ok_fp, reason_fp = compare_content_fingerprint(ctx, path, fps.get(path))
+                if not ok_fp:
+                    return False, reason_fp or "fingerprint_mismatch"
     except Exception:
-        pass
+        # Fail-closed when a fingerprint was recorded but compare raised.
+        try:
+            from interview_mux.prompt_validation import STAGE_ARTIFACT_DISK_PATHS as _PATHS
+
+            if _PATHS.get(consumer_s) != path:
+                meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+                fps = (meta or {}).get("artifact_fingerprints") if isinstance(meta, dict) else None
+                if isinstance(fps, dict) and path in fps and fps.get(path):
+                    return False, "fingerprint_compare_error"
+        except Exception:
+            pass
     # Assembly seating: meta flag only (never recurse into mix_assembly_seated).
     # mix is the reseating *producer* — seating_stale must not block mark_done(mix)
     # after a fresh render (clear happens only after mark_done succeeds).
@@ -506,7 +541,12 @@ def artifact_usable(
 
 
 def assert_may_force_done(ctx: RunContext, stage: str) -> None:
-    """Refuse force-done for guarded stages when incompleteness is set."""
+    """Refuse force-done for guarded stages when incompleteness is set.
+
+    Intentional allow-stub paths (gap skip, framing posture soft-complete, music
+    epoch reseat via ``_mark_done_raw``) must leave incompleteness empty before
+    calling heal — this assert is the sole hollow-stamp gate for FORCE_DONE_GUARDED.
+    """
     sid = str(stage or "").strip()
     if sid not in FORCE_DONE_GUARDED:
         return
@@ -517,6 +557,15 @@ def assert_may_force_done(ctx: RunContext, stage: str) -> None:
     except Exception:
         return
     if reason:
+        # G1 optional skip: VO stages may soft-complete without pickup WAVs.
+        if sid in {"vo_synthesize", "vo_line_adjudicate"}:
+            try:
+                from interview_mux.gates import g1_vo_was_skipped_optional
+
+                if g1_vo_was_skipped_optional(ctx):
+                    return
+            except Exception:
+                pass
         raise RuntimeError(
             f"refuse force-done {sid}: incompleteness={reason}"
         )
@@ -527,11 +576,37 @@ def forensics_suppress_allowed(ctx: RunContext, fail_class: str) -> bool:
     return suppress_allowed(ctx, fail_class, source="forensics")
 
 
+_HARD_NON_SUPPRESS_NEEDLES = (
+    "sanitize_refused",
+    "selection_unsanitary",
+    "gap_unsanitary",
+    "air_contract_unsanitary",
+    "layup_unsanitary",
+    "sdp_unsanitary",
+    "vo_unsanitary",
+    "authority_undo",
+    "incomplete-after-conductor",
+    "incomplete_after_conductor",
+    "identical_failure_halt",
+    "same_family_over_budget",
+)
+
+
+def is_hard_non_suppress_class(fail_class: str) -> bool:
+    """Sanitary refuse / undo thrash / sticky incomplete must not auto-continue."""
+    low = str(fail_class or "").strip().lower()
+    if not low:
+        return False
+    return any(n in low for n in _HARD_NON_SUPPRESS_NEEDLES)
+
+
 def suppress_allowed(
     ctx: RunContext, fail_class: str, *, source: str = "forensics"
 ) -> bool:
     """Per-class suppress budget for forensics or homunculus needs_operator continues."""
     cls = str(fail_class or "unknown").strip() or "unknown"
+    if is_hard_non_suppress_class(cls):
+        return False
     src = str(source or "forensics").strip() or "forensics"
     rel = "operator/suppress_budget.json"
     doc: dict[str, Any] = {}
@@ -783,6 +858,108 @@ def note_sticky_heal_attempt(
     return row
 
 
+AUTHORITY_UNDO_REL = "operator/authority_undo.json"
+AUTHORITY_UNDO_HALT_AFTER = 3
+
+
+def note_authority_undo_attempt(
+    ctx: RunContext,
+    *,
+    artifact: str,
+    action_class: str,
+    content_hash: str,
+    halt_after: int | None = None,
+) -> dict[str, Any]:
+    """Detect A→B→A (or two-hash oscillation) with no content progress.
+
+    Returns a row with ``halt=True`` when the same artifact oscillates without a
+    sanitary/content hash flip that advances ship bar.
+    """
+    import time
+
+    limit = int(halt_after if halt_after is not None else AUTHORITY_UNDO_HALT_AFTER)
+    art = str(artifact or "").strip()[:120] or "unknown"
+    action = str(action_class or "").strip()[:80] or "heal"
+    h = str(content_hash or "").strip()[:64] or "empty"
+    now = time.time()
+    doc: dict[str, Any] = {"version": 1, "artifacts": {}}
+    if ctx.artifact_exists(AUTHORITY_UNDO_REL):
+        try:
+            loaded = ctx.read_json(AUTHORITY_UNDO_REL)
+            if isinstance(loaded, dict):
+                doc = dict(loaded)
+        except Exception:
+            pass
+    artifacts = dict(doc.get("artifacts") or {})
+    prev = dict(artifacts.get(art) or {})
+    history = list(prev.get("history") or [])
+    history.append({"action": action, "hash": h, "ts": now})
+    history = history[-8:]
+    hashes = [str(x.get("hash") or "") for x in history]
+    actions = [str(x.get("action") or "") for x in history]
+    halt = False
+    reason = ""
+    # Oscillation between exactly two hashes across >= halt_after transitions
+    uniq = []
+    for x in hashes:
+        if not uniq or uniq[-1] != x:
+            uniq.append(x)
+    if len(history) >= limit and len(set(hashes[-limit:])) <= 2:
+        # A→B→A pattern on actions or hashes
+        if len(uniq) >= 3 and uniq[-1] == uniq[-3]:
+            halt = True
+            reason = f"hash_oscillation:{uniq[-3]}↔{uniq[-2]}"
+        elif (
+            len(actions) >= 3
+            and actions[-1] == actions[-3]
+            and actions[-1] != actions[-2]
+            and hashes[-1] == hashes[-3]
+        ):
+            halt = True
+            reason = f"action_oscillation:{actions[-1]}↔{actions[-2]}"
+    row = {
+        "artifact": art,
+        "action": action,
+        "hash": h,
+        "count": len(history),
+        "halt": halt,
+        "reason": reason,
+        "updated_at": now,
+    }
+    artifacts[art] = {"history": history, "last": row}
+    if len(artifacts) > 24:
+        ordered = sorted(
+            artifacts.items(),
+            key=lambda kv: float(((kv[1] or {}).get("last") or {}).get("updated_at") or 0),
+        )
+        artifacts = dict(ordered[-24:])
+    doc["artifacts"] = artifacts
+    doc["updated_at"] = now
+    if halt:
+        doc["active_halt"] = {
+            "artifact": art,
+            "pair": reason,
+            "hash": h,
+            "action": action,
+        }
+        try:
+            from interview_mux.delivery_guardrails import record_wasted_work
+
+            record_wasted_work(
+                ctx,
+                event="authority_undo_thrash",
+                stage=art,
+                detail=row,
+            )
+        except Exception:
+            pass
+    try:
+        ctx.write_json(AUTHORITY_UNDO_REL, doc, skip_handoff=True)
+    except Exception:
+        pass
+    return row
+
+
 def clear_sticky_heal(ctx: RunContext, *, kind: str = "", pin: str = "") -> None:
     """Clear sticky heal counters after predicate progress or operator unstick."""
     if not ctx.artifact_exists(STICKY_HEAL_REL):
@@ -829,6 +1006,40 @@ def heal_navigate(
     intent: str = "",
 ) -> dict[str, str]:
     """Single heal navigator: error/stage → intent → canonical pin."""
+    # Lock 5: structured incompleteness resume / allowlisted parse before table.
+    try:
+        from interview_mux.stage_completion import (
+            incompleteness_resume_stage,
+            parse_resume_stage_from_reason,
+        )
+
+        stage_s = str(stage or "").strip()
+        err_s = str(error or "")
+        structured = incompleteness_resume_stage(ctx, stage_s) if stage_s else None
+        parsed = parse_resume_stage_from_reason(err_s) or parse_resume_stage_from_reason(
+            f"{err_s} {stage_s}"
+        )
+        resume = structured or parsed
+        # Self-pin (e.g. edl incompleteness "master/edl.json is pending" → edl via
+        # PRODUCER_PIN_TABLE substring) must not short-circuit intent / earliest walk.
+        if resume and resume != stage_s:
+            try:
+                note_delivery_pin(
+                    ctx,
+                    from_stage=resume,
+                    intent=str(intent or "incompleteness_resume"),
+                    reason=str(error or stage or "")[:240],
+                    source="heal_navigate_incompleteness_resume",
+                )
+            except Exception:
+                pass
+            return {
+                "intent": str(intent or "incompleteness_resume"),
+                "from_stage": resume,
+                "mode": "delivery" if resume in DELIVERY_ORDER else "analysis",
+            }
+    except Exception:
+        pass
     # Durable: PRODUCER_PIN_TABLE is the only ad-hoc→pin authority for tokens.
     try:
         from interview_mux.stage_completion import producer_pin_for_token
@@ -1398,26 +1609,53 @@ def enforce_job_complete_honesty(ctx: RunContext, job: dict[str, Any]) -> dict[s
         )
     ):
         return job
-    # Never mutate honesty while a driver/lease is actively working.
-    try:
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-    except Exception:
-        meta = {}
-    if isinstance(meta, dict) and (
-        meta.get("partial_auto_driver_active")
-        or meta.get("partial_auto")
-        or meta.get("full_auto")
-        or meta.get("automation_driver_active")
-    ):
-        return job
-    if job.get("partial_auto") or job.get("driver_active"):
-        return job
+    # Never mutate honesty while a *live* driver claim / expensive lease is active.
+    # Sticky partial_auto / full_auto meta alone must NOT no-op honesty (O7).
     try:
         lease_on, _ = expensive_stage_lease_active(ctx)
         if lease_on:
             return job
     except Exception:
         pass
+    try:
+        from interview_mux.driver_singleton import read_driver_claim
+
+        claim = read_driver_claim(ctx)
+        if isinstance(claim, dict):
+            import os as _os
+
+            pid = int(claim.get("pid") or 0)
+            if pid > 0:
+                try:
+                    _os.kill(pid, 0)
+                    alive = True
+                except OSError:
+                    alive = False
+                if alive:
+                    return job
+    except Exception:
+        pass
+    try:
+        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
+    except Exception:
+        meta = {}
+    # Live driver claim flags only — not sticky partial_auto/full_auto alone.
+    if isinstance(meta, dict) and meta.get("automation_driver_active"):
+        try:
+            from interview_mux.driver_singleton import read_driver_claim
+
+            if isinstance(read_driver_claim(ctx), dict):
+                return job
+        except Exception:
+            pass
+    if job.get("driver_active"):
+        try:
+            from interview_mux.driver_singleton import read_driver_claim
+
+            if isinstance(read_driver_claim(ctx), dict):
+                return job
+        except Exception:
+            pass
     if ctx.artifact_exists("master/master.wav"):
         return _enforce_ship_path_honesty(ctx, job)
     # Read-only honesty: do not restore/write artifacts from get_job.
@@ -1677,7 +1915,8 @@ PATH_TO_MASTER: tuple[str, ...] = (
 )
 PHASE_A_SEAL_DEADLINE_ATTEMPTS = 5
 PROGRESS_STALL_SEC = 20 * 60
-JUNCTION_REMASTER_GEN_CAP = 5
+JUNCTION_REMASTER_GEN_CAP = 3
+JUNCTION_REMASTER_BUDGET_REL = "operator/junction_remaster_budget.json"
 # Stages that legitimately sit in `remaining` unchanged while work runs.
 _STALL_SAFE_HEAD: frozenset[str] = frozenset(
     {
@@ -2074,15 +2313,30 @@ def note_progress_stall(
     return stall
 
 
-def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
-    """Per air-order generation remaster cap (beyond in-stage max_rounds)."""
-    gen = 0
+def _junction_seating_generation(ctx: RunContext) -> int:
     try:
         meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        gen = int((meta or {}).get("assembly_seating_generation") or 0)
+        return int((meta or {}).get("assembly_seating_generation") or 0)
     except Exception:
-        gen = 0
-    rel = "operator/junction_remaster_budget.json"
+        return 0
+
+
+def _junction_edl_hash(ctx: RunContext) -> str:
+    try:
+        if not ctx.artifact_exists("master/edl.json"):
+            return ""
+        edl = ctx.read_json("master/edl.json")
+        if not isinstance(edl, dict):
+            return ""
+        from interview_mux.seam_autopsy import _canonical_hash
+
+        return str(_canonical_hash(edl) or "")
+    except Exception:
+        return ""
+
+
+def _read_junction_remaster_budget(ctx: RunContext) -> dict[str, Any]:
+    rel = JUNCTION_REMASTER_BUDGET_REL
     doc: dict[str, Any] = {"by_generation": {}}
     if ctx.artifact_exists(rel):
         try:
@@ -2091,27 +2345,112 @@ def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
                 doc = dict(loaded)
         except Exception:
             pass
+    doc.setdefault("by_generation", {})
+    return doc
+
+
+def _write_junction_remaster_budget(ctx: RunContext, doc: dict[str, Any]) -> None:
+    out = dict(doc)
+    out["updated_at"] = __import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc
+    ).isoformat()
+    try:
+        ctx.write_json(JUNCTION_REMASTER_BUDGET_REL, out, skip_handoff=True)
+    except Exception:
+        pass
+
+
+def junction_oscillation_halted(ctx: RunContext) -> bool:
+    """Sticky oscillation halt until seating generation or EDL hash flips."""
+    doc = _read_junction_remaster_budget(ctx)
+    if not doc.get("oscillation_halt"):
+        return False
+    gen = _junction_seating_generation(ctx)
+    edl_h = _junction_edl_hash(ctx)
+    sticky_gen = int(doc.get("oscillation_halt_generation") or -1)
+    sticky_hash = str(doc.get("oscillation_halt_edl_hash") or "")
+    if sticky_gen != gen or sticky_hash != edl_h:
+        doc["oscillation_halt"] = False
+        doc.pop("oscillation_halt_generation", None)
+        doc.pop("oscillation_halt_edl_hash", None)
+        _write_junction_remaster_budget(ctx, doc)
+        return False
+    return True
+
+
+def note_junction_oscillation_halt(ctx: RunContext) -> None:
+    """Persist oscillation sticky so remaster cannot re-enter until EDL/gen flips."""
+    doc = _read_junction_remaster_budget(ctx)
+    doc["oscillation_halt"] = True
+    doc["oscillation_halt_generation"] = _junction_seating_generation(ctx)
+    doc["oscillation_halt_edl_hash"] = _junction_edl_hash(ctx)
+    _write_junction_remaster_budget(ctx, doc)
+
+
+def junction_remaster_budget_ok(ctx: RunContext) -> tuple[bool, int]:
+    """Per air-order generation remaster cap (beyond in-stage max_rounds).
+
+    Also refuses when oscillation_halt is sticky for the current EDL/generation.
+    """
+    if junction_oscillation_halted(ctx):
+        doc = _read_junction_remaster_budget(ctx)
+        gen = _junction_seating_generation(ctx)
+        n = int((doc.get("by_generation") or {}).get(str(gen)) or 0)
+        return False, n
+    gen = _junction_seating_generation(ctx)
+    doc = _read_junction_remaster_budget(ctx)
     by_gen = dict(doc.get("by_generation") or {})
-    key = str(gen)
-    n = int(by_gen.get(key) or 0)
+    n = int(by_gen.get(str(gen)) or 0)
     return n < JUNCTION_REMASTER_GEN_CAP, n
 
 
 def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
-    """On budget exhaust: pin junction — never soft-pass seam autopsy (heal ≠ waive)."""
+    """On budget exhaust: pin junction + needs_operator — never soft-pass naked seams.
+
+    EM2: do **not** set ``e2e_soft_junction_residuals`` here. That flag is e2e-only
+    for non-naked observational residuals; budget exhaust with naked seams must
+    halt for operator, not greenwash finalize.
+    """
+    reason = "junction_remaster_budget_exhausted"
+    try:
+        if junction_oscillation_halted(ctx):
+            reason = "junction_oscillation_halt"
+    except Exception:
+        pass
     try:
         if not ctx.artifact_exists("run_meta.json"):
             ctx.write_json(
                 "run_meta.json",
-                {"junction_remaster_budget_exhausted": True},
+                {
+                    "junction_remaster_budget_exhausted": True,
+                    "needs_operator": True,
+                    "needs_operator_stage": "junction_snip_qa",
+                    "needs_operator_reason": reason,
+                },
                 skip_handoff=True,
             )
         else:
 
             def _mark(meta: dict[str, Any]) -> None:
                 meta["junction_remaster_budget_exhausted"] = True
+                # Never soft-pass naked via e2e flag on budget exhaust.
+                meta.pop("e2e_soft_junction_residuals", None)
+                meta["needs_operator"] = True
+                meta["needs_operator_stage"] = "junction_snip_qa"
+                meta["needs_operator_reason"] = reason
 
             ctx.mutate_run_meta(_mark)
+    except Exception:
+        pass
+    try:
+        from interview_mux.delivery_guardrails import record_wasted_work
+
+        record_wasted_work(
+            ctx,
+            event="junction_budget_exhaust",
+            stage="junction_snip_qa",
+            detail={"pin": "junction_snip_qa", "soft_pass": False, "reason": reason},
+        )
     except Exception:
         pass
     return "junction_snip_qa"
@@ -2119,33 +2458,14 @@ def junction_budget_exhaust_hard_pin(ctx: RunContext) -> str:
 
 def note_junction_remaster(ctx: RunContext) -> int:
     """Increment remaster count for current seating generation; return new count."""
-    gen = 0
-    try:
-        meta = ctx.read_json("run_meta.json") if ctx.artifact_exists("run_meta.json") else {}
-        gen = int((meta or {}).get("assembly_seating_generation") or 0)
-    except Exception:
-        gen = 0
-    rel = "operator/junction_remaster_budget.json"
-    doc: dict[str, Any] = {"by_generation": {}}
-    if ctx.artifact_exists(rel):
-        try:
-            loaded = ctx.read_json(rel)
-            if isinstance(loaded, dict):
-                doc = dict(loaded)
-        except Exception:
-            pass
+    gen = _junction_seating_generation(ctx)
+    doc = _read_junction_remaster_budget(ctx)
     by_gen = dict(doc.get("by_generation") or {})
     key = str(gen)
     n = int(by_gen.get(key) or 0) + 1
     by_gen[key] = n
     doc["by_generation"] = by_gen
-    doc["updated_at"] = __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
-    ).isoformat()
-    try:
-        ctx.write_json(rel, doc, skip_handoff=True)
-    except Exception:
-        pass
+    _write_junction_remaster_budget(ctx, doc)
     return n
 
 
@@ -2214,9 +2534,110 @@ def gate_wait_tick(ctx: RunContext, signature: str) -> dict[str, Any]:
     }
 
 
+TRUE_WASTE_STICKY_HALT_AFTER = 3
+
+
 def wasted_work_is_true_waste(event: str) -> bool:
     """Intervene×3 only for true waste — not successful avoidance telemetry."""
     ev = str(event or "").strip().lower()
-    if ev in {"avoided_musicgen", "avoided_junction_remaster"}:
+    if ev in {
+        "avoided_musicgen",
+        "avoided_junction_remaster",
+        "orphan_stage_done_promoted",
+        "phase_seal",
+        "restore_bundle",
+        "expensive_start",
+        "music_limbo_omit",
+    }:
         return False
-    return ev in {"orphan", "music_deferred", "music_seal_break", "progress_stall"}
+    return ev in {
+        "orphan",
+        "orphan_artifact",
+        "music_deferred",
+        "music_seal_break",
+        "progress_stall",
+        "junction_budget_exhaust",
+    }
+
+
+def wasted_work_counts_toward_sticky_halt(
+    event: str,
+    detail: dict[str, Any] | None = None,
+) -> bool:
+    """True-waste events that should sticky-halt — excludes expected early music filters."""
+    if not wasted_work_is_true_waste(event):
+        return False
+    if str(event or "").strip().lower() != "music_deferred":
+        return True
+    reason = str((detail or {}).get("reason") or "").strip().lower()
+    # Candidate filtering before assembly / Phase A — not intervene-worthy spend.
+    if reason in {"assembly_missing", "phase_a_unsealed"}:
+        return False
+    if "music_incomplete" in reason:
+        return False
+    return True
+
+
+def maybe_sticky_halt_on_true_waste(
+    ctx: RunContext,
+    *,
+    event: str,
+    stage: str = "",
+    halt_after: int = TRUE_WASTE_STICKY_HALT_AFTER,
+) -> dict[str, Any]:
+    """TH5: N× true-waste events → sticky halt (optionally after one O8 unstick)."""
+    out: dict[str, Any] = {"halt": False, "count": 0, "event": str(event or "")}
+    if not wasted_work_counts_toward_sticky_halt(event):
+        return out
+    rel = "operator/true_waste_sticky.json"
+    doc: dict[str, Any] = {"by_event": {}, "halted": False}
+    if ctx.artifact_exists(rel):
+        try:
+            loaded = ctx.read_json(rel)
+            if isinstance(loaded, dict):
+                doc = dict(loaded)
+        except Exception:
+            pass
+    by_ev = dict(doc.get("by_event") or {})
+    key = str(event or "").strip().lower() or "waste"
+    n = int(by_ev.get(key) or 0) + 1
+    by_ev[key] = n
+    doc["by_event"] = by_ev
+    doc["updated_at"] = __import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc
+    ).isoformat()
+    out["count"] = n
+    if n >= max(1, int(halt_after)):
+        # Light wire: try O8 unstick once, then stamp needs_operator.
+        try:
+            from interview_mux.delivery_unstick import maybe_auto_unstick_once
+
+            sig = f"true_waste:{key}:{stage or 'delivery'}"
+            unstick = maybe_auto_unstick_once(ctx, sig)
+            out["unstick"] = unstick
+            if unstick.get("unstuck"):
+                doc["last_unstick_at"] = doc["updated_at"]
+                ctx.write_json(rel, doc, skip_handoff=True)
+                return out
+        except Exception:
+            pass
+        doc["halted"] = True
+        doc["halt_event"] = key
+        doc["halt_stage"] = str(stage or "")[:80]
+        try:
+
+            def _halt(meta: dict[str, Any]) -> None:
+                meta["needs_operator"] = True
+                meta["needs_operator_stage"] = str(stage or "delivery")[:80] or "delivery"
+                meta["needs_operator_reason"] = f"true_waste_sticky:{key}×{n}"
+
+            if ctx.artifact_exists("run_meta.json"):
+                ctx.mutate_run_meta(_halt)
+        except Exception:
+            pass
+        out["halt"] = True
+    try:
+        ctx.write_json(rel, doc, skip_handoff=True)
+    except Exception:
+        pass
+    return out

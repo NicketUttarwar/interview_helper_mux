@@ -24,7 +24,7 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
   const deliveryPin = run.delivery_pin;
   const wastedCounts = run.wasted_work?.counts || {};
   const [busy, setBusy] = useState<string | null>(null);
-  const showUnstick = Boolean(thrash?.active || run.meta?.needs_operator);
+  const showUnstick = Boolean(thrash?.active || Boolean(run.meta?.needs_operator));
   const whyPinned =
     deliveryPin?.from_stage || thrash?.pin
       ? {
@@ -41,7 +41,7 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
     "";
 
   const progress = phaseGuidance?.progress || run.journey?.phase_progress?.[phase];
-  const actions = (phaseGuidance?.ed || []).slice(0, compact ? 2 : 3);
+  const actions = (phaseGuidance?.actions || []).slice(0, compact ? 2 : 3);
   const phaseComplete = isPhaseFullyComplete(run, phase);
 
   const goToStage = (stageId?: string) => {
@@ -269,7 +269,7 @@ export function PhaseGuidanceBanner({ run, compact }: Props) {
           ))}
         </ul>
       ) : null}
-      {compact && (phaseGuidance?.ed?.length || 0) > 2 ? (
+      {compact && (phaseGuidance?.actions?.length || 0) > 2 ? (
         <p className="hint sm">More steps listed in the pipeline step list.</p>
       ) : null}
     </section>
@@ -284,7 +284,7 @@ export function StartPhaseGuidance() {
         Pick run mode, brain, destination podcast, then one interview WAV from ASSETS/.
       </p>
       <ol className="hint sm start-phase-steps">
-            <li>Choose Manual or Full-auto, then Brain (default 0.1.0)</li>
+            <li>Choose Manual, Partially accelerated (default), or Full-auto; then Brain (default 0.1.0)</li>
             <li>Select the destination podcast (default Zero Shot)</li>
             <li>Click Start on your chosen file</li>
       </ol>

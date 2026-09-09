@@ -121,9 +121,9 @@ export function PipelineTab() {
             <div className="pipeline-v2-main">
               {/* Partial-auto blur: middle panel only — stage list + top bar + logs stay clear */}
               <ActionOverlay placement="workbench" />
-              {isPipelineComplete(run) ? (
+              {isPipelineComplete(run) || partialPublishCheckpoint ? (
                 <>
-                  <PipelineCompletePanel />
+                  {isPipelineComplete(run) ? <PipelineCompletePanel /> : null}
                   {partialPublishCheckpoint ? <GPublishPanel /> : null}
                 </>
               ) : isV2Enabled(config) ? (

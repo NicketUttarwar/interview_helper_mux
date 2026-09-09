@@ -15,78 +15,108 @@ from run_fixtures import (
 
 
 def _write_story_artifacts(ctx: RunContext) -> None:
-    ctx.write_json(
-        "master/selection.json",
-        {
-            "ordered_segment_ids": ["seg_a", "seg_b", "seg_c"],
-            "chapters": [
-                {"title": "Setup", "segment_ids": ["seg_a", "seg_b"]},
-                {"title": "Payoff", "segment_ids": ["seg_c"]},
-            ],
-            "excluded_segment_ids": [{"segment_id": "seg_x", "reason": "aside"}],
-        },
-    )
-    ctx.write_json(
-        "master/coverage_audit.json",
-        {
-            "coverage_score": 1.0,
-            "topic_mappings": [
-                {"topic": "Origins", "covered": True, "segment_ids": ["seg_a"]},
-                {"topic": "Breakthrough", "covered": True, "segment_ids": ["seg_c"]},
-            ],
-            "claim_mappings": [
-                {"claim": "The launch changed the team", "covered": True, "segment_ids": ["seg_c"]}
-            ],
-            "missing_coverage": [],
-        },
-    )
-    ctx.write_json(
-        "master/narrative_plan.json",
-        {
-            "arc_summary": "Setup before payoff.",
-            "chapters": [
-                {"chapter_id": "ch_01", "title": "Setup", "suggested_open_segment_id": "seg_a"},
-                {"chapter_id": "ch_02", "title": "Payoff", "suggested_open_segment_id": "seg_c"},
-            ],
-            "ordering_constraints": [
-                {"before_segment_id": "seg_a", "after_segment_id": "seg_c", "reason": "setup before payoff"}
-            ],
-        },
-    )
-    ctx.write_json(
-        "master/transitions.json",
-        {
-            "transitions": [
-                {
-                    "after_segment_id": "seg_b",
-                    "before_segment_id": "seg_c",
-                    "text": "That set up the turning point.",
-                    "type": "chapter",
-                }
-            ]
-        },
-    )
-    ctx.write_json(
-        "understanding/gap_report.json",
-        minimal_gap_report(
-            minimal_gap_line(
-                line_id="line_001",
-                targets_segment_id="seg_b",
-                placement="before",
-                delivery="record",
-            )
-        ),
-    )
-    ctx.write_json(
-        "master/edl_narrative_audit.json",
-        {
-            "verdict": "pass",
-            "blocking_issues": [],
-            "warnings": [],
-            "recommended_actions": [],
-            "reasoning_summary": "Pass.",
-        },
-    )
+    # Plant exact validator fixtures past one-writer sanitize/repair (which would
+    # rewrite selection/gaps/transitions under music-only + blank-drop rules).
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        ctx.write_json(
+            "segments/manifest.json",
+            minimal_manifest(
+                minimal_manifest_segment(
+                    "seg_a",
+                    text="Guest opens with the founding story of the company and early team.",
+                    start_ms=0,
+                    end_ms=9000,
+                ),
+                minimal_manifest_segment(
+                    "seg_b",
+                    text="Host asks how the breakthrough changed the product roadmap for everyone.",
+                    start_ms=9000,
+                    end_ms=18000,
+                ),
+                minimal_manifest_segment(
+                    "seg_c",
+                    text="Guest explains the launch moment that changed the team forever after.",
+                    start_ms=18000,
+                    end_ms=27000,
+                ),
+            ),
+        )
+        ctx.write_json(
+            "master/selection.json",
+            {
+                "ordered_segment_ids": ["seg_a", "seg_b", "seg_c"],
+                "chapters": [
+                    {"title": "Setup", "segment_ids": ["seg_a", "seg_b"]},
+                    {"title": "Payoff", "segment_ids": ["seg_c"]},
+                ],
+                "excluded_segment_ids": [{"segment_id": "seg_x", "reason": "aside"}],
+            },
+        )
+        ctx.write_json(
+            "master/coverage_audit.json",
+            {
+                "coverage_score": 1.0,
+                "topic_mappings": [
+                    {"topic": "Origins", "covered": True, "segment_ids": ["seg_a"]},
+                    {"topic": "Breakthrough", "covered": True, "segment_ids": ["seg_c"]},
+                ],
+                "claim_mappings": [
+                    {"claim": "The launch changed the team", "covered": True, "segment_ids": ["seg_c"]}
+                ],
+                "missing_coverage": [],
+            },
+        )
+        ctx.write_json(
+            "master/narrative_plan.json",
+            {
+                "arc_summary": "Setup before payoff.",
+                "chapters": [
+                    {"chapter_id": "ch_01", "title": "Setup", "suggested_open_segment_id": "seg_a"},
+                    {"chapter_id": "ch_02", "title": "Payoff", "suggested_open_segment_id": "seg_c"},
+                ],
+                "ordering_constraints": [
+                    {"before_segment_id": "seg_a", "after_segment_id": "seg_c", "reason": "setup before payoff"}
+                ],
+            },
+        )
+        ctx.write_json(
+            "master/transitions.json",
+            {
+                "transitions": [
+                    {
+                        "after_segment_id": "seg_b",
+                        "before_segment_id": "seg_c",
+                        "text": "That set up the turning point.",
+                        "type": "chapter",
+                    }
+                ]
+            },
+        )
+        ctx.write_json(
+            "understanding/gap_report.json",
+            minimal_gap_report(
+                minimal_gap_line(
+                    line_id="line_001",
+                    targets_segment_id="seg_b",
+                    placement="before",
+                    delivery="record",
+                )
+            ),
+        )
+        ctx.write_json(
+            "master/edl_narrative_audit.json",
+            {
+                "verdict": "pass",
+                "blocking_issues": [],
+                "warnings": [],
+                "recommended_actions": [],
+                "reasoning_summary": "Pass.",
+            },
+        )
+    finally:
+        ctx._one_writer_raw = prev
 
 
 def _good_edl() -> dict:
@@ -242,7 +272,13 @@ def test_validate_duplicate_line_id_is_blocking() -> None:
     report = ctx.read_json("understanding/gap_report.json")
     line = dict(report["interviewer_lines"][0])
     report["interviewer_lines"].append(line)
-    ctx.write_json("understanding/gap_report.json", report)
+    # Plant intentional duplicate past one-writer sanitize (which would collapse it).
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        ctx.write_json("understanding/gap_report.json", report)
+    finally:
+        ctx._one_writer_raw = prev
     edl = _good_edl()
     errors = validate_flow1_edl_narrative(ctx, edl)
     assert any("appears 2x" in e and "line_id" in e for e in errors)
@@ -378,19 +414,24 @@ def test_validate_vo_pickup_satisfies_planned_transition() -> None:
     """One host turn per seam: VO on the hinge fulfills transitions.json."""
     ctx = RunContext("run_edl_vo_satisfies_transition", create=True)
     _write_story_artifacts(ctx)
-    ctx.write_json(
-        "master/transitions.json",
-        {
-            "transitions": [
-                {
-                    "after_segment_id": "seg_a",
-                    "before_segment_id": "seg_b",
-                    "text": "Already covered by the before-VO.",
-                    "type": "chapter",
-                }
-            ]
-        },
-    )
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        ctx.write_json(
+            "master/transitions.json",
+            {
+                "transitions": [
+                    {
+                        "after_segment_id": "seg_a",
+                        "before_segment_id": "seg_b",
+                        "text": "Already covered by the before-VO.",
+                        "type": "chapter",
+                    }
+                ]
+            },
+        )
+    finally:
+        ctx._one_writer_raw = prev
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "transition"]
     errors = validate_flow1_edl_narrative(ctx, edl)
@@ -401,20 +442,25 @@ def test_validate_clone_suppressed_transition_not_required() -> None:
     """build_flow1_edl may omit clone-adjacent transitions; QC must not demand them."""
     ctx = RunContext("run_edl_clone_suppressed_transition", create=True)
     _write_story_artifacts(ctx)
-    ctx.write_json(
-        "master/transitions.json",
-        {
-            "transitions": [
-                {
-                    "after_segment_id": "seg_a",
-                    "before_segment_id": "seg_b",
-                    "text": "Clone-adjacent bridge omitted on purpose.",
-                    "type": "bridge",
-                    "voice_speaker_id": "spk_1",
-                }
-            ]
-        },
-    )
+    prev = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        ctx.write_json(
+            "master/transitions.json",
+            {
+                "transitions": [
+                    {
+                        "after_segment_id": "seg_a",
+                        "before_segment_id": "seg_b",
+                        "text": "Clone-adjacent bridge omitted on purpose.",
+                        "type": "bridge",
+                        "voice_speaker_id": "spk_1",
+                    }
+                ]
+            },
+        )
+    finally:
+        ctx._one_writer_raw = prev
     edl = _good_edl()
     edl["clips"] = [c for c in edl["clips"] if c.get("type") != "transition"]
     edl.setdefault("warnings", {})["suppressed_clone_adjacency"] = [

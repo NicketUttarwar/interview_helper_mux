@@ -8,7 +8,7 @@ import pytest
 
 from interview_mux.stages import framing_posture_decide as framing_stage
 from interview_mux.stages import vo_line_adjudicate as adjudicate_stage
-from run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx, mark_done_raw
 
 
 def _meta(version: str) -> dict:
@@ -26,9 +26,11 @@ def test_framing_posture_homunculus_guard(tmp_path: Path, version: str) -> None:
         skip_handoff=True,
     )
     framing_stage.run_framing_posture_decide(ctx)
-    assert ctx.is_done("framing_posture_decide")
     if version == "0.0.0":
+        assert not ctx.is_done("framing_posture_decide")
         assert not ctx.artifact_exists("understanding/framing_posture_decision.json")
+    else:
+        assert ctx.is_done("framing_posture_decide")
 
 
 @pytest.mark.parametrize("version", ["0.0.0"])
@@ -52,7 +54,7 @@ def test_vo_line_adjudicate_homunculus_guard_skips_legacy(tmp_path: Path, versio
         skip_handoff=True,
     )
     adjudicate_stage.run_vo_line_adjudicate(ctx)
-    assert ctx.is_done("vo_line_adjudicate")
+    assert not ctx.is_done("vo_line_adjudicate")
     assert not ctx.artifact_exists("understanding/vo_line_adjudication.json")
 
 
@@ -62,7 +64,7 @@ def test_stage_order_migration_unmarks_downstream(tmp_path: Path) -> None:
     ctx = isolated_run_ctx(tmp_path, "homunc_guard")
     ctx.write_json("run_meta.json", _meta("0.1.0"), skip_handoff=True)
     for stage in ("boundary_topic_resplit", "topic_coverage_audit"):
-        ctx.mark_done(stage, force=True)
+        mark_done_raw(ctx, stage)
     assert not ctx.is_done("framing_posture_decide")
     result = migrate_stale_stage_order_on_resume(ctx)
     assert result["migrated"] is True

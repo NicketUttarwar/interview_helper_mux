@@ -16,6 +16,18 @@ from interview_mux.run_context import RunContext
 MINIMAL_WAV_BYTES = b"RIFF" + b"\x00" * 64
 
 
+def mark_done_raw(ctx: RunContext, *stages: str) -> None:
+    """TH1b: fixture hollow stamp — bypass heal_or_refuse via ``_mark_done_raw``."""
+    prev = getattr(ctx, "_mark_done_raw", False)
+    ctx._mark_done_raw = True
+    try:
+        for sid in stages:
+            if sid:
+                ctx.mark_done(str(sid), force=True)
+    finally:
+        ctx._mark_done_raw = prev
+
+
 def write_fixture_vo_wav(path: Path, *, duration_sec: float = 0.6) -> None:
     """Write a short speech-like WAV G1 can resolve (committed tree, not staging)."""
     rate = 16000
@@ -98,6 +110,9 @@ def patch_mix_test_config(
     mix_cfg["intelligibility_qc"] = intel
     mix_cfg["bed_presence_qc"] = {"enabled": False, "fail_closed": False}
     overrides["mix"] = mix_cfg
+    sd = dict(base.get("sound_design") or {})
+    sd["block_mix_on_mmaudio_qa_fail"] = False
+    overrides["sound_design"] = sd
     patch_merged_config(monkeypatch, overrides)
 
 def parse_log_detail(entry: dict[str, Any]) -> dict[str, Any]:
@@ -506,55 +521,96 @@ def seed_flow1_sound_spend_ready(ctx: RunContext) -> None:
     seed_analysis_ready_artifacts(ctx, verified=True)
     if not ctx.artifact_exists("run_meta.json"):
         init_run_meta_for_test(ctx)
-    ctx.write_json(
-        "master/selection.json",
-        minimal_master_selection(chapters=[]),
-        skip_handoff=True,
-    )
-    ctx.write_json(
-        "understanding/sound_design_plan.json",
-        sound_design_plan_with(
-            assets=[
-                {
-                    "asset_id": "bed_01",
-                    "role": "ambient_bed",
-                    "palette_id": "p1",
-                    "description": "Warm sparse room tone",
-                    "duration_seconds": 6.0,
-                }
-            ],
-            flow_plans={
-                "podcast": {
-                    "cues": [
-                        {
-                            "cue_id": "c1",
-                            "asset_id": "bed_01",
-                            "placement": "under_segment",
-                            "segment_id": "seg_001",
-                        }
-                    ]
-                }
+    # One-writer escape so music-only fixture assets survive sanitize admission.
+    prev_raw = getattr(ctx, "_one_writer_raw", False)
+    ctx._one_writer_raw = True
+    try:
+        ctx.write_json(
+            "master/selection.json",
+            minimal_master_selection(chapters=[]),
+            skip_handoff=True,
+        )
+        # Creative / music-only delivery needs role-diverse theme assets + a bed cue.
+        assets = [
+            {
+                "asset_id": "theme_underscore_01",
+                "role": "theme_underscore",
+                "palette_id": "p1",
+                "description": "Warm sparse underscore bed",
+                "duration_seconds": 14.0,
             },
-        ),
-        skip_handoff=True,
-    )
-    ctx.write_json(
-        "sound_design/sfx_prompts.json",
-        {
-            "prompts": [
-                {
-                    "asset_id": "bed_01",
-                    "sfx_prompt": "soft non-vocal room tone loop without rhythm or melody for podcast underscore",
-                    "duration_seconds": 6,
-                    "negative_prompt": "vocals lyrics speech",
-                }
-            ]
-        },
-        skip_handoff=True,
-    )
+            {
+                "asset_id": "theme_cold_open_01",
+                "role": "theme_cold_open",
+                "palette_id": "p1",
+                "description": "Show open theme motif",
+                "duration_seconds": 12.0,
+            },
+            {
+                "asset_id": "theme_outro_01",
+                "role": "theme_outro",
+                "palette_id": "p1",
+                "description": "Episode close theme",
+                "duration_seconds": 12.0,
+            },
+            {
+                "asset_id": "theme_emphasis_01",
+                "role": "theme_emphasis",
+                "palette_id": "p1",
+                "description": "Chapter emphasis sting",
+                "duration_seconds": 8.0,
+            },
+        ]
+        ctx.write_json(
+            "understanding/sound_design_plan.json",
+            sound_design_plan_with(
+                assets=assets,
+                flow_plans={
+                    "podcast": {
+                        "cues": [
+                            {
+                                "cue_id": "c1",
+                                "asset_id": "theme_underscore_01",
+                                "role": "theme_underscore",
+                                "placement": "under_segment",
+                                "segment_id": "seg_001",
+                            }
+                        ]
+                    }
+                },
+            ),
+            skip_handoff=True,
+        )
+        ctx.write_json(
+            "sound_design/sfx_prompts.json",
+            {
+                "prompts": [
+                    {
+                        "asset_id": a["asset_id"],
+                        "sfx_prompt": (
+                            f"instrumental non-vocal music for podcast {a['role']} "
+                            "without lyrics speech or foley"
+                        ),
+                        "duration_seconds": int(a["duration_seconds"]),
+                        "negative_prompt": "vocals lyrics speech whoosh foley",
+                        "role": a["role"],
+                    }
+                    for a in assets
+                ]
+            },
+            skip_handoff=True,
+        )
+    finally:
+        ctx._one_writer_raw = prev_raw
     assets_dir = ctx.path("sound_design", "assets")
     assets_dir.mkdir(parents=True, exist_ok=True)
-    (assets_dir / "bed_01.wav").write_bytes(MINIMAL_WAV_BYTES)
+    for aid in (
+        "theme_underscore_01",
+        "theme_cold_open_01",
+        "theme_outro_01",
+        "theme_emphasis_01",
+    ):
+        (assets_dir / f"{aid}.wav").write_bytes(MINIMAL_WAV_BYTES)
 
 def seed_from_sonic_fixture(
     ctx: RunContext,
@@ -620,7 +676,9 @@ def seed_analysis_ready_artifacts(ctx: RunContext, *, verified: bool = False) ->
     brief = {
         "version": 1,
         "source_duration_ms": 60_000,
-        "target_duration_sec": {"min": 30, "ideal": 45, "max": 60},
+        # Keep min at/under the default 5s fixture segment so post_ranking duration
+        # gates do not fail hollow sound-path seeds.
+        "target_duration_sec": {"min": 5, "ideal": 45, "max": 60},
         "question_budget": {"min": 0, "ideal": 1, "max": 2},
         "chapter_budget": {"min": 1, "ideal": 2, "max": 4},
         "selection_mode": "coverage_first",

@@ -6,6 +6,7 @@ from typing import Any
 
 from interview_mux.run_context import RunContext
 from interview_mux.v2.config import ANALYSIS_ORDER, DELIVERY_ORDER
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 # Homunculus 0.1.0+ stages inserted after in-progress runs may have been skipped.
 HOMUNCULUS_NEW_STAGES: tuple[str, ...] = (
@@ -113,7 +114,7 @@ def migrate_stale_stage_order_on_resume(ctx: RunContext) -> dict[str, Any]:
         return {"migrated": False, "from_stage": first, "cleared": []}
     if _stage_output_ok(ctx, first) and not ctx.is_done(first):
         try:
-            ctx.mark_done(first, force=True)
+            heal_or_refuse_mark(ctx, first, force=True)
         except Exception:
             pass
         if ctx.is_done(first):

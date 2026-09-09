@@ -16,18 +16,20 @@ from interview_mux.homunculus.runtime import is_homunculus_run
 from interview_mux.operator_trace import logged_step
 from interview_mux.run_context import RunContext
 from interview_mux.stages.analysis_stage import run_analysis_llm_stage
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 STAGE_KEY = "framing_posture_decide"
 PROMPT_REL = "framing/framing-posture-decide.system.txt"
 
 
 def run_framing_posture_decide(ctx: RunContext) -> None:
+    # TH1b allow-stub paths: no producer artifact required → heal marks when incomplete None.
     if not is_homunculus_run(ctx):
-        ctx.mark_done(STAGE_KEY, force=True)
+        heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
         return
 
     if not framing_posture_enabled():
-        ctx.mark_done(STAGE_KEY, force=True)
+        heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
         return
 
     if not should_run_framing_posture_llm(ctx):
@@ -38,7 +40,7 @@ def run_framing_posture_decide(ctx: RunContext) -> None:
         ):
             persist_framing_decision(ctx, build_monologue_decision(ctx))
             apply_host_gate(ctx)
-            ctx.mark_done(STAGE_KEY, force=True)
+            heal_or_refuse_mark(ctx, STAGE_KEY, force=True)
         return
 
     def build_input(c: RunContext) -> dict[str, Any]:

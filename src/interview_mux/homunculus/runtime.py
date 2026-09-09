@@ -87,6 +87,7 @@ def dispatch_stage(
     impl: Callable[[], None],
     *,
     source: str = "conductor",
+    _recovery_depth: int = 0,
 ) -> None:
     """Budget + serialize + ledger, then host impl, then admit. 0.1.0 only."""
     from interview_mux.homunculus.agenda import (
@@ -135,10 +136,11 @@ def dispatch_stage(
 
         if stage in MUSIC_BEFORE_MIX and music_skip_allowed(ctx, stage):
             from interview_mux.delivery_guardrails import music_epoch_complete
+            from interview_mux.stage_completion import heal_or_refuse_mark
 
             if music_epoch_complete(ctx):
                 if not ctx.is_done(stage):
-                    ctx.mark_done(stage, force=True)
+                    heal_or_refuse_mark(ctx, stage, force=True)
                 if stage == "mmaudio_sfx":
                     from datetime import datetime, timezone
 
@@ -163,7 +165,9 @@ def dispatch_stage(
     except RuntimeError:
         if prepare_outputs_present(ctx, stage):
             if not ctx.is_done(stage):
-                ctx.mark_done(stage, force=True)
+                from interview_mux.stage_completion import heal_or_refuse_mark
+
+                heal_or_refuse_mark(ctx, stage, force=True)
         elif ctx.is_done(stage):
             unmark_stage_only(ctx, stage)
         raise
@@ -217,12 +221,18 @@ def dispatch_stage(
                         RuntimeError(issues[0].message),
                     )
                     if result.status == "recovered" and result.resume_stage:
+                        # RC10: recursive recovery depth ≤2.
+                        if int(_recovery_depth or 0) >= 2:
+                            raise StageInputError(stage, issues)
                         return dispatch_stage(
                             ctx,
                             result.resume_stage,
                             impl,
                             source=source,
+                            _recovery_depth=int(_recovery_depth or 0) + 1,
                         )
+                except StageInputError:
+                    raise
                 except Exception:
                     pass
                 raise StageInputError(stage, issues)
@@ -331,9 +341,14 @@ def dispatch_stage(
 
                 defer_done = bool(vo_synthesize_should_defer_done(ctx, stage))
             if not defer_done:
-                ctx.mark_done(stage, force=True)
-                if not ctx.is_done(stage):
-                    raise RuntimeError(f"{stage} finished without a done marker")
+                from interview_mux.stage_completion import heal_or_refuse_mark
+
+                out = heal_or_refuse_mark(ctx, stage, force=True)
+                if out.get("refused") or not ctx.is_done(stage):
+                    raise RuntimeError(
+                        f"{stage} finished without a done marker"
+                        + (f" ({out.get('reason')})" if out.get("reason") else "")
+                    )
                 if stage == "mmaudio_sfx":
                     from datetime import datetime, timezone
 

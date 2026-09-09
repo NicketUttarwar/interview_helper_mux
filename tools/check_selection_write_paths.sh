@@ -6,7 +6,10 @@ cd "$ROOT"
 
 ALLOWLIST=(
   "src/interview_mux/air_order_boundary.py"
+  "src/interview_mux/air_order.py"
   "src/interview_mux/air_order_integrity.py"
+  "src/interview_mux/artifact_sanitize/one_writer.py"
+  "src/interview_mux/artifact_sanitize/selection.py"
   "src/interview_mux/stages/assembly.py"
   "src/interview_mux/synthetic_framing.py"
   "src/interview_mux/refinement_passes.py"

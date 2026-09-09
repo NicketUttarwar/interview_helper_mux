@@ -133,14 +133,20 @@ def topo_satisfy_order(
     narrative_plan: dict[str, Any] | None = None,
     selection_chapters: list[dict[str, Any]] | None = None,
     source_start_ms: dict[str, int] | None = None,
+    membership_ceiling: set[str] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Return a repaired order that prefers chapter spans and satisfies constraints.
 
     Never appends unassigned early-chapter leftovers after the last act: leftovers
     are inserted into the best matching chapter span or before the finale block.
+
+    ``membership_ceiling`` (when set) forbids growing the id set beyond that set.
     """
     applied: list[dict[str, Any]] = []
+    ceiling = {str(s) for s in (membership_ceiling or set()) if s}
     base = [_as_id(s) for s in ordered if _as_id(s)]
+    if ceiling:
+        base = [s for s in base if s in ceiling]
     if not base:
         return [], applied
 
@@ -228,6 +234,8 @@ def topo_satisfy_order(
         spans.append(leftovers)
 
     new_order = [sid for block in spans for sid in block]
+    if ceiling:
+        new_order = [s for s in new_order if s in ceiling]
 
     # Satisfy pairwise constraints via adjacent swaps / moves (bounded)
     pairs = constraint_pairs(narrative_plan)
@@ -472,18 +480,62 @@ def repair_selection_order(
     selection: dict[str, Any],
     narrative_plan: dict[str, Any] | None,
     source_start_ms: dict[str, int] | None = None,
+    *,
+    banned_readmit_ids: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Apply topo repair to selection.ordered_segment_ids."""
+    """Apply topo repair to selection.ordered_segment_ids.
+
+    ``banned_readmit_ids`` (sanitize drops / exclusions) are stripped from the
+    order and never reintroduced by leftovers/topo rebuild.
+    """
     out = dict(selection)
-    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s]
+    ban = {str(s) for s in (banned_readmit_ids or set()) if s}
+    # Also honor on-doc exclusions as non-readmit.
+    for row in out.get("excluded_segment_ids") or []:
+        if isinstance(row, dict):
+            sid = str(row.get("segment_id") or "")
+        else:
+            sid = str(row or "")
+        if sid:
+            ban.add(sid)
+    ordered = [str(s) for s in (out.get("ordered_segment_ids") or []) if s and s not in ban]
+    applied: list[dict[str, Any]] = []
+    if ban:
+        dropped = [
+            str(s)
+            for s in (selection.get("ordered_segment_ids") or [])
+            if str(s) in ban
+        ]
+        if dropped:
+            applied.append(
+                {
+                    "action": "strip_banned_from_order",
+                    "count": len(dropped),
+                    "ids": dropped[:24],
+                }
+            )
     chapters = out.get("chapters") if isinstance(out.get("chapters"), list) else None
-    new_order, applied = topo_satisfy_order(
+    new_order, topo_applied = topo_satisfy_order(
         ordered,
         narrative_plan=narrative_plan,
         selection_chapters=chapters if isinstance(chapters, list) else None,
         source_start_ms=source_start_ms,
+        membership_ceiling=set(ordered) if ordered else None,
     )
+    applied.extend(topo_applied)
+    # Topo must not grow past the post-ban membership set.
     if new_order:
+        ceiling = set(ordered)
+        grown = [s for s in new_order if s not in ceiling]
+        if grown:
+            new_order = [s for s in new_order if s in ceiling]
+            applied.append(
+                {
+                    "action": "drop_topo_membership_growth",
+                    "count": len(grown),
+                    "ids": grown[:12],
+                }
+            )
         out["ordered_segment_ids"] = new_order
         chapters = out.get("chapters") if isinstance(out.get("chapters"), list) else None
         if chapters:

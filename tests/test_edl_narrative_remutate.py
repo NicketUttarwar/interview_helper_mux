@@ -133,13 +133,21 @@ def test_plan_increments_and_exhausts(tmp_path) -> None:
     assert p3["exhausted"] is True
 
 
-def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path) -> None:
+def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path, monkeypatch) -> None:
     import json
 
     from interview_mux.edl_narrative_remutate import apply_edl_narrative_host_repair
     from interview_mux.opening_orientation import orientation_copy_unusable
 
     ctx = isolated_run_ctx(tmp_path, "exec_narr_host_repair")
+    monkeypatch.setattr(
+        "interview_mux.transition_vo.resync_spoken_transitions",
+        lambda *_a, **_k: [],
+    )
+    monkeypatch.setattr(
+        "interview_mux.transition_vo.synthesize_spoken_transitions",
+        lambda *_a, **_k: [],
+    )
     brief = ctx.path("understanding", "content_brief.json")
     brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text(
@@ -181,6 +189,8 @@ def test_host_repair_rewrites_orientation_and_dedupes_transitions(tmp_path) -> N
             ],
         },
     )
+    # Keep both adjacent rows so remutate (not write-time sanitize) performs dedupe.
+    ctx._one_writer_raw = True
     ctx.write_json(
         "master/transitions.json",
         {

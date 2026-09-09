@@ -16,6 +16,7 @@ from interview_mux.artifact_repairs import enrich_narrative_plan_for_persist
 from interview_mux.production_profile import prompt_variant
 from interview_mux.source_topology import attach_adaptation_to_payload
 from interview_mux.stages.analysis_stage import run_flow_llm_stage
+from interview_mux.stage_completion import heal_or_refuse_mark
 
 
 def run_topic_coverage(ctx: RunContext) -> None:
@@ -44,7 +45,7 @@ def run_topic_coverage(ctx: RunContext) -> None:
             stage="topic_coverage_audit",
         )
         if not ctx.is_done("topic_coverage_audit"):
-            ctx.mark_done("topic_coverage_audit", force=True)
+            heal_or_refuse_mark(ctx, "topic_coverage_audit", force=True)
     else:
 
         def build_input(c: RunContext) -> dict:
@@ -126,7 +127,7 @@ def run_narrative_arc(ctx: RunContext) -> None:
             stage="narrative_arc_plan",
         )
         if not ctx.is_done("narrative_arc_plan"):
-            ctx.mark_done("narrative_arc_plan", force=True)
+            heal_or_refuse_mark(ctx, "narrative_arc_plan", force=True)
         return
 
     def build_input(c: RunContext) -> dict:
@@ -183,7 +184,7 @@ def run_nugget_corpus_mine(ctx: RunContext) -> None:
     if not nugget_layup_enabled():
         ctx.write_json(CORPUS_REL, {"nuggets": [], "warnings": ["nugget_layup_disabled"]})
         if not ctx.is_done("nugget_corpus_mine"):
-            ctx.mark_done("nugget_corpus_mine", force=True)
+            heal_or_refuse_mark(ctx, "nugget_corpus_mine", force=True)
         return
 
     persist = make_stage_persist(CORPUS_REL, "nugget_corpus_mine")
@@ -231,7 +232,7 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
             },
         )
         if not ctx.is_done("nugget_layup_compose"):
-            ctx.mark_done("nugget_layup_compose", force=True)
+            heal_or_refuse_mark(ctx, "nugget_layup_compose", force=True)
         return
 
     try:
@@ -266,6 +267,29 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
                 detail={
                     "natives": len(healed.get("ordered_segment_ids") or []),
                 },
+            )
+        # CTA settle → selection sanitize → re-check sanitary before compose LLM.
+        try:
+            from interview_mux.artifact_sanitize.preflight import sanitary_preflight_errors
+            from interview_mux.artifact_sanitize.selection import run_selection_order_sanitize
+
+            sel_errs = sanitary_preflight_errors(ctx, "nugget_layup_compose")
+            if any("selection" in e for e in sel_errs):
+                if ctx.artifact_exists("master/selection.json"):
+                    run_selection_order_sanitize(ctx)
+                sel_errs = sanitary_preflight_errors(ctx, "nugget_layup_compose")
+                if any("selection" in e for e in sel_errs):
+                    raise RuntimeError(
+                        "selection_unsanitary after CTA settle: "
+                        + "; ".join(sel_errs[:3])
+                    )
+        except RuntimeError:
+            raise
+        except Exception as san_exc:
+            ctx.log(
+                f"nugget_layup_compose: post-CTA sanitary recheck skipped: {san_exc}",
+                level="warning",
+                stage="nugget_layup_compose",
             )
     except Exception as exc:
         ctx.log(
@@ -566,4 +590,4 @@ def run_nugget_layup_compose(ctx: RunContext) -> None:
         )
         persist(ctx, merged)
         if not ctx.is_done("nugget_layup_compose"):
-            ctx.mark_done("nugget_layup_compose", force=True)
+            heal_or_refuse_mark(ctx, "nugget_layup_compose", force=True)

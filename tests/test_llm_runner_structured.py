@@ -42,6 +42,10 @@ def test_primary_call_uses_json_schema_response_format(monkeypatch):
     client = MagicMock()
     client.chat.completions.create = fake_create
     _patch_cfg(monkeypatch)
+    tape_packet = (
+        '{"task":"test","transcript":{"text":"Host asks about circulating tumour cells '
+        'and the guest answers with a concrete oncology claim from tape."}}'
+    )
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):
@@ -49,7 +53,7 @@ def test_primary_call_uses_json_schema_response_format(monkeypatch):
                 llm_runner.run_prompt_envelope(
                     "speaker_roles",
                     "understanding/speaker-roles.system.txt",
-                    user_content='{"task":"test"}',
+                    user_content=tape_packet,
                     task_kind="primary",
                 )
 
@@ -79,6 +83,10 @@ def test_primary_call_omits_temperature_for_o3(monkeypatch):
     client = MagicMock()
     client.chat.completions.create = fake_create
     _patch_cfg(monkeypatch)
+    tape_packet = (
+        '{"task":"test","transcript":{"text":"Host asks about circulating tumour cells '
+        'and the guest answers with a concrete oncology claim from tape."}}'
+    )
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):
@@ -88,7 +96,7 @@ def test_primary_call_omits_temperature_for_o3(monkeypatch):
                     llm_runner.run_prompt_envelope(
                         "speaker_roles",
                         "understanding/speaker-roles.system.txt",
-                        user_content='{"task":"test"}',
+                        user_content=tape_packet,
                         task_kind="primary",
                     )
 
@@ -116,6 +124,10 @@ def test_primary_call_sets_temperature_for_gpt4o_mini(monkeypatch):
     client = MagicMock()
     client.chat.completions.create = fake_create
     _patch_cfg(monkeypatch)
+    tape_packet = (
+        '{"task":"test","transcript":{"text":"Host asks about circulating tumour cells '
+        'and the guest answers with a concrete oncology claim from tape."}}'
+    )
 
     with patch.object(llm_runner, "OpenAI", return_value=client):
         with patch.object(llm_runner, "require_secret", return_value="sk-test"):
@@ -125,7 +137,7 @@ def test_primary_call_sets_temperature_for_gpt4o_mini(monkeypatch):
                     llm_runner.run_prompt_envelope(
                         "speaker_roles",
                         "understanding/speaker-roles.system.txt",
-                        user_content='{"task":"test"}',
+                        user_content=tape_packet,
                         task_kind="primary",
                     )
 

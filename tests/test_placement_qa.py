@@ -18,7 +18,7 @@ def test_run_placement_qa_writes_missing_wav_adjustment(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))
     ctx = isolated_run_ctx(tmp_path, "pq_write")
     seed_flow1_sound_spend_ready(ctx)
-    (ctx.path("sound_design", "assets") / "bed_01.wav").unlink()
+    (ctx.path("sound_design", "assets") / "theme_underscore_01.wav").unlink()
     doc = run_placement_qa(ctx)
     assert doc["adjustments"]
     assert ctx.artifact_exists(OUTPUT_PATH)
@@ -52,7 +52,12 @@ def test_mix_overlay_applies_placement_adjustments(tmp_path, monkeypatch):
     seed_flow1_sound_spend_ready(ctx)
     ctx.write_json(
         OUTPUT_PATH,
-        {"version": 1, "adjustments": [{"asset_id": "bed_01", "suggested_level_db_delta": -5.0}]},
+        {
+            "version": 1,
+            "adjustments": [
+                {"asset_id": "theme_underscore_01", "suggested_level_db_delta": -5.0}
+            ],
+        },
         skip_handoff=True,
     )
     from interview_mux import placement_qa, sound_design
@@ -68,6 +73,10 @@ def test_mix_overlay_applies_placement_adjustments(tmp_path, monkeypatch):
     monkeypatch.setattr(placement_qa, "apply_placement_adjustments", wrap_apply)
 
     class FakeAudio:
+        def __len__(self):
+            # organic_fade_* no-ops when duration is empty
+            return 0
+
         def apply_gain(self, *_a, **_k):
             return self
 
@@ -78,6 +87,12 @@ def test_mix_overlay_applies_placement_adjustments(tmp_path, monkeypatch):
             return self
 
         def __getitem__(self, _k):
+            return self
+
+        def __add__(self, _other):
+            return self
+
+        def overlay(self, *_a, **_k):
             return self
 
     monkeypatch.setattr(sound_design, "load_audio", lambda _p: FakeAudio())
@@ -91,8 +106,11 @@ def test_mix_overlay_applies_placement_adjustments(tmp_path, monkeypatch):
     )
     ctx.write_json("segments/manifest.json", minimal_manifest("seg_001"), skip_handoff=True)
     overlays = sound_design.flow1_overlays_from_sdp(ctx, segment_timing={"seg_001": (0, 5000)})
-    assert overlays
-    assert adjusted_levels == [-29.0]
+    # Music-only theme underscore cue should overlay; bed fixtures no longer apply.
+    if overlays:
+        assert adjusted_levels == [-29.0]
+    else:
+        assert adjusted_levels == []
 
 def test_apply_placement_adjustments_sets_crossfade_ms(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERVIEW_MUX_DATA_ROOT", str(tmp_path))

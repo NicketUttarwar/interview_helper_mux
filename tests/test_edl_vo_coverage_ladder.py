@@ -10,7 +10,8 @@ import pytest
 from interview_mux.execution_contract import run_edl_vo_coverage_ladder
 from interview_mux.run_context import RunContext
 from interview_mux.stage_input_checks import compact_vo_coverage_stale_or_missing
-from run_fixtures import patch_executions_root
+from interview_mux.vo_synthesis_audit import record_synthesis
+from run_fixtures import mark_done_raw, patch_executions_root, write_fixture_vo_wav
 
 FIXTURE = Path(__file__).parent / "fixtures" / "exec_5174_vo_coverage_hole" / "manifest.json"
 
@@ -25,7 +26,7 @@ def _load_5174_hole(ctx: RunContext) -> None:
     doc = json.loads(FIXTURE.read_text(encoding="utf-8"))
     ctx.write_json("understanding/gap_report.json", doc["gap_report"])
     ctx.write_json("mastering/mastering_plan.json", doc["mastering_plan"])
-    ctx.mark_done("vo_synthesize", force=True)
+    mark_done_raw(ctx, "vo_synthesize")
 
 
 def test_5174_hole_detects_missing_coverage(ctx: RunContext) -> None:
@@ -42,23 +43,15 @@ def test_ladder_no_op_when_wav_present(ctx: RunContext) -> None:
     )
     ctx.write_json("understanding/gap_report.json", doc["gap_report"])
     ctx.write_json("mastering/mastering_plan.json", doc["mastering_plan"])
-    pickup = ctx.final_path("vo_pickup")
-    pickup.mkdir(parents=True, exist_ok=True)
-    syn = pickup / "synthesized" / "vo_layup_seg_001.wav"
-    syn.parent.mkdir(parents=True, exist_ok=True)
-    syn.write_bytes(b"RIFF")
-    ctx.write_json(
-        "mastering/vo_synthesis_report.json",
-        {
-            "entries": [
-                {
-                    "line_id": "vo_layup_seg_001",
-                    "status": "rendered",
-                    "text": "Hook line.",
-                }
-            ]
-        },
+    line = next(
+        row
+        for row in (doc["gap_report"].get("interviewer_lines") or [])
+        if isinstance(row, dict) and row.get("line_id") == "vo_layup_seg_001"
     )
+    syn = ctx.final_path("vo_pickup") / "synthesized" / "vo_layup_seg_001.wav"
+    syn.parent.mkdir(parents=True, exist_ok=True)
+    write_fixture_vo_wav(syn)
+    record_synthesis(ctx, line, backend="mlx_audio", out_wav=syn)
     before = list((ctx.run_dir / ".stage_done").glob("*"))
     result = run_edl_vo_coverage_ladder(ctx, consumer_stage="edl_narrative_audit")
     after = list((ctx.run_dir / ".stage_done").glob("*"))

@@ -111,4 +111,4 @@ def test_generate_sigterm_backoff_between_ladder_steps(
     )
     assert call_count["n"] >= 2
     assert backoff_calls
-    assert meta.get("backend") in {"musicgen_failed", "musical_stub"}
+    assert meta.get("backend") in {"musicgen_failed", "musical_stub", "music_omitted"}

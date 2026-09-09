@@ -170,6 +170,8 @@ def test_post_transitions_invalid_id_hard_soft_split(tmp_path, monkeypatch):
         minimal_gap_report(minimal_gap_line(text=vo_line)),
         skip_handoff=True,
     )
+    # Bypass one-writer sanitize so the validator can see invalid / dup rows.
+    ctx._one_writer_raw = True
     ctx.write_json(
         "master/transitions.json",
         {
@@ -218,6 +220,7 @@ def test_maybe_cross_validate_transitions_soft_enqueues_investigation(tmp_path, 
         minimal_gap_report(minimal_gap_line(text=vo)),
         skip_handoff=True,
     )
+    ctx._one_writer_raw = True
     ctx.write_json(
         "master/transitions.json",
         {

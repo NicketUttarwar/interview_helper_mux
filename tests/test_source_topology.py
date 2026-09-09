@@ -26,6 +26,7 @@ from interview_mux.source_topology import (
     _speaker_talk_stats,
 )
 from interview_mux.run_context import RunContext
+from run_fixtures import mark_done_raw
 
 
 def test_production_style_default():
@@ -221,7 +222,7 @@ def _seed_topology_ctx(tmp_path: Path) -> RunContext:
     for sid in ANALYSIS_ORDER:
         if sid == "missing_framing":
             break
-        ctx.mark_done(sid, force=True)
+        mark_done_raw(ctx, sid)
     return ctx
 
 

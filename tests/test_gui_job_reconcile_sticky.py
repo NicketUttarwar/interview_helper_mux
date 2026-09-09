@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from interview_mux.gui_job_reconcile import reconcile_sticky_needs_operator_job
-from tests.run_fixtures import isolated_run_ctx
+from run_fixtures import isolated_run_ctx
 
 
 def test_reconcile_sticky_needs_operator_clears_seed_order(

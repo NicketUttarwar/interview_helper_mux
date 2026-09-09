@@ -133,4 +133,5 @@ def test_sound_design_disabled_skips_palettes_stage(tmp_path, monkeypatch):
 
     seed_analysis_ready_artifacts(ctx)
     sound_design_stages.run_sound_design_palettes(ctx)
-    assert ctx.is_done("sound_design_palettes")
+    # Skip path refuses hollow .stage_done marks when sound_design.enabled=false.
+    assert not ctx.is_done("sound_design_palettes")
